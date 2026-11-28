@@ -36,7 +36,7 @@ permissions: {}
 # and the diff, never the description): its run takes no runner and its own group, so it never
 # cancels a push's run (pattern pr-edit-fans-out-ci, tests/test_ci_pr_runs_cancel_superseded.py).
 concurrency:
-  group: classic-frozen-guard-${{ github.event.pull_request.number }}${{ github.event.action == 'edited' && !github.event.changes.base && '-metadata' || '' }}
+  group: classic-frozen-guard-${{ github.event.pull_request.number }}${{ github.event.action == 'edited' && !github.event.changes.base && '-metadata' || '' }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:
@@ -59,7 +59,7 @@ jobs:
       pull-requests: read
     steps:
       - name: Check out the guard and the manifest from the base commit
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           fetch-depth: 1

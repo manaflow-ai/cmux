@@ -193,15 +193,17 @@
 /* Concentric with its buttons (Lawrence 2026-11-15: "all dialogs needs concentric padding with buttons
    inside"): a dialog's corner is the button corner plus the padding between its edge and its buttons, the
    same padding on every side. A dialog whose padding is not the default sets --ui-dialog-padding on its
-   popup and pads with it (scripts/cmux-next/check-concentric-containers.py). */
+   popup and pads with it (scripts/cmux-next/check-concentric-containers.py). A look re-skins every dialog
+   with the component tokens --cmux-dialog-padding and --cmux-dialog-radius (ui/README.md "Component
+   tokens"); unset, these values. */
 .ui-dialog.ui-glass {
-  --ui-dialog-padding: var(--role-dialog-inset);
+  --ui-dialog-padding: var(--cmux-dialog-padding, var(--role-dialog-inset));
   --glass-tint: var(--transient-surface-veil);
   --glass-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));
   --glass-elevation: var(--elevation-2);
   /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
   --glass-opaque: var(--surface-popup);
-  border-radius: calc(var(--role-control-radius) + var(--ui-dialog-padding));
+  border-radius: var(--cmux-dialog-radius, calc(var(--role-control-radius) + var(--ui-dialog-padding)));
   background: var(--glass-tint);
 }
 /* A quick-open palette (the ledger's) is a dialog but floats like a popup: it takes the popup tint, not

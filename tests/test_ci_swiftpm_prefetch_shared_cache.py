@@ -146,6 +146,35 @@ class EveryOwnedMacKeepStepSeeds(unittest.TestCase):
         self.assertGreaterEqual(found, 6)
 
 
+class DownloadsThroughTheControllerWhileGitHubRefuses(unittest.TestCase):
+    """GitHub answered every release download from the office Macs 403 (2026-11-26), so SwiftPM ended
+    "binary target 'CCmuxAppFFI' could not be mapped"; the worker then names the controller's release proxy."""
+
+    PROXY = {"CMUX_CI_GITHUB_RELEASE_PROXY": "http://ctl:18765/v1/github-release/"}
+
+    def test_a_release_url_maps_onto_the_proxy(self) -> None:
+        self.assertEqual(PREFETCH.release_proxy_url(URL, self.PROXY),
+                         "http://ctl:18765/v1/github-release/getsentry/sentry-cocoa/9.28.0/Sentry.xcframework.zip")
+        self.assertIsNone(PREFETCH.release_proxy_url(URL, {}))
+        self.assertIsNone(PREFETCH.release_proxy_url("https://example.com/a.zip", self.PROXY))
+
+    def test_the_proxy_goes_first_and_github_is_the_fallback(self) -> None:
+        seen = []
+
+        def run(args, **kwargs):
+            seen.append(args[-1])
+            raise PREFETCH.subprocess.CalledProcessError(22, args)
+
+        def github(url, destination, environ, run):
+            seen.append(url)
+
+        PREFETCH.curl_download(URL, Path("/nonexistent"), environ=self.PROXY, run=run, fetch=github)
+        self.assertEqual(seen, [PREFETCH.release_proxy_url(URL, self.PROXY), URL])
+        seen.clear()
+        PREFETCH.curl_download(URL, Path("/nonexistent"), environ={}, run=run, fetch=github)
+        self.assertEqual(seen, [URL])
+
+
 class ReloadSeedsBeforeXcodebuild(unittest.TestCase):
     """reload.sh's xcodebuild reads the same shared cache: cloud-chat-proof run 45797490933 failed resolving
     Sparkle and sentry-cocoa with "already exists in file system" on cmux10s-mac-mini-glaeda-13."""

@@ -50,6 +50,34 @@ files = {str(name).split(" > ", 1)[0] for name in names}
 sys.exit(0 if files == {"test/a-fast.test.ts"} else 1)
 PY
 
+# A red file whose retry the deadline stops keeps its first run's FAIL and log, and the run still prints its summary:
+# the retry left no log, and reading it under set -e ended the run with no failure shown (batch 46058976708 shard 3).
+repo2="$WORK/repo2"
+mkdir -p "$repo2/webviews/test" "$WORK/bin2"
+echo "// r-red" > "$repo2/webviews/test/r-red.test.ts"
+git -C "$repo2" init -q
+git -C "$repo2" add -A
+cat > "$WORK/bin2/bun" <<EOF
+#!/usr/bin/env bash
+if [ -e "$WORK/r-red-ran" ]; then sleep 60; exit 1; fi
+touch "$WORK/r-red-ran"
+echo "(fail) r-red names its failure"
+exit 1
+EOF
+chmod +x "$WORK/bin2/bun"
+status=0
+(cd "$repo2/webviews" && PATH="$WORK/bin2:$PATH" CMUX_WEB_TEST_JOBS=1 CMUX_WEB_TEST_RETRIES=1 \
+  CMUX_WEB_TEST_RESULTS="$WORK/results2.json" CMUX_WEB_TEST_STOP_AT=$(($(date +%s) + 4)) \
+  bash "$ROOT/scripts/ci/run-webviews-tests.sh") > "$WORK/out2" 2>&1 || status=$?
+[ "$status" -ne 0 ] || fail "a red file stays red when its retry is stopped"
+grep -q "No such file" "$WORK/out2" && fail "the stopped retry's missing log must not be read"
+grep -q "^### webviews tests: 1 files, 1 failed" "$WORK/out2" || fail "the run prints its summary after a stopped retry"
+grep -q "r-red names its failure" "$WORK/out2" || fail "the first run's log is printed in the summary"
+grep -q "^FAIL test/r-red.test.ts (limit" "$WORK/out2" || fail "the first run's FAIL is the file's verdict"
+grep -q "^  NOT RUN test/r-red" "$WORK/out2" && fail "a file with a first-run verdict is not listed as not run"
+[ -s "$WORK/results2.json" ] || fail "the results are written after a stopped retry"
+[ "$fails" -eq 0 ] || cat "$WORK/out2" >&2
+
 if [ "$fails" -ne 0 ]; then
   cat "$WORK/out" >&2
   exit 1

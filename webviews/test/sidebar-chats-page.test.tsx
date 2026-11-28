@@ -6,6 +6,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -43,9 +44,13 @@ afterAll(async () => {
   await teardownDom(saved, { scope });
 });
 
-const { mountSidebarChats } = await import("../src/pages/sidebar-chats/mount");
-const { SidebarChatsOps, blockHeight, parseBlock, rowLabel } = await import("../src/pages/sidebar-chats/model");
-const { FIXTURE_STRINGS, fixtureBlock, fixtureRows } = await import("../src/pages/sidebar-chats/fixtures");
+const { mountSidebarChats } = await importWithDom(() => import("../src/pages/sidebar-chats/mount"));
+const { SidebarChatsOps, blockHeight, parseBlock, rowLabel } = await importWithDom(
+  () => import("../src/pages/sidebar-chats/model"),
+);
+const { FIXTURE_STRINGS, fixtureBlock, fixtureRows } = await importWithDom(
+  () => import("../src/pages/sidebar-chats/fixtures"),
+);
 
 type Call = { op: string; params: Record<string, unknown> };
 const mounted: Array<{ unmount(): void }> = [];
@@ -155,14 +160,15 @@ test("a click, the fold, Show More and a right click go to the host with the dra
   const page = await mount();
   await page.send(fixtureBlock({ revision: 7, rows: fixtureRows(3) }));
   await page.click('[data-chat="chat-1"]');
-  await page.click(".sc-header");
   await page.click(".sc-tail");
   await page.rightClick('[data-chat="chat-2"]', 40, 70);
+  // Last: the fold draws at the click (sidebar-chats-optimistic.test.tsx), so the rows leave with it.
+  await page.click(".sc-header");
   expect(page.calls.filter((call) => call.op !== SidebarChatsOps.ready)).toEqual([
     { op: SidebarChatsOps.open, params: { revision: 7, chat: "chat-1" } },
-    { op: SidebarChatsOps.fold, params: { revision: 7 } },
     { op: SidebarChatsOps.more, params: { revision: 7 } },
     { op: SidebarChatsOps.menu, params: { revision: 7, chat: "chat-2", point: { x: 40, y: 70 } } },
+    { op: SidebarChatsOps.fold, params: { revision: 7 } },
   ]);
 });
 

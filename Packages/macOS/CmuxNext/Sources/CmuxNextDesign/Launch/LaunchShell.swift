@@ -8,7 +8,7 @@ import ImageIO
 /// Stage 0 of the launch (cmuxterm-hq docs/design/launch-shell-first.md, "Decision: stage 0 is its
 /// own window"): a plain window made in `applicationDidFinishLaunching` before the Cloud environment
 /// and the app's services, at the front saved window's frame, showing its last committed image (or
-/// the plain shell, or the bare launch's content), in one commit. The real launch window is built as
+/// the bare launch's content; never a plain fill: with neither it makes no window), in one commit. The real launch window is built as
 /// before (`LaunchSnapshotWindow`, `WindowManager.makeController`), takes this window's frame and
 /// orders in above it; this window closes at the real one's first commit, and the input it held is
 /// posted to the real one in order. What it shows and holds is decided in Rust (cmux-launch-shell).
@@ -96,7 +96,15 @@ public final class LaunchShell {
         let layoutCache = LayoutCacheLaunch.read(support: support, build: build)
         mark(layoutCache == nil ? "layout_cache.none" : "layout_cache.read")
         guard read, plan.shows_window else { return LaunchShell(prepared: nil, layoutCache: layoutCache, mark: mark) }
-        let prepared = Prepared(plan: plan, cachedFrame: layoutCache?.front.flatMap { layoutCache?.frame(for: $0.id) })
+        // A plan with no saved window carries no colours (all zero): stage 0 then paints the layout
+        // cache's last theme, and with neither it makes no window, since a guessed colour (opaque black)
+        // flashed to the real theme on the first frame (startup video at e77af242).
+        let cachedLook = layoutCache?.front.map { LaunchShellLook(cached: $0) }
+        guard Prepared.hasLook(plan) || cachedLook != nil else {
+            mark("launch_shell.none_unknown_look")
+            return LaunchShell(prepared: nil, layoutCache: layoutCache, mark: mark)
+        }
+        let prepared = Prepared(plan: plan, cachedFrame: layoutCache?.front.flatMap { layoutCache?.frame(for: $0.id) }, cachedLook: cachedLook)
         if let path = prepared.imagePath { prepared.decode(path, mark: mark) }
         return LaunchShell(prepared: prepared, layoutCache: layoutCache, mark: mark)
     }
@@ -106,22 +114,30 @@ public final class LaunchShell {
     /// the plan made no window.
     public func show(title: String) {
         guard let prepared else { return framedNow() }
-        shownAt = .now
         let frame = prepared.frame
+        let image = prepared.image()
+        let bare = image == nil && prepared.usesDefaultFrame
+            ? content.bare?(CGRect(origin: .zero, size: frame.size), prepared.look) : nil
+        guard image != nil || bare != nil else {
+            // No picture to show (not decoded in time, or none planned): no window. An empty one in
+            // the saved colours is an opaque cover over where the real window will be, not the window
+            // as it was (Leo, 2026-11-27: "stop putting the opaque thing from the start"); the real
+            // window, drawn from saved state, is the first frame.
+            mark(prepared.imagePath == nil ? "launch_shell.none_no_picture" : "launch_shell.none_image_late")
+            return framedNow()
+        }
+        shownAt = .now
         let window = LaunchShellWindow(contentRect: frame, title: title)
         window.backgroundColor = prepared.look.background
         window.appearance = NSAppearance(named: prepared.look.dark ? .darkAqua : .aqua)
         let view: NSView
         let kind: String
-        if let image = prepared.image() {
+        if let image {
             view = LaunchShellImageView(image: image, scale: window.backingScaleFactor)
             kind = "image"
-        } else if prepared.usesDefaultFrame, let bare = content.bare?(CGRect(origin: .zero, size: frame.size), prepared.look) {
-            view = bare
-            kind = "bare"
         } else {
-            view = NSView()
-            kind = prepared.imagePath == nil ? "plain" : "plain.image_late"
+            view = bare ?? NSView()
+            kind = "bare"
         }
         window.onSwapNeeded = { [weak self] in if let self, let real = self.real { self.swap(to: real) } }
         // One explicit transaction: it commits at `commit()`, before this turn's other work.
@@ -180,7 +196,7 @@ public final class LaunchShell {
         // Stage 0 went first (the backstop): what it held goes to this window now.
         guard let frame, let window else { return replay(to: real) }
         if real.frame != frame { real.setFrame(frame, display: false) }
-        // Over the saved image or the plain shell the real window waits below until what it shows
+        // Over the saved image the real window waits below until what it shows
         // matches stage 0 (every visible region has its saved or live content: `contentReady`), at
         // most the Rust bound (cmux-layout-cache `swap_wait_ms`), so the swap shows no blank pane
         // filling in afterwards (Leo, 2026-11-24: "it's another to say \"ok it's already loaded\"").
@@ -259,7 +275,7 @@ public final class LaunchShell {
 /// What the bare launch lane plugs into stage 0.
 @MainActor public struct LaunchShellContent {
     /// Content for a launch with nothing to restore: the window's content view at `frame` (window
-    /// coordinates), or nil for the plain shell.
+    /// coordinates), or nil for no stage-0 window.
     public var bare: ((_ frame: CGRect, _ look: LaunchShellLook) -> NSView?)?
     /// Calls `ready` (on the main actor, once) when the real window shows Home with its composer
     /// (the bare lane's marks); the swap waits for it, at most `LaunchShell.bareBound` after
@@ -267,7 +283,7 @@ public final class LaunchShell {
     public var bareReady: ((_ ready: @escaping @MainActor () -> Void) -> Void)?
     /// Calls `ready` (on the main actor, once) when the real window's visible regions (sidebar,
     /// tab strips, panes) have their saved or live content, so it looks as stage 0's image does;
-    /// over the image or the plain shell the swap waits for it, at most the Rust bound. Nil: the
+    /// over the image the swap waits for it, at most the Rust bound. Nil: the
     /// swap is at the real window's first commit.
     public var contentReady: (@MainActor (_ ready: @escaping @MainActor () -> Void) -> Void)?
     /// Called with `bare`'s view at the swap, before stage 0 closes: the bare lane takes what was
@@ -282,6 +298,19 @@ public struct LaunchShellLook {
     public let background: NSColor
     public let bar: NSColor
     public let dark: Bool
+
+    public init(background: NSColor, bar: NSColor, dark: Bool) {
+        self.background = background; self.bar = bar; self.dark = dark
+    }
+
+    /// The layout cache's last look of `window`: its theme's backdrop and bar, and its appearance.
+    init(cached window: LayoutCacheWindow) {
+        let color = { (c: [UInt8]) -> NSColor in
+            guard c.count == 4 else { return .windowBackgroundColor }
+            return NSColor(srgbRed: CGFloat(c[0]) / 255, green: CGFloat(c[1]) / 255, blue: CGFloat(c[2]) / 255, alpha: c[3] == 0 ? 1 : CGFloat(c[3]) / 255) // colour-allow: the saved theme's own colors from the layout cache, before the theme loads
+        }
+        self.init(background: color(window.theme.backgroundRgba), bar: color(window.theme.barRgba), dark: window.appearance == .dark)
+    }
 }
 
 /// The launch record's and the image store's paths in the app's Application Support folder.
@@ -309,9 +338,15 @@ public struct LaunchShellPaths {
     let imagePath: String?
     private let decoded = DecodedImage()
 
+    /// The plan carries the saved window's colours (a plan with no saved window leaves them all zero).
+    static func hasLook(_ plan: CmuxLaunchShellPlan) -> Bool {
+        plan.background_rgba != (0, 0, 0, 0) || plan.bar_rgba != (0, 0, 0, 0)
+    }
+
     /// `cachedFrame`: the layout cache's front window, where the real window opens when the
     /// launch record has no frame (`WindowManager.makeController`): stage 0 stands at the same place.
-    init(plan: CmuxLaunchShellPlan, cachedFrame: CGRect? = nil) {
+    /// `cachedLook`: that window's last theme, painted when the plan carries no colours.
+    init(plan: CmuxLaunchShellPlan, cachedFrame: CGRect? = nil, cachedLook: LaunchShellLook? = nil) {
         var plan = plan
         if plan.uses_default_frame, let cachedFrame {
             frame = cachedFrame
@@ -325,7 +360,8 @@ public struct LaunchShellPaths {
         let color = { (c: (UInt8, UInt8, UInt8, UInt8)) in
             NSColor(srgbRed: CGFloat(c.0) / 255, green: CGFloat(c.1) / 255, blue: CGFloat(c.2) / 255, alpha: c.3 == 0 ? 1 : CGFloat(c.3) / 255) // colour-allow: the saved theme's own colors from the launch record, before the theme loads
         }
-        look = LaunchShellLook(background: color(plan.background_rgba), bar: color(plan.bar_rgba), dark: plan.appearance == 1)
+        let saved = LaunchShellLook(background: color(plan.background_rgba), bar: color(plan.bar_rgba), dark: plan.appearance == 1)
+        look = Self.hasLook(plan) ? saved : cachedLook ?? saved
         reason = plan.reason
         usesDefaultFrame = plan.uses_default_frame
         let path = withUnsafeBytes(of: &plan.image_path) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }

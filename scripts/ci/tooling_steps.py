@@ -236,6 +236,60 @@ def read_text(repo: Repo, rel: str) -> str:
     return "" if b"\0" in data[:8192] else data.decode("utf-8", errors="replace")
 
 
+# A character of a path word: a spelled-out file name with one of these on either side is part of a longer word.
+PATH_CHAR = re.compile(r"[A-Za-z0-9_.@+\-/]")
+QUOTES = "\"'`"
+# Code whose prose (comments, docstrings) spells file names: a bare file name there names a file only as a string
+# literal. Data a tool reads by its own folder: a bare file name there is a file beside it or below it (Cargo.toml's
+# `readme = "README.md"`, build.zig.zon's paths, Package.swift's `exclude:`), or a top-level one. Anything else
+# (shell, a workflow's run text, a file of no known kind) may run `cat README.md` in any folder: a bare name counts.
+QUOTED_NAME_CODE = (".py", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".rs", ".go", ".rb")
+FOLDER_DATA = (".json", ".toml", ".txt", ".md", ".zon", "Package.swift", ".plist", ".lock", ".csv")
+
+
+def names_path(text: str, input_path: str, name: str) -> str:
+    """Why TEXT (INPUT_PATH's) may refer to the changed file NAME, or "" when it provably does not.
+
+    Each place NAME's file name is spelled is judged by the path word it ends: inside a longer word (`glib.rs`,
+    `README.md.tmpl`, a folder `lib.rs/`) it names another file. A path word (`crates/x/src/lib.rs`,
+    `${dir}/src/lib.rs`, `**/lib.rs`, `/runner/work/repo/src/lib.rs`) ends in whatever path a variable, glob or
+    folder joins onto it, so it counts when NAME ends with it (past any leading `/`, `./` or `../`) or it is NAME
+    relative to INPUT_PATH's folder; `docs/README.md` does not name the top-level README.md, nor `Native/x/src/lib.rs`
+    another crate's. A bare file name (`README.md`) counts per INPUT_PATH's kind: QUOTED_NAME_CODE only as a string
+    literal, FOLDER_DATA only for a NAME in its folder or below it or at the top level, anything else always."""
+    base = name.rsplit("/", 1)[-1]
+    folder = os.path.dirname(input_path)
+    start = text.find(base)
+    while start != -1:
+        end = start + len(base)
+        word_start = start
+        while word_start > 0 and PATH_CHAR.match(text[word_start - 1]):
+            word_start -= 1
+        word, after = text[word_start:end], text[end:end + 1]
+        if after and PATH_CHAR.match(after):
+            pass  # a longer file name, or a folder of that name: another file
+        elif word == base:
+            before = text[word_start - 1:word_start]
+            if input_path.endswith(QUOTED_NAME_CODE):
+                if before and before in QUOTES and after in QUOTES:
+                    return f"names {base}"
+            elif input_path.endswith(FOLDER_DATA):
+                if not folder or "/" not in name or name.startswith(folder + "/"):
+                    return f"names {base}"
+            else:
+                return f"names {base}"
+        else:
+            parts = word.split("/")
+            while parts and parts[0] in ("", ".", ".."):
+                parts.pop(0)
+            tail = "/".join(parts)
+            if not tail or "/.." in "/" + tail or name == tail or name.endswith("/" + tail) \
+                    or os.path.normpath(os.path.join(folder, word)) == name:
+                return f"names {word}"
+        start = text.find(base, start + 1)
+    return ""
+
+
 def load_declared(root: Path, workflow: str, job: str) -> dict[str, list[str]]:
     """{step id: input globs} for WORKFLOW's JOB from DECLARED. A missing, unreadable or malformed file declares
     nothing: every step it would have narrowed runs, as before (fails open)."""
@@ -353,6 +407,20 @@ def judge_step(repo: Repo, walker: Walker, step: dict, env: dict[str, str], work
     if traced and declared:
         return False, (f"none of its traced inputs changed (its declared globs {', '.join(declared[:3])}"
                        f"{' ...' if len(declared) > 3 else ''} and {len(inputs)} resolved files; {DECLARED}, traced)")
+    # A code file that lists every tracked file (`git ls-files` with no pathspec) can fail on any added, deleted or
+    # renamed file: tests/test_check_paths.py checks each pattern of scripts/ci/check-paths.txt still matches one.
+    # A diff that only edits files leaves that list as it was, so the rule needs the added and deleted files
+    # (renames are an add and a delete under --no-renames); with no such list it holds for every diff.
+    # Checked before the glob and directory reasons, and worded so BROAD_REASON keeps it on a pull request when the
+    # diff's added and deleted files are known: a new file is what the list checks, so the PR that adds it is the one
+    # to run the step (cmux#65513: a PR added scripts/ci/check-bash32-compat.sh, tt-check-paths was deferred as
+    # "reads directory scripts", and the missing check-paths.txt entry went red on the base).
+    if added_deleted is None or added_deleted:
+        for path in code:
+            if WHOLE_TREE_LIST.search(read_text(repo, path)):
+                if added_deleted:
+                    return True, f"{path} runs over every tracked file and this diff adds or deletes {sorted(added_deleted)[0]}"
+                return True, f"{path} lists every tracked file"
     for path, reach in reaches.items():
         for pattern in reach.globs:
             regex = glob_regex(pattern)
@@ -363,21 +431,15 @@ def judge_step(repo: Repo, walker: Walker, step: dict, env: dict[str, str], work
             for name in sorted(changed):
                 if name.startswith(directory + "/"):
                     return True, f"{path} reads directory {directory}, which holds {name}"
-    # A code file that lists every tracked file (`git ls-files` with no pathspec) can fail on any added, deleted or
-    # renamed file: tests/test_check_paths.py checks each pattern of scripts/ci/check-paths.txt still matches one.
-    # A diff that only edits files leaves that list as it was, so the rule needs the added and deleted files
-    # (renames are an add and a delete under --no-renames); with no such list it holds for every diff.
-    if added_deleted is None or added_deleted:
-        for path in code:
-            if WHOLE_TREE_LIST.search(read_text(repo, path)):
-                return True, f"{path} lists every tracked file"
     # A path the walker does not follow: a changed file any input of the closure spells out by path or file name,
-    # a data file (scripts/ci/check-paths.txt naming a script) as much as code.
+    # a data file (scripts/ci/check-paths.txt naming a script) as much as code. A path that ends in another file's
+    # path, or a bare name in code prose, does not count (names_path).
     for path in sorted(inputs):
         text = read_text(repo, path)
         for name in sorted(changed):
-            if name in text or name.rsplit("/", 1)[-1] in text:
-                return True, f"{path} names {name.rsplit('/', 1)[-1]}"
+            why = names_path(text, path, name)
+            if why:
+                return True, f"{path} {why}"
     if unresolved:
         return False, (f"none of its declared inputs ({', '.join(declared[:3])}{' ...' if len(declared) > 3 else ''}; "
                        f"{DECLARED}) nor its {len(inputs)} resolved inputs changed; declared because {unresolved}")

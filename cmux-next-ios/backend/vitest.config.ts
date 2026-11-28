@@ -3,7 +3,12 @@ import { exportJWK, generateKeyPair } from "jose"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { defineConfig } from "vitest/config"
+import { tmpdir } from "node:os"
 import { unstable_readConfig } from "wrangler"
+
+// workerd's SQLite writes its temp files to SQLITE_TMPDIR, else TMPDIR, else /var/tmp: on a runner whose /var/tmp was
+// unlinked that failed Durable Object writes with SQLITE_CANTOPEN (backend/apps/api/vitest.config.ts has the runs).
+process.env.SQLITE_TMPDIR ||= process.env.RUNNER_TEMP || tmpdir()
 
 // Test-only fake Stack signing key: its JWKS replaces Stack's published keys when ENVIRONMENT=test.
 const stack = await generateKeyPair("ES256", { extractable: true })

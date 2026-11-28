@@ -85,6 +85,15 @@ public final class CloudPlaceFlows {
 
     /// Each session's flow, as the reducer last returned it.
     @ObservationIgnored private var flows: [String: Data] = [:]
+    /// Each session's ``views`` entry, parsed once when it is set: a header, Auto's sweep and the move menu read it per chat.
+    @ObservationIgnored private var parsedViews: [String: [String: Any]] = [:]
+    /// The control facts last asked of Rust (`cloud_move_place_control`) and its answer per session under them: a header
+    /// read with the same facts makes no encode and no FFI call. New facts (a turn, a pin, a plan) drop every answer.
+    @ObservationIgnored var controlAsked: (facts: ControlFacts, answers: [String: [String: Any]])?
+    /// Each session's last `ComputerStatus`, kept while its facts (`at`, `start`) are the same and no move is in them.
+    @ObservationIgnored var statuses: [String: (at: String, start: Int, status: Any?)] = [:]
+    /// Sessions whose hybrid start is being read off the main actor (``readStart(_:stateDir:session:)``).
+    @ObservationIgnored var startReads: Set<String> = []
     /// What stops each session's running move (its Task), set by the action that runs it.
     @ObservationIgnored private var stoppers: [String: () -> Void] = [:]
     /// Sessions whose move Cancel stopped: the stop is no failure and offers no Retry.
@@ -103,12 +112,17 @@ public final class CloudPlaceFlows {
     @ObservationIgnored private var started: [String: (auto: Bool, evacuate: Bool, toCloud: Bool)] = [:]
     /// Bumped once per change in the hybrid start drivers' folder; `placeJSON` reads it, so the header re-reads `start`.
     public private(set) var startRevision = 0
+    /// Bumped once per AutoSize row the Cloud wire added (``autoSize(frame:team:)``); `placeJSON` reads it, so the header
+    /// re-reads `autosize`.
+    public private(set) var autoSizeRevision = 0
     /// The cmux-tui sessions folder (`CMUX_TUI_STATE_DIR`) the hybrid start drivers write under; nil reads no `start`.
-    @ObservationIgnored private var startState: URL?
+    @ObservationIgnored var startState: URL?
     /// Each session's `start` as of a revision, so a header read costs one FFI read per Show, not per read.
-    @ObservationIgnored private var starts: [String: (revision: Int, start: Any?)] = [:]
+    @ObservationIgnored var starts: [String: (revision: Int, start: Any?)] = [:]
+    /// Bumped once per off-main start read that landed; `placeJSON` reads it, so the header shows the new `start`.
+    public internal(set) var startsLanded = 0
     @ObservationIgnored private var startWatch: Task<Void, Never>?
-    @ObservationIgnored private let core: Core
+    @ObservationIgnored let core: Core
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let modesKey: String
     @ObservationIgnored private let clock: @Sendable () -> UInt64
@@ -208,9 +222,18 @@ public final class CloudPlaceFlows {
                                 "from": from, "to": to, "cargo": cargo.json, "atMs": nowMs])
     }
 
-    /// `step` starts (the steps before it are done).
+    /// `step` starts (the steps before it are done). `kept` is where the step it leaves spent its time (``phases(_:_:_:)``).
     @discardableResult
-    public func step(_ session: String?, _ step: String) -> Next { session.map { report($0, ["event": "step", "step": step, "atMs": nowMs]) } ?? .go }
+    public func step(_ session: String?, _ step: String, kept: (step: String, phases: [String: Int]?)? = nil) -> Next {
+        if let kept { phases(session, kept.step, kept.phases) }
+        return session.map { report($0, ["event": "step", "step": step, "atMs": nowMs]) } ?? .go
+    }
+
+    /// Where `step`'s time went (its CLI's ``CloudMoveCLI/Answer/phases``), kept with the step in the view's `steps`.
+    public func phases(_ session: String?, _ step: String, _ phases: [String: Int]?) {
+        guard let session, let phases, !phases.isEmpty else { return }
+        _ = report(session, ["event": "phases", "step": step, "phases": phases])
+    }
 
     /// The machine got its name.
     @discardableResult
@@ -245,11 +268,11 @@ public final class CloudPlaceFlows {
     }
 
     /// The next step of the move. Throws ``CancellationError`` when the reducer says stop (a Cancel it honours at this boundary), for
-    /// steps before the chat lands; once the chat committed, use ``step(_:_:)``, which never stops the move.
-    public func advance(_ session: String?, _ step: String) throws {
+    /// steps before the chat lands; once the chat committed, use ``step(_:_:kept:)``, which never stops the move.
+    public func advance(_ session: String?, _ step: String, kept: (step: String, phases: [String: Int]?)? = nil) throws {
         try Task.checkCancellation()
         guard let session else { return }
-        guard self.step(session, step) != .stop else {
+        guard self.step(session, step, kept: kept) != .stop else {
             cancelled.insert(session)
             throw CancellationError()
         }
@@ -297,15 +320,23 @@ public final class CloudPlaceFlows {
 
     /// The session's view state (`moving`, `live`, `failed`, `cancelled`), nil with no flow.
     public func state(of session: String) -> String? {
-        // main-actor-ok: one chat's move reducer state, a fixed-shape object of a few hundred bytes (its view).
-        guard let data = views[session], let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-        return object["state"] as? String
+        _ = views[session] // observed: a new view re-reads the state
+        return parsedViews[session]?["state"] as? String
+    }
+
+    /// The session's last move as Rust's reducer drew it (its `View`: `state`, `step`, `elapsedMs` and `steps`, each finished
+    /// step's ms), a landed one too: a settled card leaves only the header, not this. Nil with no move kept. `cloud.place.get`
+    /// answers it, for the move journey probe's per-step times (`move_stages_ms`), which no move action's answer carries.
+    public func moveView(of session: String) -> Any? {
+        _ = views[session] // observed
+        return parsedViews[session]
     }
 
     /// Drops the session's flow and view (a Live move's card goes once the chat shows it).
     public func clear(_ session: String) {
         flows[session] = nil
         views[session] = nil
+        parsedViews[session] = nil
     }
 
     private func report(_ session: String, _ event: [String: Any]) -> Next {
@@ -328,6 +359,8 @@ public final class CloudPlaceFlows {
         // main-actor-ok: one chat's move reducer state, a fixed-shape object of a few hundred bytes and a clock reading.
         if let viewRequest = try? JSONSerialization.data(withJSONObject: ["flow": flow, "nowMs": nowMs] as [String: Any]),
            let view = core("cloud_move_place_view", viewRequest) {
+            // main-actor-ok: one chat's view, a fixed-shape object of a few hundred bytes, parsed once per step, not per read.
+            parsedViews[session] = try? JSONSerialization.jsonObject(with: view) as? [String: Any]
             views[session] = view
         }
         return (answer["next"] as? String).flatMap(Next.init(rawValue:)) ?? .go
@@ -355,80 +388,88 @@ public final class CloudPlaceFlows {
         }
     }
 
-    /// The session's `start` (`{cloud, reason?, sinceMs?}`), as Rust reads its driver's newest Show; nil with none.
-    func start(of session: String) -> Any? {
-        let revision = startRevision
-        if let kept = starts[session], kept.revision == revision { return kept.start }
-        var start: Any?
-        // main-actor-ok: once per Show per chat; a folder path and a session id.
-        if let startState, let request = try? JSONSerialization.data(withJSONObject: ["stateDir": startState.path, "session": session]),
-           let reply = core("cloud_hybrid_start", request),
-           // main-actor-ok: that chat's `{start: {cloud, reason?, sinceMs?}}`.
-           let answer = try? JSONSerialization.jsonObject(with: reply) as? [String: Any],
-           let value = answer["start"] as? [String: Any], JSONSerialization.isValidJSONObject(value) {
-            start = value
-        }
-        starts[session] = (revision, start)
-        return start
-    }
-
     // MARK: The chat's place, for pane.tabState
 
     /// `place: {mode, at, cloudName?, move?, blocked?, holders?, keep?, start?}` for the chat header, as JSON; nil with no session.
     /// `blocked`, `holders` and `keep` (Keep Running's lit, used, total, waiting) are Rust's answer (`cloud_move_place_control`, `priority::control`) to `control`'s facts.
     /// `starts`: the sessions folder whose hybrid start drivers say `start` (watched from the first read on).
-    public func placeJSON(session: String?, onCloud: Bool, cloudName: String?, control: ControlFacts? = nil, starts state: URL? = nil) -> Data? {
+    /// `machine`: the chat's machine id, whose AutoSize rows (RFD 0080 piece 4) `place.autosize` carries with
+    /// `cmux.cloud.autosizeRows` on (default off); nil carries none.
+    /// `modes`: the choices its control offers (`CmuxConfigSnapshot.placeModes`); nil leaves them out.
+    public func placeJSON(session: String?, onCloud: Bool, cloudName: String?, control: ControlFacts? = nil, starts state: URL? = nil,
+                          machine: String? = nil, modes offered: [String]? = nil) -> Data? {
         if let state { watchStarts(state: state) }
         guard let session else { return nil }
         var place: [String: Any] = ["mode": mode(of: session, onCloud: onCloud), "at": onCloud ? "cloud" : "local"]
+        if let offered { place["modes"] = offered }
         if let cloudName { place["cloudName"] = cloudName }
-        // main-actor-ok: one chat's move reducer state, a fixed-shape object of a few hundred bytes (its view).
-        if !settled.contains(session), let view = views[session], let move = try? JSONSerialization.jsonObject(with: view) { place["move"] = move }
-        // main-actor-ok: one row of eight scalars per open chat, sent only signed in with a plan.
-        if let control, let request = try? JSONEncoder().encode(control.with(session: session)), let reply = core("cloud_move_place_control", request),
-           // main-actor-ok: Rust's `{blocked, holders, keep}` for this chat's control.
-           let answer = try? JSONSerialization.jsonObject(with: reply) as? [String: Any] {
+        _ = views[session] // observed: a new view re-sends the header
+        if !settled.contains(session), let move = parsedViews[session] { place["move"] = move }
+        if let control, let answer = controlAnswer(session: session, control: control) {
             if let blocked = answer["blocked"] { place["blocked"] = blocked }
             if let holders = answer["holders"] { place["holders"] = holders }
             if let keep = answer["keep"] { place["keep"] = keep }
         }
         if let start = start(of: session) { place["start"] = start }
+        if let status = keptStatus(session: session, place: place) { place["status"] = status }
+        // The chat's AutoSize rows, off unless the person turns them on (`defaults write … cmux.cloud.autosizeRows -bool YES`).
+        if let machine, defaults.bool(forKey: "cmux.cloud.autosizeRows"), let rows = autoSizeRows(machine: machine) { place["autosize"] = rows }
         // main-actor-ok: this one chat's header place; the order is read: AgentPaneHeaderState compares placeData bytes.
         return try? JSONSerialization.data(withJSONObject: place, options: [.sortedKeys])
     }
 
-    /// What Rust needs to say whether the header's cloud control is blocked or every slot is held (`priority::ControlFacts`).
-    /// Facts only: a plan id is mapped to its slots in Rust (`priority::plan_of_id`); a plan not read is `planKnown: false`.
-    public struct ControlFacts: Encodable, Sendable, Equatable {
-        public struct Chat: Encodable, Sendable, Equatable {
-            public var session: String, title: String, pin: String, at: String, hasWork: Bool, activeAtMs: UInt64
-            public var priority: String, litAtMs: UInt64?
-            public init(session: String, title: String, pin: String, at: String, hasWork: Bool, activeAtMs: UInt64 = 0,
-                        priority: String = "normal", litAtMs: UInt64? = nil) {
-                (self.session, self.title, self.pin, self.at, self.hasWork, self.activeAtMs) = (session, title, pin, at, hasWork, activeAtMs)
-                (self.priority, self.litAtMs) = (priority, litAtMs)
-            }
-        }
-        public var session = "", signedIn: Bool, restoring: Bool, planKnown: Bool, planId: String?, chats: [Chat]
-        public init(signedIn: Bool, restoring: Bool, planKnown: Bool, planId: String?, chats: [Chat]) {
-            (self.signedIn, self.restoring, self.planKnown, self.planId, self.chats) = (signedIn, restoring, planKnown, planId, chats)
-        }
-        func with(session: String) -> Self { var copy = self; copy.session = session; return copy }
+    /// The chat's one `ComputerStatus` (RFD 0080's status line and popover rows), as Rust folds `place`'s `at`, `move` and
+    /// `start` (`cloud_computer_status_live`), with the app's two clocks while a move is in it; nil when Rust answers nothing.
+    func computerStatus(session: String, place: [String: Any]) -> Any? {
+        var facts: [String: Any] = ["session": session]
+        for key in ["at", "move", "start"] { if let value = place[key] { facts[key] = value } }
+        // A move is stamped on `nowMs` (uptime); the page counts on Unix ms. Rust puts the stamps on Unix ms.
+        if facts["move"] != nil { facts["clock"] = ["monoMs": nowMs, "wallMs": UInt64(Date().timeIntervalSince1970 * 1000)] }
+        // main-actor-ok: the chat's at, move and start facts, three small objects, once per header read.
+        guard JSONSerialization.isValidJSONObject(facts), let request = try? JSONSerialization.data(withJSONObject: facts),
+              let reply = core("cloud_computer_status_live", request) else { return nil }
+        // main-actor-ok: Rust's one ComputerStatus for this chat (a status line and a few popover rows).
+        return try? JSONSerialization.jsonObject(with: reply)
     }
 
-    /// The header control's facts (``ControlFacts``): `planId` is nil while no read kept a plan with an id (Rust would read a
-    /// kept plan with no id as no plan at all), so a plan not read never claims No Plan or a full slot list; `chats` is read
-    /// only when Rust will count slots (signed in, plan kept): a header with no plan never walks every tab.
-    public func controlFacts(signedIn: Bool, restoring: Bool, planId: String?, chats: () -> [CloudPlaceChat]) -> ControlFacts {
-        ControlFacts(signedIn: signedIn, restoring: restoring, planKnown: planId != nil, planId: planId, chats: planId == nil ? [] : controlChats(chats()))
+    /// One Cloud wire frame for Rust's AutoSize feed (`cloud_autosize_frame`), which keeps every chat's AutoSize rows by
+    /// machine record; a row added bumps ``autoSizeRevision``.
+    public func autoSize(frame: Data, team: String?) {
+        guard let request = Self.autoSizeFrameRequest(frame, team: team),
+              let reply = core("cloud_autosize_frame", request), Self.autoSizeAdded(reply) else { return }
+        autoSizeRevision &+= 1
     }
 
-    /// ``ControlFacts/Chat`` for each chat the place controls see, pinned as the person set it here.
-    public func controlChats(_ chats: [CloudPlaceChat]) -> [ControlFacts.Chat] {
-        chats.map { chat in
-            ControlFacts.Chat(session: chat.session, title: chat.title, pin: mode(of: chat.session, onCloud: chat.onCloud), at: chat.onCloud ? "cloud" : "local",
-                              hasWork: chat.turnRunning || chat.queued > 0, activeAtMs: chat.turnStartedAtMs.flatMap { $0.isFinite && $0 > 0 ? UInt64($0) : nil } ?? 0,
-                              priority: priority(of: chat.session), litAtMs: priorities[chat.session])
-        }
+    /// `{frame, team?}` for `cloud_autosize_frame`; nil for a frame that is not JSON.
+    nonisolated static func autoSizeFrameRequest(_ frame: Data, team: String?) -> Data? {
+        guard let object = try? JSONSerialization.jsonObject(with: frame) else { return nil }
+        var ask: [String: Any] = ["frame": object]
+        if let team { ask["team"] = team }
+        guard JSONSerialization.isValidJSONObject(ask) else { return nil }
+        return try? JSONSerialization.data(withJSONObject: ask)
+    }
+
+    /// Whether Rust's `{added, machine?}` added a row.
+    nonisolated static func autoSizeAdded(_ reply: Data) -> Bool {
+        (try? JSONSerialization.jsonObject(with: reply) as? [String: Any])?["added"] as? Bool == true
+    }
+
+    /// The AutoSize rows of `machine` (`cloud_autosize_chat`, ``autosize_row::Row`` each, oldest first); nil for none.
+    func autoSizeRows(machine: String) -> [Any]? {
+        _ = autoSizeRevision // observed: a new row re-reads the header
+        guard let request = Self.autoSizeChatRequest(machine), let reply = core("cloud_autosize_chat", request) else { return nil }
+        return Self.autoSizeRows(reply)
+    }
+
+    /// `{machine}` for `cloud_autosize_chat`.
+    nonisolated static func autoSizeChatRequest(_ machine: String) -> Data? {
+        try? JSONSerialization.data(withJSONObject: ["machine": machine])
+    }
+
+    /// The `rows` of Rust's `cloud_autosize_chat` answer; nil for none.
+    nonisolated static func autoSizeRows(_ reply: Data) -> [Any]? {
+        guard let answer = try? JSONSerialization.jsonObject(with: reply) as? [String: Any],
+              let rows = answer["rows"] as? [Any], !rows.isEmpty else { return nil }
+        return rows
     }
 }

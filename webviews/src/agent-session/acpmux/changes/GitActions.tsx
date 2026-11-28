@@ -7,7 +7,7 @@ import { ChoiceGroup } from "../../../ui/ChoiceGroup";
 import { KeyboardScope } from "../../../ui/KeyboardScope";
 import { useScrollEdges } from "../../../ui/scrollEdges";
 import { useT } from "../i18n";
-import { canPush, messageTooLong, sameNewFiles, type CommitScope, type NewFiles } from "./gitWrite";
+import { canCommit, canPush, messageTooLong, sameNewFiles, type CommitScope, type NewFiles } from "./gitWrite";
 import type { GitWrite } from "./useGitWrite";
 import { useStartWhenDue } from "./useStartWhenDue";
 
@@ -47,7 +47,7 @@ export function GitToolbarButtons({
         className="acpmux-git-tool"
         data-tool="commit"
         aria-expanded={formOpen}
-        disabled={busy || disabled}
+        disabled={busy || disabled || !canCommit(git.status)}
         onClick={onToggleForm}
       >
         {t("git.commit.label")}
@@ -126,7 +126,8 @@ function CommitForm({
   const withNew = scope === "all" && includeNew;
   // New files are committed only after the reader has seen all of them.
   const newFilesShown = !withNew || (newFiles?.state === "loaded" && newFiles.files.skipped === 0);
-  const ready = message.trim().length > 0 && !tooLong && !busy && !git.statusFailed && newFilesShown;
+  const ready =
+    message.trim().length > 0 && !tooLong && !busy && !git.statusFailed && canCommit(git.status) && newFilesShown;
   const [listChanged, setListChanged] = useState(false);
   const list = (then?: (files: NewFiles) => void) => {
     const request = ++listing.current;

@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.window.settingsPresentation.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tab opens Settings as a tab in the focused pane. Full Window opens it over the whole window, with its sections on the left."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "علامة التبويب تفتح الإعدادات كعلامة تبويب في الجزء المحدد. النافذة الكاملة تفتحها فوق النافذة كلها، مع أقسامها على اليسار."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kartica otvara postavke kao karticu u fokusiranom oknu. Cijeli prozor ih otvara preko cijelog prozora, sa odjeljcima lijevo."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fane åbner Indstillinger som en fane i den aktive rude. Hele vinduet åbner dem over hele vinduet med sektionerne til venstre."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tab öffnet die Einstellungen als Tab im fokussierten Bereich. Ganzes Fenster öffnet sie über das ganze Fenster, mit den Bereichen links."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pestaña abre los ajustes como una pestaña en el panel enfocado. Ventana completa los abre sobre toda la ventana, con sus secciones a la izquierda."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Onglet ouvre les réglages dans un onglet du volet actif. Fenêtre entière les ouvre sur toute la fenêtre, avec les sections à gauche."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Scheda apre le impostazioni come scheda nel riquadro attivo. Finestra intera le apre su tutta la finestra, con le sezioni a sinistra."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "タブは設定をフォーカス中のペインのタブとして開きます。ウインドウ全体はウインドウ全体に開き、セクションを左に表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ផ្ទាំង បើកការកំណត់ជាផ្ទាំងក្នុងផ្ទាំងដែលកំពុងផ្តោត។ បង្អួចពេញ បើកវាលើបង្អួចទាំងមូល ដោយមានផ្នែកនៅខាងឆ្វេង។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "탭은 설정을 포커스된 패널의 탭으로 엽니다. 전체 윈도우는 윈도우 전체에 열고 섹션을 왼쪽에 표시합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fane åpner innstillingene som en fane i det aktive panelet. Hele vinduet åpner dem over hele vinduet, med seksjonene til venstre."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Karta otwiera ustawienia jako kartę w aktywnym panelu. Całe okno otwiera je na całym oknie, z sekcjami po lewej."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Aba abre os ajustes como uma aba no painel em foco. Janela inteira os abre sobre a janela toda, com as seções à esquerda."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вкладка открывает настройки вкладкой в активной панели. Всё окно открывает их на всё окно, с разделами слева."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แท็บ เปิดการตั้งค่าเป็นแท็บในบานที่โฟกัสอยู่ ทั้งหน้าต่าง เปิดเต็มหน้าต่างโดยมีหมวดอยู่ทางซ้าย"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sekme, ayarları odaktaki bölmede bir sekme olarak açar. Tüm pencere, bölümler solda olacak şekilde tüm pencerede açar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вкладка відкриває налаштування вкладкою в активній панелі. Усе вікно відкриває їх на все вікно, з розділами ліворуч."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Thẻ mở Cài đặt thành một thẻ trong ô đang chọn. Toàn cửa sổ mở trên cả cửa sổ, với các mục ở bên trái."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "标签页：在当前窗格中以标签页打开设置。整个窗口：铺满整个窗口打开，分区在左侧。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "分頁：在目前窗格中以分頁開啟設定。整個視窗：鋪滿整個視窗開啟，分區在左側。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

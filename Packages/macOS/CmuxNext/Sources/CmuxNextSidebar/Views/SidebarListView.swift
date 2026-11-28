@@ -57,6 +57,9 @@ final class SidebarListView: NSView {
         // A held drag hit-tests a geometry built at its begin: new blocks rebuild it at the next move.
         didSet { if blocks != oldValue { drag?.docGeometry = nil } }
     }
+    /// Each block's height in the shown layout, as the last reload made it (its options' `blockHeights`): an in-place
+    /// block patch keeps exactly these (`patchBlocks`). Nil after a reload under a drag, whose layout is the drag's own.
+    var drawnBlockHeights: [String: CGFloat]?
     /// The selected top item, drawn active in its block (`SidebarRegionView.activeItem`): a selection
     /// change repaints the old and new item only, with no list reload (perf-speed-of-light I6).
     var activeTopItem: LayoutItemID? {
@@ -248,6 +251,7 @@ final class SidebarListView: NSView {
     /// The hover pill still follows the rows at once; only the forward waits.
     var scrollHoverSettle: Duration = .milliseconds(100)
     let scrollHoverForward = DemandTimer(owner: "SidebarListView.scrollHoverForward")
+    let relativeTimesTick = DemandTimer(owner: "SidebarListView.relativeTimes") // `scheduleRelativeTimesTick`
     /// The newest scheduled or cancelled scroll forward: a fire the timer already claimed when a later
     /// scroll frame or a pointer move replaced it does nothing, so the rested row is forwarded once.
     var scrollHoverGeneration: UInt64 = 0
@@ -430,7 +434,7 @@ final class SidebarListView: NSView {
     override func updateLayer() {}
     override var acceptsFirstResponder: Bool { true }
     var metrics: SidebarLayoutMetrics { .standard }
-    var inset: CGFloat { SidebarStyle.horizontalInset }
+    var geometryPass = RowGeometryPass() // the inset and row geometry: SidebarListView+RowGeometry.swift
     // MARK: - Hover
     override func updateTrackingAreas() {
         super.updateTrackingAreas()

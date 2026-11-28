@@ -13,10 +13,10 @@ struct CloudNetworkListTests {
         func saw(_ data: Data) { input = data }
     }
 
-    private func worker(answering body: String, _ seen: Seen = Seen()) throws -> CloudAPIClient {
-        var api = CloudAPIClient.workerMachines(baseURL: try #require(URL(string: "https://worker.invalid")),
+    private func worker(answering body: String, _ seen: Seen = Seen()) throws -> CloudDaemon {
+        var api = CloudDaemon.workerMachines(baseURL: try #require(URL(string: "https://worker.invalid")),
                                                 accessToken: { "session" }, teamID: { "team_1" }, installToken: { "install" })
-        api.daemon.daemonCall = { input, _ in
+        api.daemonCall = { input, _ in
             await seen.saw(input)
             return Data(#"{"ok":true,"body":\#(body)}"#.utf8)
         }
@@ -44,10 +44,10 @@ struct CloudNetworkListTests {
 
     @Test func aClassicClientSendsNothing() async throws {
         let seen = Seen()
-        var classic = CloudAPIClient(configuration: CloudConfiguration.resolve(bundleID: nil, bundled: ["CMUX_VM_API_BASE_URL": "https://vm-api.standin.invalid"],
+        var classic = CloudDaemon(configuration: CloudConfiguration.resolve(bundleID: nil, bundled: ["CMUX_VM_API_BASE_URL": "https://vm-api.standin.invalid"],
                                                                                 process: [:], isDebugBuild: true), tokens: { ("access", "refresh") },
                                      teamID: { "team_1" })
-        classic.daemon.daemonCall = { input, _ in
+        classic.daemonCall = { input, _ in
             await seen.saw(input)
             return Data()
         }

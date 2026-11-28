@@ -3,11 +3,14 @@
 
 #import <AppKit/AppKit.h>
 
+#include "include/base/cef_callback.h"
 #include "include/cef_devtools_message_observer.h"
 #include "include/cef_drag_handler.h"
 #include "include/cef_jsdialog_handler.h"
 #include "include/cef_parser.h"
 #include "include/cef_resource_request_handler.h"
+#include "include/cef_task.h"
+#include "include/wrapper/cef_closure_task.h"
 #include "command_line_apply.h"
 #include "artifact_page.h"
 #include "external_url.h"
@@ -297,6 +300,17 @@ class Client : public CefClient,
 
   // MARK: Remote localhost
 
+  // A report OnBeforeBrowse makes (an external link, a sign-in callback, a local file, a store reroute) goes to the
+  // host once the callback returned, on the next UI task. The callback runs inside Chromium's navigation (a
+  // NavigationThrottle, a redirect's included), and Swift acts on these reports at once: a handoff closes its flow's
+  // tab, a reroute replaces the tab. A close that runs the page's beforeunload (TryCloseBrowser) from in there resets
+  // the very navigation that is calling out, and Chromium's CHECK ends the app: the 2026-11-25 nightly SIGTRAP
+  // (#57470), cmux_shim_try_close under the GitHub install's return to cmux-nightly://integration/complete.
+  static void EmitAfterNavigationCallback(int kind, int browser_id, int64_t a, const std::string& url) {
+    CefPostTask(TID_UI, base::BindOnce([](int kind, int id, int64_t a, std::string url) { Emit(kind, id, 0, a, 0, url); },
+                                       kind, browser_id, a, url));
+  }
+
   // A main-frame navigation that would leave its store (a loopback origin of
   // a remote machine, or the reverse) is cancelled; the host re-creates the
   // tab in the other store with the same URL.
@@ -311,21 +325,21 @@ class Client : public CefClient,
     std::string url = request->GetURL().ToString();
     // A sign-in tab's callback never loads: the session ends with its URL.
     if (NavigationIsAuthCallback(id, url)) {
-      Emit(CMUX_SHIM_AUTH_CALLBACK, id, 0, is_redirect ? 1 : 0, 0, url);
+      EmitAfterNavigationCallback(CMUX_SHIM_AUTH_CALLBACK, id, is_redirect ? 1 : 0, url);
       return true;
     }
     // An agent-driven tab never commits a Chromium page (passwords.md, section 2).
     if (NavigationRefusedForAgent(id, url)) return true;
     if (cmux_shim::CEFHandsOffLocalFile(url)) {
-      Emit(CMUX_SHIM_LOCAL_FILE_HANDOFF, id, 0, 0, 0, url);
+      EmitAfterNavigationCallback(CMUX_SHIM_LOCAL_FILE_HANDOFF, id, 0, url);
       return true;
     }
     if (IsExternalAppURL(url)) {
-      Emit(CMUX_SHIM_EXTERNAL_URL, id, 0, user_gesture && !is_redirect ? 1 : 0, 0, url);
+      EmitAfterNavigationCallback(CMUX_SHIM_EXTERNAL_URL, id, user_gesture && !is_redirect ? 1 : 0, url);
       return true;
     }
     if (!NavigationViolatesGuard(id, url)) return false;
-    Emit(CMUX_SHIM_NAVIGATION_REROUTE, id, 0, is_redirect ? 1 : 0, 0, url);
+    EmitAfterNavigationCallback(CMUX_SHIM_NAVIGATION_REROUTE, id, is_redirect ? 1 : 0, url);
     return true;
   }
 

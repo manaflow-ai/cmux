@@ -7,13 +7,9 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { newWorktree } from "./startFolderModel";
-import {
-  WorktreeSetupLine,
-  followWorktreeSetup,
-  forgetWorktreeSetup,
-  rememberWorktreeSetup,
-  type SetupView,
-} from "./worktreeSetup";
+import { WorktreeSetupLine } from "./worktreeSetup";
+import { followWorktreeSetup, setupDuration, type SetupView } from "./worktreeSetupModel";
+import { forgetWorktreeSetup, rememberWorktreeSetup } from "./worktreeSetupStore";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -279,4 +275,11 @@ test("a succeeded or running setup offers neither Run Setup nor Retry", async ()
     expect(names).not.toContain("Run Setup");
     expect(names).not.toContain("Retry");
   }
+});
+
+test("a setup step under a second reads 0s, never <1s", () => {
+  expect(setupDuration(1_000, 1_300, 9_000)).toBe("0s");
+  expect(setupDuration(1_000, undefined, 1_999)).toBe("0s");
+  expect(setupDuration(1_000, 2_000, 9_000)).toBe("1s");
+  expect(setupDuration(1_000, 5_200, 9_000)).toBe("4.2s");
 });

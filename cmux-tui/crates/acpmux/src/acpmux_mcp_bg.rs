@@ -47,7 +47,8 @@ pub(super) fn tools() -> Vec<Value> {
                 "command": {"type": "string", "description": "Runs in the agent environment with bash -c (fallback /bin/sh)."},
                 "cwd": {"type": "string", "description": "Working directory (default: chat folder)."},
                 "description": {"type": "string", "description": "Short task title for listings, output and completion."},
-                "notify": {"type": "boolean", "description": "Send exit status and last lines when it ends (default true); a running turn reads it at its next tool step."}},
+                "notify": {"type": "boolean", "description": "Send exit status and last lines when it ends (default true); a running turn reads it at its next tool step."},
+                "class": {"type": "string", "enum": ["task", "filler"], "description": "filler: work nobody waits on (a cache warm, an index, a soak) runs only on CPU nothing else wants, where the host turns CPU classes on. Default task."}},
                 "required": ["command"]}}),
         json!({"name": "bg_list", "description": "Your background tasks (a subagent sees its own), newest 30 first, one line each: id, state, exit code, age, command (cut). The last line says how many more and how to page. Other callers' tasks are counted, not listed, unless all; they are not yours to stop.",
             "inputSchema": {"type": "object", "properties": {"description": description,
@@ -159,9 +160,19 @@ pub(crate) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
         };
     }
     // A call's own description titles its row; only a start keeps it, with the task.
+    let mut dropped = None;
     if name == "bg_start" {
         if params.get("notify").is_none_or(Value::is_null) {
             params.set("notify", json!(true));
+        }
+        // A trailing `| tail -40` or pager hides the task's whole progress until it exits
+        // (`without_trailing_truncation`): run what the caller meant, and say what was dropped.
+        let given = params.get("command").and_then(Value::as_str).map(str::to_owned);
+        if let Some(given) = given
+            && let Some((ran, stage)) = without_trailing_truncation(&given)
+        {
+            params.set("command", json!(ran));
+            dropped = Some((given, stage));
         }
     } else if let Some(p) = params.as_object_mut() {
         p.remove("description");
@@ -201,6 +212,14 @@ pub(crate) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
             }
             if let Some((bound, waited)) = &waited {
                 structured.set("wait", bound.view(*waited));
+            }
+            if let Some((given, stage)) = &dropped {
+                let notice = dropped_stage_notice(stage);
+                text.push_str(&format!("\n{notice}"));
+                // Claude Code shows the structured result, not the text, when there is one.
+                structured.set("notice", json!(notice));
+                structured.set("droppedStage", json!(stage));
+                structured.set("commandAsGiven", json!(given));
             }
             if by_subagent && name == "bg_start" && structured.get("notify") == Some(&json!(true)) {
                 text.push_str(&format!("\n{SUBAGENT_END}"));
@@ -458,9 +477,205 @@ fn summary(name: &str, r: &Value) -> String {
     }
 }
 
+/// The commands whose last pipeline stage only truncates or pages what it is given, so on a
+/// background task they hide the whole log until the command exits ([`without_trailing_truncation`]).
+const TRUNCATING_STAGES: [&str; 6] = ["tail", "head", "less", "more", "most", "bat"];
+
+/// What a `bg_start` result says when such a stage was dropped: the self-correction this codebase
+/// phrases as "ran X instead, because Y" (Leo's rulebook, `[fewer-tool-calls]` and
+/// `[errors-fix-the-tool]`: accept what the agent typed, run the right thing, and say what changed).
+/// One line, so the first line stays the outcome.
+fn dropped_stage_notice(stage: &str) -> String {
+    format!(
+        "Ran the command without its trailing `| {stage}`, because that stage holds back every line until the command exits, which leaves bg_output showing an empty log while the task runs; bg_output already reads only the end of the log (maxBytes says how much, fromByte reads only what is new)."
+    )
+}
+
+/// A command without a trailing output-truncating stage, with that stage as it was typed
+/// (`cmd 2>&1 | tail -n 5` gives `cmd 2>&1` and `tail -n 5`), or `None` when there is none to
+/// drop. Conservative by design: a false rewrite runs something the caller did not ask for, which
+/// is far worse than a missed one, so anything unclear is left alone. Only the very last stage of
+/// unquoted shell piping counts, only when the whole stage is the command and its flags or numbers,
+/// and never with a heredoc or a backtick anywhere in the command. A `tail -f` (following IS
+/// progress) and a `tail` or `head` that is not the final stage (the caller's own filter) are left
+/// alone.
+fn without_trailing_truncation(command: &str) -> Option<(String, String)> {
+    // A heredoc's body is data, not pipeline: its text may hold anything.
+    if command.contains("<<") {
+        return None;
+    }
+    let pipe = last_plain_pipe(command)?;
+    let stage = truncating_stage(command.get(pipe + 1..)?)?;
+    let ran = command.get(..pipe)?.trim_end();
+    if ran.is_empty() {
+        return None;
+    }
+    Some((ran.to_owned(), stage))
+}
+
+/// The byte offset of the command's last plain `|`: outside single and double quotes, outside a
+/// subshell or `$(...)`, and neither `||` nor `|&`. `None` when there is none, or when the command
+/// holds a backtick (its nesting is not worth parsing: leave the command alone).
+fn last_plain_pipe(command: &str) -> Option<usize> {
+    let b = command.as_bytes();
+    let mut found = None;
+    let mut depth = 0i32;
+    let mut i = 0;
+    while let Some(&byte) = b.get(i) {
+        match byte {
+            b'\\' => i += 1,
+            b'`' => return None,
+            b'\'' => {
+                i += 1;
+                while b.get(i).is_some_and(|&c| c != b'\'') {
+                    i += 1;
+                }
+            }
+            b'"' => {
+                i += 1;
+                while let Some(&c) = b.get(i) {
+                    if c == b'"' {
+                        break;
+                    }
+                    i += if c == b'\\' { 2 } else { 1 };
+                }
+            }
+            b'$' if b.get(i + 1) == Some(&b'(') => {
+                depth += 1;
+                i += 1;
+            }
+            b'(' => depth += 1,
+            b')' => depth -= 1,
+            // `||` and `|&` are not a plain pipe: step over the pair.
+            b'|' if matches!(b.get(i + 1), Some(b'|' | b'&')) => i += 1,
+            b'|' if depth == 0 => found = Some(i),
+            _ => {}
+        }
+        i += 1;
+    }
+    found
+}
+
+/// The stage after that pipe when it only truncates or pages, as typed: one of
+/// [`TRUNCATING_STAGES`] (by its name, so `/usr/bin/tail` counts) followed by nothing but flags and
+/// numbers. Anything else — a file to read, a quote, a redirection, another command, `tail -f` or
+/// `--follow` — gives `None`, and the command runs as it was typed.
+fn truncating_stage(stage: &str) -> Option<String> {
+    let stage = stage.trim();
+    if stage.is_empty()
+        || stage.bytes().any(|c| {
+            matches!(c, b'\'' | b'"' | b'$' | b'`' | b'<' | b'>' | b'&' | b';' | b'|' | b'\\')
+                || c == b'\n'
+        })
+    {
+        return None;
+    }
+    let mut words = stage.split_whitespace();
+    let name = words.next()?.rsplit('/').next()?;
+    if !TRUNCATING_STAGES.contains(&name) {
+        return None;
+    }
+    for w in words {
+        let flag = w.starts_with('-') && w.len() > 1;
+        if !flag && !w.bytes().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
+        // Following is progress, not truncation: `-f`, `-F`, `--follow`, and a bundle holding f.
+        let short_f = flag && !w.starts_with("--") && w.bytes().any(|c| c == b'f' || c == b'F');
+        if short_f || w.starts_with("--follow") || w.starts_with("--retry") {
+            return None;
+        }
+    }
+    Some(stage.to_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A trailing `| tail -40` or pager is dropped and named: on a background task it holds back
+    /// every line until the command exits, so `bg_output` shows an empty log while it runs (proof,
+    /// 2026-11-22: a 20 s command printing a line a second, read 8 s in, was 0 bytes through
+    /// `tail -5` and 8 lines without it). The stage comes back as typed, for the notice.
+    #[test]
+    fn a_trailing_truncating_stage_is_dropped_and_named() {
+        let dropped = |c: &str| without_trailing_truncation(c);
+        assert_eq!(
+            dropped("make build | tail -40"),
+            Some(("make build".into(), "tail -40".into()))
+        );
+        assert_eq!(
+            dropped("cargo test 2>&1 | tail -n 5"),
+            Some(("cargo test 2>&1".into(), "tail -n 5".into()))
+        );
+        assert_eq!(dropped("git log | less"), Some(("git log".into(), "less".into())));
+        assert_eq!(dropped("git log | less -R"), Some(("git log".into(), "less -R".into())));
+        assert_eq!(dropped("dump | head -c 100"), Some(("dump".into(), "head -c 100".into())));
+        assert_eq!(dropped("dump | more"), Some(("dump".into(), "more".into())));
+        assert_eq!(dropped("dump | most"), Some(("dump".into(), "most".into())));
+        assert_eq!(dropped("dump | bat"), Some(("dump".into(), "bat".into())));
+        // By its name, so a stage given by path counts too; the spacing of the pipe is free.
+        assert_eq!(
+            dropped("dump |/usr/bin/tail -20"),
+            Some(("dump".into(), "/usr/bin/tail -20".into()))
+        );
+        // Each rewrite's result names the stage it dropped and points at bg_output's own tail.
+        for (_, stage) in [
+            "make build | tail -40",
+            "cargo test 2>&1 | tail -n 5",
+            "git log | less",
+            "dump | head -c 100",
+        ]
+        .iter()
+        .filter_map(|c| dropped(c))
+        {
+            let notice = dropped_stage_notice(&stage);
+            assert!(notice.contains(&format!("`| {stage}`")), "{notice}");
+            assert!(notice.contains("bg_output"), "{notice}");
+            assert!(notice.contains("maxBytes"), "{notice}");
+        }
+    }
+
+    /// The notice's exact words, once, so they cannot drift without this test saying so.
+    #[test]
+    fn the_dropped_stage_notice_reads_the_same_every_time() {
+        assert_eq!(
+            dropped_stage_notice("tail -40"),
+            "Ran the command without its trailing `| tail -40`, because that stage holds back every \
+             line until the command exits, which leaves bg_output showing an empty log while the \
+             task runs; bg_output already reads only the end of the log (maxBytes says how much, \
+             fromByte reads only what is new)."
+        );
+    }
+
+    /// What is left alone: following IS progress, a mid-pipeline filter is the caller's own logic,
+    /// and text that only looks like a pipe (quoted, a `--flag=value`, a heredoc body) is text.
+    /// A false rewrite runs something the caller never asked for, so doubt leaves the command be.
+    #[test]
+    fn a_command_whose_tail_is_not_a_trailing_truncation_is_left_alone() {
+        for command in [
+            "tail -f /var/log/syslog",
+            "cmd | tail --follow=name file",
+            "cmd | tail -F",
+            "cmd | tail -20 | grep x",
+            "cmd | head -5 | sort",
+            "echo \"a | tail -5\"",
+            "cmd --flag='| tail -3'",
+            "cat <<EOF\ncmd | tail -5\nEOF",
+            "bash -c 'build | tail -5'",
+            "cmd | tail -5 > out.txt",
+            "cmd | tail out.log",
+            "cmd && cmd2 | grep x",
+            "(cmd | tail -5)",
+            "cmd | wc -l",
+            "cmd || tail -5",
+            "cmd",
+            "",
+            "| tail -5",
+        ] {
+            assert_eq!(without_trailing_truncation(command), None, "{command:?}");
+        }
+    }
 
     /// A result carries the bytes once and the caller's own command only as far as it names the
     /// task: no base64 copy of `text`, and a long command cut (measured waste in `trim_echo`).

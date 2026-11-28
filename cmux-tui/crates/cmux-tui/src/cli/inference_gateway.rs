@@ -56,6 +56,10 @@ const PING: &str = r#"{"v":1,"t":"ping"}"#;
 const PING_EVERY: Duration = Duration::from_secs(20);
 /// Nothing heard for this long (the API answers every ping with a pong): the path is dead, so redial.
 const SILENT_FOR: Duration = Duration::from_secs(70);
+/// A call whose body has not arrived whole (`body_end`) this long after its `request` frame is given up: its body bytes
+/// go back to [`MAX_HELD_BYTES`] and the API hears an error, so a call the API lost mid-body (a guest gone, a frame
+/// dropped) cannot hold the gateway's room until the socket next reconnects (review follow-up on #37434, I37612-1).
+const PENDING_FOR: Duration = Duration::from_secs(120);
 /// Calls this gateway takes at once (equal to the API's cap per team); one more waits for a slot ([`Slots`]).
 const MAX_CALLS: usize = 256;
 /// How long a call past the cap waits for a slot, by priority, before it is answered a 529 (the same bounds as
@@ -349,7 +353,11 @@ pub(super) fn parse(
         }
     };
     let token = token.unwrap_or_else(|| {
-        if env("CMUX_CLOUD_ACCESS_TOKEN").is_some() { TokenSource::Env } else { TokenSource::App }
+        if super::api_tokens::env_credential(env).is_some() {
+            TokenSource::Env
+        } else {
+            TokenSource::App
+        }
     });
     Ok(Options { api, team, personal, token, upstream, supervised, enable_once })
 }
@@ -486,7 +494,8 @@ pub(super) async fn backend_credential(
     team: Option<&str>,
 ) -> Result<(String, Option<String>), String> {
     let raw = match source {
-        TokenSource::Env => std::env::var("CMUX_CLOUD_ACCESS_TOKEN").unwrap_or_default(),
+        TokenSource::Env => super::api_tokens::env_credential(|key: &str| std::env::var(key).ok())
+            .unwrap_or_default(),
         TokenSource::Stdin => {
             use tokio::io::AsyncReadExt;
             let mut raw = String::new();
@@ -632,6 +641,10 @@ async fn serve(options: Options, mut stop: watch::Receiver<bool>) -> i32 {
         }
     };
     let upstream = Arc::new(Provider::new(options.upstream.clone(), http));
+    // Open the provider's connection now, while the backend socket dials, so the first model call reuses it.
+    // Its owner lives as long as serve(): a gateway that stops first cancels the warm-up.
+    let warming = cmux_scope::Scope::new("inference gateway warm-up");
+    drop(start_warm(&warming, &upstream));
     // One count for the process: a call aborted with its old socket gives its slot back when its task drops.
     let slots = Arc::new(Slots::default());
     let has_login = match upstream.check().await {
@@ -799,6 +812,9 @@ async fn session(
         let _ = sink.close().await;
     });
     let mut pending: HashMap<String, Pending> = HashMap::new();
+    // When each pending call's `request` frame came (PENDING_FOR); an entry whose call left `pending` is dropped on
+    // the next watch tick.
+    let mut pending_at: HashMap<String, tokio::time::Instant> = HashMap::new();
     // Each running call's task and the body bytes it holds.
     let mut running: HashMap<String, (tokio::task::AbortHandle, usize)> = HashMap::new();
     let mut held = 0usize;
@@ -843,6 +859,17 @@ async fn session(
             _ = watch.tick() => {
                 if heard.elapsed() > SILENT_FOR {
                     break Ended::Closed(format!("nothing heard for {} s", SILENT_FOR.as_secs()));
+                }
+                pending_at.retain(|id, _| pending.contains_key(id));
+                for id in expired(&pending_at, tokio::time::Instant::now(), PENDING_FOR) {
+                    pending_at.remove(&id);
+                    if let Some(call) = pending.remove(&id) {
+                        held -= call.body.len();
+                        log(&format!("{} {}: the body did not arrive whole in {} s", printable(&call.method),
+                            log_path(&call.path), PENDING_FOR.as_secs()));
+                        send(&tx, &error_frame(&id, "inference.bad_request", "the request body did not arrive whole"))
+                            .await;
+                    }
                 }
                 continue
             }
@@ -905,7 +932,9 @@ async fn session(
                     .unwrap_or_default();
                 // No slot yet: the body's bytes are bounded by MAX_HELD_BYTES, and the call takes its slot (or
                 // waits for one) once its body is whole (`body_end`).
-                pending.insert(
+                pending_at.insert(id.clone(), tokio::time::Instant::now());
+                // A repeated id replaces its earlier call, whose held bytes go back.
+                let replaced = pending.insert(
                     id,
                     Pending {
                         method: frame
@@ -922,6 +951,9 @@ async fn session(
                         body: Vec::new(),
                     },
                 );
+                if let Some(call) = replaced {
+                    held -= call.body.len();
+                }
             }
             Some("body") => {
                 let Some(call) = pending.get_mut(&id) else { continue };
@@ -983,6 +1015,19 @@ async fn session(
     drop(tx);
     let _ = writer.await;
     ended
+}
+
+/// The pending calls (by `request` frame time) older than `limit` at `now`. Pure, for the tests.
+fn expired(
+    since: &HashMap<String, tokio::time::Instant>,
+    now: tokio::time::Instant,
+    limit: Duration,
+) -> Vec<String> {
+    since
+        .iter()
+        .filter(|(_, at)| now.duration_since(**at) >= limit)
+        .map(|(id, _)| id.clone())
+        .collect()
 }
 
 /// Whether a call with `headers` (lowercase names) is taken while `in_flight` calls run: an interactive
@@ -1137,6 +1182,9 @@ fn error_frame(id: &str, code: &str, message: &str) -> Value {
 /// One call: to the provider, and its answer back down the socket as it streams.
 async fn answer(upstream: &Provider, id: &str, call: Pending, tx: &mpsc::Sender<String>) {
     let started = Instant::now();
+    // Wall clock (unix ms) when this gateway took the call: the Cloud probe sets it against the machine's prompt time
+    // to split the machine's prompt-to-first-output into before the call reached here and the provider's wait.
+    let taken_at = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis());
     let machine = call
         .headers
         .iter()
@@ -1155,6 +1203,9 @@ async fn answer(upstream: &Provider, id: &str, call: Pending, tx: &mpsc::Sender<
             return send(tx, &error_frame(id, code, &message)).await;
         }
     };
+    // The provider's head: a pool that holds its head until the first content (sr2) makes this the time to first token.
+    let head_ms = started.elapsed().as_millis();
+    let mut first_ms = None;
     let status = response.status().as_u16();
     let mut headers = serde_json::Map::new();
     for name in ANSWER_HEADERS {
@@ -1184,6 +1235,9 @@ async fn answer(upstream: &Provider, id: &str, call: Pending, tx: &mpsc::Sender<
         };
         match chunk {
             Ok(bytes) => {
+                if first_ms.is_none() && !bytes.is_empty() {
+                    first_ms = Some(started.elapsed().as_millis());
+                }
                 for part in bytes.chunks(CHUNK_BYTES) {
                     let data = base64::engine::general_purpose::STANDARD.encode(part);
                     send(tx, &json!({"v": 1, "t": "data", "id": id, "data": data})).await;
@@ -1207,12 +1261,46 @@ async fn answer(upstream: &Provider, id: &str, call: Pending, tx: &mpsc::Sender<
             }
         }
     }
-    log(&format!(
-        "{machine} {} {path} -> {status} ({} ms)",
-        printable(&call.method),
-        started.elapsed().as_millis()
-    ));
+    let timing =
+        CallTiming { total_ms: started.elapsed().as_millis(), head_ms, first_ms, taken_at };
+    log(&call_line(&machine, &call.method, &path, status, &timing));
     send(tx, &json!({"v": 1, "t": "end", "id": id})).await;
+}
+
+/// How long a warm-up waits for the provider; it never holds up a call or the start.
+const WARM_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Warms the provider's connection in the background ([`Provider::warm`]); the start does not wait for it.
+/// `None` when `scope` was cancelled first.
+fn start_warm(
+    scope: &cmux_scope::Scope,
+    upstream: &Arc<Provider>,
+) -> tokio::task::JoinHandle<Option<usize>> {
+    let upstream = upstream.clone();
+    scope.spawn_until_cancelled("inference gateway warm-up", async move { upstream.warm().await })
+}
+
+/// An answered call's times: the whole call, the provider's head and first body bytes (ms from `taken_at`), and
+/// `taken_at` itself, the wall clock (unix ms) when the gateway took the call.
+#[derive(Clone, Copy)]
+struct CallTiming {
+    total_ms: u128,
+    head_ms: u128,
+    first_ms: Option<u128>,
+    taken_at: u128,
+}
+
+/// An answered call's log line: the whole call, then when the provider's head and first body bytes came, so a slow
+/// call shows whether the wait was before the first token (the provider, its route, the connection) or in the stream.
+/// The `-> STATUS (TOTAL ms` start is the shape the Cloud probes read (cmuxterm-hq cloud_chat_app_probe.py); `at` is
+/// when the gateway took the call (unix ms), which the probe sets against the machine's prompt time (`turn_ms`).
+fn call_line(machine: &str, method: &str, path: &str, status: u16, timing: &CallTiming) -> String {
+    let CallTiming { total_ms, head_ms, first_ms, taken_at } = *timing;
+    let first = first_ms.map_or_else(|| "none".to_owned(), |ms| format!("{ms} ms"));
+    format!(
+        "{machine} {} {path} -> {status} ({total_ms} ms, head {head_ms} ms, first data {first}, at {taken_at})",
+        printable(method)
+    )
 }
 
 /// The login this gateway holds, and how a call reaches the provider with it.
@@ -1277,6 +1365,41 @@ impl Provider {
                 Ok(true)
             }
         }
+    }
+
+    /// The origins this gateway's model calls go to.
+    fn warm_urls(&self) -> Vec<String> {
+        match &self.upstream {
+            Upstream::Proxy { base, .. } => vec![base.clone()],
+            Upstream::MacLogins(logins) => {
+                vec![logins.claude_base.clone(), CODEX_BACKEND.to_owned()]
+            }
+            Upstream::Codex { .. } => vec![CODEX_BACKEND.to_owned()],
+        }
+    }
+
+    /// Opens a connection (DNS, TCP, TLS on https, and the tailnet path on a tailnet host) to each origin with one
+    /// HEAD and leaves it in the client's pool, so the first model call does not pay for it. Any answer counts; a
+    /// failure is logged and changes nothing (the call dials as before). How many origins answered.
+    async fn warm(&self) -> usize {
+        let mut warmed = 0;
+        for url in self.warm_urls() {
+            let started = Instant::now();
+            let head = self.http.head(&url).timeout(WARM_TIMEOUT).send();
+            match head.await {
+                Ok(response) => {
+                    warmed += 1;
+                    log(&format!(
+                        "warmed {} ({} in {} ms)",
+                        log_path(&url),
+                        response.status().as_u16(),
+                        started.elapsed().as_millis()
+                    ));
+                }
+                Err(error) => log(&format!("could not warm {}: {error}", log_path(&url))),
+            }
+        }
+        warmed
     }
 
     async fn call(&self, call: &Pending) -> Result<reqwest::Response, CallError> {

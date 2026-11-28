@@ -1357,6 +1357,99 @@ async fn hub_carrier_a_closed_direct_port_falls_back_to_the_relay() {
     assert_eq!(fixture.carrier_a.kept_direct_circuits(&b), 0);
 }
 
+/// Both carriers on iroh with its relay off, bound to loopback: the iroh path is a direct one.
+fn loopback_iroh() -> acpmux::hub_carrier::iroh_path::IrohConfig {
+    acpmux::hub_carrier::iroh_path::IrohConfig {
+        secret: None,
+        relay: false,
+        bind: Some("127.0.0.1:0".parse().unwrap()),
+    }
+}
+
+/// Dial until A holds a kept iroh circuit to B (the upgrade runs beside the relay dial), bounded.
+async fn until_iroh_kept(fixture: &PipeFixture) {
+    let b = fixture.carrier_b.public_key();
+    for _ in 0..100 {
+        if fixture.carrier_a.kept_iroh_circuits(&b) == 1 {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    panic!("A never held a kept iroh circuit to B");
+}
+
+/// Leo: "small, chatty calls stay on whichever machine holds the files, batched over one
+/// always-open connection, never a new connection per call." With `irohDirect` on both ends, the
+/// first pipe dial rides the relay (`via: hub`) while the iroh circuit opens beside it; once that
+/// circuit is Noise-confirmed and kept, the next dial is one stream on it (`via: iroh-direct`),
+/// and a stream echoes through it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_irohdirect_upgrades_a_pipe_off_the_relay() {
+    let _ = HERMETIC;
+    let fixture = pipe_fixture().await;
+    fixture.gate.granted.store(true, Ordering::SeqCst);
+    let _iroh_b = fixture.carrier_b.start_iroh(loopback_iroh()).await.unwrap();
+    let _iroh_a = fixture.carrier_a.start_iroh(loopback_iroh()).await.unwrap();
+    let b = fixture.carrier_b.public_key();
+    fixture.carrier_a.set_iroh_route(&b, fixture.carrier_b.iroh_addr().unwrap());
+    let first = pipe_reply(&fixture).await;
+    assert_eq!(first["via"], "hub", "the first dial takes the relay: {first}");
+    until_iroh_kept(&fixture).await;
+    let second = pipe_reply(&fixture).await;
+    assert_eq!(second["via"], "iroh-direct", "{second}");
+    assert_eq!(second["dial"]["circuit"], "kept", "{second}");
+    let third = pipe_reply(&fixture).await;
+    assert_eq!(third["via"], "iroh-direct", "{third}");
+    assert_eq!(fixture.carrier_a.kept_iroh_circuits(&b), 1, "one always-open connection");
+    // A stream through the iroh circuit reaches B's daemon and its answer comes back.
+    let (mut stream, report) = fixture
+        .carrier_a
+        .dial_service_reported(&b, CircuitService::CmuxTui { port: fixture.daemon.port() })
+        .await
+        .unwrap();
+    assert_eq!(report.via.name(), "iroh-direct");
+    stream.write_all(b"GET / HTTP/1.1\r\nHost: b\r\nConnection: close\r\n\r\n").await.unwrap();
+    let mut answer = vec![0u8; 12];
+    tokio::time::timeout(Duration::from_secs(10), stream.read_exact(&mut answer))
+        .await
+        .expect("B's daemon answered over iroh")
+        .unwrap();
+    assert!(answer.starts_with(b"HTTP/1."), "{:?}", String::from_utf8_lossy(&answer));
+}
+
+/// With no route set, A learns B's iroh address over the relay circuit it already holds
+/// (`acpmux-iroh-addr`), then upgrades the same way.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_irohdirect_learns_the_address_over_the_relay() {
+    let _ = HERMETIC;
+    let fixture = pipe_fixture().await;
+    fixture.gate.granted.store(true, Ordering::SeqCst);
+    let _iroh_b = fixture.carrier_b.start_iroh(loopback_iroh()).await.unwrap();
+    let _iroh_a = fixture.carrier_a.start_iroh(loopback_iroh()).await.unwrap();
+    let first = pipe_reply(&fixture).await;
+    assert_eq!(first["via"], "hub", "{first}");
+    until_iroh_kept(&fixture).await;
+    let next = pipe_reply(&fixture).await;
+    assert_eq!(next["via"], "iroh-direct", "{next}");
+}
+
+/// With `irohDirect` off (the default) nothing changes: every dial rides the relay and no iroh
+/// circuit opens, even when B serves iroh.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_irohdirect_off_changes_nothing() {
+    let _ = HERMETIC;
+    let fixture = pipe_fixture().await;
+    fixture.gate.granted.store(true, Ordering::SeqCst);
+    let _iroh_b = fixture.carrier_b.start_iroh(loopback_iroh()).await.unwrap();
+    let b = fixture.carrier_b.public_key();
+    for _ in 0..3 {
+        let reply = pipe_reply(&fixture).await;
+        assert_eq!(reply["via"], "hub", "{reply}");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    assert_eq!(fixture.carrier_a.kept_iroh_circuits(&b), 0);
+}
+
 /// One remote-protocol connection to B's daemon through the pipe: with `invitation`, a new
 /// device the owner approves; without, `identity` as an enrolled device.
 async fn connect_through_pipe(
@@ -2306,6 +2399,136 @@ fn hub_carrier_a_joined_daemon_with_no_websocket_config_runs_it_on_loopback_and_
     assert!(line.contains("127.0.0.1:"), "the carrier is not on the loopback listener: {line}");
 }
 
+/// The consent service end to end: machine B serves it with a consent authority that pinned the
+/// owner Mac's key. A machine B's hub book does not list is refused by name; once listed, A reads
+/// B's switches, a grant the pinned key signed turns Control and Screen on through the carrier,
+/// and the same grant again is refused as a replay.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_consent_service_applies_a_pinned_grant_and_refuses_an_unlisted_machine() {
+    use acpmux::cli::consent_grant::{Target, grantor_id, message};
+    use acpmux::consent_grant_service::{ConfiguredConsentGate, ask};
+    use ring::signature::{ECDSA_P256_SHA256_FIXED_SIGNING, EcdsaKeyPair, KeyPair};
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+
+    let _ = HERMETIC;
+    let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay_address = relay_listener.local_addr().unwrap();
+    let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
+        allow_open: true,
+        ..cmux_relay::RelayConfig::default()
+    })
+    .unwrap();
+    let (relay_listener, router) = relay.server_parts(relay_listener);
+    tokio::spawn(async move {
+        let _ = axum::serve(relay_listener, router).await;
+    });
+    let route = format!("relay+ws://{relay_address}");
+
+    // The owner Mac's key, pinned on B for the account both are joined as.
+    let rng = ring::rand::SystemRandom::new();
+    let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, &rng).unwrap();
+    let owner =
+        EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, pkcs8.as_ref(), &rng).unwrap();
+    let owner_key = owner.public_key().as_ref().to_vec();
+    let owner_id = grantor_id(&owner_key);
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("os-account/.acpmux/machine-consent");
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&root).unwrap();
+    let pins = json!({"grantors": [{"id": owner_id, "publicKey": acpmux::hub::approvers::hex(&owner_key),
+        "name": "owner mac", "account": "user-1", "pinnedAt": 1}], "seq": {}});
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(root.join("grantors.json"))
+        .and_then(|mut file| std::io::Write::write_all(&mut file, pins.to_string().as_bytes()))
+        .unwrap();
+
+    let (key_a, key_b) = (random_key(), random_key());
+    let fast = Timings {
+        control: Duration::from_secs(5),
+        handshake: Duration::from_secs(5),
+        ..Timings::default()
+    };
+    let carrier_b = HubCarrier::new(
+        Arc::new(FixedTickets {
+            relay: route.clone(),
+            peers: vec![public(&key_a)],
+            asked: AtomicU64::new(0),
+        }),
+        key_b,
+        fast,
+    );
+    let hub_b = hub();
+    hub_b.hub_carrier.set(carrier_b.clone());
+    let target = Target {
+        account: Some("user-1".into()),
+        machine_id: Some("machine_b".into()),
+        node_key: None,
+        name: Some("mini-b".into()),
+        own_grantor: None,
+    };
+    carrier_b.set_consent_gate(Arc::new(ConfiguredConsentGate::at(&hub_b, root.clone(), target)));
+    let nothing = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+    let _serving = carrier_b.serve(nothing);
+    let carrier_a = HubCarrier::new(
+        Arc::new(FixedTickets {
+            relay: route,
+            peers: vec![public(&key_b)],
+            asked: AtomicU64::new(0),
+        }),
+        key_a,
+        fast,
+    );
+    let b = public(&key_b);
+    let wait = Duration::from_secs(10);
+
+    // B's book does not list A yet: refused by name, nothing read. B's registration may still be
+    // on its way, so the first ask goes again until B answers.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        let answer = ask(&carrier_a, &b, &json!({"op": "status"}), wait).await;
+        assert_ne!(answer["ok"], true, "an unlisted machine read the consent: {answer}");
+        if answer["reason"] == "machine.unlisted" {
+            break;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "B never answered: {answer}");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    hub_b.set_mesh_book_machines(BTreeMap::from([(public(&key_a), "mbp-a".to_owned())]));
+    let status = ask(&carrier_a, &b, &json!({"op": "status", "grantor": owner_id}), wait).await;
+    assert_eq!(status["ok"], true, "{status}");
+    assert_eq!(status["machineId"], "machine_b");
+    assert_eq!(status["nodeKey"], json!(b), "the node key is the carrier's");
+    assert_eq!(status["control"], false);
+    assert_eq!(status["grantor"]["pinned"], true);
+
+    let now =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()
+            as u64;
+    let (issued, expires) = (now - 1_000, now + 60_000);
+    let signed = message(&owner_id, "user-1", "machine_b", &b, "on", "on", issued, expires);
+    let signature = owner.sign(&rng, &signed).unwrap();
+    let grant = json!({"v": 1, "grantor": owner_id, "account": "user-1", "machineId": "machine_b",
+        "nodeKey": b, "control": "on", "screen": "on", "issuedAt": issued, "expiresAt": expires,
+        "signature": acpmux::hub::approvers::hex(signature.as_ref())});
+    let set = ask(&carrier_a, &b, &json!({"op": "set", "grant": grant}), wait).await;
+    assert_eq!(set["ok"], true, "{set}");
+    assert_eq!(set["control"], true);
+    assert_eq!(set["screen"], true);
+    assert_eq!(set["controlGrantedBy"]["grantor"], json!(owner_id));
+    let consent: Value =
+        serde_json::from_slice(&std::fs::read(root.join("consent.json")).unwrap()).unwrap();
+    assert_eq!(consent["control"], "granted");
+    let line = set["grantLog"].as_array().and_then(|log| log.last()).cloned().unwrap();
+    assert_eq!(line["from"], "mbp-a", "the log names the machine that carried it");
+
+    let replayed = ask(&carrier_a, &b, &json!({"op": "set", "grant": grant}), wait).await;
+    assert_eq!(replayed["ok"], false);
+    assert_eq!(replayed["reason"], "grant.replayed");
+}
+
 /// How long A takes from adding peer `b` to its link being connected, with `url` as b's
 /// configured URL and the hub carrier's relay as the other path; the relay is fresh each run.
 async fn time_to_connected(url: &str) -> Duration {
@@ -3075,6 +3298,22 @@ async fn kept_fixture_with(
     b_keeps_circuits: bool,
     granted: bool,
 ) -> KeptFixture {
+    let fast = Timings {
+        control: Duration::from_secs(5),
+        handshake: Duration::from_secs(5),
+        ..Timings::default()
+    };
+    kept_fixture_timed(delay, rate, b_keeps_circuits, granted, fast).await
+}
+
+/// [`kept_fixture_with`] on both carriers' `fast` timings.
+async fn kept_fixture_timed(
+    delay: Duration,
+    rate: Option<u64>,
+    b_keeps_circuits: bool,
+    granted: bool,
+    fast: Timings,
+) -> KeptFixture {
     let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let relay_address = relay_listener.local_addr().unwrap();
     let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
@@ -3093,11 +3332,6 @@ async fn kept_fixture_with(
     let direct = format!("relay+ws://{relay_address}");
     let sshd = standin_sshd().await;
     let (key_a, key_b) = (random_key(), random_key());
-    let fast = Timings {
-        control: Duration::from_secs(5),
-        handshake: Duration::from_secs(5),
-        ..Timings::default()
-    };
     let b = HubCarrier::new(
         Arc::new(FixedTickets {
             relay: direct,
@@ -3277,6 +3511,88 @@ async fn hub_carrier_later_dials_to_a_machine_ride_its_kept_circuit_as_streams()
     assert_eq!(fixture.kept_circuits(), 1, "every dial rode the one circuit");
     assert_eq!(fixture.plain_dials(), 0);
     assert_eq!(fixture.kept_opens() - opens, 4);
+}
+
+/// RFD 0056 part 4, RFD 0061 G5 ("0 for a held circuit"): a held circuit is open before the
+/// first dial to the machine and outlives `kept_idle` with no stream, so the first acpmux dial,
+/// long after the last one, is a stream on it: no new circuit, no plain dial. A kept circuit that
+/// is not held idles out beside it, as before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_held_circuit_is_open_before_the_first_dial_and_never_idles_out() {
+    let _ = HERMETIC;
+    let idle = Duration::from_millis(600);
+    let timings = Timings {
+        control: Duration::from_secs(5),
+        handshake: Duration::from_secs(5),
+        keepalive: Duration::from_millis(150),
+        kept_idle: idle,
+        ..Timings::default()
+    };
+    // The fixture's own cmux-tui dials (until B served) opened the bulk circuit, not held.
+    let fixture = kept_fixture_timed(Duration::ZERO, None, true, true, timings).await;
+    assert!(!fixture.a.holds_circuit(&fixture.b_key, CircuitLane::Cheap));
+    let opened = fixture.kept_circuits();
+
+    let stages = within("the hold", fixture.a.hold_circuit(&fixture.b_key, CircuitLane::Cheap))
+        .await
+        .unwrap()
+        .expect("the hold opened the cheap circuit");
+    assert!(stages.total() > Duration::ZERO);
+    assert!(fixture.a.holds_circuit(&fixture.b_key, CircuitLane::Cheap));
+    assert_eq!(fixture.kept_circuits(), opened + 1);
+    // A second hold finds it open.
+    let again = within("a second hold", fixture.a.hold_circuit(&fixture.b_key, CircuitLane::Cheap))
+        .await
+        .unwrap();
+    assert!(again.is_none(), "{again:?}");
+    assert_eq!(fixture.kept_circuits(), opened + 1);
+
+    // Three idle periods with no stream: the bulk circuit idles out, the held one stays.
+    tokio::time::sleep(idle * 3).await;
+    assert!(fixture.a.holds_circuit(&fixture.b_key, CircuitLane::Cheap));
+    assert_eq!(fixture.a.kept_circuits(&fixture.b_key), 1, "only the held circuit is open");
+
+    let opens = fixture.kept_opens();
+    let mut link = within("the peer link", fixture.a.dial(&fixture.b_key)).await.unwrap();
+    echo(&mut link, b"held\n").await;
+    assert_eq!(fixture.kept_circuits(), opened + 1, "the dial rode the held circuit");
+    assert_eq!(fixture.kept_opens(), opens + 1);
+    assert_eq!(fixture.plain_dials(), 0);
+}
+
+/// `ACPMUX_HUB_HOLD_CIRCUITS` names machines once each; unset or empty holds none.
+#[test]
+fn hub_carrier_held_machines_reads_a_list_once_each_and_nothing_by_default() {
+    use acpmux::hub_carrier::held_machines;
+    assert_eq!(acpmux::hub_carrier::HOLD_CIRCUITS_ENV, "ACPMUX_HUB_HOLD_CIRCUITS");
+    assert!(held_machines(None).is_empty());
+    assert!(held_machines(Some("  , ")).is_empty());
+    assert_eq!(held_machines(Some("a, b c,a\nd")), vec!["a", "b", "c", "d"]);
+}
+
+/// A held machine is named by its `daemonId` or its host: a host resolves through the address
+/// book to every key it lists for that host, each key once, and a name the book lacks is left out.
+#[test]
+fn hub_carrier_held_machines_resolve_host_names_through_the_address_book() {
+    use acpmux::hub_carrier::{is_daemon_id, resolve_held};
+    let key_a = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=".to_owned();
+    let key_b = "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=".to_owned();
+    let key_c = "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM=".to_owned();
+    assert!(is_daemon_id(&key_a));
+    assert!(!is_daemon_id("build-box"));
+    let book = vec![
+        (key_a.clone(), "build-box".to_owned()),
+        (key_b.clone(), "work-mac".to_owned()),
+        (key_c.clone(), "work-mac".to_owned()),
+    ];
+    let entries: Vec<String> =
+        ["build-box", "work-mac", "gone-host", &key_a].iter().map(|s| s.to_string()).collect();
+    let (keys, unlisted) = resolve_held(&entries, &book);
+    assert_eq!(keys, vec![key_a.clone(), key_b, key_c]);
+    assert_eq!(unlisted, vec!["gone-host".to_owned()]);
+    // A key the book does not list is still held: the book can lag a machine that just joined.
+    let (keys, unlisted) = resolve_held(&[key_a.clone()], &[]);
+    assert_eq!((keys, unlisted), (vec![key_a], Vec::<String>::new()));
 }
 
 /// RFD 0127 cut 3: health is link liveness plus a 1-RTT echo. With a kept circuit open, the link's
@@ -3955,14 +4271,25 @@ async fn send_as_a_move_lands(asking: bool) {
 /// B, B to C, a turn on C, C back to A) comes back to A with every turn: the bench's ring lost
 /// each turn run away from A once the chat came home to A's older copy. Each machine it left
 /// keeps only a closed record that names where the chat went, never a live copy.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn hub_carrier_a_chat_moved_around_a_ring_comes_home_with_every_turn() {
-    use acpmux::mesh::InMessage;
+/// Three machines A, B and C on one native relay, each a hub with its carrier and the mesh
+/// book naming the other two, and the control hook that runs a move's pull (`op: move`).
+struct Ring {
+    hubs: Vec<Arc<Hub>>,
+    ids: Vec<String>,
+    names: [&'static str; 3],
+    root: std::path::PathBuf,
+    root_text: String,
+    hook: acpmux::server::mesh_relay::MeshControlHook,
+    _serving: Vec<acpmux::hub_carrier::HubServe>,
+    _stores: tempfile::TempDir,
+    _ledger: tempfile::TempDir,
+}
+
+async fn ring_of_three() -> Ring {
     use acpmux::mesh_http::MeshControlFrom;
-    use acpmux::server::mesh_relay::{ControlHook as _, MeshControlHook};
+    use acpmux::server::mesh_relay::MeshControlHook;
     use acpmux::transfer_service::{CarrierDial, ConfiguredTransferGate};
 
-    let _ = HERMETIC;
     let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let relay_address = relay_listener.local_addr().unwrap();
     let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
@@ -4031,6 +4358,74 @@ async fn hub_carrier_a_chat_moved_around_a_ring_comes_home_with_every_turn() {
         Some(ledger.path().join("mesh-controls.json")),
     )
     .with_own_user(Arc::new(|| Some("user-1".to_owned())));
+    Ring {
+        hubs,
+        ids,
+        names,
+        root,
+        root_text,
+        hook,
+        _serving: serving,
+        _stores: stores,
+        _ledger: ledger,
+    }
+}
+
+/// Begins moving chat `id` from machine `from` to `to` (waiting for a running turn when
+/// `after_turn`): the connection that began it, and its answer.
+async fn ring_begin(ring: &Ring, id: &str, from: usize, to: usize, after_turn: bool) -> (C, Value) {
+    let mut cs = client(ring.hubs[from].clone()).await;
+    let mut params = json!({"sessionId": id, "to": {"hub": ring.ids[to], "host": ring.names[to]}});
+    if after_turn {
+        params["afterTurn"] = json!(true);
+    }
+    let begin = cs.call("_acpmux/transfer_begin", params).await;
+    (cs, begin)
+}
+
+/// Finishes the move [`ring_begin`] began: `to` pulls it over the relay (the hub's `op: move`
+/// control) and `from` commits it, its copy a tombstone naming `to`.
+async fn ring_finish(
+    ring: &Ring,
+    cs: &mut C,
+    begin: &Value,
+    id: &str,
+    n: usize,
+    from: usize,
+    to: usize,
+) {
+    use acpmux::mesh::InMessage;
+    use acpmux::server::mesh_relay::ControlHook as _;
+    let (hubs, ids, names, root_text, hook) =
+        (&ring.hubs, &ring.ids, ring.names, &ring.root_text, &ring.hook);
+    let body = json!({"version": 1, "transferId": begin["transferId"], "sessionId": id,
+                          "manifest": begin, "folder": {"cwd": root_text}});
+    let message: InMessage = serde_json::from_value(json!({
+        "messageId": format!("m-ring-{n}"), "kind": "control", "op": "move", "mode": "now",
+        "to": {"daemonId": ids[to]},
+        "from": {"daemonId": ids[from], "user": "user-1", "host": names[from]},
+        "body": body.to_string(),
+    }))
+    .unwrap();
+    let ack = within("the pull over the relay", hook.control(&hubs[to], &message)).await;
+    let ack = serde_json::to_value(ack.expect("an answer within the hook's wait")).unwrap();
+    assert_eq!(ack["state"], "delivered", "hop {n}: {ack}");
+    let moved_to = json!({"host": names[to], "via": "hub", "sessionId": id, "cwd": root_text});
+    let committed = cs
+        .call(
+            "_acpmux/transfer_commit",
+            json!({"sessionId": id, "transferId": begin["transferId"], "to": moved_to,
+                       "epoch": begin["epoch"]}),
+        )
+        .await;
+    assert_eq!(committed["committed"], true, "hop {n}: {committed}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_chat_moved_around_a_ring_comes_home_with_every_turn() {
+    let _ = HERMETIC;
+    let ring = ring_of_three().await;
+    let (hubs, names, root_text) = (&ring.hubs, ring.names, &ring.root_text);
 
     let mut ca = client(hubs[0].clone()).await;
     let s = ca.call(method::SESSION_NEW, json!({"cwd": root_text, "mcpServers": []})).await;
@@ -4042,34 +4437,8 @@ async fn hub_carrier_a_chat_moved_around_a_ring_comes_home_with_every_turn() {
     // (from, to, the turn run on `to` once the chat is there)
     let hops = [(0, 1, Some("turn on machine B")), (1, 2, Some("turn on machine C")), (2, 0, None)];
     for (n, (from, to, then)) in hops.into_iter().enumerate() {
-        let mut cs = client(hubs[from].clone()).await;
-        let begin = cs
-            .call(
-                "_acpmux/transfer_begin",
-                json!({"sessionId": id, "to": {"hub": ids[to], "host": names[to]}}),
-            )
-            .await;
-        let body = json!({"version": 1, "transferId": begin["transferId"], "sessionId": id,
-                          "manifest": begin, "folder": {"cwd": root_text}});
-        let message: InMessage = serde_json::from_value(json!({
-            "messageId": format!("m-ring-{n}"), "kind": "control", "op": "move", "mode": "now",
-            "to": {"daemonId": ids[to]},
-            "from": {"daemonId": ids[from], "user": "user-1", "host": names[from]},
-            "body": body.to_string(),
-        }))
-        .unwrap();
-        let ack = within("the pull over the relay", hook.control(&hubs[to], &message)).await;
-        let ack = serde_json::to_value(ack.expect("an answer within the hook's wait")).unwrap();
-        assert_eq!(ack["state"], "delivered", "hop {n}: {ack}");
-        let moved_to = json!({"host": names[to], "via": "hub", "sessionId": id, "cwd": root_text});
-        let committed = cs
-            .call(
-                "_acpmux/transfer_commit",
-                json!({"sessionId": id, "transferId": begin["transferId"], "to": moved_to,
-                       "epoch": begin["epoch"]}),
-            )
-            .await;
-        assert_eq!(committed["committed"], true, "hop {n}: {committed}");
+        let (mut cs, begin) = ring_begin(&ring, &id, from, to, false).await;
+        ring_finish(&ring, &mut cs, &begin, &id, n, from, to).await;
         if let Some(text) = then {
             let mut ct = client(hubs[to].clone()).await;
             ct.call(method::SESSION_PROMPT, turn(text)).await;
@@ -4100,6 +4469,325 @@ async fn hub_carrier_a_chat_moved_around_a_ring_comes_home_with_every_turn() {
     }
     let rows = hubs[0].mesh_rows().await;
     assert!(rows.iter().any(|r| r.session_id == id), "A does not list the chat it holds");
-    drop(serving);
+    let root = ring.root.clone();
+    drop(ring);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The mesh hub of [`Ring`]'s three machines, as cmux-platform's is to them: a post for
+/// `HOST/SESSION` waits in that host's inbox; a lease not acked within [`RING_LEASE`] comes
+/// back; one idempotency key is one message. It keeps every ack.
+struct RingMesh {
+    names: [&'static str; 3],
+    state: std::sync::Mutex<RingState>,
+}
+
+#[derive(Default)]
+struct RingState {
+    waiting: [std::collections::VecDeque<acpmux::mesh::InMessage>; 3],
+    leased: Vec<(usize, acpmux::mesh::InMessage, tokio::time::Instant)>,
+    keys: BTreeMap<String, String>,
+    acks: Vec<(String, acpmux::mesh::Ack)>,
+    posts: u64,
+}
+
+/// How long [`RingMesh`] waits for an ack before it leases a message again.
+const RING_LEASE: Duration = Duration::from_millis(400);
+
+impl RingMesh {
+    fn put(&self, at: usize, message: acpmux::mesh::InMessage) {
+        self.state.lock().unwrap().waiting[at].push_back(message);
+    }
+}
+
+/// One machine's connection to [`RingMesh`].
+struct RingPort {
+    mesh: Arc<RingMesh>,
+    me: usize,
+}
+
+impl acpmux::mesh::MeshHub for RingPort {
+    fn inbox(
+        &self,
+        wait: Duration,
+        max: usize,
+    ) -> futures::future::BoxFuture<'_, Result<Vec<acpmux::mesh::InMessage>, acpmux::mesh::HubError>>
+    {
+        Box::pin(async move {
+            let deadline = tokio::time::Instant::now() + wait;
+            loop {
+                let leased: Vec<_> = {
+                    let mut s = self.mesh.state.lock().unwrap();
+                    let now = tokio::time::Instant::now();
+                    let (back, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut s.leased)
+                        .into_iter()
+                        .partition(|(at, _, until)| *at == self.me && *until <= now);
+                    s.leased = kept;
+                    for (_, mut m, _) in back {
+                        m.attempt += 1;
+                        s.waiting[self.me].push_back(m);
+                    }
+                    let n = max.min(s.waiting[self.me].len());
+                    let out: Vec<_> = s.waiting[self.me].drain(..n).collect();
+                    for m in &out {
+                        s.leased.push((self.me, m.clone(), now + RING_LEASE));
+                    }
+                    out
+                };
+                if !leased.is_empty() || tokio::time::Instant::now() >= deadline {
+                    return Ok(leased);
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        })
+    }
+
+    fn ack<'a>(
+        &'a self,
+        id: &'a str,
+        ack: &'a acpmux::mesh::Ack,
+    ) -> futures::future::BoxFuture<'a, Result<(), acpmux::mesh::HubError>> {
+        Box::pin(async move {
+            let mut s = self.mesh.state.lock().unwrap();
+            s.leased.retain(|(_, m, _)| m.message_id != id);
+            s.acks.push((id.to_owned(), ack.clone()));
+            Ok(())
+        })
+    }
+
+    fn heartbeat<'a>(
+        &'a self,
+        _beat: &'a acpmux::mesh::Heartbeat,
+    ) -> futures::future::BoxFuture<'a, Result<acpmux::mesh::HeartbeatReply, acpmux::mesh::HubError>>
+    {
+        Box::pin(async move {
+            Ok(acpmux::mesh::HeartbeatReply {
+                daemon_id: self.mesh.names[self.me].to_owned(),
+                ttl_seconds: 90,
+            })
+        })
+    }
+
+    /// Routes by the host the post names (a relay's forward names `HOST/SESSION`).
+    fn send<'a>(
+        &'a self,
+        m: &'a acpmux::mesh::OutMessage,
+    ) -> futures::future::BoxFuture<'a, Result<acpmux::mesh::Receipt, acpmux::mesh::HubError>> {
+        Box::pin(async move {
+            let mut s = self.mesh.state.lock().unwrap();
+            let receipt = |id: &str| {
+                serde_json::from_value(json!({"messageId": id, "state": "queued"})).unwrap()
+            };
+            if let Some(id) = s.keys.get(&m.idempotency_key) {
+                return Ok(receipt(id));
+            }
+            let Some(at) = self.mesh.names.iter().position(|n| Some(*n) == m.to.host.as_deref())
+            else {
+                let mut e = acpmux::mesh::HubError::refused("no such recipient");
+                e.code = Some("mesh.unknown_recipient".into());
+                return Err(e);
+            };
+            s.posts += 1;
+            let id = format!("msg_fwd_{}", s.posts);
+            s.keys.insert(m.idempotency_key.clone(), id.clone());
+            let mut from = m.from.clone();
+            from.host = Some(self.mesh.names[self.me].to_owned());
+            s.waiting[at].push_back(acpmux::mesh::InMessage {
+                message_id: id.clone(),
+                kind: m.kind,
+                op: m.op.clone(),
+                mode: m.mode,
+                to: acpmux::mesh::Target {
+                    session_id: m.to.session_id.clone(),
+                    ..Default::default()
+                },
+                from,
+                body: m.body.clone(),
+                attempt: 1,
+                start_work: None,
+                state: Some("queued".into()),
+                subject: None,
+            });
+            Ok(receipt(&id))
+        })
+    }
+
+    fn receipt<'a>(
+        &'a self,
+        _id: &'a str,
+    ) -> futures::future::BoxFuture<'a, Result<acpmux::mesh::Receipt, acpmux::mesh::HubError>> {
+        Box::pin(async { Err(acpmux::mesh::HubError::refused("no receipts here")) })
+    }
+}
+
+/// Super-highway, Leo's goal "0 lost messages": a chat moved A -> B -> C -> A while another
+/// machine's sends to it are in flight gets each of them exactly once. Each hop takes a send
+/// queued before its move (`afterTurn`), one that reached the old machine mid-move (its lease
+/// brings it back until the move commits), one sent to the old machine after the move (a sender
+/// that still read the old row), and one sent to the new machine; and one send the hub leases
+/// again after the chat moved on (a lost ack). Before the fix the old machine's relay refused
+/// every send for a chat that moved away ("the chat moved to ...") after the hub had taken it,
+/// and the text was gone: 191 of the bench ring's 576 sends on 2026-11-28.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_sends_to_a_chat_moving_around_a_ring_arrive_exactly_once() {
+    use acpmux::mesh::{InMessage, Kind, Mode, Sender, Target};
+    use acpmux::server::mesh_relay::{MeshRelay, RefuseControl, RelayOptions};
+
+    let _ = HERMETIC;
+    let ring = ring_of_three().await;
+    let mesh = Arc::new(RingMesh { names: ring.names, state: Default::default() });
+    let quick = || RelayOptions {
+        heartbeat_every: Duration::from_millis(200),
+        inbox_wait: Duration::from_millis(300),
+        min_poll_gap: Duration::from_millis(50),
+        backoff_first: Duration::from_millis(100),
+        backoff_cap: Duration::from_millis(400),
+        refused_retry: Duration::from_millis(300),
+        max_in_flight: 4,
+        on_reconnect: None,
+        capacity_every: None,
+    };
+    let _relays: Vec<_> = (0..3)
+        .map(|me| {
+            let port = Arc::new(RingPort { mesh: mesh.clone(), me });
+            // As the daemon's own start does (`start_configured`): the hub a forward posts to.
+            ring.hubs[me].mesh.set(port.clone());
+            MeshRelay::start(&ring.hubs[me], port, Arc::new(RefuseControl), quick())
+        })
+        .collect();
+
+    let mut ca = client(ring.hubs[0].clone()).await;
+    let s = ca.call(method::SESSION_NEW, json!({"cwd": ring.root_text, "mcpServers": []})).await;
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    drop(ca);
+
+    // Every send: its hub message id and its text, which says where it was sent and when.
+    let mut sent: Vec<(String, String)> = Vec::new();
+    let send = |sent: &mut Vec<(String, String)>, at: usize, text: String| {
+        let message_id = format!("msg_sender_{}", sent.len());
+        mesh.put(
+            at,
+            InMessage {
+                message_id: message_id.clone(),
+                kind: Kind::Prompt,
+                op: None,
+                mode: Mode::TurnEnd,
+                to: Target { session_id: Some(id.clone()), ..Target::default() },
+                // A shell's send (no session, no name): it runs as a prompt, waking the chat.
+                from: Sender {
+                    host: Some("machine-s".into()),
+                    daemon_id: Some("inst_s".into()),
+                    ..Sender::default()
+                },
+                body: text.clone(),
+                attempt: 1,
+                start_work: None,
+                state: Some("queued".into()),
+                subject: None,
+            },
+        );
+        sent.push((message_id, text));
+    };
+    let acked =
+        |message_id: &str| mesh.state.lock().unwrap().acks.iter().any(|(m, _)| m == message_id);
+
+    let hops = [(0, 1), (1, 2), (2, 0)];
+    for (n, (from, to)) in hops.into_iter().enumerate() {
+        let name = |i: usize| ring.names[i].trim_start_matches("machine-").to_uppercase();
+        let (old, new) = (name(from), name(to));
+        send(&mut sent, from, format!("ringmsg h{n} queued on {old} before the move"));
+        let (mut cs, begin) = ring_begin(&ring, &id, from, to, true).await;
+        assert!(begin["transferId"].is_string(), "hop {n}: {begin}");
+        send(&mut sent, from, format!("ringmsg h{n} reached {old} mid-move"));
+        tokio::time::sleep(Duration::from_millis(600)).await;
+        ring_finish(&ring, &mut cs, &begin, &id, n, from, to).await;
+        send(&mut sent, from, format!("ringmsg h{n} sent to {old} after it left"));
+        send(&mut sent, to, format!("ringmsg h{n} sent to {new} where it is"));
+        // Every send so far settled before the next move, as a sender's send does.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+        while !sent.iter().all(|(m, _)| acked(m)) {
+            assert!(tokio::time::Instant::now() < deadline, "hop {n}: sends never acked");
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+    // The hub leases a send to B again after the chat left it (its first ack was lost).
+    let again = mesh.state.lock().unwrap().acks.len();
+    let (first_to_b, _) = sent[4].clone();
+    let original = InMessage {
+        message_id: first_to_b.clone(),
+        kind: Kind::Prompt,
+        op: None,
+        mode: Mode::TurnEnd,
+        to: Target { session_id: Some(id.clone()), ..Target::default() },
+        from: Sender {
+            host: Some("machine-s".into()),
+            daemon_id: Some("inst_s".into()),
+            ..Sender::default()
+        },
+        body: sent[4].1.clone(),
+        attempt: 2,
+        start_work: None,
+        state: Some("queued".into()),
+        subject: None,
+    };
+    mesh.put(1, original);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        let s = mesh.state.lock().unwrap();
+        let settled =
+            s.acks.len() > again && s.waiting.iter().all(|w| w.is_empty()) && s.leased.is_empty();
+        drop(s);
+        if settled {
+            break;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "the re-lease never settled");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    // Every send's text once in the chat, now home on A; none twice.
+    let mut ca = client(ring.hubs[0].clone()).await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    let (counts, events) = loop {
+        let events = all_events(&mut ca, &id).await;
+        let users: Vec<String> = events
+            .iter()
+            .filter(|e| e["kind"] == "user_message")
+            .filter_map(|e| e["msg"]["text"].as_str().map(str::to_owned))
+            .collect();
+        let counts: Vec<(String, usize)> = sent
+            .iter()
+            .map(|(_, text)| (text.clone(), users.iter().filter(|u| u.contains(text)).count()))
+            .collect();
+        if counts.iter().all(|(_, c)| *c == 1) || tokio::time::Instant::now() >= deadline {
+            break (counts, events);
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    };
+    let acks = mesh.state.lock().unwrap().acks.clone();
+    let lost: Vec<_> = counts.iter().filter(|(_, c)| *c == 0).collect();
+    let twice: Vec<_> = counts.iter().filter(|(_, c)| *c > 1).collect();
+    // Where each lost one is in the chat's log, if anywhere: the records that name its text.
+    let found: Vec<_> = lost
+        .iter()
+        .map(|(text, _)| {
+            let kinds: Vec<String> = events
+                .iter()
+                .filter(|e| e.to_string().contains(text.as_str()))
+                .map(|e| e["kind"].as_str().unwrap_or("?").to_owned())
+                .collect();
+            (text.clone(), kinds)
+        })
+        .collect();
+    assert!(
+        lost.is_empty() && twice.is_empty(),
+        "lost {lost:?} (in the log as {found:?}), more than once {twice:?}; acks {acks:#?}"
+    );
+    let refused: Vec<_> = acks
+        .iter()
+        .filter(|(_, a)| serde_json::to_value(a.state).unwrap() != "delivered")
+        .collect();
+    assert!(refused.is_empty(), "a send was refused: {refused:#?}");
+    let root = ring.root.clone();
+    drop(ring);
     let _ = std::fs::remove_dir_all(&root);
 }

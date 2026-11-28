@@ -43,6 +43,8 @@
     webviews_test_history.py rerun-fits FILES --shards SHARDS.json --cap N
         exit 0 when FILES (the change's reds to re-run alone) is not empty and no head shard holds more than N
         of them, else 1
+    webviews_test_history.py held-red-files HISTORY --before EPOCH --hours H [--changed FILE] --out FILES
+        write to FILES, one a line, the files red on every push for H hours or more before EPOCH (held_red_files)
     webviews_test_history.py fetch OUT --repo OWNER/REPO --branch BRANCH [--wait-rate-limit SECONDS]
         write to OUT the newest history a push on BRANCH uploaded (the ARTIFACT artifact), or an empty
         one when there is none or it cannot be read; GITHUB_TOKEN reads it (actions: read)
@@ -287,6 +289,28 @@ def flaky_name(runs: list[dict], name: str) -> bool:
         return True
     file = name.split(" > ", 1)[0]
     return name != file and any(not ok for _, ok in found) and returns(file_verdicts(runs, file))
+
+
+def held_red_files(runs: list[dict], before: float, hours: float, changed: set[str] | None = None) -> list[dict]:
+    """The files red on every push that ran them for at least HOURS before BEFORE (the merge parent's commit time), still
+    red on the newest such push and that push no older than HOURS: [{file, first, hours}], oldest red first.
+
+    A pull request's shards skip them (run-webviews-tests.sh, CMUX_WEB_TEST_HELD_REDS) and the batch runs keep running
+    them, so their history still says when one goes green. Leo, relayed 2026-11-22 07:18Z: "we need to get rid of the
+    notion that we run tests indefinitely after they get created. full stop... vacuously true is as good as waste". On
+    2026-11-22 116 of the 187 webview files red on the base had been red over 24 h, one for 143 h. A file the change
+    edits (CHANGED, paths under webviews/) still runs: that change may be its fix."""
+    if hours <= 0:
+        return []
+    at = [run for run in runs if run["time"] <= before]
+    if not at or at[-1]["time"] < before - hours * 3600:
+        return []
+    out = []
+    for item in stuck(at, 2):
+        first = item["first"]
+        if before - first["time"] >= hours * 3600 and item["file"] not in (changed or set()):
+            out.append({"file": item["file"], "first": first["sha"], "hours": round((before - first["time"]) / 3600, 1)})
+    return sorted(out, key=lambda x: (-x["hours"], x["file"]))
 
 
 # A red name the history has on the last HELD_RED_PUSHES pushes that ran its file, whatever their inputs, the newest no
@@ -908,6 +932,12 @@ def main(argv: list[str]) -> int:
     rf.add_argument("files")
     rf.add_argument("--shards", required=True)
     rf.add_argument("--cap", type=int, required=True)
+    hr = sub.add_parser("held-red-files")
+    hr.add_argument("history")
+    hr.add_argument("--before", type=float, required=True)
+    hr.add_argument("--hours", type=float, required=True)
+    hr.add_argument("--changed", help="a file of the change's paths under webviews/, one a line")
+    hr.add_argument("--out", required=True)
     fe = sub.add_parser("fetch")
     fe.add_argument("out")
     fe.add_argument("--repo", required=True)
@@ -963,6 +993,21 @@ def main(argv: list[str]) -> int:
         return 0
     if args.command == "passed-before":
         print(f"files passed at the previous head: {passed_before(args.repo, args.branch, args.shard, args.run_id, Path(args.out))}")
+        return 0
+    if args.command == "held-red-files":
+        changed = set()
+        if args.changed:
+            try:
+                changed = {line.strip() for line in Path(args.changed).read_text(encoding="utf-8").splitlines() if line.strip()}
+            except OSError:
+                changed = set()
+        found = held_red_files(load(args.history), args.before, args.hours, changed)
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.out).write_text("".join(item["file"] + "\n" for item in found), encoding="utf-8")
+        print(f"webview test history: {len(found)} files red on the base for {args.hours:g} h or more; pull request "
+              "shards skip them, batch runs keep them (CMUX_WEB_TEST_HELD_RED_HOURS=0 runs them)")
+        for item in found:
+            print(f"  HELD RED {item['file']} since {item['first'][:12]} ({item['hours']} h)")
         return 0
     if args.command == "fetch":
         found, said, read = fetch(args.repo, args.branch, os.environ.get("GITHUB_TOKEN"), wait=args.wait_rate_limit)

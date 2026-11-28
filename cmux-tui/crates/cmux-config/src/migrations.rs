@@ -248,7 +248,9 @@ fn version(text: &str) -> Option<(u64, u64, u64)> {
     Some((major, minor, patch))
 }
 
+pub mod classic;
 pub mod once;
+pub mod renamed;
 
 #[cfg(test)]
 mod tests;

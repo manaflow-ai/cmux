@@ -66,6 +66,25 @@ const NAMED: readonly { field: string; row: string; why: string; view: "same" | 
   },
 ];
 
+/// Differences introduced by turn shaping. They never occur in the raw row comparison above.
+const VIEW_ONLY: readonly { field: string; row: string; why: string }[] = [
+  {
+    field: "worked.workedRuns",
+    row: "seed-turn:worked",
+    why: "the store's worked fold has the same run content but keeps its tool timing fields out",
+  },
+  {
+    field: "worked.foldedPrompt",
+    row: "parity:worked",
+    why: "the worked fold carries the store's prompt row identity",
+  },
+  {
+    field: "worked.foldCalls",
+    row: "seed-turn:worked",
+    why: "the worked fold's hidden calls carry the same run content as workedRuns, so their timing fields differ alike",
+  },
+];
+
 /// Fields neither comparison reads, beside NAMED: what each side names a row by, never drawn.
 const UNCOMPARED: readonly { field: string; why: string }[] = [
   {
@@ -113,14 +132,9 @@ const DRAWN_FROM: readonly { field: string; from: readonly string[]; why: string
     why: "a reply-less turn's fold names the turns it joins by their fold keys, made from their prompts' ids",
   },
   {
-    field: "row:worked",
-    from: ["row:permissionRecord"],
-    why: "v1's receipt is the work of its turn, which the turn folds",
-  },
-  {
-    field: "turnSummary.folded",
-    from: ["row:permissionRecord"],
-    why: "as row:worked",
+    field: "worked.foldedPrompt",
+    from: ["id"],
+    why: "a turn's fold carries the prompt row it folds whole (conversation/turns.ts), named by its id",
   },
 ];
 
@@ -305,6 +319,7 @@ test("the view draws both the same: turnView over v1's rows and over the adapter
   const allowed = new Set([
     ...NOT_YET.map((entry) => entry.field),
     ...NAMED.filter((entry) => entry.view === "differs").map((entry) => entry.field),
+    ...VIEW_ONLY.map((entry) => entry.field),
     ...DRAWN_FROM.map((entry) => entry.field),
   ]);
   for (const [key, examples] of found)

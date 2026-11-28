@@ -103,7 +103,11 @@ class HeadlessDebugDaemon(unittest.TestCase):
             self.assertEqual(produced[field], consumed[field], field)
         self.assertEqual(produced["workspaces"], "cmux-tui -> target")
         self.assertEqual(str(produced["cache-workspace-crates"]).lower(), "true")
-        self.assertNotIn("save-if", produced)
+        # The producer saves on its trusted feat/main pushes; a pull request or merge group never writes it.
+        if "save-if" in produced:
+            for event in ("pull_request", "pull_request_target", "merge_group"):
+                self.assertIn(f"github.event_name != '{event}'", produced["save-if"])
+            self.assertIn("refs/heads/feat-cmux-next", produced["save-if"])
         # Pull request caches stay read-only, like the exact binary's.
         self.assertIs(consumed["save-if"], False)
 
@@ -121,6 +125,22 @@ class HeadlessDebugDaemon(unittest.TestCase):
         for field in ("shared-key", "workspaces", "add-rust-environment-hash-key", "cache-workspace-crates"):
             self.assertEqual(produced[field], consumed[field], field)
         self.assertIs(consumed["save-if"], False)
+        # The exact key hashes Cargo.lock, which moves several times an hour, and rust-cache has no fallback
+        # (run 45903917201 compiled cold for 35 min). The journey then restores the newest headless-debug
+        # entry under any lock hash, with rust-cache's own paths in its order, so the entry's version matches.
+        names = [s.get("name") for s in journey["steps"]]
+        fallback_name = "Restore the newest headless target dir (any Cargo.lock)"
+        fallback = step(journey, fallback_name)
+        self.assertLess(names.index("Cache the cmux-tui target dir"), names.index(fallback_name))
+        self.assertLess(names.index(fallback_name), names.index("Build Linux cmux-tui for the headless journey"))
+        self.assertTrue(str(fallback["uses"]).startswith("actions/cache/restore@"))
+        self.assertIn("steps.headless-target.outputs.cache-hit != 'true'", fallback["if"])
+        self.assertIs(fallback["continue-on-error"], True)
+        self.assertEqual(fallback["with"]["restore-keys"].split(), ["v0-rust-cmux-tui-headless-debug-"])
+        self.assertTrue(fallback["with"]["key"].startswith(f"v0-rust-{produced['shared-key']}-"))
+        paths_run = step(journey, "Paths of the headless target dir")["run"]
+        order = ['"$cargo_home/registry"', '"$cargo_home/git"', '"$GITHUB_WORKSPACE/cmux-tui/target"']
+        self.assertEqual(sorted(order, key=paths_run.index), order)
         build_env = step(journey, "Build Linux cmux-tui for the headless journey")["env"]
         producer_env = step(self.producer, "Build exact headless cmux-tui")["env"]
         self.assertEqual(build_env["CMUX_GHOSTTY_VT_ZIG_CPU"], producer_env["CMUX_GHOSTTY_VT_ZIG_CPU"])

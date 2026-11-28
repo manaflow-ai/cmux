@@ -21,23 +21,21 @@ extension SessionConsentResponder {
                                accountEmail: auth.user?.primaryEmail)
             },
             consent: { ask in
+                // main-actor-ok: one consent ask's message, a few lines, on a sign-in request.
                 await dialog(ask.title, ask.message.split(separator: "\n").map(String.init), ask.allow, ask.deny)
             },
             mint: { call in await mintSession(call, auth: auth) })
     }
 
-    /// The web route call with NIGHTLY's current tokens (`Authorization: Bearer`, `X-Stack-Refresh-Token`);
+    /// The web route call (`cmux cloud install-post`, Rust sends it) with NIGHTLY's current tokens (`Authorization: Bearer`, `X-Stack-Refresh-Token`);
     /// `(0, empty)` when NIGHTLY has no tokens or the call failed. Nothing here logs a token or the answer.
     static func mintSession(_ call: SessionConsentMintCall, auth: CloudAuth) async -> (status: Int, body: Data) {
         guard let tokens = try? await auth.tokens() else { return (0, Data()) }
-        var request = URLRequest(url: call.url, timeoutInterval: 20)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(tokens.access)", forHTTPHeaderField: "Authorization")
-        request.setValue(tokens.refresh, forHTTPHeaderField: "X-Stack-Refresh-Token")
-        request.httpBody = call.body
-        guard let (body, response) = try? await CloudAPIClient.noStoreTransport.data(for: request) else { return (0, Data()) }
-        return ((response as? HTTPURLResponse)?.statusCode ?? 0, body)
+        guard var origin = URLComponents(url: call.url, resolvingAgainstBaseURL: false) else { return (0, Data()) }
+        (origin.path, origin.query) = ("", nil)
+        guard let url = origin.url, let answer = try? await InstallHTTPTransport(baseURL: url, buildSpace: auth.configuration.buildSpace, machineIO: auth.machineIO)
+            .post(call.url.path, json: call.body, bearer: tokens.access, headers: ["X-Stack-Refresh-Token": tokens.refresh]) else { return (0, Data()) }
+        return (answer.status, answer.body)
     }
 }
 

@@ -15,6 +15,7 @@ mod daemon;
 mod design;
 mod design_system;
 mod dev;
+mod headless;
 #[cfg(test)]
 mod kinds_tests;
 mod pack;
@@ -97,6 +98,10 @@ cmux ext: make a cmux extension and watch it change as you work.
                                files it names) and cmux-app.v2.json in DIR/release; prints the sha256
   cmux ext dev [DIR]           load DIR into cmux, then reload it on every save (Ctrl-C stops)
   cmux ext dev --once --json   one validate + build + reload; exit 0 ok, 1 load, 3 no cmux, 4 manifest, 5 build
+  cmux ext dev --once --headless --json
+                               the same with no cmux running: built, then loaded and rendered once
+                               here by the app host cmux runs (host calls answer empty); for CI
+                               and machines with no window
   cmux ext shot [DIR] [--out PNG] [--record] [--json]
                                one reload, then what it rendered: the view's outline, its design
                                warnings and a picture of the cmux window that shows it; exit 6
@@ -154,6 +159,8 @@ pub(super) struct DevOptions {
     pub bun: Option<PathBuf>,
     /// Render a widget at every size it declares (`ext shot --record`; `ext dev` renders one).
     pub every_size: bool,
+    /// `--headless` (with `--once`): load and render in this process, no cmux needed.
+    pub headless: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -275,6 +282,7 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                 build_timeout: dev::BUILD_TIMEOUT,
                 bun: None,
                 every_size: false,
+                headless: false,
             };
             let mut dir = None;
             let mut words = rest.iter();
@@ -284,6 +292,7 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                     "--keep" => options.remove_on_exit = false,
                     "--remove-on-exit" => options.remove_on_exit = true,
                     "--no-install" => options.install = false,
+                    "--headless" => options.headless = true,
                     "--build" => {
                         options.build = Some(
                             words.next().ok_or_else(|| usage("--build needs a command"))?.clone(),
@@ -306,6 +315,11 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
             }
             if let Some(dir) = dir {
                 options.dir = dir;
+            }
+            if options.headless && !options.once {
+                return Err(usage(
+                    "--headless goes with --once: cmux ext dev --once --headless --json",
+                ));
             }
             Ok(Request::Dev(options))
         }
@@ -1146,6 +1160,10 @@ pub(super) fn capabilities_table(data: &Value) -> String {
     if let Some(version) = data.field("apiVersion").as_str() {
         out.push_str(&format!("cmux app API {version}\n"));
     }
+    out.push_str(
+        "Each surface's reference, with a working example: cmux customize docs [SURFACE]; \
+copy-paste prompts for common goals: cmux customize prompts\n",
+    );
     out
 }
 

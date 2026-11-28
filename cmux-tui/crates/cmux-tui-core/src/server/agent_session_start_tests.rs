@@ -78,11 +78,15 @@ fn timings_name_each_phase_reached() {
         settle: Some(4),
         bind: Some(5),
         total: Some(1815),
+        agent_home: Some(240),
+        session_new_warm: Some(false),
+        step: Some("bind"),
     };
     assert_eq!(
         all.wire(),
         json!({"keyed_gate": 1, "acpmux_connect": 2, "acpmux_started": true, "checks": 3,
-               "session_new": 1800, "settle": 4, "bind": 5, "total": 1815})
+               "session_new": 1800, "settle": 4, "bind": 5, "total": 1815, "agent_home": 240,
+               "session_new_warm": false})
     );
     let gated = StartTimings { keyed_gate: Some(7), total: Some(7), ..Default::default() };
     assert_eq!(gated.wire(), json!({"keyed_gate": 7, "total": 7, "acpmux_started": false}));
@@ -217,6 +221,62 @@ fn a_start_acpmux_refused_says_why() {
     );
 }
 
+/// A bare `refused` names the phase acpmux refused in (`data.step`, and its text "at STEP"), so a
+/// refusal with no reason code still says which call it was (the 2026-11-27T20:12Z
+/// notify-banner-click row read only "acpmux refused the request"); other refusals stay as they are.
+#[test]
+fn a_bare_start_refusal_names_its_step() {
+    let mut timings = super::StartTimings::default();
+    assert_eq!(timings.refusal_data(Refusal::Refused, None), None);
+    timings.at("session_new");
+    let bare = timings.refusal_data(Refusal::Refused, None).expect("a step");
+    assert_eq!(bare, json!({"step": "session_new"}));
+    assert_eq!(
+        super::super::refusal_text(Refusal::Refused, &bare),
+        "acpmux refused the request at session_new"
+    );
+    let coded = timings
+        .refusal_data(Refusal::Refused, Some(json!({"reason": "permission.denied"})))
+        .expect("data");
+    assert_eq!(
+        super::super::refusal_text(Refusal::Refused, &coded),
+        "acpmux refused the request (permission.denied) at session_new"
+    );
+    assert_eq!(timings.refusal_data(Refusal::UntrustedFolder, None), None);
+    let keyed = json!({"reason": "needs_keyed_start"});
+    assert_eq!(timings.refusal_data(Refusal::NeedsKeyedStart, Some(keyed.clone())), Some(keyed));
+}
+
+/// A start that lost acpmux (`unavailable`: the link closed, or acpmux was not back within the
+/// reconnect wait) or waited it out (`timeout`) names the phase as `data.step` and as a reason
+/// code the app prints beside the refusal's code, so the 2026-11-28T11:45Z production row, which
+/// read only "refused to start the agent chat (agent_session.unavailable)", says where.
+#[test]
+fn a_start_that_lost_acpmux_names_its_step() {
+    let mut timings = super::StartTimings::default();
+    assert_eq!(timings.refusal_data(Refusal::Unavailable, None), None);
+    timings.at("catalog");
+    assert_eq!(
+        timings.refusal_data(Refusal::Unavailable, None),
+        Some(json!({"step": "catalog", "reason": "acpmux_closed.catalog"}))
+    );
+    timings.at("session_new");
+    assert_eq!(
+        timings.refusal_data(Refusal::Timeout, None),
+        Some(json!({"step": "session_new", "reason": "acpmux_timeout.session_new"}))
+    );
+    let own = json!({"reason": "route.unavailable"});
+    assert_eq!(
+        timings.refusal_data(Refusal::Unavailable, Some(own)),
+        Some(json!({"step": "session_new", "reason": "route.unavailable"}))
+    );
+    let lost = timings.refusal_data(Refusal::Timeout, None).unwrap();
+    assert_eq!(
+        super::super::refusal_text(Refusal::Timeout, &lost),
+        "acpmux did not answer in time at session_new"
+    );
+}
+
 /// An agent the machine's acpmux catalog does not have (pi on a Cloud machine, whose image
 /// ships `pi` but not the `pi-acp` adapter acpmux runs it through) is refused as
 /// `harness_missing` naming it, never `not_asking`, which said the agent cannot ask first
@@ -272,4 +332,284 @@ fn a_start_whose_route_cannot_serve_it_names_the_route() {
     );
     let StartRefused(_, data) = StartRefused::of_session_new(signed_out).naming(Some("grok"));
     assert_eq!(data.unwrap()["harness"], "cursor");
+}
+
+/// Step 5 of hq `plans/cloud/agent-memory-follows-user.md`: a fresh chat on the caller's own
+/// Cloud VM pulls the person's agent home before its harness spawns. Never on a Mac, an SSH
+/// host or a team VM, and never for a caller that is not the VM's owner.
+#[test]
+fn only_the_callers_own_solo_cloud_vm_pulls_the_agent_home() {
+    use AgentStartHost::{Allowed, OwnerCloud, TeamVm, UnknownCloud};
+    let starts = AgentSessionStarts::default();
+    assert!(!starts.pulls_agent_home(true));
+    for (host, owner, other) in [
+        (OwnerCloud, true, false),
+        (UnknownCloud, true, false),
+        (TeamVm, false, false),
+        (Allowed, false, false),
+    ] {
+        starts.set_host(Arc::new(move || host));
+        assert_eq!(starts.pulls_agent_home(true), owner, "{host:?}");
+        assert_eq!(starts.pulls_agent_home(false), other, "{host:?}");
+    }
+}
+
+/// The harness spawns only after the pull answered: what the pull wrote is in the home when
+/// the agent first reads it.
+#[test]
+fn the_agent_home_pull_comes_before_the_spawn() {
+    use super::super::agent_session_home_pull::{HomePull, then_spawn};
+    let order = Arc::new(Mutex::new(Vec::new()));
+    let seen = order.clone();
+    let pull = HomePull::begin(Arc::new(move || {
+        std::thread::sleep(std::time::Duration::from_millis(80));
+        seen.lock().unwrap().push("pull");
+        json!({"ok": true, "exit": 0, "ms": 80})
+    }));
+    let mut noted = None;
+    let spawned = then_spawn(pull, &mut noted, || {
+        order.lock().unwrap().push("spawn");
+        Ok::<_, (Refusal, Option<Value>)>(())
+    });
+    assert!(spawned.is_ok());
+    assert_eq!(*order.lock().unwrap(), ["pull", "spawn"]);
+    let noted = noted.expect("the pull is noted");
+    assert!(noted.ms >= 80, "{noted:?}");
+    assert_eq!(noted.note, json!({"ok": true, "exit": 0, "ms": 80}));
+}
+
+/// Only a pull that left revoked files in place (cmux-host's `refuse`, the pull's exit 1)
+/// refuses the start; any other failure starts the chat with the home it has.
+#[test]
+fn only_uncleared_revoked_files_refuse_the_start() {
+    use super::super::agent_session_home_pull::{HomePull, then_spawn};
+    let answer = |reply: Value| HomePull::begin(Arc::new(move || reply.clone()));
+    let revoked = json!({"ok": false, "exit": 1, "refuse": true, "code": "agent_home.not_cleared",
+                         "message": "...", "ms": 3});
+    let mut noted = None;
+    let mut ran = false;
+    let refused = then_spawn(answer(revoked), &mut noted, || {
+        ran = true;
+        Ok::<_, (Refusal, Option<Value>)>(())
+    });
+    assert!(!ran, "no harness starts with revoked files in its home");
+    let (refusal, data) = refused.unwrap_err();
+    assert_eq!(refusal, Refusal::AgentHomeNotCleared);
+    assert_eq!(refusal.code(), "agent_session.agent_home_not_cleared");
+    assert_eq!(data.unwrap()["agent_home"]["code"], json!("agent_home.not_cleared"));
+    for failed in [
+        json!({"ok": false, "refuse": false, "code": "agent_home.timeout", "ms": 5000}),
+        json!({"ok": false, "refuse": false, "exit": 2, "code": "agent_home.pull_failed"}),
+        json!({"ok": false, "code": "agent_home.unreachable"}),
+        json!({"ok": false, "code": "vm.unbound", "retryable": true}),
+    ] {
+        let mut noted = None;
+        let started =
+            then_spawn(answer(failed.clone()), &mut noted, || Ok::<_, (Refusal, Option<Value>)>(7));
+        assert_eq!(started.ok(), Some(7), "{failed}");
+        assert_eq!(noted.unwrap().note["code"], failed["code"]);
+    }
+    // No pull (not the owner's Cloud VM): the spawn alone.
+    let mut noted = None;
+    assert_eq!(then_spawn(None, &mut noted, || Ok::<_, (Refusal, Option<Value>)>(1)).ok(), Some(1));
+    assert!(noted.is_none());
+}
+
+/// A pull that does not answer holds the start no longer than its wait.
+#[test]
+fn a_slow_agent_home_pull_does_not_hold_the_start() {
+    use super::super::agent_session_home_pull::HomePull;
+    let pull = HomePull::begin(Arc::new(|| {
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        json!({"ok": true})
+    }))
+    .unwrap();
+    let began = Instant::now();
+    let pulled = pull.finish(std::time::Duration::from_millis(100));
+    assert!(began.elapsed() < std::time::Duration::from_secs(2));
+    assert_eq!(pulled.note, json!({"ok": false, "code": "agent_home.timeout"}));
+    assert!(!pulled.refuse);
+}
+
+/// The ask on the machine agent's socket is the one line cmux-host reads, with no fields.
+#[test]
+fn the_agent_home_ask_is_one_line_with_no_fields() {
+    use super::super::agent_session_home_pull::ask_socket;
+    use std::io::{BufRead, BufReader, Write};
+    let dir = std::env::temp_dir().join(format!("ahp-{}-{:?}", std::process::id(), Instant::now()));
+    let dir = std::path::PathBuf::from(
+        format!("{}", dir.display()).replace([' ', '{', '}', ':', ','], ""),
+    );
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("agent.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+    let served = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut line = String::new();
+        BufReader::new(stream.try_clone().unwrap()).read_line(&mut line).unwrap();
+        let mut stream = stream;
+        writeln!(stream, "{}", json!({"ok": true, "exit": 0, "ms": 41})).unwrap();
+        line
+    });
+    let reply = ask_socket(&path, std::time::Duration::from_secs(2));
+    assert_eq!(served.join().unwrap(), "{\"agent_home_pull\":{}}\n");
+    assert_eq!(reply, json!({"ok": true, "exit": 0, "ms": 41}));
+    let gone = ask_socket(&dir.join("none.sock"), std::time::Duration::from_secs(1));
+    assert_eq!(gone["code"], json!("agent_home.unreachable"));
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_dir(&dir);
+}
+
+/// `session_new_warm` reads acpmux's `startPool`: warm or cold, and nothing for any other answer.
+#[test]
+fn session_new_warm_reads_the_pool_answer() {
+    let of = |pool: Value| {
+        super::session_new_warm(
+            &json!({"sessionId": "s", "_meta": {"acpmux": {"startPool": pool}}}),
+        )
+    };
+    assert_eq!(of(json!("warm")), Some(true));
+    assert_eq!(of(json!("cold")), Some(false));
+    assert_eq!(of(json!("unshaped")), None);
+    assert_eq!(super::session_new_warm(&json!({"sessionId": "s"})), None);
+}
+
+/// cloud-chat-replies-production, 2026-11-28 02:49Z: a chat started on a Cloud VM ran
+/// `background` (this daemon's unix socket proves no person to acpmux) and the gateway refused its
+/// turns from the interactive reserve with a 429. Every start on a Cloud machine, and a phone's,
+/// asks acpmux for `interactive`; a Mac's start leaves the class to acpmux's own person proof.
+#[test]
+fn a_cloud_start_asks_for_the_interactive_class() {
+    let tags = json!({"priority": "interactive"});
+    assert_eq!(person_priority_tags(true, false), Some(tags.clone()));
+    assert_eq!(person_priority_tags(false, true), Some(tags.clone()));
+    assert_eq!(person_priority_tags(true, true), Some(tags));
+    assert_eq!(person_priority_tags(false, false), None);
+}
+
+/// A fake acpmux on a unix socket: `initialize` lists `features`; the first `closes` calls of a
+/// method in `close_on` end their connection with no reply (a restart under them); every other
+/// call answers `{"sessionId": "s1"}` (or `{}`). Each request's method and createKey is noted.
+fn restarting_acpmux(
+    features: Value,
+    close_on: &'static str,
+    closes: usize,
+) -> (std::path::PathBuf, Arc<Mutex<Vec<(String, Option<String>)>>>) {
+    use std::io::{BufRead, BufReader, Write};
+    let dir = std::env::temp_dir().join(format!(
+        "ras-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4().simple()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("acpmux.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+    let seen: Arc<Mutex<Vec<(String, Option<String>)>>> = Arc::default();
+    let noted = seen.clone();
+    let closed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { return };
+            let (features, noted, closed) = (features.clone(), noted.clone(), closed.clone());
+            std::thread::spawn(move || {
+                let mut writer = stream.try_clone().unwrap();
+                for line in BufReader::new(stream).lines() {
+                    let Ok(line) = line else { return };
+                    let request: Value = serde_json::from_str(&line).unwrap();
+                    let method = request["method"].as_str().unwrap_or_default().to_owned();
+                    let key = request
+                        .pointer("/params/_meta/acpmux/createKey")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned);
+                    noted.lock().unwrap().push((method.clone(), key));
+                    if method == close_on
+                        && closed.fetch_add(1, std::sync::atomic::Ordering::SeqCst) < closes
+                    {
+                        let _ = writer.shutdown(std::net::Shutdown::Both);
+                        return;
+                    }
+                    let result = match method.as_str() {
+                        "initialize" => json!({"_meta": {"acpmux": {"features": features}}}),
+                        "session/new" => json!({"sessionId": "s1"}),
+                        _ => json!({"ok": true}),
+                    };
+                    let reply = json!({"jsonrpc": "2.0", "id": request["id"], "result": result});
+                    if writeln!(writer, "{reply}").is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    (path, seen)
+}
+
+fn creates(seen: &Mutex<Vec<(String, Option<String>)>>) -> Vec<Option<String>> {
+    seen.lock()
+        .unwrap()
+        .iter()
+        .filter(|(m, _)| m == "session/new")
+        .map(|(_, k)| k.clone())
+        .collect()
+}
+
+/// cmux run 46175571694 (a Cloud spare's claude start, 2026-11-28 18:17Z): acpmux closed the
+/// start's link after the catalog read and the start refused `agent_session.unavailable` ("this
+/// daemon has no acpmux to attach to") at once. A `session/new` acpmux closed under is sent
+/// again on a new link with the same create key, so the acpmux that comes back answers with the
+/// one session (acpmux `hub/create_key.rs`).
+#[test]
+fn a_create_acpmux_closed_under_is_sent_again_with_its_key() {
+    let (socket, seen) = restarting_acpmux(json!(["createKey"]), "session/new", 1);
+    let mut link = AcpmuxLink::connect(&socket, |_| {}).unwrap();
+    let new = json!({"cwd": "/w", "mcpServers": [], "_meta": {"acpmux": {}}});
+    let until = Instant::now() + std::time::Duration::from_secs(30);
+    let created = super::create_session(&socket, &mut link, new, until).expect("created");
+    assert_eq!(created, json!({"sessionId": "s1"}));
+    let keys = creates(&seen);
+    assert_eq!(keys.len(), 2, "{keys:?}");
+    assert!(keys[0].is_some());
+    assert_eq!(keys[0], keys[1], "the resend names the first create's key");
+    let _ = std::fs::remove_file(&socket);
+}
+
+/// An acpmux that keeps no create keys is never sent a create again (it could make a second
+/// agent): the close stays the start's refusal, as before.
+#[test]
+fn a_create_without_create_keys_is_not_sent_again() {
+    let (socket, seen) = restarting_acpmux(json!([]), "session/new", 1);
+    let mut link = AcpmuxLink::connect(&socket, |_| {}).unwrap();
+    let new = json!({"cwd": "/w", "mcpServers": [], "_meta": {"acpmux": {}}});
+    let until = Instant::now() + std::time::Duration::from_secs(30);
+    let created = super::create_session(&socket, &mut link, new, until);
+    assert_eq!(created, Err(LinkError::Closed));
+    assert_eq!(creates(&seen), vec![None]);
+    let _ = std::fs::remove_file(&socket);
+}
+
+/// The checks before the agent (the mode table, the trust answer) ask again on a new link when
+/// acpmux closed under them, as the catalog read already did.
+#[test]
+fn a_check_acpmux_closed_under_is_asked_again() {
+    let (socket, seen) = restarting_acpmux(json!([]), "_acpmux/web_modes", 1);
+    let mut link = AcpmuxLink::connect(&socket, |_| {}).unwrap();
+    let until = Instant::now() + std::time::Duration::from_secs(30);
+    let table = super::ask_again(&socket, &mut link, until, "_acpmux/web_modes", json!({}));
+    assert_eq!(table, Ok(json!({"ok": true})));
+    let asked = seen.lock().unwrap().iter().filter(|(m, _)| m == "_acpmux/web_modes").count();
+    assert_eq!(asked, 2);
+    let _ = std::fs::remove_file(&socket);
+}
+
+/// A start acpmux went away in names its phase, so the next such refusal says where.
+#[test]
+fn an_unavailable_start_names_its_step() {
+    let mut timings = super::StartTimings::default();
+    timings.at("trust");
+    let data = timings.refusal_data(Refusal::Unavailable, None).expect("a step");
+    assert_eq!(data, json!({"step": "trust", "reason": "acpmux_closed.trust"}));
+    assert_eq!(
+        super::super::refusal_text(Refusal::Unavailable, &data),
+        "this daemon has no acpmux to attach to at trust"
+    );
 }

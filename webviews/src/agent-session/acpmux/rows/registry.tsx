@@ -68,6 +68,7 @@ import { PlanBuildRow } from "./PlanBuildRow";
 import { ReadOnlyPermissionRow } from "./ReadOnlyPermissionRow";
 import { ReadOnlyQueuedMessageRow } from "./ReadOnlyQueuedMessageRow";
 import { ReadOnlyAgentPairRow } from "./ReadOnlyAgentPairRow";
+import { NoRow } from "./NoRow";
 
 export const defaultRegistry: NativeRegistry = {
   btw: ({ row }) => {
@@ -126,8 +127,6 @@ export const defaultRegistry: NativeRegistry = {
 /// line (the guest page says who answers it); another agent's waiting message as its received line;
 /// a paused agent pair without Resume. Suggested tasks, started chats, a turn's local page and its
 /// render frame are the owner's own and draw nothing.
-const NoRow = () => null;
-
 export const readOnlyRegistry: NativeRegistry = {
   ...defaultRegistry,
   permission: ReadOnlyPermissionRow,

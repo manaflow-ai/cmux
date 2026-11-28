@@ -1,6 +1,7 @@
 // Constructor counts guard the mounted-row cost; real ICU supplies the expected wording.
-import { expect, test } from "bun:test";
+import { beforeEach, expect, test } from "bun:test";
 import { relativeTime } from "../src/agent-session/acpmux/conversation/relativeTime";
+import { resetIntlCacheForTests } from "../src/ui/intl";
 
 const NOW = Date.UTC(2026, 10, 3, 12);
 const MINUTE = 60_000;
@@ -26,8 +27,12 @@ function countConstructors(run: (locales: unknown[]) => void): void {
   }
 }
 
+// relativeTime's formatters come from the shared Intl cache (src/ui/intl.ts): each test starts from
+// an empty one, so its counts are its own.
+beforeEach(() => resetIntlCacheForTests());
+
 test("mounted timestamp labels reuse one formatter for a supported explicit locale", () => {
-  // Evict any previous supported locale without adding a product-only cache reset seam.
+  // Evict any previous supported locale.
   relativeTime(NOW - MINUTE, NOW, "de-DE");
   const expected = new NativeRelativeTimeFormat("en-US", { numeric: "auto" }).format(-2, "minute");
   countConstructors((locales) => {
@@ -39,7 +44,7 @@ test("mounted timestamp labels reuse one formatter for a supported explicit loca
   });
 });
 
-test("switching supported locales replaces the formatter instead of retaining a locale map", () => {
+test("switching supported locales constructs each locale's formatter once, from the shared cache", () => {
   relativeTime(NOW - MINUTE, NOW, "ja-JP");
   countConstructors((locales) => {
     for (const locale of ["en-US", "de-DE", "en-US"]) {
@@ -47,12 +52,13 @@ test("switching supported locales replaces the formatter instead of retaining a 
       expect(relativeTime(NOW - 24 * 60 * MINUTE, NOW, locale)).toBe(expected);
       expect(relativeTime(NOW - 24 * 60 * MINUTE, NOW, locale)).toBe(expected);
     }
-    // Returning to en-US constructs again: only the last supported locale is retained.
-    expect(locales).toEqual(["en-US", "de-DE", "en-US"]);
+    // relativeTime keeps only the last supported locale, but returning to en-US takes it from the
+    // shared Intl cache (src/ui/intl.ts), so it constructs nothing new.
+    expect(locales).toEqual(["en-US", "de-DE"]);
   });
 });
 
-test("default and unsupported locales stay uncached without evicting the supported locale", () => {
+test("default and unsupported locales construct once each without evicting the supported locale", () => {
   const unsupported = "qaa-x-private";
   expect(NativeRelativeTimeFormat.supportedLocalesOf(unsupported)).toEqual([]);
   relativeTime(NOW - MINUTE, NOW, "en-US");
@@ -63,7 +69,8 @@ test("default and unsupported locales stay uncached without evicting the support
       expect(relativeTime(NOW - MINUTE, NOW, locale)).toBe(expected);
     }
     expect(relativeTime(NOW, NOW, "en-US")).toBe("just now");
-    expect(locales).toEqual([undefined, undefined, unsupported, unsupported]);
+    // relativeTime keeps neither, but the shared Intl cache (src/ui/intl.ts) holds each for its minute.
+    expect(locales).toEqual([undefined, unsupported]);
   });
 });
 

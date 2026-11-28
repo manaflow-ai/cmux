@@ -4,6 +4,7 @@ import { useUnsettledHeight } from "./conversation/unsettledHeights";
 import { PASTE_FILE_CHARS } from "./pastedText";
 import { escapeDefinitions, insertReplyQuote } from "./quoteReply";
 import { pasteIsOnlyFileNames } from "./attachments";
+import { htmlText, pastedPlainText } from "./pasteText";
 import { isPasteAsPlainTextKey, PLAIN_PASTE_MS } from "./composer/pastedChips";
 import { htmlHasBlocks, htmlMarkdown, looksLikeMarkdown } from "./richClipboard";
 import { COMPOSER_READY_EVENT } from "./composerFocus";
@@ -25,7 +26,8 @@ import {
   selectionParts,
   sliceHoldsInline,
   wholeSelected,
-  withTextMarksEscaped,
+  INLINE_REMOVE,
+  onlyInline,
 } from "./composer/inlineNode";
 import { inlineCaretPlugin } from "./composer/inlineCaret";
 import { followActionsWidth, flashThumbOnLength } from "./composerScrollLane";
@@ -47,7 +49,7 @@ import { deeplinkTitlesPlugin, type DeeplinkTitles } from "./composer/deeplinkTi
 import { mentionChipsPlugin } from "./composer/mentionChips";
 import { CMUX_LINK_ICONS, knownCmuxLink, subscribeCmuxLinks } from "./chips/cmuxLinkResolve";
 import { iconMaskUrl } from "./icons/iconMask";
-import { toolOfHref, TOOL_MENTIONS } from "./toolMentions";
+import { TOOL_MENTIONS, toolOfHref } from "./toolMentions";
 import { subscribeLanguage, translate } from "./i18n";
 import { subscribeIconFamily } from "./icons/iconPack";
 import { cmuxLinkLook } from "./chips/cmuxLinkLook.experiment";
@@ -78,12 +80,13 @@ import { baseKeymap, chainCommands, lift, selectAll } from "@milkdown/kit/prose/
 import { closeHistory, redo, redoDepth, undo, undoDepth } from "@milkdown/kit/prose/history";
 import { keymap } from "@milkdown/kit/prose/keymap";
 import { splitListItem } from "@milkdown/kit/prose/schema-list";
-import { type EditorState, Plugin, Selection, TextSelection } from "@milkdown/kit/prose/state";
+import { Plugin, Selection, TextSelection, EditorState, type Transaction } from "@milkdown/kit/prose/state";
 import { Fragment, type Node as ProseNode, Slice } from "@milkdown/kit/prose/model";
 import type { EditorView } from "@milkdown/kit/prose/view";
 import type { RemarkParser } from "@milkdown/kit/transformer";
-import { $prose, replaceAll } from "@milkdown/kit/utils";
+import { $prose } from "@milkdown/kit/utils";
 import { FADE_BAND_PX } from "./markdownFieldModel";
+import { blockwiseMarkdown } from "./blockwiseMarkdown";
 import { draftFoot } from "./draftFoot.experiment";
 import { focusRoute } from "../../ui/focusRoute";
 
@@ -263,6 +266,9 @@ export type MarkdownFieldProps = {
   /// attachment stays their text. Read when a value's tokens become nodes (the editor made, a value
   /// set from outside, `type`); unset, every token-shaped run is taken for an attachment.
   isInlineAttachment?(id: string): boolean;
+  /// The placed attachments' nodes are hidden (Settings' strip view): Backspace and Delete pass over
+  /// them (composer/inlineNode.ts hiddenDelete), so a key never takes out a picture it cannot see.
+  inlineHidden?: boolean;
   /// A copy or cut of the selection (Cmd-C, Cmd-X, the menu's): its runs of text and its placed
   /// attachments in order, its text as the field copies it, and whether it holds the whole draft.
   /// True when the surface wrote the pasteboard itself; the field then takes a cut's selection out.
@@ -345,6 +351,7 @@ function sameMarkdownFieldProps(previous: MarkdownFieldProps, next: MarkdownFiel
     previous.onUnplacedQuotes === next.onUnplacedQuotes &&
     previous.onInlineViews === next.onInlineViews &&
     previous.isInlineAttachment === next.isInlineAttachment &&
+    previous.inlineHidden === next.inlineHidden &&
     previous.onCopy === next.onCopy &&
     previous.onWholeSelection === next.onWholeSelection &&
     previous.onPasteFirst === next.onPasteFirst &&
@@ -360,6 +367,24 @@ function sameMarkdownFieldProps(previous: MarkdownFieldProps, next: MarkdownFiel
 
 /// No command words: a field with no `/` commands colours nothing.
 const NO_SLASH_NAMES: SlashNames = { leading: new Set(), anywhere: new Set() };
+
+/** `tr` with only the part of its document that differs from `next` replaced by `next`'s, so a
+ * selection outside that part maps through unchanged (a whole-document replace moved it to the end). */
+export function replaceChanged(tr: Transaction, next: ProseNode): Transaction {
+  const { doc } = tr;
+  const start = doc.content.findDiffStart(next.content);
+  if (start === null) return tr;
+  const end = doc.content.findDiffEnd(next.content);
+  if (!end) return tr;
+  let { a, b } = end;
+  // A repeated run makes the two ends cross: move both ends past the start.
+  const overlap = start - Math.min(a, b);
+  if (overlap > 0) {
+    a += overlap;
+    b += overlap;
+  }
+  return tr.replace(start, a, next.slice(start, b));
+}
 
 /** Markdown without the serializer's trailing newline, and empty for an empty document.
  * Milkdown writes an empty paragraph as `<br />`; empty lines a prompt starts or ends with
@@ -386,34 +411,6 @@ const withoutBreakPlaceholders = (text: string) =>
     .replace(/\n\n<br \/>(?=\n\n)/g, "")
     .replace(/^<br \/>\n\n/, "\n")
     .replace(/\n\n<br \/>\n?$/, "\n");
-
-const BLOCK_TAG = /^(P|DIV|LI|PRE|BLOCKQUOTE|H[1-6]|UL|OL|TABLE|TR|SECTION|ARTICLE|HEADER|FOOTER)$/;
-
-/** HTML pasted with no plain text, as its text: each `<br>` and block (a `<p>`) ends a line. */
-function htmlText(html: string): string {
-  const template = document.createElement("template");
-  template.innerHTML = html;
-  let out = "";
-  const walk = (node: Node) => {
-    if (node.nodeType === Node.TEXT_NODE) {
-      out += (node.textContent ?? "").replace(/\s+/g, " ");
-      return;
-    }
-    if (node.nodeType !== Node.ELEMENT_NODE) return;
-    const tag = (node as Element).tagName;
-    if (tag === "BR") {
-      out += "\n";
-      return;
-    }
-    if (tag === "STYLE" || tag === "SCRIPT" || tag === "META" || tag === "TITLE") return;
-    const block = BLOCK_TAG.test(tag);
-    if (block && out && !out.endsWith("\n")) out += "\n";
-    for (const child of node.childNodes) walk(child);
-    if (block) out += "\n";
-  };
-  for (const child of template.content.childNodes) walk(child);
-  return out.replace(/[ \t]+\n/g, "\n").replace(/^\n+|\n+$/g, "");
-}
 
 /** Plain text as the field shows it: one paragraph whose newlines are line breaks, a blank line
  * two of them. A paste is never parsed as markdown or HTML, so its lines and characters stay. */
@@ -558,166 +555,6 @@ const COMMIT_RETURN_MS = 500;
 /** Return or keypad Enter, also when an input method reports its key as "Process". */
 const isReturnKey = (event: KeyboardEvent) =>
   event.key === "Enter" || event.code === "Enter" || event.code === "NumpadEnter";
-/// The top-level blocks a prompt's markdown is written block by block from: each writes the same
-/// markdown alone as it does in the document, and the document joins them with one blank line.
-/// A list does not (two lists in a row are written apart), so a document with one is written whole.
-const BLOCKWISE = new Set(["paragraph", "heading", "code_block"]);
-const EMPTY_PARAGRAPH = "<br />";
-/// Each block's markdown, kept by node, apart for a field with placed attachments (their text is
-/// escaped): ProseMirror keeps every block an edit did not touch, so a key writes its own block.
-const blockMarkdown = { plain: new WeakMap<ProseNode, string>(), inline: new WeakMap<ProseNode, string>() };
-
-/// A pasted prompt is one paragraph whose lines are hard breaks, so its lines are kept too: each run
-/// between breaks, kept by its first node with the nodes it was written from.
-const lineMarkdown = { plain: new WeakMap<ProseNode, LineKept>(), inline: new WeakMap<ProseNode, LineKept>() };
-type LineKept = { nodes: ProseNode[]; before?: ProseNode; after?: ProseNode; markdown: string };
-/// What each kind of hard break writes between two lines, by its attributes.
-const breakMarkdown = { plain: new Map<string, string>(), inline: new Map<string, string>() };
-/// Stands in for the text beyond a line's breaks while the line is written alone. Escaping reads
-/// only the characters next to the break, which the break itself writes, so the line writes the same.
-const OUTSIDE = "\uE000";
-
-/** The document's markdown as Milkdown's serializer writes it, from each block's kept markdown
- * when every block allows it, and in a paragraph from each line's. A key into a 200,000-character
- * prompt then writes one line, not the whole prompt (Leo, 2026-11-04: interaction cost stays
- * constant as sessions grow). */
-// perf-hot: 2ms composer-draft-typing
-export function blockwiseMarkdown(doc: ProseNode, serialize: (doc: ProseNode) => string, inline: boolean): string {
-  const write = (node: ProseNode) => serialize(inline ? withTextMarksEscaped(node) : node);
-  // The serializer drops an empty paragraph at the end, which alone would write as `<br />`.
-  const last = doc.lastChild;
-  let blockwise = doc.childCount > 0 && !(last?.type.name === "paragraph" && !last.content.size);
-  doc.forEach((block) => {
-    // A paragraph that ends in a hard break writes its last newline as the break's own.
-    if (!BLOCKWISE.has(block.type.name) || block.lastChild?.type.name === "hardbreak") blockwise = false;
-  });
-  if (!blockwise) return write(doc);
-  if (doc.childCount === 1) {
-    const plain = plainLine(doc.child(0));
-    if (plain !== undefined) return `${plain}\n`;
-    const lines = linewiseMarkdown(doc, doc.child(0), write, inline);
-    return lines === undefined ? write(doc) : `${lines}\n`;
-  }
-  const kept = inline ? blockMarkdown.inline : blockMarkdown.plain;
-  const parts: string[] = [];
-  doc.forEach((block) => {
-    let markdown = kept.get(block);
-    if (markdown === undefined) {
-      // Alone, an empty paragraph writes nothing; in a document, Milkdown writes it as `<br />`.
-      markdown =
-        !block.content.size && block.type.name === "paragraph"
-          ? EMPTY_PARAGRAPH
-          : (plainLine(block) ??
-            linewiseMarkdown(doc, block, write, inline) ??
-            write(doc.copy(Fragment.from(block))).replace(/\n+$/, ""));
-      kept.set(block, markdown);
-    }
-    parts.push(markdown);
-  });
-  return `${parts.join("\n\n")}\n`;
-}
-
-/// Text the serializer writes unchanged: letters, digits and the punctuation it never escapes
-/// mid-line, starting and ending with a letter, digit or that punctuation, never a space.
-const PLAIN_LINE = /^[A-Za-z0-9,'?!](?:[A-Za-z0-9 ,'?!.]*[A-Za-z0-9,'?!.])?$/;
-/// What would make the serializer escape a `.` in such text: a list number at the start (`1.`),
-/// or an autolink literal's `www.` (GFM escapes the dot after a `w` that a word character follows).
-const ESCAPED_DOT = /^\d+\.|[Ww]\.[\w.-]/;
-
-/** One paragraph of plain prose, unmarked, as its text: what the serializer writes for it, without
- * running the serializer, which every key into such a prompt ran (Milkdown's whole remark pipeline
- * for one line; composer-typing bench --profile). Undefined for anything else. */
-function plainLine(paragraph: ProseNode): string | undefined {
-  if (paragraph.type.name !== "paragraph" || !paragraph.childCount) return undefined;
-  let text = "";
-  for (let at = 0; at < paragraph.childCount; at += 1) {
-    const child = paragraph.child(at);
-    if (!child.isText || child.marks.length) return undefined;
-    text += child.text!;
-  }
-  return PLAIN_LINE.test(text) && !ESCAPED_DOT.test(text) ? text : undefined;
-}
-
-/** A paragraph with hard breaks, written line by line from each line's kept markdown, or undefined
- * when it has none or a break carries marks (a mark across a break is written around both lines). */
-function linewiseMarkdown(
-  doc: ProseNode,
-  paragraph: ProseNode,
-  write: (node: ProseNode) => string,
-  inline: boolean,
-): string | undefined {
-  if (paragraph.type.name !== "paragraph") return undefined;
-  const lines: ProseNode[][] = [[]];
-  const breaks: ProseNode[] = [];
-  let plain = true;
-  paragraph.forEach((child) => {
-    if (child.type.name !== "hardbreak") return void lines.at(-1)!.push(child);
-    if (child.marks.length) plain = false;
-    breaks.push(child);
-    lines.push([]);
-  });
-  // A break that ends the paragraph is written apart from its lines, so that paragraph is written whole.
-  if (!breaks.length || !plain || !lines.at(-1)!.length) return undefined;
-  const kept = inline ? lineMarkdown.inline : lineMarkdown.plain;
-  const outside = paragraph.type.schema.text(OUTSIDE);
-  const writeParagraph = (nodes: ProseNode[]) =>
-    write(doc.copy(Fragment.from(paragraph.copy(Fragment.fromArray(nodes)))));
-  const separators = inline ? breakMarkdown.inline : breakMarkdown.plain;
-  const separator = (hardbreak: ProseNode) => {
-    const key = JSON.stringify(hardbreak.attrs);
-    let written = separators.get(key);
-    if (written === undefined) {
-      written = writeParagraph([outside, hardbreak, outside]);
-      written =
-        written.startsWith(OUTSIDE) && written.endsWith(`${OUTSIDE}\n`)
-          ? written.slice(OUTSIDE.length, -OUTSIDE.length - 1)
-          : "";
-      separators.set(key, written);
-    }
-    return written;
-  };
-  let markdown = "";
-  for (let at = 0; at < lines.length; at += 1) {
-    const nodes = lines[at]!;
-    // The breaks around a line are part of what it was written from: a paragraph's edges escape apart.
-    const before = at > 0 ? breaks[at - 1]! : undefined;
-    const after = at < breaks.length ? breaks[at]! : undefined;
-    // An empty line (two breaks in a row) is kept by the break after it, which no other line keys.
-    const key = nodes[0] ?? after;
-    const known = key && kept.get(key);
-    let line: string;
-    if (
-      known &&
-      known.before === before &&
-      known.after === after &&
-      known.nodes.length === nodes.length &&
-      known.nodes.every((node, i) => node === nodes[i])
-    )
-      line = known.markdown;
-    else {
-      const prefix = before ? `${OUTSIDE}${separator(before)}` : "";
-      const suffix = `${after ? `${separator(after)}${OUTSIDE}` : ""}\n`;
-      const written = writeParagraph([
-        ...(before ? [outside, before] : []),
-        ...nodes,
-        ...(after ? [after, outside] : []),
-      ]);
-      // Anything but the breaks written around the line means it did not write apart.
-      if (
-        (before && !separator(before)) ||
-        (after && !separator(after)) ||
-        !written.startsWith(prefix) ||
-        !written.endsWith(suffix) ||
-        written.length < prefix.length + suffix.length
-      )
-        return undefined;
-      line = written.slice(prefix.length, written.length - suffix.length);
-      if (key) kept.set(key, { nodes, before, after, markdown: line });
-    }
-    markdown += at > 0 ? `${separator(breaks[at - 1]!)}${line}` : line;
-  }
-  return markdown;
-}
 
 /** The document as the prompt's markdown, keeping the spaces typed at its end and the empty reply
  * paragraph needed on restore. A field with placed attachments writes the person's own text shaped
@@ -908,6 +745,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onUnplacedQuotes,
     onInlineViews,
     isInlineAttachment,
+    inlineHidden,
     onCopy,
     onWholeSelection,
     onPasteFirst,
@@ -955,6 +793,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     // normally provides these is removed with formatting shortcuts in plain mode.
     "Mod-a": selectAll,
     "Shift-Enter": (state, dispatch, editorView) => !lines.current || baseKeymap.Enter!(state, dispatch, editorView),
+    "Alt-Enter": (state, dispatch, editorView) => !lines.current || baseKeymap.Enter!(state, dispatch, editorView),
     "Mod-z": undo,
     "Shift-Mod-z": redo,
     "Mod-y": redo,
@@ -1006,6 +845,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onUnplacedQuotes,
     onInlineViews,
     isInlineAttachment,
+    inlineHidden,
     onCopy,
     onWholeSelection,
     onPasteFirst,
@@ -1027,6 +867,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onUnplacedQuotes,
     onInlineViews,
     isInlineAttachment,
+    inlineHidden,
     onCopy,
     onWholeSelection,
     onPasteFirst,
@@ -1090,8 +931,18 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   const refocus = useRef<{ doc: ProseNode; selection: Selection; until: number; owner?: string } | null>(null);
   const owner = useRef(selectionKey);
   owner.current = selectionKey;
+  // The `selectionKey` whose draft the document last took from outside.
+  const drawnFor = useRef(selectionKey);
   const surfacePlugins = useRef(plugins);
   const lines = useRef(multiline);
+  /// Shift-Return and Option-Return: the caret at the start of a new line (a new list item inside a
+  /// list, a new paragraph in a quote), scrolled into view. Without `multiline`, the key does nothing.
+  const newLine = useCallback((state: EditorState, dispatch?: EditorView["dispatch"], editorView?: EditorView) => {
+    if (!lines.current) return true;
+    const item = state.schema.nodes.list_item;
+    const enter = baseKeymap.Enter!;
+    return chainCommands(...(item ? [splitListItem(item), enter] : [enter]))(state, dispatch, editorView);
+  }, []);
   const empty = useRef<HTMLSpanElement>(null);
   // The field's text as plain lines until the editor is made (markdownField.css `.acpmux-md-standin`):
   // the field has the editor's height from its first frame, so the composer around it does not grow
@@ -1107,9 +958,11 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   const applyAttributes = () => {
     const dom = view.current?.dom;
     if (!dom) return;
+    // Each write is a mutation WebKit lays out again, even of the same value; this runs on every render.
     for (const [name, attribute] of Object.entries(attrs.current ?? {}))
-      if (attribute === undefined) dom.removeAttribute(name);
-      else dom.setAttribute(name, attribute);
+      if (attribute === undefined) {
+        if (dom.hasAttribute(name)) dom.removeAttribute(name);
+      } else if (dom.getAttribute(name) !== attribute) dom.setAttribute(name, attribute);
   };
   // Written only when it changes: each write is an attribute mutation, and this runs on every edit.
   // A draft of blank lines (Shift+Enter in an empty prompt) is not empty: the placeholder stayed on
@@ -1153,6 +1006,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       inlineViews.current.delete(id);
       tellInlineViews();
     },
+    hidden: () => latest.current.inlineHidden === true,
   });
   const inlineKnown = (id: string) => latest.current.isInlineAttachment?.(id) ?? true;
   // Whether this field's editor was made with placed attachments (`placesInline` in `mount`).
@@ -1162,6 +1016,12 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   const copied = (editorView: EditorView, event: ClipboardEvent, cut: boolean) => {
     const surface = latest.current.onCopy;
     const { state } = editorView;
+    // The strip view's hidden nodes are not the person's text: a selection of only them copies and
+    // cuts nothing (composer/inlineNode.ts onlyInline).
+    if (latest.current.inlineHidden && !state.selection.empty && onlyInline(state.selection.content())) {
+      event.preventDefault();
+      return true;
+    }
     if (!surface || state.selection.empty) return false;
     const copy = {
       parts: inlineOn.current ? selectionParts(state) : [],
@@ -1326,6 +1186,29 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                     returnInput();
                     return true;
                   }
+                  // Shift-Return or Option-Return right after an input method committed: ProseMirror's
+                  // WebKit guard drops any key within 500 ms of compositionend (its keydown returns before
+                  // the keymaps), so the browser broke the line itself and `beforeinput` sent the prompt.
+                  // The keymaps run here instead, and the guard is spent, as ProseMirror spends it on
+                  // the key it drops.
+                  if (
+                    isReturnKey(event) &&
+                    (event.shiftKey || event.altKey) &&
+                    !event.metaKey &&
+                    !event.ctrlKey &&
+                    !isImeKeyEvent(event) &&
+                    !composing.current &&
+                    !_view.composing &&
+                    event.timeStamp - compositionEndedAt <= COMMIT_RETURN_MS
+                  ) {
+                    // ProseMirror's own guard (prosemirror-view `inOrNearComposition`), spent as it spends it.
+                    const guard = (_view as unknown as { input?: { compositionEndedAt?: number } }).input;
+                    if (guard) guard.compositionEndedAt = -2e8;
+                    compositionEndedAt = -Infinity;
+                    event.preventDefault();
+                    _view.someProp("handleKeyDown", (handle) => handle(_view, event));
+                    return true;
+                  }
                   const submit = latest.current.onSubmit;
                   if (submit && event.key === "Enter" && !event.shiftKey && !event.altKey && !isImeKeyEvent(event)) {
                     event.preventDefault();
@@ -1357,6 +1240,13 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                     return true;
                   }
                   event.preventDefault();
+                  // A line break the browser makes is Shift-Return's (or Option-Return's) that no keymap
+                  // took: a new line, never a send.
+                  if (input.inputType === "insertLineBreak") {
+                    returnTaken = false;
+                    newLine(_view.state, _view.dispatch, _view);
+                    return true;
+                  }
                   if (returnTaken) returnTaken = false;
                   else if (returnKeyDown || !lines.current) returnInput();
                   else {
@@ -1468,7 +1358,9 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   // Text past what a prompt carries goes to the surface whole, before anything reads
                   // or parses it (ProseMirror would lay out every line of it first): the composer
                   // attaches it as a file (pastedText.ts PASTE_FILE_CHARS).
-                  const whole = data.getData("text/plain");
+                  // With files beside it WebKit withholds the plain text: the HTML's is the paste's
+                  // (pasteText.ts, issue 59851).
+                  const whole = pastedPlainText(data);
                   // A surface without a file intake (Home Channels) takes it as before.
                   if (whole.length > PASTE_FILE_CHARS && !data.files.length && beforeInput(editorView, whole, true)) {
                     event.preventDefault();
@@ -1677,7 +1569,18 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
               // focus, as a selectionchange that a busy page (an inbound message drawing) takes well
               // past 100 ms to deliver (Leo 2026-10-21, after another agent's steer). The person's own
               // move there comes with a key or a click, which drop the saved selection first.
-              if (docChanged || !caretAtStart(state)) return null;
+              if (docChanged) {
+                // The draft changed while the field was away (a value from outside: a draft synced
+                // in, a command written): the kept selection follows the edit, so the focus that
+                // brings the keyboard back puts it back in the new text, not WebKit's caret at the
+                // front (Leo: "did we fix the cursor going to the front").
+                if (!transactions[0]?.before.eq(saved.doc)) return null;
+                let selection = saved.selection;
+                for (const tr of transactions) selection = selection.map(tr.doc, tr.mapping);
+                refocus.current = { ...saved, doc: state.doc, selection };
+                return null;
+              }
+              if (!caretAtStart(state)) return null;
             } else if (docChanged) {
               refocus.current = null;
               return null;
@@ -1706,12 +1609,10 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
               return false;
             return lift(state, dispatch);
           },
-          "Shift-Enter": (state, dispatch, editorView) => {
-            if (!lines.current) return true;
-            const item = state.schema.nodes.list_item;
-            const enter = baseKeymap.Enter!;
-            return chainCommands(...(item ? [splitListItem(item), enter] : [enter]))(state, dispatch, editorView);
-          },
+          "Shift-Enter": newLine,
+          // Option-Return is a new line too, as in Claude desktop and every chat composer; unbound, the
+          // browser's own paragraph reached `beforeinput` as a Return and sent the prompt.
+          "Alt-Enter": newLine,
         }),
       );
       void Editor.make()
@@ -1797,7 +1698,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         richPlugins.current = [];
       };
     },
-    [configureLiteral],
+    [configureLiteral, newLine],
   );
 
   /// Replaces the document with `markdown`. Parsing drops the spaces at its end ("/review "),
@@ -1817,16 +1718,28 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     // (composer/inlineNode.ts placeTokensIn): undo and redo bring back nodes, and token text typed
     // or pasted is never read so. The editor's first document (`undoable` false) is not an edit to
     // undo: undo would bring back the tokens it was made with as text.
-    if (inlineOn.current)
-      editor.current?.action((ctx) => {
-        const parsed = ctx.get(parserCtx)(markdown);
-        const current = ctx.get(editorViewCtx);
-        if (!parsed) return;
-        const { tr, doc } = current.state;
-        tr.replace(0, doc.content.size, new Slice(parsed.content, 0, 0));
-        current.dispatch(placeTokensIn(tr, inlineKnown).setMeta("addToHistory", undoable));
-      });
-    else editor.current?.action(replaceAll(markdown));
+    editor.current?.action((ctx) => {
+      const parsed = ctx.get(parserCtx)(markdown);
+      const current = ctx.get(editorViewCtx);
+      if (!parsed) return;
+      // Only the span that differs is replaced, so the caret and selection outside it stay where the
+      // person left them. Replacing the whole document put the caret at the end, and a value written
+      // while the web view had given the keyboard away left WebKit's caret at the front on return
+      // (Leo: "did we fix the cursor going to the front/general composer fixes yet!?").
+      // The first document, and another chat's draft (the `selectionKey` moved) even with the same text,
+      // are new documents: the caret goes to their end, as a draft opens.
+      const sameChat = drawnFor.current === owner.current;
+      drawnFor.current = owner.current;
+      // The value's tokens become nodes before the compare, so placed attachments compare as nodes.
+      const next = inlineOn.current ? placeTokensIn(EditorState.create({ doc: parsed }).tr, inlineKnown).doc : parsed;
+      const tr =
+        sameChat && undoable
+          ? replaceChanged(current.state.tr, next)
+          : current.state.tr.replace(0, current.state.doc.content.size, new Slice(next.content, 0, 0));
+      // A value from outside is not the person removing a placed attachment (composer/inlineNode.ts INLINE_REMOVE).
+      if (inlineOn.current) tr.setMeta(INLINE_REMOVE, true);
+      if (tr.docChanged) current.dispatch(tr.setMeta("addToHistory", undoable));
+    });
     const current = view.current;
     if (!current) return;
     const tail = /[ \t]+$/.exec(markdown)?.[0];

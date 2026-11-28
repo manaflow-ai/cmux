@@ -8,7 +8,8 @@ launches it from an empty home and then from a seeded home, the home of a person
   verdict --dir DIR [--daemon]
       The verdict of up to two harness runs (DIR/status-N and DIR/attempt-N/report.json). An attempt
       crashed only on the harness's own evidence: exit 1, report verdict fail, and the launched app's
-      pid, plus a nonzero app exit, a crash report, or an uncaught exception in that report. With
+      pid, plus a nonzero app exit (SIGTERM excepted: another process sent it), a crash report, or an
+      uncaught exception in that report. With
       --daemon (the publish gate only, never this post-publish smoke: a rollback of a published build
       is not decided by it) also the harness's word that the app showed Home and its daemon was not
       connected when the watch ended (`daemon_down`: the app is up and cannot be used). A live
@@ -67,6 +68,7 @@ import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
+from signal import SIGTERM
 from typing import Callable, Mapping
 
 PASS, CRASH, CANNOT_RUN, UNKNOWN = "pass", "crash", "cannot-run", "unknown"
@@ -96,7 +98,8 @@ def attempt_result(status: int, report: dict, daemon: bool = False) -> str:
     """One harness run's result.
 
     A crash needs both the harness's evidence that the app ran (exit 1, a failed report and its pid)
-    and evidence from the app itself: a nonzero process exit, a crash report or an uncaught exception.
+    and evidence from the app itself: a nonzero process exit (not SIGTERM, which another process sends), a crash
+    report or an uncaught exception.
     With DAEMON (the publish gate's --daemon) also its own word, two times, that its daemon is not
     connected after Home rendered (the harness's `daemon_down`: the app is up and takes no key). That
     counts as a crash counts, with the same rule. Without DAEMON such a report is cannot-run, as before.
@@ -116,8 +119,12 @@ def attempt_result(status: int, report: dict, daemon: bool = False) -> str:
     if status == 0 and report.get("verdict") == "pass":
         return CANNOT_RUN if daemon and daemon_not_of_launch(report) else PASS
     exit_status = report.get("exit")
+    # SIGTERM (-15) is another process's kill, never the app's own end: a crash ends it by SIGSEGV, SIGBUS, SIGILL,
+    # SIGTRAP, SIGABRT or the crash watcher's SIGKILL. One signing Mac SIGTERMed the app 0.1-0.4 s after launch in
+    # both attempts, with no crash report, and held three NEXT nightlies (runs 45505381963, 45516460614,
+    # 45522946100). A crash report or run.exception still decides.
     app_crashed = (
-        isinstance(exit_status, int) and not isinstance(exit_status, bool) and exit_status != 0
+        isinstance(exit_status, int) and not isinstance(exit_status, bool) and exit_status not in (0, -SIGTERM)
     ) or bool(report.get("crash_reports")) or bool(report.get("run_exceptions")) or (
         daemon and bool(report.get("daemon_down")))
     if status in (1, CUT) and report.get("verdict") == "fail" and report.get("pid") and app_crashed:

@@ -13,7 +13,8 @@ pub(super) use cmux_tui_core::user_settings::strip_jsonc;
 pub(super) use cmux_tui_core::user_settings::{CONFIG_OVERRIDE, path_from};
 
 /// The settings file the app writes: `CMUX_NEXT_CONFIG_FILE`, else
-/// `~/.config/cmux/cmux-next.json`.
+/// `~/.config/cmux-next/cmux-next.json` on macOS, `~/.config/cmux/cmux-next.json`
+/// elsewhere (`cmux_config::NEXT_DIR`).
 pub(super) fn path() -> PathBuf {
     cmux_tui_core::user_settings::config_path()
 }

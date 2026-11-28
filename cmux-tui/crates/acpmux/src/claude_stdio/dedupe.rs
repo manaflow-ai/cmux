@@ -17,7 +17,9 @@
 //! - a `Read` of a file (same path, the same lines or fewer) whose content hash and stat are
 //!   what they were when this session last read it;
 //! - in the same turn, the same Bash command from a short read-only list whose every input
-//!   (`dedupe_shell.rs`) stats the same.
+//!   (`dedupe_shell.rs`) stats the same;
+//! - a `Grep` or `Glob` with the same input from the same directory, when no directory or file in
+//!   the tree it searches has moved since (`dedupe_search.rs`; RFD 0147 names Read, Grep and Glob).
 //!
 //! State resets on a compaction (`compact_boundary`), on `/clear`, after 5 minutes with no tool
 //! call (Claude Code may clear old tool results once its prompt cache has lapsed), and with the
@@ -28,14 +30,27 @@
 //! characters is saved to a file and the model gets a 2 KB preview and the path (38 KB and 59.5
 //! KB results, measured the same day), so acpmux adds nothing there.
 //!
+//! A file the hub's prefetch attached to the prompt (`hub/prefetch.rs`, RFD 0160) is entered
+//! as the prompt goes out ([`Dedupe::seed_prefetch`]), when it is still the blob the block names:
+//! a later Read of those lines, the file unchanged, gets a stub that points back at the
+//! attachment (`readsStubbedPrefetched`).
+//!
 //! Off by default (Leo, 2026-11-26: "identify all the weird opinionated fleet things we shipped
 //! into the app and remove them"): it refuses a call the agent made, so only a person who asked
 //! for it gets it. On: `agents.harnessMagic.dedupe.enabled: true`; `ACPMUX_HM_DEDUPE=0` turns it
 //! off whatever the file says. Fails open: any
 //! error, a fingerprint that takes over [`WORK_BOUND`], or a call it does not know passes through
 //! with no decision. Counted per turn on the prompt result's `_meta.harnessMagic.dedupe`, which
-//! the hub puts on `turn_result` (`readsStubbed`, `callsStubbed`, `estTokensSaved`).
+//! the hub puts on `turn_result` (`readsStubbed`, `callsStubbed`, `searchesStubbed`,
+//! `estTokensSaved`).
+//!
+//! Its regret (RFD 0147, "What would change it") is counted beside them: `stubRegrets`, a stub
+//! the model did not take, as it asked for the same answer again (the same call, or a Bash
+//! command naming a file whose Read was stubbed); `spills`, a tool result Claude Code saved to a
+//! file (`<persisted-output>`), and `spillReadBacks`, a spill file the model then read. The
+//! scorecard divides them (`dedupeRegretRate`, `spillReadBackRate`), per turn group and feature.
 
+use super::dedupe_search::{self, Search};
 use super::dedupe_shell::{self, Inputs};
 use super::*;
 use std::path::PathBuf;
@@ -44,7 +59,7 @@ use std::time::{Duration, Instant};
 /// The callback's id.
 pub(super) const DEDUPE_CALLBACK: &str = "acpmux-dedupe";
 /// The tools it is fired for.
-pub(super) const DEDUPE_MATCHER: &str = "Read|Bash";
+pub(super) const DEDUPE_MATCHER: &str = "Read|Bash|Grep|Glob";
 /// Claude Code's wait for the answer, in seconds. The answer comes in milliseconds; a fingerprint
 /// past [`WORK_BOUND`] answers nothing.
 pub(super) const DEDUPE_TIMEOUT_S: u64 = 30;
@@ -72,7 +87,7 @@ thread_local! {
 }
 
 /// Whether the feature is on now (the setting is read at most every 5 s).
-pub(super) fn enabled() -> bool {
+pub(crate) fn enabled() -> bool {
     let env = std::env::var(KILL_ENV).ok();
     if env_off(env.as_deref()) {
         return false;
@@ -101,6 +116,20 @@ pub(super) fn enabled() -> bool {
     on
 }
 
+/// Whether the feature is on for `doc` and the daemon's switch value `env`, uncached: the
+/// harness-magic stamp's reading (`hub/harness_magic.rs`), so the scorecard can split turns by it.
+pub(crate) fn enabled_with(doc: Option<&Value>, env: Option<&str>) -> bool {
+    if env_off(env) {
+        return false;
+    }
+    if env.is_some_and(|v| {
+        matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "on" | "yes")
+    }) {
+        return true;
+    }
+    enabled_in(doc)
+}
+
 /// On unless the settings document turns it off.
 pub(super) fn enabled_in(doc: Option<&Value>) -> bool {
     doc.and_then(|d| crate::user_settings::value(d, SETTING_ENABLED)).and_then(|v| v.as_bool())
@@ -119,7 +148,17 @@ pub(super) fn env_off(value: Option<&str>) -> bool {
 pub(super) struct Counters {
     pub reads_stubbed: u64,
     pub calls_stubbed: u64,
+    pub searches_stubbed: u64,
     pub est_tokens_saved: u64,
+    /// Of `reads_stubbed`, those answered from a prefetch attachment.
+    pub reads_stubbed_prefetched: u64,
+    /// Stubs the model asked past: the same call again, or a Bash command naming a file whose
+    /// Read was stubbed.
+    pub stub_regrets: u64,
+    /// Tool results Claude Code saved to a file (`<persisted-output>`).
+    pub spills: u64,
+    /// Of those, spill files a later call named.
+    pub spill_read_backs: u64,
 }
 
 impl Counters {
@@ -127,7 +166,12 @@ impl Counters {
         json!({
             "readsStubbed": self.reads_stubbed,
             "callsStubbed": self.calls_stubbed,
+            "searchesStubbed": self.searches_stubbed,
             "estTokensSaved": self.est_tokens_saved,
+            "readsStubbedPrefetched": self.reads_stubbed_prefetched,
+            "stubRegrets": self.stub_regrets,
+            "spills": self.spills,
+            "spillReadBacks": self.spill_read_backs,
         })
     }
 }
@@ -144,6 +188,12 @@ pub(super) enum Call {
         cwd: String,
         command: String,
         inputs: Inputs,
+    },
+    /// A `Grep` or `Glob`; `key`: its whole input, keys sorted.
+    Search {
+        cwd: String,
+        key: String,
+        search: Search,
     },
 }
 
@@ -182,6 +232,16 @@ impl Call {
                 let inputs = dedupe_shell::inputs(&command, Path::new(&cwd))?;
                 Some(Call::Shell { cwd, command, inputs })
             }
+            "Grep" | "Glob" => {
+                let cwd = input.get("cwd")?.as_str()?.to_owned();
+                if !Path::new(&cwd).is_absolute() {
+                    return None;
+                }
+                let search = dedupe_search::search(tool, args, Path::new(&cwd))?;
+                let sorted: std::collections::BTreeMap<_, _> = args.iter().collect();
+                let key = format!("{tool} {}", serde_json::to_string(&sorted).ok()?);
+                Some(Call::Search { cwd, key, search })
+            }
             _ => None,
         }
     }
@@ -191,12 +251,20 @@ impl Call {
         match self {
             Call::Read { path, .. } => file_fingerprint(path),
             Call::Shell { inputs, .. } => dedupe_shell::fingerprint(inputs),
+            Call::Search { search, .. } => {
+                dedupe_search::fingerprint(search, Instant::now() + WORK_BOUND)
+            }
         }
     }
 }
 
 /// A regular file's stat and content hash.
 fn file_fingerprint(path: &Path) -> Option<String> {
+    file_fingerprint_and_bytes(path).map(|(f, _)| f)
+}
+
+/// [`file_fingerprint`] and the bytes it was taken from.
+fn file_fingerprint_and_bytes(path: &Path) -> Option<(String, Vec<u8>)> {
     use sha2::Digest;
     let meta = std::fs::metadata(path).ok()?;
     if !meta.is_file() || meta.len() > MAX_HASHED {
@@ -209,7 +277,70 @@ fn file_fingerprint(path: &Path) -> Option<String> {
         return None;
     }
     let hash = sha2::Sha256::digest(&bytes);
-    Some(format!("{before}\n{hash:x}"))
+    Some((format!("{before}\n{hash:x}"), bytes))
+}
+
+/// One file a prefetch block attached: its absolute path, the lines shown (1-based, inclusive),
+/// its line count, its git blob id and the characters it took in the prompt.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct Attached {
+    pub path: PathBuf,
+    pub ranges: Vec<(u64, u64)>,
+    pub total_lines: u64,
+    pub blob: String,
+    pub chars: usize,
+}
+
+/// The files of a prompt block the hub's prefetch made (`_meta.acpmux.context` and `prefetch`,
+/// marks a client cannot set: `prompt_context::strip_marks`). Empty for any other block.
+pub(super) fn attached(block: &Value) -> Vec<Attached> {
+    let marked = |k: &str| {
+        block.pointer(&format!("/_meta/acpmux/{k}")).and_then(Value::as_bool) == Some(true)
+    };
+    if !marked("context") || !marked("prefetch") {
+        return Vec::new();
+    }
+    let Some(text) = block.get("text").and_then(Value::as_str) else { return Vec::new() };
+    let mut out = Vec::new();
+    let mut rest = text;
+    while let Some(at) = rest.find("<file path=\"") {
+        let after = &rest[at + "<file path=\"".len()..];
+        let Some(head_end) = after.find("\">\n") else { break };
+        let head = &after[..head_end];
+        let Some(end) = after[head_end..].find("</file>\n") else { break };
+        let chars = "<file path=\"".len() + head_end + end + "</file>\n".len();
+        rest = &after[head_end + end + "</file>\n".len()..];
+        // `PATH" lines="1-9,20-30" totalLines="40" blob="HEX`, read from the end: the path may
+        // hold anything.
+        let attr = |h: &str, k: &str| -> Option<(String, String)> {
+            let (before, v) = h.rsplit_once(&format!("\" {k}=\""))?;
+            Some((before.to_owned(), v.to_owned()))
+        };
+        let Some((h, blob)) = attr(head, "blob") else { continue };
+        let Some((h, total)) = attr(&h, "totalLines") else { continue };
+        let Some((path, lines)) = attr(&h, "lines") else { continue };
+        let ranges: Option<Vec<(u64, u64)>> = lines
+            .split(',')
+            .map(|r| {
+                let (a, b) = r.split_once('-')?;
+                let (a, b) = (a.parse::<u64>().ok()?, b.parse::<u64>().ok()?);
+                (a >= 1 && a <= b).then_some((a, b))
+            })
+            .collect();
+        let (Some(ranges), Ok(total_lines)) = (ranges, total.parse::<u64>()) else { continue };
+        let path = PathBuf::from(path);
+        if !path.is_absolute() || ranges.is_empty() || blob.is_empty() {
+            continue;
+        }
+        out.push(Attached { path, ranges, total_lines, blob, chars });
+    }
+    out
+}
+
+/// The fingerprint of `a`'s file now, when it is still the blob the attachment showed.
+pub(super) fn attached_fingerprint(a: &Attached) -> Option<String> {
+    let (fingerprint, bytes) = file_fingerprint_and_bytes(&a.path)?;
+    (crate::hub::prefetch::blob_hash(&bytes) == a.blob).then_some(fingerprint)
 }
 
 /// The fingerprint's stat part, to check a call's inputs did not move while it ran.
@@ -221,6 +352,9 @@ fn stamp_part(call: &Call, fingerprint: &str) -> Option<String> {
         }
         Call::Shell { inputs, .. } => {
             (dedupe_shell::fingerprint(inputs).as_deref() == Some(fingerprint)).then(String::new)
+        }
+        Call::Search { .. } => {
+            (call.fingerprint().as_deref() == Some(fingerprint)).then(String::new)
         }
     }
 }
@@ -241,6 +375,10 @@ struct Seen {
     turn: u64,
     chars: usize,
     stubbed: bool,
+    /// Asked for again after its stub (counted once).
+    regretted: bool,
+    /// Entered from a prefetch attachment, not a Read.
+    prefetched: bool,
 }
 
 #[derive(Default)]
@@ -254,6 +392,11 @@ struct State {
     pending: HashMap<String, Pending>,
     reads: HashMap<(String, PathBuf), Vec<Seen>>,
     shells: HashMap<(String, String, String), Seen>,
+    /// Keyed (agent, cwd, input); kept across turns like a Read, as the fingerprint covers the
+    /// whole tree.
+    searches: HashMap<(String, String, String), Seen>,
+    /// Spill files not yet read back; kept across resets (the file stays on disk).
+    spill_paths: std::collections::HashSet<String>,
     counters: Counters,
 }
 
@@ -262,6 +405,7 @@ impl State {
         self.pending.clear();
         self.reads.clear();
         self.shells.clear();
+        self.searches.clear();
         self.epoch += 1;
     }
 }
@@ -305,7 +449,7 @@ impl Dedupe {
                 })
                 .map(|r| {
                     r.stubbed = true;
-                    (n - r.at, r.chars)
+                    (n - r.at, r.chars, r.prefetched)
                 }),
             Call::Shell { cwd, command, .. } => s
                 .shells
@@ -313,18 +457,33 @@ impl Dedupe {
                 .filter(|r| !r.stubbed && r.turn == turn && r.fingerprint == fingerprint)
                 .map(|r| {
                     r.stubbed = true;
-                    (n - r.at, r.chars)
+                    (n - r.at, r.chars, false)
+                }),
+            Call::Search { cwd, key, .. } => s
+                .searches
+                .get_mut(&(agent.to_owned(), cwd.clone(), key.clone()))
+                .filter(|r| !r.stubbed && r.fingerprint == fingerprint)
+                .map(|r| {
+                    r.stubbed = true;
+                    (n - r.at, r.chars, false)
                 }),
         };
-        if let Some((ago, chars)) = found {
-            let stub = stub(&call, ago);
+        if let Some((ago, chars, prefetched)) = found {
+            let stub = if prefetched { prefetch_stub() } else { stub(&call, ago) };
+            if prefetched {
+                s.counters.reads_stubbed_prefetched += 1;
+            }
             let saved = (chars.saturating_sub(stub.len()) / 4) as u64;
             match call {
                 Call::Read { .. } => s.counters.reads_stubbed += 1,
                 Call::Shell { .. } => s.counters.calls_stubbed += 1,
+                Call::Search { .. } => s.counters.searches_stubbed += 1,
             }
             s.counters.est_tokens_saved += saved;
             return Some(stub);
+        }
+        if regretted(&mut s, agent, &call, &fingerprint) {
+            s.counters.stub_regrets += 1;
         }
         if s.pending.len() >= MAX_PENDING {
             s.pending.clear();
@@ -353,10 +512,12 @@ impl Dedupe {
         if s.epoch != p.epoch {
             return;
         }
-        let total: usize = s.reads.values().map(Vec::len).sum::<usize>() + s.shells.len();
+        let total: usize =
+            s.reads.values().map(Vec::len).sum::<usize>() + s.shells.len() + s.searches.len();
         if total >= MAX_RECORDS {
             s.reads.clear();
             s.shells.clear();
+            s.searches.clear();
         }
         let chars = text.chars().count();
         match p.call {
@@ -373,6 +534,8 @@ impl Dedupe {
                     turn: p.turn,
                     chars,
                     stubbed: false,
+                    regretted: false,
+                    prefetched: false,
                 });
             }
             Call::Shell { cwd, command, .. } => {
@@ -385,8 +548,71 @@ impl Dedupe {
                         turn: p.turn,
                         chars,
                         stubbed: false,
+                        regretted: false,
+                        prefetched: false,
                     },
                 );
+            }
+            Call::Search { cwd, key, .. } => {
+                s.searches.insert(
+                    (p.agent, cwd, key),
+                    Seen {
+                        fingerprint: p.fingerprint,
+                        lines: (0, 0),
+                        at: p.at,
+                        turn: p.turn,
+                        chars,
+                        stubbed: false,
+                        regretted: false,
+                        prefetched: false,
+                    },
+                );
+            }
+        }
+    }
+
+    /// The prompt going out carries `files`, the main thread's from now on: each with the
+    /// fingerprint it was checked at ([`attached_fingerprint`]). A whole file covers any Read of
+    /// it; windows cover the Reads inside one.
+    pub(super) fn seed_prefetch(&self, files: Vec<(Attached, String)>, now: Instant) {
+        let Ok(mut s) = self.state.lock() else { return };
+        if s.last_call.is_some_and(|at| now.saturating_duration_since(at) > IDLE_RESET) {
+            s.forget();
+        }
+        // The idle clock runs from what entered the context last.
+        s.last_call = Some(now);
+        let total: usize =
+            s.reads.values().map(Vec::len).sum::<usize>() + s.shells.len() + s.searches.len();
+        if total + files.len() >= MAX_RECORDS {
+            s.reads.clear();
+            s.shells.clear();
+            s.searches.clear();
+        }
+        let (at, turn) = (s.calls, s.turn);
+        for (a, fingerprint) in files {
+            let whole = a.ranges == [(1, a.total_lines)];
+            let seen = s.reads.entry((String::new(), a.path)).or_default();
+            seen.retain(|r| r.fingerprint == fingerprint);
+            let spans: Vec<(u64, u64)> = if whole {
+                vec![(1, u64::MAX)]
+            } else {
+                a.ranges.iter().map(|(x, y)| (*x, y + 1)).collect()
+            };
+            let per = a.chars / spans.len().max(1);
+            for lines in spans {
+                if seen.len() >= MAX_READS_PER_FILE {
+                    seen.remove(0);
+                }
+                seen.push(Seen {
+                    fingerprint: fingerprint.clone(),
+                    lines,
+                    at,
+                    turn,
+                    chars: per,
+                    stubbed: false,
+                    regretted: false,
+                    prefetched: true,
+                });
             }
         }
     }
@@ -419,6 +645,14 @@ fn full_answer(text: &str) -> bool {
     !NOT.iter().any(|p| text.starts_with(p)) && !text.contains("[Truncated: PARTIAL view")
 }
 
+/// What the model reads instead of a Read of lines acpmux attached to the prompt.
+pub(super) fn prefetch_stub() -> String {
+    "[dedupe] unchanged since acpmux attached it to your prompt (<cmux-prefetch-context>, same \
+     blob); those lines are still in your context. (Not read again. If that attachment is no \
+     longer in your context, Read again and it runs.)"
+        .to_owned()
+}
+
 /// What the model reads instead of the call's result.
 pub(super) fn stub(call: &Call, ago: u64) -> String {
     let ago = match ago {
@@ -434,6 +668,12 @@ pub(super) fn stub(call: &Call, ago: u64) -> String {
             "[dedupe] `{command}` ran {ago} with the same inputs (no file or ref it reads \
              changed), so its output is the same; it is still in your context. (Not run again. \
              Run it again and it runs.)"
+        ),
+        Call::Search { search, .. } => format!(
+            "[dedupe] the same {} ran {ago} and no file or directory it searches changed since, \
+             so its answer is the same; it is still in your context. (Not run again. If that \
+             result is no longer in your context, call it again and it runs.)",
+            search.tool.name()
         ),
     }
 }
@@ -451,6 +691,8 @@ impl Translator {
             return pass;
         }
         let input = req.get("input").cloned().unwrap_or(Value::Null);
+        let agent = input.get("agent_id").and_then(Value::as_str).unwrap_or("").to_owned();
+        self.dedupe.observe(&agent, &input);
         let Some(call) = Call::of(&input) else { return pass };
         let use_id = input
             .get("tool_use_id")
@@ -461,7 +703,6 @@ impl Translator {
         if use_id.is_empty() {
             return pass;
         }
-        let agent = input.get("agent_id").and_then(Value::as_str).unwrap_or("").to_owned();
         let probe = call.clone();
         let work = tokio::task::spawn_blocking(move || probe.fingerprint());
         let Ok(Ok(Some(fingerprint))) = tokio::time::timeout(WORK_BOUND, work).await else {
@@ -475,6 +716,9 @@ impl Translator {
 
     /// A tool result (`inbound.rs`): off the reading task, as its check stats files.
     pub(super) async fn dedupe_result(&self, use_id: &str, is_error: bool, text: &str) {
+        if let Some(path) = spill_path(text).filter(|_| enabled()) {
+            self.dedupe.spilled(path);
+        }
         if use_id.is_empty() || !self.dedupe.has_pending(use_id) {
             return;
         }
@@ -485,8 +729,150 @@ impl Translator {
     }
 }
 
+impl Translator {
+    /// A prompt going out (`outbound.rs`): the files its prefetch block attached enter the
+    /// table, those still at their blob. Off the writer, bounded; fails open.
+    pub(super) async fn dedupe_prefetch(&self, blocks: &[Value]) {
+        if !enabled() {
+            return;
+        }
+        let files: Vec<Attached> = blocks.iter().flat_map(attached).collect();
+        if files.is_empty() {
+            return;
+        }
+        let dedupe = self.dedupe.clone();
+        let work = tokio::task::spawn_blocking(move || {
+            let checked: Vec<(Attached, String)> = files
+                .into_iter()
+                .filter_map(|a| attached_fingerprint(&a).map(|f| (a, f)))
+                .collect();
+            dedupe.seed_prefetch(checked, Instant::now());
+        });
+        let _ = tokio::time::timeout(WORK_BOUND, work).await;
+    }
+}
+
+/// Whether `call` asks again for an answer it was stubbed for (marked, so each stub counts once).
+fn regretted(s: &mut State, agent: &str, call: &Call, fingerprint: &str) -> bool {
+    let fresh = |r: &&mut Seen| r.stubbed && !r.regretted && r.fingerprint == fingerprint;
+    let hit = match call {
+        Call::Read { path, lines } => {
+            s.reads.get_mut(&(agent.to_owned(), path.clone())).and_then(|seen| {
+                seen.iter_mut().find(|r| fresh(r) && r.lines.0 < lines.1 && lines.0 < r.lines.1)
+            })
+        }
+        Call::Shell { cwd, command, .. } => {
+            s.shells.get_mut(&(agent.to_owned(), cwd.clone(), command.clone())).filter(|r| fresh(r))
+        }
+        Call::Search { cwd, key, .. } => {
+            s.searches.get_mut(&(agent.to_owned(), cwd.clone(), key.clone())).filter(|r| fresh(r))
+        }
+    };
+    hit.map(|r| r.regretted = true).is_some()
+}
+
+/// Whether `text` names `path` as a whole path (not the start of a longer name).
+fn names(text: &str, path: &str) -> bool {
+    !path.is_empty()
+        && text.match_indices(path).any(|(at, _)| {
+            !text[at + path.len()..]
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_alphanumeric() || matches!(c, '_' | '-' | '.' | '/'))
+        })
+}
+
+/// The file a `<persisted-output>` result was saved to.
+pub(super) fn spill_path(text: &str) -> Option<&str> {
+    let rest = text.trim_start().strip_prefix("<persisted-output>")?;
+    let (_, after) = rest.split_once("Full output saved to: ")?;
+    let path = after.split_whitespace().next()?;
+    Path::new(path).is_absolute().then_some(path)
+}
+
+const MAX_SPILLS: usize = 256;
+
 impl Dedupe {
+    /// A tool result Claude Code saved to `path`.
+    pub(super) fn spilled(&self, path: &str) {
+        let Ok(mut s) = self.state.lock() else { return };
+        s.counters.spills += 1;
+        if s.spill_paths.len() >= MAX_SPILLS {
+            s.spill_paths.clear();
+        }
+        s.spill_paths.insert(path.to_owned());
+    }
+
+    /// Any call the hook saw (`input`, its PreToolUse input), before it is decided: one that
+    /// names a spill file reads it back, and a Bash command naming a file whose Read was stubbed
+    /// asks past that stub.
+    pub(super) fn observe(&self, agent: &str, input: &Value) {
+        let Some(args) = input.get("tool_input").and_then(Value::as_object) else { return };
+        let Ok(mut guard) = self.state.lock() else { return };
+        let s = &mut *guard;
+        let texts: Vec<&str> = args.values().filter_map(Value::as_str).collect();
+        if let Some(p) = s.spill_paths.iter().find(|p| texts.iter().any(|t| names(t, p))).cloned() {
+            s.spill_paths.remove(&p);
+            s.counters.spill_read_backs += 1;
+        }
+        if input.get("tool_name").and_then(Value::as_str) != Some("Bash") {
+            return;
+        }
+        let Some(command) = args.get("command").and_then(Value::as_str) else { return };
+        for ((a, path), seen) in s.reads.iter_mut() {
+            if a != agent {
+                continue;
+            }
+            let Some(r) = seen.iter_mut().find(|r| r.stubbed && !r.regretted) else { continue };
+            if path.to_str().is_some_and(|p| names(command, p)) {
+                r.regretted = true;
+                s.counters.stub_regrets += 1;
+            }
+        }
+    }
+
     pub(super) fn has_pending(&self, use_id: &str) -> bool {
         self.state.lock().is_ok_and(|s| s.pending.contains_key(use_id))
     }
+}
+
+/// A Codex shell call the dedupe may answer (`codex_dedupe.rs`): Codex's PreToolUse and
+/// PostToolUse payloads carry Claude's `tool_name` / `tool_input` / `cwd` shape, so the same
+/// read-only list (`dedupe_shell.rs`) and fingerprint decide it. Only `Bash` qualifies; Codex
+/// has no `Read`.
+pub(crate) struct CodexShell(Call);
+
+impl CodexShell {
+    /// The call in a Codex hook `input`, when it is a shell command the dedupe may stub.
+    pub(crate) fn of(input: &Value) -> Option<Self> {
+        match Call::of(input)? {
+            call @ Call::Shell { .. } => Some(Self(call)),
+            // Codex has neither `Read` nor `Grep` / `Glob`.
+            Call::Read { .. } | Call::Search { .. } => None,
+        }
+    }
+
+    /// The call's identity: its folder and its command.
+    pub(crate) fn key(&self) -> String {
+        match &self.0 {
+            Call::Shell { cwd, command, .. } => format!("{cwd}\0{command}"),
+            Call::Read { path, .. } => path.display().to_string(),
+            Call::Search { cwd, key, .. } => format!("{cwd}\0{key}"),
+        }
+    }
+
+    /// What its answer depends on, stamped now; `None` when it cannot be taken.
+    pub(crate) fn fingerprint(&self) -> Option<String> {
+        self.0.fingerprint()
+    }
+
+    /// What the model reads instead of running it again, `ago` calls after the earlier run.
+    pub(crate) fn stub(&self, ago: u64) -> String {
+        stub(&self.0, ago)
+    }
+}
+
+/// Whether the feature is on now, for the Codex hook and its launch (`codex_dedupe.rs`).
+pub(crate) fn enabled_now() -> bool {
+    enabled()
 }

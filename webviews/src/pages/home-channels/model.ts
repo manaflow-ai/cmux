@@ -26,9 +26,6 @@ export interface RailSections {
   direct: HomeConversation[];
 }
 
-const byPinThenTime = (a: HomeConversation, b: HomeConversation) =>
-  Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt;
-
 /** The channels: every group, and every titled room that repeats a member's direct message. With
  * one other member, the oldest conversation (created, then id; the rule HomeChiefName.select uses
  * for the Chief) is the direct message, whatever its title (the Chief's DM is titled "Chief" in
@@ -135,17 +132,6 @@ function sameValue(a: unknown, b: unknown): boolean {
   );
 }
 
-export function railSections(conversations: Iterable<HomeConversation>, me?: string): RailSections {
-  const list = [...conversations];
-  const ids = channelIds(list, me);
-  const channels: HomeConversation[] = [];
-  const direct: HomeConversation[] = [];
-  for (const conversation of list) (ids.has(conversation.id) ? channels : direct).push(conversation);
-  channels.sort(byPinThenTime);
-  direct.sort((a, b) => Number(b.kind === "chief") - Number(a.kind === "chief") || byPinThenTime(a, b));
-  return { channels, direct };
-}
-
 /** The rail and header name: the title, else the other participants' names. */
 export function conversationName(conversation: HomeConversation, me: string | undefined): string {
   if (conversation.title) return conversation.title;
@@ -240,9 +226,6 @@ export function partText(part: HomePart): string {
       return part.fallback;
   }
 }
-
-/** Whether a part shows anything (a work part without a preview is no bubble, Swift `HomeMapping.parts`). */
-export const partShows = (part: HomePart): boolean => part.type !== "work" || workShownText(part) !== undefined;
 
 export function messageText(message: HomeMessage): string {
   return message.parts.map(partText).join("\n");
@@ -522,43 +505,6 @@ export function lastEditable(
 /** The other participants (an @ mention's choices). */
 export function others(conversation: HomeConversation | undefined, me: string | undefined) {
   return conversation ? conversation.participants.filter((p) => p.id !== me) : [];
-}
-
-/** What the other member of a direct message is (Chief, Agent); nothing for a person or a channel.
- * The rail shows it only when the name does not already say it. */
-export function memberTag(
-  conversation: HomeConversation,
-  me: string | undefined,
-  channel: boolean,
-): "chief" | "agent" | undefined {
-  if (channel) return undefined;
-  const other = conversation.participants.find((p) => p.id !== me);
-  if (!other || other.kind !== "agent") return undefined;
-  return other.chief ? "chief" : "agent";
-}
-
-/** A muted disambiguator for conversations that share a name: the last activity, and the id's
- * end when even that is the same. Conversations with a unique name get none. */
-export function disambiguators(
-  conversations: Iterable<HomeConversation>,
-  me: string | undefined,
-  stamp: (at: number) => string,
-): Map<string, string> {
-  const byName = new Map<string, HomeConversation[]>();
-  for (const c of conversations) {
-    const key = conversationName(c, me).trim().toLowerCase();
-    byName.set(key, [...(byName.get(key) ?? []), c]);
-  }
-  const out = new Map<string, string>();
-  for (const group of byName.values()) {
-    if (group.length < 2) continue;
-    const stamps = group.map((c) => stamp(c.updatedAt));
-    group.forEach((c, index) => {
-      const same = stamps.filter((s) => s === stamps[index]).length > 1;
-      out.set(c.id, same ? `${stamps[index]} · ${c.id.slice(-4)}` : stamps[index]!);
-    });
-  }
-  return out;
 }
 
 /** The id prefix of a message I sent that the owner has not shown yet. */

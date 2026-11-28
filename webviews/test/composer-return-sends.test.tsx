@@ -10,17 +10,17 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { noChat, user } from "../src/gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
-import {
-  cmuxCommandRefusal,
-  type CmuxCommand,
-  type CmuxCommandResult,
-  mergedCommands,
-} from "../src/agent-session/acpmux/cmuxCommands";
-import { translate } from "../src/agent-session/acpmux/i18n";
+import type { CmuxCommand, CmuxCommandResult } from "../src/agent-session/acpmux/cmuxCommands";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { noChat, user } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
+const { cmuxCommandRefusal, mergedCommands } = await importWithDom(
+  () => import("../src/agent-session/acpmux/cmuxCommands"),
+);
+const { translate } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -699,6 +699,26 @@ test("a dictated message with paragraphs stays one draft until Return sends it o
   await dispatch(field, key({ key: "Enter", keyCode: 13 }));
   expect(sent.length).toBe(1);
   expect(sent[0]!.text.startsWith("First paragraph")).toBe(true);
+});
+
+test("a busy chat sends both screenshots and its words together after a paragraph break", async () => {
+  const page = await composer(working(), "Compare these screenshots");
+  const files = [
+    new File([PNG], "before.png", { type: "image/png" }),
+    new File([PNG, Uint8Array.of(1)], "after.png", { type: "image/png" }),
+  ];
+  const paste = new window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", { value: { files, types: ["Files"], getData: () => "" } });
+  await dispatch(page.field, paste);
+  await dispatch(
+    page.field,
+    new window.InputEvent("beforeinput", { inputType: "insertParagraph", bubbles: true, cancelable: true }),
+  );
+  expect(page.sent).toEqual([]);
+  await dispatch(page.field, key({ key: "Enter", keyCode: 13 }));
+  expect(page.sent).toHaveLength(1);
+  expect(page.sent[0]!.text).toContain("Compare these screenshots");
+  expect(page.sentAttachments).toEqual([["before.png", "after.png"]]);
 });
 
 test("a dictated Return (keyCode 229) still sends, once, with the paragraph input that follows it", async () => {

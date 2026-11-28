@@ -17,10 +17,12 @@ import {
   type cloudSendAfterCheck,
   type grantedCloudStart,
   heldPromptShown,
+  cloudPageFolderBack,
 } from "../cloudRun";
 import { type CloudSetupAction, type CloudSetupNeed, waitForCloudSetUp } from "../cloudSetup";
 import { startAfterSignIn, waitForCloudSignIn, type CloudSignInWait } from "../cloudSignIn";
 import { holdsDraft, promptBeforeTyped, type CloudStartDraft } from "../cloudStartCarry";
+import { cloudStartOpened } from "../cloudStartOpened";
 import {
   cloudStartBegun,
   cloudStartEnded,
@@ -97,12 +99,21 @@ export interface CloudSendDeps {
   newTabCloudSent: RefObject<boolean>;
   cloudPageDraft: RefObject<{ text: string; attachments: ComposerAttachment[] } | undefined>;
   cloudRetryFolder: RefObject<ReturnType<typeof cloudStartFolder> | undefined>;
+  /// A page's send ended here with its draft back in the chat composer: the composer's chip takes the
+  /// folder it sent (`cloudPageFolderBack`: a folder, or `""` for No folder).
+  restoreCloudPageFolder: (folder: string, mark: number) => void;
+  /// The composer's folder choices so far (App `folderChoice`), taken at the send: a restore after a newer
+  /// choice (a pick, This Mac) changes nothing.
+  cloudFolderMark: () => number;
+  /// The start card shown now: a failed one's environment is the retry's target (`forSend`).
+  cloudStart: CloudStartProgress | undefined;
   setCloudStart: Dispatch<SetStateAction<CloudStartProgress | undefined>>;
   setCloudHeld: Dispatch<SetStateAction<CloudHeld | undefined>>;
   setCloudLeftPage: Dispatch<SetStateAction<number | undefined>>;
   setCloudStartsEnded: Dispatch<SetStateAction<number>>;
   cloudAfterCheck: ReturnType<typeof cloudSendAfterCheck>;
   cloudEnvironment: ReturnType<typeof useChatCloudEnvironment>;
+  cloudDraftMachineID: RefObject<string | null | undefined>;
   cloudSwitchTeam: ReturnType<typeof cloudStartTeam>;
   cloudReservation: CloudComposeReservation;
   cloudStartKeys: ReturnType<typeof makeCloudStartKeys>;
@@ -151,9 +162,11 @@ export function sendToCloudWith(
     cloudStartPending,
     cloudPlanHeldTurn,
     cloudPlanHeld,
+    cloudStart,
     setCloudStart,
     sendHeldForPlan,
     cloudEnvironment,
+    cloudDraftMachineID,
     cloudSwitchTeam,
     emptyLocalChat,
     snapshot,
@@ -218,13 +231,19 @@ export function sendToCloudWith(
     return false;
   }
   // The Environment chip's pick (CLOUD_ENVIRONMENTS_ENABLED); Auto, and the flag off, name none.
-  const environment = cloudEnvironment.forSend(start.environment);
+  // A failed start's environment is part of the preserved intent. The pick resets after the first
+  // send, so a same-prompt Retry uses the card's target instead of silently provisioning another.
+  const retryEnvironment =
+    cloudStart?.state === "failed" && cloudStart.task === text ? cloudStart.environment : undefined;
+  const environment = cloudEnvironment.forSend(start.environment, retryEnvironment);
+  const machine = cloudDraftMachineID.current;
   const team = cloudSwitchTeam.forSend();
   const unreserved: CloudStart = {
     task: text,
     attachments,
     ...start,
     ...(environment ? { environment } : {}),
+    ...(machine ? { machine } : {}),
     ...(team ? { team } : {}),
     // The empty chat this start replaces: the host closes this tab with it once the Cloud chat opens.
     ...(emptyLocalChat && snapshot.sessionId ? { replacesChat: snapshot.sessionId } : {}),
@@ -232,7 +251,8 @@ export function sendToCloudWith(
   // The compose's warm machine goes only with the Send it first went with (or that Send's retry,
   // the same start key): after a refused start, another prompt from this page would be refused
   // by the platform as `409 reservation.bound` (cloudComposeReservation.ts `handoff`).
-  const reservationKey = cloudReservation.handoff(environment, cloudStartKeys.keyFor(unreserved));
+  if (machine) cloudReservation.abandon();
+  const reservationKey = machine ? undefined : cloudReservation.handoff(environment, cloudStartKeys.keyFor(unreserved));
   const request: CloudStart = { ...unreserved, ...(reservationKey ? { reservationKey } : {}) };
   // A page's send leaves the page: its draft comes back in the chat composer, compared there.
   const preserved = fromPage || heldStillShown === false ? undefined : composerHandle.current?.draft();
@@ -278,6 +298,8 @@ export function beginCloudSendWith(
     runCloudHere,
     cloudReservation,
     cloudRetryFolder,
+    restoreCloudPageFolder,
+    cloudFolderMark,
     harnessSwitch,
     notices,
   } = deps;
@@ -298,7 +320,9 @@ export function beginCloudSendWith(
     const pick = cloudSetUpPick.current;
     cloudSetUpPick.current = undefined;
     setUpNeed = pick?.need;
-    signIn = pick ? waitForCloudSetUp(callNative, key, pick.action, pick.need) : waitForCloudSignIn(callNative, key);
+    signIn = pick
+      ? waitForCloudSetUp(callNative, key, pick.action, pick.need, undefined, request.machine, request.environment)
+      : waitForCloudSignIn(callNative, key);
     cloudSignInWait.current = signIn;
   }
   const wait = signIn;
@@ -346,6 +370,7 @@ export function beginCloudSendWith(
     cloudTypedDuringStart.current = undefined;
     return beginCloudSend(resumed, true, expected, false, taken);
   };
+  const folderMark = cloudFolderMark();
   lastCloudAttempt.current = { key, request };
   cloudStartPending.current = true;
   cloudTypedDuringStart.current = undefined;
@@ -377,6 +402,7 @@ export function beginCloudSendWith(
             over: { harness: snapshot.summary?.harness, model: snapshot.summary?.model },
           }
         : undefined,
+      start.environment,
     ),
   );
   void started.then((answer) => {
@@ -410,7 +436,12 @@ export function beginCloudSendWith(
         restoreComposerDraft(composerHandle, heldBack, back.text, back.attachments);
         if (holdsDraft(typed)) cloudTypedDuringStart.current = typed;
       }
-      if (pageDraft) expectedDraft = pageDraft;
+      if (pageDraft) {
+        expectedDraft = pageDraft;
+        // The folder goes back with the prompt: the chip names what the card named (cmux#63348).
+        const folder = cloudPageFolderBack(start);
+        if (folder !== undefined) restoreCloudPageFolder(folder, folderMark);
+      }
     }
     if (!answer.ok && answer.code === "cloud_sign_in_cancelled") {
       // The person left Cloud while signing in: the prompt stays in the composer for their new pick.
@@ -430,7 +461,8 @@ export function beginCloudSendWith(
       // The chat opened on its machine: a pick's local session on this page (pickOnlyChat) is nobody's now.
       harnessSwitch.cancel();
     }
-    setCloudStart((current) => cloudStartEnded(current, key, answer));
+    // Opened: the card stays until the Cloud chat's first page is drawn, never an empty chat between (cloudStartOpened.ts).
+    setCloudStart((current) => (answer.ok ? cloudStartOpened(current, key) : cloudStartEnded(current, key, answer)));
     if (!answer.ok && !cloudStartSaid(answer))
       notices.transient(translate("composer.offloadNotRun", { action: translate("composer.cloud") }));
   });

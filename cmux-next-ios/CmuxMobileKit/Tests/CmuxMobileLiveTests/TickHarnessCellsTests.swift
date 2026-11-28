@@ -398,6 +398,8 @@ struct TickHarnessCellsTests {
         }
     }
 
+    #if os(iOS)
+    // Bytes on disk: RowSpill writes page files only where Rust's RowSpillPages links.
     /// 10,000 Feed events (1% open asks) at 50 ms to 30 s apart, with a
     /// memory warning every 2 to 20 minutes and the spill's folder refusing
     /// writes (as a full disk does) for 1 to 30 minutes now and then.
@@ -507,4 +509,5 @@ struct TickHarnessCellsTests {
         // Every row the spill held (pages and the rows short of a page) came back once.
         #expect(ids.count - before == stored, "seed \(seed): \(ids.count - before) rows came back of \(stored) spilled")
     }
+    #endif
 }

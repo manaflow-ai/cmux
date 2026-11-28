@@ -1,0 +1,13 @@
+{
+  "cmuxProfile": 1,
+  "name": "studio-app-composer",
+  "description": "Expose the attachment action beside the draft and keep the microphone and attachments visible.",
+  "created_ms": 0,
+  "settings": {
+    "agentPane.showDictation": true,
+    "agentPane.attachmentView": "strip"
+  },
+  "files": {
+    "customize/cmux-app.json": "{\n  \"$schema\": \"https://cmux.dev/schemas/cmux-app/2.json\",\n  \"manifestVersion\": 2,\n  \"id\": \"local/customize\",\n  \"name\": {\n    \"en\": \"Thread composer\"\n  },\n  \"version\": \"1.0.0\",\n  \"description\": \"Expose the attachment action beside the draft and keep the microphone and attachments visible.\",\n  \"engines\": {\n    \"cmux\": \"^2.0\"\n  },\n  \"implements\": {\n    \"cmux.composer.toolbar/1\": {\n      \"options\": {\n        \"buttons\": [\n          {\n            \"action\": \"composer.attachFiles\",\n            \"label\": \"Attach files\"\n          }\n        ]\n      }\n    }\n  }\n}\n"
+  }
+}

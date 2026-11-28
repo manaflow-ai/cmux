@@ -232,11 +232,70 @@ export function projectRows<T extends { cwd: string; label: string; repo?: Proje
 /// folders only when the words name them, not just their repository (shownRepoRows): "cmux" lists
 /// cmux once, "next-reds" its lane, so a hidden folder is one search away. Another machine's
 /// folders are never folded (this Mac reads none of their repositories) and come last, as given.
-export function chooserRows<T extends { cwd: string; label: string; repo?: ProjectRepo; peer?: string; host?: string }>(
-  projects: readonly T[],
-  query: string,
-  current?: string,
-): T[] {
+export function chooserRows<T extends ChooserProject>(projects: readonly T[], query: string, current?: string): T[] {
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const { local, remote, groups, ungrouped } = chooserBase(projects, current);
+  if (words.length === 0) return [...groups.map((group) => group.lead.project), ...remote];
+  const has = (project: T) => {
+    const text = chooserText(project);
+    return words.every((word) => text.includes(word));
+  };
+  const rows: T[] = [];
+  for (const { group, worktrees } of shownRepoRows(groups, query, NO_KEYS)) {
+    if (has(group.lead.project)) rows.push(group.lead.project);
+    for (const worktree of worktrees) rows.push(worktree.project);
+  }
+  // A folder no repository's row stands for (the home folder, a scratch folder): by its own words.
+  for (const project of local) if (ungrouped.has(project) && has(project)) rows.push(project);
+  for (const project of remote) if (has(project)) rows.push(project);
+  return rows;
+}
+
+type ChooserProject = { cwd: string; label: string; repo?: ProjectRepo; peer?: string; host?: string };
+type ChooserFolder<T> = { id: string; label: string; repo?: ProjectRepo; project: T };
+type ChooserBase<T> = { local: T[]; remote: T[]; groups: RepoGroup<ChooserFolder<T>>[]; ungrouped: Set<T> };
+const NO_KEYS: ReadonlySet<string> = new Set();
+
+/// What a search of the chooser does not depend on, kept per projects list (its last `current`): the split by machine
+/// and the grouping by repository. Each typed letter regrouped every folder: at 1,100 projects 1.0 ms of the 1.2-1.8 ms
+/// a letter cost, at 11,000 12 of 14-27 ms (test/project-chooser-search.test.ts). Keyed on the list, so a list
+/// nothing holds any more is collected with its entry.
+const chooserBases = new WeakMap<readonly object[], { current: string | undefined; base: ChooserBase<object> }>();
+function chooserBase<T extends ChooserProject>(projects: readonly T[], current: string | undefined): ChooserBase<T> {
+  const kept = chooserBases.get(projects);
+  if (kept && kept.current === current) return kept.base as ChooserBase<T>;
+  const local = projects.filter((project) => !project.peer);
+  const remote = projects.filter((project) => project.peer);
+  const folders = local.map((project) => ({
+    id: project.cwd,
+    label: project.label,
+    ...(project.repo ? { repo: project.repo } : {}),
+    project,
+  }));
+  const groups = groupByRepo(folders, current);
+  const grouped = new Set(groups.flatMap((group) => group.members.map((member) => member.project)));
+  const ungrouped = new Set(local.filter((project) => !grouped.has(project)));
+  const base: ChooserBase<T> = { local, remote, groups, ungrouped };
+  chooserBases.set(projects, { current, base: base as ChooserBase<object> });
+  return base;
+}
+
+/// A project's words for the chooser's search, lowercased once per project object, not once per letter typed.
+const chooserTexts = new WeakMap<object, string>();
+function chooserText(project: ChooserProject): string {
+  let text = chooserTexts.get(project);
+  if (text === undefined) {
+    text = `${project.label} ${project.cwd} ${project.host ?? ""}`.toLowerCase();
+    chooserTexts.set(project, text);
+  }
+  return text;
+}
+
+/// The chooser's rows as it read them before chooserBase and chooserText kept anything: every folder regrouped and
+/// lowercased again per call. The oracle of test/project-chooser-search.test.ts.
+export function chooserRowsScan<
+  T extends { cwd: string; label: string; repo?: ProjectRepo; peer?: string; host?: string },
+>(projects: readonly T[], query: string, current?: string): T[] {
   const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const has = (project: T) => {
     const text = `${project.label} ${project.cwd} ${project.host ?? ""}`.toLowerCase();
@@ -253,7 +312,7 @@ export function chooserRows<T extends { cwd: string; label: string; repo?: Proje
   const groups = groupByRepo(folders, current);
   if (words.length === 0) return [...groups.map((group) => group.lead.project), ...remote];
   const rows: T[] = [];
-  for (const { group, worktrees } of shownRepoRows(groups, query, new Set())) {
+  for (const { group, worktrees } of shownRepoRowsScan(groups, query, new Set())) {
     if (has(group.lead.project)) rows.push(group.lead.project);
     rows.push(...worktrees.map((worktree) => worktree.project));
   }
@@ -261,6 +320,37 @@ export function chooserRows<T extends { cwd: string; label: string; repo?: Proje
   const grouped = new Set(groups.flatMap((group) => group.members.map((member) => member.project)));
   rows.push(...local.filter((project) => !grouped.has(project) && has(project)));
   return [...rows, ...remote.filter(has)];
+}
+
+/// `rows` in the places an opening first showed them (`placed`, their `cwd`s, which this updates): a row the
+/// opening already showed keeps its place, and a new one goes after them. Leo, 2026-11-27: "when you open a new
+/// tab the shown projects switch weird the placements get weird": the New Tab project card ordered its rows by
+/// chat recency, so a chat working, the host's project answer or a late repository read moved them while the
+/// page was in view (cmux-agent-pane-policy new_tab_projects.rs: positions belong to an opening).
+export function keepPlaces<T extends { cwd: string }>(rows: readonly T[], placed: string[]): T[] {
+  const places = withPlaces(rows, placed);
+  placed.splice(0, placed.length, ...places);
+  return inPlaces(rows, places);
+}
+
+/// `placed` with each row it does not hold yet after it, in the rows' order; `placed` itself when it holds
+/// them all, so a component that keeps it in state sets it only when a row is new (no ref read in render,
+/// which the React Compiler skips a component for: scripts/check-compiler-bails.mjs).
+export function withPlaces(rows: readonly { cwd: string }[], placed: readonly string[]): readonly string[] {
+  const have = new Set(placed);
+  const added: string[] = [];
+  for (const { cwd } of rows)
+    if (!have.has(cwd)) {
+      have.add(cwd);
+      added.push(cwd);
+    }
+  return added.length ? [...placed, ...added] : placed;
+}
+
+/// `rows` sorted by their place in `places` (each row's `cwd` is in it: withPlaces).
+export function inPlaces<T extends { cwd: string }>(rows: readonly T[], places: readonly string[]): T[] {
+  const place = new Map(places.map((cwd, index) => [cwd, index] as const));
+  return [...rows].sort((a, b) => place.get(a.cwd)! - place.get(b.cwd)!);
 }
 
 /// The projects in the order they were last used: those a chat used, newest chat first, then the
@@ -307,6 +397,56 @@ export function isMainCheckout(folder: RepoFolder): boolean {
 /// lists cmux once, not each of its fifty worktrees). With no words, the `expanded` groups list
 /// all their worktrees.
 export function shownRepoRows<T extends RepoFolder>(
+  groups: readonly RepoGroup<T>[],
+  query: string,
+  expanded: ReadonlySet<string>,
+): { group: RepoGroup<T>; worktrees: T[] }[] {
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0)
+    return groups.map((group) => ({
+      group,
+      worktrees: expanded.has(group.key) ? group.members.filter((member) => member !== group.lead) : [],
+    }));
+  const rows: { group: RepoGroup<T>; worktrees: T[] }[] = [];
+  for (const group of groups) {
+    const { shared, own, worktree } = groupTexts(group);
+    const members = group.members;
+    // Which words the repository's name covers is the same for every member: read once per group.
+    const unshared = words.filter((word) => !shared.includes(word));
+    const matches = (index: number) => unshared.every((word) => own[index]!.includes(word));
+    // Named by its own text: a word the repository's name alone does not cover.
+    const named = (index: number) => unshared.some((word) => worktree(index).includes(word));
+    let any = false;
+    for (let index = 0; index < members.length && !any; index++) any = matches(index);
+    if (!any) continue;
+    const worktrees: T[] = [];
+    for (let index = 0; index < members.length; index++)
+      if (members[index] !== group.lead && matches(index) && named(index)) worktrees.push(members[index]!);
+    rows.push({ group, worktrees });
+  }
+  return rows;
+}
+
+/// A group's lowercased search words, kept per group object: the repository's (`shared`), each member's own by its
+/// index (`own`), and each member's worktree words, read only for a member that matches. Each typed letter
+/// lowercased every member's label, name and path again, twice for a match.
+type GroupTexts = { shared: string; own: string[]; worktree: (index: number) => string };
+const groupTextsKept = new WeakMap<RepoGroup<RepoFolder>, GroupTexts>();
+function groupTexts(group: RepoGroup<RepoFolder>): GroupTexts {
+  const kept = groupTextsKept.get(group);
+  if (kept && kept.own.length === group.members.length) return kept;
+  const shared = `${group.name} ${group.github ?? ""}`.toLowerCase();
+  const own = group.members.map((member) => `${member.label} ${worktreeName(member)} ${member.id}`.toLowerCase());
+  const worktrees: (string | undefined)[] = [];
+  const worktree = (index: number) => (worktrees[index] ??= worktreeText(group.members[index]!, group));
+  const texts = { shared, own, worktree };
+  groupTextsKept.set(group, texts);
+  return texts;
+}
+
+/// The search rows as they were read before groupTexts kept anything. The oracle of
+/// test/project-chooser-search.test.ts.
+export function shownRepoRowsScan<T extends RepoFolder>(
   groups: readonly RepoGroup<T>[],
   query: string,
   expanded: ReadonlySet<string>,

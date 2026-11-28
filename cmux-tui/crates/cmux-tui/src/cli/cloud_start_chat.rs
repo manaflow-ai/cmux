@@ -417,7 +417,13 @@ fn send_to(runner: &mut dyn Runner, request: &Request, machine_id: &str, session
         deadline,
         &mut progress,
     );
-    if deadline.passed(runner) { progress.late(request) } else { outcome }
+    if deadline.passed(runner) && !waited_out(&outcome) { progress.late(request) } else { outcome }
+}
+
+/// Whether `outcome` is the wait's own `chat.wait_timeout`: it holds what the wait learned (a capacity wait, the
+/// failed turn the next status read starts after), which [`Progress::late`]'s copy from before the wait lacks.
+fn waited_out(outcome: &Outcome) -> bool {
+    matches!(outcome, Outcome::Failed { error, .. } if error["code"] == "chat.wait_timeout")
 }
 
 /// The command that sends to `session` on `machine_id` again (`cmux chat send`): never a start, which would
@@ -454,6 +460,16 @@ pub(super) fn app_machines(global: &GlobalArgs) -> Result<Value, Value> {
 /// One app Cloud verb run as this binary's own `--json` step: its `result`, or its error object
 /// (`cmux vm exec dev -- CMD` reads `exit_code`, `stdout` and `stderr` from it).
 pub(super) fn app_step(global: &GlobalArgs, args: &[String]) -> Result<Value, Value> {
+    app_step_with_options(global, args, false)
+}
+
+/// Runs one app verb, optionally asking `action.run` to join an existing keyed run without
+/// claiming a missing key.
+pub(super) fn app_step_with_options(
+    global: &GlobalArgs,
+    args: &[String],
+    join_only: bool,
+) -> Result<Value, Value> {
     let mut globals = forwarded_globals(global);
     // One step, so the caller's key is this step's: a retry with it does not run it twice.
     if let Some(key) = &global.idempotency_key {
@@ -461,6 +477,9 @@ pub(super) fn app_step(global: &GlobalArgs, args: &[String]) -> Result<Value, Va
     }
     let mut runner = SelfRunner { globals, ..SelfRunner::new(global) };
     let mut args = args.to_vec();
+    if join_only {
+        args.push("--join-only".to_owned());
+    }
     args.push("--json".to_owned());
     step_result(&runner.cmux(&args))
 }
@@ -1336,27 +1355,16 @@ impl Progress {
 /// whatever it answered: one check here, after every step, instead of one after each call.
 pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     let began = runner.now();
-    let outcome = run_once(runner, request);
-    // A new machine this run made that never came up is deleted and the start runs on a fresh one (fresh.rs).
-    let outcome = fresh::replace_stuck(runner, request, began, outcome);
-    let outcome =
-        if request.make_room { make_room(runner, request, began, outcome) } else { outcome };
-    explain_account_limit(outcome, &request.agent)
-}
-
-/// A turn that failed on its agent's account (out of usage, or turned off) answers what
-/// happened and the way on, not the agent's bare words (account_limit.rs, cmux#55066).
-fn explain_account_limit(outcome: Outcome, agent: &str) -> Outcome {
-    match outcome {
-        Outcome::Failed { mut error, exit }
-            if at(&error, "code").as_str() == Some("chat.turn_failed") =>
-        {
-            let said = at(&error, "message").as_str().unwrap_or_default().to_owned();
-            super::account_limit::explain(&mut error, &said, agent);
-            Outcome::Failed { error, exit }
-        }
-        outcome => outcome,
-    }
+    // `CMUX_CLOUD_FAULT` (start_fault.rs, unset by default): the probe's fault drill answers that class's error in
+    // place of this start, so the table below is measured on it against production.
+    let outcome = start_fault::take()
+        .map_or_else(|| run_once(runner, request), |class| start_fault::error(class, request));
+    // Every failure goes through the one recovery table (recover.rs): a new machine this run made that never came
+    // up starts on a fresh one (fresh.rs), a machine still starting is started on again within the deadline, and
+    // `--make-room` frees a machine at a cap. A class with no action is the person's, unchanged.
+    let outcome = recover::recover(runner, request, began, outcome);
+    // One trace id per start, from tap to first text (start_stages.rs `traced`).
+    super::start_stages::traced(super::account_limit::explain_outcome(outcome, &request.agent))
 }
 
 /// `--make-room` after a cap refusal: free the machine the refusal offers, then start once more. A
@@ -1402,7 +1410,11 @@ fn make_room(
     } else {
         room
     };
-    if let Err(refused) = step_result(&runner.cmux(&room.command())) {
+    // A delete of a machine that is already gone made the room all the same (deleted in the meantime, or the
+    // fault drill's id no machine has, start_fault.rs): the start runs again.
+    if let Err(refused) = step_result(&runner.cmux(&room.command()))
+        && !(!room.archive && machine_gone(&refused))
+    {
         let message = at(&refused, "message").as_str().unwrap_or("it was refused").to_owned();
         return failed(
             "cloud.make_room_failed",
@@ -1423,12 +1435,20 @@ fn make_room(
             1,
         );
     }
-    // The rerun makes a new machine too: one that never comes up is replaced the same way (fresh.rs).
-    // The rerun keeps the run's one deadline: `--timeout` counts from the command's start, not from here.
+    // The rerun makes a new machine too: one that never comes up is replaced the same way, by the recovery table
+    // that called this (recover.rs). The rerun keeps the run's one deadline: `--timeout` counts from the command's
+    // start, not from here.
     let until = request.until.or(Deadline::of(request, began).0);
     let again = Request { make_room: false, until, ..request.clone() };
-    let outcome = run_once(runner, &again);
-    fresh::replace_stuck(runner, &again, began, outcome)
+    run_once(runner, &again)
+}
+
+/// Whether a machine step was refused because no such machine is left (an app action's `not_found` too).
+fn machine_gone(error: &Value) -> bool {
+    matches!(
+        at(error, "code").as_str(),
+        Some("cloud.machine.not_found" | "vm_not_found" | "not_found")
+    )
 }
 
 fn run_once(runner: &mut dyn Runner, request: &Request) -> Outcome {
@@ -1440,7 +1460,7 @@ fn run_once(runner: &mut dyn Runner, request: &Request) -> Outcome {
     // during deletion, rather than suggesting the caller retry on a machine we just deleted.
     let rolled_back = matches!(&outcome, Outcome::Failed { error, .. }
         if error.pointer("/details/cleanup").is_some());
-    if deadline.passed(&mut timed) && !rolled_back {
+    if deadline.passed(&mut timed) && !rolled_back && !waited_out(&outcome) {
         outcome = progress.late(request);
     }
     if let (Some(id), Outcome::Done(answer)) = (progress.made.as_deref(), &mut outcome)
@@ -1478,8 +1498,10 @@ fn run_once(runner: &mut dyn Runner, request: &Request) -> Outcome {
                         details.entry("machine_name").or_insert_with(|| json!(name));
                     }
                 }
-                // A failure after this run made its machine names it, so the caller can delete it.
-                if let Some(id) = &progress.made {
+                // A failure names its new machine for caller cleanup only when rollback has not deleted it.
+                let deleted =
+                    details.get("cleanup").and_then(|c| c.get("deleted")) == Some(&json!(true));
+                if let Some(id) = progress.made.as_ref().filter(|_| !deleted) {
                     details.insert("machine_id".to_owned(), json!(id));
                     details.insert("new_machine".to_owned(), json!(true));
                 }
@@ -1778,7 +1800,7 @@ fn steps(
     {
         return outcome;
     }
-    // The fresh name a new machine gets (no listed machine or create has it): a start-session machine of that name is this run's.
+    // The fresh name a new machine gets (no listed machine or create has it).
     let mut fresh = None;
     let machine = match &wanted {
         Machine::New => {
@@ -1791,6 +1813,7 @@ fn steps(
         }
         other => other.clone(),
     };
+    let own = fresh::own(fresh.as_ref(), request, &machine, &listed);
     progress.machine = Some(machine.clone());
     // A turn to wait on and no time left for it: nothing starts, and a machine made so far
     // is there for the same ask again.
@@ -1820,10 +1843,10 @@ fn steps(
         start.push("--no-focus".to_owned());
     }
     start.push("--json".to_owned());
-    // On a machine this run makes for itself, the start is bounded and a stuck machine is given up (fresh.rs); a
+    // On `own`, the start is bounded and a stuck machine is given up (fresh.rs); a
     // `--from-folder` start's copy runs inside the step, so only the app's own stuck answer counts there.
     // A machine still booting at the bound (a cold create: no spare) is waited on while it boots (fresh::Boot).
-    let mut boot = fresh
+    let mut boot = own
         .as_ref()
         .filter(|_| request.from_folder.is_none())
         .map(|name| fresh::Boot::new(runner, name, deadline));
@@ -1834,7 +1857,7 @@ fn steps(
         }
         None => runner.cmux(&start),
     };
-    if let Some(name) = &fresh
+    if let Some(name) = &own
         && let Some(stuck) = fresh::stuck(runner, &ran, boot.as_ref(), name, deadline)
     {
         return stuck;
@@ -1842,11 +1865,17 @@ fn steps(
     let started = match step_result(&ran) {
         Ok(started) => started,
         Err(error) => {
+            let asked = at(&error, "message").clone();
             let error = match &fresh {
                 Some(name) => unmade_fresh_retry(runner, error, name, request),
                 None => error,
             };
+            let no_machine = progress.made.is_none() && at(&error, "message") != &asked;
             let refused = start_refused(error, &listed, request);
+            // The rewritten retry already proves no machine has this run's fresh name.
+            if no_machine {
+                return refused;
+            }
             return fresh::release_refused(
                 runner,
                 fresh.as_deref(),
@@ -2189,13 +2218,27 @@ fn send_prompt(
                     deadline,
                 );
             }
+            // The link took the frame and answered nothing: one read of the chat settles it ([`link_send_landed`]).
             Err(link_wait::SendFailure::Unsure(reason)) => {
-                return failed(
-                    "chat.send_failed",
-                    format!("the prompt may not have reached the chat: {reason}"),
-                    json!({"answer": answer}),
-                    1,
-                );
+                match link_send_landed(runner, machine_id, session, &reason, &mut answer, deadline)
+                {
+                    Some(true) if !request.wait => return Outcome::Done(answer),
+                    Some(true) => {
+                        let start = (0, None, None);
+                        return wait_turn(
+                            runner, request, machine_id, session, start, answer, deadline,
+                        );
+                    }
+                    Some(false) => progress.sending = false,
+                    None => {
+                        return failed(
+                            "chat.send_failed",
+                            format!("the prompt may not have reached the chat: {reason}"),
+                            json!({"answer": answer}),
+                            1,
+                        );
+                    }
+                }
             }
             Err(link_wait::SendFailure::NotSent(_)) => progress.sending = false,
         }
@@ -2422,35 +2465,6 @@ pub(super) fn status(
     Outcome::Done(answer)
 }
 
-/// The prompt to the chat tab `tab` over the machine's link, within what is left of the deadline. `NotSent`
-/// when there is no link (no app, no socket) or the daemon refused: the exec route takes over.
-fn send_over_link(
-    runner: &mut dyn Runner,
-    machine_id: &str,
-    tab: u64,
-    prompt: &str,
-    deadline: Deadline,
-) -> Result<(), link_wait::SendFailure> {
-    use link_wait::SendFailure::NotSent;
-    let asked =
-        runner.app("cloud.machine_stream", json!({"machine": machine_id}), Duration::from_secs(10));
-    let Some(socket) = asked
-        .and_then(Result::ok)
-        .and_then(|answer| answer.get("socket").and_then(Value::as_str).map(str::to_owned))
-    else {
-        return Err(NotSent("no link socket".into()));
-    };
-    let wait = deadline.bound(runner, LINK_SEND_WAIT);
-    if wait.is_zero() {
-        return Err(NotSent("no time left".into()));
-    }
-    let prompt_id = format!("cli-{}", uuid::Uuid::new_v4().simple());
-    runner.send_link(&socket, tab, &prompt_id, prompt, wait).map(|_| ())
-}
-
-/// The longest the link send waits for its answers.
-const LINK_SEND_WAIT: Duration = Duration::from_secs(10);
-
 /// 4. The turn after `baseline` in `session`: its end and its reply.
 fn wait_turn(
     runner: &mut dyn Runner,
@@ -2467,11 +2481,17 @@ fn wait_turn(
     if baseline == 0
         && let Some(tab) = tab
     {
-        match pushed_turn(runner, machine_id, tab, deadline) {
-            Pushed::Ended(ended) => return ended.outcome(answer),
+        match pushed_turn(runner, machine_id, tab, deadline, &mut answer) {
+            Pushed::Ended(ended) => return resumed(ended.outcome(answer)),
             Pushed::Permission => return permission_waiting(answer),
-            Pushed::Unavailable => {
+            Pushed::Unavailable(first_output) => {
                 answer.set("wait_route", json!("exec"));
+                // The link read the reply's first output before it went away: the exec route's history keeps no
+                // first-output time, so the records' is the only one (hq run 45241258907: two 60 s slices and a
+                // closed link, then the exec wait, and the reply's first text was gone from the answer).
+                if let Some(first) = first_output {
+                    answer.set("turn_ms", json!({"first_output": first}));
+                }
             }
             Pushed::TimedOut => {
                 return wait_timeout(request, machine_id, session, Some(baseline), answer);
@@ -2482,6 +2502,9 @@ fn wait_turn(
     let mut unanswered = 0;
     // Whether a read showed the sent turn (a turn after `baseline`): from then on the wait is for its end only.
     let mut seen = false;
+    // The turn the wait is for comes after this one: `baseline`, then a turn that failed on capacity, whose
+    // continuation the guest's acpmux runs by itself ([`capacity_wait`]).
+    let mut baseline = baseline;
     loop {
         let polled = if let Some(polled) = first.take() {
             polled
@@ -2516,6 +2539,16 @@ fn wait_turn(
                 // `acp last` reads the session's newest reply, not this turn's: a turn that failed
                 // before it said anything (the agent's usage limit) would answer the turn before's
                 // reply as its own. It answers its own error instead, as the pushed route does.
+                let error = turn.value.get("error");
+                let said = error.and_then(Value::as_str).or_else(|| {
+                    error.and_then(|error| error.get("message")).and_then(Value::as_str)
+                });
+                let typed = turn.value.get("errorKind").map(|_| &turn.value).or(error);
+                if let Some(wait) = capacity_wait(said.unwrap_or_default(), typed, &answer) {
+                    answer.set("capacity_wait", wait);
+                    (baseline, seen) = (turn.seq, false);
+                    continue;
+                }
                 let message = turn_failure_message(turn);
                 return Outcome::Failed {
                     error: json!({"code": "chat.turn_failed", "message": message,
@@ -2535,7 +2568,7 @@ fn wait_turn(
                 );
             };
             answer.set("reply", json!(text));
-            return Outcome::Done(answer);
+            return resumed(Outcome::Done(answer));
         }
         // `acp wait` exits 0 (ended), 2 (a permission) or 3 (its own timeout); anything else
         // (the session gone, acpmux down) with no readable turn is not work still running.
@@ -2566,6 +2599,42 @@ fn wait_turn(
             let pause = deadline.bound(runner, NOT_STARTED_PAUSE);
             runner.pause(pause);
         }
+    }
+}
+
+/// The answer's `capacity_wait` when a failed turn's `error` is a capacity error the guest's acpmux waits out and
+/// continues in the same chat (`hub/auto_resume.rs`: the prompt `<id>~resume-N`): the SR2 gateway's 503 "no
+/// non-exhausted ... accounts", a 529 overloaded. acpmux's own classifier says so
+/// ([`acpmux::hub::transient_cause`]), unless the error's record (`typed`) carries an `errorKind`: none is
+/// capacity (a usage limit, a sign-in, a dead agent). `retry_after_s`: the wait the error names, else its record's
+/// `details.retryAfterMs`. None: any other failure, which ends the wait at once.
+fn capacity_wait(error: &str, typed: Option<&Value>, answer: &Value) -> Option<Value> {
+    let typed_kind = typed.and_then(|typed| typed.get("errorKind")).filter(|kind| !kind.is_null());
+    if typed_kind.is_some() || acpmux::hub::transient_cause(error) != Some("capacity") {
+        return None;
+    }
+    let retry_ms = acpmux::hub::retry_after_ms(error).or_else(|| {
+        typed.and_then(|typed| typed.pointer("/details/retryAfterMs")).and_then(Value::as_u64)
+    });
+    let failed = at(answer, "capacity_wait").get("failed_turns").and_then(Value::as_u64);
+    Some(json!({
+        "retry_after_s": retry_ms.map(|ms| ms.div_ceil(1000)),
+        "resumed": false,
+        "failed_turns": failed.unwrap_or(0) + 1,
+        "error": super::wire::sanitize_remote_text(error),
+    }))
+}
+
+/// A turn that ended well after a capacity wait ([`capacity_wait`]): its answer says the chat recovered by itself.
+fn resumed(outcome: Outcome) -> Outcome {
+    match outcome {
+        Outcome::Done(mut answer) => {
+            if let Some(wait) = answer.get_mut("capacity_wait").and_then(Value::as_object_mut) {
+                wait.insert("resumed".into(), json!(true));
+            }
+            Outcome::Done(answer)
+        }
+        other => other,
     }
 }
 
@@ -2648,14 +2717,15 @@ enum Pushed {
     Ended(PushedTurn),
     /// The agent asks a permission.
     Permission,
-    /// No app, an app without `cloud.machine_stream`, no link, or a link that could not be read: the exec route.
-    Unavailable,
+    /// No app, an app without `cloud.machine_stream`, no link, or a link that could not be read: the exec route,
+    /// with the prompt-to-first-output time (ms) of the records the link did read, when they had one.
+    Unavailable(Option<u64>),
     /// `--timeout` passed while the turn ran.
     TimedOut,
 }
 
-/// A pushed turn's end: its stop reason, its last reply, and when (the records' own `at`, ms) its prompt went
-/// in, its first agent output came and it ended.
+/// A pushed turn's end: stop reason, last reply, and when (records' `at`, ms) its prompt went in (`prompt_at`,
+/// set against the gateway call line's `at`), its first output came and it ended; [`PRE_REQUEST_MARKS`] after the prompt.
 #[derive(Debug)]
 struct PushedTurn {
     stop: String,
@@ -2663,6 +2733,8 @@ struct PushedTurn {
     seq: u64,
     first_output_ms: Option<u64>,
     turn_ms: Option<u64>,
+    prompt_at: Option<u64>,
+    marks: serde_json::Map<String, Value>,
     /// A failed turn's record (`turn_error`, or a failed `turn_result`): its `msg`.
     failure: Option<Value>,
 }
@@ -2671,7 +2743,8 @@ impl PushedTurn {
     /// The turn read from a fresh chat's records, oldest first: None until one ended.
     fn read(records: &[Value]) -> Option<Self> {
         let mut transcript = acpmux::transcript::Transcript::default();
-        let (mut prompt_at, mut first_at, mut end) = (None, None, None);
+        let (mut prompt_at, mut first_at, mut end, mut marks) =
+            (None, None, None, serde_json::Map::new());
         for record in records {
             transcript.apply_event(record);
             let at = record.get("at").and_then(Value::as_u64);
@@ -2679,6 +2752,12 @@ impl PushedTurn {
             let kind = record.get("kind").and_then(Value::as_str);
             if prompt_at.is_none() && dir == Some("mux") && kind == Some("user_message") {
                 prompt_at = at;
+            }
+            if let Some((.., name)) =
+                PRE_REQUEST_MARKS.iter().find(|(d, k, _)| dir == Some(d) && kind == Some(k))
+                && prompt_at.is_some()
+            {
+                marks.entry(*name).or_insert(json!(at));
             }
             if first_at.is_none()
                 && prompt_at.is_some()
@@ -2719,6 +2798,8 @@ impl PushedTurn {
             seq,
             first_output_ms: since(first_at),
             turn_ms: since(end_at),
+            prompt_at,
+            marks,
             failure,
         })
     }
@@ -2728,8 +2809,13 @@ impl PushedTurn {
             if FAILED_STOPS.contains(&self.stop.as_str()) { "failed" } else { "completed" };
         answer.set("turn", json!({"seq": self.seq, "status": status, "stop_reason": self.stop}));
         answer.set("wait_route", json!("link"));
-        // Felt time on the machine's clock: the prompt to the agent's first output, and to the turn's end.
-        answer.set("turn_ms", json!({"first_output": self.first_output_ms, "end": self.turn_ms}));
+        // Felt time (machine clock): prompt to first output and to the turn's end.
+        let mut turn_ms = json!({"first_output": self.first_output_ms, "end": self.turn_ms, "prompt_at": self.prompt_at});
+        turn_ms.as_object_mut().map(|t| t.extend(self.marks));
+        answer.set("turn_ms", turn_ms);
+        if let Some(text) = &self.reply {
+            answer.set("reply", json!(text));
+        }
         if let Some(failure) = self.failure {
             // The agent's own error, typed as acpmux types it (`errorKind`, `recovery`) when it is.
             let message = failure
@@ -2742,69 +2828,71 @@ impl PushedTurn {
                     answer.set(key, value.clone());
                 }
             }
-            if let Some(text) = self.reply {
-                answer.set("reply", json!(text));
-            }
             return Outcome::Failed {
                 error: json!({"code": "chat.turn_failed", "message": message, "details": answer, "retryable": false}),
                 exit: 1,
             };
         }
         if status == "failed" {
-            if let Some(text) = self.reply {
-                answer.set("reply", json!(text));
-            }
             return Outcome::Failed {
                 error: json!({"code": "chat.turn_failed", "message": format!("the turn ended {}", self.stop),
                               "details": answer, "retryable": false}),
                 exit: 1,
             };
         }
-        let Some(text) = self.reply else {
+        if self.reply.is_none() {
             return failed(
                 "chat.read_failed",
                 "the turn ended, but its reply could not be read; read it with the answer's follow_up.last",
                 json!({"answer": answer}),
                 1,
             );
-        };
-        answer.set("reply", json!(text));
+        }
         Outcome::Done(answer)
     }
 }
 
-/// What a failed turn in `acp history` says about its end: its own error (a string, or an
-/// object's `message`), else its status (`the turn ended failed`).
+/// What a failed turn in `acp history` says about its end: its own error (`errorText`, as
+/// acpmux's `lastTurn` keeps it, or `error`: a string, or an object's `message`) and what to do
+/// (`recovery`), else its status (`the turn ended failed`) and that no reason was recorded.
 fn turn_failure_message(turn: &Turn) -> String {
-    let error = turn.value.get("error");
-    let said = error
-        .and_then(Value::as_str)
-        .or_else(|| error.and_then(|error| error.get("message")).and_then(Value::as_str));
-    match said.map(str::trim).filter(|said| !said.is_empty()) {
+    let said = ["errorText", "error"].into_iter().find_map(|key| {
+        let error = turn.value.get(key)?;
+        error
+            .as_str()
+            .or_else(|| error.get("message").and_then(Value::as_str))
+            .map(str::trim)
+            .filter(|said| !said.is_empty())
+    });
+    let mut message = match said {
         Some(said) => super::wire::sanitize_remote_text(said),
-        None => format!("the turn ended {}", turn.status),
+        None if turn.status == "cancelled" => format!("the turn ended {}", turn.status),
+        None => format!("the turn ended {} and its chat recorded no reason", turn.status),
+    };
+    if let Some(recovery) = turn.value.get("recovery").and_then(Value::as_str).map(str::trim)
+        && !recovery.is_empty()
+        && !message.contains(recovery)
+    {
+        message.push_str(if message.ends_with(['.', '!', '?']) { " " } else { ". " });
+        message.push_str(&super::wire::sanitize_remote_text(recovery));
     }
+    message
 }
 
 /// Stop reasons of a turn that ended without its reply (as the history's failed statuses).
 const FAILED_STOPS: &[&str] = &["cancelled", "error", "failed", "refusal"];
 
 /// An agent's own output in an `in` record: a message chunk, a thought or a tool call (never a status the app draws).
-fn is_agent_output(record: &Value) -> bool {
-    let replay =
-        record.get("kind").and_then(Value::as_str).is_some_and(|kind| kind.ends_with(".replay"));
-    let kind = record.pointer("/msg/params/update/sessionUpdate").and_then(Value::as_str);
-    !replay && matches!(kind, Some("agent_message_chunk" | "agent_thought_chunk" | "tool_call"))
-}
-
 /// A fresh chat's turn over the machine's link: the app answers the link's stream socket
 /// (`cloud.machine_stream`), and [`Runner::observe`] reads the tab's records there, in slices of at most
-/// [`PUSH_SLICE`] within `deadline`, each after the newest seq the one before read.
+/// [`PUSH_SLICE`] within `deadline`, each after the newest seq the one before read. A turn that failed on capacity
+/// ([`capacity_wait`], set on `answer`) is not the end: the wait goes on for its continuation's.
 fn pushed_turn(
     runner: &mut dyn Runner,
     machine_id: &str,
     surface: u64,
     deadline: Deadline,
+    answer: &mut Value,
 ) -> Pushed {
     let asked =
         runner.app("cloud.machine_stream", json!({"machine": machine_id}), Duration::from_secs(10));
@@ -2812,7 +2900,7 @@ fn pushed_turn(
         .and_then(Result::ok)
         .and_then(|answer| answer.get("socket").and_then(Value::as_str).map(str::to_owned))
     else {
-        return Pushed::Unavailable;
+        return Pushed::Unavailable(None);
     };
     let mut records: Vec<Value> = Vec::new();
     let mut after = 0u64;
@@ -2821,21 +2909,32 @@ fn pushed_turn(
         if slice.is_zero() {
             return Pushed::TimedOut;
         }
-        let answer = match runner.observe(&socket, surface, after, slice) {
-            Ok(answer) => answer,
+        let observed = match runner.observe(&socket, surface, after, slice) {
+            Ok(observed) => observed,
             Err(link_wait::Failure::Timeout) if deadline.passed(runner) => return Pushed::TimedOut,
-            Err(_) => return Pushed::Unavailable,
+            Err(_) => return Pushed::Unavailable(first_output_ms(&records)),
         };
-        if let Some(page) = answer.get("records").and_then(Value::as_array) {
+        if let Some(page) = observed.get("records").and_then(Value::as_array) {
             records.extend(page.iter().cloned());
         }
-        after = answer.get("last_seq").and_then(Value::as_u64).unwrap_or(after);
-        match answer.get("ended").and_then(Value::as_str) {
+        after = observed.get("last_seq").and_then(Value::as_u64).unwrap_or(after);
+        match observed.get("ended").and_then(Value::as_str) {
             Some("turn_end") => {
-                return PushedTurn::read(&records).map_or(Pushed::Unavailable, Pushed::Ended);
+                let Some(ended) = PushedTurn::read(&records) else {
+                    return Pushed::Unavailable(first_output_ms(&records));
+                };
+                let failure = ended.failure.as_ref();
+                let said = failure.and_then(|failure| failure.get("error")).and_then(Value::as_str);
+                match failure.and_then(|failure| capacity_wait(said?, Some(failure), answer)) {
+                    Some(wait) => {
+                        answer.set("capacity_wait", wait);
+                        records.clear();
+                    }
+                    None => return Pushed::Ended(ended),
+                }
             }
             Some("permission") => return Pushed::Permission,
-            Some("closed") => return Pushed::Unavailable,
+            Some("closed") => return Pushed::Unavailable(first_output_ms(&records)),
             _ if deadline.passed(runner) => return Pushed::TimedOut,
             _ => {}
         }
@@ -3191,7 +3290,7 @@ fn unused_name(runner: &mut dyn Runner, listed: &Value) -> Result<String, Outcom
 }
 
 /// Whether `listed` (`cloud list-machines`) has a machine titled `name` or a create of that name on its way.
-fn lists_name(listed: &Value, name: &str) -> bool {
+pub(super) fn lists_name(listed: &Value, name: &str) -> bool {
     let has = |key: &str, field: &str| {
         at(listed, key)
             .as_array()
@@ -3321,17 +3420,24 @@ pub(super) fn exec(runner: &mut dyn Runner, machine: &str, script: &str) -> Resu
             step_result(&runner.cmux(&resume))?;
             // The resume can answer before the machine's record runs: a refusal for its state while it comes up
             // is asked again, every RESUME_PAUSE, for at most RESUME_BOUND (and never past the run's deadline).
+            // A try is only made when it can end inside the bound: the pause and the last try's own time both count,
+            // so the final ask never runs past RESUME_BOUND.
             let woke = runner.now();
             loop {
-                match step_result(&runner.cmux(&args)) {
+                let asked = runner.now();
+                let ran = runner.cmux(&args);
+                let took = runner.now().saturating_duration_since(asked);
+                match step_result(&ran) {
                     Err(error)
                         if (machine_not_running(&error)
                             || at(&error, "code").as_str() == Some("vm_state_conflict"))
-                            && runner.now().saturating_duration_since(woke) + RESUME_PAUSE
+                            && runner.now().saturating_duration_since(woke)
+                                + RESUME_PAUSE
+                                + took
                                 < RESUME_BOUND
                             && runner
                                 .until()
-                                .is_none_or(|until| runner.now() + RESUME_PAUSE < until) =>
+                                .is_none_or(|until| runner.now() + RESUME_PAUSE + took < until) =>
                     {
                         runner.pause(RESUME_PAUSE);
                     }
@@ -3639,10 +3745,16 @@ mod fault;
 mod folder;
 mod fresh;
 mod internal;
+mod link_send;
+use link_send::{link_send_landed, send_over_link};
+mod recover;
+mod start_fault;
 use folder::local_folder;
 use internal::link_wait;
 mod support;
+mod turn_records;
 use support::{Turn, at, folder_kind, last_turn, reply, session_cwd, words};
+use turn_records::{PRE_REQUEST_MARKS, first_output_ms, is_agent_output};
 // `cmux chat cd` reads the same guest script sections.
 pub(in crate::cli) use support::sections;
 

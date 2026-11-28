@@ -48,8 +48,12 @@ FAILURE_BACKOFF_MAX = dt.timedelta(hours=6)
 # iPhone builds still so slow and unverified?" The goal is merge to INTERNAL within about 1 h, so the gap is under
 # one build (dispatch to upload about 40 to 65 min): a head merged during a build is dispatched once the build is
 # MIN_UPLOAD_GAP old and waits in the concurrency group, starting the moment the build ends. A person's dispatch
-# (force) skips the gap.
-MIN_UPLOAD_GAP = dt.timedelta(minutes=30)
+# (force) skips the gap. Leo, 2026-11-27: "and then idk what im supposed to be able to do to test and verify on my
+# end either like faster dev loops and testflight or anything"; the promise is merge to TestFlight in about 30 min.
+# Measured with the 30 min gap (29 iOS commits, 00:54Z to 03:18Z): merge to upload p50 38 min, max 64. A build
+# takes 17 to 22 min (dispatch to upload), so a gap under one build adds no wait: a head merged during a build
+# still starts the moment it ends, and a head merged 15 to 30 min after an idle build's dispatch no longer waits.
+MIN_UPLOAD_GAP = dt.timedelta(minutes=15)
 # iPhone YOLO builds (scripts/ci/ios_internal_yolo.py): feat-cmux-next plus a named list of PRs, stacked on a branch
 # under this prefix and built by the same builder. The plan tells them from nightlies by that branch's tip.
 YOLO_PREFIX = "ios-yolo/"
@@ -514,12 +518,13 @@ def _dispatch_once(args: list[str], runner, sleep):
 
 
 def cmd_dispatch(sha: str, base: str, runner=subprocess.run, sleep=time.sleep, clock=time.time,
-                 api_wait: dt.timedelta = DISPATCH_API_WAIT) -> int:
+                 api_wait: dt.timedelta = DISPATCH_API_WAIT, submittable: bool = False) -> int:
     """Dispatch BUILD_WORKFLOW on BUILDER_REF for `sha`, waiting out a spent or failing API like the plan does
-    (a bare `gh workflow run` meets the same limit and loses the head the plan just picked)."""
+    (a bare `gh workflow run` meets the same limit and loses the head the plan just picked). `submittable`: the
+    build App Review may take, gated as an internal-submission (the builder's own input; nightlies leave it off)."""
     args = ["-X", "POST", f"repos/{REPO}/actions/workflows/{Path(BUILD_WORKFLOW).name}/dispatches",
             "-f", f"ref={BUILDER_REF.removeprefix('refs/heads/')}", "-f", f"inputs[sha]={sha}",
-            "-f", f"inputs[base]={base}"]
+            "-f", f"inputs[base]={base}"] + (["-f", "inputs[submittable]=true"] if submittable else [])
     try:
         with_api_wait(lambda: _dispatch_once(args, runner, sleep), api_wait, f"the dispatch of {sha[:12]}",
                       runner=runner, sleep=sleep, clock=clock)
@@ -527,7 +532,7 @@ def cmd_dispatch(sha: str, base: str, runner=subprocess.run, sleep=time.sleep, c
         print(f"::error title=cmux INTERNAL dispatch lost::{sha[:12]}: GitHub API unavailable for {api_wait}: "
               f"{str(error)[:200]}; the next push plans again")
         return 1
-    line = f"dispatched cmux-next-ios INTERNAL {sha} (base {base or 'none'})"
+    line = f"dispatched cmux-next-ios INTERNAL {sha} (base {base or 'none'}){' (submittable)' if submittable else ''}"
     print(line)
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
@@ -741,6 +746,7 @@ def main(argv: list[str]) -> int:
     d = sub.add_parser("dispatch")
     d.add_argument("--sha", required=True)
     d.add_argument("--base", default="")
+    d.add_argument("--submittable", action="store_true", help="the App Review candidate build (gated internal-submission)")
     s = sub.add_parser("stamp")
     s.add_argument("--project-yml", type=Path, default=Path(PROJECT_YML))
     s.add_argument("--last", default=None)
@@ -754,7 +760,7 @@ def main(argv: list[str]) -> int:
     if args.cmd == "plan":
         return cmd_plan(args.head, args.repo, force=args.force)
     if args.cmd == "dispatch":
-        return cmd_dispatch(args.sha, args.base)
+        return cmd_dispatch(args.sha, args.base, submittable=args.submittable)
     if args.cmd == "stamp":
         return cmd_stamp(args.project_yml, args.last)
     if args.cmd == "admit":

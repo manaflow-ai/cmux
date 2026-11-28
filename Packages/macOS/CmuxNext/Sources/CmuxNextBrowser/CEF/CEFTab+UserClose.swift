@@ -11,11 +11,21 @@ import Foundation
 /// its handler is closed by Chromium's own beforeunload timeout.
 extension CEFTab: BrowserUserClosing {
     public func beginUserClose() -> Bool {
-        // A page not created yet, or whose renderer ended, has no handler to run.
-        guard !isClosed, let browserID, let shim = runtime.shim, state.processExit == nil else { return false }
+        // A page not created yet, or whose renderer ended, has no handler to run. A tab whose flow handed back to the
+        // app closes as the flow's end, not as a person's close (``closeAfterHandoff()``).
+        guard !isClosed, !handedOff, let browserID, let shim = runtime.shim, state.processExit == nil else { return false }
         // A second close while the page asks: the question stays, and so does the tab.
         if asksBeforeUnload { return true }
         return shim.tryClose(browserID) == 0
+    }
+
+    /// The flow this tab was opened for (a sign-in, GitHub's install) handed its return to the app
+    /// (`BrowserExternalApps.openOwn`): the tab closes without asking its page. The page's beforeunload has nothing to
+    /// guard, and a person's close (`TryCloseBrowser`) would start one on the navigation Chromium just cancelled for
+    /// the return link: the 2026-11-25 nightly SIGTRAP (#57470), `cmux_shim_try_close` from the handoff's tab close.
+    func closeAfterHandoff() {
+        handedOff = true
+        emit(.close)
     }
 
     /// The page asks before it unloads (a close, a navigation or a reload).

@@ -35,6 +35,8 @@ pub mod caps {
     /// viewer draws the cursor itself. A viewer that does not offer it keeps the cursor in
     /// the picture.
     pub const CURSOR: &str = "cursor";
+    /// VideoToolbox long-term-reference loss recovery.
+    pub const LTR: &str = "video.ltr";
     /// Frames over one FEC block (255 shards) keep their parity, split across interleaved
     /// blocks (cmux-rd-proto `fec_blocks`); the viewer rebuilds each block on its own. A
     /// viewer that does not offer it refuses such headers, so it gets those frames with
@@ -61,7 +63,7 @@ pub mod caps {
     /// host's shipped usage. `CMUX_RD_OPENH264_USAGE` on the host still wins.
     pub const SHARP_TEXT: &str = "video.sharp_text";
     /// Every named cap.
-    pub const ALL: [&str; 14] = [
+    pub const ALL: [&str; 15] = [
         INPUT_SERVICE,
         TILE,
         UP_MEDIA,
@@ -76,6 +78,7 @@ pub mod caps {
         CLIPBOARD_TEXT,
         H264_BASELINE,
         SHARP_TEXT,
+        LTR,
     ];
 }
 

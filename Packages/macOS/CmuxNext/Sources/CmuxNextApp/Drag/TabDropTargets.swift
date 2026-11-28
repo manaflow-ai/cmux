@@ -29,9 +29,9 @@ final class SidebarTabDropTarget: TabDropTargetProviding {
     /// The raw sidebar hit (opens a gap, lights a row or group). `slotDwell`: a tab drag's slot
     /// between two rows opens only after `DragTunables.sidebarSlotDwell`; workspace and screen
     /// drags open it at once.
-    func hit(screenPoint: CGPoint, slotDwell: CFTimeInterval = 0) -> SidebarTabDropHit? {
+    func hit(screenPoint: CGPoint, slotDwell: CFTimeInterval = 0, wholeGroup: Bool = false) -> SidebarTabDropHit? {
         guard let bridge, let hit = bridge.container.sidebarView.tabDragUpdate(screenPoint: screenPoint, sourceMachine: sourceMachine,
-                                                                                slotDwell: slotDwell) else {
+                                                                                slotDwell: slotDwell, wholeGroup: wholeGroup) else {
             return nil
         }
         active = true

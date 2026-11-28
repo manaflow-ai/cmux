@@ -18,6 +18,8 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::hub::transfer_pull::{MAX_FRAME, PageSource, TransferDial};
 use crate::hub::{Hub, transfer_park};
+#[cfg(test)]
+use crate::hub_carrier::{CAPACITY_WAITS, capacity_refusal, dial_past_capacity};
 use crate::hub_carrier::{CircuitService, HubStream, ServiceRefusal, TransferGate};
 use crate::rpc::RpcError;
 
@@ -225,6 +227,9 @@ impl TransferDial for CarrierDial {
             let hub = self.hub.upgrade().ok_or("stopping")?;
             let carrier =
                 hub.hub_carrier.get().ok_or("this daemon's hub carrier is not running")?;
+            // A relay capacity refusal is waited out in the carrier's own dial, which first rides
+            // the pair's open cheap kept circuit (`hub_carrier_capacity.rs`
+            // `dial_service_report_early`).
             let stream: HubStream =
                 carrier.dial_service(daemon, CircuitService::TransferSource).await?;
             Ok(Box::new(CircuitPages::new(stream)) as Box<dyn PageSource>)
@@ -233,15 +238,5 @@ impl TransferDial for CarrierDial {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn a_record_round_trips_and_an_oversized_one_closes_the_reader() {
-        let (mut a, mut b) = tokio::io::duplex(1 << 16);
-        write_frame(&mut a, &json!({"id": 1, "method": "read"})).await.unwrap();
-        assert_eq!(read_frame(&mut b).await, Some(json!({"id": 1, "method": "read"})));
-        a.write_u32((MAX_FRAME + 1) as u32).await.unwrap();
-        assert_eq!(read_frame(&mut b).await, None);
-    }
-}
+#[path = "transfer_service_tests.rs"]
+mod tests;

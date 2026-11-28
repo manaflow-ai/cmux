@@ -22,8 +22,8 @@
 //!   (`taken_back`). The watch goes on asking, so a target that answers later still ends it.
 //!
 //! Its state is in the move's directory, so a daemon that restarts mid-move watches it again:
-//! `alive` (touched by begin and each read), `read` (each file read to its end), `to` and
-//! `to-ssh` and `to-host`, `undecided` (when its target first could not say), `offered`.
+//! `alive` (touched by begin and each read), `paged` (a page was read), `read` (each file read to
+//! its end), `to` and `to-ssh` and `to-host`, `undecided` (when its target first could not say), `offered`.
 
 use super::transfer_out::{bundle_files, names_a_move, transfer_epoch_marker, transfers_dir};
 use super::*;
@@ -31,6 +31,10 @@ use cmux_json::JsonSet as _;
 
 /// How long a move may go without its client before the source ends it.
 pub(super) const TRANSFER_LEASE: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// How long a move whose client hung up waits before it ends ([`Hub::watch_move_client`]): a
+/// client that lost only its connection opens another and reads on within it.
+pub(super) const CLIENT_GONE_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// How long the source waits for the target's answer to `transfer_forget`.
 const ASK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
@@ -130,6 +134,23 @@ pub(super) fn fully_read(dir: &Path) -> Option<bool> {
     let read: Vec<&str> = read.lines().collect();
     // An empty file needs no page: the target has it whole without one.
     Some(files.iter().all(|(path, size)| *size == 0 || read.contains(&path.as_str())))
+}
+
+/// The file that says a client read a page of the move: its copy began, so a client is driving it.
+const PAGED: &str = "paged";
+
+/// A client read a page of the move in `dir` (`transfer_read`): stamps [`PAGED`] once.
+pub(super) fn note_paged(dir: &Path) {
+    let path = dir.join(PAGED);
+    if !path.exists() {
+        let _ = crate::home_fs::write(&path, "");
+    }
+}
+
+/// Whether any page of the move in `dir` was read: a client began its copy.
+pub(super) fn was_paged(dir: &Path) -> bool {
+    dir.join(PAGED).exists()
+        || std::fs::read_to_string(dir.join("read")).is_ok_and(|r| !r.trim().is_empty())
 }
 
 /// How long ago the move last heard from its driver. A missing or malformed stamp is
@@ -288,11 +309,12 @@ impl Hub {
     }
 
     /// Watches the move `transfer_id` of `session`, which this daemon found at start, until it
-    /// ends, unless another holds its watch. A move whose bundle was not
-    /// read to its end cannot have landed anywhere, and its client's connection did not survive
-    /// the restart, so it ends now (the chat runs here again) rather than after a lease the chat
-    /// spends frozen (RFD 0063, "Nothing lives only on the VM"). A client still reading it gets
-    /// `transfer.unknown` and starts the move anew. A move read to its end waits for its lease.
+    /// ends, unless another holds its watch. A move nobody read a page of cannot have landed
+    /// anywhere and has no client copying it, so it ends now (the chat runs here again) rather
+    /// than after a lease the chat spends frozen (RFD 0063, "Nothing lives only on the VM"). A
+    /// move a client was midway through copying is kept for its lease: a take-over
+    /// (`acpmux daemon run --take-over`) leaves that client reading, and its copy goes on from
+    /// the offset it reached against the new daemon. A move read to its end waits for its lease.
     pub(super) fn watch_transfer_after_restart(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -307,6 +329,7 @@ impl Hub {
             let dir = transfers_dir().join(&watch.transfer_id);
             if dir.is_dir()
                 && fully_read(&dir) == Some(false)
+                && !was_paged(&dir)
                 && hub.end_stalled_move(&session, &watch.transfer_id, &dir).await
             {
                 return;
@@ -368,6 +391,58 @@ impl Hub {
                 () = tokio::time::sleep(lease) => {}
                 () = changed => {}
             }
+        }
+    }
+
+    /// The connection that began move `transfer_id` (`transfer_begin`) ends with `ended`. Once
+    /// it does, the move ends at once rather than after a whole lease the chat spends frozen
+    /// (a mover killed at its timeout froze the chat for minutes, 2026-11-28): after
+    /// [`CLIENT_GONE_GRACE`], a move no client read from since, and whose bundle was not read
+    /// to its end, aborts (`client_gone`) and the chat runs here again. A bundle read to its end
+    /// may have landed on its target, so that move is left to its lease watch, which asks the
+    /// target; a client that came back on a new connection (its reads stamp `alive`) keeps it.
+    pub(crate) fn watch_move_client(
+        self: &Arc<Self>,
+        session_id: &str,
+        transfer_id: &str,
+        mut ended: tokio::sync::watch::Receiver<bool>,
+    ) {
+        if tokio::runtime::Handle::try_current().is_err() {
+            return;
+        }
+        let Ok(session) = self.resolve(session_id) else { return };
+        let (hub, transfer_id) = (self.clone(), transfer_id.to_owned());
+        self.scope.spawn_until_cancelled("move-client-gone", async move {
+            // An error is a connection already dropped: it ended too.
+            let _ = ended.wait_for(|ended| *ended).await;
+            let gone_at = std::time::SystemTime::now();
+            tokio::time::sleep(CLIENT_GONE_GRACE).await;
+            hub.end_move_of_gone_client(&session, &transfer_id, gone_at);
+        });
+    }
+
+    fn end_move_of_gone_client(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        transfer_id: &str,
+        gone_at: std::time::SystemTime,
+    ) {
+        if session.moving().as_deref() != Some(transfer_id) || session.meta().moved_to.is_some() {
+            return;
+        }
+        let dir = transfers_dir().join(transfer_id);
+        // Under `PAGES`: a read of a client that came back either stamped `alive` before this
+        // looks, or finds the move ended.
+        let _pages = PAGES.lock().unwrap_or_else(|e| e.into_inner());
+        if last_activity(&dir).is_some_and(|at| at > gone_at) || fully_read(&dir) != Some(false) {
+            return;
+        }
+        let Some(epoch) = Self::stalled_move_epoch(session, transfer_id, &dir) else { return };
+        tracing::info!(session = %session.id, transfer_id, "the client of a move hung up before the bundle was read; the move ends and the chat runs here again");
+        if let Err(e) =
+            self.transfer_abort_with_epoch(session, transfer_id, Some("client_gone"), Some(epoch))
+        {
+            tracing::warn!(session = %session.id, transfer_id, "ending a move whose client hung up: {}", e.message);
         }
     }
 

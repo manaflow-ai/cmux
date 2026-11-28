@@ -11,20 +11,21 @@ import Testing
         #expect(TerminalLoadWatch.stage(.connecting(mac: "Studio"), waited: .zero) == .loading)
         #expect(TerminalLoadWatch.stage(.connecting(mac: "Studio"), waited: .seconds(7)) == .loading)
         #expect(TerminalLoadWatch.stage(.connecting(mac: "Studio"), waited: TerminalLoadWatch.bound)
-            == .stalled(title: "Still connecting to Studio", detail: "Trying again."))
+            == .stalled)
         #expect(TerminalLoadWatch.stage(.reattaching(mac: nil), waited: .seconds(60))
-            == .stalled(title: "Still connecting to your Mac", detail: "Trying again."))
+            == .stalled)
+        let macNames: [String?] = [nil, "", "Studio"]
+        for mac in macNames {
+            #expect(TerminalLoadStalledPanel.notice(.connecting(mac: mac)) == nil)
+            #expect(TerminalLoadStalledPanel.notice(.reattaching(mac: mac)) == nil)
+        }
     }
 
     @Test func aGivenUpOrOfflineSessionSaysSoAtOnce() {
-        guard case .stalled(let failed, _) = TerminalLoadWatch.stage(.failed(message: "x"), waited: .zero) else {
-            Issue.record("a failed attach drew the skeleton"); return
-        }
-        #expect(failed == "Can't reach this terminal")
-        guard case .stalled(let offline, _) = TerminalLoadWatch.stage(.offline(mac: "Studio"), waited: .zero) else {
-            Issue.record("an offline Mac drew the skeleton"); return
-        }
-        #expect(offline == "Studio is offline")
+        #expect(TerminalLoadWatch.stage(.failed(message: "x"), waited: .zero) == .stalled)
+        #expect(TerminalLoadStalledPanel.notice(.failed(message: "x"))?.title == "Can't reach this terminal")
+        #expect(TerminalLoadWatch.stage(.offline(mac: "Studio"), waited: .zero) == .stalled)
+        #expect(TerminalLoadStalledPanel.notice(.offline(mac: "Studio"))?.title == "Studio is offline")
     }
 
     @Test func anAttachedPageHasNoCoverWords() {

@@ -19,7 +19,7 @@ import AppKit
         Task { @MainActor in work() }
     }
     /// The pushes owed, by name, in the order first owed; each reads its value when it runs.
-    private var owed: [(name: String, send: @MainActor (AgentPaneView) -> Void)] = []
+    private var owed: [(name: String, newTabOnly: Bool, send: @MainActor (AgentPaneView) -> Void)] = []
     private var scheduled = false
     private var probe: AgentPaneVisibilityProbe?
     /// The pane's page moved to another chat in place (``AgentPaneModel/adoptSession(_:)``): the
@@ -27,12 +27,15 @@ import AppKit
     var onSessionChange: (@MainActor () -> Void)?
 
     /// Owes `name`'s push to `view`'s page: `send` runs once, on a later turn while `view` is seen,
-    /// replacing any `name` push still owed.
-    func push(_ name: String, to view: AgentPaneView, _ send: @escaping @MainActor (AgentPaneView) -> Void) {
+    /// replacing any `name` push still owed. A `newTabOnly` push (the New Tab cards' device chats,
+    /// recently closed items, Now Playing: only the New Tab screen draws them) waits while the page
+    /// is a chat, and goes when it becomes a New Tab page (``AgentPaneView/becomeNewTab(_:)``).
+    func push(_ name: String, to view: AgentPaneView, newTabOnly: Bool = false, _ send: @escaping @MainActor (AgentPaneView) -> Void) {
         if let index = owed.firstIndex(where: { $0.name == name }) {
             owed[index].send = send
+            owed[index].newTabOnly = newTabOnly
         } else {
-            owed.append((name, send))
+            owed.append((name, newTabOnly, send))
         }
         schedule(view)
     }
@@ -51,15 +54,21 @@ import AppKit
         }
     }
 
-    /// Sends what is owed when `view` is seen, else waits for it to show.
+    /// Sends what is owed when `view` is seen, else waits for it to show. New Tab data stays owed
+    /// while the page is a chat, with no watch: only its becoming a New Tab page sends it.
     func flush(_ view: AgentPaneView) {
-        guard !owed.isEmpty else { return }
+        let newTab = view.model.newTab != nil
+        guard owed.contains(where: { newTab || !$0.newTabOnly }) else { return stopWatching() }
         guard !isHidden(view) else { return watch(view) }
+        stopWatching()
+        let sends = owed.filter { newTab || !$0.newTabOnly }
+        owed.removeAll { newTab || !$0.newTabOnly }
+        for push in sends { push.send(view) }
+    }
+
+    private func stopWatching() {
         probe?.removeFromSuperview()
         probe = nil
-        let sends = owed
-        owed.removeAll()
-        for push in sends { push.send(view) }
     }
 
     private func watch(_ view: AgentPaneView) {

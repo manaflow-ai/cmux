@@ -18,7 +18,8 @@ import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import type { ChatUiFont } from "../chatUiFont";
 import type { AcpmuxPermission } from "../model";
-import { CardFontCaption, fontMeasured, PAIRED_UI_FONTS, useCardFont } from "../permissions/cardFontGallery";
+import { CardFontCaption } from "../permissions/CardFontCaption";
+import { fontMeasured, PAIRED_UI_FONTS, useCardFont } from "../permissions/cardFontGallery";
 import type { AgentQuestion, QuestionReply } from "./model";
 import { questionPreviewLayout } from "./previewLayout.experiment";
 import { QuestionCard } from "./QuestionCard";
@@ -272,16 +273,8 @@ const folderTrust: AgentQuestion = {
       header: "Folder trust",
       prompt: "split-importer wants to work in /Users/you/src/vendor-sdk. Do you trust this folder?",
       options: [
-        {
-          id: "trust",
-          label: "Trust folder",
-          detail: "cmux stops asking about this folder. Your permission rules still apply.",
-        },
-        {
-          id: "not_now",
-          label: "Not now",
-          detail: "The sub-session does not start, and the agent is told you declined.",
-        },
+        { id: "trust", label: "Trust folder" },
+        { id: "not_now", label: "Not now" },
       ],
       multiSelect: false,
       allowsOther: false,

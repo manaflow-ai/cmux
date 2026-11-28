@@ -44,11 +44,19 @@ pub(super) const REPO: &str = "manaflow-ai/cmux";
 const FORK_TAG: &str = "cmux-web-layer-";
 /// The largest web bundle archive a layer fetches (they are about 30 MB).
 const MAX_ARCHIVE: u64 = 256 * 1024 * 1024;
-/// Where each overlay surface sits in a published archive.
-pub(super) const SURFACES: [(&str, &str); 3] = [
+/// Where each overlay surface sits in a published archive, and the layer
+/// folder the app serves it from (`WebDevOverride.overlayRoot(for:bundledRoot:)`:
+/// `pages/<page>` for a page of the Pages bundle, else the bundled folder's
+/// own name). Every web folder the app bundles is one: a folder left out is
+/// served from the bundle with the layer on (`surfaces_tests.rs`).
+pub(super) const SURFACES: [(&str, &str); 4] = [
     ("Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/", "agent-pane"),
     ("Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/", "pages"),
     ("Resources/markdown-viewer/webviews-app/", "webviews-app"),
+    (
+        "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/",
+        "agent-activity",
+    ),
 ];
 pub(super) const APP_ABI: &str =
     "Contents/Resources/CmuxNext_CmuxNextPages.bundle/Contents/Resources/pages/web-abi.json";
@@ -1100,3 +1108,7 @@ pub(super) fn refresh_with(
 #[cfg(test)]
 #[path = "pr_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "surfaces_tests.rs"]
+mod surfaces_tests;

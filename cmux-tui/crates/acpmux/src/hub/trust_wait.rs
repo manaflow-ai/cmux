@@ -3,9 +3,9 @@
 //!
 //! `start_session` (`subsessions.rs`) asks [`Hub::ensure_folder_trusted`] before it starts
 //! anything. A folder that reads as trusted (an answer, an agent's own level, or one of the
-//! person's own folders, `trust_auto.rs`) passes at once, and so does a folder at or under the
-//! starting session's own folder when that session runs in full access and a decision trusts its
-//! folder ([`Hub::inherits_parent_trust`]). Any other folder raises a card on the
+//! person's own folders, `trust_auto.rs`) passes at once, and so does any folder nobody marked
+//! untrusted when the starting session runs in full access and a decision trusts its own folder
+//! ([`Hub::inherits_parent_trust`]). Any other folder raises a card on the
 //! session that wants the sub-session: a choice question, **Trust** or **Not now**, through the
 //! permission path every agent question uses, so the chat shows its card and the sidebar row its
 //! "Needs your input" mark, and only the person answers it (never a policy, never a remote
@@ -109,16 +109,8 @@ pub(super) fn card(cwd: &str, short: &str) -> Value {
                         "header": "Folder trust",
                         "prompt": format!("{name} wants to work in {cwd}. Do you trust this folder?"),
                         "options": [
-                            {
-                                "id": "trust",
-                                "label": "Trust folder",
-                                "detail": "cmux stops asking about this folder. Your permission rules still apply.",
-                            },
-                            {
-                                "id": "not_now",
-                                "label": "Not now",
-                                "detail": "The sub-session does not start, and the agent is told you declined.",
-                            },
+                            {"id": "trust", "label": "Trust folder"},
+                            {"id": "not_now", "label": "Not now"},
                         ],
                         "multiSelect": false,
                         "allowsOther": false,
@@ -203,24 +195,26 @@ impl Hub {
     /// the person answered the card this raises on `parent` (see the module docs). In a Web turn
     /// of `parent` an auto-trust rule is no answer. The Ok is whether a decision trusts the folder
     /// (a person's, an agent's own, or cmux's for a folder it made), not an auto-trust rule alone:
-    /// only then is a worktree made from it recorded as trusted (`trust_made_worktree`).
+    /// only then is a worktree made from it recorded as trusted (`trust_made_worktree`). None:
+    /// `parent`'s full access lent its trust ([`Hub::inherits_parent_trust`]); no decision, and the
+    /// folder walk after the card does not apply.
     pub(super) async fn ensure_folder_trusted(
         self: &Arc<Self>,
         parent: &Arc<Session>,
         cwd: &Path,
         harness: &str,
         short: &str,
-    ) -> Result<bool, RpcError> {
-        let Some(paths) = self.trust_gate() else { return Ok(false) };
+    ) -> Result<Option<bool>, RpcError> {
+        let Some(paths) = self.trust_gate() else { return Ok(Some(false)) };
         let family = self.trust_family(harness).await;
         let web = Self::web_turn(parent);
         let asked = cwd.to_string_lossy().into_owned();
         let key = match self.trust_level_of(&paths, &asked, &family).await {
-            Ok(read) if passes(&read, web) => return Ok(!read.by_rule_only()),
+            Ok(read) if passes(&read, web) => return Ok(Some(!read.by_rule_only())),
             // No decision of its own, so nothing is recorded and a worktree made from it is not
             // recorded as trusted either.
-            Ok(read) if self.inherits_parent_trust(&paths, parent, cwd, &read, web).await => {
-                return Ok(false);
+            Ok(read) if self.inherits_parent_trust(&paths, parent, &read, web).await => {
+                return Ok(None);
             }
             Ok(read) => read.cwd,
             Err(crate::trust::Failure::Invalid(message)) => {
@@ -272,7 +266,7 @@ impl Hub {
             if let Some(decided) = self.trusted_now(&paths, &key, &family, web).await {
                 // Trusted elsewhere (the pane's question, another card): this card is moot, and
                 // the guard takes it away.
-                return Ok(decided);
+                return Ok(Some(decided));
             }
             tokio::select! {
                 outcome = &mut *answer => {
@@ -294,7 +288,7 @@ impl Hub {
         // one withdrawn after Not now is declined too. A card the person answered goes by its
         // own answer: Trust on it wins over a Not now on another start's card.
         if let Some(decided) = self.trusted_now(&paths, &key, &family, web).await {
-            return Ok(decided);
+            return Ok(Some(decided));
         }
         let answered = outcome.pointer("/outcome/optionId").and_then(Value::as_str).is_some();
         if !answered && self.trust_waits.declined_recently(&key) {
@@ -302,25 +296,23 @@ impl Hub {
         }
         self.trust_card_answered(&paths, &key, &outcome).await?;
         // Trust wrote the person's decision.
-        Ok(true)
+        Ok(Some(true))
     }
 
-    /// Whether a start in `cwd` (resolved) takes the trust of `parent`'s own folder instead of a
-    /// card (Leo, 2026-10-24, on a card a chat in full access raised: "why did this even happen in
-    /// the first place? I thought we bypassed this"). Only all of these: `parent` runs in full
-    /// access by cmux's own doing ([`full_access_by_cmux`]: a mode cmux set, never one the
-    /// harness claimed), outside a Web turn, and is no chat a Web client started
-    /// (`remote_origin`); `cwd` is the parent's own folder or under it, a folder recorded as it
-    /// resolves (no link on the way); a decision trusts that folder for the parent's agent (a
-    /// person's answer, the agent's own level, or a folder cmux made: never an auto-trust rule
-    /// alone); and nobody marked `cwd` untrusted. Any other start keeps its card, and the folder
-    /// walk after it (`subsession_folder_check`) still refuses a folder marked untrusted anywhere
-    /// up to `/`.
+    /// Whether a sub-session start takes `parent`'s trust instead of a card (Leo, 2026-10-24, on a
+    /// card a chat in full access raised for a lane folder: "why did this even happen in the first
+    /// place? I thought we bypassed this"; 2026-11-17: no belt and suspenders). A chat in full access already runs any command anywhere without asking, so it
+    /// could load a folder's hooks itself: a card on its sub-session's folder stops nothing. Only
+    /// all of these: `parent` runs in full access by cmux's own doing ([`full_access_by_cmux`]: a
+    /// mode cmux set, never one the harness claimed), outside a Web turn, and is no chat a Web
+    /// client started (`remote_origin`: a remote device never lends this Mac's trust); a decision
+    /// trusts the parent's own folder for its agent; and nobody marked the child's folder
+    /// untrusted. Any other start keeps its card, and the folder walk after it
+    /// (`subsession_folder_check`) still refuses a folder marked untrusted anywhere up to `/`.
     async fn inherits_parent_trust(
         &self,
         paths: &crate::trust::Paths,
         parent: &Session,
-        cwd: &Path,
         read: &crate::trust::SessionTrust,
         web: bool,
     ) -> bool {
@@ -332,15 +324,8 @@ impl Hub {
         if pm.remote_origin || !full_access_by_cmux(&pm) {
             return false;
         }
-        // Only a folder recorded as it resolves, or through links only root can change (`/tmp` on
-        // macOS): through a link the agent could point elsewhere after it started, the folder it
-        // runs in is not the one the link names now.
-        let Ok(own) = std::fs::canonicalize(&pm.cwd) else { return false };
-        if (own != pm.cwd && !only_root_links(&pm.cwd, 0)) || !cwd.starts_with(&own) {
-            return false;
-        }
         let family = self.trust_family(&pm.harness).await;
-        let own = own.to_string_lossy();
+        let own = pm.cwd.to_string_lossy();
         let decided = self
             .trust_level_of(paths, &own, &family)
             .await
@@ -480,46 +465,6 @@ pub(super) fn full_access_by_cmux(m: &SessionMeta) -> bool {
 
 /// Whether `read` lets a start go on: with the auto-trust rules, or in a Web turn (`web`)
 /// without them.
-/// Whether every link on the way to the absolute `path` (and in its targets) is root's, in a
-/// folder root owns that others cannot write: an agent running as the person cannot point it
-/// elsewhere.
-#[cfg(unix)]
-fn only_root_links(path: &Path, depth: u8) -> bool {
-    use std::os::unix::fs::MetadataExt;
-    use std::path::Component;
-    if depth > 8 || !path.is_absolute() {
-        return false;
-    }
-    let mut at = std::path::PathBuf::new();
-    for part in path.components() {
-        if matches!(part, Component::CurDir | Component::ParentDir) {
-            return false;
-        }
-        at.push(part);
-        let Ok(meta) = std::fs::symlink_metadata(&at) else { return false };
-        if !meta.file_type().is_symlink() {
-            continue;
-        }
-        let Some(folder) = at.parent().map(Path::to_path_buf) else { return false };
-        let Ok(held) = std::fs::metadata(&folder) else { return false };
-        let Ok(target) = std::fs::read_link(&at) else { return false };
-        if meta.uid() != 0 || held.uid() != 0 || held.mode() & 0o022 != 0 {
-            return false;
-        }
-        if !only_root_links(&folder.join(target), depth + 1) {
-            return false;
-        }
-        let Ok(resolved) = std::fs::canonicalize(&at) else { return false };
-        at = resolved;
-    }
-    true
-}
-
-#[cfg(not(unix))]
-fn only_root_links(_path: &Path, _depth: u8) -> bool {
-    false
-}
-
 fn passes(read: &crate::trust::SessionTrust, web: bool) -> bool {
     (if web { read.decided } else { read.level }) == Level::Trusted
 }
@@ -537,32 +482,4 @@ fn declined(key: &str) -> RpcError {
         ),
         key,
     )
-}
-
-#[cfg(all(test, unix))]
-mod tests {
-    use super::only_root_links;
-    use std::path::Path;
-
-    #[test]
-    fn a_link_the_person_owns_can_be_pointed_elsewhere() {
-        let root = std::env::temp_dir().join(format!("acpmux-root-links-{}", uuid::Uuid::now_v7()));
-        std::fs::create_dir_all(root.join("target")).unwrap();
-        let root = std::fs::canonicalize(&root).unwrap();
-        std::os::unix::fs::symlink(root.join("target"), root.join("link")).unwrap();
-        assert!(!only_root_links(&root.join("link"), 0));
-        assert!(!only_root_links(&root.join("link/sub"), 0));
-        assert!(only_root_links(&root.join("target"), 0));
-        assert!(!only_root_links(Path::new("relative"), 0));
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn a_system_link_only_root_can_change_is_taken() {
-        // macOS's /tmp -> private/tmp; on a system without it there is nothing to check.
-        let tmp = Path::new("/tmp");
-        if std::fs::symlink_metadata(tmp).is_ok_and(|m| m.file_type().is_symlink()) {
-            assert!(only_root_links(tmp, 0));
-        }
-    }
 }

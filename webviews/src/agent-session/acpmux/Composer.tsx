@@ -9,14 +9,14 @@ import { chatPlace } from "./chatMachine";
 import React, {
   useCallback,
   useEffect,
+  useId,
   useImperativeHandle,
+  useInsertionEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
-  useInsertionEffect,
-  useId,
 } from "react";
 import type { ExtraFolderControl } from "./extraFolders";
 import { createPortal, flushSync } from "react-dom";
@@ -31,10 +31,10 @@ import {
   MAX_IMAGE_BYTES,
   placeInline,
   withoutInlineTokens,
-  inlineTokenSpans,
   type ComposerAttachment,
   type DroppedKind,
   type KnownPaths,
+  inlineTokenSpans,
 } from "./attachments";
 import { useReleasedPicks } from "./designSelection";
 import type { SendGesture } from "./heldPrompt";
@@ -68,6 +68,8 @@ import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
 import { handleVimKey, VIM_INITIAL, type VimMode, type VimState } from "./composer/vimKeys";
 import { MentionMenu } from "./MentionMenu";
 import { mentionAsk, useExtensionMentionPrefixes, useExtensionMentions } from "./composer/extensionMentions";
+import { type ExtensionChip, useExtensionChips, withChipText } from "./composer/extensionChipModel";
+import { ExtensionChips } from "./composer/ExtensionChips";
 import { markdownOffset, mentionResults, useMentionSearch } from "./mentionMenuModel";
 import {
   loadRecentMentionPaths,
@@ -186,7 +188,8 @@ import { keepSendOrigins, noteSendOrigins } from "./conversation/sendMorph";
 import { playUnpop } from "./conversation/unpopMorph";
 import { sendTucks, tuckContent, tuckSent } from "./conversation/sendTuck";
 import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
-import { ComposerStatusFoot, dotSaysQueuePaused, statusDotMounts } from "./ComposerStatusDot";
+import { ComposerStatusFoot } from "./ComposerStatusDot";
+import { dotSaysQueuePaused, statusDotMounts } from "./composerStatusDotModel";
 import { peerLink, type PeerLink } from "./peerLink";
 import type { EmojiTrigger } from "./emojiShortcodes";
 import type { MentionTrigger } from "./composer/emojiTokens";
@@ -382,7 +385,7 @@ type Props = {
   /// absent where the chat opens no side chat.
   onQueueSideChat?(promptId: string, prompt: string): Promise<boolean>;
   /// `/side <prompt>` can fork this chat now (App.tsx, the command's own refusal rule): Send's menu
-  /// offers Send in side chat, and Option-Return sends there (composer/sendMenuModel.ts).
+  /// offers Send in side chat (composer/sendMenuModel.ts).
   sendsToSide?: boolean;
   /// Text the prompt starts with, such as what a chat opened from another tab inherited.
   /// Each new value fills an empty prompt once, caret at the end; it is never sent by itself.
@@ -587,6 +590,9 @@ type Props = {
   /// stack's edge from it (App.tsx `data-focused` on `.acpmux-dock`, composerStates.css). Called on
   /// focus and shell changes only.
   onFocusEdge?(lit: boolean): void;
+  /// Whether the prompt holds anything (text, chips, pending tiles), on each change: Toggle
+  /// Terminal and Chat reads it without a page call (conversation/toggleDraft.ts).
+  onFilled?(filled: boolean): void;
 };
 
 /// What the prompt holds: its text and the chips placed in it.
@@ -639,7 +645,7 @@ const noStop = () => {};
 
 /// The chat's snapshot as a relayed composer reads it: its machine and connection, with no turn,
 /// queue, commands, prompt history, suggestion, usage or modes of the chat's.
-export function relayedSnapshot(snapshot: AcpmuxSnapshot): AcpmuxSnapshot {
+function relayedSnapshot(snapshot: AcpmuxSnapshot): AcpmuxSnapshot {
   const {
     sessionId: _session,
     stopping: _stopping,
@@ -863,6 +869,7 @@ function ComposerFrame({
   attachRefusal,
   relayed = false,
   onFocusEdge,
+  onFilled,
 }: Props) {
   acpmuxPerf.render("composer");
   const t = useT();
@@ -2446,6 +2453,19 @@ function ComposerFrame({
   useInsertionEffect(() => {
     submitNow.current = send;
   });
+  // Installed extensions' context chips (cmux.composer.chip/1, composer/extensionChipModel.ts): a click
+  // writes the chip's text at the caret.
+  const extensionChips = useExtensionChips();
+  const pickChip = (chip: ExtensionChip) => {
+    if (composing.current) return;
+    const { text, caret } = promptRef.current;
+    const at = markdownOffset(text, caret);
+    const next = withChipText(text, at, chip.insert);
+    plusDraft.current = undefined;
+    pendingCaret.current = caret + (next.caret - at);
+    edit(next.text, caret + (next.caret - at));
+    field.current?.focus();
+  };
   /// + then Mention: an "@" at the caret, set off by a space, for the agent to read as a path.
   // Writes "@" at the caret, or "@path " for a file picked in Search files.
   const mention = (picked?: string) => {
@@ -2603,6 +2623,7 @@ function ComposerFrame({
   const stopShown = !shell && stopPresence.shown;
   const stop = stopShown && facts.empty;
   const hasDraft = Boolean(!facts.empty || attachments.length || pending.length);
+  useEffect(() => onFilled?.(hasDraft), [hasDraft, onFilled]);
   // Esc stops the turn on a double press (escapeStop.ts). The Quick Composer's page-level Esc hides
   // its panel, so only the pane counts an Esc that reaches the page.
   const escapeStop = useEscapeStop({
@@ -2950,6 +2971,7 @@ function ComposerFrame({
       {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
       {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
       {...(snapshot.peerResources ? { peerResources: snapshot.peerResources } : {})}
+      {...(snapshot.peerGroups ? { peerGroups: snapshot.peerGroups } : {})}
       {...(snapshot.peerLinks ? { peerLinks: snapshot.peerLinks } : {})}
       {...(onRefreshMachines ? { onRefreshMachines } : {})}
       {...(runMode ? { runMode } : {})}
@@ -3061,7 +3083,7 @@ function ComposerFrame({
   const chooseSend = (choice: SendChoice) => {
     if (choice === "side") send(false, false, undefined, "side");
     // Queue for later is ⌘Return; Send is the button's own send.
-    else send(false, choice === "queue" ? steersAlways : followUpSteers("return", followUpMode, followUp));
+    else send(false, followUpSteers(choice === "queue" ? "menuQueue" : "return", followUpMode, followUp));
   };
   // Declared after every value they read: the React Compiler refuses a closure that reads one declared
   // below it.
@@ -3142,13 +3164,6 @@ function ComposerFrame({
     if (commandReturn && queues && (text.trim() || attachments.length > 0)) {
       event.preventDefault();
       send(false, followUpSteers("commandReturn", followUpMode, followUp));
-      return;
-    }
-    // Option-Return sends the draft in a side chat, where Send's menu offers that (sendMenuModel.ts);
-    // elsewhere it is left as it was.
-    if (sendChoiceForKey(event) === "side" && sendChoices.includes("side")) {
-      event.preventDefault();
-      chooseSend("side");
       return;
     }
     // ⌘Return on an empty prompt after a turn answers a waiting tagged ask (NextStepCard.tsx).
@@ -3266,7 +3281,7 @@ function ComposerFrame({
       event.preventDefault();
       const typed = typedWords().trim() !== "";
       const sendAndOpen = (gesture?: SendGesture) => {
-        const sent = submitNow.current(false, steersAlways || steersUnseen, gesture);
+        const sent = submitNow.current(false, followUpSteers("quickOpen", followUpMode, followUp), gesture);
         // A prompt the host refused stays in the composer, and the chat stays here.
         if (typed && !sent) return;
         openInWindow.current?.(sent);
@@ -3614,6 +3629,7 @@ function ComposerFrame({
           />
         </div>
       )}
+      {!shell && <ExtensionChips chips={extensionChips} onPick={pickChip} />}
       <ComposerBox
         handle={box}
         onPersonEdit={() => {

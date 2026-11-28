@@ -1,17 +1,13 @@
 import React from "react";
-import { transcriptLiveVars } from "../transcriptGrid";
 import { type AcpmuxRow, type PlacedLayout } from "../model";
 import { ThreadMinimap } from "../threadMinimap/ThreadMinimap";
 import { transcriptFadeReach, type RowsChange } from "../threadMinimap/model";
-import { ChatMinimap } from "../chatMinimap/ChatMinimap";
-import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { fadesBelow } from "../conversation/scrollAnchor";
 import { RetryTargetContext } from "../conversation/turnActions";
-import { GuestActionsBoundary } from "../conversation/GuestActionsBoundary";
-import { FindReveal, type ChatFind } from "../conversation/chatFind";
+import { type FindReveal, type ChatFind } from "../conversation/chatFind";
 import { ChatFindBar } from "../conversation/ChatFindBar";
 import { LiveLinePulseContext } from "../conversation/liveLinePulse";
-import { DisclosureMotion, type RunDisclosure } from "../conversation/transcriptDisclosureModel";
+import { type RunDisclosure } from "../conversation/transcriptDisclosureModel";
 import { type TranscriptNeedsYou } from "../needsYou/JumpPill";
 import { UnreadBanner } from "../conversation/SinceDivider";
 import { topZoneOffset } from "../overlayLayout";
@@ -23,7 +19,15 @@ import { SHOWN_SCROLLER_ATTRIBUTE } from "../../../scrollers";
 import { WEB_SWAP_KEPT_SCROLL } from "../../../pages/shared/webSwap";
 import { FOLLOW_BOTTOM_DEADBAND_PX } from "../virtualTranscriptModel";
 import { standInElements } from "./rowFrames";
-import { JumpToLatest, JumpUp } from "./JumpButtons";
+import { JumpUp } from "./JumpButtons";
+import { LIVE_STEP_VARS } from "./liveStepVars";
+import {
+  ChatMinimapMemo,
+  JumpToLatestMemo,
+  ReadOnlyBoundary,
+  RowMotionContexts,
+  TranscriptContext,
+} from "./TranscriptShellParts";
 import { type ScrollAnchor } from "./scrollAnchors";
 import { THREAD_TOP } from "./RowFrame";
 import { WaitSpinner } from "../conversation/WaitSpinner";
@@ -32,56 +36,6 @@ import { OlderLoadingMark } from "./OlderLoadingMark";
 /// The box of the spinner over the loaded rows while older ones load (`.acpmux-older-loading`): it
 /// shows only where the room held for them has this much space above the first loaded row.
 const OLDER_SPINNER_BOX = 32;
-
-/// The live line's box and gap in a run as custom properties on the scroller (transcriptGrid.ts transcriptLiveVars):
-/// conversation.css sizes the line with them. Constant, so the scroller's per-scroll restyle never changes them.
-const LIVE_STEP_VARS = transcriptLiveVars();
-
-/// A wheel tick re-renders the transcript; these draw again only when their own props change (the minimap reads
-/// the scroll from its scroller, not from a prop).
-const JumpToLatestMemo = React.memo(JumpToLatest);
-const ChatMinimapMemo = React.memo(ChatMinimap);
-
-/// What rows read about their motion: the live line's pulse and a disclosure's one transition
-/// (useDisclosure.ts). One wrapper, so a new row context never re-indents the shell's JSX.
-function RowMotionContexts({
-  livePulse,
-  runDisclosure,
-  children,
-}: {
-  livePulse: React.ContextType<typeof LiveLinePulseContext>;
-  runDisclosure: RunDisclosure;
-  children: React.ReactNode;
-}) {
-  return (
-    <LiveLinePulseContext.Provider value={livePulse}>
-      <DisclosureMotion.Provider value={runDisclosure}>{children}</DisclosureMotion.Provider>
-    </LiveLinePulseContext.Provider>
-  );
-}
-
-/// A read-only transcript draws inside the guest boundary (conversation/GuestActionsBoundary.tsx).
-function ReadOnlyBoundary({ readOnly, children }: { readOnly: boolean; children: React.ReactNode }) {
-  return readOnly ? <GuestActionsBoundary>{children}</GuestActionsBoundary> : <>{children}</>;
-}
-
-/// What the transcript's rows read from it: Find's reveal target and, for a prompt's own bookmark
-/// button, the session its marks key into (threadMinimap/promptMarks.ts).
-function TranscriptContext({
-  find,
-  sessionId,
-  children,
-}: {
-  find: React.ContextType<typeof FindReveal>;
-  sessionId?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <FindReveal.Provider value={find}>
-      <PromptMarksSession.Provider value={sessionId ?? ""}>{children}</PromptMarksSession.Provider>
-    </FindReveal.Provider>
-  );
-}
 
 type MinimapProps = React.ComponentProps<typeof ThreadMinimap>;
 
@@ -118,6 +72,8 @@ export type TranscriptShellDeps = {
   earlier: MinimapProps["earlier"];
   canLoadNewer: boolean;
   canLoadOlder: boolean;
+  /** The room that seats a short first page at the view's foot: not older room. */
+  footRoom: number;
   /// The chat is still reading its rows.
   loading: boolean;
   later: MinimapProps["later"];
@@ -191,6 +147,7 @@ export function drawTranscriptShell({
   earlier,
   canLoadNewer,
   canLoadOlder,
+  footRoom,
   loading,
   later,
   promptCount,
@@ -329,8 +286,9 @@ export function drawTranscriptShell({
             <TranscriptContext find={countReveal ?? findReveal} sessionId={sessionId}>
               <div
                 className="acpmux-spacer"
-                // The room held above the loaded rows for older history (conversation/olderReserve.ts).
-                data-older-room={layout.origin || undefined}
+                // The room held above the loaded rows for older history (conversation/olderReserve.ts). The room that
+                // seats a short first page at the view's foot is not older room: no scrollbar shows over it.
+                data-older-room={Math.max(0, (layout.origin ?? 0) - footRoom) || undefined}
                 // Older history is left to load. The room is not the sign of it: it goes once the reader
                 // nears the loaded top with no page there yet (`giveRoomNearTop`), while pages still come.
                 data-loads-older={canLoadOlder || undefined}

@@ -1,25 +1,5 @@
 import Foundation
 
-/// Drop on a pane edge: new pane beside `pane` on `edge`, holding the tab.
-public struct MoveTabToSplitRequest: DaemonRequest {
-    public typealias Response = TabMoveResult
-    public static let command = "move-tab-to-split"
-    public static let requiredCapability: String? = DaemonCapability.tabDrag.rawValue
-    public var surface: SurfaceID
-    public var pane: PaneID
-    public var edge: PaneEdge
-    /// The new pane's share, 0.05...0.95; nil = 0.5.
-    public var ratio: Double?
-    public var transaction: ClientTransactionID?
-    public init(surface: SurfaceID, pane: PaneID, edge: PaneEdge, ratio: Double? = nil, transaction: ClientTransactionID? = nil) {
-        self.surface = surface
-        self.pane = pane
-        self.edge = edge
-        self.ratio = ratio
-        self.transaction = transaction
-    }
-}
-
 /// `move-tab-to-split` with `keep_focus` (`tab-split-keep-focus-v1`): the new
 /// pane does not take focus. Refused before sending to a daemon without the
 /// capability, which would ignore the field and focus the new pane.

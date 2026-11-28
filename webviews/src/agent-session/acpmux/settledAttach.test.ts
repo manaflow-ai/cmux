@@ -44,8 +44,13 @@ describe("settledAppend", () => {
     // No kept tail: only live records are held.
     expect(settledAppend(page, 0, 40, view)).toBeUndefined();
   });
-  test("a page with nothing past the drawn rows is no match: the page is merged", () => {
-    expect(settledAppend([record(29), record(30)], 30, 30, view)).toBeUndefined();
+  test("a page with nothing past the drawn rows is met and adds nothing: no fold of the rows again", () => {
+    // A chat shown again that did not move while away: the rows drawn are the page's. Undefined here
+    // made the caller rebuild the whole transcript before the chat's first frame (settled page).
+    expect(settledAppend([record(29), record(30)], 30, 30, view)).toEqual([]);
+  });
+  test("an empty page over held rows: met, adds nothing", () => {
+    expect(settledAppend([], 30, 30, view)).toBeUndefined();
   });
   test("drawn rows not held any more: the page is merged", () => {
     expect(settledAppend([record(31)], 30, 0, view)).toBeUndefined();

@@ -10,17 +10,21 @@ import { afterEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { JSDOM } from "jsdom";
-import {
-  POPOVER_GAP,
-  POPOVER_WIDTH,
-  VIEWPORT_MARGIN,
-  computePopoverStyle,
-  popoverWidth,
-} from "../src/branchBasePopover";
-import { headerToolPreviewPlacement } from "../src/agent-session/acpmux/header/HeaderToolPreview";
-import { locationMenuHeights, locationMenuSide } from "../src/agent-session/acpmux/locationPopover";
-import { INTERFACE_SCALE_EVENT, interfaceScale, onInterfaceScaleChange, scaledPx } from "../src/ui/interfaceScale";
-import { tooltipScale } from "../src/ui/tooltipTokens";
+import { importWithDom } from "./support/importWithDom";
+
+const { POPOVER_GAP, POPOVER_WIDTH, VIEWPORT_MARGIN, computePopoverStyle, popoverWidth } = await importWithDom(
+  () => import("../src/branchBasePopover"),
+);
+const { headerToolPreviewPlacement } = await importWithDom(
+  () => import("../src/agent-session/acpmux/header/headerToolPreviewPlacement"),
+);
+const { locationMenuHeights, locationMenuSide } = await importWithDom(
+  () => import("../src/agent-session/acpmux/locationPopover"),
+);
+const { INTERFACE_SCALE_EVENT, interfaceScale, onInterfaceScaleChange, scaledPx } = await importWithDom(
+  () => import("../src/ui/interfaceScale"),
+);
+const { tooltipScale } = await importWithDom(() => import("../src/ui/tooltipTokens"));
 
 let dom: JSDOM | undefined;
 afterEach(() => {
@@ -170,7 +174,8 @@ const FLOATING: Array<{ file: string; selector: string; properties: string[] }> 
     selector: ".acpmux-needs-you",
     properties: ["width", "max-height"],
   },
-  { file: "agent-session/acpmux/quickModelColumns.css", selector: ".acpmux-cols-card", properties: ["width"] },
+  // The model picker's account card no longer floats: since #63232 (cmux#63167) it is a strip in the
+  // menu's flow under the search row, and the menu's columns set its width (quickModelColumns.css).
   {
     file: "agent-session/acpmux/header/header.css",
     selector: ".acpmux-header-preview.ui-card",

@@ -170,6 +170,7 @@ fn cfg() -> SessionCfg {
         upstream_record_max_bytes: 0,
         frames_in_flight: 2,
         input_frame_now: false,
+        ltr: false,
         rtt_tail_probe: false,
         resolution_ladder: false,
         max_qp: cmux_rd_core::resolution::DEFAULT_MAX_QP,
@@ -545,6 +546,7 @@ fn opened_for_high(frames: Box<dyn FrameSource>) -> OpenedDesktop {
         frames,
         cursor: false,
         profile: "high".into(),
+        ltr: false,
         open_us: 0,
         ready_us: 0,
     }

@@ -24,8 +24,9 @@ final class WindowState: CloseSelectionWindow {
     private(set) var id: String
     /// `WorkspaceModel.id` of the workspace shown; nil shows the empty state (the only window, with no workspaces).
     var workspaceID: String? {
-        didSet { if workspaceID != oldValue { noteShown(workspaceID, after: oldValue); onShownChange?(workspaceID, oldValue) }; latchLeftRestore() }
+        didSet { if workspaceID != oldValue { FileHandle.standardError.write(Data("notification reveal: window \(id) workspace \(oldValue ?? "nil") -> \(workspaceID ?? "nil") via \(shownVia)\n".utf8)); noteShown(workspaceID, after: oldValue); onShownChange?(workspaceID, oldValue) }; latchLeftRestore(); shownVia = "set" } // one stderr line per real change, naming who set it (notify-banner-click-concurrent-chats)
     }
+    @ObservationIgnored var shownVia = "set" // who sets `workspaceID` next: reveal, claim, repair, reconcile-repair, showWorkspace-fallback, ...
     private(set) var restoreWatch: (shown: String?, left: Bool)? // a relaunch's pending Home landing (`launch::pending_home`): the restored workspace, and whether the window showed another one or a top page but Home since; latched, so coming back does not clear it (F1 of #46087)
     @ObservationIgnored var onShownChange: ((String?, String?) -> Void)? // each change of `workspaceID` (new, old): the close-selection rule's feed
     @ObservationIgnored var onProfileChange: (() -> Void)? // the window entered another space: its shared workspaces follow (`WindowManager.spaceDidChange`)
@@ -126,7 +127,7 @@ extension WindowState {
 
     /// Takes over a saved window's identity and state (the window opened at launch, before the saved state could load, becomes that window).
     func adopt(_ record: WindowRecord) {
-        id = record.id
+        id = record.id; shownVia = "adopt"
         workspaceID = record.workspaceKey?.rawValue
         page = record.page.flatMap(TopPageRoute.init(rawValue:))
         viewSet = record.multiView.flatMap(WorkspaceViewSet.init(record:)).flatMap { Set($0.ids).count == $0.ids.count ? $0 : nil }

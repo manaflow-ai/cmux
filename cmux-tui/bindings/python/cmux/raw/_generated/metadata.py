@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'a3d4fc03cd7d13202c91e5077acfc6d371d615592c4ec52039831e16599c24c6'
+IR_SHA256 = '6558219fc95c08d3a088c88dbc9c81015f042cad7dacb50a02c64d081d016c7b'
 
 
 @dataclass(frozen=True)
@@ -1837,6 +1837,7 @@ COMMANDS = {
         None,
         {
             'machine_metadata': CommandFieldMetadata(12, 'machine-identity-v1'),
+            'restore_progress': CommandFieldMetadata(12, None),
             'revisions': CommandFieldMetadata(12, None),
         },
     ),
@@ -2602,6 +2603,18 @@ COMMANDS = {
             'title': CommandFieldMetadata(None, None),
         },
     ),
+    'offer-link-to-phone': CommandMetadata(
+        'offer-link-to-phone',
+        'local-admin',
+        12,
+        None,
+        ('local-admin',),
+        None,
+        {
+            'terminal_id': CommandFieldMetadata(None, None),
+            'url': CommandFieldMetadata(None, None),
+        },
+    ),
     'page-credential': CommandMetadata(
         'page-credential',
         'local-admin',
@@ -2810,6 +2823,19 @@ COMMANDS = {
         {
             'counts': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'record-notification-delivery': CommandMetadata(
+        'record-notification-delivery',
+        'control',
+        12,
+        'notification-ack-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'desktop': CommandFieldMetadata(None, None),
+            'notification': CommandFieldMetadata(None, None),
+            'reason': CommandFieldMetadata(None, None),
         },
     ),
     'register-browser-provider': CommandMetadata(
@@ -3256,6 +3282,7 @@ COMMANDS = {
         None,
         {
             'include': CommandFieldMetadata(None, None),
+            'restore_progress': CommandFieldMetadata(12, None),
         },
     ),
     'set-attach-visibility': CommandMetadata(
@@ -3651,6 +3678,7 @@ COMMANDS = {
             'expected_generation': CommandFieldMetadata(None, None),
             'expected_revision': CommandFieldMetadata(None, None),
             'icon': CommandFieldMetadata(None, None),
+            'keep_awake': CommandFieldMetadata(12, 'workspace-keep-awake-v1'),
             'key': CommandFieldMetadata(None, None),
             'marked_unread': CommandFieldMetadata(12, 'notification-mark-unread-v1'),
             'mutation_id': CommandFieldMetadata(None, None),
@@ -4277,6 +4305,7 @@ EVENTS = {
     'client-attached': EventMetadata('client-attached', 6, None, ('subscribe',), 'emitted'),
     'client-changed': EventMetadata('client-changed', 6, None, ('subscribe',), 'emitted'),
     'client-detached': EventMetadata('client-detached', 6, None, ('subscribe',), 'emitted'),
+    'client-disconnected-by': EventMetadata('client-disconnected-by', 12, None, ('control',), 'emitted'),
     'client-list-invalidated': EventMetadata('client-list-invalidated', 9, None, ('subscribe',), 'serialized-never-emitted'),
     'cloud-conversation-changed': EventMetadata('cloud-conversation-changed', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
     'cloud-conversation-live': EventMetadata('cloud-conversation-live', 12, 'cloud-chief-live-v1', ('subscribe',), 'emitted'),
@@ -4322,6 +4351,7 @@ EVENTS = {
     'pane-closed': EventMetadata('pane-closed', 7, None, ('subscribe-deltas',), 'emitted'),
     'participant-avatar-changed': EventMetadata('participant-avatar-changed', 12, 'participant-avatars-v1', ('subscribe',), 'emitted'),
     'personal-changed': EventMetadata('personal-changed', 12, 'profiles-v1', ('subscribe',), 'emitted'),
+    'phone-open-link': EventMetadata('phone-open-link', 12, None, ('control',), 'emitted'),
     'program-status-changed': EventMetadata('program-status-changed', 12, None, ('subscribe',), 'emitted'),
     'render-delta': EventMetadata('render-delta', 7, None, ('attach-render',), 'emitted'),
     'render-state': EventMetadata('render-state', 7, None, ('attach-render',), 'emitted'),

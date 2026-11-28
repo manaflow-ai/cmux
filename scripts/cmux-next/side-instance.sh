@@ -9,7 +9,7 @@
 #                                   over 7 days ago; --from takes any build) as NAME; remade
 #                                   from another app, it clears the state of the identity it replaces.
 #                                   --customize: its customize folder is NAME/customize (CMUX_CUSTOMIZE_DIR
-#                                   in its LSEnvironment), not the account's ~/.config/cmux/customize, so a
+#                                   in its LSEnvironment), not the account's ~/.config/cmux-next/customize, so a
 #                                   measurement's extension saves never reach the Mac's own cmux
 #                                   --live-code: a live code build's copy watches live-code/ for
 #                                   Swift patches (docs/cmux-next/live-code.md)
@@ -22,7 +22,7 @@
 #                                   Every copy shows the SIM icon (side-icon/AppIcon-Side.icns: a dark tile
 #                                   with an amber SIM band) so it is never taken for the real app in the Dock or
 #                                   the app switcher; --keep-icon keeps the original's icon (a look of the icon)
-#   side-instance.sh launch NAME [--parked|--shown|--front] [-- ARGS...]
+#   side-instance.sh launch NAME [--parked|--shown|--front] [--env KEY=VALUE] [-- ARGS...]
 #                                   open it and record its pid. Where its windows go (CMUX_SIDE_PLACEMENT
 #                                   parked|shown|front sets the default; parked when unset):
 #                                   --parked  on a virtual display no person looks at (park-display.m, held
@@ -49,6 +49,8 @@
 #   side-instance.sh socket NAME    the copy's control socket (CMUX_NEXT_SOCKET_PATH in its LSEnvironment), for
 #                                   `cmux --app-socket` and hot-verify.py: NAME/control.sock, or
 #                                   cmux-side-<hash>.sock in the per-user TMPDIR when that is too long for a Unix socket
+#   side-instance.sh logs NAME      the files launch sends the copy's stdout and stderr to (one per line):
+#                                   hot-verify.py reads their ends when the copy's socket never answers
 #   side-instance.sh list           the side instances and whether each runs
 #   side-instance.sh remove NAME [--keep-sign-in]
 #                                   stop it, then delete the folder make wrote and the state the copy
@@ -70,8 +72,7 @@
 #   config/         its cmux-next.json and web-dev.json (CMUX_NEXT_CONFIG_FILE in its LSEnvironment), its
 #                   customize/ folder (CMUX_CUSTOMIZE_DIR: local/customize, the folder its daemon watches), and
 #                   its debug-tunables.json (CMUX_NEXT_DEBUG_TUNABLES_FILE) with Live web reload on, so it
-#                   loads its web overlay. A copy of cmux NEXT DEV cannot: the app reads web-dev.json
-#                   only under DEV's own bundle id (WebDevOverride.isAvailable); a nightly's copy can.
+#                   loads its web overlay (every build reads web-dev.json, under any bundle id).
 #   web-overlay/    its web overlay (CMUX_WEB_OVERLAY_DIR), web-slot/ its dev server state
 #   live-code/      with --live-code, the folder its live code watcher reads (CMUX_LIVE_CODE_DIR)
 # A side instance starts signed out with fresh settings; its own sign-in survives a remake through
@@ -337,7 +338,7 @@ case "$cmd" in
     "$buddy" -c "Print :LSEnvironment" "$plist" >/dev/null 2>&1 || "$buddy" -c "Add :LSEnvironment dict" "$plist"
     plist_set "$plist" LSEnvironment:CMUX_NEXT_CONFIG_FILE "$dir/config/cmux-next.json"
     # Its own customize folder (local/customize: the folder its daemon watches, where `cmux customize`
-    # and `cmux ext` write): without it every copy on the Mac shares ~/.config/cmux/customize, so one
+    # and `cmux ext` write): without it every copy on the Mac shares ~/.config/cmux-next/customize, so one
     # copy's extension shows in another's sidebar and a save reloads both.
     mkdir -p "$dir/config/customize"
     plist_set "$plist" LSEnvironment:CMUX_CUSTOMIZE_DIR "$dir/config/customize"
@@ -449,12 +450,15 @@ PY
     echo "$name: $app ($bundle)"
     ;;
   launch)
-    placement="${CMUX_SIDE_PLACEMENT:-parked}" args=()
+    placement="${CMUX_SIDE_PLACEMENT:-parked}" args=() launch_env=()
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --front) placement=front; shift ;;
         --shown) placement=shown; shift ;;
         --parked) placement=parked; shift ;;
+        --env)
+          [[ $# -ge 2 && "$2" =~ ^[A-Z_][A-Z_0-9]*= ]] || die "--env needs KEY=VALUE"
+          launch_env+=(--env "$2"); shift 2 ;;
         --) shift; args=("$@"); break ;;
         *) usage 1 ;;
       esac
@@ -476,7 +480,11 @@ PY
     rm -f "$dir/pid"
     park_stop
     # -n: a new process even when Launch Services still maps the id elsewhere; -g: behind the front app.
-    open_args=(-n)
+    # --stdout/--stderr: the copy's own output, which `open` otherwise drops, so a copy that dies or hangs before
+    # its socket answers says why (hot-verify.py launch_failure; a look on 2026-11-28 said only "nothing within
+    # 120 s").
+    rm -f "$dir/app.stdout.log" "$dir/app.stderr.log"
+    open_args=(-n --stdout "$dir/app.stdout.log" --stderr "$dir/app.stderr.log")
     [[ "$placement" == front ]] || open_args+=(-g)
     if [[ "$placement" == parked ]]; then
       # The app never activates and no window of it becomes key; every window opens on the park display's screen
@@ -488,7 +496,14 @@ PY
         echo "$name: no park display (see above); its windows open behind your app instead (--shown)" >&2
       fi
     fi
-    if ! open "${open_args[@]}" "$app" ${args[@]+--args "${args[@]}"}; then park_stop; die "open $app failed"; fi
+    # A driver's downloads folder (DownloadsFolder: Debug and bench builds read it; Release ignores it): a
+    # copy under test never writes the account's ~/Downloads, whose first write waits on macOS's access
+    # prompt, a prompt nobody answers on a fleet Mac (browser-auth-webkit.sh, as kit_downloads.py).
+    [[ -n "${CMUX_NEXT_DOWNLOADS_DIR:-}" ]] && open_args+=(--env CMUX_NEXT_DOWNLOADS_DIR="$CMUX_NEXT_DOWNLOADS_DIR")
+    # A driver that reads the copy's web pages through the accessibility tree (CuaDriver holds no grant that makes
+    # CEF build one): CMUX_NEXT_ACCESSIBILITY=1 in the driver's environment goes to the copy (AssistiveClientRequests).
+    [[ "${CMUX_NEXT_ACCESSIBILITY:-}" == 1 ]] && open_args+=(--env CMUX_NEXT_ACCESSIBILITY=1)
+    if ! open "${open_args[@]}" ${launch_env[@]+"${launch_env[@]}"} "$app" ${args[@]+--args "${args[@]}"}; then park_stop; die "open $app failed"; fi
     exe="$app/Contents/MacOS/$("$buddy" -c "Print :CFBundleExecutable" "$app/Contents/Info.plist")"
     launched=""
     # The newest process whose executable is exactly the copy's (a plain comparison: the path holds
@@ -524,15 +539,29 @@ PY
       # shellcheck disable=SC2086 # one pid per word
       kill -TERM $left 2>/dev/null || true
       for _ in $(seq 1 75); do [[ -z "$(copy_pids)" ]] && break; /bin/sleep 0.2; done
-      if [[ -n "$(copy_pids)" ]]; then die "processes of $name still run: $(copy_pids | tr '\n' ' ')"; fi
+      # A helper that ignores TERM for 15 s gets KILL: copy_pids matches only executables inside this
+      # copy's own bundle, so nothing else can be hit. Before, stop died here and hot-verify marked a
+      # look whose every step passed as failed (cmux#38805, 2 helpers left after TERM).
+      left="$(copy_pids)"
+      if [[ -n "$left" ]]; then
+        echo "side-instance: $name: $(echo $left | wc -w | tr -d ' ') process(es) ignored TERM for 15 s, sending KILL: $(echo $left)" >&2
+        # shellcheck disable=SC2086 # one pid per word
+        kill -KILL $left 2>/dev/null || true
+        for _ in $(seq 1 25); do [[ -z "$(copy_pids)" ]] && break; /bin/sleep 0.2; done
+      fi
+      if [[ -n "$(copy_pids)" ]]; then die "processes of $name still run after KILL: $(copy_pids | tr '\n' ' ')"; fi
     fi
     if command -v mac-budget >/dev/null 2>&1; then mac-budget release --name "$name" || true; fi
     echo "$name stopped"
     ;;
   env)
-    app_of >/dev/null
-    printf 'export CMUX_NEXT_CONFIG_FILE=%q CMUX_CUSTOMIZE_DIR=%q CMUX_WEB_OVERLAY_DIR=%q CMUX_WEB_SLOT_STATE_DIR=%q\n' \
-      "$dir/config/cmux-next.json" "$dir/config/customize" "$dir/web-overlay" "$dir/web-slot"
+    copy="$(app_of)"
+    # CMUX_WEB_OVERLAY_APP: web-overlay.sh checks the overlay's web ABI against this copy, not the
+    # installed NIGHTLY. Without it, hot-verify's look of cmux#62321 (2026-11-27) was refused: the
+    # worker's stale installed NIGHTLY had ABI 7, while the copy, from NIGHTLY 4605751670101, had the
+    # head's ABI 9.
+    printf 'export CMUX_NEXT_CONFIG_FILE=%q CMUX_CUSTOMIZE_DIR=%q CMUX_WEB_OVERLAY_DIR=%q CMUX_WEB_SLOT_STATE_DIR=%q CMUX_WEB_OVERLAY_APP=%q\n' \
+      "$dir/config/cmux-next.json" "$dir/config/customize" "$dir/web-overlay" "$dir/web-slot" "$copy"
     ;;
   socket)
     app_of >/dev/null
@@ -542,6 +571,10 @@ PY
     ;;
   path)
     app_of
+    ;;
+  logs)
+    app_of >/dev/null
+    printf '%s\n%s\n' "$dir/app.stdout.log" "$dir/app.stderr.log"
     ;;
   list)
     [[ -d "$root" ]] || exit 0

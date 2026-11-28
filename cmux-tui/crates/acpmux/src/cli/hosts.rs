@@ -35,6 +35,9 @@ pub(crate) use host_hold::hold;
 pub(crate) use host_lock::unfence;
 pub(crate) use host_lock::{LockLost, lock_to_install, lock_updates};
 use host_migrate::{MIGRATING, REFUSED, UNIT_SHOW, migrate, migrate_back, unit_back};
+/// The rule `host update --if-idle` reads `acpmux --json ls` by; a Cloud machine's own update reads it too
+/// (cmux-tui `link/machine_update/apply.rs`, cmux#57192).
+pub use host_update::busy_sessions;
 pub(crate) use host_update::{
     CLOUD_VM_MARK, Caller, Channel, RESTART_WINDOW, ServiceEnv, UpdateOptions, channel_url,
     cloud_vm_check, restart_window_check, self_update, stamp_restart, update, watch_channel,
@@ -528,7 +531,7 @@ fn push_update(
 /// Prints the new binary's version. Once it is in place nothing fails the
 /// install: a staging folder that will not go is left for the next push
 /// to clear.
-const INSTALL_PUSHED: &str = "cd ~/.local/bin && chmod +x .acpmux-new/acpmux && { v=$(.acpmux-new/acpmux --version) || { rm -rf .acpmux-new; echo 'the pushed acpmux does not run on this host' >&2; exit 1; }; } && { ! acpmux_window_refuses || { rm -rf .acpmux-new; exit 1; }; } && { ! acpmux_downgrade acpmux .acpmux-new/acpmux || { rm -rf .acpmux-new; exit 1; }; } && { if [ ! -e acpmux ]; then rm -f acpmux.prev; elif [ -f acpmux.prev ] && ! { [ -n \"$c\" ] && grep -qaF \"($c\" acpmux; }; then :; else ln -f acpmux acpmux.prev 2>/dev/null || { cp -p acpmux .acpmux.prev.new && mv -f .acpmux.prev.new acpmux.prev; } || { rm -f .acpmux.prev.new; false; }; fi; } && mv -f .acpmux-new/acpmux acpmux && { rmdir .acpmux-new 2>/dev/null; printf '%s\\n' \"$v\"; }";
+const INSTALL_PUSHED: &str = "cd ~/.local/bin && chmod +x .acpmux-new/acpmux && { v=$(.acpmux-new/acpmux --version) || { rm -rf .acpmux-new; echo 'the pushed acpmux does not run on this host' >&2; exit 1; }; } && { ! acpmux_window_refuses || { rm -rf .acpmux-new; exit 1; }; } && { ! acpmux_downgrade acpmux .acpmux-new/acpmux || { rm -rf .acpmux-new; exit 1; }; } && if [ -x acpmux ] && cmp -s acpmux .acpmux-new/acpmux; then rm -rf .acpmux-new; printf '%s\n' \"$v\"; else { if [ ! -e acpmux ]; then rm -f acpmux.prev; elif [ -f acpmux.prev ] && ! { [ -n \"$c\" ] && grep -qaF \"($c\" acpmux; }; then :; else ln -f acpmux acpmux.prev 2>/dev/null || { cp -p acpmux .acpmux.prev.new && mv -f .acpmux.prev.new acpmux.prev; } || { rm -f .acpmux.prev.new; false; }; fi; } && mv -f .acpmux-new/acpmux acpmux && { rmdir .acpmux-new 2>/dev/null; printf '%s\n' \"$v\"; }; fi";
 
 /// Put `acpmux.prev` back as `~/.local/bin/acpmux`; fails without one.
 const RESTORE_PREV: &str = "(cd ~/.local/bin && [ -f acpmux.prev ] && rm -f acpmux && { ln acpmux.prev acpmux 2>/dev/null || cp -p acpmux.prev acpmux; })";
@@ -1783,6 +1786,7 @@ mod tests {
                 // The self-update timer (host_auto_update.rs), once the unit runs.
                 "systemctl --user daemon-reload",
                 "systemctl --user enable --now acpmux-update.timer",
+                "systemctl --user is-enabled --quiet acpmux-update.timer",
             ]
         );
         assert!(run.started_by_systemd());

@@ -5,7 +5,8 @@ import { afterEach, expect, test } from "bun:test";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { badgeCut, badgeGeometry, SenderIcon } from "./SenderIcon";
+import { badgeCut, badgeGeometry } from "./senderBadge";
+import { SenderIcon } from "./SenderIcon";
 import {
   configureSenderIconLook,
   DEFAULT_SENDER_ICON_LOOK,

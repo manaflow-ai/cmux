@@ -6,7 +6,8 @@
 //! - Before any proof, from what the daemon holds for the caller's inbox and token alone: the
 //!   chat registered with them (nothing to do), a code still waiting for its echo, a first step
 //!   for them already running (one code, never two from sends at once), or a failure kept from
-//!   a recent try (said once, not re-proven on every send). Only the session's own shell holds
+//!   a recent try (said once, not re-proven on every send), or a code that went and expired
+//!   unanswered: one automatic code per chat a day ([`OFFER_TTL`]). Only the session's own shell holds
 //!   its token, and nothing is delivered or registered here.
 //! - After the proof (`register.rs`, unchanged), what to do for the conversation: a chat the
 //!   bridge already reaches gets no code; a chat that has a name (registered before a restart,
@@ -20,6 +21,54 @@ use std::time::{Duration, Instant};
 
 /// How long a failed automatic first step is kept, answered without a new proof.
 const FAILURE_TTL: Duration = Duration::from_secs(300);
+
+/// How long a chat that got an automatic code gets no other. Its model reads the code's
+/// message and runs the `--code` line when it wants an address; a chat that let it expire did
+/// not, and a new code at each later prompt only filled its conversation (Lawrence, 2026-11-28:
+/// 203 codes in a day into one terminal chat, from cmux's prompt hook). A person who wants one
+/// later runs `acpmux register NAME`, which always sends.
+pub(crate) const OFFER_TTL: Duration = Duration::from_secs(24 * 3600);
+
+/// Why an automatic step sent no code: one went to this chat within [`OFFER_TTL`].
+pub(super) const OFFERED: &str = "register.offered";
+
+/// The chats that got an automatic code, by Claude Code session id, with when (unix seconds),
+/// kept across daemon restarts: `register-offered.json` in the daemon's home, owner-only.
+fn offered_file(home: &Path) -> PathBuf {
+    home.join("register-offered.json")
+}
+
+fn read_offered(home: &Path) -> HashMap<String, u64> {
+    std::fs::read(offered_file(home))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
+}
+
+/// Now, in unix seconds.
+pub(super) fn now_secs() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
+}
+
+/// Whether the chat of Claude Code session `session_id` got an automatic code within
+/// [`OFFER_TTL`] of `now`. Reads a file: run off the runtime's workers.
+pub(super) fn offered_lately(home: &Path, session_id: &str, now: u64) -> bool {
+    read_offered(home)
+        .get(session_id)
+        .is_some_and(|at| now.saturating_sub(*at) < OFFER_TTL.as_secs())
+}
+
+/// Keeps that the chat of `session_id` got an automatic code at `now`, and drops records past
+/// [`OFFER_TTL`]. Writes a file: run off the runtime's workers.
+pub(super) fn note_offered(home: &Path, session_id: &str, now: u64) -> anyhow::Result<()> {
+    static WRITING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one = WRITING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut kept = read_offered(home);
+    kept.retain(|_, at| now.saturating_sub(*at) < OFFER_TTL.as_secs());
+    kept.insert(session_id.to_owned(), now);
+    let bytes = serde_json::to_vec(&kept)?;
+    crate::agent_tools::write_private(&offered_file(home), &bytes)
+}
 
 /// The caller's inbox and token: what an automatic first step is known by.
 type Key = (PathBuf, String);
@@ -111,6 +160,19 @@ pub(super) fn pending_name(
         .map(|p| p.name.clone())
 }
 
+/// The name of a code in `pending` that went to `socket` with `token` and expired unanswered
+/// within [`OFFER_TTL`]: that chat gets no other automatic code.
+pub(super) fn offered_name(
+    pending: &HashMap<u32, Pending>,
+    socket: &Path,
+    token: &str,
+) -> Option<String> {
+    pending
+        .values()
+        .find(|p| p.socket == socket && p.token == token && p.at.elapsed() < OFFER_TTL)
+        .map(|p| p.name.clone())
+}
+
 impl Hub {
     /// [`Step`] for the caller's `socket` and `token`, from the tokens `register` kept in `home`
     /// (`claude_peers::save_token`), the codes waiting, the steps running and recent failures.
@@ -134,6 +196,9 @@ impl Hub {
         let pending = PENDING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(name) = pending_name(&pending, socket, token) {
             return Step::Answer(json!({"pending": true, "resent": false, "name": name}));
+        }
+        if let Some(name) = offered_name(&pending, socket, token) {
+            return Step::Answer(json!({"offered": true, "name": name}));
         }
         let key: Key = (socket.to_path_buf(), token.to_owned());
         {
@@ -175,210 +240,5 @@ impl Hub {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::config::{Config, StoreMode};
-    use crate::store::MemoryStore;
-
-    fn hub() -> Arc<Hub> {
-        let mut cfg: Config = serde_json::from_value(json!({
-            "harnesses": {"fake": {"argv": ["python3", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py")]}},
-            "defaultHarness": "fake",
-        }))
-        .unwrap();
-        cfg.store.mode = StoreMode::Memory;
-        Hub::new(cfg, Box::new(MemoryStore::default()))
-    }
-
-    fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("acpmux-auto-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
-    fn pending(name: &str, socket: &str, token: &str, age: u64) -> Pending {
-        Pending {
-            code: "c0de".into(),
-            started: 7,
-            socket: PathBuf::from(socket),
-            token: token.into(),
-            name: name.into(),
-            at: Instant::now().checked_sub(Duration::from_secs(age)).unwrap_or_else(Instant::now),
-        }
-    }
-
-    fn answer(step: Step) -> Value {
-        match step {
-            Step::Answer(v) => v,
-            Step::Go(_) => panic!("expected an answer, got a step to prove"),
-        }
-    }
-
-    /// A send from an unregistered chat asks for the first step on every send; a code still
-    /// waiting for its echo there is found, so no second one is delivered.
-    #[test]
-    fn a_waiting_code_is_found_by_its_inbox_and_token_until_it_expires() {
-        let sock = Path::new("/tmp/cc-socks/1.sock");
-        let mut codes = HashMap::new();
-        codes.insert(1, pending("claude-desktop-03214b87", "/tmp/cc-socks/1.sock", "tok", 5));
-        assert_eq!(pending_name(&codes, sock, "tok").as_deref(), Some("claude-desktop-03214b87"));
-        assert_eq!(pending_name(&codes, sock, "other"), None, "another token");
-        assert_eq!(pending_name(&codes, Path::new("/tmp/cc-socks/2.sock"), "tok"), None);
-        let old = CODE_TTL.as_secs() + 1;
-        codes.insert(1, pending("claude-desktop-03214b87", "/tmp/cc-socks/1.sock", "tok", old));
-        assert_eq!(pending_name(&codes, sock, "tok"), None, "expired: a new code goes");
-    }
-
-    /// A chat registered with the caller's inbox and token answers at once, with its name; a
-    /// restarted process (a new token) is not taken for it.
-    #[tokio::test]
-    async fn a_chat_registered_with_the_callers_token_is_answered_with_no_proof() {
-        let home = scratch("registered");
-        let hub = hub();
-        let cwd = Some(home.clone());
-        let session =
-            hub.new_session(crate::hub::NewRequest { cwd, ..Default::default() }).await.unwrap();
-        session.meta.lock().unwrap().name = "desktop-zoe".into();
-        mark_registered_for_test(&session.id);
-        let sock = home.join("inbox.sock");
-        let kept = crate::claude_peers::ChildToken {
-            pid: 42,
-            socket: sock.clone(),
-            token: "tok-registered".into(),
-            started: Some(7),
-        };
-        crate::claude_peers::save_token(&home, &session.id, &kept).unwrap();
-        let v = answer(hub.auto_answer(&home, &sock, "tok-registered"));
-        assert_eq!(v, json!({"registered": true, "name": "desktop-zoe"}));
-        assert!(
-            matches!(hub.auto_answer(&home, &sock, "tok-after-restart"), Step::Go(_)),
-            "a new token proves again"
-        );
-    }
-
-    /// Repro: two sends at once both missed the waiting-code check and both delivered a code
-    /// (the second replacing the first). The first reserves the step; the second is told a code
-    /// is coming; once the first is done another may go.
-    #[test]
-    fn two_sends_at_once_start_one_step() {
-        let hub = hub();
-        let (home, sock) = (scratch("race"), Path::new("/tmp/cc-socks/race.sock"));
-        let first = hub.auto_answer(&home, sock, "tok-race");
-        assert!(matches!(first, Step::Go(_)));
-        let second = answer(hub.auto_answer(&home, sock, "tok-race"));
-        assert_eq!(second, json!({"pending": true, "resent": false}));
-        assert!(matches!(hub.auto_answer(&home, sock, "tok-other"), Step::Go(_)), "own key");
-        drop(first);
-        assert!(matches!(hub.auto_answer(&home, sock, "tok-race"), Step::Go(_)), "released");
-    }
-
-    /// A failure (an unsigned process, a chat with no transcript yet, a taken name) is kept for
-    /// its inbox and token, so the next sends neither prove again nor warn again.
-    #[test]
-    fn a_failure_is_answered_again_without_a_new_proof() {
-        let hub = hub();
-        let (home, sock) = (scratch("failed"), Path::new("/tmp/cc-socks/failed.sock"));
-        let Step::Go(step) = hub.auto_answer(&home, sock, "tok-failed") else { panic!() };
-        step.failed("register.unproven: process 42 is not signed as Claude Code");
-        drop(step);
-        let v = answer(hub.auto_answer(&home, sock, "tok-failed"));
-        assert_eq!(v["repeat"], true, "{v}");
-        assert!(v["failed"].as_str().unwrap().contains("not signed"), "{v}");
-    }
-
-    /// A starved daemon can receive the renewal after its short-lived hook has exited.
-    /// Its missing process tree must not suppress an independently proven retry for five minutes.
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn renew_hook_with_a_gone_caller_keeps_the_next_proof_available() {
-        let hub = hub();
-        let dir = tempfile::tempdir().unwrap();
-        let sock = dir.path().join("inbox.sock");
-        let mut caller = std::process::Command::new("true").spawn().unwrap();
-        let pid = caller.id();
-        caller.wait().unwrap();
-        let params = json!({"name": "desktop", "renew": true, "socket": sock, "token": "test"});
-        let req = crate::hub::register::RegisterRequest::from_params(&params).unwrap();
-        let reply = hub.register_caller(pid, req).await.unwrap();
-        assert_eq!(reply["retryable"], true);
-        assert!(reply["renewed"].is_null());
-        assert!(matches!(hub.auto_answer(&crate::config::home(), &sock, "test"), Step::Go(_)));
-    }
-
-    /// The answer comes before any proof: a caller no Claude Code process runs (pid 1 here,
-    /// which the proof would refuse as `register.no_session`) is told of its waiting code.
-    #[tokio::test]
-    async fn an_automatic_step_with_a_waiting_code_is_answered_before_the_proof() {
-        let hub = hub();
-        let sock = "/tmp/cc-socks/early.sock";
-        PENDING
-            .lock()
-            .unwrap()
-            .insert(900_101, pending("claude-desktop-0badc0de", sock, "tok-early", 1));
-        let req = |auto| RegisterRequest {
-            name: "claude-desktop-0badc0de".into(),
-            socket: Some(PathBuf::from(sock)),
-            token: Some("tok-early".into()),
-            code: None,
-            auto,
-            renew: false,
-        };
-        let v = hub.register_caller(1, req(true)).await.unwrap();
-        assert_eq!(v, json!({"pending": true, "resent": false, "name": "claude-desktop-0badc0de"}));
-        let err = hub.register_caller(1, req(false)).await.unwrap_err();
-        assert!(err.message.contains("no Claude Code session"), "typed register proves: {err:?}");
-        PENDING.lock().unwrap().remove(&900_101);
-    }
-
-    fn own(name: &str, registered: bool, watched: bool) -> Option<Own> {
-        Some(Own { name: name.into(), registered, watched })
-    }
-
-    /// Repro: after a Claude Code restart (a new token) the registered chat `desktop-zoe` got a
-    /// code for `claude-desktop-<id8>`, and finishing it renamed the chat, breaking its address.
-    /// A chat with a name is registered under that name; a chat the bridge reaches gets no code.
-    #[test]
-    fn a_chat_with_a_name_keeps_it_and_one_the_bridge_reaches_gets_no_code() {
-        let none = |_: &str| false;
-        let asked = "claude-desktop-03214b87";
-        let p = plan(asked, own("desktop-zoe", true, true), false, none);
-        assert_eq!(p, Plan::Code("desktop-zoe".into()), "registered, restarted");
-        let p = plan(asked, own("desktop-zoe", true, true), true, none);
-        assert_eq!(
-            p,
-            Plan::Code("desktop-zoe".into()),
-            "registered needs its token, bridge or not"
-        );
-        let p = plan(asked, own("my-folder", false, true), true, none);
-        assert_eq!(p, Plan::Reachable(Some("my-folder".into())), "the bridge lists it");
-        let p = plan(asked, own("my-folder", false, true), false, none);
-        assert_eq!(p, Plan::Code("my-folder".into()), "listed before, setting off now");
-        assert_eq!(plan(asked, None, true, none), Plan::Reachable(None), "listed on its next scan");
-        assert_eq!(plan(asked, None, false, none), Plan::Code(asked.into()));
-        let taken = |name: &str| name == asked;
-        assert_eq!(plan(asked, None, false, taken), Plan::Taken, "another session's name");
-        let p = plan(asked, own(asked, false, false), false, taken);
-        assert_eq!(p, Plan::Code(asked.into()), "its own name is not taken from it");
-    }
-
-    /// Repro: an older daemon ignores `auto` and delivers a code on every send; the CLI asks
-    /// only a daemon that lists the feature (`cli/reply_address.rs`).
-    #[tokio::test]
-    async fn initialize_lists_the_automatic_register_feature() {
-        let hub = hub();
-        let (input, incoming) = tokio::sync::mpsc::channel(8);
-        let (output, mut outgoing) = tokio::sync::mpsc::channel(8);
-        let task = tokio::spawn(crate::server::serve_connection(hub.clone(), incoming, output));
-        let hello = crate::rpc::Message::request(1, "initialize", json!({"protocolVersion": 1}));
-        input.send(hello.to_line()).await.unwrap();
-        // timeout: Test-only deadline detects a missing reply; no user request is cancelled.
-        let line =
-            tokio::time::timeout(Duration::from_secs(10), outgoing.recv()).await.unwrap().unwrap();
-        drop(input);
-        task.abort();
-        let reply: Value = serde_json::from_str(&line).unwrap();
-        let features = reply["result"]["_meta"]["acpmux"]["features"].as_array().unwrap();
-        assert!(features.iter().any(|f| f == AUTO_FEATURE), "{reply}");
-    }
-}
+#[path = "register_auto_tests.rs"]
+mod tests;

@@ -112,7 +112,7 @@ impl Hub {
     /// The handoff, to the waiter of `stage_id` parked by `daemon`; it back when there is none.
     fn hand_parked(&self, stage_id: &str, daemon: &str, handoff: Handoff) -> Result<(), Handoff> {
         let mut parked = self.parked_moves.lock().unwrap_or_else(|e| e.into_inner());
-        if !parked.waiters.get(stage_id).is_some_and(|w| w.from == daemon) {
+        if parked.waiters.get(stage_id).is_none_or(|w| w.from != daemon) {
             return Err(handoff);
         }
         let Some(waiter) = parked.waiters.remove(stage_id) else { return Err(handoff) };
@@ -192,7 +192,7 @@ pub fn take_moved(
     params: &Value,
 ) -> Result<Value, RpcError> {
     let transfer_id = params.get("transferId").and_then(Value::as_str).unwrap_or("");
-    if !answering.as_ref().is_some_and(|(id, _)| id == transfer_id) {
+    if answering.as_ref().is_none_or(|(id, _)| id != transfer_id) {
         return Err(pull_error("unknown", format!("no move {transfer_id:?} waits here")));
     }
     let Some((_, answer)) = answering.take() else { return Ok(json!({})) };

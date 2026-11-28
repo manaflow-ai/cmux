@@ -111,19 +111,7 @@ public struct LinkPairing: Sendable {
     /// app restarted (2026-11-03). Every attempt still proves both keys; a retry trusts nothing the
     /// first one did not. Nil: wait for the person (they refused this phone on the Mac).
     public static func retryDelay(after code: String, attempt: Int) -> Duration? {
-        switch code {
-        // The person refused this phone on the Mac.
-        case "denied": return nil
-        // This host proved another identity than the one pinned, or answered for another Mac, or
-        // the exchange itself was malformed: asking again on the same link cannot change that, and
-        // the warning stays up. A new link (foreground, network change, Retry) pairs from the start.
-        case "mac_identity_changed", "bad_mac_proof", "wrong_mac", "bad_request", "unpaired": return nil
-        // The Mac asks about one phone a few times per 10 minutes; asking sooner is refused again.
-        case "rate_limited": return .seconds(60)
-        default:
-            let backoff = [1, 2, 4, 8, 15]
-            return .seconds(attempt < backoff.count ? backoff[max(attempt, 0)] : 30)
-        }
+        LinkPairingRetry.retryDelay(after: code, attempt: attempt)
     }
 
     /// What pairing found.
@@ -340,14 +328,17 @@ public struct LinkPairing: Sendable {
     /// "Remove This iPhone from My Macs": asks the Mac to forget this phone (best effort, over a live link).
     public func unpair(link: any MacLink, macID: String) async {
         let deadline = clockNow() + handshakeTimeout
-        guard let (identity, approval) = try? keys.publicKeys(),
-              let channel = try? await LinkDeadline.run(
-                timeout: handshakeTimeout,
-                operation: { try await link.openChannel(service: "auth", args: [
-                    "identityKey": identity, "approvalKey": approval, "name": "", "action": "unpair",
-                ]) },
-                onDiscard: { await $0.close(code: "eof", reason: "unpair expired") }
-              ) else { return }
+        guard let (identity, approval) = try? keys.publicKeys() else { return }
+        var args = ["identityKey": identity, "approvalKey": approval, "name": "", "action": "unpair"]
+        // The Mac logs which app each auth came from; without these it said `unknown`.
+        if let bundleID, !bundleID.isEmpty { args["bundleId"] = bundleID }
+        if let appBuild, !appBuild.isEmpty { args["appBuild"] = appBuild }
+        let unpairArgs = args
+        guard let channel = try? await LinkDeadline.run(
+            timeout: handshakeTimeout,
+            operation: { try await link.openChannel(service: "auth", args: unpairArgs) },
+            onDiscard: { await $0.close(code: "eof", reason: "unpair expired") }
+        ) else { return }
         defer { Task { await channel.close(code: "eof", reason: "") } }
         guard let frame = try? await exchange(channel, until: deadline, operation: { try await channel.receive() }), let value = try? JSONDecoder().decode(JSONValue.self, from: frame),
               let nonce = value["challenge"]?.stringValue, value["mac"]?.stringValue == macID else { return }

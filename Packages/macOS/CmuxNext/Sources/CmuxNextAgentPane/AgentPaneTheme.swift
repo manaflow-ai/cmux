@@ -75,6 +75,8 @@ enum AgentPaneTheme {
             "statusIndicators": motion.reduceMotion || DesignSettings.shared.statusIndicator.animation == .static ? "static" : "animated",
             // How agent work shows on the transcript's running rows (`data-working-look`).
             "workingLook": StatusWorkingLook.tunable.value.rawValue,
+            // appearance.homeCardStyle: how Home's and the New Tab page's cards draw (`data-home-cards`).
+            "homeCardStyle": DesignSettings.shared.homeCardStyle.rawValue,
         ]
         // The theme file's slot variants as the daemon resolved them (theme.ts configureThemeSlots);
         // none sends no `slots` key, so every slot keeps its default.

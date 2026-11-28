@@ -14,7 +14,7 @@ import { useRowMark } from "../threadMinimap/promptMarks";
 import { AlertCircle, Check, DoubleCheck, Pin, Speaker, StopReading, TurnFork, Undo } from "./icons";
 import { WaitSpinner } from "./WaitSpinner";
 import { canReadAloud, readAloud, useReadingAloud } from "./readAloud";
-import { exactTime, messageAge, messageAgeWidest, nextMessageAge } from "./relativeTime";
+import { exactTime, messageAge, nextMessageAge, messageAgeWidest } from "./relativeTime";
 import { CopyButton } from "./CopyButton";
 import { copyMarkdownResult } from "../richClipboard";
 import { hasMessageMenuHost, openMessageMenu, openForkMenu, releaseMessagePopupOnUnmount } from "./messageMenu";
@@ -22,7 +22,7 @@ import { RowReplyButton } from "./SelectionReply";
 import { TurnActionsContext, type QueuedActions } from "./turnActions";
 import { useTranscriptReadOnly } from "./readOnly";
 import { ROW_ICON } from "./messageActionsModel";
-import { intl } from "../../../ui/intl";
+import { rewindSeconds } from "./rewindSeconds";
 import { Described } from "../chips/FactsHoverCard";
 import { Slot } from "../../../slots/Slot";
 import { rowHoverSlot } from "../../../slots/rowHover";
@@ -69,15 +69,6 @@ export function ReplyTime({ at, detail }: { at: number; detail?: string }) {
 /// one centered 24px line with equal control slots, including the retry model chevron.
 export function MessageFooterRow({ children, className }: { children: ReactNode; className?: string }) {
   return <span className={["cv-message-footer-row", className].filter(Boolean).join(" ")}>{children}</span>;
-}
-
-/// The dot between a prompt's age and its buttons (Leo's spec for the row under a prompt).
-export function MessageDot() {
-  return (
-    <span className="cv-user__dot" aria-hidden="true">
-      ·
-    </span>
-  );
 }
 
 /// Copy through CopyButton (its name as a tooltip, a check once the clipboard took the text), at the
@@ -273,11 +264,6 @@ export function RewindButton({ rowId }: { rowId: string }) {
   );
 }
 
-/// A rewind's time in seconds with one decimal, in the pane's language ("9.4", "9,4").
-export function rewindSeconds(seconds: number, language: string): string {
-  return intl.NumberFormat(language, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(seconds);
-}
-
 /// Pins the message (row `rowId`): kept with the chat by acpmux; a pinned prompt also shows in the
 /// thread minimap. Nothing for a message acpmux has not logged yet.
 export function PinButton({ rowId, bookmark = false }: { rowId: string; bookmark?: boolean }) {
@@ -404,18 +390,6 @@ export function PromptActions({
     </MessageFooterRow>
   );
   return <div className="cv-user__actions">{pending ? pending(actions, {}) : actions}</div>;
-}
-
-/// The hover row at the end of a message this agent sent another one (MessageCard.tsx): Copy,
-/// kept clear of the line's words.
-export function SentActions({ text }: { text: string }) {
-  return (
-    <span className="cv-sent-actions">
-      <MessageFooterRow>
-        <MessageCopy text={text} />
-      </MessageFooterRow>
-    </span>
-  );
 }
 
 /// The row at the end of another agent's message line (IncomingMessageCard.tsx IncomingMessageLine):

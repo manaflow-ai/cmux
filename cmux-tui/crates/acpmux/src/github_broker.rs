@@ -61,20 +61,65 @@ pub const LANE_WAIT: std::time::Duration =
 /// Measured: one `gh` process each on the Mac, 29.5 MB max RSS for `gh --version` alone (gh
 /// 2.45), within the Mac client's WAITING_MAX of 8.
 pub const OWNER_SLOTS: usize = 4;
+/// How many of those `OWNER_SLOTS` reads may hold at once. The rest stay for the actions that
+/// land work (`token`, issue, comment, draft pull request): a lane whose agents read in a loop
+/// never keeps its own push from starting (the fleet's gh_quota.py kept a write lane for this).
+pub const READ_SLOTS: usize = OWNER_SLOTS - 1;
+
+/// A peer's action slots (`owner_slots`): every action takes one of `all`; a read also takes
+/// one of `reads`, so at least `OWNER_SLOTS - READ_SLOTS` stay free of reads.
+#[derive(Debug)]
+pub struct OwnerSlots {
+    all: Arc<tokio::sync::Semaphore>,
+    reads: Arc<tokio::sync::Semaphore>,
+}
+
+impl OwnerSlots {
+    pub fn new() -> Self {
+        Self {
+            all: Arc::new(tokio::sync::Semaphore::new(OWNER_SLOTS)),
+            reads: Arc::new(tokio::sync::Semaphore::new(READ_SLOTS)),
+        }
+    }
+
+    /// How many actions may still start (of `OWNER_SLOTS`).
+    pub fn available_permits(&self) -> usize {
+        self.all.available_permits()
+    }
+}
+
+impl Default for OwnerSlots {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// One admitted action's hold on its peer's slots, released when it is dropped.
+#[derive(Debug)]
+pub struct OwnerPermit {
+    _all: tokio::sync::OwnedSemaphorePermit,
+    _read: Option<tokio::sync::OwnedSemaphorePermit>,
+}
+
+/// Whether a request (as the peer sent it) is a read, for its slot lane. Anything that does not
+/// parse as one of the actions that land work counts as a read: the stricter lane.
+pub fn is_read(params: &Value) -> bool {
+    !matches!(
+        params.get("action").and_then(Value::as_str),
+        Some("token" | "issue" | "comment" | "draft_pr")
+    )
+}
 
 /// The slots of the actions of the peer named `peer`: one budget per name for the life of this
 /// daemon, so a reconnect (a new peer while the old one's actions still run) starts none past
 /// `OWNER_SLOTS`. A name's entry goes once nothing holds it.
-pub fn owner_slots(peer: &str) -> Arc<tokio::sync::Semaphore> {
+pub fn owner_slots(peer: &str) -> Arc<OwnerSlots> {
     static SLOTS: std::sync::LazyLock<
-        std::sync::Mutex<std::collections::HashMap<String, Arc<tokio::sync::Semaphore>>>,
+        std::sync::Mutex<std::collections::HashMap<String, Arc<OwnerSlots>>>,
     > = std::sync::LazyLock::new(Default::default);
     let mut slots = SLOTS.lock().unwrap_or_else(|e| e.into_inner());
     slots.retain(|_, s| Arc::strong_count(s) > 1 || s.available_permits() < OWNER_SLOTS);
-    slots
-        .entry(peer.to_owned())
-        .or_insert_with(|| Arc::new(tokio::sync::Semaphore::new(OWNER_SLOTS)))
-        .clone()
+    slots.entry(peer.to_owned()).or_default().clone()
 }
 /// Whether a Mac lent this daemon GitHub since it started (`hub/github_owner.rs`): its agent
 /// sessions then get git's credential helper, the `gh` shim and GitHub MCP through it
@@ -342,6 +387,39 @@ pub fn gh_args(r: &GithubActionParams) -> Vec<String> {
     a
 }
 
+/// The REST form of a `read` (`gh api`, the core pool) that prints the same JSON fields as its
+/// `gh_args` (`--json` views spend the GraphQL pool): what `serve_owner` runs when the Mac's
+/// GraphQL pool is down to its reserve and core is not, so a read never waits on one pool while
+/// the other has calls. `None` for any other action.
+pub fn rest_read_args(r: &GithubActionParams) -> Option<Vec<String>> {
+    if r.action != GithubAction::Read {
+        return None;
+    }
+    let (path, jq) = match r.issue {
+        None => (
+            format!("repos/{}", r.repo),
+            "{nameWithOwner: .full_name, url: .html_url, defaultBranchRef: {name: .default_branch}, \
+             visibility: (.visibility | ascii_upcase)}",
+        ),
+        Some(n) => (
+            format!("repos/{}/pulls/{n}", r.repo),
+            "{number, title, state: (if .merged_at then \"MERGED\" else (.state | ascii_upcase) end), \
+             isDraft: .draft, url: .html_url, headRefName: .head.ref, baseRefName: .base.ref}",
+        ),
+    };
+    Some(vec!["api".into(), path, format!("--jq={jq}")])
+}
+
+/// Whether `e` is the read budget's refusal of a whole pool (`github_pool.rs` `over=pool`), the
+/// one refusal another pool may answer.
+fn pool_refusal(e: &RpcError) -> bool {
+    e.data
+        .as_ref()
+        .and_then(|d| d.get("reason"))
+        .and_then(Value::as_str)
+        .is_some_and(|r| r == "github.budget.pool")
+}
+
 /// `gh`'s output as text: every GitHub token cut out (`redact_github_tokens`), then at most
 /// `OUTPUT_MAX` bytes.
 fn clean_output(bytes: &[u8]) -> String {
@@ -433,12 +511,12 @@ async fn read_bounded<R: tokio::io::AsyncRead + Unpin>(pipe: Option<R>) -> Vec<u
 /// keyring login, or an App token for this one action and no other, which starts only while the
 /// sign-in it was minted with is still lent (`while_lent`).
 async fn execute(
-    r: &GithubActionParams,
+    args: Vec<String>,
     login: &crate::github_app_token::Source,
     app: Option<&crate::github_app_token::AppLease>,
 ) -> Result<String, RpcError> {
     let mut gh = Command::new("gh");
-    gh.args(gh_args(r));
+    gh.args(args);
     login_env(gh.as_std_mut(), login.token());
     gh.stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
@@ -502,20 +580,30 @@ pub(crate) const LOGIN_REMOVED: [&str; 6] = [
 ];
 
 /// The Mac's gate for `peer`'s request, before anything is spawned: `enabled` is that peer's
-/// saved `githubBroker`, and `slots` bound how many of its actions run at once.
+/// saved `githubBroker`, and `slots` bound how many of its actions run at once; `params` (the
+/// request as sent) says its lane: a read waits behind `READ_SLOTS` other reads, an action that
+/// lands work only behind `OWNER_SLOTS` actions of any kind.
 pub fn admit_owner(
     peer: &str,
     enabled: bool,
-    slots: &Arc<tokio::sync::Semaphore>,
-) -> Result<tokio::sync::OwnedSemaphorePermit, RpcError> {
+    slots: &Arc<OwnerSlots>,
+    params: &Value,
+) -> Result<OwnerPermit, RpcError> {
     if !enabled {
         tracing::warn!(peer, "github broker: refused a request from a peer it is off for");
         return Err(denied("this Mac does not lend its GitHub login to this machine"));
     }
-    slots.clone().try_acquire_owned().map_err(|_| {
-        RpcError::new(-32000, "too many GitHub actions from this machine at once")
+    let busy = |lane: &str| {
+        RpcError::new(-32000, format!("too many GitHub {lane} from this machine at once"))
             .with_data(json!({"reason": "github.busy", "retryable": true}))
-    })
+    };
+    let read = if is_read(params) {
+        Some(slots.reads.clone().try_acquire_owned().map_err(|_| busy("reads"))?)
+    } else {
+        None
+    };
+    let all = slots.all.clone().try_acquire_owned().map_err(|_| busy("actions"))?;
+    Ok(OwnerPermit { _all: all, _read: read })
 }
 
 /// The Mac's side, once `admit_owner` let `peer`'s request in: check it again (the Mac trusts
@@ -538,8 +626,32 @@ pub async fn serve_owner(
         // Again once the login is chosen (`gh auth status` and a mint take time): `gh` still
         // starts only if it would end before the machine stops waiting, and an App token only
         // while the sign-in it was minted with is still lent.
+        // A read is charged to its caller's budget first (`github_pool.rs`): the lane peer and
+        // the session that asked, against the pool its `gh` command spends (`pool_of`: the
+        // `--json` views are GraphQL).
         Ok(login) => match check_deadline(request.deadline_ms, crate::store::now_ms()) {
-            Ok(()) => execute(&request, login, app).await,
+            Ok(()) if request.action == GithubAction::Read => {
+                let caller = format!("{peer}/{}", request.session_id.as_deref().unwrap_or("-"));
+                let args = gh_args(&request);
+                let pool = crate::github_pool::pool_of(&args);
+                match crate::github_pool::admit(&caller, pool, login).await {
+                    Ok(()) => execute(args, login, app).await,
+                    // GraphQL is down to its reserve: the same fields over REST, if core has
+                    // calls. Core's own refusal is the answer then.
+                    Err(e) if pool_refusal(&e) => match rest_read_args(&request) {
+                        Some(rest) if crate::github_pool::pool_of(&rest) != pool => {
+                            let core = crate::github_pool::pool_of(&rest);
+                            match crate::github_pool::admit(&caller, core, login).await {
+                                Ok(()) => execute(rest, login, app).await,
+                                Err(e) => Err(e),
+                            }
+                        }
+                        _ => Err(e),
+                    },
+                    Err(e) => Err(e),
+                }
+            }
+            Ok(()) => execute(gh_args(&request), login, app).await,
             Err(e) => Err(e),
         },
         Err(e) => Err(e.clone()),

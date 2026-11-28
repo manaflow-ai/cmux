@@ -185,8 +185,10 @@ fn drop_disabled(models: &mut Vec<Value>, disabled: &[String]) {
 ///   each release): every catalog model released after every model its menu names.
 /// - Any other harness (Codex, whose `model/list` is what this account runs): a catalog model
 ///   released after the newest one its menu names of the same family (`models[ref].family`,
-///   gpt-sol): an older Codex that lists GPT-6.1 Sol gets GPT-6.2 Sol, and a family the account
-///   runs none of (an API-only release) stays out. Codex takes any id (`session/set_model`).
+///   gpt-sol) and release line ([`release_line`]): an older Codex that lists GPT-6.1 Sol gets
+///   GPT-6.2 Sol, and a family the account runs none of (an API-only release) or a later-dated
+///   variant of a listed release (GPT-6.1 Sol Healthcare) stays out. Codex takes any id
+///   (`session/set_model`).
 ///
 /// Empty when no menu model has a known release date (and family, for the second).
 fn newer_than_menu(
@@ -208,10 +210,10 @@ fn newer_than_menu(
             .map(|m| m.id.clone())
             .collect();
     }
-    let mut newest = std::collections::BTreeMap::<String, String>::new();
+    let mut newest = std::collections::BTreeMap::<(String, String), String>::new();
     for model in listed() {
         if let (Some(family), Some(date)) = (family(model), released(model)) {
-            let slot = newest.entry(family).or_default();
+            let slot = newest.entry((family, release_line(&model.id))).or_default();
             if date > *slot {
                 *slot = date;
             }
@@ -223,10 +225,24 @@ fn newer_than_menu(
         .filter(|m| m.status.as_deref() != Some("deprecated") && !lists(reported, m))
         .filter(|m| {
             let (Some(family), Some(date)) = (family(m), released(m)) else { return false };
-            newest.get(&family).is_some_and(|newest| date > *newest)
+            newest.get(&(family, release_line(&m.id))).is_some_and(|newest| date > *newest)
         })
         .map(|m| m.id.clone())
         .collect()
+}
+
+/// A model id without its version: "gpt-6.1-sol" and "gpt-6.2-sol" are both "gpt-sol". A newer
+/// release continues a line the menu lists, so a variant the feed files under the same family and
+/// dates later is not one: "gpt-6.1-sol-healthcare" (models.dev, 2026-11-24, family gpt-sol) is
+/// line "gpt-sol-healthcare", and an older Codex that lists GPT-6.1 Sol does not get it leading
+/// its menu as the newest Sol.
+fn release_line(id: &str) -> String {
+    let id = id.rsplit('/').next().unwrap_or(id);
+    let parts: Vec<&str> = id
+        .split('-')
+        .filter(|part| !part.chars().all(|c| c.is_ascii_digit() || c == '.'))
+        .collect();
+    parts.join("-")
 }
 
 /// Preserve the harness's own picker order independently of the catalog's metadata order.
@@ -290,6 +306,7 @@ impl Hub {
         let refused = self.refused_models.lock().unwrap_or_else(PoisonError::into_inner).clone();
         let probe_errors = self.probe_errors.lock().unwrap_or_else(PoisonError::into_inner).clone();
         let catalog = self.catalog.current();
+        let health = self.health.rows();
         let mut out = Vec::new();
         for (name, profile) in &cfg.harnesses {
             // A terminal harness has no models and no ACP session.
@@ -315,6 +332,29 @@ impl Hub {
             if let Some(live) = &live {
                 crate::live_models::overlay(&mut models, live);
             }
+            // A live model (including an explicit profile declaration) always wins over
+            // a release note. A newer bundle alone cannot prove account access.
+            let mut added = Vec::new();
+            if live.is_some()
+                && !probe_errors.contains_key(name)
+                && profile.models.is_empty()
+                && crate::codex_app_server::is_profile_launch(&profile.argv)
+                && let Some(row) = health.iter().find(|r| r.id == *name && r.outdated)
+                && let (Some(new), Some(version)) = (&row.new_codex_models, &row.latest)
+            {
+                for (id, display) in new {
+                    if !models.iter().any(|m| {
+                        m["id"].as_str() == Some(id)
+                            || m["aliases"]
+                                .as_array()
+                                .is_some_and(|a| a.iter().any(|v| v.as_str() == Some(id)))
+                    }) {
+                        models.push(json!({"id": id, "name": display, "curated": false, "codexUpdateVersion": version,
+                            "unavailable": format!("Included in Codex {version}. Update Codex to check availability for this account.")}));
+                        added.push(id.clone());
+                    }
+                }
+            }
             if let Some(levels) = efforts.get(name) {
                 add_variant_efforts(&mut models, levels);
             }
@@ -332,6 +372,7 @@ impl Hub {
                         .map(|c| newer_than_menu(c, &catalog, &reported))
                         .unwrap_or_default();
                     top.retain(|id| !menu.contains(id));
+                    top.extend(added);
                     top.extend(menu);
                     top.retain(|id| !disabled.contains(id));
                     Some(top)

@@ -11,7 +11,7 @@ download, no such asset, an API error): the caller then downloads URL as before.
 
 The token: GH_DOWNLOAD_TOKEN, else GH_TOKEN, else GITHUB_TOKEN. A release's asset names and URLs are read once
 per job into RELEASE_ASSET_CACHE (default $RUNNER_TEMP/github-release-assets), so the 40 packages of a Zig
-seed cost one or two API calls, not 40. Tests: tests/test_nightly_release_downloads.py.
+seed cost one or two API calls, not 40. Tested by test_nightly_release_downloads.py.
 """
 from __future__ import annotations
 

@@ -61,7 +61,7 @@ phone from its DEBUG launch environment (CMUX_MOBILE_STACK_REFRESH_TOKEN, adopte
 session), the Mac from its own token store file, written before its launch. The refresh token is
 never printed, and is in no argv and no artifact.
 """
-import argparse, calendar, glob, hashlib, json, math, os, plistlib, pwd, re, secrets, shutil, socket, stat, statistics, subprocess, sys, threading, time
+import argparse, calendar, glob, hashlib, json, math, os, plistlib, pwd, re, secrets, shutil, signal, socket, stat, statistics, subprocess, sys, threading, time
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../.."))
 sys.path.insert(0, os.path.join(ROOT, "scripts/cmux-next"))
@@ -96,6 +96,13 @@ def has_upload_probe():
     return os.path.exists(os.path.join(ROOT, "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/UploadProbe.swift"))
 
 
+def run_attachment_leg(paired, attach, connect_runs, leg):
+    """Run an optional attachment leg and return its result for the final verdict."""
+    if paired and attach and not connect_runs:
+        return bool(leg())
+    return True
+
+
 def sparse_file(path, size):
     """`size` bytes that take no disk, with marked 4 KiB pages at the start, middle and end so a
     lost, shifted or zeroed chunk changes the hash."""
@@ -106,14 +113,49 @@ def sparse_file(path, size):
             f.write(bytes([mark]) * 4096)
 
 
-def mac_workspace(app, sock, home):
-    """A terminal workspace on the Mac, made by its bundled CLI (`cmux workspace create`, as
-    relaunch_restore_check does): "created <id8>, terminal <id8>", or why not."""
+def has_attach_leg():
+    """Whether this ref's app has the DEBUG demo step `live-attach` (DemoDriver.swift)."""
+    path = os.path.join(ROOT, "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/DemoDriver.swift")
+    return os.path.exists(path) and '"live-attach"' in open(path).read()
+
+
+ATTACH_BYTES = 8 << 30  # sparse: takes no disk on the host; far more than the link moves before the cancel
+ATTACH_NAME = "cmux-attach-e2e.mov"
+ATTACH_LINE = re.compile(r"demo step: live-attach (\S+) ?(.*)")
+
+
+def mac_workspace(app, sock, home, session=None, rpc=None):
+    """A terminal workspace on the Mac: "created <id8>, terminal <id8> (how)", or why not.
+
+    First the app's own control socket, `action.run newTab` (New Workspace, with its terminal): the app's daemon
+    makes it, wherever its owner listens. The
+    CLI (`cmux workspace create`) guessed that socket and missed it: the app runs its owner with a per-build
+    CMUX_TUI_STATE_DIR and CMUX_TUI_RUNTIME_SCOPE (DaemonLauncher), so neither TEMP/cmux-tui-UID/SESSION.sock
+    nor /tmp's was there, and `daemon ensure` then started a second daemon the phone never saw (run
+    45624760704 attempt 2: ids came back, the phone found no terminal). The CLI stays as the fallback."""
+    def workspaces():
+        topo = (rpc("snapshot.get").get("topology") or {}) if rpc else {}
+        return [w for w in topo.get("workspaces") or [] if isinstance(w, dict)]
+
+    if rpc:
+        before = {w.get("id") for w in workspaces()}
+        # `newTab` is the catalog's New Workspace (cmd-N, cmux-action-catalog workspace.rs) and starts its
+        # terminal; `newSurface` only adds a tab to the current workspace, which on a fresh app is its home, and
+        # the phone files a `kind` "home" workspace under homeWorkspaces, never its Workspaces list (DaemonTree),
+        # so the demos found no terminal (run 45646323695). Only a new, non-home workspace counts.
+        asked = rpc("action.run", {"action": "newTab", "args": {"name": "pair-e2e"}}, timeout=60)
+        fresh = wait_for(lambda: next((w for w in workspaces()
+                                       if w.get("id") not in before and w.get("kind") != "home"), None), 30, every=1)
+        if fresh:
+            return f"created {str(fresh.get('id'))[:8]} ({len(workspaces())} in the app's topology; app newTab)"
+        why = redact(json.dumps(asked))[-200:]
+    else:
+        why = "no app socket"
+
     cli = os.path.join(app, "Contents/Resources/bin/cmux")
     env = {"HOME": home, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_PATH": sock, "CMUX_QUIET": "1"}
     # The app starts its terminal daemon with TMPDIR set to the user's Darwin temp folder
-    # (DaemonLauncher.userTemporaryDirectory), so its socket is TEMP/cmux-tui-UID/SESSION.sock. Without the same
-    # TMPDIR the CLI looked under /tmp and found "no cmux session is running" (run 45551555308).
+    # (DaemonLauncher.userTemporaryDirectory); without the same TMPDIR the CLI looked under /tmp (run 45551555308).
     try:
         temp = subprocess.run(["/usr/bin/getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True,
                               stdin=subprocess.DEVNULL, timeout=10).stdout.strip()
@@ -122,17 +164,62 @@ def mac_workspace(app, sock, home):
     if temp:
         env["TMPDIR"] = temp
     try:
-        done = subprocess.run([cli, "--json", "--app-socket", sock, "workspace", "create", "--name", "pair-e2e"],
+        # The app names its home daemon session itself (snapshot.get topology.sessions, `session_name`).
+        named = ["--session", session] if session else []
+        done = subprocess.run([cli, "--json", "--app-socket", sock, *named, "workspace", "create", "--name", "pair-e2e"],
                               env=env, cwd=home, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60)
         lines = [line for line in done.stdout.splitlines() if line.strip()]
         made = json.loads(lines[-1]) if lines else {}
     except (OSError, ValueError, subprocess.TimeoutExpired) as error:
-        return f"NOT created ({type(error).__name__})"
-    made = made.get("result", made) if isinstance(made, dict) else {}
+        return f"NOT created (app newTab: {why}; CLI {type(error).__name__})"
+    # Daemon verbs answer {"value": {...}}, agents verbs {"result": {...}} (relaunch_restore_check.unwrap).
+    if isinstance(made, dict):
+        made = next((made[k] for k in ("value", "result") if isinstance(made.get(k), dict)), made)
     ws, term = (made.get("workspace_id"), made.get("terminal_id")) if isinstance(made, dict) else (None, None)
     if not ws:
-        return f"NOT created (exit {done.returncode}: {redact((done.stderr or done.stdout).strip())[-200:]})"
-    return f"created {str(ws)[:8]}, terminal {str(term)[:8] if term else 'none'}"
+        return f"NOT created (app newTab: {why}; CLI exit {done.returncode}: {redact((done.stderr or done.stdout).strip())[-200:]})"
+    return f"created {str(ws)[:8]}, terminal {str(term)[:8] if term else 'none'} (CLI; app newTab: {why})"
+
+
+def attach_leg(simctl,udid, bundle_id, phone_env, phone_log, phone_shot, work, note):
+    """A picked 8 GiB video in the paired Mac's first terminal composer (DEBUG demo `live-attach`)
+    shows progress on its tile while it uploads to the real Mac's hostd, then is removed mid-send
+    and text is sent at once. Screens at each step; passes on the app's own step lines. Link speed
+    is whatever the host gives (loopback-class): the leg does not shape it."""
+    data = subprocess.run(simctl + ["get_app_container", udid, bundle_id, "data"],
+                          check=True, capture_output=True, text=True).stdout.strip()
+    source = os.path.join(data, "tmp", ATTACH_NAME)
+    os.makedirs(os.path.dirname(source), exist_ok=True)
+    sparse_file(source, ATTACH_BYTES)
+    since = time.monotonic()
+    try:
+        subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True)
+        subprocess.run(simctl + ["launch", udid, bundle_id, "-cmux-mobile-no-restore", "-cmux-mobile-demo", "live-attach",
+                                 "-CmuxMobileAttachE2EFile", source], env=phone_env, check=True, capture_output=True)
+        seen = {}
+        for step, shot in (("tile", "attach-1-tile"), ("progress", "attach-2-progress"), ("progress-later", "attach-3-progress-later"),
+                           ("cancelled-and-sent", "attach-4-cancelled-typed"), ("shown", "attach-5-terminal")):
+            hit = phone_log.wait_at(re.compile(r"demo step: live-attach (%s|no \S+)\b ?(.*)" % re.escape(step)), 300, since=since)
+            if not hit:
+                note(f"- attach: FAIL, no `live-attach {step}` line in 300 s")
+                return False
+            if hit[1].group(1).startswith("no"):
+                note(f"- attach: FAIL, {hit[1].group(0)}")
+                phone_shot("attach-fail")
+                return False
+            seen[step] = hit[1].group(2)
+            note(f"- attach {step}: {seen[step]} -> {phone_shot(shot)}")
+            since = hit[0]
+        sent = seen["cancelled-and-sent"]
+        ok = "attachments=0" in sent and "uploading=false" in sent and "composerFree=true" in sent and "text=sent" in sent
+        note(f"- attach: {'PASSED' if ok else 'FAIL'}: progress on the tile before the cancel ({seen['progress']!r}), "
+             f"removed mid-send, composer free at once: {sent}")
+        return ok
+    finally:
+        try:
+            os.unlink(source)
+        except OSError:
+            pass
 
 
 def sha256(path):
@@ -317,7 +404,11 @@ def main():
     ap.add_argument("--upload-relay-only", action="store_true")
     ap.add_argument("--upload-block-udp", action="store_true")
     ap.add_argument("--upload-wait", type=int, default=300)
+    # The reconnect leg (flows.json reconnect-after-drop, cmux-next-ios-sim.sh's reconnect-drops=10,60): the Mac's
+    # link drops for each of these seconds; the phone must reattach by itself.
+    ap.add_argument("--reconnect-drops", default="")
     a = ap.parse_args()
+    drops = [int(x) for x in a.reconnect_drops.split(",") if x.strip()]
     proof_path = os.environ.get("CMUX_IOS_CLOUD_PROOF_FILE")
     proof = read_proof(proof_path, artifact_root=a.out) if proof_path else None
     cloud_ok = proof is None
@@ -343,6 +434,7 @@ def main():
     account = dev_credential()
     email = account["email"]
     probe = has_upload_probe()
+    attach, attach_ok = has_attach_leg(), True
     # The upload leg's Mac folder: a Chat Folder (agents.chats.roots), which hostd shares
     # (CMUX_MOBILE_FILE_ROOTS), so an upload with it as `cwd` lands in its .cmux/attachments.
     upload_root = os.path.join(os.path.realpath(a.work), "pair-rig", "upload-root")
@@ -462,6 +554,11 @@ def main():
              f"{connect_timeline_aways()} s away, {connect_timeline_away_runs(connect_runs)} runs each "
              f"(the commit's Connect-Timeline-Runs / -Away / -Away-Runs)")
     ask_ok = restart_ok = not discovery
+    # The open-live leg (cmux-next-ios-sim.sh open-live): after pairing, one Claude chat on the Mac and
+    # N launches of the phone straight into it, timed to its latest output on screen. 0 leaves it out.
+    open_live_runs = int(os.environ.get("CMUX_PAIR_E2E_OPEN_LIVE_RUNS") or 0)
+    live_ok = not open_live_runs
+    reconnect_ok = not drops
     keychain = RigKeychain(a.mac_app)
     try:
         note(f"- Keychain: {keychain.start()}")
@@ -535,7 +632,12 @@ def main():
             phone_env["SIMCTL_CHILD_CMUX_MOBILE_FOCUS_MAC"] = mac_id
             # A new tag's Mac opens with no workspace, so the phone's live-terminal and live-attach
             # demos found "no terminal" (run 45538405955): one terminal workspace for them to open.
-            note(f"- Mac terminal workspace: {mac_workspace(a.mac_app, sock, pwd.getpwuid(os.getuid()).pw_dir)}")
+            sessions = (rpc("snapshot.get").get("topology") or {}).get("sessions") or []
+            home_session = next((s.get("session_name") for s in sessions
+                                 if isinstance(s, dict) and s.get("home") is True), None)
+            note(f"- Mac terminal workspace: "
+                 f"{mac_workspace(a.mac_app, sock, pwd.getpwuid(os.getuid()).pw_dir, home_session, rpc)}"
+                 f" (home session {home_session or 'not reported'})")
 
         # ---- the phone ------------------------------------------------------
         # A new install, setup marked done (the account's preferences are the live keys until the
@@ -577,6 +679,8 @@ def main():
                  f"({took:.0f} s after the phone's launch, by the dev auto-approve: no Allow prompt, no seed); Mac lists "
                  f"{last.get('connectedPhones', 0)} connected phone(s){'' if connected else ' (none in 60 s)'}; "
                  f"phone {phone_shot('phone-paired')}; Mac {mac_shot('mac-pairing-paired')}")
+            if not paired:
+                note(f"- pairing, why: {phone_dial_evidence(os.path.join(a.out, 'phone-pairing.log'), url)}")
             phone_launch()
             phone_log.wait(re.compile(r"live data on"), 60)
             phone_settled()  # the Devices list loads from the service after live data starts
@@ -601,6 +705,28 @@ def main():
                                             size=a.upload_bytes, random_bytes=a.upload_random, wait=a.upload_wait,
                                             relay_only=a.upload_relay_only, block_udp=a.upload_block_udp)
                 note(f"- upload: {line}")
+            # Connect-timeline runs measure only connection recovery. Keep the expensive 8 GiB
+            # attachment leg out of those runs; ordinary pair-e2e runs still exercise it.
+            attach_ok = run_attachment_leg(
+                paired,
+                attach,
+                connect_runs,
+                lambda: attach_leg(simctl, a.udid, a.bundle_id, phone_env, phone_log, phone_shot, a.work, note),
+            )
+            if drops and paired and not connect_runs:
+                try:
+                    reconnect_ok = reconnect_after_drop(app, drops, simctl, a.udid, a.out, status, phone_log,
+                                                        phone_shot, note)
+                except Exception as error:  # noqa: BLE001  the leg fails; the restart leg still runs
+                    reconnect_ok = False
+                    note(f"- reconnect after drop: FAIL ({type(error).__name__}: {redact(str(error))[:300]})")
+            if open_live_runs and paired:
+                try:
+                    live_ok = open_live_leg(simctl, a.udid, a.bundle_id, phone_env, phone_log, rpc, a.out,
+                                            open_live_runs, note)
+                except Exception as error:  # noqa: BLE001  the leg fails; the legs after it still run
+                    live_ok = False
+                    note(f"- open-live: FAIL ({type(error).__name__}: {redact(str(error))[:300]})")
             if discovery and paired and not connect_runs:  # last: it quits and restarts the Mac
                 app, restart_ok = discovery_restart(app, exe, env, a.out, support, status, phone_log, streams,
                                                     phone_shot, note)
@@ -642,7 +768,10 @@ def main():
     if discovery:
         note(f"- discovery: Allow request {'PASS' if ask_ok else 'FAIL'}, restart with a split identity "
              f"{'PASS' if restart_ok else 'FAIL'}")
-    return 0 if paired and uploaded and theme_ok and cloud_ok and ask_ok and restart_ok else 1
+    if open_live_runs:
+        # open-live judges pairing and its own leg; the other legs are reported, not required.
+        return 0 if paired and live_ok else 1
+    return 0 if paired and uploaded and attach_ok and theme_ok and cloud_ok and ask_ok and restart_ok and reconnect_ok else 1
 
 
 # The connect-timeline leg (RFD 0049's connect rows): the paired phone's own ConnectTimeline marks
@@ -794,6 +923,168 @@ def connect_timeline_leg(simctl, udid, bundle_id, phone_env, phone_log, runs, ou
 
 
 ASKS = re.compile(r"phone (\w+) asks to pair: (\w+)")
+LATEST_OUTPUT = re.compile(r"timing launch chat_latest_output_frame \((\d+)ms\)")
+TAB_ID = re.compile(r"^tab_[0-9a-f]{32}$")
+OPEN_LIVE_CHAT = re.compile(r"open-live chat (\S+) running (true|false)")
+
+
+def phone_dial_evidence(path, url):
+    """Why a phone that took the code never asked the Mac: the phone dials a code's Mac only once its
+    team's Macs list it (LiveCoordinator+PairInvite.swift, steerToInvite), so its `macs_loaded`
+    count and team lines say whether the Mac was ever in reach."""
+    try:
+        text = open(path, errors="replace").read()
+    except OSError:
+        return "no phone log"
+    loaded = re.findall(r"timing \w+ macs_loaded \+\d+ms \(\d+ms\) (\d+)", text)
+    teams = len(re.findall(r"team \S+ registered, (\d+) Macs", text))
+    other = "pairing code for a space this account is not in" in text
+    mac = re.search(r"[?&]mac=([0-9a-f-]+)", url or "")
+    return (f"phone macs_loaded counts {loaded or 'none logged'}; {teams} team registration line(s); "
+            f"{'the code names a space this account is not in; ' if other else ''}"
+            f"the code's Mac {mac.group(1)[:8] if mac else '?'}... is dialed only once that list holds it "
+            f"(0 Macs: the phone never dials, so hostd never gets a request and no Allow can answer it)")
+
+
+def _tab_link_id(tab):
+    """The tab's public resource id (`tab_` + 32 hex), the id a cmux link carries."""
+    value = tab.get("id")  # ControlTabInfo.json puts the public link target here.
+    return value if isinstance(value, str) and TAB_ID.fullmatch(value) else None
+
+
+def _conversation_tabs(snap):
+    top = snap.get("topology") or snap
+    for ws in top.get("workspaces") or []:
+        for screen in ws.get("screens") or [{"panes": ws.get("panes") or []}]:
+            for p in screen.get("panes") or []:
+                for t in p.get("tabs") or []:
+                    if t.get("kind") == "conversation":
+                        yield p, t
+
+
+def open_live_leg(simctl, udid, bundle_id, phone_env, phone_log, rpc, out, runs, note):
+    """One Claude chat on the paired Mac, then `runs` launches of the phone straight into it
+    (CMUX_MOBILE_OPEN_URL=cmux://tab/<id>, as a tapped link opens it), each timed from the process
+    start to `chat_latest_output_frame` (LaunchMarks: the transcript's first frame that shows its
+    rows while following its end, so the latest line). Two rows: the chat at rest (idle fixture),
+    then the same launches while the chat streams a long reply (duress: a stream running when the
+    app opens). The screen is recorded for the whole leg."""
+    def pane(action, **params):
+        r = rpc("debug.agent_pane", dict({k: v for k, v in params.items() if v is not None}, action=action), timeout=40)
+        if isinstance(r, dict) and isinstance(r.get("result"), str):
+            try:
+                r = dict(r, result=json.loads(r["result"]))
+            except ValueError:
+                pass
+        return r
+
+    before = {t.get("id") for _, t in _conversation_tabs(rpc("snapshot.get"))}
+    rpc("action.run", {"action": "workspace.newAtBottom", "args": {}, "focus": True, "origin": "script"})
+    opened = rpc("action.run", {"action": "palette.newAgentChat", "args": {}, "focus": True, "origin": "script"})
+    found = wait_for(lambda: next(((p, t) for p, t in _conversation_tabs(rpc("snapshot.get"))
+                                   if t.get("id") not in before), None), 30, every=1)
+    if not found:
+        note(f"- open-live: no new agent chat on the Mac in 30 s ({redact(json.dumps(opened))[:200]}) -> FAIL")
+        return False
+    chat_pane, tab = found
+    made = pane("new_chat", pane=chat_pane.get("id"), harness="claude")
+    # The reply is {"pane", "result"}: the page's chat state is under result.
+    state = wait_for(lambda: (lambda s: s if isinstance(s, dict) and "error" not in s and s.get("connection") else None)(
+        (pane("chat_state", pane=chat_pane.get("id")) or {}).get("result")), 60, every=1)
+    link_id = _tab_link_id(tab)
+    note(f"- open-live: Claude chat on the Mac, tab {'with a link id' if link_id else 'WITHOUT a tab_ link id'}; "
+         f"new_chat {redact(json.dumps(made))[:160]}; state {redact(json.dumps(state))[:200]}")
+    if not link_id:
+        return False
+    def chat():
+        r = pane("chat_state", pane=chat_pane.get("id"))
+        st = r.get("result") if isinstance(r, dict) and isinstance(r.get("result"), dict) else r
+        return st if isinstance(st, dict) else {}
+
+    def streaming(st):
+        return bool(st.get("isWorking")) or bool((st.get("lastAssistant") or {}).get("streaming"))
+
+    # The idle fixture is a chat at rest after one real reply: wait for that reply, not a fixed time.
+    first = pane("send_prompt", pane=chat_pane.get("id"), text="Reply with the single word ready.")
+    rest = wait_for(lambda: (lambda st: st if (st.get("lastAssistant") or {}).get("text") and not streaming(st)
+                             else None)(chat()), 120, every=1)
+    note(f"- open-live: first prompt {redact(json.dumps(first))[:160]}; reply "
+         f"{'at rest, ' + repr(((rest or {}).get('lastAssistant') or {}).get('text', '')[:40]) if rest else 'NOT at rest in 120 s'}")
+    if not rest:
+        return False
+    # The phone identifies the linked chat by its public tab ID or the Mac's session ID.
+    mine = {v for v in (link_id, rest.get("sessionId")) if isinstance(v, str) and v}
+
+    video = os.path.join(out, "open-live.mp4")
+    rec = subprocess.Popen(simctl + ["io", udid, "recordVideo", "--codec", "h264", "--force", video],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(1)  # the recorder's first frame; it has no ready signal
+    env = dict(phone_env, SIMCTL_CHILD_CMUX_MOBILE_OPEN_URL=f"cmux://tab/{link_id}")
+    long_prompt = "Count from 1 to 3000, one number per line, with no other text."
+    rows, ok = {}, True
+    try:
+        for row in ("idle fixture", "duress"):
+            samples, why = [], []
+            for i in range(runs):
+                if row == "duress" and not streaming(chat()):
+                    # Each duress launch opens onto a reply that is streaming now, not one sent earlier
+                    # that may have finished: a fresh long prompt whenever the last one is done.
+                    sent = pane("send_prompt", pane=chat_pane.get("id"), text=long_prompt)
+                    live = wait_for(lambda: streaming(chat()), 60, every=0.5)
+                    note(f"- open-live duress launch {i + 1}: long reply {'streaming' if live else 'NOT streaming in 60 s'} "
+                         f"({redact(json.dumps(sent))[:120]})")
+                subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True, timeout=60)
+                time.sleep(2)
+                since = time.monotonic()
+                launched = subprocess.run(simctl + ["launch", udid, bundle_id], env=env, capture_output=True,
+                                          text=True, timeout=60)
+                pid_match = re.search(r":\s*(\d+)\s*$", launched.stdout or "")
+                pid = pid_match[1] if launched.returncode == 0 and pid_match else None
+                # `log stream` delivers lines late, so a line is this launch's only by the process id its
+                # chat line names; the mark is the first after that line (the old process is gone by then).
+                # No pid (the launch failed or printed none): nothing ties a line to this launch, so the
+                # sample is rejected at once rather than read from any chat line that arrives.
+                seen = phone_log.wait_at(re.compile(OPEN_LIVE_CHAT.pattern + rf" pid {pid}\b"), 60,
+                                         since=since) if pid else None
+                hit = phone_log.wait_at(LATEST_OUTPUT, 10, since=seen[0]) if seen else None
+                mac_streaming = streaming(chat()) if row == "duress" else None
+                shown = seen[1].group(1) if seen else None
+                running = seen[1].group(2) == "true" if seen else None
+                bad = (f"simctl launch failed or gave no pid (exit {launched.returncode}: "
+                       f"{redact((launched.stderr or launched.stdout or '').strip())[:80]})" if not pid else
+                       "no chat line from this launch in 60 s" if not seen else
+                       "no latest-output mark after its chat line" if not hit else
+                       f"showed chat {shown[:12]}, not the linked one" if shown not in mine else
+                       "the phone's chat was not running at its frame" if row == "duress" and not running else
+                       "the Mac's reply had finished by the frame" if row == "duress" and not mac_streaming else
+                       "the phone's chat was still running (not at rest)" if row == "idle fixture" and running else None)
+                samples.append(None if bad else int(hit[1].group(1)))
+                why.append(bad)
+            got = sorted(v for v in samples if v is not None)
+            rows[row] = {"samples_ms": samples, "rejected": why}
+            if len(got) == runs:
+                rows[row].update(p50_ms=percentile(got, 0.5), p95_ms=percentile(got, 0.95))
+                note(f"- open-live {row}: launch -> latest output line of the linked chat visible"
+                     f"{', its reply streaming on phone and Mac' if row == 'duress' else ', at rest'}, n={runs}: p50 "
+                     f"{rows[row]['p50_ms']:.0f} ms, p95 {rows[row]['p95_ms']:.0f} ms (samples {samples})")
+            else:
+                ok = False
+                note(f"- open-live {row}: {runs - len(got)} of {runs} launches not counted (samples {samples}; "
+                     f"why {[w for w in why if w]}) -> FAIL")
+    finally:
+        rec.send_signal(2)  # SIGINT ends the file cleanly
+        try:
+            rec.wait(30)
+        except subprocess.TimeoutExpired:
+            rec.kill()
+    with open(os.path.join(out, "open-live.json"), "w") as f:
+        json.dump({"runs": runs, "rows": rows, "mark": "chat_latest_output_frame",
+                   "duress": "each launch opens while the linked chat streams a long Claude reply "
+                             "(checked on the phone at its frame and on the Mac after it)"}, f, indent=1)
+    note("- open-live: video open-live.mp4, numbers open-live.json")
+    return ok
+
+
 LINK_REFUSED = re.compile(r"mac_identity_changed|bad_mac_proof")
 
 
@@ -1056,6 +1347,73 @@ def discovery_restart(app, exe, env, out, support, status, phone_log, streams, p
          f"{'set aside as mac-identity.superseded' if aside else 'NOT set aside'}; phone {phone_shot('phone-after-restart')}"
          f" -> {'PASS' if ok else 'FAIL'}")
     return restarted.proc, ok
+
+
+RECONNECT_BOUND = 30  # seconds after the link comes back that the phone may take to reattach
+
+
+def app_tree(pid):
+    """PID and its children (the Mac app and its cmux-mobile-host, which holds the phone's link)."""
+    rows = subprocess.run(["/bin/ps", "-A", "-o", "pid=,ppid="], capture_output=True, text=True).stdout.split("\n")
+    kids = [int(r.split()[0]) for r in rows if len(r.split()) == 2 and r.split()[1] == str(pid)]
+    return [pid] + kids
+
+
+def reconnect_after_drop(app, drops, simctl, udid, out, status, phone_log, phone_shot, note):
+    """cmux#56894's redial, on a phone: for each of DROPS seconds the paired Mac app and its children (hostd)
+    are frozen (SIGSTOP: every socket stays open and silent, as a dead Wi-Fi or a stalled relay looks to the
+    phone), then resumed. Nothing touches the phone. It passes when, within RECONNECT_BOUND s of the resume,
+    the Mac lists the phone connected again and, if the phone began a new dial during the drop, that dial
+    reached a fresh mark (CONNECT_FRESH). simctl records the phone's screen for the whole leg."""
+    video = os.path.join(out, "reconnect-after-drop.mp4")
+    rec = subprocess.Popen(simctl + ["io", udid, "recordVideo", "--codec=h264", "--force", video],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(2)  # recordVideo's first frame
+    ok_all = True
+    try:
+        for seconds in drops:
+            before = wait_for(lambda: status().get("connectedPhones", 0) >= 1, 30, every=1)
+            pids = app_tree(app.pid)
+            t_drop = time.monotonic()
+            for pid in pids:
+                os.kill(pid, signal.SIGSTOP)  # this script's own Mac app and its children only
+            try:
+                time.sleep(seconds)
+            finally:
+                for pid in pids:
+                    try:
+                        os.kill(pid, signal.SIGCONT)
+                    except ProcessLookupError:
+                        pass
+            t_back = time.monotonic()
+
+            def reattached():
+                if status().get("connectedPhones", 0) < 1:
+                    return False
+                fresh = [m.group(1) for at, line in zip(list(phone_log.times), list(phone_log.lines))
+                         if at >= t_drop and (m := TIMING.search(line.rstrip())) and m.group(2) in CONNECT_FRESH]
+                started = {m.group(1) for at, line in zip(list(phone_log.times), list(phone_log.lines))
+                           if at >= t_drop and (m := TIMING.search(line.rstrip())) and m.group(2) == "dial_start"}
+                return not started or bool(started & set(fresh))
+
+            back = wait_for(reattached, RECONNECT_BOUND, every=0.5)
+            took = time.monotonic() - t_back
+            dials = sorted({m.group(1) for at, line in zip(list(phone_log.times), list(phone_log.lines))
+                            if at >= t_drop and (m := TIMING.search(line.rstrip())) and m.group(2) == "dial_start"})
+            ok = bool(back)
+            ok_all = ok_all and ok
+            note(f"- reconnect after a {seconds} s drop (Mac app + hostd SIGSTOP, pids {len(pids)}): connected before "
+                 f"{'yes' if before else 'NO'}; phone redials during/after: {', '.join(dials) or 'none (the link held)'}; "
+                 f"{'reattached %.1f s after the link came back' % took if ok else 'NOT reattached in %d s' % RECONNECT_BOUND}"
+                 f", no tap; phone {phone_shot(f'phone-after-drop-{seconds}s')} -> {'PASS' if ok else 'FAIL'}")
+    finally:
+        rec.send_signal(signal.SIGINT)  # recordVideo writes the file's index on SIGINT
+        try:
+            rec.wait(30)
+        except subprocess.TimeoutExpired:
+            rec.kill()
+    note(f"- reconnect recording: {os.path.basename(video) if os.path.exists(video) else 'none (recordVideo failed)'}")
+    return ok_all
 
 
 def random_file(path, size):

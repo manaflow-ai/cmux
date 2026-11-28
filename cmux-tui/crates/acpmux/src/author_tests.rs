@@ -94,6 +94,22 @@ fn an_author_is_read_checked_and_stamped() {
     }
 }
 
+#[test]
+fn only_an_explicit_driver_skips_the_hold_through_queue_restore() {
+    for (role, held) in [("view", true), ("talk", true), ("future", true), ("drive", false)] {
+        let guest = author(&with(json!({"id": "guest:s.g", "name": "Sam", "role": role})))
+            .unwrap()
+            .unwrap();
+        assert_eq!(guest.awaits_owner, held, "{role}");
+        assert_eq!(awaits_owner(Some(&guest.provenance())), held, "{role}");
+    }
+    let held = author(&with(json!({"id": "guest:s.g", "name": "Sam", "role": "drive",
+        "approval": "owner"})))
+    .unwrap()
+    .unwrap();
+    assert!(held.awaits_owner && awaits_owner(Some(&held.provenance())));
+}
+
 /// A signed-in guest's picture rides its author into the provenance (`fromAvatar`) and the
 /// queue listing (`avatar`); the agent reads who sent a person's prompt, never the owner's.
 #[test]

@@ -163,9 +163,22 @@ validate_sdk_constraints() {
     echo "Could not parse macOS SDK version for $selected_dir: $sdk_version" >&2
     exit 1
   fi
-  if [ -n "$REQUIRED_SDK_MAJOR" ] && [ "$actual_major" != "$REQUIRED_SDK_MAJOR" ]; then
-    echo "Selected Xcode at $selected_dir has macOS SDK $sdk_version; required major is $REQUIRED_SDK_MAJOR" >&2
-    exit 1
+  # A required SDK major at or above the .xcode-version floor is a minimum: the
+  # fleet moves to a newer Xcode host by host (Leo: "install xcode 27.2 across
+  # everything"), and a pin with SDK 27 must not fail every workflow that still
+  # says 26. CMUX_CI_MAX_MACOS_SDK_MAJOR fences off a newer SDK where one is
+  # unwanted. A requirement below the floor (the SDK 15 Ghostty helper) is a
+  # deliberate old-SDK pin and stays an exact match.
+  if [ -n "$REQUIRED_SDK_MAJOR" ]; then
+    if [ "$REQUIRED_SDK_MAJOR" -ge "$(required_xcode_major)" ]; then
+      if [ "$actual_major" -lt "$REQUIRED_SDK_MAJOR" ]; then
+        echo "Selected Xcode at $selected_dir has macOS SDK $sdk_version; required major is at least $REQUIRED_SDK_MAJOR" >&2
+        exit 1
+      fi
+    elif [ "$actual_major" != "$REQUIRED_SDK_MAJOR" ]; then
+      echo "Selected Xcode at $selected_dir has macOS SDK $sdk_version; required major is $REQUIRED_SDK_MAJOR" >&2
+      exit 1
+    fi
   fi
   if [ -n "$MAX_SDK_MAJOR" ] && [ "$actual_major" -gt "$MAX_SDK_MAJOR" ]; then
     echo "Selected Xcode at $selected_dir has macOS SDK $sdk_version; maximum major is $MAX_SDK_MAJOR" >&2

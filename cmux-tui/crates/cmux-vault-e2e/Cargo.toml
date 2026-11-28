@@ -1,0 +1,22 @@
+[package]
+name = "cmux-vault-e2e"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "cmux vault (vault-v1): the end-to-end encrypted secrets vault's crypto, .env import, delivery plan and sans-I/O client, shared by the CLI, the daemon, the iPhone and cmux-host (cmuxterm-hq docs/design/e2e-vault.md)."
+
+[lints]
+workspace = true
+
+[dependencies]
+base64 = "0.22"
+chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
+getrandom.workspace = true
+hpke = { version = "0.13", default-features = false, features = ["alloc", "x25519"] }
+rand_core = { version = "0.9", default-features = false }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+zeroize.workspace = true

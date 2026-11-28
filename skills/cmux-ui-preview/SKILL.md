@@ -1,6 +1,6 @@
 ---
 name: cmux-ui-preview
-description: "Show UI work in the chat by default: start the surface's live mode, open the preview in a cmux browser tab you created, and cmux puts a before and after picture of that page on the turn's edited-files card on its own; `cmux browser <tab> screenshot` when you must see it yourself; end with how to try it. Use before your first edit to any UI (webviews, Settings, chat pane, a site, the Rust daemon's UI, Swift views)."
+description: "Use before your first edit to any UI (webviews, Settings, chat pane, a site, Swift views): live mode plus a preview tab, which cmux pictures before and after each turn."
 ---
 
 # Live UI preview in the chat
@@ -40,11 +40,17 @@ replies to show progress; the card already shows it.
 
 ## 3. Look or drive only when you need to
 
-- `cmux browser "$TAB" screenshot --out shot.png` (`--selector "#el"`, `--full-page`) when you
-  must judge the result yourself (layout, a regression), not after every edit. Read the file to
-  see it.
-- `cmux browser "$TAB" snapshot --interactive`, then `click`, `fill` and the rest on the same tab
-  to walk a flow (the `cmux-browser` skill).
+- Start with the `look` MCP tool when you only need a cheap check of the latest frame. It returns
+  one JPEG (at most 512 px on its long edge) from the selected agent-driven tab when one is showing,
+  plus one line naming the tab, its URL when available, its dimensions and dHash movement. If no page
+  is showing, the safe fallback is a whole-window frame labelled `window`; open an agent-driven page
+  before using browser selectors or interaction. It does not click or type.
+- Use `cmux browser "$TAB" screenshot --out shot.png` (`--selector "#el"`, `--full-page`) when you
+  need to judge layout or a regression in detail. Read the file to see it.
+- Use `cmux browser "$TAB" snapshot --interactive`, then `click`, `fill` and the rest on the same
+  tab, or cmux Computer Use (`cu_*`), when the flow needs interaction. For an agent-driven page, the
+  `look` result and these tools use the same tab; a `window` result has no page to drive, so open one
+  first (the `cmux-browser` and `cmux-computer-use` skills).
 
 ## 4. At turn end: say how to try it
 

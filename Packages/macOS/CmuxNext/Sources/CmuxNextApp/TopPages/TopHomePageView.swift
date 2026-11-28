@@ -10,13 +10,11 @@ import CmuxNextHomeModel
 import CmuxNextHomeEngine
 import Observation
 
-/// The Home top page, two columns: MessagesLab's conversation list
-/// (`HomeSidebarView` over `HomeSidebarSource`: search, the pinned grid with
-/// the Chiefs, then conversations newest first) on the left, and the chosen conversation's native transcript
-/// (`HomeHostView`, MessagesLab's code) on the right. The page opens on the
-/// Chief conversation when there is one, else on the newest conversation.
-/// The store's home workspace and its chief tab stay as they are (other
-/// clients read them); this page reads the same store.
+/// The Home top page, two columns: MessagesLab's conversation list (`HomeSidebarView` over
+/// `HomeSidebarSource`: search, the pinned grid with the Chiefs, then conversations newest first) on the left,
+/// and the chosen conversation's native transcript (`HomeHostView`, MessagesLab's code) on the right. The page
+/// opens on the Chief conversation when there is one, else on the newest conversation. The store's home
+/// workspace and its chief tab stay as they are (other clients read them); this page reads the same store.
 @MainActor
 final class TopHomePageView: NSView {
     private weak var services: AppServices?
@@ -58,6 +56,8 @@ final class TopHomePageView: NSView {
         sidebar = services.home.makeSidebarSource()
         split = HomeSidebarSplitView(sidebar: list, content: transcriptColumn)
         super.init(frame: .zero)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
         setAccessibilityIdentifier("cmux.topPage.home")
         split.windowKey = windowKey
         split.frame = bounds
@@ -75,12 +75,8 @@ final class TopHomePageView: NSView {
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
     nonisolated deinit {
-        rowsObservation?.cancel()
-        selectionObservation?.cancel()
-        chiefObservation?.cancel()
-        accountObservation?.cancel()
-        requestsObservation?.cancel()
-        unreadColorObservation?.cancel()
+        let observations = [rowsObservation, selectionObservation, chiefObservation, accountObservation, requestsObservation]
+        for observation in observations + [unreadColorObservation] { observation?.cancel() }
     }
 
     /// Redraws the list after a pin change (`home.togglePin`).

@@ -431,6 +431,18 @@ fn mount(args: &[String]) -> anyhow::Result<()> {
             eprintln!("replay: {report:?}");
         });
     }
+    // Bench only: SLICE_BULK=1 copies the rest of the tree behind the mount (RFD 0065 piece 11).
+    if std::env::var_os("SLICE_BULK").is_some_and(|value| value == "1") {
+        let copying = overlay.clone();
+        std::thread::spawn(move || {
+            let started = Instant::now();
+            let report = copying.bulk_copy(
+                &cmux_projection::overlay::bulk::BulkOptions::default(),
+                &std::sync::atomic::AtomicBool::new(false),
+            );
+            eprintln!("bulk: {report:?} in {:.1} s", started.elapsed().as_secs_f64());
+        });
+    }
     let at = std::fs::canonicalize(at)?;
     let mounted = cmux_projection::mount::mount_with(overlay.clone(), &at, Options::default())?;
     std::fs::metadata(&at)?;

@@ -124,7 +124,7 @@ try {
     const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
     const page = await context.newPage();
     const cells = grid.map(([arm, row]) => [arm, row.map((f) => (f ? fs.readFileSync(f).toString("base64") : null))]);
-    const labels = envs.map(([s, b]) => (b === "none" ? s : `${s} over picture`));
+    const labels = envs.map(([s, b]) => (b === "none" ? s : `${s} over ${b}`));
     const png = await page.evaluate(
       async ([cells, labels, title]) => {
         const load = (src) =>

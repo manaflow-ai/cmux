@@ -647,27 +647,27 @@
   "programs": [
     {
       "name": "cmux-tui",
-      "version": "114e97c49774c3840cc1cd094914679e918755fd",
-      "url": "https://files.cmux.com/cmux-tui/114e97c49774c3840cc1cd094914679e918755fd/cmux-tui-x86_64-unknown-linux-musl",
-      "sha256": "759bfbaac957e289cce7265fc0e237d67418d4501f375b25f56be2c968e63b47",
-      "size": 172920224,
+      "version": "2778ccff9252e6f54f476b8fb472ce2d541df25e",
+      "url": "https://files.cmux.com/cmux-tui/2778ccff9252e6f54f476b8fb472ce2d541df25e/machine/cmux-tui-x86_64-unknown-linux-musl",
+      "sha256": "dd1118ea9f3e39ef3762c8d52b72e34f23ca95159d35c2c87db426398c194f88",
+      "size": 230213104,
       "format": "raw",
       "fileName": "cmux-tui",
       "bin": { "acpmux": "cmux-tui", "cmux": "cmux-tui", "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
-      "source": "https://files.cmux.com/cmux-tui/114e97c49774c3840cc1cd094914679e918755fd/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/45880379995; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/2778ccff9252e6f54f476b8fb472ce2d541df25e/machine/ (the Cloud machine build, write-once; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "cmux-tui-hook",
-      "version": "114e97c49774c3840cc1cd094914679e918755fd",
-      "url": "https://files.cmux.com/cmux-tui/114e97c49774c3840cc1cd094914679e918755fd/cmux-tui-hook-x86_64-unknown-linux-musl",
-      "sha256": "c5b5e2e93cc232c58aabf49f039ea5138c33d3735d7279cf5bf961991ca1247c",
-      "size": 2503472,
+      "version": "2778ccff9252e6f54f476b8fb472ce2d541df25e",
+      "url": "https://files.cmux.com/cmux-tui/2778ccff9252e6f54f476b8fb472ce2d541df25e/machine/cmux-tui-hook-x86_64-unknown-linux-musl",
+      "sha256": "40c8e1e339b2d81f49ec3c3d24617f90a03ec9754a501ba9bec8ee022cbbfc35",
+      "size": 7839800,
       "format": "raw",
       "fileName": "cmux-tui-hook",
       "bin": { "cmux-tui-hook": "cmux-tui-hook" },
       "versionArgs": [],
-      "source": "https://files.cmux.com/cmux-tui/114e97c49774c3840cc1cd094914679e918755fd/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/45880379995; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/2778ccff9252e6f54f476b8fb472ce2d541df25e/machine/ (the Cloud machine build, write-once; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "optchat-chief",
@@ -842,6 +842,19 @@
       "source": "mozilla/sccache release v0.20.0 (2026-11-23, Apache-2.0). The compiler cache a person's machines share through an object store (RFD 0068, what to build next item 6). Installed only: the image sets no RUSTC_WRAPPER; a machine gets the cache's environment from the platform, and only when the cache is configured. sha256 and size from the release's .sha256 file and asset digest; the archive holds LICENSE, README.md and the static musl binary."
     },
     {
+      "name": "executor",
+      "version": "2.0.0-beta.79",
+      "url": "https://github.com/UsefulSoftwareCo/executor/releases/download/executor@2.0.0-beta.79/executor-2.0.0-beta.79-linux-x64.tgz",
+      "sha256": "5c0fba1e77db7866b4dcb5addf80f9227c8f917f21c74141d2f9f61176ca9efe",
+      "size": 137375154,
+      "format": "tar.gz",
+      "bin": { "executor": "package/executor" },
+      "versionArgs": ["--version"],
+      "expect": "v2.0.0-beta.79",
+      "notices": ["package/LICENSE"],
+      "source": "UsefulSoftwareCo/executor release executor@2.0.0-beta.79 (MIT). Executor for the Cloud Chief (RFD 0111 step 4): cmux-executor.service runs `executor serve` on 127.0.0.1:4312 as the work user, and cmux-executor-setup hands the key Executor makes on the machine's first start to the Chief's MCP store and deploys the first-party GitHub app (images/cmux-vm/chief). The archive is package/: the executor binary (143 MB), runtime/ (221 MB, the app runtime it reads beside itself), apps/, packages/, licenses/ (third-party notices); 379 MB unpacked. sha256 and size measured on the downloaded asset 2026-11-28; the staging journey executor-journey.yml runs the same release."
+    },
+    {
       "name": "cmux-cua",
       "version": "0.8.12",
       "url": "https://github.com/manaflow-ai/cmux-cua/releases/download/cmux-cua-v0.8.12/cmux-cua-0.8.12-linux-x86_64.tar.gz",
@@ -921,6 +934,7 @@
     {
       "name": "cmux-rd",
       "version": "0.2.9",
+      "pendingRelease": "0.2.10",
       "url": "https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v0.2.9/cmux-rd-0.2.9-x86_64-unknown-linux-gnu.tar.gz",
       "sha256": "09e4120d8428b2e7ce626e14dbbbb74e29f0a36c2ce5b4080c958fca4496305e",
       "size": 10234313,

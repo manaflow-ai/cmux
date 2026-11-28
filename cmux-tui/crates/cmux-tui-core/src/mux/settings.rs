@@ -201,16 +201,39 @@ fn touches_computer_use(changes: &[Change]) -> bool {
 }
 
 /// The app setting that frees idle terminals; while on, each terminal keeps
-/// its last command for its parked tab (`shell_history::Recording`).
+/// its last command for its parked tab (`shell_history::Recording`), and the
+/// daemon's freeing timer parks idle terminals (`idle_freeing.rs`).
 const FREEING_ENABLED_SETTING: &str = "workspaces.freeing.enabled";
+/// Every `workspaces.freeing.*` key the daemon reads.
+const FREEING_PREFIX: &str = "workspaces.freeing.";
+
+fn setting(state: &State, key: &str) -> Option<serde_json::Value> {
+    state.get(&cmux_config::Target::Key(key.to_string())).row.and_then(|row| row.value)
+}
 
 fn freeing_enabled(state: &State) -> bool {
-    state
-        .get(&cmux_config::Target::Key(FREEING_ENABLED_SETTING.to_string()))
-        .row
-        .and_then(|row| row.value)
-        .and_then(|value| value.as_bool())
-        .unwrap_or(false)
+    setting(state, FREEING_ENABLED_SETTING).and_then(|value| value.as_bool()).unwrap_or(false)
+}
+
+/// `workspaces.freeing.*` as the freeing timer and `park-tabs` read them; a missing or
+/// malformed key takes the schema default.
+fn freeing_settings(state: &State) -> super::idle_freeing::FreeingSettings {
+    let defaults = super::idle_freeing::FreeingSettings::default();
+    let idle = setting(state, "workspaces.freeing.idleMinutes")
+        .and_then(|value| value.as_f64())
+        .filter(|minutes| minutes.is_finite() && *minutes >= 1.0)
+        .map(|minutes| std::time::Duration::from_secs_f64(minutes.min(1e9) * 60.0))
+        .unwrap_or(defaults.idle);
+    super::idle_freeing::FreeingSettings {
+        enabled: freeing_enabled(state),
+        idle,
+        agents: setting(state, "workspaces.freeing.agents")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(defaults.agents),
+        relaunch_running_commands: setting(state, "workspaces.freeing.runningCommands")
+            .and_then(|value| value.as_str().map(|mode| mode == "relaunch"))
+            .unwrap_or(defaults.relaunch_running_commands),
+    }
 }
 
 /// The app setting that lets agents in cmux change the app (`change`, the
@@ -242,9 +265,14 @@ fn adopt_preferences(mux: &Mux, store: &ConfigStore, changes: &[Change]) {
     if changes.iter().flat_map(|change| &change.keys).any(|key| touches_agents_app_control(key)) {
         mux.adopt_agents_app_control(store.state());
     }
-    if changes.iter().any(|change| change.keys.iter().any(|key| key == FREEING_ENABLED_SETTING)) {
-        mux.set_terminal_last_command(freeing_enabled(store.state()));
+    if changes.iter().any(|change| change.keys.iter().any(|key| key.starts_with(FREEING_PREFIX))) {
+        adopt_freeing_state(mux, store.state());
     }
+}
+
+fn adopt_freeing_state(mux: &Mux, state: &State) {
+    mux.set_terminal_last_command(freeing_enabled(state) || mux.freeing_overridden());
+    mux.set_freeing_settings(freeing_settings(state));
 }
 
 fn emit_changes(mux: &Mux, changes: impl IntoIterator<Item = Change>) {
@@ -285,7 +313,7 @@ fn open_owner(mux: &Arc<Mux>, paths: SettingsPaths) -> SettingsOwner {
     if let Ok(store) = store.lock() {
         mux.adopt_agent_notification_levels(store.state());
         mux.adopt_agents_app_control(store.state());
-        mux.set_terminal_last_command(freeing_enabled(store.state()));
+        adopt_freeing_state(mux, store.state());
     }
     SettingsOwner { store, _watcher: watcher }
 }
@@ -311,4 +339,46 @@ fn start_watcher(mux: Weak<Mux>, store: &Arc<Mutex<ConfigStore>>) -> Option<Watc
         }
     })
     .ok()
+}
+
+#[cfg(test)]
+mod freeing_default_tests {
+    use super::*;
+
+    fn store_with(file: &str) -> ConfigStore {
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-freeing-default-{}-{}",
+            std::process::id(),
+            file.len()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("dir");
+        let config = dir.join("cmux-next.json");
+        std::fs::write(&config, file).expect("write");
+        ConfigStore::open(
+            config,
+            None,
+            None,
+            Box::new(cmux_config::managed::FixedManagedReader::default()),
+        )
+    }
+
+    /// Leo, 2026-11-19: freeing idle shells in workspaces hidden for a day is on by default. A
+    /// settings file that never names it turns the daemon's freeing timer on, after a day.
+    #[test]
+    fn freeing_is_on_by_default_after_a_day() {
+        let store = store_with("{}");
+        let settings = freeing_settings(store.state());
+        assert!(settings.enabled);
+        assert_eq!(settings.idle, std::time::Duration::from_secs(1440 * 60));
+        assert!(settings.agents);
+        assert!(!settings.relaunch_running_commands);
+        assert_eq!(settings, super::super::idle_freeing::FreeingSettings::default());
+    }
+
+    #[test]
+    fn freeing_off_in_the_file_keeps_it_off() {
+        let store = store_with(r#"{"workspaces":{"freeing":{"enabled":false}}}"#);
+        assert!(!freeing_settings(store.state()).enabled);
+    }
 }

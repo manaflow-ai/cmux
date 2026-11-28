@@ -52,7 +52,7 @@ struct Request {
     direction: Direction,
 }
 
-pub(crate) fn respond(request: &[u8]) -> Result<Vec<u8>, i32> {
+pub(crate) fn respond(_operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> {
     let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
     let panes: Vec<FocusPane> = request
         .panes

@@ -42,7 +42,10 @@ const RETIRED_APPEARANCE_KEYS: readonly string[] = ["appearance.glassTransparenc
 /** Appearance keys that are no look of their own: what each background mode last showed and the
  * backgrounds shown before, kept so switching can go back. Undo, Restore How It Was and Reset to Defaults leave it alone, and a
  * write to it is no step of the stack. */
-const UNTRACKED_KEYS: ReadonlySet<string> = new Set(["appearance.backgroundMemory", "appearance.backgroundRecents"]);
+export const UNTRACKED_KEYS: ReadonlySet<string> = new Set([
+  "appearance.backgroundMemory",
+  "appearance.backgroundRecents",
+]);
 
 let tracked: ReadonlySet<string> | null = null;
 function trackedKeys(): ReadonlySet<string> {
@@ -173,4 +176,30 @@ export function targetTitle(target: TargetState): string {
  * moved a linked key is named by the key the person moved (the first). */
 export function changeLabel(state: SettingsState, after: TargetState): string {
   return t("settingsPage.history.change", targetTitle(after), stateText(state, after));
+}
+
+/** Who made a change in the durable history, as the Undo button names it ("an agent"). */
+function originText(origin: string): string {
+  switch (origin) {
+    case "mcp":
+      return t("settingsPage.history.byAgent");
+    case "cli":
+    case "script":
+      return t("settingsPage.history.byCli");
+    case "file":
+      return t("settingsPage.history.byFileEdit");
+    case "remote":
+      return t("settingsPage.history.byOtherDevice");
+    default:
+      return t("settingsPage.history.byYou");
+  }
+}
+
+/** "Opacity (by an agent)": a durable history change the page did not make, by its first row's
+ * title and who made it. */
+export function durableLabel(entry: { keys: readonly string[]; origin: string }): string {
+  const key = entry.keys.find((item) => rowsByKey.has(item)) ?? entry.keys[0];
+  const row = key ? rowsByKey.get(key) : undefined;
+  const title = row ? text(row.title) : (key ?? t("settingsPage.history.settingsChange"));
+  return t("settingsPage.history.changeBy", title, originText(entry.origin));
 }

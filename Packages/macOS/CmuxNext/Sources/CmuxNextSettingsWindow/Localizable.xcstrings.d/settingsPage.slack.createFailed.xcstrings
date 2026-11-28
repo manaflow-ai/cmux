@@ -8,7 +8,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Slack could not create the app. You may already have five bot apps, or your workspace may not allow new apps."
+            "value" : "Slack could not create the app. You may have five bot apps, or new apps may be blocked."
           }
         },
         "ar" : {

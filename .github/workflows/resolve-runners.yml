@@ -62,14 +62,14 @@ jobs:
     # 2026-11-18, when hosted runners left light jobs queued for hours
     # (cmux#45735). No fromJSON(vars.*) here: an unset variable would fail
     # every caller's workflow.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'cmux-linux' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'cmux-linux' || 'blacksmith-4vcpu-ubuntu-2404' }} # frozen-label: credentialed job, frozen to today's label
     timeout-minutes: 5
     outputs:
       map: ${{ steps.resolve.outputs.map }}
       fleet: ${{ steps.resolve.outputs.fleet }}
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false

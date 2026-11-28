@@ -285,6 +285,14 @@ async fn a_walk_of_the_whole_view_reads_v1_while_another_machines_closed_row_is_
         let status =
             daemon.client.request(crate::rpc::method::MUX_STATUS, json!({})).await.unwrap();
         assert_eq!(closed_remote_listed(Some(&status)), listed, "{status}");
+        // The light read `ls --json` makes says the same.
+        let counts = daemon
+            .client
+            .request(crate::rpc::method::MUX_STATUS, json!({"listCounts": true}))
+            .await
+            .unwrap();
+        assert_eq!(closed_remote_listed(Some(&counts)), listed, "{counts}");
+        assert_eq!(counts["closedListed"], status["closedListed"]);
     }
     assert!(closed_remote_listed(Some(&json!({"closedListed": 3}))), "a status without the count");
     assert!(closed_remote_listed(None), "no status read");
@@ -312,6 +320,7 @@ async fn each_caller_runs_its_v1_path_on_a_daemon_without_the_list() {
                     daemon_id: "inst_b".into(),
                     harness: "claude".into(),
                     state: "idle".into(),
+                    stuck_reason: None,
                     last_seen_at: crate::store::now_ms(),
                     ..Default::default()
                 };

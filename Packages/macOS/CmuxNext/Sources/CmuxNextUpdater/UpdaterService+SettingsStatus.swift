@@ -45,6 +45,13 @@ extension UpdaterService {
                 json["detail"] = .string(version.map(UpdaterStrings.foundVersion) ?? UpdaterStrings.restartKeepsSessions)
             }
             actions = [.install]
+            // "What's in this build" (the popover's ``BuildPullRequests``): the staged span's PRs by area.
+            if let prs = stagedPullRequests, !prs.isEmpty,
+               case .object(var members)? = UpdaterStrings.pullRequestsJSON(prs) {
+                members["title"] = .string(UpdaterStrings.pullRequestsTitle)
+                members["other"] = .string(UpdaterStrings.pullRequestsOther)
+                json["prs"] = .object(members)
+            }
         case .card(let shown):
             let card = Self.settingsQuantized(shown)
             let shown = card.presentation(version: identity.shortVersion, build: identity.build,
@@ -223,4 +230,9 @@ public final class AppUpdatePageProvider: PageProvider {
 nonisolated extension UpdaterStrings {
     static var settingsTitle: String { text("updater.settings.title", "App Update") }
     static var settingsCheckNow: String { text("updater.settings.checkNow", "Check Now") }
+
+    /// The staged span's PRs as the Settings status's `prs` object.
+    nonisolated static func pullRequestsJSON(_ prs: BuildPullRequests) -> JSONValue? {
+        try? JSONValue.parse(JSONEncoder().encode(prs))
+    }
 }

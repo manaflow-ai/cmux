@@ -271,7 +271,8 @@ impl cmux_computer_use::preview::PreviewSource for Host {
     fn stream(&self, windows: &[String], long_side: u32, fps: u32, generation: u64) {
         if let Some(f) = self.0.preview {
             let text = json!({"windows": windows, "long_side": long_side, "fps": fps,
-                "generation": generation}).to_string();
+                "generation": generation})
+            .to_string();
             // SAFETY: valid for the call; the host returns at once (header contract).
             unsafe { f(self.0.context, text.as_ptr(), text.len()) };
         }
@@ -563,7 +564,10 @@ pub unsafe extern "C" fn cmux_cu_engine_preview_closed_for_generation(
 ) {
     // SAFETY: from create / header contract.
     if let Some(engine) = unsafe { engine.as_ref() } {
-        engine.engine.preview().window_closed_for_generation(unsafe { text(window, window_len) }, generation);
+        engine
+            .engine
+            .preview()
+            .window_closed_for_generation(unsafe { text(window, window_len) }, generation);
     }
 }
 

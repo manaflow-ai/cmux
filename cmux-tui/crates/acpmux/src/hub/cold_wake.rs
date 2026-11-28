@@ -57,6 +57,11 @@ use super::*;
 /// that waits for the chat's batch instead of waking it at once.
 pub const GATHER_META: &str = "gather";
 
+/// The explicit batch request kept with the sender's provenance in the inbox journal.
+pub(super) fn requested(provenance: Option<&Value>) -> bool {
+    provenance.and_then(|p| p.get(GATHER_META)) == Some(&Value::Bool(true))
+}
+
 /// What a `--gather` send would do that a batch cannot wait for, as the refusal the daemon
 /// answers it with; None when it joins the window. `agent` is whether it names another sender
 /// (else it is the person's own prompt), `fire` whether it is a fire notice, and `wakes_now`
@@ -227,18 +232,28 @@ pub(crate) const NO_EXPIRY_TTL_MS: u64 = 5 * 60_000;
 /// under [`MIN_BATCH_TOKENS`].
 pub(crate) fn coldness(meta: &SessionMeta, now: u64) -> Option<(u64, u64)> {
     let usage = meta.usage.as_ref();
-    let expires =
-        usage.and_then(|u| u.pointer("/_meta/acpmux/cacheExpiresAt")).and_then(Value::as_u64);
-    let ended = meta.last_turn.as_ref().and_then(|t| t.get("endedAt")).and_then(Value::as_u64);
-    // The later of the two: a turn that ended after the usage that named the expiry (one that
-    // reported none) still warmed the cache.
-    let expires = match (expires, ended.map(|e| e.saturating_add(NO_EXPIRY_TTL_MS))) {
-        (Some(a), Some(b)) => a.max(b),
-        (a, b) => a.or(b)?,
-    };
+    let expires = cache_expires_at(meta)?;
     let cold = now.checked_sub(expires).filter(|c| *c > 0)?;
     let tokens = usage.and_then(|u| u.get("used")).and_then(Value::as_u64).unwrap_or(0);
     (tokens >= MIN_BATCH_TOKENS).then_some((cold, tokens))
+}
+
+/// When the chat's prompt cache lapses: its last `usage_update`'s `cacheExpiresAt`, or
+/// [`NO_EXPIRY_TTL_MS`] after its last turn ended, the later of the two; None when neither is
+/// known. The inbox's warm hold (`inbox.rs` `WARM_HOLD_MS`) ends by it.
+pub(crate) fn cache_expires_at(meta: &SessionMeta) -> Option<u64> {
+    let expires = meta
+        .usage
+        .as_ref()
+        .and_then(|u| u.pointer("/_meta/acpmux/cacheExpiresAt"))
+        .and_then(Value::as_u64);
+    let ended = meta.last_turn.as_ref().and_then(|t| t.get("endedAt")).and_then(Value::as_u64);
+    // The later of the two: a turn that ended after the usage that named the expiry (one that
+    // reported none) still warmed the cache.
+    match (expires, ended.map(|e| e.saturating_add(NO_EXPIRY_TTL_MS))) {
+        (Some(a), Some(b)) => Some(a.max(b)),
+        (a, b) => a.or(b),
+    }
 }
 
 /// The batch window of a chat `cold_ms` cold with `tokens` of context (module docs).
@@ -301,6 +316,24 @@ pub(crate) struct Batch {
     pub due: u64,
 }
 
+impl Session {
+    /// Restore under the batch lock on first use, before either scheduling or consuming it.
+    /// An urgent first turn after restart must clear the saved deadline even if no inbox
+    /// review has hydrated the batch yet. Read current metadata, not an admission snapshot.
+    fn restored_cold_batch(&self) -> std::sync::MutexGuard<'_, Option<Batch>> {
+        let mut batch = self.cold_batch.lock().unwrap_or_else(|e| e.into_inner());
+        if batch.is_none() {
+            *batch = self
+                .meta
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .cold_batch_due
+                .map(|due| Batch { due });
+        }
+        batch
+    }
+}
+
 impl Hub {
     /// The deadline of `session`'s cold batch at `now` (unix ms): the open one, else one opened
     /// now when the chat is cold (and its compaction started, module docs). None while warm.
@@ -311,13 +344,16 @@ impl Hub {
         meta: &SessionMeta,
         now: u64,
     ) -> Option<u64> {
-        let mut batch = session.cold_batch.lock().unwrap_or_else(|e| e.into_inner());
+        let mut batch = session.restored_cold_batch();
         // A batch no turn took for a whole window past its deadline (its messages left) is over.
         if let Some(b) = *batch {
             if b.due.saturating_add(MAX_WINDOW_MS) >= now {
                 return Some(b.due);
             }
             *batch = None;
+            session.meta.lock().unwrap_or_else(|e| e.into_inner()).cold_batch_due = None;
+            // Save the clear even if the newly warm metadata cannot open another batch.
+            self.save_meta(session);
         }
         let (cold, tokens) = coldness(meta, now)?;
         // Read once per batch opened, not per message: a cold chat opens one per idle stretch.
@@ -328,6 +364,10 @@ impl Hub {
         let window = window_ms(cold, tokens);
         let due = now.saturating_add(window);
         *batch = Some(Batch { due });
+        session.meta.lock().unwrap_or_else(|e| e.into_inner()).cold_batch_due = Some(due);
+        // Persist before spawning compaction: it can finish with usage below the batching
+        // threshold, and a restart then has no way to reconstruct this original deadline.
+        self.save_meta(session);
         drop(batch);
         tracing::info!(session = %session.id, window_ms = window, tokens, cold_ms = cold, "cold wake batch opened");
         let line = knobs.compact_above;
@@ -344,8 +384,19 @@ impl Hub {
     /// A turn started in `session`: its batch went in with it, unless it is the batch's own
     /// compaction, which the batch waits behind.
     pub(super) fn cold_batch_turn_started(&self, session: &Session) {
-        let taken = !compaction_runs(session)
-            && session.cold_batch.lock().unwrap_or_else(|e| e.into_inner()).take().is_some();
+        let taken = if compaction_runs(session) {
+            false
+        } else {
+            let mut batch = session.restored_cold_batch();
+            let taken = batch.take().is_some();
+            if taken {
+                session.meta.lock().unwrap_or_else(|e| e.into_inner()).cold_batch_due = None;
+                // inbox_turn_started runs before writing the prompt to the agent. Keep that
+                // ordering durable too: restarting after delivery must not resurrect a batch.
+                self.save_meta(session);
+            }
+            taken
+        };
         session.cold_batch_turn.store(taken, Ordering::SeqCst);
     }
 

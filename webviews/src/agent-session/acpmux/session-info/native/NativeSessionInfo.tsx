@@ -16,7 +16,8 @@ import { opensProcessTerminal } from "../../processTerminal";
 import type { StartedSession } from "../../started/startedSessions";
 import { useNow } from "../../subagents/subagentGroupModel";
 import type { Subagent } from "../../subagents/subagentFold";
-import { useResumeRuns, type ResumeActions } from "../../subagents/ResumeControl";
+import type { ResumeActions } from "../../subagents/ResumeControl";
+import { useResumeRuns } from "../../subagents/useResume";
 import { resumeVersion } from "../../subagents/resumeState";
 import type { WorkflowAgent, WorkflowSummary } from "../../summary/workflow";
 import type { Artifact } from "../../conversation/artifactPreview";
@@ -63,6 +64,7 @@ import { copyText } from "../../conversation/clipboard";
 import { useSubagentLimitController } from "../subagentLimitStepperModel";
 import { useIMessage } from "../imessage";
 import { orderSections } from "./nativeSessionInfoModel";
+import { useSessionInfoHiddenSections } from "../../chatDisplay";
 import { useLiveSummary } from "../../liveSummary";
 
 const NO_SCHEDULED: readonly SummaryWakeup[] = [];
@@ -271,6 +273,8 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
   const { phases, onPhase } = useNativeWorkflowPhases(shown && state.sections.tasks ? props.workflows : []);
   // Order follows a drag in any pane.
   useSectionOrder();
+  // The sections the person turned off in Settings (shownSections.ts).
+  const hiddenSections = useSessionInfoHiddenSections();
   useEffect(() => {
     if (shown) onShowUsage?.();
   }, [shown, onShowUsage]);
@@ -557,7 +561,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
     ...(props.title ? { title: props.title } : {}),
     ...(props.onBack ? { back: actions.add("scope.back", props.onBack), backLabel: props.backLabel } : {}),
     ...((props.revealed ?? localReveal) ? { reveal: props.revealed ?? localReveal } : {}),
-    sections: orderSections(sections, t),
+    sections: orderSections(sections, t, hiddenSections),
   };
   // The page's popups over the App's panel: it steps behind them (overlays.ts).
   useNativeOverlayReport(info.open);

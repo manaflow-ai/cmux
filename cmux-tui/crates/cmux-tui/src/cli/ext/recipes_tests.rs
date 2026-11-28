@@ -93,3 +93,46 @@ fn every_recipe_passes_ext_dev_once_as_written() {
     }
     assert!(problems.is_empty(), "\n{}", problems.join("\n"));
 }
+
+/// The same pages with no cmux running: `ext dev --once --headless` validates, builds, loads and
+/// renders each in this process, and its first scene shows the page's words. This is what the
+/// scheduled copy-paste prompt check (`scripts/cmux-next/ext-recipe-cold-model.py --prompts`) runs.
+#[test]
+fn every_recipe_passes_ext_dev_once_headless() {
+    let Some(bun) = dev::find_bun() else {
+        eprintln!("SKIPPED: bun is not on PATH; the recipes are TypeScript, which bun builds");
+        return;
+    };
+    let mut problems = Vec::new();
+    for entry in std::fs::read_dir(recipes_dir()).expect("recipes folder") {
+        let page = entry.unwrap().path();
+        if page.extension().is_none_or(|x| x != "md") {
+            continue;
+        }
+        let name = page.file_stem().unwrap().to_string_lossy().into_owned();
+        let text = std::fs::read_to_string(&page).unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join(&name);
+        for (path, body) in files(&text) {
+            let target = dir.join(&path);
+            std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+            std::fs::write(target, body).unwrap();
+        }
+        let mut options = dev_options(&dir);
+        options.bun = Some(bun.clone());
+        options.headless = true;
+        let outcome = dev::once(&global(&root.path().join("no-daemon.sock")), &options, false);
+        if outcome.phase != Phase::Done {
+            problems.push(format!("{name}: phase {:?}: {:?}", outcome.phase, outcome.errors));
+            continue;
+        }
+        if let Some(words) = shows(&text) {
+            let scene = outcome.scene.join("\n");
+            if !scene.contains(words) {
+                problems
+                    .push(format!("{name}: the headless scene does not show {words:?}:\n{scene}"));
+            }
+        }
+    }
+    assert!(problems.is_empty(), "\n{}", problems.join("\n"));
+}

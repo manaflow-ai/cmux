@@ -7,127 +7,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Installs a downloaded update and restarts while you are away: no input for the time below, or the screen locked. Never over an unsent message. Agents and their turns keep running."
+            "value" : "Installs a downloaded update and restarts while you're away (idle for the time below, or screen locked), never over an unsent message. Agents keep running."
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "يثبّت تحديثًا تم تنزيله ويعيد التشغيل أثناء غيابك: لا إدخال طوال المدة أدناه، أو الشاشة مقفلة. لا يحدث ذلك أبدًا فوق رسالة لم تُرسل. تستمر الوكلاء وأدوارهم في العمل."
+            "value" : "يثبّت تحديثًا تم تنزيله ويعيد التشغيل أثناء غيابك (خمول طوال المدة أدناه أو شاشة مقفلة)، ولا يحدث فوق رسالة لم تُرسل. تستمر الوكلاء في العمل."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Instalira preuzeto ažuriranje i ponovo pokreće dok ste odsutni: bez unosa tokom vremena ispod ili sa zaključanim ekranom. Nikad preko neposlane poruke. Agenti i njihovi potezi nastavljaju raditi."
+            "value" : "Instalira preuzeto ažuriranje i ponovo pokreće dok ste odsutni (bez unosa tokom vremena ispod ili zaključan ekran), nikad preko neposlane poruke. Agenti nastavljaju raditi."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Installerer en hentet opdatering og genstarter, mens du er væk: intet input i tiden nedenfor, eller skærmen låst. Aldrig hen over en ikke-sendt besked. Agenter og deres ture kører videre."
+            "value" : "Installerer en hentet opdatering og genstarter, mens du er væk (inaktiv i tiden nedenfor eller låst skærm), aldrig hen over en ikke-sendt besked. Agenter kører videre."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Installiert ein geladenes Update und startet neu, während du weg bist: keine Eingabe für die Zeit unten oder der Bildschirm gesperrt. Nie über einer ungesendeten Nachricht. Agenten und ihre Antworten laufen weiter."
+            "value" : "Installiert ein geladenes Update und startet neu, während du weg bist (inaktiv für die Zeit unten oder Bildschirm gesperrt), nie über einer ungesendeten Nachricht. Agenten laufen weiter."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Instala una actualización descargada y reinicia mientras no estás: sin actividad durante el tiempo de abajo, o con la pantalla bloqueada. Nunca sobre un mensaje sin enviar. Los agentes y sus turnos siguen en marcha."
+            "value" : "Instala una actualización descargada y reinicia mientras no estás (inactivo el tiempo de abajo o pantalla bloqueada), nunca sobre un mensaje sin enviar. Los agentes siguen en marcha."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Installe une mise à jour téléchargée et redémarre pendant votre absence : aucune saisie pendant la durée ci-dessous, ou l’écran verrouillé. Jamais sur un message non envoyé. Les agents et leurs tours continuent."
+            "value" : "Installe une mise à jour téléchargée et redémarre pendant votre absence (inactif pendant la durée ci-dessous ou écran verrouillé), jamais sur un message non envoyé. Les agents continuent."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Installa un aggiornamento scaricato e riavvia mentre sei via: nessun input per il tempo indicato sotto, o schermo bloccato. Mai sopra un messaggio non inviato. Gli agenti e i loro turni continuano."
+            "value" : "Installa un aggiornamento scaricato e riavvia mentre sei via (inattivo per il tempo indicato sotto o schermo bloccato), mai sopra un messaggio non inviato. Gli agenti continuano."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "離席中にダウンロード済みのアップデートをインストールして再起動します: 下の時間のあいだ入力がないか、画面がロックされているとき。未送信のメッセージがあるときは実行しません。エージェントと実行中のターンはそのまま続きます。"
+            "value" : "離席中（下の時間だけ操作がないか、画面がロックされているとき）にダウンロード済みのアップデートをインストールして再起動します。未送信のメッセージがあるときは実行しません。エージェントは動き続けます。"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ដំឡើងបច្ចុប្បន្នភាពដែលបានទាញយក ហើយចាប់ផ្ដើមឡើងវិញ ពេលអ្នកមិននៅ៖ គ្មានការបញ្ចូលក្នុងរយៈពេលខាងក្រោម ឬអេក្រង់ត្រូវបានចាក់សោ។ មិនដែលធ្វើពេលមានសារមិនទាន់ផ្ញើឡើយ។ ភ្នាក់ងារ និងវេនរបស់វានៅតែបន្តដំណើរការ។"
+            "value" : "ដំឡើងបច្ចុប្បន្នភាពដែលបានទាញយក ហើយចាប់ផ្ដើមឡើងវិញពេលអ្នកមិននៅ (ទំនេររយៈពេលខាងក្រោម ឬអេក្រង់ចាក់សោ) មិនដែលលើសារដែលមិនទាន់ផ្ញើទេ។ ភ្នាក់ងារបន្តដំណើរការ។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "자리를 비운 동안 다운로드한 업데이트를 설치하고 다시 시작합니다: 아래 시간 동안 입력이 없거나 화면이 잠겨 있을 때. 보내지 않은 메시지가 있으면 절대 실행하지 않습니다. 에이전트와 진행 중인 턴은 계속 실행됩니다."
+            "value" : "자리를 비운 동안(아래 시간 동안 입력이 없거나 화면이 잠긴 경우) 다운로드한 업데이트를 설치하고 재시작합니다. 보내지 않은 메시지가 있으면 하지 않습니다. 에이전트는 계속 실행됩니다."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Installerer en nedlastet oppdatering og starter på nytt mens du er borte: ingen inndata i tiden nedenfor, eller skjermen låst. Aldri over en usendt melding. Agenter og turene deres fortsetter."
+            "value" : "Installerer en nedlastet oppdatering og starter på nytt mens du er borte (inaktiv i tiden nedenfor eller låst skjerm), aldri over en usendt melding. Agenter kjører videre."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Instaluje pobraną aktualizację i uruchamia ponownie, gdy jesteś nieobecny: brak aktywności przez czas poniżej lub zablokowany ekran. Nigdy przy niewysłanej wiadomości. Agenci i ich tury działają dalej."
+            "value" : "Instaluje pobraną aktualizację i uruchamia ponownie, gdy cię nie ma (bezczynność przez czas poniżej lub zablokowany ekran), nigdy nad niewysłaną wiadomością. Agenci działają dalej."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Instala uma atualização baixada e reinicia enquanto você está ausente: sem entrada pelo tempo abaixo, ou com a tela bloqueada. Nunca sobre uma mensagem não enviada. Os agentes e seus turnos continuam rodando."
+            "value" : "Instala uma atualização baixada e reinicia enquanto você está ausente (inativo pelo tempo abaixo ou tela bloqueada), nunca sobre uma mensagem não enviada. Os agentes continuam."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Устанавливает загруженное обновление и перезапускается, пока вас нет: нет ввода в течение времени ниже или экран заблокирован. Никогда поверх неотправленного сообщения. Агенты и их ходы продолжают работать."
+            "value" : "Устанавливает загруженное обновление и перезапускает, пока вас нет (бездействие в течение времени ниже или экран заблокирован), но не поверх неотправленного сообщения. Агенты продолжают работу."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ติดตั้งอัปเดตที่ดาวน์โหลดแล้วและรีสตาร์ทขณะที่คุณไม่อยู่: ไม่มีการป้อนข้อมูลตามเวลาด้านล่าง หรือหน้าจอถูกล็อก จะไม่ทำขณะมีข้อความที่ยังไม่ได้ส่ง เอเจนต์และรอบการทำงานของพวกมันยังคงทำงานต่อ"
+            "value" : "ติดตั้งอัปเดตที่ดาวน์โหลดแล้วและรีสตาร์ทขณะคุณไม่อยู่ (ไม่ได้ใช้งานตามเวลาด้านล่าง หรือหน้าจอล็อก) ไม่ทำทับข้อความที่ยังไม่ได้ส่ง เอเจนต์ยังทำงานต่อ"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "İndirilen bir güncellemeyi siz yokken yükler ve yeniden başlatır: aşağıdaki süre boyunca giriş yoksa veya ekran kilitliyse. Gönderilmemiş bir mesaj varken asla. Ajanlar ve turları çalışmaya devam eder."
+            "value" : "İndirilen güncellemeyi siz uzaktayken (aşağıdaki süre boyunca boşta ya da ekran kilitli) kurar ve yeniden başlatır; gönderilmemiş bir mesaj varken asla. Ajanlar çalışmaya devam eder."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Встановлює завантажене оновлення й перезапускається, поки вас немає: немає введення протягом часу нижче або екран заблоковано. Ніколи поверх ненадісланого повідомлення. Агенти та їхні ходи продовжують працювати."
+            "value" : "Встановлює завантажене оновлення й перезапускає, поки вас немає (бездіяльність протягом часу нижче або екран заблоковано), але не поверх ненадісланого повідомлення. Агенти працюють далі."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cài bản cập nhật đã tải về và khởi động lại khi bạn vắng mặt: không có thao tác trong khoảng thời gian bên dưới, hoặc màn hình đã khóa. Không bao giờ khi còn tin nhắn chưa gửi. Các agent và lượt của chúng vẫn tiếp tục chạy."
+            "value" : "Cài bản cập nhật đã tải và khởi động lại khi bạn vắng mặt (không thao tác trong thời gian bên dưới hoặc màn hình khóa), không bao giờ khi có tin nhắn chưa gửi. Các tác tử vẫn chạy."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "在你离开时安装已下载的更新并重新启动：在下方时间内没有输入，或屏幕已锁定。有未发送的消息时绝不执行。代理及其回合会继续运行。"
+            "value" : "在你离开时（下方时间内无操作，或屏幕已锁定）安装已下载的更新并重新启动，有未发送的消息时绝不执行。代理会继续运行。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "在你離開時安裝已下載的更新並重新啟動：在下方時間內沒有輸入，或螢幕已鎖定。有未傳送的訊息時絕不執行。代理程式及其回合會繼續執行。"
+            "value" : "在你離開時（下方時間內無操作，或螢幕已鎖定）安裝已下載的更新並重新啟動，有未送出的訊息時絕不執行。代理會繼續執行。"
           }
         }
       }

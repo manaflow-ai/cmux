@@ -28,15 +28,29 @@ import Testing
         if case .promptNotSent = event { true } else { false }
     }
 
-    /// The prompt, then a cancel (which has nothing to act on and says so in both versions):
-    /// the first event the chat gets is the cancel's, not the prompt coming back.
+    /// The first event the chat gets within `wait`, or nil when none comes. A send before the
+    /// chat loads says nothing at all (#57933), so waiting on the stream alone never ends; a
+    /// bounce is emitted as the send runs, so a short wait sees one.
+    private static func firstEvent(_ events: AsyncStream<AgentSessionEvent>, within wait: Duration = .milliseconds(300)) async -> AgentSessionEvent? {
+        await withTaskGroup(of: AgentSessionEvent?.self) { group in
+            group.addTask { var iterator = events.makeAsyncIterator(); return await iterator.next() }
+            group.addTask { try? await Task.sleep(for: wait); return nil }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+    }
+
+    /// The prompt, then a cancel (which has nothing to act on, and says nothing): the prompt is
+    /// held, and nothing comes back to the chat.
     @Test func aSendBeforeTheChatLoadsDoesNotBounce() async throws {
         let source = pending()
-        var events = source.events().makeAsyncIterator()
+        let events = source.events()
         source.send(prompt("hello", id: "p1"))
         source.send(.cancel)
-        let first = await events.next()
-        #expect(first.map(Self.isNotSent) == false, "the draft came back at once: \(String(describing: first))")
+        let first = await Self.firstEvent(events)
+        #expect(first.map(Self.isNotSent) != true, "the draft came back at once: \(String(describing: first))")
+        #expect(source.held.map(\.intent) == [prompt("hello", id: "p1")])
     }
 
     /// A held prompt that waits past the window comes back to the composer with why, as
@@ -54,7 +68,7 @@ import Testing
             return
         }
         #expect(text == "hello" && promptID == "p1")
-        #expect(reason == "Not sent: Studio is offline.")
+        #expect(reason == AgentChatStore.unreachableNotice)
         #expect(source.held.isEmpty)
     }
 
@@ -63,7 +77,7 @@ import Testing
     @Test func theNextSourceGetsTheHeldPromptsInOrder() async throws {
         let source = pending()
         source.holdWindow = .seconds(3600)
-        var events = source.events().makeAsyncIterator()
+        let events = source.events()
         source.send(prompt("one", id: "p1"))
         source.send(prompt("two", id: "p2"))
         let sentAt = try #require(source.held.first?.at)
@@ -72,8 +86,8 @@ import Testing
         #expect(taken.first?.at == sentAt)
         source.expire(sentAt: sentAt)
         source.send(.cancel)
-        let first = await events.next()
-        #expect(first.map(Self.isNotSent) == false, "a handed-over prompt came back: \(String(describing: first))")
+        let first = await Self.firstEvent(events)
+        #expect(first.map(Self.isNotSent) != true, "a handed-over prompt came back: \(String(describing: first))")
 
         // A loading source that takes them over keeps their age (one window in all).
         let next = pending()
@@ -97,6 +111,42 @@ import Testing
             snapshots: LiveSnapshotStore(directory: directory), secrets: secrets,
             readMarks: FeedReadMarks(url: directory.appending(path: "read.json"))
         )
+    }
+
+    @MainActor private final class RecordingSource: AgentSessionSource {
+        let summary: AgentSessionSummary
+        var prompts: [(id: String, text: String, attachments: [AgentAttachment])] = []
+
+        init(summary: AgentSessionSummary) { self.summary = summary }
+        func events() -> AsyncStream<AgentSessionEvent> { AsyncStream { _ in } }
+        func send(_ intent: AgentClientIntent) {
+            if case .prompt(let text, let attachments, _, let id, _) = intent {
+                prompts.append((id, text, attachments))
+            }
+        }
+    }
+
+    @Test func bindingANewChatSendsItsOptimisticFirstMessageExactlyOnce() throws {
+        let live = coordinator()
+        defer { live.stop() }
+        let summary = pending().summary
+        let directory = AgentSessionDirectory()
+        let unbound = RecordingSource(summary: summary)
+        directory.makeSource = { _ in unbound }
+        let attachment = AgentAttachment(kind: .file, name: "notes.txt")
+        directory.store(for: summary).send(prompt: "read this", attachments: [attachment])
+        let original = try #require(unbound.prompts.first)
+
+        let bound = RecordingSource(summary: summary)
+        directory.makeSource = { _ in bound }
+        live.bindFirst(session: "new-session", summary: summary,
+                       key: AgentSessionDirectory.key(id: summary.id, macID: summary.macID), directory: directory)
+
+        #expect(bound.prompts.count == 1, "binding must not resend the same text with a new prompt id")
+        #expect(bound.prompts.first?.id == original.id)
+        #expect(bound.prompts.first?.text == original.text)
+        #expect(bound.prompts.first?.attachments == original.attachments)
+        #expect(directory.store(for: summary).waitingMessages.count == 1)
     }
 
     /// The chat's store went while the person was elsewhere (the Mac's tree bound the tab, its

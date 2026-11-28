@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import importlib.util
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -75,6 +76,17 @@ class PlanWebRoutes(unittest.TestCase):
 
     def test_docs_only_change_plans_no_layer(self) -> None:
         self.assertEqual(self.plan(["docs/notes.md"], [])["layers"], [])
+
+    def test_router_loads_on_a_python_with_no_tomllib(self) -> None:
+        """`cmux app try` runs hot-verify.py on the Mac's own python3 (3.9 on macOS), which has no tomllib: the
+        router's top-level `import tomllib` failed every try (team-dev-build-swap, hq#30355's row,
+        ModuleNotFoundError at web_subareas.py:15). The router still routes; acpmux's crates just go unread."""
+        with mock.patch.dict(sys.modules, {"tomllib": None, "hot_verify_web_subareas": None}):
+            sys.modules.pop("hot_verify_web_subareas")
+            self.assertEqual(hv.webview_routed(ROOT, [SCHEMA, RUST, "docs/x.md"]), [SCHEMA])
+            router = sys.modules["hot_verify_web_subareas"]
+            self.assertIsNone(router.tomllib)
+            self.assertIsNone(router.acpmux_build_crates.__wrapped__(str(ROOT)))
 
 
 if __name__ == "__main__":

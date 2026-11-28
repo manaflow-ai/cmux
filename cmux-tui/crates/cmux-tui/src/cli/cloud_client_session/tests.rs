@@ -38,6 +38,12 @@ fn parses_create_and_exec() {
     ]))
     .unwrap();
     assert_eq!(exec.verb, Verb::Exec { command: "uname -a".into(), timeout_ms: 5000 });
+    // Several words keep their argv (each shell-quoted); one word is a shell line as written.
+    let quoted =
+        parse(&strings(&["exec", &format!("--target={VM}"), "--", "sh", "-c", "cat > f"])).unwrap();
+    assert_eq!(quoted.verb, Verb::Exec { command: "sh -c 'cat > f'".into(), timeout_ms: 30_000 });
+    let line = parse(&strings(&["exec", &format!("--target={VM}"), "--", "ls | wc -l"])).unwrap();
+    assert_eq!(line.verb, Verb::Exec { command: "ls | wc -l".into(), timeout_ms: 30_000 });
     for bad in [
         vec!["create"],
         vec!["create", "--target", "machine:builder"],
@@ -661,6 +667,32 @@ fn a_refused_machine_exec_route_prints_only_a_known_code() {
 }
 
 #[test]
+fn a_vm_unavailable_exec_says_which_rpc_failure_it_was_and_nothing_else() {
+    // cmux-platform MachineGuest.ts answers a thrown Durable Object call as 503 vm_unavailable
+    // with `reason` one of RpcReset.ts's three words; any other reason text is never printed.
+    for (reason, shown) in [
+        (json!("restarted"), "vm_unavailable (restarted)"),
+        (json!("overloaded"), "vm_unavailable (overloaded)"),
+        (json!("unreachable"), "vm_unavailable (unreachable)"),
+        (json!("secret-ish reason"), "503 Service Unavailable vm_unavailable"),
+        (json!(7), "503 Service Unavailable vm_unavailable"),
+    ] {
+        let (origin, _requests) = fake_no_sessions(
+            503,
+            json!({ "ok": false, "error": { "code": "vm_unavailable", "message": "secret-ish detail", "reason": reason } })
+                .to_string(),
+        );
+        let command = parse(&strings(&["exec", "--target", VM, "--", "true"])).unwrap();
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let message =
+            run(&command, &origin, "cmux-credential", OutputMode::Human, &mut out, &mut err)
+                .unwrap_err();
+        assert!(message.ends_with(shown), "{message}");
+        assert!(!message.contains("secret-ish"), "{message}");
+    }
+}
+
+#[test]
 fn exec_by_a_teammate_who_did_not_create_the_machine_never_reaches_the_exec_route() {
     // The platform checks the creator before the provider (ClientSession.ts mintClientSessionOn):
     // a teammate's mint answers not_creator (403 auth.forbidden), never unsupported, so the exec
@@ -737,4 +769,44 @@ fn exec_without_an_api_or_credential_goes_through_the_app() {
     assert_eq!(app_exec(&with_api, none), None);
     let new = parse(&strings(&["create", "--target", machine])).unwrap();
     assert_eq!(app_exec(&new, none), None);
+}
+
+#[test]
+fn a_platform_refusal_says_whether_the_same_command_may_be_retried() {
+    // cmux-platform MachineGuest.ts GUEST_REFUSAL: a provider exec that threw answers 502
+    // vm_unavailable "retry" (cloud-chaos run 46116359583 read it as final), a snapshot 503
+    // vm_busy "retry shortly"; a missing or forbidden machine stays final. The body's own
+    // `retryable` wins over the status.
+    for (status, body, retryable) in [
+        (502, json!({ "ok": false, "error": { "code": "vm_unavailable" } }), true),
+        (503, json!({ "ok": false, "error": { "code": "vm_busy" } }), true),
+        (404, json!({ "ok": false, "error": { "code": "vm_not_found" } }), false),
+        (403, json!({ "ok": false, "error": { "code": "vm_forbidden" } }), false),
+        (409, json!({ "ok": false, "error": { "code": "vm_not_running" } }), false),
+        (
+            503,
+            json!({ "ok": false, "error": { "code": "vm_unavailable", "retryable": false } }),
+            false,
+        ),
+        (409, json!({ "ok": false, "error": { "code": "cloud.machine.busy" } }), true),
+    ] {
+        let (origin, _requests) = fake_no_sessions(status, body.to_string());
+        let command = parse(&strings(&["exec", "--target", VM, "--", "true"])).unwrap();
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let failed =
+            run(&command, &origin, "cmux-credential", OutputMode::Human, &mut out, &mut err)
+                .unwrap_err();
+        assert_eq!(failed.retryable, retryable, "{status} {body}: {failed}");
+    }
+}
+
+#[test]
+fn a_failure_this_command_decides_itself_stays_final() {
+    // An unreadable answer may follow a command that ran: never offered as a retry.
+    let (origin, _requests) = fake_no_sessions(200, "not json".into());
+    let command = parse(&strings(&["exec", "--target", VM, "--", "true"])).unwrap();
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let failed = run(&command, &origin, "cmux-credential", OutputMode::Human, &mut out, &mut err)
+        .unwrap_err();
+    assert!(!failed.retryable, "{failed}");
 }

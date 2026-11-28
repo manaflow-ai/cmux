@@ -28,9 +28,12 @@ Neither set: the newest available iOS runtime, as before.
 
 The iPhone is the first of PHONES the runtime supports, unless the step names one:
 `--device NAME` (the step's device= argument) picks that iPhone type and nothing else. The one
-other family it takes is the iPad mini: its window (744 x 1133 pt) stands in for an unfolded
+other families it takes are the iPad mini: its window (744 x 1133 pt) stands in for an unfolded
 foldable iPhone's nearly square screen, which the app's Debug build lays out for (cmuxterm-hq
-docs/design/ios-foldable.md); no other iPad. NAME
+docs/design/ios-foldable.md); and the 13-inch iPad App Review judges the app on (IPAD_13, the same
+list as ios-review-gate.yml's iPad leg, cmux-next-ios/scripts/app_review_pick_simulator.py), which
+cmux-next-ios-sim.sh builds iPhone-only for, as that leg does. `--device ipad-13` takes the first of
+IPAD_13 the runtime has (fleet step arguments hold no parentheses). No other iPad. NAME
 is the device type's name ("iPhone 16e"), the same with commas for spaces ("iPhone,16e",
 since fleet step arguments hold no spaces), or its identifier's last part
 ("iPhone-SE-3rd-generation", for names with parentheses). A name the runtime does not
@@ -52,6 +55,8 @@ PREFER_ENV = "CMUX_CI_IOS_SIM_RUNTIME_PREFER"
 PIN_FILE = pathlib.Path(__file__).resolve().parent / "ios-sim-runtime-pin.txt"
 BUILD = re.compile(r"^[0-9]{2}[A-Z][0-9]{1,5}[a-z]?$")
 PHONES = ("iPhone 17 Pro", "iPhone 17", "iPhone 16 Pro")
+# iPhone device types with two displays: never the default.
+TWO_DISPLAY = ("iPhone Duo",)
 # App Store Connect's 6.9" iPhone display: 1320x2868 (17 Pro Max) or 1290x2796 (16 Pro Max).
 APPSTORE_69 = ("iPhone 17 Pro Max", "iPhone 16 Pro Max")
 
@@ -60,12 +65,24 @@ def version_key(runtime):
     return [int(x) if x.isdigit() else 0 for x in str(runtime.get("version", "0")).split(".")]
 
 
-# Device families a step may name: every iPhone, and the iPad mini (an unfolded foldable's stand-in).
-FAMILIES = ("iPhone", "iPad mini")
+# App Review's iPad: a 13-inch one (app_review_pick_simulator.py PREFERRED["ipad"], in its order).
+IPAD_13 = ("iPad Pro 13-inch (M5)", "iPad Pro 13-inch (M4)", "iPad Air 13-inch (M3)")
+IPAD_13_ALIAS = "ipad-13"
+# Device families a step may name: every iPhone, the iPad mini (an unfolded foldable's stand-in) and
+# the 13-inch iPads App Review uses.
+FAMILIES = ("iPhone", "iPad mini") + IPAD_13
 
 
 def find_device(types, want):
     """The device type identifier and name for want among types ({name: identifier}), or raise SystemExit."""
+    if want.lower() == IPAD_13_ALIAS:
+        for name in IPAD_13:
+            if name in types:
+                return types[name], name
+        raise SystemExit(
+            f"cmux-next-ios-sim.sh: device={want}: this runtime has none of {', '.join(IPAD_13)}; "
+            f"available iPad types: {', '.join(sorted(k for k in types if k.startswith('iPad'))) or 'none'}"
+        )
     spaced = want.replace(",", " ").strip()
     types = {k: v for k, v in types.items() if k.startswith(FAMILIES)}
     for name, ident in types.items():
@@ -73,7 +90,7 @@ def find_device(types, want):
             return ident, name
     phones = sorted(types)
     raise SystemExit(
-        f"cmux-next-ios-sim.sh: device={want}: this runtime has no such iPhone or iPad mini device type; "
+        f"cmux-next-ios-sim.sh: device={want}: this runtime has no such iPhone, iPad mini or 13-inch iPad device type; "
         f"available iPhone types: {', '.join(phones) or 'none'}"
     )
 
@@ -113,6 +130,10 @@ def select(listing, declared, device=None, prefer=(), phones=PHONES, exact=False
             f"cmux-next-ios-sim.sh: iOS runtime {runtime.get('buildversion')} supports none of {', '.join(phones)}"
         )
     phones = [k for k in names if k.startswith("iPhone")]
+    # The fallback is a one-screen phone: a newer runtime lists a two-display foldable (iPhone Duo)
+    # last, whose screenshots and recordings need --display and whose layout is its own leg
+    # (device=iPhone,Duo). It is the fallback only when the runtime has no other iPhone.
+    phones = [k for k in phones if k not in TWO_DISPLAY] or phones
     if not phones:
         raise SystemExit(f"cmux-next-ios-sim.sh: iOS runtime {runtime.get('buildversion')} supports no iPhone device type")
     return runtime["identifier"], names[phones[-1]], phones[-1]

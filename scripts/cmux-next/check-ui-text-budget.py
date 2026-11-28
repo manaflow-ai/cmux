@@ -59,8 +59,8 @@ for _kind, _words in {
     for _word in _words.split():
         KIND_WORDS[_word] = _kind
 DIALOG_WORDS = {"dialog", "alert", "confirm", "confirmation", "sheet"}
-# A label word after one of these names a state, not a label ("copyName.noName", "laneNeedsName").
-NOT_LABEL_WORDS = {"no", "needs", "missing", "removed", "gone", "required", "unknown", "not"}
+# A label word after one of these names a state, not a label ("copyName.noName", "laneNeedsName", "badAction": a refusal).
+NOT_LABEL_WORDS = {"no", "needs", "missing", "removed", "gone", "required", "unknown", "not", "bad"}
 CLI_FIRST_SEGMENTS = {"handlers", "control", "cli"}
 
 TABLE_ROOTS = ("webviews/src", "Packages/macOS/CmuxNext", "Packages/iOS", "Packages/Shared", "cmux-next-ios")

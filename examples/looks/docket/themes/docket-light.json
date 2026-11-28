@@ -4,7 +4,7 @@
 // sidebar rows, a 220 px sidebar, quick ease-out motion.
 {
   "name": "Docket Light",
-  "description": "A dense, calm issue-tracker look, Light: a pale sidebar, one white outlined panel, gray text steps, one indigo.",
+  "description": "Light: a pale sidebar, one white outlined panel, one indigo.",
 
   "appearance.theme": "Builtin Light",
   "appearance.appTheme": "followTerminal",

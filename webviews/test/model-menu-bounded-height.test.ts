@@ -6,7 +6,7 @@
 // The account avatar opens a card: its active account heads it, and its other accounts scroll
 // to the real last row without running past the window or reserving an empty spacer.
 // Real Chromium and WebKit (the app's engine) on the gallery stage at a short window. CI fails the
-// file when it cannot launch them (requireBrowserLane). Locally:
+// file when it cannot launch them (probeEngineOrSkip); elsewhere an engine that cannot launch skips. Locally:
 // CMUX_BROWSER_TESTS=1 bun test test/model-menu-bounded-height.test.ts
 // CMUX_MODEL_MENU_SHOTS=DIR also saves each case's PNG there.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
@@ -15,7 +15,7 @@ import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { installPaintedFrames } from "./support/paintedFrames";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -23,19 +23,9 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
   for (const engine of [
     ["chromium", chromium],
     ["webkit", webkit],
-  ] as [string, BrowserType][]) {
-    try {
-      await (await engine[1].launch({ headless: true })).close();
-      engines.push(engine);
-    } catch {
-      console.warn(`model menu bounded height: ${engine[0]} cannot launch here`);
-    }
-  }
-  if (engines.length !== 2) {
-    throw new Error(
-      `model menu bounded height requires Chromium and WebKit; launched ${engines.map(([name]) => name).join(", ") || "none"}`,
-    );
-  }
+  ] as [string, BrowserType][])
+    if (await probeEngineOrSkip("model-menu-bounded-height.test.ts", engine[0], engine[1])) engines.push(engine);
+  if (engines.length === 0) return;
 
   const ENTRY = "agent-pane.model-picker";
   const MANY = "quick-menu-many-profiles";
@@ -125,6 +115,10 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
       const search = frame.querySelector<HTMLElement>(".acpmux-cols-search")!;
       const footer = frame.querySelector<HTMLElement>(".acpmux-cols-update");
       const card = popup.querySelector<HTMLElement>(".acpmux-cols-card")!;
+      // The card never grows the menu (#63167 follow-up): past the room the lists leave it, it
+      // scrolls as one block. Scrolled to its end, its last child shows.
+      const cardScrolls = card.scrollHeight > card.clientHeight + 1;
+      card.scrollTop = card.scrollHeight;
       const accountList = card.querySelector<HTMLElement>(".acpmux-cols-card-list:has(> .acpmux-cols-caption)")!;
       const accounts = [...accountList.querySelectorAll<HTMLElement>("[role=button]")];
       const names = accounts.map((row) => row.querySelector(".acpmux-cols-name")?.textContent ?? "");
@@ -176,6 +170,7 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
         })),
         account: {
           box: box(card),
+          cardScrolls,
           contentBottom: Math.max(...cardChildren.map((child) => child.bottom)),
           current: card.querySelector(".acpmux-cols-card-name")?.textContent ?? "",
           listHeight: box(accountList).height,
@@ -250,7 +245,7 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
       });
     }
 
-    test(`${engine}: a short account card is as tall as its content`, async () => {
+    test(`${engine}: a short account card is as tall as its content, or scrolls to it in the menu's own height`, async () => {
       // Leave room for the card's avatar header as well as its few switching rows.
       const page = await open(engine, FEW, undefined, 520);
       await shoot(page, `${engine}-${FEW}-open`);
@@ -259,9 +254,12 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
       expect(layout.account.names).toContain("Anthropic API key");
       expect(layout.account.names.length).toBeGreaterThan(1);
       expect(layout.account.scrolls, "a short account list does not need to scroll").toBe(false);
+      // Scrolled to its end (measure), the card's last child reaches its bottom whether or not the
+      // card had to scroll in the menu's fixed height.
       expect(layout.account.box.bottom, "no room under the card's last child").toBeGreaterThanOrEqual(
         layout.account.contentBottom - 1,
       );
+      console.log(`card scrolls in the menu's own height: ${layout.account.cardScrolls}`);
       expectBounded(layout);
       await page.close();
     });

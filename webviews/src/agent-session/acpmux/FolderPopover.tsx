@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState, useEffect } from "react";
 import { Combobox } from "../../ui/Combobox";
 import { Popover } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
@@ -7,11 +7,14 @@ import { useLocationShortcut } from "./composerControls";
 import { MenuFolderIcon, PlusIcon } from "./ComposerPickers";
 import { ExtraFolderList } from "./ExtraFolderList";
 import type { ExtraFolderRows } from "./extraFolders";
+import { widestLines, type FitLine } from "./folderFit";
 import { LockIcon, GitHubGlyph } from "./GitHubIcons";
 import { folderUsedAt, mergeByRecentUse, readAddedRepos, rememberAddedRepo, type AddedRepo } from "./addedRepos";
 import { githubFolder, githubFolderRepo, type GitHubStatus } from "./githubRepos";
+import { isGitHubLocation, keptRows, shownRows, type RowBlock, type ShownRows } from "./folderRows";
 import { useT } from "./i18n";
 import { FOLDER_MENU_LIST_CAP, folderMenuShortest, useLocationOpener, useLocationPopover } from "./locationPopover";
+import { ProjectBadge } from "./ProjectBadge";
 import { projectSuffixes } from "./projectSuffix";
 import {
   folderRepo,
@@ -55,6 +58,7 @@ export function FolderPopover({
   sources,
   cloningRepository,
   pendingRepository,
+  remote = false,
 }: {
   label: string;
   /// The name automation opens it by (`openPicker`).
@@ -62,6 +66,9 @@ export function FolderPopover({
   /// The strip control's face (icon, name, chevron).
   face: React.ReactNode;
   folders: FolderChoice[];
+  /// The folders are another machine's (an SSH environment, a remote chat's machine): their rows never
+  /// ask this Mac for a project icon (ProjectBadge reads this Mac's disk).
+  remote?: boolean;
   current?: string;
   currentPeer?: string;
   onPick(cwd: string): void;
@@ -500,7 +507,13 @@ export function FolderPopover({
         data-current={leadCurrent ? "" : undefined}
         data-expanded={disclosure ? String(disclosure.open) : undefined}
       >
-        <LocationIcon location={folder.id} />
+        {/* The project's own icon, as the chip draws it (ProjectBadge): a GitHub mark only for a repository
+            from the GitHub connection, which is no folder here, and a plain folder for another machine's. */}
+        {remote || isGitHubLocation(folder.id) ? (
+          <LocationIcon location={folder.id} />
+        ) : (
+          <ProjectBadge project={{ cwd: folder.id, label: folder.label, ...(repo ? { repo } : {}) }} />
+        )}
         <span className="acpmux-menu-text acpmux-location-name">
           <span className="acpmux-menu-label">{group.name}</span>
           {suffix && (
@@ -760,58 +773,6 @@ function orderedRows({
   return [...mergeByRecentUse(blocks, repos), ...path, ...machines];
 }
 
-/// A run of the list's rows that stays together: a repository's rows, an added repository, a machine folder. `ids`:
-/// the folders it stands for (a repository's every member, shown or folded), which name it across a late change of
-/// its repository's details.
-type RowBlock = { key: string; rows: string[]; ids: string[] };
-
-/// The rows the menu showed at its first paint with rows: each folder's place, the rows themselves, and the folded or
-/// opened repositories they were drawn with.
-export type ShownRows = { places: ReadonlyMap<string, number>; rows: ReadonlySet<string>; folds: unknown };
-
-function shownRows(blocks: readonly RowBlock[], folds: unknown): ShownRows {
-  const places = new Map<string, number>();
-  blocks.forEach((block, at) => block.ids.forEach((id) => places.has(id) || places.set(id, at)));
-  return { places, rows: new Set(blocks.flatMap((block) => block.rows)), folds };
-}
-
-/// The list as `kept` showed it, while the menu stays open with nothing typed (cmux#53226: rows moved under the
-/// pointer as chats, folders and repositories arrived or re-sorted, and the menu grows up from its chip, so even a row
-/// added at the end moved every row above it). Each block keeps its place and its rows, found by its folders, so a
-/// repository whose details arrive late is the same block. Its lead row is always the live one: a main checkout that
-/// arrives under an open repository's listed worktrees leads it, with its disclosure, and the rows under it move down
-/// one (the repository's row is the main checkout's, cmux#53226); its other rows keep their shown order. A block that arrives later waits for the next
-/// open, except the current folder's (listed after the kept ones); a block that went away leaves.
-export function keptRows(kept: ShownRows, blocks: readonly RowBlock[], current: string | undefined): string[] {
-  const placed: { at: number; rows: string[] }[] = [];
-  const late: string[] = [];
-  const keptOrder = new Map([...kept.rows].map((row, index) => [row, index]));
-  blocks.forEach((block) => {
-    let at: number | undefined;
-    for (const id of block.ids) {
-      const place = kept.places.get(id);
-      if (place !== undefined && (at === undefined || place < at)) at = place;
-    }
-    if (at === undefined) {
-      if (current !== undefined && block.ids.includes(current)) late.push(...block.rows);
-      return;
-    }
-    // The live lead first (it carries the repository's disclosure), then the other rows as they were shown.
-    const [lead, ...rest] = block.rows;
-    const others = rest.filter((row) => keptOrder.has(row)).sort((a, b) => keptOrder.get(a)! - keptOrder.get(b)!);
-    placed.push({ at, rows: lead === undefined ? others : [lead, ...others] });
-  });
-  placed.sort((left, right) => left.at - right.at);
-  return [...placed.flatMap((block) => block.rows), ...late];
-}
-
-/// The one place a location's icon is chosen: GitHub's mark only for a repository from the GitHub connection
-/// (`github:owner/name`), which is no folder here. Any folder on this Mac, or on a Cloud machine, is a folder: a
-/// clone or a worktree whose `origin` is on GitHub too (cmux#53226).
-export function isGitHubLocation(location: string | undefined): boolean {
-  return githubFolderRepo(location) !== undefined;
-}
-
 /// A row's icon for `location` (isGitHubLocation), marked with the one it drew (`data-icon`).
 export function LocationIcon({ location }: { location: string | undefined }) {
   const github = isGitHubLocation(location);
@@ -841,29 +802,6 @@ function worktreeLabel(folder: FolderChoice): string {
   const prefix = "worktrees/";
   return name.startsWith(prefix) && name === belowCheckout(folder) ? name.slice(prefix.length) : name;
 }
-
-/// One listed row's words and what its row draws beside them (a worktree count, a worktree's
-/// indent, a private repository's lock glyph), for the menu's width.
-export type FitLine = { text: string; kind: "row" | "count" | "worktree" | "lock" };
-
-/// The few lines that can be the widest: the longest by their letters, the room beside them counted
-/// in letters too. Thousands of folders stay a handful of measured lines.
-export function widestLines(lines: readonly FitLine[], keep = 6): FitLine[] {
-  const reach = (line: FitLine) => line.text.length + FIT_KIND_LETTERS[line.kind];
-  // One pass, the kept few in order: no sort of every folder on each render.
-  const widest: FitLine[] = [];
-  for (const line of lines) {
-    if (widest.length === keep && reach(line) <= reach(widest[keep - 1]!)) continue;
-    if (widest.some((kept) => kept.kind === line.kind && kept.text === line.text)) continue;
-    const at = widest.findIndex((kept) => reach(kept) < reach(line));
-    widest.splice(at === -1 ? widest.length : at, 0, line);
-    if (widest.length > keep) widest.pop();
-  }
-  return widest;
-}
-
-/// About how many letters wide each kind's extra room is (composerLocation.css gives the real widths).
-const FIT_KIND_LETTERS: Record<FitLine["kind"], number> = { row: 0, count: 7, worktree: 3, lock: 3 };
 
 /// An action row's value: never a path.
 const ACTION = "\u0000action:";

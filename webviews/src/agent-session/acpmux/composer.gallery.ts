@@ -163,6 +163,12 @@ async function pasteComparison(ctx: PlayContext) {
   });
   ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-md-inline img"));
+  // Inline view puts the pasted image in the text only, never also in the row over it (Leo,
+  // 2026-11-27: "did we fix that inline + top isn't the thing that gets displayed when you select
+  // inline?"). Two frames after it drew, so a late placeholder-to-chip swap is counted too.
+  await new Promise((done) => view.requestAnimationFrame(() => view.requestAnimationFrame(done)));
+  const inStrip = ctx.document.querySelectorAll(".acpmux-attachments .acpmux-attachment").length;
+  if (inStrip !== 0) throw new Error(`inline view: the pasted image also drew in the strip (${inStrip})`);
 }
 
 // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, then Send comes in after the
@@ -179,6 +185,16 @@ const SEND_ARRIVES = {
 /// opens the one menu, whose Effort row opens the levels beside it.
 const MODEL_BUTTON = { selector: MODEL_PICKER };
 const MODEL_DETAIL = ".acpmux-model .acpmux-model-detail:not(.acpmux-fit-label)";
+
+/** A right-click on a queued row's text: the row's menu (Steer, Edit message, side chat, queueing, moves, Delete). */
+async function openQueuedRowMenu(ctx: PlayContext, id: string) {
+  const text = ctx.find({ selector: `.acpmux-queued[data-prompt-id="${id}"] .acpmux-queued-text` });
+  const box = text.getBoundingClientRect();
+  text.dispatchEvent(
+    new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: box.left + 40, clientY: box.top + 10 }),
+  );
+  await ctx.waitFor(() => ctx.document.querySelector('[role="menu"] [role="menuitem"]'));
+}
 
 async function openModelMenu(ctx: PlayContext) {
   await ctx.click(MODEL_BUTTON);
@@ -1627,7 +1643,11 @@ export default agentPaneEntry({
       nativeDelayMs: { "video.info": 3_600_000 },
       play: async (ctx) => {
         dropScreenshotAndVideo(ctx);
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-video.acpmux-attachment-video-unread"));
+        // One loading look from the drop to the poster: the loading glass, never the neutral square
+        // between (Leo, 2026-11-08: "it is bad that there are 2+ loading states").
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-video.acpmux-paste-loading"));
+        if (ctx.document.querySelector(".acpmux-attachment-video-unread"))
+          throw new Error("a video whose poster is on its way shows the neutral square");
       },
     },
     "attachment-loading": {
@@ -2117,25 +2137,23 @@ export default agentPaneEntry({
         ],
       }),
     },
-    // Leo, 2026-10-21 ("this is what ChatGPT has"): each queued row shows Steer, the trash can and ⋯.
+    // Each queued row shows Steer, the pencil and the trash can; no ⋯ menu (2026-11-28).
     "queued-actions": {
-      note: "Play: the pointer over a queued prompt shows its actions as ChatGPT and Codex do: Steer (its ↪ glyph and its word), a trash can that deletes it, and ⋯; plain glyphs, a soft pill on hover only. Focus in the row shows them too.",
+      note: "Play: the pointer over a queued prompt shows its actions: Steer (its ↪ glyph and its word), a pencil that takes it back into the composer to edit, and a trash can that deletes it; plain glyphs, a soft pill on hover only. Focus in the row shows them too.",
       snapshot: { ...steering(true), queue: waiting.slice(0, 2) },
       play: async (ctx) => {
         await ctx.hover({ selector: '.acpmux-queued[data-prompt-id="q1"] .acpmux-queued-text' });
       },
     },
     "queued-actions-menu": {
-      note: "Play: ⋯ on a queued prompt opens the composer menus' glass menu: Edit message, Open in side chat (where the chat opens side chats) and Turn off queueing.",
+      note: "Play: a right-click on a queued prompt opens its menu: Steer, Edit message, Open in side chat (where the chat opens side chats), Turn off queueing, the moves and Delete.",
       snapshot: { ...steering(true), queue: waiting.slice(0, 2) },
       play: async (ctx) => {
-        await ctx.hover({ selector: '.acpmux-queued[data-prompt-id="q1"] .acpmux-queued-text' });
-        await ctx.click({ selector: '.acpmux-queued[data-prompt-id="q1"] [data-menu="queued-more"]' });
-        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-queued-more [role="menuitem"]'));
+        await openQueuedRowMenu(ctx, "q1");
       },
     },
     "queued-cancel-edit": {
-      note: "Play: the x on an unread queued prompt withdraws it from the queue and restores its text in the composer; it is a real cancel-and-edit, so the queued row disappears.",
+      note: "Play: the pencil on an unread queued prompt withdraws it from the queue and restores its text in the composer; it is a real cancel-and-edit, so the queued row disappears.",
       snapshot: chat(working, {
         isWorking: true,
         queue: [
@@ -2164,11 +2182,11 @@ export default agentPaneEntry({
       snapshot: chat(working, { isWorking: true, queue: [withVideos, { id: "q2", prompt: "And update the README" }] }),
     },
     "queued-images-edit": {
-      note: "Play: Edit message (the ⋯ menu) on a queued prompt with images: each thumbnail shows its remove control; removing one and saving keeps the other.",
+      note: "Play: Edit message (the right-click menu) on a queued prompt with images: each thumbnail shows its remove control; removing one and saving keeps the other.",
       snapshot: chat(working, { isWorking: true, queue: [pictured, { id: "q2", prompt: "And update the README" }] }),
       native: { "chat.queue.edit": { ok: true } },
       play: async (ctx) => {
-        await ctx.click({ selector: '.acpmux-queued[data-prompt-id="q1"] [data-menu="queued-more"]' });
+        await openQueuedRowMenu(ctx, "q1");
         await ctx.click({ role: "menuitem", name: /^Edit message/ });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-queued-image-remove").length === 2);
       },
@@ -2266,7 +2284,7 @@ export default agentPaneEntry({
       },
     },
     "queued-steering": {
-      note: "A prompt sent now (its Steer button) to an agent that cannot steer waits first under Steering and runs next; the turn runs on. The queued prompts follow it, one muted line each.",
+      note: "A prompt sent now (its Steer button) to an agent that cannot steer waits first in the queue as an ordinary row (no Steering label, no Steer button) and runs next; the turn runs on. The queued prompts follow it, one muted line each.",
       snapshot: chat(working, {
         isWorking: true,
         queue: [{ id: "q0", prompt: "Stop and fix the space thing first", next: true }, ...waiting],

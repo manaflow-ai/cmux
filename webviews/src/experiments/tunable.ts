@@ -45,15 +45,28 @@ declare global {
   var cmuxTunables: TunableOverrides | undefined;
 }
 
-function storedOverrides(): TunableOverrides {
+// The debug key's parse, kept against its raw text: a lookup on a render path reads the key on
+// every call, and parsing it each time cost a chat switch milliseconds. A changed value re-parses.
+let stored: { text: string | null | undefined; overrides: Readonly<TunableOverrides> } | undefined;
+
+function storedOverrides(): Readonly<TunableOverrides> {
+  let text: string | null | undefined;
   try {
-    const text = globalThis.localStorage?.getItem(TUNABLES_STORAGE_KEY);
-    const parsed: unknown = text ? JSON.parse(text) : undefined;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as TunableOverrides) : {};
+    text = globalThis.localStorage?.getItem(TUNABLES_STORAGE_KEY);
   } catch {
-    // No storage (a sandboxed page) or a malformed value: no override.
+    // No storage (a sandboxed page): no override.
     return {};
   }
+  if (stored !== undefined && stored.text === text) return stored.overrides;
+  let overrides: TunableOverrides = {};
+  try {
+    const parsed: unknown = text ? JSON.parse(text) : undefined;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) overrides = parsed as TunableOverrides;
+  } catch {
+    // A malformed value: no override.
+  }
+  stored = { text, overrides: Object.freeze(overrides) };
+  return stored.overrides;
 }
 
 const parse = (value: unknown) => (typeof value === "string" ? parseBezier(value) : undefined);

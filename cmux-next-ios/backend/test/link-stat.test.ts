@@ -51,6 +51,23 @@ describe("link_stat log line", () => {
     })
   })
 
+  it("accepts hop paths and bounds hop repair counters", () => {
+    const line = linkStatLine(
+      stat({ path: "hop", hop: { srttMs: 712, lossPermille: 12, resent: 8, repaired: 3 } }),
+      "phone",
+      ingress,
+      "LAX"
+    )!
+    expect(line).toMatchObject({ path: "hop", hopSrttMs: 712, hopLossPermille: 12, hopResent: 8, hopRepaired: 3 })
+    const bounded = linkStatLine(
+      stat({ path: "hop", hop: { srttMs: 1e12, lossPermille: 1e12, resent: 1e12, repaired: 1e12 } }),
+      "phone",
+      undefined,
+      null
+    )!
+    expect(bounded).toMatchObject({ hopSrttMs: 600_000, hopLossPermille: 1_000, hopResent: 100_000, hopRepaired: 100_000 })
+  })
+
   it("clamps numbers, drops unknown marks, words and free text, and never copies an id", () => {
     const line = linkStatLine(
       stat({
@@ -114,6 +131,17 @@ describe("link_stat log line", () => {
     // The first six entries are read, malformed ones dropped; -1 is "no answer yet".
     expect(line.spikes).toEqual([[1940, 1880, 1900], [62, -1, 400], [3, 4, 5], [6, 7, 8]])
     expect(linkStatLine(stat({ echo: "fast", spikes: "none" }), "phone", ingress, null)).not.toHaveProperty("echoN")
+  })
+
+  it("flattens the outbox wait in µs, clamped to 600 s", () => {
+    const line = linkStatLine(
+      stat({ outboxUs: { n: 5000, p50: 180, p95: 900, p99: 4200, max: 1e12 } }),
+      "phone",
+      ingress,
+      null
+    )!
+    expect(line).toMatchObject({ outboxUsN: 5000, outboxUsP50: 180, outboxUsP95: 900, outboxUsP99: 4200, outboxUsMax: 600_000_000 })
+    expect(linkStatLine(stat({ outboxUs: [1, 2] }), "phone", ingress, null)).not.toHaveProperty("outboxUsN")
   })
 
   it("rejects a malformed stat", () => {

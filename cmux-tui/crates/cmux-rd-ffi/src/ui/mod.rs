@@ -5,6 +5,8 @@
 //!
 //! - `remote`: `CmuxRemote/` (sharing setup steps, the share consent, the
 //!   `remote.confirm` request, Computer Use activity, the status lines).
+//! - `service`: `CmuxRemoteService*` and its app socket (capture results, the
+//!   Computer Use worker's status and approvals, channel lines and answers).
 //! - `toolbar`, `buttons`, `pane`, `pages`: the viewer chrome's enable and
 //!   label rules and layout math (`MacScreenToolbar`, `MacScreenButtons`,
 //!   `MacScreenPane`, `MacScreenPages`).
@@ -23,6 +25,7 @@ mod home_sharing;
 mod pages;
 mod pane;
 pub(crate) mod remote;
+mod service;
 mod toolbar;
 mod viewer_look;
 
@@ -49,6 +52,7 @@ pub fn call(request: &[u8]) -> Value {
     let answer = match area {
         "remote" => remote::handle(name, &args),
         "agents" => agents::handle(name, &args),
+        "service" => service::handle(name, &args),
         "toolbar" => toolbar::handle(name, &args),
         "buttons" => buttons::handle(name, &args),
         "pane" => pane::handle(name, &args),

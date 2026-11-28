@@ -7,7 +7,7 @@
 //   columns  spaces | threads | the open thread       (a mail client)
 //   split    threads, spaces as a row of tabs | thread (the History and Stash pages' header)
 //   stream   one column: threads open in place        (a narrow pane, the agent column)
-import { useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useDeferredValue, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { intl } from "../../ui/intl";
 import type { Strings } from "../shared/i18n";
 import type {
@@ -81,14 +81,18 @@ export function ForumPage({
   const [space, setSpace] = useState<string | null>(initialSpace);
   const [selected, setSelected] = useState<number | null>(initialThread);
   const [query, setQuery] = useState(initialQuery);
+  // The field echoes each keystroke at once; the thread list follows the query as a deferred value, so a
+  // long list filters in a background render a newer keystroke can interrupt instead of holding the
+  // frame the keystroke is drawn in (https://react.dev/reference/react/useDeferredValue).
+  const listQuery = useDeferredValue(query);
   const [composer, setComposer] = useState<ForumComposerMode | null>(initialComposer);
 
   const threads = useMemo(
     () =>
       snapshot.threads
-        .filter((thread) => (space ? thread.space === space : true) && matches(thread, query))
+        .filter((thread) => (space ? thread.space === space : true) && matches(thread, listQuery))
         .sort((a, b) => b.updated_at - a.updated_at),
-    [snapshot.threads, space, query],
+    [snapshot.threads, space, listQuery],
   );
   const open = selected === null ? null : (snapshot.threads.find((thread) => thread.number === selected) ?? null);
 

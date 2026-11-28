@@ -194,13 +194,18 @@ await requireBrowserLane("chat-switch-prefetch.test.ts", async () => {
           if (message.id === undefined) return;
           calls.push({ method: message.method, sessionId: message.params?.sessionId });
           const result = answer(message.method, message.params ?? {});
-          const reading = message.method === "_acpmux/events" && typeof message.params?.beforeSeq === "number";
+          // A read ahead: the newest page (`beforeSeq`), or a chat read before asked for the records after its
+          // last read (`afterSeq` with a byte cap, direct.ts readAheadOn).
+          const reading =
+            message.method === "_acpmux/events" &&
+            (typeof message.params?.beforeSeq === "number" ||
+              (typeof message.params?.afterSeq === "number" && typeof message.params?.maxBytes === "number"));
           const readKey = `${(ws.data as { page: number }).page}:${message.id}`;
           if (reading) pendingReadAhead.add(readKey);
           setTimeout(
             () => {
               ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
-              // A read ahead: an event page of the newest records, outside any attach.
+              // A read ahead: an event page outside any attach.
               if (reading) {
                 pendingReadAhead.delete(readKey);
                 if ((ws.data as { page: number }).page !== currentPage) {

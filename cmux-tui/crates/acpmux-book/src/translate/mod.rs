@@ -30,13 +30,14 @@ use crate::row::{Phase, Row, RowKind};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-/// Version 12 writes no plan rows: an agent to-do list (`plan`) is read past, as cmux shows none
-/// (acpmux `todo_tools.rs`). Version 11 writes each row's phase (entering, live, settled, leaving) and takes rows back by
+/// Version 13 starts the turn header's clock at the turn's start record; version 12 writes no plan
+/// rows: an agent to-do list (`plan`) is read past, as cmux shows none (acpmux `todo_tools.rs`).
+/// Version 11 wrote each row's phase (entering, live, settled, leaving) and takes rows back by
 /// the leave op; version 10 wrote the card rows, patched by their later records (decisions 253, 254); version
 /// 9 wrote what a user row says of its prompt and its sender, the ask rows and their decisions,
 /// and a turn end a prompt sent now went on under (decisions 231, 235, 236). A book of any other
 /// version rebuilds from raw.
-pub const VERSION: u32 = 12;
+pub const VERSION: u32 = 13;
 /// The translator's segment and the queue's records together.
 pub const MAX_STATE_BYTES: usize = MAX_TRANSLATOR_BYTES + 32 * MAX_QUEUE_ENTRIES;
 /// Every held state at its cap at once, with room left for the live turn: held steers 12 KB, asks
@@ -999,6 +1000,17 @@ impl State {
             if next != *entry {
                 *entry = next;
                 out.emit(Change::Queue(QueueChange::Add(next)));
+            }
+        }
+    }
+    /// The running turn's start record: the turn header's clock starts here, as the page's v1
+    /// reader dates a turn (`turnStartedAtMs`), not at the prompt that asked for it.
+    fn turn_started(&mut self, out: &mut input::Output<'_>) {
+        if let Some(group) = &mut self.group {
+            let start = self.at_ms.to_string();
+            if group.fields.get("startMs") != Some(&start) {
+                group.fields.insert("startMs".into(), start);
+                out.row(group);
             }
         }
     }

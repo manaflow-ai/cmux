@@ -15,6 +15,10 @@ public struct TabsView<Source: TabsDataSource>: View {
     let isShowingOverview: Binding<Bool>?
 
     @State private var chrome = ChromeState()
+    /// The keyboard height the accessory last rode, kept while the host holds it
+    /// (`tabsKitHoldsKeyboard`: a navigation transition moves the whole page as one).
+    @State private var heldKeyboard: CGFloat = 0
+    @Environment(\.tabsKitHoldsKeyboard) private var holdsKeyboard
 
     /// `isShowingOverview`: optional two-way binding to the tab grid. Set it
     /// to open or close the grid with the same zoom as the tabs button; the
@@ -32,11 +36,16 @@ public struct TabsView<Source: TabsDataSource>: View {
             GeometryReader { outer in
                 GeometryReader { full in
                     let inset = withKeyboard.safeAreaInsets.bottom
-                    let keyboard = inset > outer.safeAreaInsets.bottom + 1 ? inset : 0
+                    let live = inset > outer.safeAreaInsets.bottom + 1 ? inset : 0
+                    // Held by the host through a navigation transition: the page (and its
+                    // composer) slides as drawn, whatever the keyboard reports meanwhile.
+                    let keyboard = holdsKeyboard ? heldKeyboard : live
                     TabsScreen(source: source, isShowingOverview: isShowingOverview, size: full.size, safeTop: outer.safeAreaInsets.top,
                                safeBottom: outer.safeAreaInsets.bottom,
                                keyboard: chrome.editing ? keyboard : 0, chrome: chrome)
                         .environment(\.tabsAccessoryKeyboardHeight, keyboard)
+                        .onChange(of: live, initial: true) { _, now in if !holdsKeyboard { heldKeyboard = now } }
+                        .onChange(of: holdsKeyboard) { _, holds in if !holds { heldKeyboard = live } }
                 }
                 .ignoresSafeArea()
             }

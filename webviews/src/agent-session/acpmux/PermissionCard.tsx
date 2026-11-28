@@ -1,7 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { KeyHint } from "../../ui/KeyHint";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../ui/Menu";
-import { playResize } from "./conversation/fold";
 import { ChevronDown } from "./conversation/icons";
 import { Markdown } from "./conversation/Markdown";
 import { toolIcon } from "./conversation/toolRowModel";
@@ -14,7 +13,8 @@ import "./permissions/externalAccess.css";
 import { takePermissionFocus } from "./permissions/focusRequest";
 import { compareHarnesses, harnessName, type PlanBuildElsewhere } from "./permissions/planBuild";
 import { ProposedEdits } from "./permissions/ProposedEdits";
-import { HoldRing, holdButtonProps, holdTitle, useHoldToApprove, type HoldControl } from "./permissions/HoldButton";
+import { HoldRing } from "./permissions/HoldButton";
+import { holdButtonProps, holdTitle, useHoldToApprove, type HoldControl } from "./permissions/useHoldToApprove";
 import { holdApplies, holdSettings } from "./permissions/holdToApprove";
 import type { HoldScope } from "./permissions/holdToApprove.experiment";
 import {
@@ -355,17 +355,9 @@ export function PermissionCard({
   const [expanded, setExpanded] = useState<string>();
   const showFull = expanded === permission.permissionId;
   const fullId = React.useId();
-  // The command's box grows to the full command (and back) on the fold's clock (fold.ts `playResize`)
-  // from the height it was drawn at before the toggle, so the stack's top and the transcript's rows
-  // over it travel together instead of the card growing in one frame.
-  const commandRef = useRef<HTMLDivElement>(null);
-  const commandFrom = useRef<number | undefined>(undefined);
-  useLayoutEffect(() => {
-    const node = commandRef.current;
-    const from = commandFrom.current;
-    commandFrom.current = undefined;
-    if (node && from !== undefined) playResize(node, from);
-  }, [showFull]);
+  // The command's box takes the full command (and back) in one frame: the stack's room changes once and
+  // the transcript's rows over it glide on the dock's own clock (no height is animated, cmuxterm-hq
+  // docs/design/transcript-motion-model.md rule 7).
   // A one-line command longer than the two lines the preview holds is cut off: measured, so "Show
   // full command" is offered whenever the preview does not show all of it.
   const previewRef = useRef<HTMLElement>(null);
@@ -671,7 +663,7 @@ export function PermissionCard({
   };
 
   const commandBlock = command && (
-    <div ref={commandRef} className="acpmux-permission-command" data-expanded={showFull || undefined}>
+    <div className="acpmux-permission-command" data-expanded={showFull || undefined}>
       {showFull ? (
         <Surface.Inset as="pre" mono scroll id={fullId} className="acpmux-permission-command-full">
           <code>{command}</code>
@@ -687,10 +679,7 @@ export function PermissionCard({
           className="acpmux-permission-command-toggle"
           aria-expanded={showFull}
           aria-controls={showFull ? fullId : undefined}
-          onClick={() => {
-            commandFrom.current = commandRef.current?.getBoundingClientRect().height;
-            setExpanded(showFull ? undefined : permission.permissionId);
-          }}
+          onClick={() => setExpanded(showFull ? undefined : permission.permissionId)}
         >
           {showFull ? t("permission.hideFullCommand") : t("permission.showFullCommand")}
         </button>
@@ -746,6 +735,7 @@ export function PermissionCard({
                 value={planEdit.text}
                 rows={Math.min(16, Math.max(4, planEdit.text.split("\n").length + 1))}
                 spellCheck
+                // oxlint-disable-next-line jsx-a11y/no-autofocus -- the editor opens on the person's own click on Edit plan.
                 autoFocus
                 onChange={(event) => setPlanEdit({ permissionId: permission.permissionId, text: event.target.value })}
                 onKeyDown={(event) => {
