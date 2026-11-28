@@ -312,6 +312,9 @@ extension CloudHandlers {
         let names = CloudPortNames(session, port: preview.port)
         guard let pane = context.services.windows.active?.focusedPane?.pane else { throw ActionFailure(message: CloudPortStrings.noWindow(names)) }
         let url = try await wrapped(names) { try preview.browserURL(path: path) }
+        // Before the tab opens, so its first toolbar already offers Publish (`experiments.appsTier`).
+        context.services.appsTierPreviews.record(.init(machine: session.machineID, machineName: session.machine.title,
+                                                     port: preview.port, origin: preview.origin))
         let surface = try await wrapped(names) {
             try await context.services.cache.browserTabs.open(BrowserEngineChoice(engine: .cef, pinned: true),
                                                               in: pane, url: url.absoluteString, activate: viewChange)

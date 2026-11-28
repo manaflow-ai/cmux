@@ -16,6 +16,11 @@ import Foundation
 /// its profile and More.
 /// The rest are rows of the More menu, whose Show in Toolbar items pin them.
 public nonisolated enum BrowserToolbarButton: String, CaseIterable, Hashable, Sendable {
+    /// Publish this Cloud preview as an app (RFD 0003 E-A, Settings > Experiments > Apps tier):
+    /// shown only on a page of a Cloud preview this app opened (`BrowserToolbarFacts.publishable`).
+    /// A press opens the Publish popover (`BrowserPublishPopover`). Not pinnable: it
+    /// shows wherever there is something to publish, like More.
+    case publish
     /// The media hub (`browser.media.show`): what every tab plays, with
     /// its controls. Shown while a tab has media, as in Edge.
     case media
@@ -41,7 +46,7 @@ public nonisolated enum BrowserToolbarButton: String, CaseIterable, Hashable, Se
     /// the toggles toggle, so a right-click leaves them alone.
     public var opensMenu: Bool {
         switch self {
-        case .media, .downloads, .profile, .theme, .overflow: true
+        case .publish, .media, .downloads, .profile, .theme, .overflow: true
         case .zoom, .favorites, .designMode, .devTools: false
         }
     }
@@ -50,7 +55,8 @@ public nonisolated enum BrowserToolbarButton: String, CaseIterable, Hashable, Se
     /// pop-up button's `NSMenu` (Leo: "so he click and hold on the context menu start and then it
     /// goes over and then release should go"). Downloads opens a popup, not a menu, which does not
     /// follow a held press, so it keeps opening on the release.
-    public var followsPress: Bool { opensMenu && self != .downloads }
+    /// Publish opens a popover too.
+    public var followsPress: Bool { opensMenu && self != .downloads && self != .publish }
 
     /// Accessibility identifier (UI automation, `debug.extensions.toolbar`).
     public var identifier: String { "browser.toolbar.\(rawValue)" }
@@ -59,6 +65,7 @@ public nonisolated enum BrowserToolbarButton: String, CaseIterable, Hashable, Se
     /// `browserTheme` from its menu, one item per scheme.
     public var actionName: String {
         switch self {
+        case .publish: "browser.app.publish"
         case .media: "browser.media.show"
         case .zoom: "browserZoomReset"
         case .favorites: "bookmark.manager"
@@ -77,7 +84,7 @@ public nonisolated enum BrowserToolbarButton: String, CaseIterable, Hashable, Se
     public var collapseLevel: Int? {
         switch self {
         case .designMode, .devTools: 1
-        case .media, .zoom, .favorites, .downloads, .profile, .theme: 2
+        case .publish, .media, .zoom, .favorites, .downloads, .profile, .theme: 2
         case .overflow: nil
         }
     }
@@ -86,7 +93,7 @@ public nonisolated enum BrowserToolbarButton: String, CaseIterable, Hashable, Se
     public func isCollapsed(at level: Int) -> Bool { collapseLevel.map { $0 <= level } ?? false }
 
     /// Whether a person can pin or unpin it (More always shows).
-    public var isPinnable: Bool { self != .overflow }
+    public var isPinnable: Bool { self != .overflow && self != .publish }
 
     /// The buttons a person can pin, in toolbar order.
     public static var pinnable: [BrowserToolbarButton] { allCases.filter(\.isPinnable) }
@@ -96,6 +103,7 @@ public nonisolated enum BrowserToolbarButton: String, CaseIterable, Hashable, Se
     /// the tab downloaded something or while a download runs.
     public func hasContent(_ facts: BrowserToolbarFacts) -> Bool {
         switch self {
+        case .publish: facts.publishable
         case .media: facts.media.sessions > 0
         case .zoom: BrowserZoom.percent(facts.zoom) != 100
         case .downloads: facts.downloads.count > 0 || facts.downloads.inProgress
@@ -113,6 +121,7 @@ public nonisolated enum BrowserToolbarButton: String, CaseIterable, Hashable, Se
     /// The Show in Toolbar item's title.
     public var pinTitle: String {
         switch self {
+        case .publish: Strings.toolbarPublish
         case .media: Strings.toolbarMedia
         case .zoom: Strings.toolbarPinZoom
         case .favorites: Strings.toolbarFavorites
@@ -170,10 +179,13 @@ public nonisolated struct BrowserToolbarFacts: Hashable, Sendable {
     public var downloads: BrowserToolbarDownloads
     /// Media in every tab.
     public var media: BrowserToolbarMedia
+    /// The page is a Cloud preview this app opened and the Apps tier is on: Publish shows.
+    public var publishable: Bool
 
     public init(engine: BrowserEngineKind, hostsDevTools: Bool, devToolsOpen: Bool = false, designMode: Bool = false,
                 colorScheme: BrowserColorScheme = .system, profileName: String? = nil, zoom: Double = 1,
-                downloads: BrowserToolbarDownloads = BrowserToolbarDownloads(), media: BrowserToolbarMedia = BrowserToolbarMedia()) {
+                downloads: BrowserToolbarDownloads = BrowserToolbarDownloads(), media: BrowserToolbarMedia = BrowserToolbarMedia(),
+                publishable: Bool = false) {
         self.engine = engine
         self.hostsDevTools = hostsDevTools
         self.devToolsOpen = devToolsOpen
@@ -183,6 +195,7 @@ public nonisolated struct BrowserToolbarFacts: Hashable, Sendable {
         self.zoom = zoom
         self.downloads = downloads
         self.media = media
+        self.publishable = publishable
     }
 }
 

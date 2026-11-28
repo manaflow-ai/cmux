@@ -39,6 +39,10 @@ public final class BrowserToolbarButtonsView: NSStackView {
     public var downloads: (() -> BrowserToolbarDownloads)? { didSet { rebind() } }
     /// Every tab's media, read the same way.
     public var media: (() -> BrowserToolbarMedia)? { didSet { rebind() } }
+    /// Whether the page (its URL and title) has a Publish button (the Apps tier), read the same way.
+    public var publishable: ((URL?, String?) -> Bool)? { didSet { rebind() } }
+    /// The Publish button's popover, made the first time it opens.
+    public private(set) lazy var publishPopover = BrowserPublishPopover(buttons: self)
     /// The pinned buttons' ids (`browser.toolbarButtons`), read the same way,
     /// so a pin from any window or from cmux.json reaches every toolbar.
     public var pins: (() -> [String])? { didSet { rebind() } }
@@ -327,7 +331,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
             engine: tab.engineKind, hostsDevTools: hosting != nil || webKit != nil,
             devToolsOpen: hosting?.devTools.isOpen ?? webKit?.isInspectorVisible ?? false,
             designMode: modes.designMode, colorScheme: modes.colorScheme, profileName: profileName, zoom: tab.state.zoom,
-            downloads: downloads, media: media
+            downloads: downloads, media: media, publishable: publishable?(url, tab.state.title) ?? false
         )
     }
 

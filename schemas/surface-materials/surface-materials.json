@@ -98,6 +98,7 @@
     "CmuxNextBrowser/UI/OmnibarViews.swift": "window-chrome",
     "CmuxNextBrowser/UI/PageUnresponsiveView.swift": "native-overlay",
     "CmuxNextBrowser/UI/PromptBarView.swift": "native-overlay",
+    "CmuxNextBrowser/UI/Publish/BrowserPublishPopover.swift": "native-overlay",
     "CmuxNextBrowser/UI/VerificationSuggestionPanel.swift": "native-overlay",
     "CmuxNextComputerUsePreview/ComputerUseFloatingPreview.swift": "native-overlay",
     "CmuxNextCookieImport/CookieImportConsentPanel.swift": "native-overlay",

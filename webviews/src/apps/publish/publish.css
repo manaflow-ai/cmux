@@ -1,0 +1,162 @@
+/* The Apps tier's gallery stage: the browser pane's Publish popover and the sidebar's Apps section,
+   in the agent inks so it follows the gallery's theme and appearance. */
+.apps-publish-stage {
+  display: flex;
+  gap: calc(var(--grid-base, 4px) * 4);
+  align-items: flex-start;
+  padding: calc(var(--grid-base, 4px) * 4);
+  color: var(--agent-text);
+  font-size: var(--text-body);
+}
+.apps-publish-pane {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.apps-publish-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--agent-border);
+  border-radius: 8px;
+  background: var(--agent-surface, transparent);
+}
+.apps-publish-url {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--agent-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.apps-publish-popover {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 340px;
+  margin: 8px 0 0 auto;
+  padding: var(--ds-space-3);
+}
+.apps-publish-title {
+  font-weight: 600;
+}
+.apps-publish-field {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  gap: 8px;
+  align-items: center;
+}
+.apps-publish-label {
+  color: var(--agent-muted);
+}
+.apps-publish-field input[aria-invalid] {
+  border-color: var(--agent-danger);
+}
+.apps-publish-hint {
+  margin-left: calc(var(--ds-space-56) + var(--ds-space-4));
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+}
+.apps-publish-problem {
+  color: var(--agent-danger);
+}
+.apps-publish-segments {
+  display: inline-flex;
+  width: max-content;
+  padding: var(--grid-half-step);
+  border-radius: var(--ds-radius-lg);
+  background: var(--agent-control-hover);
+}
+.apps-publish-start {
+  color: var(--agent-text);
+}
+.apps-publish-outcome {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--agent-accent-soft, var(--agent-control-hover));
+}
+.apps-publish-outcome[data-kind="failed"] {
+  background: color-mix(in srgb, var(--agent-danger) 14%, transparent);
+}
+.apps-publish-outcome-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.apps-publish-outcome a {
+  color: var(--agent-accent);
+}
+.apps-publish-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.apps-publish-sidebar {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: 240px;
+  padding: var(--ds-space-2) var(--ds-space-1);
+  border: 1px solid var(--agent-border);
+  border-radius: var(--ds-radius-xl);
+}
+.apps-publish-section-header {
+  padding: 4px 8px;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  font-weight: 600;
+}
+.apps-publish-section-note {
+  padding: 4px 8px;
+  color: var(--agent-warning, var(--agent-muted));
+  font-size: var(--text-detail);
+}
+.apps-publish-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.apps-publish-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  height: var(--ds-control-row);
+  padding: 0 8px;
+  border-radius: 6px;
+}
+.apps-publish-row[data-clickable]:hover {
+  background: var(--agent-control-hover);
+}
+.apps-publish-row-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.apps-publish-row-detail,
+.apps-publish-pin {
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+}
+.apps-publish-row-add {
+  color: var(--agent-muted);
+}
+.apps-publish-dot {
+  flex: none;
+  width: var(--ds-space-2);
+  height: var(--ds-space-2);
+  border-radius: 50%;
+  background: var(--agent-muted);
+}
+.apps-publish-dot[data-dot="live"] {
+  background: var(--agent-success, #30d158);
+}
+.apps-publish-dot[data-dot="failed"] {
+  background: var(--agent-danger);
+}

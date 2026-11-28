@@ -1,0 +1,72 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"]
+  ],
+  "shots": [
+    {
+      "name": "popover-private",
+      "entry": "apps.publish",
+      "variant": "popover-private",
+      "width": 960,
+      "height": 460,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "popover-team",
+      "entry": "apps.publish",
+      "variant": "popover-team",
+      "width": 960,
+      "height": 460,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "name-empty",
+      "entry": "apps.publish",
+      "variant": "name-empty",
+      "width": 960,
+      "height": 460,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "published",
+      "entry": "apps.publish",
+      "variant": "published",
+      "width": 960,
+      "height": 460,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "failed",
+      "entry": "apps.publish",
+      "variant": "failed",
+      "width": 960,
+      "height": 460,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "sidebar-section",
+      "entry": "apps.publish",
+      "variant": "sidebar-section",
+      "width": 960,
+      "height": 460,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "sidebar-empty",
+      "entry": "apps.publish",
+      "variant": "sidebar-empty",
+      "width": 960,
+      "height": 460,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "sidebar-error",
+      "entry": "apps.publish",
+      "variant": "sidebar-error",
+      "width": 960,
+      "height": 460,
+      "deviceScaleFactor": 2
+    }
+  ]
+}

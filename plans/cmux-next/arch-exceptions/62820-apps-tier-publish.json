@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-27",
+  "row": "app_lines",
+  "allow": 56,
+  "why": "#62820 RFD 0003 step 4 (Publish button + sidebar Apps section) behind experiments.appsTier: the rules are Rust (cmux_apps::ui, apps_tier_* FFI ops), the run and the popover's source in CmuxNextDaemonService (AppsTierPublisher, AppsTierPreviews, AppsTierSidebarFeed), the values in CmuxNextBrowserCore, the views in CmuxNextBrowser and CmuxNextApps. What stays in the App is wiring that needs App types: machineAPI.exec, browserTabs.open in the focused pane, AppActionContext's page lookup for the sidebar row, the settings read, the feed's construction in SidebarBridge and its section routing in SidebarAppSections, and recording a preview where cloud.preview.open has the session. The review's move (publish/open closure bodies out of BrowserToolbarHandlers into AppsTierPublisher.source) is done at 0ab8cb81. Arch note: AppsTierSidebarFeed in DaemonService imports AppKit and CmuxNextApps; there is no free move for it today.",
+  "author": "exp-apps-tier-publish lane (claude opus)",
+  "owner": "exp-apps-tier-publish lane",
+  "receipt": "Review (independent-reviewer-62820): SHIP at 0ab8cb819f1873b279baf2b8c1e1e3d94c5067a4",
+  "expiry": "2026-12-27"
+}
