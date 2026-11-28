@@ -73,6 +73,7 @@ FIRST_PARTY_GPL = {
     "cmux-chat-markdown",
     "cmux-acpmux-remote-wire",
     "cmux-screenshots",
+    "cmux-screen-stream",
     "cmux-local-auth",
     "cmux-palette-ranker",
     "cmux-remote-browser",

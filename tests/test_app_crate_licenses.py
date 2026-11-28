@@ -134,6 +134,8 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-chat-markdown",
                     # The remote chat wire (cmux-acpmux-remote-wire).
                     "cmux-acpmux-remote-wire",
+                    # The screen stream's protocol and policy (cmux-screen-stream).
+                    "cmux-screen-stream",
                     "cmux-local-auth",
                     "cmux-palette-ranker",
                     "cmux-remote-browser",

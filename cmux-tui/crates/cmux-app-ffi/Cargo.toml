@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.91"
 license = "GPL-3.0-or-later"
 publish = false
-description = "The one Rust static library the cmux macOS app links: the C ABIs of the remote desktop core, the sidebar layout reducer, the palette ranker, cmux-motion, the agent pane policy, the action catalog, the daemon connection rules, the daemon launch rules, the staged-update pre-warm record, the app health model, the launch images, the pane pictures schedule, the chat markdown parser, the Screenshots pane rules, the cmux SDK daemon client, the agent list client, the Chrome cookie sync, live wallpapers and the background ready copy's decisions"
+description = "The one Rust static library the cmux macOS app links: the C ABIs of the remote desktop core, the sidebar layout reducer, the palette ranker, cmux-motion, the agent pane policy, the action catalog, the daemon connection rules, the daemon launch rules, the staged-update pre-warm record, the app health model, the launch images, the pane pictures schedule, the chat markdown parser, the Screenshots pane rules, the cmux SDK daemon client, the agent list client, the Chrome cookie sync, live wallpapers, the background ready copy's decisions and the screen stream's protocol and policy"
 
 # The workspace of the app's C ABIs, with one Cargo.lock for all four: this
 # crate and the FFI crates it links, which name it in `package.workspace`.
@@ -78,6 +78,8 @@ cmux-wallpaper = { path = "../cmux-wallpaper" }
 cmux-launch-shell = { path = "../cmux-launch-shell" }
 # Every window's last computed layout across restarts (src/ffi.rs, include/cmux_layout_cache.h): read, validity, reconcile, the write coalescer, the swap wait.
 cmux-layout-cache = { path = "../cmux-layout-cache" }
+# The screen stream's protocol and policy (cmux-screen-stream src/ffi.rs, include/cmux_screen_stream.h): data channel messages, quality settings, viewer demand, image paste, cursor shapes.
+cmux-screen-stream = { path = "../cmux-screen-stream" }
 # The files lister's child, owned (src/files_lister.rs): it ends with its lister.
 cmux-process = { path = "../cmux-process" }
 # The files lister client and the system calendar ops' JSON (src/files_lister.rs, src/system_calendar.rs).
