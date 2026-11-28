@@ -14,18 +14,18 @@ import { subscribeExperimentSwitches } from "../../experiments/switches";
 import { fromDetail, listCatalog, listInstalled, listUpdates, type WireDetail } from "./wire";
 import {
   categories,
+  featuredApps,
   filterApps,
-  keepUnchangedApps,
   listedInStore,
   parseRoute,
-  type CardStyle,
-  type StoreLayout,
-  type StoreTab,
-  featuredApps,
   type BrowseStyle,
+  type CardStyle,
   type DiscoverShelf,
   type ExamplesStyle,
   type ListingStyle,
+  type StoreLayout,
+  type StoreTab,
+  keepUnchangedApps,
   type FeaturesStyle,
 } from "./model";
 import {
@@ -36,14 +36,15 @@ import {
   type AppUpdate,
   type AppsChanged,
   type CatalogApp,
-  type FeatureRow,
-  type FeaturesList,
   type Grants,
+  type ServerCredential,
   type InstalledApp,
   type LogLine,
   type WireAsset,
   type WireLogs,
   CUSTOMIZE_ACTION,
+  type FeatureRow,
+  type FeaturesList,
 } from "./types";
 
 export type Connection = "connecting" | "connected" | "disconnected";
@@ -102,6 +103,11 @@ export interface AppsSnapshot {
   grants: Record<string, Grants>;
   /** Installed row panels. */
   grantsShown?: string;
+  /**
+   * The external server credential the person just made, shown once in its app's grants panel.
+   * It lives only here: the daemon keeps its digest, so it is gone once the page closes.
+   */
+  serverCredential?: ServerCredential;
   logsShown?: string;
   logs: Record<string, LogLine[]>;
   loading: boolean;
@@ -734,6 +740,23 @@ export class AppsStore {
   }
 
   /**
+   * Makes a credential for `app`'s external server (behind the host's native sheet) and keeps it to
+   * show once. A new one voids the last, so the shown one is always the one that works.
+   */
+  async makeServerCredential(app: string): Promise<void> {
+    const lifetime = this.lifetime;
+    const reply = await this.intentReply(AppsOps.serverCredential, { app }, { reread: false });
+    if (lifetime !== this.lifetime) return;
+    const credential = (reply as Partial<ServerCredential> | undefined)?.credential;
+    if (typeof credential === "string" && credential !== "") this.set({ serverCredential: { app, credential } });
+  }
+
+  /** Forgets the shown credential (Done). */
+  dismissServerCredential(): void {
+    if (this.snapshot.serverCredential) this.set({ serverCredential: undefined });
+  }
+
+  /**
    * Re-reads the Features tab's switches. Each is an existing setting another surface (Settings,
    * the CLI) can change too, so the tab reads on open and when the window comes back.
    */
@@ -809,9 +832,18 @@ export class AppsStore {
   private async run(
     op: string,
     params: Record<string, unknown>,
-    { reread = true, mutation = true }: { reread?: boolean; mutation?: boolean } = {},
+    options: { reread?: boolean; mutation?: boolean } = {},
   ): Promise<void> {
-    if (!this.client) return;
+    await this.intentReply(op, params, options);
+  }
+
+  /** `intent` that answers the owner's reply, or undefined when the call failed or was declined. */
+  private async intentReply(
+    op: string,
+    params: Record<string, unknown>,
+    { reread = true, mutation = true }: { reread?: boolean; mutation?: boolean } = {},
+  ): Promise<unknown> {
+    if (!this.client) return undefined;
     const lifetime = this.lifetime;
     const action = `${op}\u0000${JSON.stringify(params)}`;
     let key = mutation ? this.pendingKeys.get(action) : undefined;
@@ -819,20 +851,22 @@ export class AppsStore {
       key = newKey();
       this.pendingKeys.set(action, key);
     }
+    let reply: unknown;
     try {
-      await this.client.call(op, key ? { ...params, idempotency_key: key } : params);
+      reply = await this.client.call(op, key ? { ...params, idempotency_key: key } : params);
       if (key && this.pendingKeys.get(action) === key) this.pendingKeys.delete(action);
-      if (lifetime !== this.lifetime) return;
+      if (lifetime !== this.lifetime) return undefined;
       if (this.snapshot.error) this.set({ error: undefined });
     } catch (error) {
       if (!(isPageError(error) && error.retryable) && (!key || this.pendingKeys.get(action) === key))
         this.pendingKeys.delete(action);
-      if (lifetime !== this.lifetime) return;
+      if (lifetime !== this.lifetime) return undefined;
       if (!(isPageError(error) && error.code === CANCELLED)) this.set(failure(error));
-      return;
+      return undefined;
     }
-    if (lifetime !== this.lifetime) return;
+    if (lifetime !== this.lifetime) return undefined;
     if (reread) await this.reload();
+    return reply;
   }
 
   private set(patch: Partial<AppsSnapshot>): void {

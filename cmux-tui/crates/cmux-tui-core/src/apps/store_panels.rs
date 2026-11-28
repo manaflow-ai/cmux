@@ -14,6 +14,10 @@
 //! - `grant.set`: allow or revoke one scope (the Apps page asks on a native
 //!   sheet: an allowed scope widens what the app may do).
 //! - `grant.revoke`: revoke one scope (a gesture is enough: it only narrows).
+//! - `server.credential`: a new credential for the app's `external` server
+//!   (server_external.rs `server_credential`), shown once. The Apps page asks
+//!   on a native sheet first: the credential lets a process the person starts
+//!   serve the app's ops. It needs `server:execute` granted already.
 //!
 //! Every change is origin user only, as `set` (mirror reduce enforces it).
 
@@ -96,6 +100,16 @@ struct RevokeParams {
     idempotency_key: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CredentialParams {
+    app: String,
+    /// The routed door requires one for every mutation; a new credential is
+    /// minted on every call all the same (it voids the last one).
+    #[serde(rename = "idempotency_key")]
+    _idempotency_key: String,
+}
+
 #[derive(Debug, Serialize)]
 struct GrantRow {
     scope: String,
@@ -110,6 +124,10 @@ struct Grants {
     app: String,
     sandboxed: bool,
     scopes: Vec<GrantRow>,
+    /// The manifest's `server.kind` (`native`, `js`, `external`), absent
+    /// without a server: the page offers `server.credential` for `external`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    server: Option<String>,
 }
 
 /// The image types `asset.get` answers, by file extension.
@@ -194,6 +212,9 @@ impl Supervisor {
             "apps.grant.revoke" => params(args).and_then(|p: RevokeParams| {
                 self.grant(client, p.app, p.scope, false, p.idempotency_key, origin)
             }),
+            "apps.server.credential" => {
+                params(args).and_then(|p: CredentialParams| self.server_credential(&p.app, origin))
+            }
             _ => return None,
         })
     }
@@ -227,7 +248,9 @@ impl Supervisor {
             .filter(|record| record.installed)
             .ok_or_else(|| ApiError::new("apps.not_installed", "the app is not installed"))?;
         let mut scopes = Vec::new();
-        if let Some(package) = inner.catalog.packages.get(&p.app) {
+        let package = inner.catalog.packages.get(&p.app);
+        let server = package.and_then(super::servers::kind).map(str::to_string);
+        if let Some(package) = package {
             for (field, optional) in [("scopes", false), ("optionalScopes", true)] {
                 for (scope, reason) in package.manifest[field].as_object().into_iter().flatten() {
                     scopes.push(GrantRow {
@@ -240,7 +263,7 @@ impl Supervisor {
                 }
             }
         }
-        Ok(Grants { app: p.app, sandboxed: record.sandboxed, scopes })
+        Ok(Grants { app: p.app, sandboxed: record.sandboxed, scopes, server })
     }
 
     fn logs_tail(&self, client: u64, p: LogsParams) -> Result<Value, ApiError> {

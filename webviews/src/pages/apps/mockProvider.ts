@@ -6,6 +6,7 @@ import { LINK_CLOSED, MockPageStreams } from "../shared/pageStreams";
 import {
   AppsOps,
   OPEN_ACTION,
+  SERVER_SCOPE,
   type AppDetail,
   type AppsChanged,
   type GrantRow,
@@ -13,7 +14,7 @@ import {
   type InstalledApp,
   type LogLine,
 } from "./types";
-import type { WireDetail, WireInstalledList, WireListing, WireUpdatesList, WireIcon } from "./wire";
+import type { WireDetail, WireIcon, WireInstalledList, WireListing, WireUpdatesList } from "./wire";
 import { NewTabOps } from "./UseAsNewTab";
 import { iconArt, screenshotArt } from "./mockArt";
 
@@ -216,6 +217,13 @@ export class MockAppsProvider implements PageClient {
         if (!row) throw pageError("cmux.apps.unknown_scope", String(params.scope));
         row.granted = op === AppsOps.grantSet && params.granted === true;
         return this.changed(app) as R;
+      }
+      case AppsOps.serverCredential: {
+        const grants = this.grants[app];
+        if (grants?.server !== "external") throw pageError("cmux.apps.server_unsupported", app);
+        if (!grants.scopes.some((row) => row.scope === SERVER_SCOPE && row.granted))
+          throw pageError("cmux.apps.server_unapproved", app);
+        return { app, credential: `cmuxsrv1_${"0".repeat(64)}` } as R;
       }
       case AppsOps.logs:
         return {

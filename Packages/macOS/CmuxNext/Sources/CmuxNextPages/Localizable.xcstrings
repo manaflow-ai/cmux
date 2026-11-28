@@ -10766,6 +10766,270 @@
         }
       }
     },
+    "pages.confirm.apps.serverCredential": {
+      "comment": "Title of the native sheet before the App Store page makes a credential for an app's external server; %@ is the app's name",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تريد إنشاء بيانات اعتماد خادم لـ “%@”؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Napraviti akreditiv servera za “%@”?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opret en serverlegitimation til “%@”?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server-Zugangsschlüssel für „%@“ erstellen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make a server credential for “%@”?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Crear una credencial de servidor para “%@”?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Créer un identifiant de serveur pour « %@ » ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creare una credenziale server per “%@”?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」のサーバー認証情報を作成しますか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្កើតព័ត៌មានសម្គាល់ម៉ាស៊ីនមេសម្រាប់ “%@” ឬ?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”의 서버 자격 증명을 만드시겠습니까?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lage en serverlegitimasjon for «%@»?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utworzyć poświadczenie serwera dla „%@”?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Criar uma credencial de servidor para “%@”?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Создать учётные данные сервера для «%@»?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สร้างข้อมูลรับรองเซิร์ฟเวอร์สำหรับ “%@” หรือไม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” için bir sunucu kimlik bilgisi oluşturulsun mu?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Створити облікові дані сервера для «%@»?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tạo thông tin xác thực máy chủ cho “%@”?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为“%@”创建服务器凭据？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "為「%@」建立伺服器憑證？"
+          }
+        }
+      }
+    },
+    "pages.confirm.apps.serverCredentialDetail": {
+      "comment": "Body of the native sheet before the App Store page makes a credential for an app's external server",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "البرنامج الذي تشغّله بها يجيب عن أوامر هذا التطبيق على هذا الـ Mac. تظهر مرة واحدة، وتحل محل السابقة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Program koji pokreneš s njim odgovara na komande ove aplikacije na ovom Macu. Prikazuje se jednom i zamjenjuje prethodni."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et program, du starter med den, besvarer denne apps kommandoer på denne Mac. Den vises én gang og erstatter den forrige."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Programm, das du damit startest, beantwortet die Befehle dieser App auf diesem Mac. Er wird einmal angezeigt und ersetzt den vorherigen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A program you start with it answers this app’s commands on this Mac. It is shown once, and it replaces the last one."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un programa que inicies con ella responde a los comandos de esta app en este Mac. Se muestra una sola vez y reemplaza la anterior."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un programme que vous lancez avec cet identifiant répond aux commandes de cette app sur ce Mac. Il n’est affiché qu’une fois et remplace le précédent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un programma che avvii con essa risponde ai comandi di questa app su questo Mac. Viene mostrata una sola volta e sostituisce la precedente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これを使って起動したプログラムが、この Mac でこのアプリのコマンドに応答します。表示は一度だけで、前の認証情報は置き換えられます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មវិធីដែលអ្នកចាប់ផ្ដើមជាមួយវា នឹងឆ្លើយពាក្យបញ្ជារបស់កម្មវិធីនេះនៅលើ Mac នេះ។ វាបង្ហាញតែម្ដង ហើយជំនួសព័ត៌មានសម្គាល់មុន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 자격 증명으로 시작한 프로그램이 이 Mac에서 이 앱의 명령에 응답합니다. 한 번만 표시되며 이전 자격 증명을 대체합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et program du starter med den, svarer på denne appens kommandoer på denne Macen. Den vises én gang og erstatter den forrige."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Program uruchomiony z nim odpowiada na polecenia tej aplikacji na tym Macu. Jest pokazywane raz i zastępuje poprzednie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um programa que você iniciar com ela responde aos comandos deste app neste Mac. Ela aparece uma única vez e substitui a anterior."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Программа, запущенная с ними, отвечает на команды этого приложения на этом Mac. Они показываются один раз и заменяют предыдущие."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โปรแกรมที่คุณเริ่มด้วยข้อมูลนี้จะตอบคำสั่งของแอปนี้บน Mac เครื่องนี้ ข้อมูลนี้แสดงเพียงครั้งเดียวและจะแทนที่ข้อมูลก่อนหน้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bununla başlattığın program bu Mac’te bu uygulamanın komutlarını yanıtlar. Yalnızca bir kez gösterilir ve öncekinin yerini alır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Програма, яку ви запустите з ними, відповідає на команди цієї програми на цьому Mac. Вони показуються один раз і замінюють попередні."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chương trình bạn khởi chạy với thông tin này sẽ trả lời lệnh của ứng dụng này trên máy Mac này. Thông tin chỉ hiển thị một lần và thay thế thông tin trước đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你用它启动的程序会在这台 Mac 上响应此应用的命令。它只显示一次，并替换上一个凭据。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你用它啟動的程式會在這台 Mac 上回應此 App 的指令。它只會顯示一次，並取代上一個憑證。"
+          }
+        }
+      }
+    },
     "customizeExperiments.mark.one": {
       "comment": "Sidebar bottom-left mark while one unmerged pull request's pages are on in this app (cmux customize use pr:N). Followed by ' · #N', the pull request's number.",
       "extractionState": "manual",

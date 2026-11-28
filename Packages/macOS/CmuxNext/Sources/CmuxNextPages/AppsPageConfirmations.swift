@@ -4,7 +4,8 @@ import Foundation
 /// Which calls of the React App Store page (`cmux.apps.*`, react-pages.md 3.3) pass a native sheet
 /// before they reach the owner, and what the sheet says (coordinator Q4: page JS cannot prove a
 /// gesture, so the sheet makes the call the user's own). Update, Remove, `set` (turn on or off, the
-/// sandbox), allowing a scope, and an install from outside the page or with more than its required
+/// sandbox), allowing a scope, a new credential for an app's external server
+/// (`cmux.apps.server.credential`), and an install from outside the page or with more than its required
 /// scopes ask. Reads, Hide/Show (`cmux.apps.hidden.set`), revoking a scope
 /// (`cmux.apps.grant.revoke`) and a plain install from the page need only the person's gesture
 /// (page-router.json `gesture`); Open is the host action `app.open`. In CmuxNextPages (not the app target) so every
@@ -15,7 +16,8 @@ public nonisolated struct AppsPageConfirmations {
     /// Whether `op` may need a sheet, so the caller reads the listing (`cmux.apps.catalog.get`) first.
     public func needsDetail(_ op: String, params: JSONValue = .null, fromPage: Bool = false) -> Bool {
         if op == "cmux.apps.install", confirmation(op: op, params: params, detail: nil, fromPage: fromPage) == nil { return false }
-        return ["cmux.apps.install", "cmux.apps.update", "cmux.apps.uninstall", "cmux.apps.grant.set", "cmux.apps.set"].contains(op)
+        return ["cmux.apps.install", "cmux.apps.update", "cmux.apps.uninstall", "cmux.apps.grant.set", "cmux.apps.set",
+                "cmux.apps.server.credential"].contains(op)
     }
 
     /// The sheet for `op` with `params`, or nil when the call needs none. `detail` is the
@@ -62,6 +64,11 @@ public nonisolated struct AppsPageConfirmations {
             let row = scopes.first { $0.sheet.scope == wanted }?.sheet
                 ?? PageConfirmation.Scope(scope: wanted, reason: "", risk: "standard")
             return PageConfirmation(kind: .grant, name: name, scopes: [row])
+        case "cmux.apps.server.credential":
+            // A process the person starts connects with it and answers the app's commands; a new
+            // credential ends the server attached with the old one (server_external.rs).
+            return PageConfirmation(kind: .custom, name: String(format: PageStrings.serverCredential, name),
+                                    detail: PageStrings.serverCredentialDetail)
         default:
             return nil
         }
