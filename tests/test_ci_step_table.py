@@ -35,6 +35,8 @@ from unittest import mock
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+# pr-pipeline.yml linux job timeout: a ceiling, since ci/run bounds each step (PipelineTest).
+LINUX_JOB_CEILING_MINUTES = 2880
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 sys.path.insert(0, str(ROOT / "tests"))
 import ci_steps  # noqa: E402
@@ -1946,7 +1948,10 @@ class PipelineTest(unittest.TestCase):
         need = (ci_steps.SETUP_TIMEOUT + ci_steps.TOOL_TIMEOUT + -(-len(shared) // 2) * max((s.timeout for s in shared), default=0)
                 + sum(s.timeout for s in linux if s.alone))
         wf = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
-        self.assertGreaterEqual(wf["jobs"]["linux"]["timeout-minutes"] * 60, need)
+        # A fixed ceiling every concurrent pull request shares (no per-step bump to conflict on); this fails only
+        # once the table outgrows it.
+        self.assertEqual(wf["jobs"]["linux"]["timeout-minutes"], LINUX_JOB_CEILING_MINUTES)
+        self.assertGreaterEqual(LINUX_JOB_CEILING_MINUTES * 60, need)
 
 
 class MacJobTest(unittest.TestCase):
