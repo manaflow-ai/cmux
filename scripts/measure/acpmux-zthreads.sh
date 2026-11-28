@@ -18,7 +18,7 @@ mkdir -p "$out"
 jobs=${J:-16}
 
 echo "host: nproc=$(nproc) mem=$(awk '/MemTotal/{printf "%.1f GiB", $2/1048576}' /proc/meminfo) $(rustc -V) -j$jobs"
-# A depth flag only on an already-shallow checkout: in a full clone it would turn every worktree shallow.
+# Only a shallow checkout fetches shallow: a full clone must not turn shallow (tests/test_ci_no_shallow_dev_fetch.py).
 depth=()
 [[ "$(git -C "$root" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=400)
 git -C "$root" fetch -q origin "$base" "$head" 2>/dev/null || git -C "$root" fetch -q ${depth[@]+"${depth[@]}"} origin "$base" "$head"
