@@ -23,6 +23,14 @@ for 99% fewer minutes of ci time, period."): a pull request from this repository
 `labeled` event that adds `ready-to-land` or `full-ci`; every other head that would be full (later pushes while
 `full-ci` stays on, stacked pull requests on other bases, ask-rule heads) gets the cheap tier. Off, nothing changes.
 
+Post-merge tier rule (off unless the repository variable CI_POST_MERGE_TIER_PR is 1; cmuxterm-hq
+docs/rfd/0200-ci-four-tiers.md, tier 3; Leo, 2026-11-28: "de facto, im asking for 99% fewer minutes of ci time,
+period."): a feat-cmux-next pull request head gets the tier `none` in a workflow that RFD 0013's merge tiers put after
+the merge (`merge_tier.post_merge` in .github/post-merge-checks.json, with `merge_tier.switch` on) and that a suite of
+.github/post-merge-batch.json runs. The check still starts and reports on the PR; its heavy jobs run once per
+post-merge batch instead of on each landing head, and a red there is bisected to the PR. `full-ci` still runs it on
+the PR. Unreadable config, a called workflow (its $GITHUB_WORKFLOW_REF is the caller's) or a fork's head: unchanged.
+
 Idle rule (cmuxterm-hq docs/ci/idle-pr-heads-2026-11-21.md, hq#16419): a head that only merges the base into a
 pull request whose own last commit is more than 24 hours old gets the tier `none`: the router starts nothing, and
 ci.yml and cmux-next.yml run it like a draft. Base merges were 37% of PR runner-minutes over 11-13..19, most on
@@ -837,6 +845,45 @@ def same_patch_facts(event: dict) -> dict:
     return {"before": before, "same_patch_green": runs is not None and green_previous(runs)}
 
 
+POST_MERGE_TIER_VAR = "CI_POST_MERGE_TIER_PR"  # 1: batch-covered post-merge-tier workflows skip PR heads
+POST_MERGE_TIER_REASON = "post-merge tier (CI_POST_MERGE_TIER_PR=1)"
+
+
+def _repo_root() -> str:
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+def batch_post_merge_workflows(root: str | None = None) -> set[str]:
+    """Workflow files that RFD 0013 puts after the merge (merge_tier.post_merge, switch on) and that a post-merge
+    batch suite runs. Empty when either file is unreadable or the switch is off."""
+    root = root or _repo_root()
+    checks = _load(os.path.join(root, ".github", "post-merge-checks.json")).get("merge_tier")
+    batch = _load(os.path.join(root, ".github", "post-merge-batch.json")).get("suites")
+    if not isinstance(checks, dict) or str(checks.get("switch") or "") != "on" or not isinstance(batch, dict):
+        return set()
+    listed = checks.get("post_merge")
+    listed = set(listed) if isinstance(listed, (dict, list)) else set()
+    run = {str(v.get("workflow") or "") for v in batch.values() if isinstance(v, dict)}
+    return {str(w) for w in listed} & run
+
+
+def post_merge_tier(event_name: str, event: dict, workflow: str, switch: str | None = None,
+                    root: str | None = None) -> tuple[str, str] | None:
+    """The post-merge tier rule (docstring): ("none", reason) for a feat-cmux-next pull request head in a
+    batch-covered post-merge-tier WORKFLOW with SWITCH on; None when the rule does not apply."""
+    switch = os.environ.get(POST_MERGE_TIER_VAR, "0") if switch is None else switch
+    if (switch or "0").strip() != "1" or event_name not in ("pull_request", "pull_request_target"):
+        return None
+    pr = event.get("pull_request") or {}
+    if str((pr.get("base") or {}).get("ref") or "") != "feat-cmux-next" or not same_repo(event):
+        return None
+    if FULL_CI in labels_of(event) or not workflow or workflow not in batch_post_merge_workflows(root):
+        return None
+    return "none", (f"{POST_MERGE_TIER_REASON}: {workflow} is in RFD 0013's post-merge tier and the "
+                    f"feat-cmux-next post-merge batch runs it on every merge, bisecting a red to its pull request; "
+                    f"`{FULL_CI}` runs it here")
+
+
 def decide(event_name: str, event: dict) -> tuple[str, str]:
     """tier() for this run: its switches from the environment, the head's facts read only when they can matter."""
     return decide_with_facts(event_name, event)[0]
@@ -844,6 +891,9 @@ def decide(event_name: str, event: dict) -> tuple[str, str]:
 
 def decide_with_facts(event_name: str, event: dict) -> tuple[tuple[str, str], dict | None]:
     """(decide()'s answer, the facts it read): pr_router.rerun_plan reads `previous_runs` from them."""
+    post_merge = post_merge_tier(event_name, event, workflow_file(os.environ.get("GITHUB_WORKFLOW_REF")))
+    if post_merge:
+        return post_merge, None
     switch = os.environ.get("CI_DRAFT_CHEAP_TIER", "1")
     idle_switch = os.environ.get("CI_IDLE_BASE_MERGE_SKIP", "1")
     land_switch = os.environ.get("CI_LAND_TIER", "1")
