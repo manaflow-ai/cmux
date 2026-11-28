@@ -1,11 +1,6 @@
-import { createContext, useContext, useEffect, useRef, type ReactNode } from "react";
-import { DEFAULT_SHIMMER_CADENCE, startShimmerCadence } from "./shimmerCadence";
-
-export const ShimmerEnabledContext = createContext(true);
-
-/** The sweeps' timing (shimmerCadence.ts). Only the pacing gallery (ShimmerPacing.gallery.tsx) provides
- * another: the app always runs the default. */
-export const ShimmerCadenceContext = createContext(DEFAULT_SHIMMER_CADENCE);
+import { useContext, useEffect, useRef, type ReactNode } from "react";
+import { startShimmerCadence } from "./shimmerCadence";
+import { ShimmerCadenceContext, ShimmerEnabledContext } from "./shimmerEnabledContext";
 
 function useShimmerCadence() {
   const ref = useRef<HTMLSpanElement>(null);

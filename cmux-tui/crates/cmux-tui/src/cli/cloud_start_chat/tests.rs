@@ -565,7 +565,8 @@ fn a_fresh_chats_turn_is_pushed_over_the_link() {
     assert_eq!(answer["reply"], "pong");
     assert_eq!(answer["wait_route"], "link");
     assert_eq!(answer["turn"]["status"], "completed");
-    assert_eq!(answer["turn_ms"], json!({"first_output": 1_100, "end": 2_000}));
+    // `prompt_at` is the prompt's own `at`, which the Cloud probe sets against the inference gateway's call line.
+    assert_eq!(answer["turn_ms"], json!({"first_output": 1_100, "end": 2_000, "prompt_at": 1_000}));
     // No exec after the send; the second wait starts after the first one's newest seq. The link send found no
     // link here, so the prompt went by exec first (called[0] and [1] are its try).
     assert_eq!(fake.ran.len(), 3, "{:?}", fake.ran);
@@ -878,6 +879,14 @@ fn the_answer_names_the_journeys_start_marks() {
         json!({"created": 7_000, "connect": 8_500, "session_start": 9_300, "session_ready": 9_900,
                "send": 10_000, "sent": 15_000, "total": 15_000})
     );
+    // One trace id for the start, and its spans from the same marks (no `running`: `vm_running` ends at the create).
+    let id = answer["trace_id"].as_str().unwrap();
+    assert_eq!(id.len(), 32);
+    assert_eq!(answer["trace"]["trace_id"], id);
+    assert_eq!(
+        answer["trace"]["phases_ms"],
+        json!({"select": 0, "vm_running": 7_000, "session_start": 2_300, "session_ready": 600, "sent": 5_100})
+    );
 }
 
 #[test]
@@ -887,6 +896,7 @@ fn a_failure_carries_the_steps_it_ran() {
         panic!()
     };
     assert_eq!(error["details"]["stages_ms"]["steps"][0]["step"], "cloud list-machines");
+    assert_eq!(error["details"]["trace_id"].as_str().map(str::len), Some(32));
 }
 
 /// A run that made its machine and then failed still names it, so its caller can delete what it

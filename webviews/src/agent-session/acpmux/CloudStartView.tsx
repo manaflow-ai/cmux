@@ -13,12 +13,14 @@ import {
 } from "./cloudStartProgress";
 import { AlertCircle, Check, ChevronDown, ChevronRight, Folder } from "./conversation/icons";
 
-import { DelayedSpinner, SPINNER_DELAY_MS } from "./conversation/DelayedSpinner";
+import { DelayedSpinner } from "./conversation/DelayedSpinner";
+import { SPINNER_DELAY_MS } from "./conversation/useDelayedVisible";
 import { ShimmerText } from "./conversation/ShimmerText";
 import { cloudStartGoes } from "./cloudStartJustGo.experiment";
 import { Thinking } from "./conversation/Thinking";
 import { CloudSetupCard } from "./conversation/CloudSetupCard";
-import { CloudSetupSteps, cloudSetupStep, type CloudSetupStepsLook } from "./conversation/CloudSetupSteps";
+import { CloudSetupSteps } from "./conversation/CloudSetupSteps";
+import { cloudSetupStep, type CloudSetupStepsLook } from "./conversation/cloudSetupStep";
 import type { CloudSetupAction } from "./cloudSetup";
 import { usePaneLanguage, useT, type Translate } from "./i18n";
 import { cloudPlanRecoveryLabels } from "./cloudPlanRecoveryLabels";
@@ -26,16 +28,16 @@ import type { CloudPlanTeam, CloudPlanTeamRefusal } from "./cloudPlanTeams";
 import {
   CLOUD_PLAN_IDS,
   CLOUD_PLANS,
-  cloudPlanMachineWords,
   sizeFits,
   type CloudPlanId,
   type CloudPlanView,
   type CloudSizeLocked,
+  cloudPlanMachineWords,
 } from "./cloudPlans";
 import { useCloudPlanSubscribe, type CloudPlanSubscribeStore } from "./cloudPlanSubscribe";
 import { useGitHubPicker, type GitHubPickerStore, gitHubPickerStore, githubFullName } from "./githubRepos";
 import "./cloudStart.css";
-import { type ChecklistStep, type QuietStage, quietStage, startupChecklist, stageClock } from "./cloudStartViewModel";
+import { type ChecklistStep, startupChecklist, type QuietStage, quietStage, stageClock } from "./cloudStartViewModel";
 import { CLOUD_SIGN_IN_ANSWERS } from "./cloudSignIn";
 import { WithFacts } from "./chips/FactsHoverCard";
 
@@ -44,7 +46,7 @@ type QuietLook = "inline" | "stacked" | "hint" | "thinking";
 /// When the stage on the line began: the host's start time, else the moment this view first showed
 /// the stage, so the clock always counts (a host that sends no start time for a step still gets
 /// seconds on its line, never a bare label). A new stage starts its own count.
-export function useStageSince(stage: Pick<QuietStage, "id" | "since"> | undefined, now: number): number | undefined {
+function useStageSince(stage: Pick<QuietStage, "id" | "since"> | undefined, now: number): number | undefined {
   const seen = useRef<{ id: QuietStage["id"]; at: number } | undefined>(undefined);
   if (!stage) {
     seen.current = undefined;

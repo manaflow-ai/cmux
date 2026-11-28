@@ -2821,6 +2821,34 @@ class FastTierStartsWarm(unittest.TestCase):
             commit("ghostty")
             self.assertEqual(keys()["swift-prefix"], before)
 
+    def test_a_cold_seed_root_with_no_git_still_keys(self):
+        """A cold owned seed root (owned_spm_scratch.py lease: "starts cold") is a build directory with no .git. The
+        mac job passed it as ROOT, and `git ls-files` there failed "Compute fast-tier cache keys" with "fatal: not a
+        git repository" (cmux run 46113542594, cmux13s-mac-mini-glaeda-11, 2026-11-28). The key reads the manifests
+        from the checkout the step runs in and still keys the seed root's path."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, seed = Path(tmp) / "repo", Path(tmp) / "seed-root"
+            (repo / "Packages/macOS/A").mkdir(parents=True)
+            (repo / "scripts/ci").mkdir(parents=True)
+            seed.mkdir()
+            (repo / "Packages/macOS/A/Package.swift").write_text("// swift-tools-version:6.0\n")
+            (repo / "Packages/macOS/A/Package.resolved").write_text("{}\n")
+            (repo / "scripts/ci/swiftpm-cache-layout").write_text("2\n")
+            git = lambda *args: subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True)
+            git("init", "-q")
+            git("add", ".")
+            git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base")
+            env = {k: v for k, v in os.environ.items() if not k.startswith(("GITHUB_", "RUNNER_", "CMUX_FAST_CACHE_"))}
+            env.update({"CMUX_FAST_CACHE_XCODE_VERSION": "Xcode 27.2", "PATH": "/usr/bin:/bin", "RUNNER_OS": "macOS",
+                        "RUNNER_ARCH": "ARM64", "GITHUB_SHA": "abc123", "GITHUB_WORKSPACE": str(repo),
+                        "CMUX_FAST_CACHE_WORKSPACE": str(seed)})
+            run = lambda root: subprocess.run(["bash", str(CACHE_KEY_SCRIPT), str(root)], cwd=repo, env=env,
+                                              capture_output=True, text=True)
+            cold, warm = run(seed), run(repo)
+            self.assertEqual(cold.returncode, 0, cold.stderr)
+            self.assertIn("no git work tree", cold.stderr)
+            self.assertEqual(cold.stdout, warm.stdout, "same commit, same place: the same key from either tree")
+
     def test_seed_is_due_only_when_the_newest_seed_is_old(self):
         def due(objects: list[dict], now: str = "2026-10-19T22:00:00Z") -> str:
             with tempfile.TemporaryDirectory() as tmp:
