@@ -641,7 +641,7 @@ impl Refusal {
             Self::Unguarded => "acpmux did not apply the receive guard",
             Self::SharesUnsupported => "update the move client to move a shared chat",
             Self::Busy => {
-                "another move operation for this chat is still running; retry when it answers"
+                "another move operation for this chat is still running"
             }
             Self::Limit => "too many chat moves at once",
             Self::Timeout => "acpmux did not answer in time",
