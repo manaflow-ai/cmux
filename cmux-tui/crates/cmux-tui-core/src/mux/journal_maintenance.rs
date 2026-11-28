@@ -496,6 +496,13 @@ impl Mux {
             // again, and settles once there is nothing left.
             Ok(TickOutcome::WorkRemains)
         })();
+        if std::env::var_os("JIDLE_TRACE").is_some() {
+            eprintln!(
+                "JIDLE tick {:?} {:?}",
+                result.as_ref().map_err(|e| e.to_string()),
+                steps.steps
+            );
+        }
         if let Some(report) = steps.slow_report(SLOW_MAINTENANCE_TICK) {
             eprintln!("cmux-tui: {report}");
             self.report_internal_diagnostic(report);
