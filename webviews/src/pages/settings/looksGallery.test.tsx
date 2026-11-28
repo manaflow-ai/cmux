@@ -11,7 +11,7 @@ import type { Rendered } from "./testing";
 const restore = installDom();
 afterAll(() => restore());
 const { renderPage, settle, click } = await import("./testing");
-const { consentLines, moveOrder, pinnedReference, readLooksAnswer, asGallery, asPreview } =
+const { PICK_LOOK_ID, consentLines, moveOrder, pinnedReference, readLooksAnswer, asGallery, asPreview } =
   await import("./looksGallery");
 const { mockConsentCard, mockStackedLooks } = await import("./mockLooks");
 
@@ -144,4 +144,20 @@ test("a refused change shows the CLI's words", async () => {
 test("a host without the Looks part draws no card", async () => {
   await open({ failing: { "cmux.settings.looks": "cmux.protocol.unknown_op" } });
   expect(card()).toBeNull();
+});
+
+test('the look we root for wears "Our pick" on its tile, the walk\'s pick, and no other tile does', async () => {
+  // The walk's pick names a look the CLI's catalog lists (cmux-customize setup/looks.json).
+  const catalog = (await import("../../../../cmux-tui/crates/cmux-customize/src/setup/looks.json")).default as {
+    looks: Array<{ id: string }>;
+  };
+  expect(PICK_LOOK_ID).toBe("manaflow-ai/studio-look");
+  expect(catalog.looks.map((look) => look.id)).toContain(PICK_LOOK_ID!);
+  await open();
+  const badged = [...card()!.querySelectorAll<HTMLElement>("[data-looks-pick]")];
+  expect(badged.length).toBe(1);
+  expect(badged[0]!.closest<HTMLElement>("[data-look]")!.dataset.look).toBe(PICK_LOOK_ID!);
+  expect(badged[0]!.textContent).toBe("Our pick");
+  // A badge, not a choice: nothing installs until the person asks.
+  expect(tile(PICK_LOOK_ID!).hasAttribute("data-installed")).toBe(false);
 });

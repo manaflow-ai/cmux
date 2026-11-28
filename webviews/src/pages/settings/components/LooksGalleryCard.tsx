@@ -16,7 +16,7 @@ import { useColorScheme } from "../colorScheme";
 import { useStore } from "../context";
 import { Switch } from "../editors/ToggleEditor";
 import { Icon } from "../icons";
-import { consentLines, moveOrder, pinnedReference, shortCommit } from "../looksGallery";
+import { PICK_LOOK_ID, consentLines, moveOrder, pinnedReference, shortCommit } from "../looksGallery";
 import type { Look, LookConsentCard, LookLayer, LooksGallery, LooksRun } from "../ops";
 import { LOOKS_KEY, lookPreviewQuery, looksQuery, storePreviewLoader, type LookPreviewLoader } from "../sectionQueries";
 import { t } from "../strings";
@@ -234,7 +234,8 @@ export function LooksCatalog({
   return <div className="looks-grid">{looks.map((look) => tile(look, "tile"))}</div>;
 }
 
-/** One look: its golden sample, name, tagline, and Install, or its switch and Uninstall. */
+/** One look: its golden sample, name (the one we root for badged "Our pick"), tagline, and Install,
+ * or its switch and Uninstall. */
 export function LookTile({
   look,
   size,
@@ -300,8 +301,13 @@ export function LookTile({
       <LookPreviewImage look={look} scheme={scheme} loadPreview={loadPreview} />
       <div className="looks-tile-body">
         <div className="looks-tile-text">
-          <span className="row-title" id={labelId}>
+          <span className="row-title looks-tile-name" id={labelId}>
             {look.name}
+            {look.id === PICK_LOOK_ID && (
+              <span className="looks-pick" data-looks-pick="">
+                {t("settingsPage.looksGallery.pick")}
+              </span>
+            )}
           </span>
           <span className="row-help looks-tagline">{look.tagline}</span>
         </div>
