@@ -1,3 +1,5 @@
+# Opens only .rs files, below the folder its caller names (scripts/ci/guard_step_inputs.py DECLARED):
+# guard-inputs: **/*.rs
 """Which Rust files under cmux-tui/crates compile only in tests, for the ratchets that count product code.
 
 A file is test code when its name says so (`tests.rs`, `*_tests.rs`, `*_test.rs`), when its parent

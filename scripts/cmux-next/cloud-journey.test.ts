@@ -13,7 +13,7 @@ import { saveSendTrace, SEND_TRACE_SETTLE_MS } from "./cloud-journey";
 import { startMarks, claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPathAfterClaim, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, journeyReadFileCommand, journeyReadPrompt,
   journeyTextPrompt,
   journeyTextReply, MODEL_STUB_PY, newReds, capacityOnly, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString, agentReady, milestoneLines, spareTaken } from "./cloud-journey";
-import { oidcSignIn, ownerKindGated, startAfterOwnerKind, waitOwnerKind, waitPreflight, CODEX_STUB_CONFIG, OWNER_KIND_GATE_EXIT, OWNER_KIND_PROGRAM, PREFLIGHT_PROBE } from "./cloud-journey";
+import { oidcSignIn, ownerKindGated, startAfterOwnerKind, START_RESENT_ENV, waitOwnerKind, waitPreflight, CODEX_STUB_CONFIG, OWNER_KIND_GATE_EXIT, OWNER_KIND_PROGRAM, PREFLIGHT_PROBE } from "./cloud-journey";
 import { directExec, settleBackground, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
@@ -730,6 +730,7 @@ describe("cloud journey: login preflight", () => {
     expect(waited).toBe(1);
     expect(seen2).toHaveLength(2);
     expect(seen2[1]).not.toContain(OWNER_KIND_PROGRAM);
+    expect(seen2[1]).toContain(`export ${START_RESENT_ENV}=1; START`);
     // A wait that fails fails the start as before, with no start run.
     const seen3: string[] = [];
     const none = async (command: string) => { seen3.push(command); return { code: OWNER_KIND_GATE_EXIT, stdout: "vm-kind=team\n", stderr: "" }; };
@@ -3781,8 +3782,10 @@ while True:
                 else:
                     send({'jsonrpc': '2.0', 'id': m['id'], 'error': {'code': -32602, 'message': 'session name "s" is taken'}})
                 continue
-            if mode == 'taken':
+            if mode in ('taken', 'taken-resent'):
                 send({'jsonrpc': '2.0', 'id': m['id'], 'error': {'code': -32602, 'message': 'session name "s" is taken'}})
+                if mode == 'taken-resent':
+                    continue
                 done = True
                 break
             if news == 1 and mode not in ('late', 'prompt-cut'):
@@ -3801,7 +3804,7 @@ while True:
         break
 open(out, 'w').write(json.dumps(seen))
 `;
-  const runRestarting = (mode: "retryable" | "refused" | "late" | "prompt-cut" | "made-then-cut" | "taken") => {
+  const runRestarting = (mode: "retryable" | "refused" | "late" | "prompt-cut" | "made-then-cut" | "taken" | "taken-resent") => {
     const home = mkdtempSync("/tmp/jr-");
     try {
       mkdirSync(join(home, ".cmux/acpmux"), { recursive: true });
@@ -3809,7 +3812,7 @@ open(out, 'w').write(json.dumps(seen))
       const sock = join(home, ".cmux/acpmux/acpmux.sock");
       const program = launchCredentialStartProgram("s", "claude", "CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-x", mode === "prompt-cut" ? "hi" : undefined);
       const script = `python3 -I fake.py ${sock} seen.json ${mode} & for i in $(seq 50); do [ -S ${sock} ] && break; sleep 0.1; done\n${program}\nrc=$?\nwait\nexit $rc`;
-      const r = spawnSync("bash", ["-c", script], { cwd: home, env: { PATH: process.env.PATH, HOME: home }, encoding: "utf8", timeout: 20_000 });
+      const r = spawnSync("bash", ["-c", script], { cwd: home, env: { PATH: process.env.PATH, HOME: home, ...(mode === "taken-resent" ? { [START_RESENT_ENV]: "1" } : {}) }, encoding: "utf8", timeout: 20_000 });
       return { r, seen: JSON.parse(readFileSync(join(home, "seen.json"), "utf8")) as string[] };
     } finally {
       rmSync(home, { recursive: true, force: true });
@@ -3865,6 +3868,20 @@ open(out, 'w').write(json.dumps(seen))
     expect(r.stdout).not.toContain("@@adopted");
     expect(r.status).toBe(1);
     expect(seen).not.toContain("_acpmux/resolve");
+  });
+  // Run 46100347935 (staging test-team, 2026-11-28): the start's first exec made the session but its answer was not
+  // read back, so the journey ran the start again and its session/new read "is taken". Run again, it takes that session.
+  test("a start run again by the journey takes the session its first run made", { timeout: 30_000 }, () => {
+    const { r, seen } = runRestarting("taken-resent");
+    expect(r.stdout).toContain("@@adopted s-1");
+    expect(r.stdout).toContain("@@session s-1");
+    expect(r.status).toBe(0);
+    expect(seen.filter((m) => m === "_acpmux/resolve")).toHaveLength(1);
+  });
+  test("the first prompt's promptId is the session name's, so a second run of the start never runs it twice", () => {
+    const a = launchCredentialStartProgram("journey-jr-1", "claude", null, null, "hi");
+    expect(a).toContain("uuid.uuid5(uuid.NAMESPACE_URL, 'cmux-journey-first-prompt:'");
+    expect(a).not.toContain("uuid.uuid4()");
   });
   test("no acpmux socket is a failed start that names the paths it tried, after the retry window", { timeout: 30_000 }, () => {
     const home = mkdtempSync(join(tmpdir(), "journey-launch-"));
