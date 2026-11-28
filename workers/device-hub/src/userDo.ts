@@ -1700,7 +1700,7 @@ export class UserDO extends DurableObject<Env> {
   /** The cmux relay ICE for a session's answer: minted only when paid, and an empty mint is logged. */
   private async relayIce(sessionId: string, answer: "paid" | "free" | "error"): Promise<IceServer[]> {
     if (answer !== "paid") return [];
-    const ice = await mintTurn(this.env);
+    const ice = await mintTurn(this.env, { userId: this.ownerId });
     if (!hasTurn(ice)) console.error(`device-hub: relay mint empty for paid session ${sessionId} (source ${this.env.TURN_SOURCE ?? "local"})`);
     return ice;
   }

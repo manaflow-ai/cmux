@@ -26,14 +26,15 @@ export function turnSource(env: Env): TurnSource {
  * - `platform-first`: ask the platform; on a non-200, a timeout, a bad body or an
  *   empty list, warn and mint locally (which is [] without TURN_KEY_*).
  * - `platform`: the platform only, [] on any failure.
- * Before all of these: when TURN_SELF_URLS and TURN_SELF_SECRET are set, the hub
- *   mints for our own relay (selfTurn) and calls neither Cloudflare nor the platform.
+ * Before all of these: when TURN_SELF_URLS and TURN_SELF_SECRET are set and TURN_SELF_ACCOUNTS
+ *   names the user (or is `*`), the hub mints for our own relay (selfTurn) and calls neither
+ *   Cloudflare nor the platform.
  * Without the DEVICE_HUB_TURN_TOKEN secret or PLATFORM_TURN_ORIGIN, every mode
  * behaves as `local`. Returns [] when nothing answers; the app then uses direct
  * paths and the user's own relays.
  */
-export async function mintTurn(env: Env, opts: { timeoutMs?: number; now?: number } = {}): Promise<IceServer[]> {
-  const own = await selfTurn(env, ICE_TTL_S, opts.now);
+export async function mintTurn(env: Env, opts: { timeoutMs?: number; now?: number; userId?: string } = {}): Promise<IceServer[]> {
+  const own = selfTurnFor(env, opts.userId) ? await selfTurn(env, ICE_TTL_S, opts.now) : undefined;
   if (own) return [own];
   const source = turnSource(env);
   const origin = platformOrigin(env.PLATFORM_TURN_ORIGIN);
@@ -46,6 +47,12 @@ export async function mintTurn(env: Env, opts: { timeoutMs?: number; now?: numbe
   }
   console.warn("platform turn failed, minting locally", result.reason);
   return mintLocalTurn(env);
+}
+
+/** Whether USER_ID is one TURN_SELF_ACCOUNTS names (`*`: every user; empty or unset: nobody). */
+export function selfTurnFor(env: Env, userId: string | undefined): boolean {
+  const names = (env.TURN_SELF_ACCOUNTS ?? "").split(",").map((a) => a.trim()).filter(Boolean);
+  return names.includes("*") || (!!userId && names.includes(userId));
 }
 
 /** The accepted own-relay URLs (turn:/turns: only), or undefined when the relay is not configured. */
