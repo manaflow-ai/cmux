@@ -433,6 +433,19 @@ pub fn draw(f: &mut ratatui::Frame, app: &mut App) {
     // A pending permission docks as a card above the composer, Codex-app
     // style, instead of covering the conversation.
     let pending = app.selected_id().and_then(|id| app.transcripts.get(&id)).and_then(|t| {
+        // Per-frame work (cmux-view-rows frame_work): `live_permission` reads items from the
+        // newest until a pending one while the turn is open; with none pending, every item
+        // (#46143 review P1-F1). A closed turn reads none.
+        #[cfg(test)]
+        if t.status.is_empty() || matches!(t.status.as_str(), "running" | "waiting") {
+            cmux_view_rows::frame_work::walked(
+                t.items
+                    .iter()
+                    .rev()
+                    .position(|i| matches!(i, Item::Permission { decided: None, .. }))
+                    .map_or(t.items.len(), |n| n + 1),
+            );
+        }
         match crate::live_permission(t) {
             Some(Item::Permission { title, options, .. }) => Some((title.clone(), options.clone())),
             _ => None,
