@@ -117,6 +117,7 @@ export function blockWrapOf(kind: BlockKind): boolean {
 /// Whether blocks of `kind` wrap, and the toggle the block's wrap button calls. `shaped` is what this
 /// block does until the viewer picks (an output's `outputWraps`); the kind's default otherwise.
 export function useBlockWrap(kind: BlockKind, shaped?: boolean): [wrap: boolean, toggle: () => void] {
-  const wrap = useSyncExternalStore(subscribe, () => current()[kind] ?? shaped ?? DEFAULTS[kind]);
+  const read = () => current()[kind] ?? shaped ?? DEFAULTS[kind];
+  const wrap = useSyncExternalStore(subscribe, read, read);
   return [wrap, () => setBlockWrap(kind, !wrap)];
 }

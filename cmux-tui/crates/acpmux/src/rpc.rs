@@ -782,6 +782,9 @@ pub mod method {
     pub const MUX_LAST: &str = "_acpmux/last";
     /// One session's messages holding every word of a query, newest first (`session_search.rs`).
     pub const MUX_SESSION_SEARCH: &str = "_acpmux/session_search";
+    /// CPU time and memory of one chat's agent process tree, read on request
+    /// (`server/requests/session_resources.rs`): the app's hover cards' Memory.
+    pub const MUX_SESSION_RESOURCES: &str = "_acpmux/session_resources";
     /// Read-only pages and find for a terminal pane's exact provider session.
     pub const MUX_CHAT_TRANSCRIPT_PAGE: &str = "_acpmux/chat_transcript_page";
     pub const MUX_CHAT_TRANSCRIPT_FIND: &str = "_acpmux/chat_transcript_find";
@@ -845,6 +848,8 @@ pub mod method {
     pub const MUX_AGENT_HOME_RESOLVE: &str = "_acpmux/agent_home_resolve";
     /// The rewrite of a chat's prompt coach offer, made once (`server/prompt_coach.rs`).
     pub const MUX_PROMPT_COACH: &str = "_acpmux/prompt_coach";
+    /// Person-facing PR chip reads, scoped to the session's checked-out branch.
+    pub const MUX_PULL_REQUEST_ACTION: &str = "_acpmux/pull_request_action";
     pub const MUX_ASK: &str = "_acpmux/ask";
     /// A side session about a chat (`/btw`, `hub/btw.rs`): read-only, on a
     /// cheap model, sent the question; answers with its session id at once.

@@ -149,6 +149,9 @@ FAKE_CAPACITY_FILE=<path>: while <path> exists, every prompt, `/compact` too, fa
 error, in turn the provider's 529 overloaded, the SR2 gateway's 503 "no non-exhausted accounts"
 and the worker gateway's 502 "at its call limit": an overload storm. Each prompt's text is appended
 to <path>.seen, one JSON string per line, so a test sees what reached the model.
+FAKE_PROMPT_ERROR=<message>: every prompt fails with <message> as its error, as a harness's
+model call that came back with that error (a capture shows the pane's card for one exact error,
+scripts/cmux-next/media/states/turn-failure-gateway-stalled.json).
 FAKE_QUIT_429_FILE=<path>: while <path> exists, an agent started on a chat's conversation
 (session/load) answers the load, then, idle, prints <path>'s line on stderr and exits 0 on its own,
 as a CLI does that quits on its account's 429 between turns (`quit-after:` once, this at every start).
@@ -839,6 +842,9 @@ def handle_prompt(rid, params):
         return
     if os.environ.get("FAKE_UPSTREAM_URL"):
         return upstream_turn(rid, sid, text)
+    if os.environ.get("FAKE_PROMPT_ERROR"):
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": os.environ["FAKE_PROMPT_ERROR"]}})
+        return
     cap_file = os.environ.get("FAKE_CAPACITY_FILE")
     if cap_file:
         with open(cap_file + ".seen", "a") as seen:
@@ -2368,6 +2374,18 @@ def handle_prompt(rid, params):
 MODE_OPTION = {}
 
 
+# FAKE_COLLAB=1: Codex's `collaboration_mode` option (default or plan) beside its modes, per session.
+COLLAB = {}
+
+
+def collab_options(sid):
+    return [{"id": "model", "name": "Model", "type": "select", "currentValue": "m1",
+             "options": [{"value": "m1", "name": "m1"}, {"value": "m2", "name": "m2"}]},
+            {"id": "collaboration_mode", "name": "Collaboration", "type": "select",
+             "currentValue": COLLAB.get(sid, "default"),
+             "options": [{"value": v, "name": v} for v in ("default", "plan")]}]
+
+
 def mode_options(sid):
     return [{"id": "model", "name": "Model", "type": "select", "currentValue": "m1",
              "options": [{"value": "m1", "name": "m1"}, {"value": "m2", "name": "m2"}]},
@@ -2710,6 +2728,8 @@ def main():
             }
             if os.environ.get("FAKE_MODE_OPTION") == "1":
                 result["configOptions"] = mode_options(new_sid)
+            if os.environ.get("FAKE_COLLAB") == "1":
+                result["configOptions"] = collab_options(new_sid)
             # FAKE_PI_MODES=1: pi-acp 0.0.33's answer: its thinking levels as its `thought_level`
             # option and, for clients older than config options, again as ACP `modes`.
             if os.environ.get("FAKE_PI_MODES") == "1":
@@ -2943,6 +2963,10 @@ def main():
                     send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": None}})
                     continue
                 send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": mode_options(params.get("sessionId"))}})
+                continue
+            if os.environ.get("FAKE_COLLAB") == "1" and params.get("configId") == "collaboration_mode":
+                COLLAB[params.get("sessionId")] = v
+                send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": collab_options(params.get("sessionId"))}})
                 continue
             send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": [{"id": "model", "name": "Model", "type": "select", "currentValue": v, "options": []}]}})
         elif m == "session/prompt":

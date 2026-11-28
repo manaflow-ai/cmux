@@ -81,6 +81,13 @@ impl<C: AutoCloud + 'static> Loop<C> {
         reply: Option<Reply>,
     ) {
         if self.side != Side::Laptop {
+            // On a Cloud machine, a chat it holds may stop or start being kept in the Cloud
+            // (Cloud and Auto): the store takes that from its holder, for the agent of a chat
+            // that runs here. Auto on or off is the person's devices' to switch.
+            let held = self.chats.get(id).is_some_and(|tracked| auto(&tracked.chat));
+            if on && held && keep.is_some() {
+                return self.keep(id, keep, reply);
+            }
             let refusal = "Auto mode is switched from the person's own devices";
             return answer(reply, Err(RpcError::invalid_params(refusal)));
         }
@@ -125,7 +132,7 @@ impl<C: AutoCloud + 'static> Loop<C> {
     /// Auto on for a chat that has it on: the request may say whether the chat stays in the
     /// Cloud when this machine returns. The store is asked first. Nothing changes here until it
     /// answered, and its answer is the request's ([`Self::kept`]).
-    fn keep(&mut self, id: &str, keep: Option<bool>, reply: Option<Reply>) {
+    pub(super) fn keep(&mut self, id: &str, keep: Option<bool>, reply: Option<Reply>) {
         let Some(tracked) = self.chats.get_mut(id) else {
             return answer(reply, Ok(row(&self.hub, id)));
         };
