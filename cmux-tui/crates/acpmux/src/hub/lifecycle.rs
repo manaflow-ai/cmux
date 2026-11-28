@@ -1410,20 +1410,20 @@ mod taken_name_tests;
 /// agent's updates and markers never touch it. A start abandoned mid-load never ends it, so
 /// what that agent still had queued stays out of the preview as well, beside the next agent's
 /// own hold (`Session::replaying` keeps both).
-struct ReplayHold<'a> {
+pub(super) struct ReplayHold<'a> {
     session: &'a Session,
     agent: &'a crate::agent::ChildAgent,
 }
 
 impl<'a> ReplayHold<'a> {
-    fn start(session: &'a Session, agent: &'a crate::agent::ChildAgent) -> Self {
+    pub(super) fn start(session: &'a Session, agent: &'a crate::agent::ChildAgent) -> Self {
         session.replaying.lock().unwrap_or_else(|e| e.into_inner()).push(agent.generation);
         Self { session, agent }
     }
 
     /// Lifts the hold once the inbound loop reaches what the agent sent so far; at once when
     /// its queue is closed (nothing more can arrive).
-    async fn end(self) {
+    pub(super) async fn end(self) {
         if !self.agent.queue_replay_done().await {
             self.session.end_replay(self.agent.generation);
         }
