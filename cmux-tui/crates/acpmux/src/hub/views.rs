@@ -1214,6 +1214,11 @@ impl Hub {
             p["personInstance"] = Value::String(self.person.instance().to_owned());
         }
         v.set("pending", Value::Array(pending));
+        // A moved chat that runs here while its earlier history still arrives
+        // (`transfer_history.rs`): usable now, not yet fully here.
+        if let Some(following) = self.history_following(&session.id) {
+            v.set("historyFollowing", following);
+        }
         v
     }
 

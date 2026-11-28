@@ -647,6 +647,8 @@ pub struct Translator {
     gate: policy_gate::PolicyGate,
     /// Harness magic `dedupe` (dedupe.rs).
     dedupe: Arc<dedupe::Dedupe>,
+    /// Harness magic `continue` (`hub/stop_condition.rs`): this turn's stops.
+    stop_continue: Mutex<crate::hub::stop_condition::Continuation>,
     /// Harness magic `pathRules` (path_rules.rs).
     path_rules: Arc<path_rules::PathRules>,
     /// Harness magic `dirRules` (dir_rules.rs).
@@ -874,6 +876,7 @@ impl Translator {
             elicitations: Mutex::new(HashMap::new()),
             gate: Default::default(),
             dedupe: Default::default(),
+            stop_continue: Default::default(),
             path_rules: Default::default(),
             dir_rules: Default::default(),
             next_control: AtomicI64::new(1),

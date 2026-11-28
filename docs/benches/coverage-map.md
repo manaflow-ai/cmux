@@ -144,6 +144,7 @@ as a gate. `stress` has a dispatch-only compare workflow (`cmux-next-stress-benc
 | `typing-native` | main thread | L0-L5 loads | no |
 | `wallpaper_cost` | wallpaper | n/a | no |
 | `web-vitals` | web | n/a | no |
+| `windowserver` | WindowServer and GPU | retained workspaces, paired apps | no |
 | `workspace-factory` | CI | n/a | no |
 | `xbench` | browser | n/a | no |
 
