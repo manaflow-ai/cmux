@@ -3,7 +3,9 @@
 before and after, and hands them to the agent that pushed, with no app build and no agent action.
 
     ui-preview-worker.py serve --state DIR [--bind ADDR] [--port 8765] [--public URL] [--send CMD]
-                               [--publish-receipts CMD] [--no-warm] [--no-swift] [--swift-peer URL] [--follow]
+                               [--publish-receipts CMD] [--no-warm] [--no-swift] [--swift-peer URL|--swift-pull]
+                               [--follow]
+    ui-preview-worker.py pull --state DIR --from URL[,URL...] [--no-warm]
     ui-preview-worker.py once --state DIR [REQUEST.json|-] [--send CMD] [--public URL]
     ui-preview-worker.py warm --state DIR
     ui-preview-worker.py submit --to http://HOST:PORT [REQUEST.json|-]
@@ -18,6 +20,10 @@ takes from the broker only requests with a web file, and names a request's Swift
 ({"sha", "scenes", "branch"}) answers each scene's PNG, base64, and this worker posts the look as before. The Mac needs
 Xcode, a display and the tailnet, but no lane-gh broker: no broker client is a Mac, so a Mac `--follow` never got a
 request, and every Swift push was a miss.
+--swift-pull (with --no-swift) reverses that connection: the tailnet ACL lets a lane VM reach a fleet Mac only on its
+SSH port, so a POST to the Mac's :8765 never answered and no Swift look ever posted. Instead the worker queues each
+Swift ask and the Mac's `pull --from URL` takes it over its own outbound connection (GET URL/swift/next, a 25 s
+long-poll), shoots it and answers POST URL/swift/result/ID, the /shoot answer's shape. The Mac listens on nothing.
 `publish FILE HOST` writes FILE (the receipts) as ui-preview/HOST.json on cmuxterm-hq's now-census through the
 broker's state_put, which NOW's ui_preview.p95_push_to_post_s reads:
 `--publish-receipts 'python3 ui-preview-worker.py publish {file} {host}'`.
@@ -146,6 +152,53 @@ SHOOT_SECONDS = 180
 # A peer's /shoot: its fetch, checkout, incremental build and shoot of one side (a cold build answers past it, and that
 # look names the timeout; the next push finds the Mac's .build warm).
 PEER_SECONDS = 10 * 60
+PULL_POLL_S = 25  # GET /swift/next holds this long for a job before answering 204
+PULL_STALE_S = 90  # no Mac asked for a job this long: a Swift ask fails at once instead of waiting PEER_SECONDS
+PULL = "pull"  # worker.swift_peer under --swift-pull: a pulling Mac shoots the Swift scenes
+
+
+class SwiftPulls:
+    """serve --swift-pull: the Swift asks waiting for a display Mac's `pull` (GET /swift/next) and their answers
+    (POST /swift/result/ID). An answer is taken only for a job still waiting; its id is random."""
+
+    def __init__(self):
+        self.cond = threading.Condition()
+        self.waiting: list[dict] = []  # asked, not yet taken by a Mac
+        self.answers: dict[str, dict | None] = {}  # id -> its answer (None until it comes), while its ask waits
+        self.polled_at = 0.0  # when a Mac last asked for a job
+
+    def ask(self, job: dict, timeout: float = PEER_SECONDS) -> dict:
+        job = dict(job, id=secrets.token_hex(16))
+        with self.cond:
+            if time.monotonic() - self.polled_at > PULL_STALE_S:
+                raise LookError(f"no display Mac has pulled a Swift job in {PULL_STALE_S} s (`pull --from` on the "
+                                f"ui-preview-swift holder)")
+            self.waiting.append(job)
+            self.answers[job["id"]] = None
+            self.cond.notify_all()
+            try:
+                if not self.cond.wait_for(lambda: self.answers[job["id"]] is not None, timeout):
+                    raise LookError(f"the pulling Mac did not answer in {int(timeout)} s")
+                return self.answers[job["id"]]
+            finally:
+                self.answers.pop(job["id"], None)
+                if job in self.waiting:
+                    self.waiting.remove(job)
+
+    def next(self, timeout: float = PULL_POLL_S) -> dict | None:
+        with self.cond:
+            self.polled_at = time.monotonic()
+            self.cond.wait_for(lambda: self.waiting, timeout)
+            self.polled_at = time.monotonic()
+            return self.waiting.pop(0) if self.waiting else None
+
+    def answer(self, job_id: str, doc: dict) -> bool:
+        with self.cond:
+            if self.answers.get(job_id, False) is not None:
+                return False
+            self.answers[job_id] = doc if isinstance(doc, dict) else {"error": "the answer is not an object"}
+            self.cond.notify_all()
+            return True
 INSTALL_SECONDS = 15 * 60
 GALLERY_UP_SECONDS = 180
 # The gallery's ranker of touched entries; a tree without it (a branch off main) has no gallery to shoot.
@@ -610,7 +663,9 @@ class Worker:
         self.fetch_lock = threading.Lock()  # the clone's fetches (a prefetch and a look's fetch of one head)
         self.receipt_lock = threading.Lock()
         self.swift_on = True  # serve --no-swift: a web-only worker
-        self.swift_peer = ""  # serve --swift-peer: the display Mac that shoots this worker's Swift scenes
+        self.swift_peer = ""  # serve --swift-peer: the display Mac that shoots this worker's Swift scenes;
+        # PULL under --swift-pull: a display Mac's `pull` takes them from self.pulls
+        self.pulls = SwiftPulls()
         self.mirror = MIRROR if (MIRROR / "objects").is_dir() else None
         self.publisher = Publisher(self)
         self.newest: dict[str, tuple[float, str]] = {}  # branch -> (received, head) of its newest queued request
@@ -818,6 +873,8 @@ class Worker:
         if out.exists():
             shutil.rmtree(out)
         out.mkdir(parents=True)
+        if self.swift_peer == PULL:
+            return self._peer_shots(self.pulls.ask({"sha": sha, "scenes": scenes, "branch": branch}), scenes, out)
         body = json.dumps({"sha": sha, "scenes": scenes, "branch": branch}).encode()
         request = urllib.request.Request(self.swift_peer.rstrip("/") + "/shoot", data=body,
                                          headers={"Content-Type": "application/json"})
@@ -829,6 +886,10 @@ class Worker:
                             f"{tail(err.read().decode(errors='replace'))}") from None
         except (OSError, ValueError) as err:
             raise LookError(f"the Swift peer {self.swift_peer} did not answer: {err}") from None
+        return self._peer_shots(doc, scenes, out)
+
+    @staticmethod
+    def _peer_shots(doc: dict, scenes: list[str], out: Path) -> dict:
         shots = {}
         for scene, data in (doc.get("shots") or {}).items():
             if scene in scenes and isinstance(data, str):
@@ -1392,6 +1453,9 @@ def make_handler(worker: Worker, jobs: "queue.Queue"):
             if path == "/health":
                 return self.reply(200, {"ok": True, "host": worker.host, "queued": jobs.qsize(),
                                         "gallery": worker.web.up()})
+            if path == "/swift/next" and worker.swift_peer == PULL:
+                job = worker.pulls.next()
+                return self.reply(200, job) if job else self.reply(204, b"")
             if path == "/receipts":
                 try:
                     return self.reply(200, worker.receipts_path.read_bytes())
@@ -1405,6 +1469,16 @@ def make_handler(worker: Worker, jobs: "queue.Queue"):
             return self.reply(404, {"error": "not found"})
 
         def do_POST(self):
+            found = re.match(r"^/swift/result/([0-9a-f]{32})$", self.path)
+            if found:
+                try:
+                    size = int(self.headers.get("Content-Length") or 0)
+                    doc = json.loads(self.rfile.read(min(size, 1 << 26)))
+                except ValueError as err:
+                    return self.reply(400, {"error": str(err)})
+                if not worker.pulls.answer(found[1], doc):
+                    return self.reply(404, {"error": "no such job waiting"})
+                return self.reply(200, {"ok": True})
             if self.path == "/shoot":
                 try:
                     size = int(self.headers.get("Content-Length") or 0)
@@ -1627,7 +1701,7 @@ def follow(worker: "Worker", jobs: "queue.Queue", call=lane_gh_call) -> None:
 def command_serve(args) -> int:
     worker = Worker(Path(args.state), args.public, args.send, args.publish_receipts)
     worker.swift_on = not args.no_swift
-    worker.swift_peer = args.swift_peer or ""
+    worker.swift_peer = PULL if args.swift_pull else (args.swift_peer or "")
     bind = args.bind or tailnet_address() or "127.0.0.1"
     if not worker.public:
         worker.public = f"http://{bind}:{args.port}"
@@ -1646,6 +1720,61 @@ def command_serve(args) -> int:
     finally:
         worker.stop_shooter()
         worker.stop_gallery()
+    return 0
+
+
+def pull_from(worker: Worker, url: str, stop: threading.Event | None = None) -> None:
+    """`pull`'s loop for one web worker: take its next Swift ask over this Mac's own outbound connection, shoot it
+    and post the answer (the /shoot answer's shape, or {"error"})."""
+    url = url.rstrip("/")
+    said = ""  # the last failure logged: a candidate web host that does not hold the role's lease refuses each poll
+    while not (stop and stop.is_set()):
+        try:
+            with urllib.request.urlopen(url + "/swift/next", timeout=PULL_POLL_S + 20) as answer:
+                job = json.loads(answer.read()) if answer.status == 200 else None
+            if said:
+                log(f"pull {url}: answering again")
+                said = ""
+        except (OSError, ValueError) as err:
+            if str(err) != said:
+                log(f"pull {url}: {err} (retrying every {FOLLOW_RETRY_S} s)")
+                said = str(err)
+            (stop.wait if stop else time.sleep)(FOLLOW_RETRY_S)
+            continue
+        if not isinstance(job, dict) or not re.fullmatch(r"[0-9a-f]{32}", str(job.get("id") or "")):
+            continue
+        started = time.monotonic()
+        try:
+            doc = worker.peer_answer(job)
+        except LookError as err:
+            doc = {"error": str(err)[:500]}
+        except Exception as err:  # noqa: BLE001 - a crash in one shoot must not end the loop
+            doc = {"error": f"{type(err).__name__}: {err}"[:500]}
+        log(f"pull {url}: {job.get('sha', '')[:12]} {job.get('scenes')} in {time.monotonic() - started:.1f} s"
+            f"{': ' + doc['error'] if doc.get('error') else ''}")
+        result = urllib.request.Request(f"{url}/swift/result/{job['id']}", data=json.dumps(doc).encode(),
+                                        headers={"Content-Type": "application/json"})
+        try:
+            urllib.request.urlopen(result, timeout=60).close()
+        except (OSError, ValueError) as err:
+            log(f"pull {url}: posting {job['id']}: {err}")
+
+
+def command_pull(args) -> int:
+    worker = Worker(Path(args.state), None, None, None)
+    if not args.no_warm:
+        log(f"warming: {json.dumps(worker.warm(web=False, swift=True))}")
+    urls = [u for u in args.from_.split(",") if u.strip()]
+    threads = [threading.Thread(target=pull_from, args=(worker, u.strip()), name=f"pull-{n}", daemon=True)
+               for n, u in enumerate(urls)]
+    for t in threads:
+        t.start()
+    log(f"pulling Swift jobs from {', '.join(urls)} (state {worker.state})")
+    try:
+        for t in threads:
+            t.join()
+    finally:
+        worker.stop_shooter()
     return 0
 
 
@@ -1774,6 +1903,8 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("--no-swift", action="store_true", help="a web-only worker (no display, no Xcode)")
             p.add_argument("--swift-peer", help="with --no-swift: the display Mac's serve URL (http://HOST:PORT) "
                                                 "that shoots the Swift scenes (POST /shoot)")
+            p.add_argument("--swift-pull", action="store_true",
+                           help="with --no-swift: queue the Swift scenes for a display Mac's `pull` (GET /swift/next)")
             p.add_argument("--follow", action="store_true",
                            help="take requests from the lane-gh broker's push trigger (ui_preview_requests)")
         else:
@@ -1783,6 +1914,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--state", required=True)
     p.add_argument("--no-web", action="store_true")
     p.add_argument("--no-swift", action="store_true")
+    p = sub.add_parser("pull")
+    p.add_argument("--state", required=True)
+    p.add_argument("--from", dest="from_", required=True, help="the web workers' serve URLs, comma-separated")
+    p.add_argument("--no-warm", action="store_true")
     p = sub.add_parser("submit")
     p.add_argument("--to", required=True)
     p.add_argument("request", nargs="?", default="-")
@@ -1791,7 +1926,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("host")
     args = ap.parse_args(argv)
     return {"serve": command_serve, "once": command_once, "warm": command_warm, "submit": command_submit,
-            "publish": command_publish}[args.command](args)
+            "publish": command_publish, "pull": command_pull}[args.command](args)
 
 
 if __name__ == "__main__":

@@ -16,7 +16,10 @@ import {
   INVENTORY_TRIES,
   retriesInventory,
   collectWithRetries,
+  INVENTORY_SHAPE,
+  growForInventory,
 } from "../scripts/cmux-vm-image/inventory";
+import type { GuestShape } from "../scripts/cmux-vm-image/large-image";
 
 describe("image inventory retries a cut connection, not a failed step", () => {
   test("the provider closing the exec's connection is retried (run 42410303540)", () => {
@@ -294,5 +297,39 @@ describe("collectWithRetries: a builder that stops answering (roll 46078031124)"
       answers: async () => false,
     })).rejects.toThrow("timed out");
     expect(tries).toBe(INVENTORY_TRIES);
+  });
+});
+
+describe("image inventory grows its builder before the scan (rolls 46085354594, 46090412457)", () => {
+  const fakeVm = (calls: unknown[], fail = false) =>
+    ({ resize: async (req: unknown) => { calls.push(req); if (fail) throw new Error("resize refused"); } }) as unknown as Vm;
+
+  test("a base-size builder is grown to 4 vCPU / 8 GiB", async () => {
+    const calls: unknown[] = [];
+    const lines: string[] = [];
+    const shapes = [{ cpu: 2, memoryMb: 3915, rootMb: 15955 }, { cpu: 4, memoryMb: 8011, rootMb: 15955 }];
+    await growForInventory(fakeVm(calls), (l) => lines.push(l), async () => shapes.shift() as GuestShape);
+    expect(calls).toEqual([{ cpu: INVENTORY_SHAPE.cpu, memory: INVENTORY_SHAPE.memoryMb }]);
+    expect(lines[0]).toContain('"cpu":4');
+  });
+
+  test("a builder a large-image bake already grew is left as it is (resize only grows)", async () => {
+    const calls: unknown[] = [];
+    const lines: string[] = [];
+    await growForInventory(fakeVm(calls), (l) => lines.push(l), async () => ({ cpu: 8, memoryMb: 32000, rootMb: 64000 }));
+    expect(calls).toEqual([]);
+    expect(lines[0]).toContain("kept");
+  });
+
+  test("more vCPU than the shape keeps its vCPU when only memory is short", async () => {
+    const calls: unknown[] = [];
+    await growForInventory(fakeVm(calls), () => {}, async () => ({ cpu: 8, memoryMb: 3915, rootMb: 15955 }));
+    expect(calls).toEqual([{ cpu: 8, memory: 8192 }]);
+  });
+
+  test("a failed resize is logged and the scan runs at the size it has", async () => {
+    const lines: string[] = [];
+    await growForInventory(fakeVm([], true), (l) => lines.push(l), async () => ({ cpu: 2, memoryMb: 3915, rootMb: 15955 }));
+    expect(lines[0]).toStartWith("WARN inventory resize");
   });
 });

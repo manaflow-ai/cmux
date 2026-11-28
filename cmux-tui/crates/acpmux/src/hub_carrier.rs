@@ -1323,6 +1323,7 @@ impl HubCarrier {
                                 kept.live = Some(mux.clone());
                                 kept.path = Some(path);
                                 kept.reopen_at = None;
+                                kept.saved_since = None;
                             }
                             // The far machine refused the `mux` hello before reading any
                             // stream: early bytes behind it were never read.
@@ -1536,13 +1537,22 @@ impl HubCarrier {
         slot: &tokio::sync::Mutex<mux::Kept>,
     ) -> bool {
         let mut kept = slot.lock().await;
-        let Some(old) = kept.live.clone().filter(|mux| mux.wants_reopen()) else { return false };
+        // The quiet time of what is to open: a circuit that ended under this carrier, or one
+        // from before its restart that did not open at start.
+        let quiet = match kept.live.clone() {
+            Some(old) if old.wants_reopen() => old.quiet_for(),
+            None if kept.saved_waiting() => {
+                kept.saved_since.map_or(Duration::MAX, |at| at.elapsed())
+            }
+            _ => return false,
+        };
         if kept.reopen_at.is_some_and(|at| Instant::now() < at) {
             return false;
         }
         let Some(path) = kept.path else { return false };
-        if old.quiet_for() >= self.timings.kept_idle {
+        if quiet >= self.timings.kept_idle {
             kept.live = None;
+            kept.saved_since = None;
             return false;
         }
         let why = match self.open_kept(daemon, lane, path).await {
@@ -1555,6 +1565,7 @@ impl HubCarrier {
                         mux.hold();
                     }
                     kept.live = Some(mux);
+                    kept.saved_since = None;
                     kept.reopen_at = None;
                     kept.reopen_wait = Duration::ZERO;
                     return true;
@@ -1562,6 +1573,7 @@ impl HubCarrier {
                 Ok(Ok(Err(refusal))) => {
                     mux.close().await;
                     kept.live = None;
+                    kept.saved_since = None;
                     kept.no_mux_until = Some(Instant::now() + mux::NO_MUX_ASK_AGAIN);
                     tracing::info!(
                         daemon,

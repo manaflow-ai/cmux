@@ -67,8 +67,55 @@ class Route(unittest.TestCase):
         self.assertEqual(npb.route([npb.WORKFLOW]), {"swift": True, "helpers": True})
         self.assertEqual(npb.route(["scripts/ci/nightly_pr_build.py"]), {"swift": True, "helpers": True})
 
+    def test_trunk_only_starts_on_no_pull_request_unless_per_pr(self) -> None:
+        # The tip's coalesced push runs it; no PR head starts it (land's ask, the train's tip) unless the switch is 1.
+        name = "nightly-pr-build.yml"
+        callees = pr_router.load_manifest()
+        self.assertTrue(callees[name].get("trunk_only"))
+        repo = {"full_name": "manaflow-ai/cmux"}
+        pr = {"draft": False, "head": {"repo": repo}, "base": {"ref": "feat-cmux-next", "repo": repo},
+              "labels": [{"name": "ready-to-land"}]}
+        tip = {**pr, "head": {"repo": repo, "ref": pr_router.TRAIN_TIP}}
+        for event in ({"action": "labeled", "label": {"name": "ready-to-land"}, "pull_request": pr},
+                      {"action": "labeled", "label": {"name": "full-ci"}, "pull_request": pr},
+                      {"action": "synchronize", "pull_request": tip},
+                      {"action": "opened", "pull_request": {**pr, "labels": []}}):
+            tier = pr_router.head_tier.tier("pull_request", event, land_switch="1", land_full_switch="0")
+            for per_pr, at_land in (("0", "1"), ("", "0"), ("1", "1")):
+                env = {"CI_NIGHTLY_PR_BUILD_AT_LAND": at_land}
+                if per_pr:
+                    env["CI_NIGHTLY_PR_BUILD_PER_PR"] = per_pr
+                with self.subTest(action=event["action"], per_pr=per_pr), mock.patch.dict(os.environ, env):
+                    if not per_pr:
+                        os.environ.pop("CI_NIGHTLY_PR_BUILD_PER_PR", None)
+                    start, why = pr_router.route(event, callees, [npb.WORKFLOW], decided=tier)
+                    if per_pr != "1":
+                        self.assertNotIn(name, start)
+                        self.assertIn("trunk only", why[name])
+        router = (ROOT / ".github/workflows/pr-router.yml").read_text()
+        self.assertIn("CI_NIGHTLY_PR_BUILD_PER_PR: ${{ vars.CI_NIGHTLY_PR_BUILD_PER_PR || '0' }}", router)
+
+    def test_tip_push_runs_once_per_window_from_the_last_tested_tip(self) -> None:
+        text = (ROOT / npb.WORKFLOW).read_text()
+        self.assertRegex(text, r"on:\n  push:\n    branches: \[feat-cmux-next\]\n  workflow_call:")
+        coalesce = re.search(r"^  coalesce:\n((?:    .*\n|\n)*?)(?=^  [a-z])", text, re.M).group(1)
+        self.assertIn("uses: ./.github/workflows/base-coalesce.yml", coalesce)
+        self.assertIn("key: nightly-pr-build", coalesce)
+        self.assertIn("hold_minutes: 30", coalesce)
+        self.assertIn("vars.CI_NIGHTLY_PR_BUILD_COALESCE", coalesce)
+        route = re.search(r"^  route:\n((?:    .*\n|\n)*?)(?=^  [a-z#])", text, re.M).group(1)
+        self.assertIn("needs: [coalesce]", route)
+        self.assertIn("needs.coalesce.outputs.run != 'false'", route)
+        self.assertIn("needs.coalesce.outputs.base", route)
+        # A tip push builds and reports on its own sha; no step reads only the pull request's head.
+        self.assertNotRegex(text, r"github\.event\.pull_request\.head\.sha \}\}")
+
     def test_landing_routes_changed_inputs_without_the_full_tier(self) -> None:
         name = "nightly-pr-build.yml"
+        # The per-PR path (CI_NIGHTLY_PR_BUILD_PER_PR=1) keeps the land-ask rule below.
+        patch = mock.patch.dict(os.environ, {"CI_NIGHTLY_PR_BUILD_PER_PR": "1"})
+        patch.start()
+        self.addCleanup(patch.stop)
         callees = pr_router.load_manifest()
         repo = {"full_name": "manaflow-ai/cmux"}
         pr = {"draft": False, "head": {"repo": repo}, "base": {"ref": "feat-cmux-next", "repo": repo},

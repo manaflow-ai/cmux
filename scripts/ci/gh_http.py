@@ -14,7 +14,10 @@ This is the same policy for every reader under scripts/ci, in one place:
 - each wait honors Retry-After, else x-ratelimit-reset, else 5, 15, 30 s; never over MAX_WAIT_S, except a
   rate limit that NAMES its end (Retry-After, or x-ratelimit-remaining 0 with x-ratelimit-reset): that wait
   is taken to the end, up to RATE_MAX_WAIT_S, and any number of times inside RATE_BUDGET_S (an installation
-  limit lasts minutes; cmux run 46019347396 gave up after 2 tries and 60 s and went red);
+  limit lasts minutes; cmux run 46019347396 gave up after 2 tries and 60 s and went red). A caller with
+  another token to try, or a job shorter than the wait, passes a smaller rate_budget_s: 0 gives up on a named
+  limit at once, so the caller's next token reads it (cmux's `ios fast verdict status`, a 5-min job, slept 900 s
+  on its run token's 403 and was cancelled at its timeout 23 times in 22:00-23:30Z 11-27, never trying the pool);
 - otherwise at most TRIES calls and BUDGET_S seconds in all: a wait that would pass the budget is not taken,
   and the last answer (or error) is the caller's. Giving up on a named rate limit logs
   "rate-limited until HH:MMZ" (limited_until) so the red names when to retry.
@@ -89,7 +92,7 @@ def limited_until(headers, now: float | None = None) -> str | None:
 
 def request(req: urllib.request.Request | str, seconds: float = CALL_S, *, raise_errors: bool = False,
             follow_redirects: bool = True, max_bytes: int | None = None, tries: int = TRIES,
-            budget_s: float = BUDGET_S, sleep: Callable[[float], None] = time.sleep,
+            budget_s: float = BUDGET_S, rate_budget_s: float = RATE_BUDGET_S, sleep: Callable[[float], None] = time.sleep,
             clock: Callable[[], float] = time.monotonic, now: Callable[[], float] = time.time,
             log: Callable[[str], None] | None = None) -> tuple[int, bytes, deadline_http.Headers]:
     """deadline_http.request(REQ, SECONDS, ...), asked again on a refusal that can change (module doc).
@@ -121,7 +124,7 @@ def request(req: urllib.request.Request | str, seconds: float = CALL_S, *, raise
                 break
             if method in READS and named_wait(headers, now()) is not None:
                 # a rate limit that names its end: wait it out, bounded by RATE_BUDGET_S, not by tries
-                tries, budget_s = max(tries, attempt + 2), max(budget_s, RATE_BUDGET_S)
+                tries, budget_s = max(tries, attempt + 2), max(budget_s, rate_budget_s)
         last = attempt + 1 >= tries
         if not last and clock() - start + wait > budget_s:
             last = True
