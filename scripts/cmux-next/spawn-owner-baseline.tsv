@@ -303,7 +303,7 @@ cmux-tui/crates/cmux-tui/src/remote_runtime.rs	1
 cmux-tui/crates/cmux-tui/src/remote_runtime/link_sidecars.rs	1
 cmux-tui/crates/cmux-tui/src/session/remote.rs	1
 cmux-tui/crates/cmux-tui/src/staged_update.rs	1
-cmux-tui/crates/cmux-vault-egress/src/proxy.rs	3
+cmux-tui/crates/cmux-vault-egress/src/proxy.rs	2
 cmux-tui/crates/cmux-vnc/src/transport.rs	1
 cmux-tui/crates/cmux-weft/src/client/mod.rs	6
 cmux-tui/crates/cmux-weft/src/client/relay_pool.rs	1

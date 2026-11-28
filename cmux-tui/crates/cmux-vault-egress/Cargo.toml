@@ -10,6 +10,8 @@ description = "The machine's vault egress proxy: agents hold cmux-secret://NAME 
 [dependencies]
 base64 = "0.22"
 bytes.workspace = true
+# Owns an intercepted connection's tasks: its upstream connection and held requests.
+cmux-scope.workspace = true
 http.workspace = true
 http-body-util.workspace = true
 hyper.workspace = true

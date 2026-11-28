@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
+use cmux_scope::Scope;
 use http::{HeaderValue, Method, Request, Response, StatusCode, header};
 use http_body_util::{BodyExt, Full, combinators::BoxBody};
 use hyper::body::Incoming;
@@ -301,9 +302,31 @@ async fn intercepted(
     port: u16,
     config: Arc<Config>,
 ) -> io::Result<()> {
+    // The connection's tasks (its upstream connection, held requests) end with it.
+    let scope = Arc::new(Scope::new("vault-egress connection"));
+    let served = serve_intercepted(client, upstream, held, host, port, config, scope.clone()).await;
+    let _ = scope.close(Duration::from_secs(1)).await;
+    served
+}
+
+async fn serve_intercepted(
+    client: TokioIo<hyper::upgrade::Upgraded>,
+    upstream: Option<TcpStream>,
+    held: bool,
+    host: String,
+    port: u16,
+    config: Arc<Config>,
+    scope: Arc<Scope>,
+) -> io::Result<()> {
     let host = Arc::new(host);
-    let mut link =
-        Upstream { sender: None, task: None, host: host.clone(), port, config: config.clone() };
+    let mut link = Upstream {
+        sender: None,
+        task: None,
+        host: host.clone(),
+        port,
+        config: config.clone(),
+        scope: scope.clone(),
+    };
     if let Some(tcp) = upstream {
         match link.handshake(tcp).await {
             Ok(()) => {}
@@ -316,8 +339,9 @@ async fn intercepted(
         .await
         .map_err(io::Error::other)??;
     let link = Arc::new(Mutex::new(link));
-    let service =
-        service_fn(move |req| forward(req, link.clone(), host.clone(), port, config.clone()));
+    let service = service_fn(move |req| {
+        forward(req, link.clone(), host.clone(), port, config.clone(), scope.clone())
+    });
     hyper::server::conn::http1::Builder::new()
         .timer(TokioTimer::new())
         .header_read_timeout(HEADER_TIMEOUT)
@@ -334,6 +358,7 @@ pub(crate) struct Upstream {
     host: Arc<String>,
     port: u16,
     config: Arc<Config>,
+    scope: Arc<Scope>,
 }
 
 impl Upstream {
@@ -355,7 +380,9 @@ impl Upstream {
         .await
         .map_err(io::Error::other)?
         .map_err(io::Error::other)?;
-        self.task = Some(tokio::spawn(connection).abort_handle());
+        self.task = Some(
+            self.scope.spawn_until_cancelled("vault-egress upstream", connection).abort_handle(),
+        );
         self.sender = Some(sender);
         Ok(())
     }
@@ -433,6 +460,7 @@ async fn forward(
     host: Arc<String>,
     port: u16,
     config: Arc<Config>,
+    scope: Arc<Scope>,
 ) -> Result<Response<Body>, Infallible> {
     // The request must be for the host it was connected to: a shared front
     // end would otherwise route it (and a value) to whoever Host names. One
@@ -500,7 +528,10 @@ async fn forward(
             return Ok(status(StatusCode::BAD_REQUEST, "request body failed\n"));
         };
         let (head, answer) = oneshot::channel();
-        tokio::spawn(crate::hold::run(upstream, parts, body, timings, head, host));
+        scope.spawn_until_cancelled(
+            "vault-egress hold",
+            crate::hold::run(upstream, parts, body, timings, head, host),
+        );
         return Ok(answer
             .await
             .unwrap_or_else(|_| status(StatusCode::BAD_GATEWAY, "upstream request failed\n")));
