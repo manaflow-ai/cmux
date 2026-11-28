@@ -6684,6 +6684,9 @@ jobs:
       host: ${{ steps.pick.outputs.host }}
       # The JSON runs-on array; it always starts with the literal glaeda-trusted-next-signing.
       pin: ${{ steps.pick.outputs.pin }}
+      # The other signer Mac for the hedge compile (nightly-next-hedge); empty when there is no hedge.
+      hedge_host: ${{ steps.pick.outputs.hedge_host }}
+      hedge_pin: ${{ steps.pick.outputs.hedge_pin }}
       attempt: ${{ github.run_attempt }}
     steps:
       - *github-token-for-git
