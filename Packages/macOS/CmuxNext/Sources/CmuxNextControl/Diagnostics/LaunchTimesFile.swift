@@ -266,7 +266,7 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
     /// outside a harness's marks pipe too (startup-tti, 2026-11-21).
     public static let phaseMarks = [
         "premain.first_initializer", "main.setup_done", "main.warmup_started",
-        "main.environment", "main.state_folder", "main.reads_started", "main.crash_handlers", "main.nsapp_made", "main.launch_shell_made", "main.delegate.fields", "main.control.fields", "main.delegate.first_frame_gate", "main.delegate.main_work", "main.delegate.control", "main.delegate_made", "main.nsapp", "main.run", "app.did_finish_launching_entry", "app.launch_snapshot_awaited",
+        "main.environment", "main.state_folder", "main.reads_started", "main.crash_handlers", "main.nsapp_made", "main.launch_shell_made", "main.delegate.fields", "main.control.fields", "main.delegate.first_frame_gate", "main.delegate.main_work", "main.delegate.control", "main.delegate_made", "main.nsapp", "main.run", "app.did_finish_launching_entry", "app.launch_snapshot_awaited", "app.cloud_env_awaited", "app.cloud_env_failed", "app.settings_awaited", "app.daemon_prestarted",
         "cloud_env.start", "cloud_env.cli_exited", "cloud_env.awaited",
         "did_finish_launching_start", "dfl.settings_read", "dfl.theme", "dfl.services", "dfl.app_actions", "dfl.bind", "dfl.settings", "dfl.menu",
         "daemon.prepare_start", "daemon.binary_resolved", "daemon.spawned", "daemon.reused", "daemon.prepare_end", "daemon.socket_connected", "daemon_connected",

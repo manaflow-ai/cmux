@@ -170,6 +170,13 @@ public final class CloudSetup {
             return instance != nil || CloudSetup.nativeHarnesses[family] != nil
         }
 
+        /// A connection for a family only this Mac's credential serves (Gemini, Grok): no gateway or edge route
+        /// to start on when its read fails.
+        var hasNoOtherRoute: Bool {
+            guard case .connection(_, let family, _) = self else { return false }
+            return CloudSetup.nativeHarnesses[family] != nil
+        }
+
         /// Whether the chat's model calls go somewhere other than this Mac's own gateway (``PersonalGateway``): the
         /// agent launch carries this Mac's connection credential, or the platform edge serves the organization's key.
         /// A start then has no gateway to wait for before its first turn. The production probe's starts on such a

@@ -23,8 +23,9 @@ name: Cloud devbox image rebake
 on:
   push:
     branches: [feat-cmux-next]
-    # Exactly REBAKE_INPUTS (tests/vm-devbox-rebake.test.ts), plus the two files
-    # that change how it bakes.
+    # Exactly REBAKE_INPUTS (tests/vm-devbox-rebake.test.ts), plus the files
+    # that change how it bakes and the gates that decide whether it promotes
+    # (a gate fix must be proven by the rebake it unblocks).
     paths:
       - web/services/vms/images/devbox/**
       - web/services/vms/images/shell/**
@@ -56,6 +57,11 @@ on:
       - "!web/services/vms/images/**/*.md"
       - web/scripts/devbox-rebake.ts
       - .github/workflows/cloud-devbox-image-rebake.yml
+      - web/scripts/promote-devbox-image.ts
+      - web/scripts/verify-devbox-image.ts
+      - web/scripts/devbox-agent-launch.ts
+      - web/scripts/devbox-agent-launch.py
+      - web/scripts/check-devbox-image-reachable.ts
   workflow_dispatch:
     inputs:
       force:

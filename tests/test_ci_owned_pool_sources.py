@@ -171,7 +171,8 @@ def fetch_tip(name: str) -> str | None:
     """origin's current tip of branch name, as a private ref; None when it cannot be fetched. Once per run.
 
     Under Actions, in a checkout that is already shallow and blob-less, the tip comes at depth 1 with
-    no blobs (fetch() adds the ones the test reads). Anywhere else it is a plain fetch of that one
+    no blobs (fetch() adds the ones the test reads); in a shallow full checkout it comes at depth 1 with its
+    blobs. Anywhere else it is a plain fetch of that one
     branch: --depth would make a full checkout shallow, and --filter would make it a partial clone.
     The checkout is the job's own, shared with every test running beside this one: a --depth=1
     fetch into car guards' full blob-less checkout wrote .git/shallow under
@@ -182,6 +183,10 @@ def fetch_tip(name: str) -> str | None:
     git("update-ref", "-d", private)
     if ON_CI and already_shallow_and_partial():
         git("fetch", "--no-tags", "--depth=1", "--filter=blob:none", "origin", f"+refs/heads/{name}:{private}")
+    elif ON_CI and is_shallow():
+        # A shallow full checkout (the PR pipeline's fetch-depth 2): a plain fetch walks the other branch's whole
+        # history into it (45 s, then refused, in the 11-28 probe) and --depth=1 keeps it as shallow as it was.
+        git("fetch", "--no-tags", "--depth=1", "origin", f"+refs/heads/{name}:{private}")
     else:
         git("fetch", "--no-tags", "origin", f"+refs/heads/{name}:{private}")
     return private if has_ref(private) else None
