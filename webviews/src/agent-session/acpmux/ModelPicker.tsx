@@ -75,6 +75,7 @@ import { CloudServedContext, cloudPickerState, cloudPickerFamily, cloudPickerRea
 import { pickerHeightBounds, cloudPickerFloor, rememberLocalPickerHeight } from "./modelPickerLayout";
 import { focusRoute } from "../../ui/focusRoute";
 import { intl } from "../../ui/intl";
+import { Button } from "../../ui/Button";
 type ModelChoice = {
   id: string;
   name: string;
@@ -2165,14 +2166,14 @@ export function ModelPicker(props: ModelPickerProps) {
               <output className="acpmux-mp-auth flex flex-none items-center gap-2 border-b-[0.5px] border-edge px-3 py-2 text-detail text-muted">
                 <span className="min-w-0 flex-1">{sessionAuthText}</span>
                 {canSessionLogin(props.sessionAuth) && props.onSessionLogin && (
-                  <button type="button" className="acpmux-mp-auth-action" onClick={() => props.onSessionLogin?.()}>
+                  <Button bare type="button" className="acpmux-mp-auth-action" onClick={() => props.onSessionLogin?.()}>
                     {authLoginText(props.sessionAuth, t)}
-                  </button>
+                  </Button>
                 )}
                 {props.onSessionAuthRefresh && (
-                  <button type="button" className="acpmux-mp-auth-action" onClick={props.onSessionAuthRefresh}>
+                  <Button bare type="button" className="acpmux-mp-auth-action" onClick={props.onSessionAuthRefresh}>
                     {t("harnesses.checkAgain")}
-                  </button>
+                  </Button>
                 )}
               </output>
             )}
