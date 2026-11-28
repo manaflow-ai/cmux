@@ -2317,7 +2317,7 @@ jobs:
         if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
         run: scripts/cmux-next/private-bun.sh
 
-      # Why: note-node-pin-build-tree
+      # Why: 2026-11-28-node-pin-build-tree.md
       - name: Read the build tree's Node pin
         id: web-node-pin
         if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
@@ -4615,7 +4615,7 @@ jobs:
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         run: scripts/cmux-next/private-bun.sh
 
-      # Why: note-node-pin-build-tree
+      # Why: 2026-11-28-node-pin-build-tree.md
       - name: Read the build tree's Node pin
         id: web-node-pin
         run: |
@@ -6316,7 +6316,7 @@ jobs:
         if: ${{ ((inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true') && steps.web-bundles-from.outcome != 'success') && steps.fleet-app.outputs.ok != 'true' }}
         run: scripts/cmux-next/private-bun.sh
 
-      # Why: note-node-pin-build-tree
+      # Why: 2026-11-28-node-pin-build-tree.md
       - name: Read the build tree's Node pin
         id: web-node-pin
         if: ${{ (inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true') && steps.web-bundles-from.outcome != 'success' }}
