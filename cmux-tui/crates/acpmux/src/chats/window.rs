@@ -301,6 +301,7 @@ impl TitleRanker {
         entries: Vec<cmux_palette_ranker::Entry>,
         history: Option<(f64, cmux_palette_ranker::Frecency)>,
     ) -> Vec<usize> {
+        let __a = std::time::Instant::now();
         let mut held = self.held.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let version = match held.as_ref() {
             Some(h) if same_entries(&h.entries, &entries) => h.version,
@@ -312,6 +313,7 @@ impl TitleRanker {
                 version
             }
         };
+        eprintln!("PHX install/cmp {:.1}", __a.elapsed().as_secs_f64()*1e3);
         let Some(h) = held.as_ref() else { return Vec::new() };
         let count = i64::try_from(h.entries.len()).unwrap_or(i64::MAX);
         let (now, frecency) =
@@ -404,6 +406,7 @@ fn ranked_rows(
     activity: &ChatActivity,
     text: Option<&ChatText>,
 ) -> WindowRows {
+    let __t0 = std::time::Instant::now();
     let home = dirs::home_dir().map(|home| home.to_string_lossy().trim_end_matches('/').to_owned());
     let mut candidates: Vec<(String, &IndexedChat)> = Vec::new();
     let mut entries = Vec::new();
@@ -433,10 +436,14 @@ fn ranked_rows(
         candidates.push((key, chat));
     }
     let history = spec.history.as_ref().map(|h| (h.now, h.frecency.clone()));
+    let __t1 = __t0.elapsed();
     let order = match text {
         Some(text) => text.titles().rank(query, entries, history),
         None => ranked(query, entries, history),
     };
+    let __t2 = __t0.elapsed();
+    let __n = order.len();
+    let _g = Tm(__t0, __t1, __t2, __n, query.len());
     let mut total = order.len();
     let mut rows: Vec<Row> = order
         .iter()
@@ -595,3 +602,6 @@ mod scale_tests;
 #[cfg(test)]
 #[path = "window_tests.rs"]
 mod tests;
+
+struct Tm(std::time::Instant, std::time::Duration, std::time::Duration, usize, usize);
+impl Drop for Tm { fn drop(&mut self) { eprintln!("PHX q{} cand {:.1} rank {:.1} all {:.1} n {}", self.4, self.1.as_secs_f64()*1e3, (self.2-self.1).as_secs_f64()*1e3, self.0.elapsed().as_secs_f64()*1e3, self.3); } }
