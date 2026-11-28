@@ -273,6 +273,8 @@ struct Costs {
     short_readers: usize,
     least_seen: u64,
     stalled_held: usize,
+    /// Distinct deltas in what the stalled watcher held.
+    stalled_seen: u64,
     stalled_told: bool,
 }
 
@@ -389,10 +391,18 @@ fn costs(bytes: u64) -> Costs {
         // The stalled watcher holds at most its queue and the ring behind it (draining the queue
         // lets its forwarder refill it from the ring), and is told it lagged so it reads again.
         let (mut stalled_held, mut stalled_told) = (0, false);
+        let mut stalled_deltas = std::collections::HashSet::new();
         while let Ok(line) = stalled_rx.try_recv() {
             stalled_held += 1;
             stalled_told |= line.contains("_acpmux/lagged");
+            for part in line.split("god-stream-delta ").skip(1) {
+                let digits: String = part.chars().take_while(char::is_ascii_digit).collect();
+                if let Ok(i) = digits.parse::<u64>() {
+                    stalled_deltas.insert(i);
+                }
+            }
         }
+        let stalled_seen = stalled_deltas.len() as u64;
         drop((stalled_tx, stalled_rx));
         drop(session);
         drop(hub);
@@ -415,6 +425,7 @@ fn costs(bytes: u64) -> Costs {
             short_readers,
             least_seen,
             stalled_held,
+            stalled_seen,
             stalled_told,
         }
     });
@@ -454,7 +465,7 @@ fn print(size: &str, c: &Costs) {
         "STRESS god chat {size}: log={:.1} MB; restart read={:.0} B in {:.1} ms, then {:.0} B \
          in the background; open read={:.0} B reply={:.0} B in {:.1} ms; loaded rss anon={:.0} B file={:.0} B; per delta to \
          {WATCHERS} watchers (1 stalled) read={:.0} B written={:.0} B in {:.1} us, rss {:.0} B; \
-         {} readers short (fewest {} of {DELTAS}); the stalled one held {} lines, told it lagged: {}",
+         {} readers short (fewest {} of {DELTAS}); the stalled one held {} lines ({} of {DELTAS} deltas), told it lagged: {}",
         c.log_mb,
         c.restart_read,
         c.restart_ms,
@@ -471,6 +482,7 @@ fn print(size: &str, c: &Costs) {
         c.short_readers,
         c.least_seen,
         c.stalled_held,
+        c.stalled_seen,
         c.stalled_told,
     );
 }
