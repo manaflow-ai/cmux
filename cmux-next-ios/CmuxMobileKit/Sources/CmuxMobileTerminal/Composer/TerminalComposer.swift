@@ -447,14 +447,22 @@ struct TerminalComposer: View {
             let clock = ContinuousClock()
             var lastFraction = progress.fractionCompleted
             var lastAdvance = clock.now
+            var lastPoll = clock.now
             while !Task.isCancelled {
                 do { try await Task.sleep(for: progressPoll) }
                 catch { return }
+                // Time this monitor itself went unscheduled (a loaded or
+                // low-power device) is not the load's inactivity: the load
+                // was starved alongside it, so that gap does not count.
+                let now = clock.now
+                let late = now - lastPoll - progressPoll
+                if late > progressPoll { lastAdvance += late }
+                lastPoll = now
                 let fraction = progress.fractionCompleted
                 if fraction > lastFraction {
                     lastFraction = fraction
-                    lastAdvance = clock.now
-                } else if clock.now - lastAdvance >= inactivityDeadline {
+                    lastAdvance = now
+                } else if now - lastAdvance >= inactivityDeadline {
                     if race.finish(.failure(PhotoLoadError.deadline)) { progress.cancel() }
                     return
                 }
