@@ -109,9 +109,9 @@ import Testing
     /// label rows by pane, single-pane windows by window name.
     @Test func tmuxWindowsBecomeSections() throws {
         let rows = MobileSSHTmuxProvider.parsePaneRows([
-            "work:0:2:%1:0:zsh",
-            "work:0:2:%2:1:zsh",
-            "work:1:1:%5:0:logs: tail",
+            "work:0:0:2:%1:0:zsh",
+            "work:0:0:2:%2:1:zsh",
+            "work:0:1:1:%5:0:logs: tail",
         ].joined(separator: "\n"))
         let workspace = try #require(MobileSSHTmuxProvider.workspaces(from: rows).first)
         let rekeyed = MobileSSHHostProviders.rekey(workspace, kind: .tmux, session: nil)

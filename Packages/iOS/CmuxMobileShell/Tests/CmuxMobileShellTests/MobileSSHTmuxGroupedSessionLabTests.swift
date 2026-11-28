@@ -75,12 +75,38 @@ struct MobileSSHTmuxGroupedSessionLabTests {
         }
         try await Self.waitUntil { seeded.count == 1 }
         #expect(Self.groupedSessions(socket).count == 1)
+        // The phone's own session is not a workspace.
+        #expect(try await provider.listWorkspaces().map(\.id) == ["laptop"])
         // tmux does not destroy it on its own (no destroy-unattached).
         let grouped = try #require(Self.groupedSessions(socket).first).name
         #expect(Self.tmux(socket, "show-options", "-v", "-t", "=" + grouped + ":", "destroy-unattached") == "off")
         await attachment.detach()
         try await Self.waitUntil { Self.groupedSessions(socket).isEmpty }
         #expect(Self.tmuxStatus(socket, "has-session", "-t", "=laptop") == 0)
+    }
+
+    /// A user's own session whose name contains the grouped-session marker is
+    /// listed as a workspace and survives the stale-session collection, even
+    /// with no client attached to it.
+    @Test(.timeLimit(.minutes(1))) func userSessionNamedLikeAGroupedSessionIsListedAndNeverKilled() async throws {
+        let socket = "cmux-lab-grouped-\(UUID().uuidString.prefix(8).lowercased())"
+        defer { Self.tmux(socket, "kill-server") }
+        let session = "build-cmux-ios-demo"
+        Self.tmux(socket, "new-session", "-d", "-s", session, "-x", "80", "-y", "24")
+        let connection = try await connect()
+        let provider = MobileSSHTmuxProvider(connection: connection, tmuxPath: Self.tmuxPath, socketName: socket)
+        let workspaces: [MobileSSHWorkspace]
+        do {
+            workspaces = try await provider.listWorkspaces()
+        } catch {
+            await connection.close()
+            throw error
+        }
+        // The connection is closed before the checks, so they read the
+        // server as the phone left it.
+        await connection.close()
+        #expect(workspaces.map(\.id) == [session])
+        #expect(Self.tmuxStatus(socket, "has-session", "-t", "=" + session) == 0, "the user's session was killed")
     }
 
     // MARK: Helpers
