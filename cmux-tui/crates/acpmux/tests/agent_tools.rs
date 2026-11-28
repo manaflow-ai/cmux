@@ -394,13 +394,13 @@ async fn local_sessions_get_the_browser_and_computer_use_tools_and_skills() {
     }
     assert!(!plugin.join("skills/cmux-cua").exists(), "the legacy skill is gone");
     // The acpmux CLI guide, pointing at the sub-session tools first.
-    let acpmux_skill = std::fs::read_to_string(plugin.join("skills/acpmux/SKILL.md")).unwrap();
-    assert!(acpmux_skill.contains("name: acpmux"), "{acpmux_skill}");
-    assert!(acpmux_skill.contains("cmux-subsessions") && acpmux_skill.contains("start_session"));
+    let agents_skill = std::fs::read_to_string(plugin.join("skills/agents/SKILL.md")).unwrap();
+    assert!(agents_skill.contains("name: agents"), "{agents_skill}");
+    assert!(agents_skill.contains("cmux-subsessions") && agents_skill.contains("start_session"));
     // It names the send tool before any `acpmux send`: chats ran `acpmux send` in Bash 15,810
     // times to 188 send tool calls (2026-11-09 audit, cmuxterm-hq#8104).
-    let tool = acpmux_skill.find("mcp__acpmux__send").expect("the skill names the send tool");
-    let cli = acpmux_skill.find("cmux agent send").unwrap();
+    let tool = agents_skill.find("mcp__acpmux__send").expect("the skill names the send tool");
+    let cli = agents_skill.find("cmux agent send").unwrap();
     assert!(
         tool < cli,
         "the skill teaches `cmux agent send` (byte {cli}) before the tool ({tool})"
