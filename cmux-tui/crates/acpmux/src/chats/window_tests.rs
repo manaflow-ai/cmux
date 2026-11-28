@@ -219,6 +219,53 @@ fn a_replaced_spec_sends_every_row_again_with_a_later_revision() {
     assert_eq!(full["revision"], 2);
 }
 
+/// A window's kept ranker gives every keystroke the order a fresh rank gives: while the query
+/// grows (it narrows from the last hits), when it shrinks or changes, and when a chat is added or
+/// renamed between keys (the ranker installs the new chats).
+#[test]
+fn a_kept_ranker_ranks_every_keystroke_like_a_fresh_one() {
+    let base: Vec<_> = (0..300)
+        .map(|i| {
+            let title = match i % 4 {
+                0 => format!("Fix the flaky build {i}"),
+                1 => format!("Port the parser to rust {i}"),
+                2 => format!("Write the build docs {i}"),
+                _ => format!("Review pull request {i}"),
+            };
+            let harness = if i % 3 == 0 { "codex" } else { "claude-code" };
+            entry(&title, &format!("/Users/me/repo{}", i % 7), harness)
+        })
+        .collect();
+    let mut renamed = base.clone();
+    renamed[5] = entry("Fix the parser build", "/Users/me/repo1", "codex");
+    renamed.push(entry("Fix build flake for good", "/Users/me/cmux", "claude-code"));
+    let frecency: cmux_palette_ranker::Frecency = serde_json::from_value(json!({
+        "entries": {"chat:codex:Port the parser to rust 9": {"score": 3.0, "lastUsed": 990.0}},
+        "halfLife": 259_200.0
+    }))
+    .unwrap();
+    let cache = TitleRanker::default();
+    let typed = ["f", "fi", "fix", "fix ", "fix b", "fix bu", "fix build", "fix", "p", "pa", "par"];
+    for (entries, history) in [(&base, None), (&renamed, None), (&base, Some((1_000.0, frecency)))]
+    {
+        for query in typed.iter().chain(["", "codex", "repo3", "zzz"].iter()) {
+            assert_eq!(
+                cache.rank("all", query, entries.clone(), history.clone()),
+                ranked(query, entries.clone(), history.clone()),
+                "query {query:?}"
+            );
+        }
+    }
+    for window in 0..=TITLE_RANKER_WINDOWS {
+        let query = typed[window % typed.len()];
+        assert_eq!(
+            cache.rank(&format!("w{window}"), query, base.clone(), None),
+            ranked(query, base.clone(), None),
+            "past the window bound, window {window}"
+        );
+    }
+}
+
 /// The title ranker that keeps its work across keystrokes ranks as the one-shot `ranked` does,
 /// when a query grows, shrinks, jumps or the entries change.
 #[test]
@@ -228,10 +275,40 @@ fn the_kept_title_ranker_ranks_as_a_fresh_one_does() {
         .collect();
     let kept = TitleRanker::default();
     for query in ["p", "pa", "par", "pars", "par", "chat 1", "chat 12", "zzz", "p"] {
-        assert_eq!(kept.rank(query, entries.clone(), None), ranked(query, entries.clone(), None));
+        assert_eq!(
+            kept.rank("all", query, entries.clone(), None),
+            ranked(query, entries.clone(), None)
+        );
     }
     entries.push(entry("a new parser chat", "/Users/me/site", "claude-code"));
     for query in ["pa", "par", "parser n"] {
-        assert_eq!(kept.rank(query, entries.clone(), None), ranked(query, entries.clone(), None));
+        assert_eq!(
+            kept.rank("all", query, entries.clone(), None),
+            ranked(query, entries.clone(), None)
+        );
     }
+}
+
+/// Two query windows open at once (the sidebar and the palette) each keep their own installed
+/// ranker: alternating keystrokes between them over the same chats installs each once.
+#[test]
+fn two_windows_alternating_keep_their_own_installed_ranker() {
+    let one: Vec<_> =
+        (0..40).map(|i| entry(&format!("parser chat {i}"), "/Users/me/cmux", "codex")).collect();
+    let mut two = one.clone();
+    two.truncate(20);
+    let kept = TitleRanker::default();
+    for query in ["p", "pa", "par", "pars"] {
+        assert_eq!(
+            kept.rank("sidebar", query, one.clone(), None),
+            ranked(query, one.clone(), None)
+        );
+        assert_eq!(
+            kept.rank("palette", query, two.clone(), None),
+            ranked(query, two.clone(), None)
+        );
+    }
+    let held = kept.held.lock().unwrap();
+    assert_eq!(held["sidebar"].version, 0, "the sidebar's ranker was installed once");
+    assert_eq!(held["palette"].version, 0, "the palette's ranker was installed once");
 }
