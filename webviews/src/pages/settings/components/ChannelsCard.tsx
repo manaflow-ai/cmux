@@ -374,8 +374,10 @@ const channelValue = (state: SettingsState) => state.rows.get("updates.channel")
  * `#/settings/updates?focus=channels:N`, a new N each time, so a second open scrolls back to it. */
 export const CHANNELS_FOCUS = "channels";
 
+// A bare `channels` link resolves to the card's own focus, `card.channels` (settingsLinks.ts, #56227);
+// `channels:N` reaches the card as written.
 const revealsCard = (focus: string | null) =>
-  focus === CHANNELS_FOCUS || (focus?.startsWith(`${CHANNELS_FOCUS}:`) ?? false);
+  focus === CHANNELS_FOCUS || focus === `card.${CHANNELS_FOCUS}` || (focus?.startsWith(`${CHANNELS_FOCUS}:`) ?? false);
 
 export function ChannelsCard({ focus = null }: { focus?: string | null }) {
   const store = useStore();
