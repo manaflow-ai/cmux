@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { allSpentDetail, claudeLoginCandidates, classifyLoginProbe, pickClaudeLogin, probeClaudeLogin, resetWords } from "./claude-login-pool";
+import { allSpentDetail, claudeLoginCandidates, classifyLoginProbe, pickClaudeLogin, probeClaudeLogin, resetWords, teamFallback, teamRouteInfra } from "./claude-login-pool";
+import { probeRow } from "./cloud-journey";
 import { FIXTURE_LOGIN, runJourney } from "./cloud-journey-fake";
 
 const A = `sk-ant-oat01-${"b".repeat(40)}`;
@@ -74,9 +75,9 @@ describe("the journey rotates its Claude login before the machine is made", () =
     expect(stdout).not.toContain(A);
   });
 
-  test("every slot spent: an infra row in the limit words, and no machine is created", () => {
+  test("every slot spent, team fallback off: an infra row in the limit words, and no machine is created", () => {
     const reset = Date.UTC(2026, 10, 30, 7) / 1000;
-    const { steps, probe, log } = runJourney({ login: FIXTURE_LOGIN, pool: A, loginAnswers: { [A]: { status: 429, reset }, [FIXTURE_LOGIN]: { status: 429, reset } } });
+    const { steps, probe, log } = runJourney({ login: FIXTURE_LOGIN, pool: A, teamFallback: "0", loginAnswers: { [A]: { status: 429, reset }, [FIXTURE_LOGIN]: { status: 429, reset } } });
     expect(log).not.toContain("create");
     expect(probe.outcome).toBe("fail");
     expect(probe.login_slot).toBeNull();
@@ -85,10 +86,60 @@ describe("the journey rotates its Claude login before the machine is made", () =
     expect(steps.find((s) => s.step === "pass Claude login")?.status).toBe("fail");
   });
 
+  test("every slot spent: the run falls back to team mode, copies no login, and says login_kind team", () => {
+    const reset = Date.UTC(2026, 10, 30, 7) / 1000;
+    const { steps, probe, log } = runJourney({ login: FIXTURE_LOGIN, pool: A, loginAnswers: { [A]: { status: 429, reset }, [FIXTURE_LOGIN]: { status: 429, reset } } });
+    expect(log).toContain("create");
+    expect(probe.login_kind).toBe("team");
+    expect(probe.login_slot).toBeNull();
+    expect(probe.team_spent_detail).toBeUndefined();
+    const login = steps.find((s) => s.step === "pass Claude login");
+    expect(login?.status).toBe("skip");
+    expect(login?.detail).toContain("team mode");
+    expect(steps.find((s) => s.step === "login rotation")?.detail).toContain("team mode");
+    // The limit words appear only when the team route itself is missing, so a team run's product red stays a red.
+    expect(JSON.stringify(probe)).not.toMatch(AGENT_TURN_LIMIT_RE);
+    const written = JSON.stringify({ probe, steps });
+    for (const token of [A, FIXTURE_LOGIN]) expect(written).not.toContain(token);
+  });
+
   test("one login and no pool: one preflight, slot 0, the run as before", () => {
     const { probe, log } = runJourney({ login: FIXTURE_LOGIN });
     expect(log.filter((l) => l.startsWith("login preflight") && l.includes("max_tokens=1 "))).toHaveLength(1);
     expect(probe.login_slot).toBe(0);
+    expect(probe.login_kind).toBe("oauth");
     expect(log).toContain("create");
+  });
+});
+
+describe("team-mode fallback", () => {
+  const spent = { login: null, slot: null, rotation: [{ slot: 0, status: "spent" as const, reason: "HTTP 429" }], candidates: 1, resetAt: "2026-12-02T03:00:00Z" };
+  test("only an all-spent pick falls back, and CMUX_JOURNEY_TEAM_FALLBACK=0 turns it off", () => {
+    expect(teamFallback(spent, {})).toBe(true);
+    expect(teamFallback(spent, { CMUX_JOURNEY_TEAM_FALLBACK: "0" })).toBe(false);
+    expect(teamFallback({ ...spent, login: "x", slot: 0 }, {})).toBe(false);
+    expect(teamFallback(null, {})).toBe(false);
+  });
+
+  test("a team with no route is infra in the limit words; any other failure stays the product's", () => {
+    const words = allSpentDetail(spent);
+    const missing = teamRouteInfra(words, { step: "reply", detail: "HTTP 403 No Claude upstream account is configured for this team or shared with this caller" });
+    expect(missing).toStartWith("You've hit your usage limit · resets Dec 2, 3am (UTC)");
+    expect(missing).toContain("team-mode fallback: infra: team upstream missing (reply: HTTP 403 No Claude upstream account");
+    expect(missing).not.toContain("no machine was created");
+    expect(teamRouteInfra(words, { step: "team gateway mode (before create)", detail: "gateway mode with no gateway online: ..." })).toContain("infra: team upstream missing");
+    expect(teamRouteInfra(words, { step: "reply", detail: "no reply within 300 s" })).toBeNull();
+    expect(teamRouteInfra(words, undefined)).toBeNull();
+  });
+
+  test("probeRow puts the infra words in error only for a missing team route, and never writes team_spent_detail", () => {
+    const words = allSpentDetail(spent);
+    const routeless = probeRow("p", [{ step: "reply", status: "fail", ms: 9, detail: "No cmux inference gateway is online for this team" }], undefined, new Date(), undefined, { login_kind: "team", team_spent_detail: words });
+    expect(routeless.error).toMatch(AGENT_TURN_LIMIT_RE);
+    expect(routeless.login_kind).toBe("team");
+    expect(routeless).not.toHaveProperty("team_spent_detail");
+    const red = probeRow("p", [{ step: "reply", status: "fail", ms: 9, detail: "acpmux exited 1" }], undefined, new Date(), undefined, { login_kind: "team", team_spent_detail: words });
+    expect(red.error).toBe("reply: acpmux exited 1");
+    expect(JSON.stringify(red)).not.toMatch(AGENT_TURN_LIMIT_RE);
   });
 });

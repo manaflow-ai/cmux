@@ -501,6 +501,22 @@ python3 tests/test_cmux_next_pair_e2e_guards.py || status=1
 exit "$status"
 '''
 
+# The ios macos post-merge red (SnapshotSaveGateTests named the iOS-only LiveCoordinator unguarded, fixed by
+# cmux#65465) compiled only in the kit's macOS swift test, after merge. This reads the Swift text in under a second.
+[step.mobile-live-tests-ios-only-types]
+job = "linux"
+timeout = 120
+title = "CmuxMobileLiveTests name iOS-only types only under #if os(iOS)"
+about = "a CmuxMobileLiveTests file (also built by the kit's macOS swift test) names a type CmuxMobileLive declares only for iOS only inside an #if os(iOS) or #if canImport(UIKit) region"
+inputs = [
+  "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/**",
+  "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/**",
+  "tests/test_mobile_live_tests_guard_ios_only_types.py",
+]
+run = '''
+python3 -I tests/test_mobile_live_tests_guard_ios_only_types.py
+'''
+
 # A workflow on both main and feat-cmux-next (a twin) runs each job on one runner and reads one GITHUB_TOKEN floor
 # in both copies (scripts/ci/workflow_twins.py). cmux#63743 moved main's ui-proof-stale-sweep.yml to the secret JIT
 # label with the floor while feat-cmux-next's copy kept cmux-linux and no floor, and nothing compared them: the

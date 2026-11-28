@@ -141,7 +141,7 @@ import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos
 import { pauseWithReconciliation, runWakeEcho, setupProbe, startWithRetry, wakeEchoMarkdown, summarize as wakeEchoSummary, type WakeCycle } from "./cloud-wake-echo.ts";
 import { FAIL_STREAK, parseServerTiming, RESUME_ARMS, type ResumeArm, resumeMarkdown, resumeRouteCall, type ResumeSample, type ResumeStop, runProviderArm, runResumeMatrix, syncRunning } from "./cloud-resume-matrix.ts";
 import { clientSpans, hopDurations, mintSendTrace, modelFloor, readSendTrace, readStartTrace, sendTraceRows, sendTraceTable, slowestHop, snappyReport, snappyRun, traceMarkdown } from "./cloud-start-trace.ts";
-import { allSpentDetail, claudeLoginCandidates, type LoginPick, pickClaudeLogin, probeClaudeLogin, rotationLine } from "./claude-login-pool.ts";
+import { allSpentDetail, claudeLoginCandidates, type LoginPick, pickClaudeLogin, probeClaudeLogin, rotationLine, teamFallback, teamRouteInfra } from "./claude-login-pool.ts";
 import { answeredPath, answerTimings, DAEMON_CHECK, MachineFailed, pickVmApiTenant, type StartPath, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart, traceFacts } from "./cloud-start-bench.ts";
 
 // The shipped app's CloudMachineCreateFlow.named and the platform's CHAT_START_SHAPE (2/4/20, cmux-platform#1756).
@@ -3671,11 +3671,13 @@ export function probeRow(probe: string, steps: Step[], run?: string, at = new Da
   const failed = steps.find((s) => s.status === "fail");
   const ready = readyMs(steps);
   const fields = context ? [...steps].reverse().find((s) => s.fields)?.fields : undefined;
-  const { failure_facts, ...spare } = extra;
+  const { failure_facts, team_spent_detail, ...spare } = extra;
   const warm = spareTaken(extra);
   const base = { probe, at: at.toISOString().replace(/\.\d+Z$/, "Z"), runner: "github-actions", ...(run ? { run } : {}), ...(ready === null ? {} : { ready_ms: ready, agent_ready_ms: ready, agent_ready_path: warm === null ? null : warm ? "warm" : "cold" }), ...context, ...fields, ...spare };
   if (reply?.status === "pass" && send) return { ...base, outcome: "ok", ms: send.ms + reply.ms };
-  return { ...base, outcome: "fail", error: failed ? `${failed.step}: ${failed.detail}`.slice(0, 300) : "no reply step ran", ...(failure_facts ? { failure_facts } : {}) };
+  // A team-mode fallback whose team has no model route measured no product: the infra words (teamRouteInfra).
+  const infra = team_spent_detail ? teamRouteInfra(team_spent_detail, failed) : null;
+  return { ...base, outcome: "fail", error: infra ?? (failed ? `${failed.step}: ${failed.detail}`.slice(0, 300) : "no reply step ran"), ...(failure_facts ? { failure_facts } : {}) };
 }
 
 /**
@@ -3697,6 +3699,10 @@ export type ProbeExtra = {
   login_slot?: number | null;
   /** Each asked pool slot's preflight answer, in order (claude-login-pool.ts). */
   login_rotation?: { slot: number; status: string; reason: string }[];
+  /** How the real Claude leg reached its model: its own login copied ("oauth"), or team mode after every slot was spent ("team"). */
+  login_kind?: "oauth" | "team";
+  /** A team-mode fallback's all-spent words (never written as a field: probeRow puts them in `error` only when the team route is missing). */
+  team_spent_detail?: string;
   /** The Cloud scroll-stress probe's counts (SCROLL_PROBE_STEP), only when it measured. */
   terminal_scroll?: TerminalScroll;
   failure_facts?: FailureFacts;
@@ -5998,6 +6004,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const claudePick: LoginPick | null = claudeRotates
     ? await pickClaudeLogin(claudeCandidates, (token) => probeClaudeLogin(token, globalThis.fetch, process.env.CMUX_JOURNEY_LOGIN_PREFLIGHT_URL || undefined))
     : null;
+  // Every slot spent: team mode (no login of its own), the app's default for a person, instead of no run at all.
+  const claudeTeam = teamFallback(claudePick, process.env);
   const claudeLogin = modelStub
     ? `sk-ant-oat01-journeystub-${randomBytes(24).toString("hex")}`
     : claudePick ? claudePick.login ?? "" : claudeCandidates[0] ?? "";
@@ -6086,7 +6094,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (claudePick) {
     probeExtra.login_slot = claudePick.slot;
     probeExtra.login_rotation = claudePick.rotation;
-    if (claudePick.login === null) {
+    probeExtra.login_kind = claudeTeam ? "team" : "oauth";
+    if (claudeTeam) {
+      // The login stage stays in the marks (login and login_ready land together: nothing is copied), so the stage
+      // times compare with an oauth run's. The all-spent words go into the row only if the team has no route.
+      probeExtra.team_spent_detail = allSpentDetail(claudePick);
+      J.skip("login rotation", `${rotationLine(claudePick)}; team mode: no login of its own, the team's model route`);
+    } else if (claudePick.login === null) {
       // Every slot is spent or refused: an infra row (the limit words cmuxterm-hq's agent_quota reads), not a product
       // failure, and no machine is made for a reply that cannot come.
       J.record({ step: loginStep, status: "fail", ms: 0, detail: allSpentDetail(claudePick) });
@@ -6094,9 +6108,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (probeOut) writeFileSync(probeOut, `${JSON.stringify(probeRow(probeName, J.steps, probeRun, new Date(), probeContext, probeExtra))}\n`);
       console.log(`\nFAIL ${allSpentDetail(claudePick)}`);
       return 1;
+    } else {
+      J.skip("login rotation", rotationLine(claudePick));
     }
-    J.skip("login rotation", rotationLine(claudePick));
   }
+  // A real Claude run given no login at all is the same team-mode leg (#63318).
+  if (!claudePick && !modelStub && provider === "claude" && !gatewayAny && !login) probeExtra.login_kind = "team";
   let factsRead = false;
   // --preclaim-login's warm-spare state dir, removed by the cleanup.
   let preclaimStateDir: string | null = null;
@@ -7245,7 +7262,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     } else if (!provider || only.has("chat") || only.has("login")) {
       J.skip(loginStep, !provider ? `agent ${agent}` : "--skip");
     } else if (!login) {
-      J.skip(loginStep, provider === "codex" ? "no CODEX_AUTH_JSON: the reply needs the person's Codex login on the machine" : "no CLAUDE_CODE_OAUTH_TOKEN: the reply needs the person's Claude login on the machine");
+      J.skip(loginStep, provider === "codex" ? "no CODEX_AUTH_JSON: the reply needs the person's Codex login on the machine" : claudeTeam ? "team mode: every login slot is spent, so none is copied; the agent takes the team's model route" : "no CLAUDE_CODE_OAUTH_TOKEN: the reply needs the person's Claude login on the machine");
     } else if (loginPathAfterClaim({ receipt: Boolean(prepared?.spare === created.id && preclaimLoginCmux && preclaimStateDir && await spareLoginReceipt(preclaimLoginCmux, api, preclaimStateDir, install.token, prepared!, created.id)), launchCredential, launchOnMiss }) === "receipt") {
       // The claim handed out the spare whose login was copied on spare.ready, and its receipt says installed. The app
       // reads that receipt from its own ledger (spare_warm.rs login_receipt, no machine call) and starts the agent;
@@ -7496,7 +7513,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         if (!session) throw new Error(`started with no session: ${JSON.stringify(reply).slice(0, 200)}`);
         J.firstText.mark("session_ready");
         started = true;
-        return { value: null, detail: `${outcome.detail}; no cwd or model credential on the start` };
+        const split = reservedChat.phaseLine();
+        return { value: null, detail: `${outcome.detail}; no cwd or model credential on the start${split ? `; ${split}` : ""}` };
       }).catch(() => undefined);
       if (!started) {
         reservedChat?.stop();
@@ -7563,7 +7581,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           const reply = memoryCodeword ? await chat.startAttached(agent) : await chat.start(agent);
           const outcome = appStartDetail(reply);
           if (!outcome.ok) throw new Error(outcome.detail);
-          return { value: String(reply?.data?.session ?? ""), detail: outcome.detail };
+          const split = chat.phaseLine();
+          return { value: String(reply?.data?.session ?? ""), detail: split ? `${outcome.detail}; ${split}` : outcome.detail };
         }).catch(() => null);
         if (!memoryCodeword) {
           for (const step of ["send chat", "reply"]) J.skip(step, "--start-via app: the cell judges the app's start");
