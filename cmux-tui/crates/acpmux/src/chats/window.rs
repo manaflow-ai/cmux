@@ -335,17 +335,9 @@ impl TitleRanker {
         };
         let Some(h) = windows.get(window) else { return Vec::new() };
         let count = i64::try_from(h.entries.len()).unwrap_or(i64::MAX);
-        let (now, frecency) =
-            history.map_or((None, None), |(now, frecency)| (Some(now), Some(frecency)));
         let request = cmux_palette_ranker::RankRequest {
-            operation: "rank".to_owned(),
             version: Some(version),
-            query: Some(query.to_owned()),
-            frecency,
-            now,
-            row_limit: Some(count),
-            highlight_limit: Some(0),
-            ..Default::default()
+            ..rank_request(query, None, count, history)
         };
         let mut rows: Vec<(i64, usize)> = Vec::new();
         for section in h.ranker.rank(&request).unwrap_or_default() {
