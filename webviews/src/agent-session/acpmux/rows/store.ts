@@ -51,6 +51,8 @@ export type ChatAnchor = "end" | { rowId: number; side: "before" | "after" | "ar
 /// change keeps its entry's identity, so the list renders one row for one op.
 export type ChatRowsSnapshot = {
   readonly sid: string;
+  /// Opaque book provenance for measurements; only Rust compares editions.
+  readonly edition?: number;
   /// In rowId order, which is the order the page draws.
   readonly rows: readonly ChatRowEntry[];
   /// Open rows past the rows held (decision 243): the stretch does not reach them, so they are
@@ -138,6 +140,7 @@ class SidRows {
   private seen: number | undefined;
   private folds: readonly number[] = NO_FOLDS;
   private ready = false;
+  private edition: number | undefined;
   /// A resume's ops, applied in one step at its end.
   private replayed: ChatOp[] = [];
   private page: PageAsk | null = null;
@@ -308,6 +311,7 @@ class SidRows {
   }
 
   private window(replaces: boolean, window: ChatWindow): void {
+    this.edition = window.edition;
     // A window in place of a resume: the ops held for it are behind what it holds.
     this.replayed = [];
     const incoming: ChatRowEntry[] = window.rows.map((row) => entryOf(row));
@@ -604,6 +608,7 @@ class SidRows {
       bodyMap = this.bodies.size ? new Map([...this.bodies].map(([key, body]) => [key, body.value])) : NO_BODIES;
     return Object.freeze({
       sid: this.sid,
+      edition: this.edition,
       rows: list,
       apart: apartList,
       hasBefore: this.hasBefore,

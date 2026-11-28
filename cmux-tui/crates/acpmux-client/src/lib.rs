@@ -3,6 +3,7 @@
 pub mod chat;
 pub mod ffi;
 pub mod page;
+pub mod row_heights;
 pub mod tokio_list;
 pub mod wire;
 
@@ -239,6 +240,8 @@ pub struct Client<T = Summary> {
     skips: SkipCounters,
     chats: HashMap<String, chat::ChatSub>,
     blobs: VecDeque<chat::PendingBlob>,
+    /// Width-specific CSS row measurements retained for the next page mount.
+    pub(crate) row_heights: row_heights::RowHeightCache,
     /// The surfaces this connection's upgrade granted; none while not known (before the reply,
     /// and on a handle made already connected in v2, which has what it named).
     granted: Option<Vec<String>>,
@@ -293,6 +296,7 @@ where
             skips: SkipCounters::default(),
             chats: HashMap::new(),
             blobs: VecDeque::new(),
+            row_heights: row_heights::RowHeightCache::default(),
             granted: None,
         }
     }
@@ -347,6 +351,20 @@ where
         client.direct_v2 = true;
         client.queue_hello();
         client
+    }
+
+    /// Resolves a held page sid to the daemon's stable chat id. Row measurements
+    /// use that id so closing and reopening a page sid can reuse its cache while
+    /// an unrelated chat cannot observe it. Validate the entire batch against the
+    /// current window before accessing the cache: old observers may still submit
+    /// measurements after an edition replacement. No window means no known edition.
+    pub(crate) fn chat_cache_sid(
+        &self,
+        sid: &str,
+        mut editions: impl Iterator<Item = u32>,
+    ) -> Option<String> {
+        let (chat, edition) = self.chats.get(sid)?.cache_identity()?;
+        editions.all(|row_edition| row_edition == edition).then(|| chat.to_owned())
     }
 
     pub fn connected(&mut self) {

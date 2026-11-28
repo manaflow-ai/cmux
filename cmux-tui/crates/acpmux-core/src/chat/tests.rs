@@ -687,6 +687,38 @@ fn a_book_an_older_translator_wrote_rebuilds_from_raw() {
 }
 
 #[test]
+fn v13_checkpoint_rebuilds_once_without_reusing_client_edition() {
+    let home = tempfile::tempdir().unwrap();
+    let config = fixture(home.path(), 2);
+    catch_up(config.clone());
+    let expected = rows(home.path());
+    let (mut log, recovered) = Log::open(home.path(), Options::default()).unwrap();
+    let mut saved = Checkpoint::from_recovered(&recovered).unwrap();
+    let previous_edition = saved.edition;
+    // Pin the deployed version: VERSION - 1 would still pass if a schema change forgot its bump.
+    // Keep the payload readable so version invalidation itself must force the rebuild, with
+    // the same boot and source stamp that would otherwise preserve clients' rows and cursors.
+    saved.translator_version = 13;
+    let open: Vec<u64> = saved.open.iter().map(|open| open.body.row).collect();
+    saved.write(&mut log, &open).unwrap();
+    drop(log);
+
+    let actor = ChatActor::spawn(config.clone());
+    wait_health(&actor.handle, crate::life::Health::Running);
+    actor.join();
+    let recovered = log::saved_checkpoint(home.path()).unwrap().unwrap();
+    let migrated = Checkpoint::from_recovered(&recovered).unwrap();
+    assert_eq!(migrated.edition, previous_edition + 1);
+    assert_eq!(migrated.translator_version, translate::VERSION);
+    assert!(State::restore(&migrated.translator, &migrated.prompts).is_ok());
+    assert_eq!(rows(home.path()), expected);
+
+    catch_up(config);
+    assert_eq!(log::CheckpointHead::read(home.path()).unwrap().unwrap().edition, migrated.edition);
+    assert_eq!(rows(home.path()), expected);
+}
+
+#[test]
 fn a_damaged_checkpoint_head_uses_injected_random_edition_once() {
     let home = tempfile::tempdir().unwrap();
     let config = fixture(home.path(), 2).with_edition_random(Arc::new(|| 77));

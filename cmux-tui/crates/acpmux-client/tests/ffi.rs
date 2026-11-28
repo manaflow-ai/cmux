@@ -448,3 +448,146 @@ fn one_handle_carries_a_chat_through_each_c_function() {
         acpmux_client_free(handle);
     }
 }
+
+#[test]
+fn row_heights_follow_chat_editions_through_the_c_abi() {
+    use acpmux_client::ffi::{
+        ACPMUX_CLIENT_ERR_INVALID, acpmux_client_new_with_surfaces, acpmux_client_row_heights_read,
+        acpmux_client_row_heights_write, acpmux_client_subscribe_chat, acpmux_client_unsubscribe,
+    };
+    use serde_json::{Value, json};
+
+    let surfaces = br#"["chat"]"#;
+    // SAFETY: the slice lives through the call; this test owns the returned handle.
+    let handle = unsafe { acpmux_client_new_with_surfaces(surfaces.as_ptr(), surfaces.len()) };
+    assert!(!handle.is_null());
+    let subscribe = |sid: &str, chat: &str| {
+        let request = serde_json::to_vec(&json!({"sid":sid,"chat":chat})).unwrap();
+        let mut out = Bytes { ptr: std::ptr::null_mut(), len: 0 };
+        // SAFETY: live handle, valid slices and output; calls are serialized in this test.
+        unsafe {
+            assert_eq!(
+                acpmux_client_subscribe_chat(handle, request.as_ptr(), request.len(), &mut out),
+                ACPMUX_CLIENT_OK
+            );
+            acpmux_client_bytes_free(out);
+        }
+    };
+    let heights = |write: bool, sid: &str, rows: Vec<Value>| -> Result<Value, i32> {
+        let request =
+            if write { json!({"sid":sid,"entries":rows}) } else { json!({"sid":sid,"rows":rows}) };
+        let request = serde_json::to_vec(&request).unwrap();
+        let mut out = Bytes { ptr: std::ptr::null_mut(), len: 0 };
+        // SAFETY: live handle, valid slices and output; calls are serialized in this test.
+        unsafe {
+            let status = if write {
+                acpmux_client_row_heights_write(handle, request.as_ptr(), request.len(), &mut out)
+            } else {
+                acpmux_client_row_heights_read(handle, request.as_ptr(), request.len(), &mut out)
+            };
+            if status != ACPMUX_CLIENT_OK {
+                assert!(out.ptr.is_null());
+                assert_eq!(out.len, 0);
+                return Err(status);
+            }
+            let response =
+                serde_json::from_slice(std::slice::from_raw_parts(out.ptr, out.len)).unwrap();
+            acpmux_client_bytes_free(out);
+            Ok(response)
+        }
+    };
+    let window = |sid: &str, edition: u32| {
+        let frame = Frame::json(
+            FrameKind::Window,
+            &json!({"sid":sid,"cursor":1,"edition":edition,"rows":[{"id":7,"rev":1}],
+                "hasBefore":false,"hasAfter":false}),
+        )
+        .unwrap()
+        .encode();
+        // SAFETY: the test owns the handle and frame and calls them serially.
+        unsafe {
+            assert_eq!(give(handle, &frame), frame.len());
+            let change = take_json(handle);
+            assert_eq!(change["kind"], "chatWindow");
+            assert_eq!(change["window"]["edition"], edition);
+        }
+    };
+    let row = |edition: u32, height: f32| json!({"edition":edition,"id":7,"rev":1,"signature":"open","width":51200,"height":height});
+    let invalid = Err(ACPMUX_CLIENT_ERR_INVALID);
+    subscribe("page-1", "stable-chat");
+    // A guessed edition (including zero) cannot populate or read a cache before its window.
+    for edition in [0, 3] {
+        for write in [false, true] {
+            assert_eq!(heights(write, "page-1", vec![row(edition, 40.0)]), invalid);
+        }
+    }
+    for write in [false, true] {
+        assert_eq!(heights(write, "page-1", vec![]), invalid);
+    }
+    // SAFETY: this test owns the live handle and all the buffers, and uses one thread.
+    unsafe {
+        assert_eq!(acpmux_client_connected(handle), ACPMUX_CLIENT_OK);
+        let upgrade = sent_requests(handle).pop().unwrap();
+        let reply = format!("{{\"id\":{},\"result\":{{\"upgrade\":true}}}}\n", upgrade["id"]);
+        give(handle, reply.as_bytes());
+        sent_requests(handle);
+        let hello = Frame::json(
+            FrameKind::Hello,
+            &HelloReply { daemon_id: "d".into(), limits: Limits::default() },
+        )
+        .unwrap()
+        .encode();
+        give(handle, &hello);
+        sent_requests(handle);
+    }
+    window("page-1", 3);
+    for write in [false, true] {
+        let mut missing_edition = row(3, 40.0);
+        missing_edition.as_object_mut().unwrap().remove("edition");
+        assert_eq!(heights(write, "page-1", vec![missing_edition]), invalid);
+    }
+    assert_eq!(heights(true, "page-1", vec![row(3, 40.0)]).unwrap()["stored"], 1);
+    assert_eq!(heights(false, "page-1", vec![row(3, 0.0)]).unwrap()["rows"][0]["height"], 40.0);
+
+    // Replacement reuses every row key component except the edition: no old height leaks.
+    window("page-1", 4);
+    assert_eq!(
+        heights(false, "page-1", vec![row(4, 0.0)]).unwrap()["rows"][0]["height"],
+        Value::Null
+    );
+    assert_eq!(heights(false, "page-1", vec![row(3, 0.0)]), invalid);
+    assert_eq!(heights(true, "page-1", vec![row(3, 99.0)]), invalid);
+    assert_eq!(heights(true, "page-1", vec![row(4, 60.0)]).unwrap()["stored"], 1);
+    // A valid first entry must not be stored if a later entry is stale; reads also reject
+    // the whole mixed batch rather than returning any results for obsolete rows.
+    for write in [false, true] {
+        assert_eq!(heights(write, "page-1", vec![row(4, 88.0), row(3, 99.0)]), invalid);
+    }
+    let current = heights(false, "page-1", vec![row(4, 0.0)]).unwrap();
+    assert_eq!(current["rows"][0]["height"], 60.0);
+    assert_eq!(current["rows"][0]["edition"], 4);
+
+    // A new page sid for the same stable chat can reuse only its confirmed current edition.
+    let unsub = br#""page-1""#;
+    // SAFETY: owned live handle and readable request, called serially.
+    unsafe {
+        assert_eq!(
+            acpmux_client_unsubscribe(handle, unsub.as_ptr(), unsub.len()),
+            ACPMUX_CLIENT_OK
+        );
+    }
+    subscribe("page-2", "stable-chat");
+    assert_eq!(heights(false, "page-2", vec![row(4, 0.0)]), invalid);
+    assert_eq!(heights(true, "page-2", vec![row(4, 77.0)]), invalid);
+    window("page-2", 4);
+    assert_eq!(heights(false, "page-2", vec![row(4, 0.0)]).unwrap()["rows"][0]["height"], 60.0);
+    assert_eq!(heights(true, "page-1", vec![row(4, 77.0)]), invalid);
+    subscribe("other-page", "other-chat");
+    window("other-page", 4);
+    assert_eq!(
+        heights(false, "other-page", vec![row(4, 0.0)]).unwrap()["rows"][0]["height"],
+        Value::Null
+    );
+    // SAFETY: the handle was allocated above and is freed exactly once.
+    unsafe { acpmux_client_free(handle) };
+}

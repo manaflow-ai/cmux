@@ -13,6 +13,7 @@ import type { AcpmuxRow, QueuedPrompt } from "../model";
 import { answeredBy } from "../multiplayer/participants";
 import { DECISION_TEXT, PERMISSION_RECORD, type PermissionDecision } from "../permissions/record";
 import type { IncomingContext } from "../conversation/incomingMessage";
+import { BOOK_EDITION, BOOK_REVISION } from "./bookRevision";
 import { type UserBody, userPrompt } from "./incoming";
 import type { ChatRowEntry, ChatRowsSnapshot } from "./store";
 import type { ChatRow } from "./wire";
@@ -44,6 +45,9 @@ export function adaptChat(snapshot: ChatRowsSnapshot, context: ChatRowsContext):
 /// keeps its view rows' objects, so the view's turn shaping (`turnViewFrom`) keeps the turns before
 /// the first changed one. A new context is a new adapter.
 export class ChatAdapter {
+  // Live text and open-row edits share their wire revision until settlement. The renderer
+  // keys updates by view version, including edits to a footer's group or the harness.
+  #viewVersion = 0;
   #made = new WeakMap<ChatRow, { group: ChatRow | undefined; rows: AcpmuxRow[] }>();
   /// The harness the made rows were adapted under. The page's context reads it from the chat list
   /// as each row is adapted, so a chat chosen before its list row is known learns it later: then
@@ -70,7 +74,7 @@ export class ChatAdapter {
         const group = (row.kind === "notice" || row.kind === "text") && row.group ? held.get(row.group) : undefined;
         let made = this.#made.get(row);
         if (!made || made.group !== group) {
-          made = { group, rows: adaptRow(entry, held, this.context) };
+          made = { group, rows: adaptRow(entry, held, this.context, ++this.#viewVersion, snapshot.edition) };
           this.#made.set(row, made);
         }
         rows.push(...made.rows);
@@ -92,18 +96,26 @@ export function adaptRow(
   entry: ChatRowEntry,
   held: ReadonlyMap<number, ChatRow>,
   context: ChatRowsContext,
+  viewVersion = entry.rev,
+  edition?: number,
 ): AcpmuxRow[] {
   const row = entry.row;
   if (!row) return [];
   const body = (row.body ?? {}) as Record<string, any>;
-  const head = { id: `row-${row.id}`, version: row.rev, at: row.at * 1000 };
+  const head = {
+    id: `row-${row.id}`,
+    version: viewVersion,
+    at: body.atMs ?? row.at * 1000,
+    [BOOK_REVISION]: row.rev,
+    [BOOK_EDITION]: edition,
+  };
   switch (row.kind) {
     case "user":
       return [
         {
           ...head,
           kind: "user",
-          ...turnOf(row),
+          ...turnOf(row, body),
           ...userPrompt(body as UserBody, context.incoming),
           // A steer waits while its row is open (the translate contract keeps it open until read).
           ...(body.steer ? { steer: row.open ? ("waiting" as const) : ("landed" as const) } : {}),
@@ -137,9 +149,16 @@ export function adaptRow(
       ];
     case "tool": {
       const item = mergeToolItem(undefined, body, String(body.callId ?? ""), textFromContent(body.content));
+      if (item.tool) {
+        item.tool.startedAt = body.startedAt;
+        item.tool.endedAt = body.endedAt;
+        if (body.approved || row.approvedAfterSettle) item.tool.approved = true;
+        if (body.provenance) item.tool.provenance = body.provenance;
+      }
       return [
         {
           ...head,
+          at: body.activityAt ?? head.at,
           kind: "activity",
           ...(row.group !== undefined ? { foldId: row.group } : {}),
           toolCount: 1,
@@ -150,7 +169,12 @@ export function adaptRow(
     }
     case "notice":
       return body.notice === "turn_result"
-        ? [{ ...turnSummary(head, body, row.group ? held.get(row.group) : undefined), ...turnOf(row) }]
+        ? [
+            {
+              ...turnSummary(head, body, row.group ? held.get(row.group) : undefined),
+              ...turnOf(row, body),
+            },
+          ]
         : [];
     case "ask":
       return body.ask === "permission" ? permissionRecord(head, body, context) : [];
@@ -177,6 +201,7 @@ function turnSummary(
     ...head,
     kind: "turnSummary",
     ...turnStart(group),
+    ...(body.turnStartedAtMs !== undefined && { turnStartedAtMs: body.turnStartedAtMs }),
     ...(typeof body.seq === "number" ? { seq: body.seq } : {}),
     ...(typeof turn.ms === "number" ? { durationMs: turn.ms } : {}),
     ...(typeof turn.calls === "number" ? { toolCount: turn.calls } : {}),
@@ -192,8 +217,7 @@ function turnSummary(
 
 /// A permission ask's receipt (decision 245): the card's permission read from `request` by v1's
 /// reader, the decision with the option and the mode named, and the receipt's words from i18n. An
-/// approval reads on the call it approved (the tool row's `approved`, on `notYet` until the
-/// translator writes it), never as a receipt line, as v1 draws it.
+/// approval reads on the call it approved when its row exists; an unbound ask keeps its receipt.
 function permissionRecord(
   head: Pick<AcpmuxRow, "id" | "version" | "at">,
   body: Record<string, any>,
@@ -201,16 +225,22 @@ function permissionRecord(
 ): AcpmuxRow[] {
   const decision = askDecision(body, context);
   const permission = permissionFromMessage(
-    { request: body.request, permissionId: body.permissionId, turnId: body.turnId, sessionId: context.sessionId },
+    {
+      request: body.request,
+      permissionId: body.permissionId,
+      turnId: body.turnId,
+      sessionId: context.sessionId,
+    },
     context.sessionId,
   );
   if (!decision || !permission) return [];
   const approved = decision.kind === "allowed" || decision.kind === "allowedAlways" || decision.kind === "fullAccess";
-  if (approved && permission.toolCallId) return [];
+  if (body.drawnOnTool ?? (approved && permission.toolCallId)) return [];
   const action = permission.title?.trim() || translate("permission.required");
   return [
     {
       ...head,
+      at: body.decidedAtMs ?? head.at,
       kind: PERMISSION_RECORD,
       permission,
       decision,
@@ -251,8 +281,8 @@ export function askDecision(body: Record<string, any>, context: ChatRowsContext)
   }
 }
 
-/// A turn's identity is its prompt's rowId (`row.turn`), not acpmux's turn id: the view only
-/// compares it with other rows' (turns.ts).
-function turnOf(row: ChatRow): Pick<AcpmuxRow, "turnId"> {
+/// A named turn keeps its recorded identity; unnamed turns and older books use the prompt's rowId.
+function turnOf(row: ChatRow, body: Record<string, any>): Pick<AcpmuxRow, "turnId"> {
+  if (typeof body.turnId === "string") return { turnId: body.turnId };
   return row.turn !== undefined ? { turnId: String(row.turn) } : {};
 }

@@ -54,6 +54,92 @@ fn decide(id: &str, option: &str) -> String {
     )
 }
 
+fn prompt(seq: u64, turn: &str) -> String {
+    mux(seq, "user_message", &format!(r#"{{"turnId":"{turn}","promptId":"{turn}","text":"go"}}"#))
+}
+
+fn tool(seq: u64, kind: &str, status: &str) -> String {
+    format!(
+        r#"{{"seq":{seq},"at":1000,"dir":"in","kind":"{kind}","msg":{{"method":"session/update","params":{{"update":{{"sessionUpdate":"{kind}","toolCallId":"c1","status":"{status}"}}}}}}}}"#
+    )
+}
+
+#[test]
+fn a_late_permission_targets_its_original_turn_when_the_call_id_is_reused() {
+    for current_status in ["in_progress", "completed"] {
+        for automatic in [false, true] {
+            let mut state = State::default();
+            run(
+                &mut state,
+                &[
+                    prompt(1, "t1"),
+                    tool(2, "tool_call", "in_progress"),
+                    mux(3, "permission_request", &request("p1")),
+                    tool(4, "tool_call_update", "completed"),
+                ],
+            );
+            let original_turn = state.turn;
+            run(&mut state, &[prompt(5, "t2"), tool(6, "tool_call", current_status)]);
+            assert_ne!(state.turn, original_turn);
+            // The old ask and its turn survive a checkpoint, but the recent-call index now
+            // names the new turn's call. Neither live nor settled reuse may receive this grant.
+            let mut state = state.checkpoint().unwrap().restore().unwrap();
+            let decision = if automatic {
+                mux(
+                    7,
+                    "permission_auto",
+                    r#"{"permissionId":"p1","fullAccess":"bypassPermissions"}"#,
+                )
+            } else {
+                mux(7, "permission_decision", &decide("p1", "once"))
+            };
+            let ops = run(&mut state, &[decision]);
+            let grants: Vec<_> = ops
+                .iter()
+                .filter_map(|op| match &op.change {
+                    Change::Approve { call, turn, hint, .. } => Some((call.as_str(), *turn, *hint)),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(grants, [("c1", original_turn, None)]);
+            assert!(!ops.iter().any(|op| matches!(&op.change, Change::Row(row)
+                if row.kind == RowKind::Tool && row.fields.contains_key("approved"))));
+            assert_eq!(settled(&ops)["drawnOnTool"], "false");
+        }
+    }
+}
+
+#[test]
+fn a_late_permission_can_approve_a_background_tool_from_its_original_turn() {
+    let mut state = State::default();
+    run(
+        &mut state,
+        &[
+            prompt(1, "t1"),
+            tool(2, "tool_call", "in_progress"),
+            mux(3, "permission_request", &request("p1")),
+        ],
+    );
+    let original_turn = state.turn;
+    run(&mut state, &[prompt(4, "t2")]);
+    assert_ne!(state.turn, original_turn);
+    let ops = run(&mut state, &[mux(5, "permission_decision", &decide("p1", "once"))]);
+    let approved: Vec<_> = ops
+        .iter()
+        .filter_map(|op| match &op.change {
+            Change::Row(row)
+                if row.kind == RowKind::Tool && row.fields.contains_key("approved") =>
+            {
+                Some(row)
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(approved.len(), 1);
+    assert_eq!(approved[0].turn, original_turn);
+    assert_eq!(settled(&ops)["drawnOnTool"], "true");
+}
+
 #[test]
 fn a_permission_opens_an_ask_row_its_decision_settles() {
     let mut state = State::default();
@@ -67,6 +153,7 @@ fn a_permission_opens_an_ask_row_its_decision_settles() {
             ("permissionId".to_owned(), "\"p1\"".to_owned()),
             ("turnId".to_owned(), "\"t1\"".to_owned()),
             ("title".to_owned(), "\"Run make\"".to_owned()),
+            ("toolCallId".to_owned(), "\"c1\"".to_owned()),
         ])
     );
     assert_eq!(body_fields(&ops, id), [BodyField::Request]);
