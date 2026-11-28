@@ -75,6 +75,18 @@ struct RemoteTmuxInputCommandCaptureTests {
         }
     }
 
+    @Test func capturesPasteCommandsAndUnexpectedKeystrokesInOrder() async throws {
+        let pipe = Pipe()
+        defer { try? pipe.fileHandleForWriting.close(); try? pipe.fileHandleForReading.close() }
+        let setBuffer = #"set-buffer -b cmux-paste-4 -- "one\ntwo""#
+        let pasteBuffer = "paste-buffer -p -d -b cmux-paste-4 -t %4"
+        let commands = try await capture.capture(from: pipe.fileHandleForReading, expectedCount: 3) {
+            try pipe.fileHandleForWriting.write(contentsOf: Data("\(setBuffer)\n\(pasteBuffer)\n".utf8))
+            try pipe.fileHandleForWriting.write(contentsOf: Data("send-keys -t %4 -H 78\n".utf8))
+        }
+        #expect(commands == [setBuffer, pasteBuffer, "send-keys -t %4 -H 78"])
+    }
+
     @Test func cancelledCaptureStopsWithoutClosingWriter() async throws {
         let pipe = Pipe()
         defer { try? pipe.fileHandleForWriting.close(); try? pipe.fileHandleForReading.close() }
