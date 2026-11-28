@@ -114,6 +114,28 @@ jobs:
           [ "$GITHUB_EVENT_NAME" != workflow_dispatch ] || force=(--force)
           python3 scripts/ci/ios_internal_builder.py plan --head "$head" --repo . "${force[@]}"
 
+      # The signing job runs rc/cnx-ios-builder's own copy of these files (design rule 4), so a change on
+      # feat-cmux-next reaches the signer only after an admin fast-forwards that branch. When they drift,
+      # the archive passes and the signer can still refuse it: 2026-11-24 #47190 shipped the App Review demo
+      # terminal, rc's check-production-binary.sh still forbade it, and every upload failed for 20 h with
+      # only a red run on a branch nobody watches. This says so on every push; it never fails the trigger.
+      # Trees only (blobless, depth 1), no REST call.
+      - name: Signer drift (rc/cnx-ios-builder behind feat-cmux-next)
+        run: |
+          set -uo pipefail
+          if ! git fetch -q --depth=1 --filter=blob:none --no-tags origin refs/heads/rc/cnx-ios-builder; then
+            echo "::warning::could not fetch rc/cnx-ios-builder to compare the signer's files"; exit 0
+          fi
+          signer="$(git rev-parse --short FETCH_HEAD)"
+          drift=()
+          for f in cmux-next-ios/scripts/check-production-binary.sh cmux-next-ios/scripts/testflight-build.sh .github/workflows/ios-internal-nightly.yml; do
+            [ "$(git rev-parse -q --verify "HEAD:$f" || echo none)" = "$(git rev-parse -q --verify "FETCH_HEAD:$f" || echo none)" ] || drift+=("$f")
+          done
+          [ ${#drift[@]} -gt 0 ] || { echo "signer at $signer has the same files as feat-cmux-next"; exit 0; }
+          msg="rc/cnx-ios-builder ($signer) signs with older copies of: ${drift[*]}. An upload can fail at the signer until an admin runs: git push origin $(git rev-parse HEAD):refs/heads/rc/cnx-ios-builder (plans/cmux-next/ios-testflight-builder-DESIGN.md, Operations)"
+          echo "::warning::$msg"
+          echo "$msg" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Dispatch the build
         if: steps.plan.outputs.build == 'true'
         env:
