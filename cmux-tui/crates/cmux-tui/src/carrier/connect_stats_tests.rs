@@ -1,7 +1,4 @@
-use std::time::Duration;
-
 use super::*;
-use crate::carrier::contract::{Phase, PhaseTimes, PhasesOf, phases_line};
 
 fn line(phase: &str, outcome: &str, parked: u64, total: u64) -> String {
     format!(
@@ -11,22 +8,10 @@ fn line(phase: &str, outcome: &str, parked: u64, total: u64) -> String {
 
 #[test]
 fn reads_the_line_the_dial_writes() {
-    let times = PhaseTimes {
-        ticket: Duration::from_millis(41),
-        relay: Duration::from_millis(62),
-        parked: Duration::from_millis(7),
-        handshake: Duration::from_millis(33),
-        mux: Duration::from_millis(4),
-        lanes: 1,
-    };
-    let written = phases_line(
-        "vm_x",
-        PhasesOf::Attempt(Phase::Connect),
-        None,
-        times,
-        Duration::from_millis(150),
-    );
-    let attempt = parse_line(&written).expect("the dial's own line parses");
+    // `contract::phases_line`'s format, written out so this test does not pin its signature
+    // (cmux#64815 adds the `net=` and `region=` tags at the end).
+    let written = "carrier.phases machine=vm_x phase=connect carrier=relay:0 outcome=ok ticket_ms=41 relay_ms=62 parked_ms=7 handshake_ms=33 mux_ms=4 lanes=1 ms=150";
+    let attempt = parse_line(written).expect("the dial's line parses");
     assert_eq!(attempt.machine, "vm_x");
     assert_eq!(attempt.phase, "connect");
     assert!(attempt.ok);
