@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "d2e58e7363ddeea75dced973d72229d390076f4ddefc62d7d2c13dba33084783";
+inline constexpr std::string_view kProtocolIrSha256 = "359913f3f59ceddbffb50fff1f60d5755a185ca3677d66131de4762f05347232";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -6686,9 +6686,13 @@ struct Workspace {
 struct WorkspaceGroup {
     bool collapsed{};
     std::optional<std::string> color{};
+    Field<std::string> icon{};
     std::string id{};
     std::uint64_t index{};
     std::string name{};
+    std::optional<bool> pinned{};
+    Field<std::string> profile{};
+    Field<std::uint64_t> top_index{};
     friend bool operator==(const WorkspaceGroup&, const WorkspaceGroup&) = default;
 };
 
@@ -6704,6 +6708,7 @@ struct Tree {
     std::optional<std::uint64_t> pane_revision{};
     std::optional<std::string> registry_id{};
     std::optional<std::vector<Id>> removed{};
+    std::optional<std::vector<SavedTabGroupRecord>> saved_tab_groups{};
     std::optional<std::uint64_t> seq{};
     std::optional<std::uint64_t> terminal_revision{};
     std::optional<std::uint64_t> total{};

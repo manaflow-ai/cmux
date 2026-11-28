@@ -24878,6 +24878,10 @@
         "required": true,
         "nullable": true
       },
+      "/data/groups/*/icon": {
+        "ty": "string",
+        "nullable": true
+      },
       "/data/groups/*/id": {
         "ty": "string",
         "required": true
@@ -24889,6 +24893,17 @@
       "/data/groups/*/name": {
         "ty": "string",
         "required": true
+      },
+      "/data/groups/*/pinned": {
+        "ty": "boolean"
+      },
+      "/data/groups/*/profile": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/groups/*/top_index": {
+        "ty": "uint64",
+        "nullable": true
       },
       "/data/lines_written_before_read": {
         "ty": "uint64"
@@ -24913,6 +24928,66 @@
       },
       "/data/removed/*": {
         "ty": "uint64"
+      },
+      "/data/saved_tab_groups": {
+        "ty": "array"
+      },
+      "/data/saved_tab_groups/*": {
+        "ty": "object"
+      },
+      "/data/saved_tab_groups/*/color": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/saved_tab_groups/*/id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/saved_tab_groups/*/members": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/saved_tab_groups/*/members/*": {
+        "ty": "object"
+      },
+      "/data/saved_tab_groups/*/members/*/cwd": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/saved_tab_groups/*/members/*/engine": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/saved_tab_groups/*/members/*/kind": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/saved_tab_groups/*/members/*/profile_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/saved_tab_groups/*/members/*/terminal_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/saved_tab_groups/*/members/*/title": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/saved_tab_groups/*/members/*/url": {
+        "ty": "string"
+      },
+      "/data/saved_tab_groups/*/name": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/saved_tab_groups/*/room": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/saved_tab_groups/*/updated_at_ms": {
+        "ty": "uint64",
+        "required": true
       },
       "/data/seq": {
         "ty": "uint64"
