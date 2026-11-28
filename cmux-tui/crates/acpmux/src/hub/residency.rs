@@ -38,6 +38,11 @@ pub(super) struct HostSnapshot {
 }
 
 impl HostSnapshot {
+    pub(super) fn seed(&mut self, live: HashSet<String>) {
+        self.live = Arc::new(live);
+        self.read_at = Some(Instant::now());
+    }
+
     fn read(
         &mut self,
         now: Instant,
@@ -141,7 +146,7 @@ pub(super) fn adaptive_period(
 
 /// A harness runs for the chat: its status says one is up, it holds one, or its agent host runs.
 /// Never a closed chat's.
-fn resident(session: &Session, status: SessionStatus, hosted: bool) -> bool {
+pub(super) fn costs_for_cap(session: &Session, status: SessionStatus, hosted: bool) -> bool {
     status != SessionStatus::Closed
         && !super::app_exit::gone(&session.id)
         && (matches!(
@@ -149,13 +154,6 @@ fn resident(session: &Session, status: SessionStatus, hosted: bool) -> bool {
             SessionStatus::Ready | SessionStatus::Running | SessionStatus::Waiting
         ) || hosted
             || session.child.try_lock().map(|c| c.is_some()).unwrap_or(true))
-}
-
-/// What a cap counts: a chat not closed whose harness is resident.
-/// `hosted`: its agent host runs (`admission.rs` passes the hosts it read). A hibernated chat
-/// costs nothing and is not counted.
-pub(super) fn costs_for_cap(session: &Session, hosted: bool) -> bool {
-    resident(session, session.status(), hosted)
 }
 
 impl Hub {
@@ -208,7 +206,7 @@ impl Hub {
         status: SessionStatus,
         hosted: bool,
     ) -> Residency {
-        let resident = resident(session, status, hosted);
+        let resident = costs_for_cap(session, status, hosted);
         let hibernated = session.hibernated_at.load(Ordering::Relaxed) != 0;
         let idle = *self.idle_child.lock().unwrap_or_else(|e| e.into_inner());
         Residency {

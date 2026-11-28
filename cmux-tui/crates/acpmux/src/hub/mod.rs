@@ -2305,6 +2305,8 @@ impl Hub {
         // push waits for adoption then too (`full_access_turned_off`).
         let unknown = read.is_none();
         let hosted = read.unwrap_or_default();
+        // Rows reuse startup's host evidence before adoption attaches their child links.
+        self.residency_hosts.lock().unwrap_or_else(|e| e.into_inner()).seed(hosted.clone());
         let waiting =
             metas.iter().filter(|m| m.status == SessionStatus::Waiting).map(|m| m.id.clone());
         if deferred && (!hosted.is_empty() || unknown) {
