@@ -297,8 +297,23 @@ struct SessionScrollbackCheckpointStore: Sendable {
                 failedSurfaceIds.insert(capture.surfaceId)
             }
         }
+        // `prune` sweeps every invalidated aside when live panel ids are
+        // present, so removals only need the canonical unlink then; without
+        // them one listing covers the whole loop instead of one per removal.
+        // Bucket that listing once by panel prefix so a batch of R removals
+        // against N names costs R lookups, not R x N prefix scans.
+        var asidesByPanel: [String: [String]] = [:]
+        if batch.livePanelIds == nil && !removals.isEmpty {
+            for name in (try? fileManager.contentsOfDirectory(atPath: directoryURL.path)) ?? [] {
+                asidesByPanel[String(name.prefix(36)), default: []].append(name)
+            }
+        }
         for panelId in removals {
             try? fileManager.removeItem(at: fileURL(panelId: panelId))
+            let asidePrefix = "\(panelId.uuidString).json.invalidated-"
+            for name in asidesByPanel[panelId.uuidString] ?? [] where name.hasPrefix(asidePrefix) {
+                try? fileManager.removeItem(at: directoryURL.appendingPathComponent(name, isDirectory: false))
+            }
         }
         if let livePanelIds = batch.livePanelIds {
             prune(keeping: livePanelIds, fileManager: fileManager)
@@ -316,9 +331,34 @@ struct SessionScrollbackCheckpointStore: Sendable {
         }
     }
 
+    /// Durable caller-side invalidation for one panel: renames its checkpoint
+    /// aside so `fileURL(panelId:)` and `loadRecords` no longer reach it. One
+    /// metadata rename; the aside is garbage the checkpoint queue reclaims. A
+    /// failed rename falls back to unlinking the file outright — one file,
+    /// still cheap — so a stale checkpoint does not survive on a rename error.
+    /// The common case is no checkpoint on disk, which costs one stat.
+    /// Returns whether the canonical path is unreachable afterward.
+    @discardableResult
+    func invalidate(panelId: UUID, fileManager: FileManager = .default) -> Bool {
+        let source = fileURL(panelId: panelId)
+        guard fileManager.fileExists(atPath: source.path) else { return true }
+        let aside = source.appendingPathExtension("invalidated-\(UUID().uuidString)")
+        guard (try? fileManager.moveItem(at: source, to: aside)) != nil else {
+            try? fileManager.removeItem(at: source)
+            return !fileManager.fileExists(atPath: source.path)
+        }
+        return true
+    }
+
     func prune(keeping livePanelIds: Set<UUID>, fileManager: FileManager = .default) {
         guard let names = try? fileManager.contentsOfDirectory(atPath: directoryURL.path) else { return }
         for name in names {
+            // An invalidated aside is unreachable by `loadRecords` already, so
+            // it is reclaimable regardless of which panels are live.
+            if name.contains(".invalidated-") {
+                try? fileManager.removeItem(at: directoryURL.appendingPathComponent(name, isDirectory: false))
+                continue
+            }
             let url = directoryURL.appendingPathComponent(name, isDirectory: false)
             guard url.pathExtension == "json",
                   let panelId = UUID(uuidString: url.deletingPathExtension().lastPathComponent),
@@ -368,6 +408,44 @@ struct SessionScrollbackCheckpointStore: Sendable {
         let records = loadRecords(panelIds: panelIds)
         guard !records.isEmpty else { return snapshot }
         return SessionScrollbackCheckpointMerge.merging(records, into: snapshot)
+    }
+}
+
+/// Schedules one checkpoint batch's file work on the store's serial queue.
+///
+/// `persist` runs on the main actor (the coordinator and `seed` call it
+/// synchronously), so which parts of the batch block the caller is a
+/// main-thread latency decision, not just I/O ordering.
+struct SessionScrollbackCheckpointPersister: Sendable {
+    let store: SessionScrollbackCheckpointStore
+    let queue: DispatchQueue
+    let activity: TerminalScrollbackCheckpointActivity
+
+    /// Invalidates removals durably, then hands the batch to background I/O
+    /// and returns without waiting on it.
+    ///
+    /// A removal means the panel stopped being eligible (for example a command
+    /// started running). `invalidate` renames its checkpoint aside on the
+    /// caller — one metadata operation per removal — so any file already on
+    /// disk is unreachable to `loadRecords` when `persist` returns. A capture
+    /// still queued can recreate the file afterward: it stays reachable until
+    /// the removal's apply drains, a residual crash window sized by the
+    /// backlog — unbounded while the queue is stalled, but the same wait
+    /// `queue.sync` put on the caller, now off it.
+    /// The serial queue still applies the batch after every earlier queued
+    /// write, so the delete reclaims the file and its asides only after they
+    /// land. What changes is who waits: the caller no longer sits in
+    /// `queue.sync` behind the drain while file deletions run on its thread —
+    /// `persist` runs on the main actor, where that wait surfaced as
+    /// multi-second main-thread stalls in watchdog captures
+    /// (https://github.com/manaflow-ai/cmux/issues/46042).
+    func persist(_ batch: SessionScrollbackCheckpointWriteBatch) {
+        for panelId in batch.removals {
+            store.invalidate(panelId: panelId)
+        }
+        queue.async {
+            store.applyMarkingFailuresPending(batch, activity: activity)
+        }
     }
 }
 
