@@ -14,10 +14,17 @@ use crate::keypath::key_path;
 use crate::text::ThemeSpec;
 use crate::value::value_at;
 
+/// One color map: token name to color text.
+type ColorMap = BTreeMap<String, String>;
+
 const EDITS_KEY: &str = "appearance.themeEdits";
 const THEME_KEY: &str = "appearance.theme";
 /// `AppTheme.textMinimum`: text on its background.
 const TEXT_MINIMUM: f64 = 4.5;
+/// A `colors.light` or `colors.dark` half over a theme that is the same in
+/// both appearances.
+pub(super) const HALF_NEEDS_PAIR: &str =
+    "a light or dark half needs appearance.theme \"light:NAME,dark:NAME\"";
 
 /// The color tokens a theme edit takes (Swift `ThemeEdits.tokens`).
 fn is_token(token: &str) -> bool {
@@ -35,6 +42,22 @@ fn hex(color: Rgb) -> String {
     format!("#{:06x}", color.to_hex())
 }
 
+/// A theme file's colors: the plain ones paint every theme it names, and a
+/// `"light"` or `"dark"` half paints only that side of `light:X,dark:Y`,
+/// over the plain ones, so one file is one look for both appearances.
+#[derive(Default)]
+struct FileColors {
+    shared: BTreeMap<String, String>,
+    light: BTreeMap<String, String>,
+    dark: BTreeMap<String, String>,
+}
+
+impl FileColors {
+    fn is_empty(&self) -> bool {
+        self.shared.is_empty() && self.light.is_empty() && self.dark.is_empty()
+    }
+}
+
 pub(super) fn read(reader: &mut Reader<'_>, members: &Map<String, Value>, base: &Value) {
     let edits_path = key_path(EDITS_KEY);
     let own_edits = reader
@@ -43,12 +66,13 @@ pub(super) fn read(reader: &mut Reader<'_>, members: &Map<String, Value>, base: 
         .find(|(path, _)| *path == edits_path)
         .and_then(|(_, value)| value.as_object().cloned())
         .unwrap_or_default();
-    let mut colors = BTreeMap::new();
+    let mut colors = FileColors::default();
     if let Some(ghostty) = members.get("ghostty") {
-        read_ghostty(reader, ghostty, &mut colors);
+        read_ghostty(reader, ghostty, &mut colors.shared);
     }
     if let Some(value) = members.get("colors") {
-        read_color_map(reader, value, &mut colors);
+        let FileColors { shared, light, dark } = &mut colors;
+        read_color_map(reader, value, "colors", shared, Some((light, dark)));
     }
     let mut themes: BTreeSet<String> = own_edits
         .keys()
@@ -67,8 +91,20 @@ pub(super) fn read(reader: &mut Reader<'_>, members: &Map<String, Value>, base: 
             .or_else(|| value_at(base, &theme_path).and_then(Value::as_str).map(str::to_string));
         match theme.as_deref().and_then(ThemeSpec::parse) {
             Some(spec) => {
-                for name in BTreeSet::from([spec.light, spec.dark]) {
-                    for (token, color) in &colors {
+                // One theme for both appearances has no sides to tell apart:
+                // its halves are refused and the plain colors apply.
+                let sides = if spec.light == spec.dark {
+                    for (half, side) in [("light", &colors.light), ("dark", &colors.dark)] {
+                        if !side.is_empty() {
+                            reader.refuse(&format!("colors.{half}"), None, HALF_NEEDS_PAIR);
+                        }
+                    }
+                    vec![(spec.light, None)]
+                } else {
+                    vec![(spec.light, Some(&colors.light)), (spec.dark, Some(&colors.dark))]
+                };
+                for (name, side) in sides {
+                    for (token, color) in colors.shared.iter().chain(side.into_iter().flatten()) {
                         edits.insert(format!("{name}/{token}"), Value::String(color.clone()));
                     }
                     themes.insert(name);
@@ -91,32 +127,51 @@ pub(super) fn read(reader: &mut Reader<'_>, members: &Map<String, Value>, base: 
     reader.values.push((edits_path, Value::Object(edits)));
 }
 
-fn read_color_map(reader: &mut Reader<'_>, value: &Value, colors: &mut BTreeMap<String, String>) {
+/// `colors` at `path`: the plain tokens into `colors`, and, at the top
+/// (`halves` given), a `"light"` and a `"dark"` map of the same tokens into
+/// their halves. A half holds no halves of its own.
+fn read_color_map(
+    reader: &mut Reader<'_>,
+    value: &Value,
+    path: &str,
+    colors: &mut BTreeMap<String, String>,
+    mut halves: Option<(&mut ColorMap, &mut ColorMap)>,
+) {
     let Value::Object(entries) = value else {
-        return reader.refuse("colors", Some(value), "expected an object");
+        return reader.refuse(path, Some(value), "expected an object");
     };
     let mut keys: Vec<&String> = entries.keys().collect();
     keys.sort();
     for token in keys {
         let entry = &entries[token];
+        let at = format!("{path}.{token}");
         if token == "palette" {
             match entry.as_array() {
                 Some(list) if list.len() <= 16 => {
                     for (index, item) in list.iter().enumerate() {
-                        set(reader, &index.to_string(), item, colors);
+                        set(reader, path, &index.to_string(), item, colors);
                     }
                 }
                 _ => reader.refuse(
-                    "colors.palette",
+                    &at,
                     Some(entry),
                     "expected a list of up to 16 \"#RRGGBB\" colors",
                 ),
             }
         } else if is_token(token) {
-            set(reader, token, entry, colors);
+            set(reader, path, token, entry, colors);
+        } else if let (Some((light, dark)), "light" | "dark") = (halves.as_mut(), token.as_str()) {
+            let half = if token == "light" { &mut **light } else { &mut **dark };
+            read_color_map(reader, entry, &at, half, None);
+        } else if halves.is_some() {
+            reader.refuse(
+                &at,
+                Some(entry),
+                "unknown color; expected background, foreground, cursor, selection, accent, 0 to 15, palette, light or dark",
+            );
         } else {
             reader.refuse(
-                &format!("colors.{token}"),
+                &at,
                 Some(entry),
                 "unknown color; expected background, foreground, cursor, selection, accent, 0 to 15 or palette",
             );
@@ -124,12 +179,18 @@ fn read_color_map(reader: &mut Reader<'_>, value: &Value, colors: &mut BTreeMap<
     }
 }
 
-fn set(reader: &mut Reader<'_>, token: &str, value: &Value, colors: &mut BTreeMap<String, String>) {
+fn set(
+    reader: &mut Reader<'_>,
+    path: &str,
+    token: &str,
+    value: &Value,
+    colors: &mut BTreeMap<String, String>,
+) {
     match value.as_str() {
         Some(text) if is_color(text) => {
             colors.insert(token.to_string(), text.to_lowercase());
         }
-        _ => reader.refuse(&format!("colors.{token}"), Some(value), "expected \"#RRGGBB\""),
+        _ => reader.refuse(&format!("{path}.{token}"), Some(value), "expected \"#RRGGBB\""),
     }
 }
 

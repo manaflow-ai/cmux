@@ -30,6 +30,41 @@ public nonisolated struct DaemonSettingsFile: Sendable {
         }
     }
 
+    /// `settings.history` as JSON (`{entries}`, newest first), or nil when this daemon cannot answer:
+    /// not live, or without `settings-history-v1` (an older daemon; the page keeps its own undo).
+    public func history() async throws -> Data? {
+        guard let connection = await self.connection() else { return nil }
+        do {
+            return try JSONEncoder().encode(try await SettingsFileClient(connection: connection).history())
+        } catch let error as DaemonError where Self.cannotWrite(error) || Self.missingHistory(error) {
+            return nil
+        }
+    }
+
+    /// `settings.undo`, `settings.restore` or `settings.reset_group` (`operation`) with `params` (a JSON
+    /// object: `revision`, `group`), as `origin` (`app`, the person, unless an action run names another).
+    /// Answers JSON `{keys, history_revision}`,
+    /// or nil when this daemon cannot take it (as ``history()``).
+    public func historyWrite(_ operation: String, params: Data, idempotencyKey: String, origin: String = "app") async throws -> Data? {
+        guard let write = SettingsFileClient.HistoryWrite(rawValue: operation),
+              let connection = await self.connection() else { return nil }
+        let fields = try JSONDecoder().decode([String: JSONValue].self, from: params)
+        do {
+            let reply = try await SettingsFileClient(connection: connection)
+                .historyWrite(write, params: fields, idempotencyKey: idempotencyKey, origin: origin)
+            let answer: JSONValue = .object(["keys": .array(reply.keys.map(JSONValue.string)),
+                                             "history_revision": reply.revision.map(JSONValue.string) ?? .null])
+            return try JSONEncoder().encode(answer)
+        } catch let error as DaemonError where Self.cannotWrite(error) || Self.missingHistory(error) {
+            return nil
+        }
+    }
+
+    static func missingHistory(_ error: DaemonError) -> Bool {
+        if case .missingCapabilities = error { return true }
+        return false
+    }
+
     /// The owner serves another file, or the connection went away before the reply (not a missed
     /// deadline: that edit may still apply).
     static func cannotWrite(_ error: DaemonError) -> Bool {

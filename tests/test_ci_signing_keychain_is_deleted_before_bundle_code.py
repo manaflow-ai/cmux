@@ -252,13 +252,15 @@ def runs_after_failure(condition: object) -> bool:
 # chaining, redirection, quoting and path trick fails by construction instead of by a sharper pattern.  A new
 # call site adds its exact line here, a reviewed act.  Each form is the real path and nothing else: bare (a
 # path with a slash is run directly, never looked up on PATH), `./`, or bash on the path or on one of the two
-# sparse-checkout copies (`.nightly-signing-control/` and `.publish-tooling/`) two nightly jobs run it from.
+# sparse-checkout copies (`.nightly-signing-control/`, `.publish-tooling/`, and the delta job's isolated
+# `.nightly-next-deltas/.publish-tooling/`). Each is checked out at the workflow's trusted tooling commit.
 CLAIM_COMMANDS = frozenset({
     CLAIM_SCRIPT,
     f"./{CLAIM_SCRIPT}",
     f"bash {CLAIM_SCRIPT}",
     f"bash .nightly-signing-control/{CLAIM_SCRIPT}",
     f"bash .publish-tooling/{CLAIM_SCRIPT}",
+    f"bash .nightly-next-deltas/.publish-tooling/{CLAIM_SCRIPT}",
 })
 
 

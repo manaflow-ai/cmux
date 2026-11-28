@@ -25,7 +25,7 @@ public protocol ChiefComputerHost: AnyObject, Sendable {
     func cloudMachineRecord(_ id: String) -> CloudMachine?
     /// Who drives each Chief's computer.
     var computerControl: ChiefComputerControlStore { get }
-    var cloudMachineAPI: CloudAPIClient { get }
+    var cloudMachineAPI: CloudDaemon { get }
     /// The hosted Chief's brain route.
     var chiefBrainRoute: HomeChiefHostedEngine.Send { get }
     var registry: ActionRegistry { get }

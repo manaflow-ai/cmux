@@ -103,6 +103,15 @@ cat > "$TMP_DIR/bin/fake-fetch" <<'STUB'
 #!/bin/sh
 if [ "$1" = "--version" ]; then echo "Swift version 6.3 (stub)"; exit 0; fi
 n=$(cat "$CALLS" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$CALLS"
+# Like xcodebuild: refuse a -resultBundlePath that already exists, else create it.
+prev=""
+for a in "$@"; do
+  if [ "$prev" = "-resultBundlePath" ]; then
+    if [ -e "$a" ]; then echo "xcodebuild: error: Existing file at -resultBundlePath \"$a\""; exit 64; fi
+    mkdir -p "$a"
+  fi
+  prev="$a"
+done
 if [ "${FAIL_KIND:-proxy}" = compile ]; then echo "/x/A.swift:1:1: error: cannot find 'x' in scope"; exit 65; fi
 if [ -n "$(git config --get-urlmatch http.proxy https://github.com/)" ]; then
   echo "xcodebuild: error: Could not resolve package dependencies:"
@@ -134,6 +143,15 @@ rm -f "$TMP_DIR/calls"
 [ "$(cat "$TMP_DIR/calls")" -eq 2 ] || fail "wrapper: $(cat "$TMP_DIR/calls") build(s), expected 2"
 grep -q 'running it once more, direct' "$TMP_DIR/out" || fail "wrapper: no direct-retry line"
 echo "PASS: the xcodebuild wrapper reruns a proxy-failed package resolve once, direct"
+
+# 6b. The rerun clears the result bundle the first attempt wrote (xcodebuild refuses an existing one,
+# status 64; capture run 45909447010 failed that way).
+rm -rf "$TMP_DIR/calls" "$TMP_DIR/attempt-1.xcresult"
+"${clean_env[@]}" CALLS="$TMP_DIR/calls" CMUX_GITHUB_EGRESS_PROBE=0 CMUX_XCODEBUILD_HEARTBEAT_SECONDS=30 \
+  RUNNER_TEMP="$TMP_DIR" "$WRAPPER" -- "$TMP_DIR/bin/fake-fetch" -resultBundlePath "$TMP_DIR/attempt-1.xcresult" \
+  > "$TMP_DIR/out" 2>&1 || fail "wrapper: the direct rerun failed on the first attempt's result bundle: $(tail -3 "$TMP_DIR/out")"
+[ "$(cat "$TMP_DIR/calls")" -eq 2 ] || fail "wrapper with a result bundle: $(cat "$TMP_DIR/calls") build(s), expected 2"
+echo "PASS: the direct rerun clears the first attempt's result bundle"
 
 # 7. The wrapper does not rerun a build that failed on its own code.
 rm -f "$TMP_DIR/calls"

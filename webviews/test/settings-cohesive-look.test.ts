@@ -10,7 +10,8 @@
 //   the search input with the h1"): the search field opens it, its middle on the page title's middle,
 //   its box on the row pills' edge, its magnifier on the row icons' column, its text on the row names;
 // - the content is one centered column of at most 680 px;
-// - a row's description wraps at about 60% of the card, leaving the right side to the control.
+// - a row's description wraps at about 60% of the card, leaving the right side to the control (a row
+//   with no control may run its text the full width).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type BrowserType, type Page } from "playwright";
@@ -94,6 +95,9 @@ await requireBrowserLane("settings-cohesive-look.test.ts", async () => {
       const helps: string[] = [];
       for (const help of document.querySelectorAll<HTMLElement>(".content .rows .row .row-help")) {
         const row = help.closest<HTMLElement>(".row")!;
+        // A row of text alone (the Customization Library's lead line, in Appearance since 75d22c950b6)
+        // has no control to leave the right side to.
+        if (!row.querySelector("button, input, select, textarea, [role=switch], [role=combobox]")) continue;
         // A help alone in its row is a note across the row (Customization Library's "Where two
         // entries set the same thing…"), not a help beside a control, so it may run the row's width.
         if (row.childElementCount === 1 && help.parentElement === row) continue;

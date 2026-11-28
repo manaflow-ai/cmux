@@ -3,7 +3,14 @@ import { type AcpmuxRow, transcriptColumn } from "../model";
 import { tryChipHost } from "../chips/host";
 import { PrefixFold } from "../conversation/prefixFlatMap";
 
-export type SessionInfoPlacement = "push" | "overlay";
+/// Where Session Info goes (Settings `agentPane.display.sessionInfo.placement`): `overlay` (the default)
+/// floats in the chat's right gutter, `push` always moves the chat aside, `inline` draws it as a band atop
+/// the transcript, in the chat's own flow: no side panel, no glass, no cut (Leo, 2026-11-19: "you guys
+/// should be customizing the tabs/sidebars a lot deeper too. prob likewise the session info").
+export type SessionInfoPlacement = "push" | "overlay" | "inline";
+/// Whether Session Info draws as the band atop the transcript (SessionInfoPresence portals it into the
+/// chat's stage, under the header).
+export const inlines = (placement: SessionInfoPlacement) => placement === "inline";
 
 /// The narrowest chat Session Info pushes aside: a pushed panel narrows to keep it, down to the
 /// panel's own narrowest width.

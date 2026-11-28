@@ -51,6 +51,17 @@ pub(super) const UPGRADE_PROBE_EVERY: Duration = Duration::from_millis(750);
 /// LTE, 2026-11-25, flipped Direct/TURN a dozen times in two minutes).
 pub(super) const REGAIN_ANSWERS: u8 = 6;
 
+/// The current direct path counts as quiet once a send on it has gone
+/// unanswered this many smoothed round trips, at least [`QUIET_FLOOR`]
+/// ([`Paths::current_quiet`]). The probe that makes it suspect is judged
+/// two silence windows later (about 2.4 s at a 300 ms round trip), and on a
+/// path that drops for 1.5 s at a time (Leo's phone, 2026-11-27) everything
+/// sent in between was lost: a 2.3 s freeze per drop.
+const QUIET_RTTS: u32 = 2;
+/// The shortest quiet bound: below it, scheduling jitter alone would look
+/// quiet.
+const QUIET_FLOOR: Duration = Duration::from_millis(200);
+
 /// How long after the last data datagram the session counts as carrying
 /// data. An idle relayed link (keepalives only) keeps the 30 s turn, so a
 /// phone on cellular does not wake its radio every second for nothing.
@@ -63,6 +74,16 @@ pub(super) const UPGRADE_BUSY: Duration = Duration::from_secs(3);
 /// finds a route that answered within this and costs one packet. (The
 /// shared schedule's 30 s sits on that cut.)
 pub(super) const WARM_EVERY: Duration = Duration::from_secs(25);
+
+/// The shortest bound of a quiet TURN route's server check. The route's
+/// RTT is the peer's round trip, not the server's, and a fresh allocation's
+/// route has none yet: from it alone the bound was 200 ms (a resend at
+/// 100 ms), and a live server behind a slower cellular leg was declared
+/// dead, the session took a new allocation whose routes had no RTT either,
+/// and the label flipped Direct and Turn every few seconds (Leo's phone,
+/// 2026-11-27). A dead server is still found within this, not the link's
+/// 45 s keepalive timeout; it is the TURN dial's own UDP answer wait.
+pub(super) const TURN_SERVER_CHECK_FLOOR: Duration = Duration::from_secs(2);
 
 /// The phone app is in the background ([`set_app_backgrounded`]). False
 /// until it says (and always on the Mac), so nothing changes for a side
@@ -261,14 +282,42 @@ impl Paths {
         self.entries.iter().find(|entry| entry.id == id).map(|entry| entry.route)
     }
 
+    // Keep a proven direct path first. Among relays a live hop leg repairs
+    // losses locally. Use the same choice for traffic and its silence watch.
+    fn current_id(&self) -> Option<PathId> {
+        let current = self.selector.current();
+        if current.and_then(|id| self.selector.path(id)).is_some_and(|p| p.kind.class().is_direct()) {
+            return current;
+        }
+        self.entries
+            .iter()
+            .find(|entry| {
+                entry.route.carrier == Carrier::Hop
+                    && self.selector.path(entry.id).is_some_and(|p| p.state == PathState::Alive)
+            })
+            .map(|entry| entry.id)
+            .or(current)
+    }
+
     /// The route the selector sends on: an alive path.
     pub fn current(&self) -> Option<Route> {
-        self.route_of_id(self.selector.current())
+        self.route_of_id(self.current_id())
+    }
+
+    /// The path the selector sends on has a send unanswered for
+    /// [`QUIET_RTTS`] of its round trips: the underlay sends through the
+    /// relays too until it answers or the selector judges it.
+    pub fn current_quiet(&self, now: Instant) -> bool {
+        let Some(id) = self.current_id() else { return false };
+        let Some(entry) = self.entries.iter().find(|entry| entry.id == id) else { return false };
+        let Some(rtt_us) = self.selector.path(id).and_then(|view| view.rtt_us) else { return false };
+        let bound = Duration::from_micros(rtt_us).saturating_mul(QUIET_RTTS).max(QUIET_FLOOR);
+        entry.watch.quiet_for(now).is_some_and(|quiet| quiet >= bound)
     }
 
     /// The chosen path went quiet: datagrams go on every route.
     pub fn suspect(&self) -> bool {
-        self.selector.chosen().is_some() && self.selector.current().is_none()
+        self.selector.chosen().is_some() && self.current_id().is_none()
     }
 
     /// The selector holds a path, alive or suspect: it decides the route,
@@ -351,11 +400,22 @@ impl Paths {
     /// An authenticated datagram arrived on `route`. On a dead path that
     /// is a sign it works again (the peer's upgrade spray, a network that
     /// came back): probe it now rather than at the dead path's 30 s turn.
+    /// So on a path that never answered (relay-first: the session rode the
+    /// relay before the direct race settled). The probe that went out while
+    /// the path was black-holed is given up rather than waited out (its 1 s
+    /// timeout), at most once per [`ProbeConfig::dial_interval`]: the peer's
+    /// datagram is the call-me-maybe, and the next probe's answer moves the
+    /// session one round trip later (RFD 0142 R1).
     pub fn heard(&mut self, route: Route, now: Instant) {
+        let relayed = self.relayed();
         let Some(entry) = self.entries.iter_mut().find(|entry| entry.route == route) else { return };
         entry.watch.heard();
-        if self.selector.path(entry.id).is_some_and(|view| view.state == PathState::Dead) {
-            entry.watch.probe_now(now);
+        // Dead, or (riding a relay) never answered yet: the peer reaching
+        // us on it is the call-me-maybe, so the probe goes now.
+        if self.selector.path(entry.id).is_some_and(|view| {
+            view.state == PathState::Dead || (relayed && view.state == PathState::Probing)
+        }) {
+            entry.watch.probe_now_fresh(now, self.probes.dial_interval);
         }
     }
 
@@ -376,6 +436,15 @@ impl Paths {
         self.turn_quiet.take()
     }
 
+    /// The bound of the TURN server check a quiet TURN route starts
+    /// ([`super::turn::TurnCarrier::check_server`]): two silence windows of
+    /// that route's smoothed RTT ([`Self::take_turn_quiet`]), the server's
+    /// leg being part of that round trip, and never under
+    /// [`TURN_SERVER_CHECK_FLOOR`].
+    pub fn turn_server_bound(rtt_us: Option<u64>) -> Duration {
+        (cmux_wg::silence_window(rtt_us) * 2).max(TURN_SERVER_CHECK_FLOOR)
+    }
+
     /// The route the selector held went quiet (silent past its window, or
     /// it lost its standing by a lost probe), once per report.
     pub fn take_chosen_quiet(&mut self) -> Option<Route> {
@@ -392,8 +461,8 @@ impl Paths {
 
     pub fn poll(&mut self, now: Instant) -> DueProbes {
         let upgrade_next = self.upgrade_probes(now);
-        let current = self.selector.current();
-        let chosen = self.selector.chosen();
+        let current = self.current_id();
+        let chosen = current.or(self.selector.chosen());
         let mut due = DueProbes::default();
         let mut lost = Vec::new();
         let mut silent = Vec::new();
@@ -448,7 +517,7 @@ impl Paths {
         // comes before the silence deadline (four round trips and an
         // unanswered probe), so a lost probe is how such a path turns
         // suspect, and the fallback needs the same fresh answers.
-        let left_current = current.is_some() && self.selector.current() != current;
+        let left_current = current.is_some() && self.current_id() != current;
         if chosen_quiet || left_current {
             self.chosen_quiet = self.route_of_id(chosen.or(current));
             // The other paths were last heard up to a 30 s probe ago, and the
@@ -653,6 +722,29 @@ mod tests {
     }
 
     #[test]
+    fn answered_hop_precedes_turn_and_yields_to_direct() {
+        let mut paths = paths_on(lan_table());
+        let relay = Wanted { route: turn("203.0.113.9:4100"), relayed: true };
+        let hop = Wanted {
+            route: Route { carrier: Carrier::Hop, addr: "203.0.113.10:4100".parse().unwrap() },
+            relayed: true,
+        };
+        let lan = Wanted { route: udp("192.168.1.30:4100"), relayed: false };
+        paths.sync(&[relay, hop]);
+        let now = Instant::now();
+        for (id, probe) in paths.poll(now).pings {
+            let delay = if paths.route_of(id) == Some(hop.route) { 30 } else { 2 };
+            paths.on_pong(id, probe, now + std::time::Duration::from_millis(delay));
+        }
+        assert_eq!(paths.current(), Some(hop.route));
+        paths.sync(&[relay, hop, lan]);
+        answer_all(&mut paths, now + std::time::Duration::from_secs(1), std::time::Duration::from_millis(5));
+        assert_eq!(paths.current(), Some(lan.route));
+        paths.sync(&[relay]);
+        assert_eq!(paths.current(), Some(relay.route));
+    }
+
+    #[test]
     fn the_lan_address_wins_over_the_tailnet_and_the_relay() {
         let mut paths = paths_on(lan_table());
         let lan = udp("192.168.1.30:4100");
@@ -699,6 +791,67 @@ mod tests {
         // then the probe it triggers gets the same window.
         assert!(at <= ms(250), "reported at {at:?}");
         assert_eq!(reported.len(), 1, "once per quiet spell: {reported:?}");
+    }
+
+    /// RFD 0142 R1: the session rides a relay and its direct path is dead,
+    /// one probe sent into the black hole and outstanding. The peer's direct
+    /// datagram arrives (its spray, the call-me-maybe): a new probe goes at
+    /// once, not after the old one's 1 s timeout, and its answer takes the
+    /// session direct one round trip later. A flood of such datagrams sends
+    /// at most one probe per dial interval.
+    #[test]
+    fn a_dead_direct_path_the_peer_reaches_is_probed_at_once_despite_an_outstanding_probe() {
+        let ms = std::time::Duration::from_millis;
+        let mut paths = paths_on(lan_table());
+        let lan = udp("192.168.1.30:4100");
+        let relay = turn("203.0.113.9:4100");
+        paths.sync(&[Wanted { route: lan, relayed: false }, Wanted { route: relay, relayed: true }]);
+        // Only the relay answers until the LAN is dead.
+        let mut now = Instant::now();
+        let mut lan_probe_at = None;
+        for _ in 0..1000 {
+            now += ms(10);
+            paths.sent_data(now);
+            let due = paths.poll(now);
+            for (id, probe) in due.pings {
+                if paths.route_of(id) == Some(relay) {
+                    paths.on_pong(id, probe, now);
+                } else if paths.route_of(id) == Some(lan) {
+                    lan_probe_at = Some(now);
+                }
+            }
+            let dead = paths.entries.iter().any(|entry| {
+                entry.route == lan
+                    && paths.selector.path(entry.id).is_some_and(|view| view.state == PathState::Dead)
+            });
+            if dead && paths.current() == Some(relay) && lan_probe_at.is_some_and(|at| now - at >= ms(200)) {
+                // An upgrade probe toward the LAN is outstanding (sent 200 ms+ ago).
+                break;
+            }
+        }
+        assert_eq!(paths.current(), Some(relay), "rides the relay");
+        let heard_at = now + ms(10);
+        let mut pings = 0;
+        let mut direct_at = None;
+        let mut t = heard_at;
+        while t < heard_at + ms(300) {
+            // The peer's spray: a datagram on the LAN every 10 ms.
+            paths.heard(lan, t);
+            let due = paths.poll(t);
+            for (id, probe) in due.pings {
+                if paths.route_of(id) == Some(lan) {
+                    pings += 1;
+                    paths.on_pong(id, probe, t + ms(2));
+                }
+            }
+            if direct_at.is_none() && paths.current() == Some(lan) {
+                direct_at = Some(t);
+            }
+            t += ms(10);
+        }
+        let direct = direct_at.expect("the LAN takes the session back").duration_since(heard_at);
+        assert!(direct <= ms(30), "direct {direct:?} after the peer's first direct datagram");
+        assert!(pings <= 4, "{pings} LAN probes in 300 ms of spray");
     }
 
     #[test]
@@ -936,5 +1089,105 @@ mod tests {
         assert!(!paths.drives());
         answer_all(&mut paths, Instant::now(), std::time::Duration::from_millis(2));
         assert_eq!(paths.current(), Some(lan));
+    }
+
+    /// Leo's phone link flipped Direct and Turn every 2-5 s ("so between
+    /// mac and ios connections something broke") although the regain rule
+    /// bounds a flapping direct path to a few switches a minute. A quiet
+    /// TURN route checks its server; the check's bound came from the
+    /// route's RTT, 200 ms when the route has none yet (a fresh allocation
+    /// whose first probe was lost). A cellular leg to the TURN server
+    /// slower than that declared a live server dead, the session took a
+    /// new allocation, its TURN routes started over with no RTT, and the
+    /// next lost probe killed that one too: each death sent the session to
+    /// the direct path and each new allocation back to Turn.
+    #[tokio::test(start_paused = true)]
+    async fn a_live_turn_server_behind_a_slow_leg_is_not_declared_dead_and_the_link_does_not_flip() {
+        let ms = Duration::from_millis;
+        let mut paths = paths_on(lan_table());
+        let lan = udp("192.168.1.30:4100");
+        let relay = turn("203.0.113.9:4100");
+        let wanted = |turn_up: bool| {
+            let mut wanted = vec![Wanted { route: lan, relayed: false }];
+            if turn_up {
+                wanted.push(Wanted { route: relay, relayed: true });
+            }
+            wanted
+        };
+        paths.sync(&wanted(true));
+        // A lossy cellular link: 15% of datagrams lost on every route (a
+        // fixed sequence), the direct path out every other second, the
+        // relay's round trip 300 ms of which the leg to the server is 250.
+        let mut seed: u64 = 0x2545_f491_4f6c_dd1d;
+        let mut lost = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed % 100 < 15
+        };
+        let server_leg = ms(250);
+        let start = Instant::now();
+        let mut pending: Vec<(Instant, PathId, u64)> = Vec::new();
+        let (mut deaths, mut switches) = (0, 0);
+        let mut realloc_at: Option<Instant> = None;
+        let mut last = None;
+        let kind = |route: Option<Route>| route.map(|route| route.carrier);
+        while Instant::now() < start + Duration::from_secs(60) {
+            let now = Instant::now();
+            let lan_up = (now - start).as_secs().is_multiple_of(2);
+            if realloc_at.is_some_and(|at| now >= at) {
+                realloc_at = None;
+                paths.sync(&wanted(true));
+            }
+            paths.sent_data(now);
+            match paths.current() {
+                Some(route) => paths.sent(route, now),
+                None => paths.sent_everywhere(now),
+            }
+            pending.retain(|&(at, id, probe)| {
+                if at > now {
+                    return true;
+                }
+                if paths.route_of(id).is_some() {
+                    paths.on_pong(id, probe, now);
+                }
+                false
+            });
+            for (id, probe) in paths.poll(now).pings {
+                let Some(route) = paths.route_of(id) else { continue };
+                let rtt = if route.carrier == Carrier::Turn { ms(300) } else { ms(20) };
+                if (route.carrier == Carrier::Turn || lan_up) && !lost() {
+                    pending.push((now + rtt, id, probe));
+                }
+            }
+            if let Some(rtt_us) = paths.take_turn_quiet()
+                && realloc_at.is_none()
+            {
+                // The server answers one of the check's two requests (sent
+                // now and at half the bound) one leg later; nothing by the
+                // bound and the allocation is dead, a new one in a second.
+                let bound = Paths::turn_server_bound(rtt_us);
+                let first = !lost();
+                let answered = (first && server_leg <= bound) || (!lost() && bound / 2 + server_leg <= bound);
+                if !answered {
+                    deaths += 1;
+                    paths.forget_carrier(Carrier::Turn);
+                    paths.sync(&wanted(false));
+                    realloc_at = Some(now + ms(1000));
+                }
+            }
+            let held = kind(paths.current());
+            if held != last && held.is_some() && last.is_some() {
+                switches += 1;
+            }
+            if held.is_some() {
+                last = held;
+            }
+            tokio::time::advance(ms(10)).await;
+        }
+        assert!(
+            deaths == 0 && switches <= 6,
+            "a live TURN server declared dead {deaths} times, {switches} Direct/Turn switches, in a minute"
+        );
     }
 }

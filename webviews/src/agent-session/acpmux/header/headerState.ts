@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { viewStore } from "../paneViewStore";
 import { readHeaderControls, type HeaderControls } from "./headerTrio";
 import { headerMotionOf, type HeaderMotionStyle } from "./headerMotion";
 import { guessProjectRepo } from "../projectRepos";
@@ -18,6 +18,8 @@ export interface HeaderPullRequest {
   readonly url: string;
   readonly number: number;
   readonly title: string;
+  /// Full GitHub head supplied by the daemon, binding explicit actions to the displayed revision.
+  readonly headSha?: string;
   /// `open`, `draft`, `merged` or `closed`.
   readonly state: string;
   /// `approved`, `changes_requested`, `review_required`, or empty.
@@ -135,13 +137,13 @@ const INITIAL: HeaderState = {
   terminalSwitch: false,
   version: 0,
 };
-let current: HeaderState = INITIAL;
-const listeners = new Set<() => void>();
+// One header a pane view (paneViewStore.ts); the page itself is the null view.
+const store = viewStore<HeaderState>(INITIAL);
 
 /// Tests: the header as a new page starts it, before the App's first push (version 0). A test that
 /// pushes header state calls it in teardown, so a later file's lower versions are not dropped as old.
 export function resetHeaderStateForTests(): void {
-  current = INITIAL;
+  store.reset();
   stateSince.clear();
 }
 
@@ -156,7 +158,8 @@ function moveReasonsOf(value: unknown): Record<string, string> {
 }
 
 /// The App's state (a `pane.tabState` reply or a `headerState` push); fields it leaves out keep their value.
-export function setHeaderState(value: unknown): void {
+export function setHeaderState(value: unknown, view: string | null = null): void {
+  const current = store.get(view);
   const raw = (value ?? {}) as {
     pinned?: unknown;
     sideTabs?: unknown;
@@ -221,8 +224,7 @@ export function setHeaderState(value: unknown): void {
   if (JSON.stringify(next) === JSON.stringify(current)) return;
   const pr = next.pullRequest;
   if (pr && stateSince.get(pr.url)?.state !== pr.state) stateSince.set(pr.url, { state: pr.state, at: Date.now() });
-  current = next;
-  for (const listener of listeners) listener();
+  store.set(next, view);
 }
 
 /// The App's workspace, if it has a string title; a count that is not a whole number of chats reads 0.
@@ -235,7 +237,7 @@ function workspaceOf(value: unknown): HeaderWorkspace | undefined {
 }
 
 /// The App's pull request, if it has the fields the chip reads and an https link.
-function pullRequestOf(value: unknown): HeaderPullRequest | undefined {
+export function pullRequestOf(value: unknown): HeaderPullRequest | undefined {
   const raw = (value ?? {}) as Partial<Record<keyof HeaderPullRequest, unknown>>;
   const checks = (raw.checks ?? {}) as Partial<Record<keyof HeaderPullRequest["checks"], unknown>>;
   if (typeof raw.url !== "string" || !raw.url.startsWith("https://") || typeof raw.number !== "number")
@@ -245,6 +247,7 @@ function pullRequestOf(value: unknown): HeaderPullRequest | undefined {
     url: raw.url,
     number: raw.number,
     title: text(raw.title),
+    ...(typeof raw.headSha === "string" && /^[a-f0-9]{40}$/i.test(raw.headSha) ? { headSha: raw.headSha } : {}),
     state: typeof raw.state === "string" ? raw.state : "open",
     review: text(raw.review),
     mergeable: text(raw.mergeable),
@@ -270,15 +273,10 @@ function pullRequestOf(value: unknown): HeaderPullRequest | undefined {
   };
 }
 
-export const headerState = (): HeaderState => current;
-
-const subscribe = (listener: () => void) => {
-  listeners.add(listener);
-  return () => void listeners.delete(listener);
-};
+export const headerState = (view: string | null = null): HeaderState => store.get(view);
 
 /// The live header state.
-export const useHeaderState = (): HeaderState => useSyncExternalStore(subscribe, headerState, headerState);
+export const useHeaderState = (): HeaderState => store.use();
 
 /// The folder part of the header's slash path (Settings > Agent Chat > Header Path,
 /// `agentPane.display.headerBreadcrumb`; Taste Board #20): the chat's repository, then its branch, each

@@ -27,6 +27,13 @@ final class MacCatchUps {
         defaults.bool(forKey: enabledKey)
     }
 
+    /// The Macs a wake catches up, one round each: the served ones, none with the setting off.
+    nonisolated static func macsToCatchUp(served: [String], defaults: UserDefaults = .standard) -> [String] {
+        guard enabled(defaults) else { return [] }
+        var seen = Set<String>()
+        return served.filter { seen.insert($0).inserted }
+    }
+
     private let defaults: UserDefaults
     private var cursors: [String: PhoneCatchUp] = [:]
     /// Macs that closed a `catch-up` open with `unknown_service`: asked as today until relaunch.
@@ -38,11 +45,14 @@ final class MacCatchUps {
     }
 
     private static func cursorKey(_ macID: String) -> String { "cmuxMobile.catchUp.cursors.\(macID)" }
+    /// Where the Mac said its relay deltas reached (`PhoneCatchUp.relayEncode`).
+    private static func relayFloorsKey(_ macID: String) -> String { "cmuxMobile.catchUp.relayFloors.\(macID)" }
 
     /// The Mac's kept cursors (read once, then held).
     func cursors(for macID: String) -> PhoneCatchUp {
         if let held = cursors[macID] { return held }
         let opened = PhoneCatchUp.open(kept: defaults.data(forKey: Self.cursorKey(macID)))
+        if let floors = defaults.data(forKey: Self.relayFloorsKey(macID)) { opened.relayRestore(kept: floors) }
         cursors[macID] = opened
         return opened
     }
@@ -50,6 +60,7 @@ final class MacCatchUps {
     func keep(_ macID: String) {
         guard let held = cursors[macID] else { return }
         defaults.set(held.encode(), forKey: Self.cursorKey(macID))
+        defaults.set(held.relayEncode(), forKey: Self.relayFloorsKey(macID))
     }
 
     func lacksService(_ macID: String) -> Bool { withoutService.contains(macID) }
@@ -97,19 +108,43 @@ extension LiveCoordinator {
     /// Foreground: each served Mac catches up by one `catch-up` request (when the setting is
     /// on). The link's resume and its `daemon` channel run beside it, not after it.
     func catchUpOnForeground() {
-        guard MacCatchUps.enabled() else { return }
-        for session in sessions.values where session.servedLink != nil {
-            let macID = session.macID
-            catchUps.run(macID) { [weak self, weak session] in
+        catchUpServedMacs(.foreground)
+    }
+
+    /// Background: a push or a refresh wake catches each served Mac up by the same one
+    /// request, so the chats and list are current before the person opens the app (Leo,
+    /// 2026-11-24: "deltas can be sipped and maintained"). Off with the same setting.
+    ///
+    /// No handler calls this yet: the app has no background-fetch or remote-notification
+    /// entry (`UIBackgroundModes` is `audio` only), and the FFI has no background request.
+    func catchUpInBackground(pushChat: String?) {
+        catchUpServedMacs(.background(pushChat: pushChat))
+    }
+
+    private func catchUpServedMacs(_ wake: CatchUpWake) {
+        if case .background(let pushChat) = wake {
+            // A Mac with no link up (asleep, the phone just woke) catches up from the relay's
+            // delta log, when that setting is on, without dialing it.
+            for session in sessions.values where session.servedLink == nil {
+                catchUps.run(session.macID) { [weak self, weak session] in
+                    guard let self, let session else { return }
+                    _ = await self.relayCatchUp(session, pushChat: pushChat)
+                }
+            }
+        }
+        let served = sessions.values.filter { $0.servedLink != nil }
+        let macIDs = Set(MacCatchUps.macsToCatchUp(served: served.map(\.macID)))
+        for session in served where macIDs.contains(session.macID) {
+            catchUps.run(session.macID) { [weak self, weak session] in
                 guard let self, let session else { return }
-                await self.catchUp(session)
+                await self.catchUp(session, wake: wake)
             }
         }
     }
 
     /// One `catch-up` round for `session`: the tree it answers is applied as a list would
     /// be; a Mac without the service, a cut tree or one the phone cannot merge lists as today.
-    func catchUp(_ session: MacSession) async {
+    func catchUp(_ session: MacSession, wake: CatchUpWake = .foreground) async {
         let macID = session.macID
         if catchUps.lacksService(macID) {
             await session.workspaces.refresh()
@@ -121,14 +156,15 @@ extension LiveCoordinator {
         let knownJSON = start.known.flatMap { known in
             (try? JSONSerialization.data(withJSONObject: known.params)).map { String(decoding: $0, as: UTF8.self) }
         }
-        let args = phone.foregroundRequest(ask: CatchUpAsk(
+        let ask = CatchUpAsk(
             onScreenChat: nil,
             knownJson: knownJSON,
             capabilities: WorkspaceSync.clientCapabilities,
             chats: session.acpmux.catchUpChats().map {
                 CatchUpChatAsk(sessionId: $0.sessionID, lastSeq: UInt64(clamping: max(0, $0.lastSeq)))
             },
-            budgetBytes: 0))
+            budgetBytes: 0)
+        guard let args = Self.catchUpArgs(phone, ask: ask, wake: wake) else { return }
         let reply: Data
         do {
             let link = try await pairedLink(session)
@@ -144,6 +180,8 @@ extension LiveCoordinator {
             return
         } catch {
             log.error("catch-up: \(macID, privacy: .public) \(String(describing: error), privacy: .public)")
+            // The Mac did not answer: what the relay holds of it, when that is on.
+            if case .background(let pushChat) = wake { _ = await relayCatchUp(session, pushChat: pushChat) }
             return
         }
         let now = UInt64(max(0, Date().timeIntervalSince1970 * 1000))
@@ -159,8 +197,9 @@ extension LiveCoordinator {
         for cut in answer.cut {
             log.info("catch-up: \(macID, privacy: .public) cut \(cut.name, privacy: .public): \(cut.reason, privacy: .public)")
         }
-        // The chat list and chat pages moved the kept cursors only: the hub's own watch and
-        // attach still bring the chats up on this link.
+        // The chat list and chat pages go into the hub as its watch and attaches would put
+        // them; a chat already attached on this link keeps its own (`AcpmuxHub+CatchUp.swift`).
+        await session.acpmux.applyCatchUp(chatListJSON: answer.chatListJson, chats: answer.chats, cut: answer.cut)
         switch answer.tree {
         case .whole?, .unchanged?:
             let data = Data((answer.workspacesJson ?? "{}").utf8)
@@ -171,5 +210,21 @@ extension LiveCoordinator {
             await session.workspaces.refresh()
         }
     }
+
+    /// The request's args for the wake; nil asks nothing.
+    static func catchUpArgs(_ phone: PhoneCatchUp, ask: CatchUpAsk, wake: CatchUpWake) -> String? {
+        switch wake {
+        case .foreground:
+            return phone.foregroundRequest(ask: ask)
+        case .background(let pushChat):
+            return phone.backgroundRequest(ask: ask, pushChat: pushChat)
+        }
+    }
+}
+
+/// What woke a catch-up: the app coming forward, or a push / refresh in the background.
+enum CatchUpWake: Equatable, Sendable {
+    case foreground
+    case background(pushChat: String?)
 }
 #endif

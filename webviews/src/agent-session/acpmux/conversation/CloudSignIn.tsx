@@ -21,7 +21,7 @@
 // that machine (`signIn.github`, cloudGitHubSignIn.ts) as a quiet link that turns into that card.
 // The code and the key live only in this component's state while it is up: never in a row, a
 // log or anything kept.
-import { useEffect, useLayoutEffect, useRef, useState, type RefObject, useMemo } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { DeviceSignInCard } from "../../../pages/shared/signIn/DeviceSignInCard";
 import { useSignInStrings } from "../../../pages/shared/signIn/strings";
 import { useAccountSignIn, type AccountSignInTransport } from "../../../pages/shared/signIn/useAccountSignIn";
@@ -38,8 +38,6 @@ import {
   type LoginStart,
   KEY_PAGE,
 } from "../cloudAgentLogin";
-import { cancelResize, playResize } from "./fold";
-import { motionMode } from "../../../ui/motion/motionMode";
 
 type Stage =
   | { at: "idle" }
@@ -120,7 +118,6 @@ export function CloudSignIn({
   keyOnly = false,
   gateway = false,
   another = false,
-  actionsRef,
 }: {
   signIn: SignIn;
   rowId: string | undefined;
@@ -133,32 +130,11 @@ export function CloudSignIn({
   /// The account is out of usage or turned off (cmux#55066): signing in is with another account, and
   /// its buttons are outlined, as Use another agent leads the card.
   another?: boolean;
-  actionsRef?: RefObject<HTMLElement | null>;
 }) {
   const t = useT();
-  const [stage, commitStage] = useState<Stage>({ at: "idle" });
-  const previousHeight = useRef<number | undefined>(undefined);
-  const resizingNode = useRef<HTMLElement | null>(null);
-  // Read before changing the step, including when another step interrupts a resize. The same
-  // transcript fold places following rows before paint; no observer, timer or idle work is needed.
-  const setStage = (next: Stage) => {
-    previousHeight.current ??= actionsRef?.current?.getBoundingClientRect().height;
-    commitStage(next);
-  };
-  useLayoutEffect(() => {
-    const from = previousHeight.current;
-    previousHeight.current = undefined;
-    const node = actionsRef?.current;
-    resizingNode.current = node ?? null;
-    if (node && from !== undefined && motionMode(node.ownerDocument) === "full") playResize(node, from);
-    else if (node) cancelResize(node);
-  }, [stage, actionsRef]);
-  useLayoutEffect(
-    () => () => {
-      if (resizingNode.current) cancelResize(resizingNode.current);
-    },
-    [],
-  );
+  // A step's actions take their height in one frame (no height is animated, cmuxterm-hq
+  // docs/design/transcript-motion-model.md rule 7): the transcript places the rows under it once.
+  const [stage, setStage] = useState<Stage>({ at: "idle" });
   const [code, setCode] = useState("");
   const [key, setKey] = useState("");
   const [copied, setCopied] = useState(false);

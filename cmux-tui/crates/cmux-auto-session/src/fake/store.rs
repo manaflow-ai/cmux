@@ -225,6 +225,20 @@ impl Store {
         if reaches { Ok(chat) } else { Err(not_found()) }
     }
 
+    /// Who may move the chat or say whether it is kept in the Cloud (`keep`, `move`): its
+    /// owner, and the Cloud machine that holds it now, for the agent of a chat that runs there.
+    /// A machine the chat is only assigned to, or another machine, is told 404.
+    pub fn mover(&self, by: &Caller, id: &str) -> CloudResult<()> {
+        let chat = self.admitted(by, id, true)?;
+        match by {
+            Caller::Owner => Ok(()),
+            Caller::Machine(machine) => match &chat.rec.holder {
+                Holder::Vm(held) if held == machine => Ok(()),
+                _ => Err(not_found()),
+            },
+        }
+    }
+
     /// The chat `id` as it is now.
     pub fn view(&self, id: &str) -> Option<SessionView> {
         self.chats.get(id).map(|chat| view_of(&chat.rec, self.now))

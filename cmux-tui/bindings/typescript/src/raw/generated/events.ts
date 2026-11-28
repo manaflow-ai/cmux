@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 904084da7c7269d2c068894336d66cb1aa68bb6f467a7992efd2ee435a2ad886. */
+/* cmux-tui mux protocol 12; the IR SHA-256 is SDK_IR_SHA256 in metadata.ts. */
 
 
 import type * as T from "./types.js";
@@ -142,6 +142,11 @@ export type ClientChangedEvent = { event: "client-changed" } & {
 /** Protocol v6; emission: emitted; streams: subscribe. */
 export type ClientDetachedEvent = { event: "client-detached" } & {
   "client": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type ClientDisconnectedByEvent = { event: "client-disconnected-by" } & {
+  "by"?: T.SizeDetachActor;
 };
 
 /** Protocol v9; emission: serialized-never-emitted; streams: subscribe. */
@@ -479,6 +484,12 @@ export type ParticipantAvatarChangedEvent = { event: "participant-avatar-changed
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type PersonalChangedEvent = { event: "personal-changed" } & {
   "personal_revision": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type PhoneOpenLinkEvent = { event: "phone-open-link" } & {
+  "terminal_id": string;
+  "url": string;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
@@ -835,6 +846,7 @@ export type KnownCmuxEvent =
   | ClientAttachedEvent
   | ClientChangedEvent
   | ClientDetachedEvent
+  | ClientDisconnectedByEvent
   | CloudConversationChangedEvent
   | CloudConversationLiveEvent
   | CloudConversationPresenceEvent
@@ -879,6 +891,7 @@ export type KnownCmuxEvent =
   | PaneClosedEvent
   | ParticipantAvatarChangedEvent
   | PersonalChangedEvent
+  | PhoneOpenLinkEvent
   | ProgramStatusChangedEvent
   | RenderDeltaEvent
   | RenderStateEvent

@@ -13,6 +13,11 @@ if [[ "$EVENT_NAME" == pull_request ]]; then
     echo "::warning::could not read the pull request labels; routing on the event's labels (${EVENT_LABELS:-none})"
     labels="$EVENT_LABELS"
   }
+  # full-ci into feat-cmux-next is one-shot (head_tier.py): only its own labeled event runs the full tier.
+  if [[ "${CI_FULL_CI_ONE_SHOT:-1}" != 0 && "${PR_BASE_REF:-}" == feat-cmux-next ]] &&
+    ! [[ "${EVENT_ACTION:-}" == labeled && "${EVENT_LABEL:-}" == full-ci ]]; then
+    labels="$(tr ',' '\n' <<< "$labels" | grep -vx full-ci | paste -sd, -)" || labels=""
+  fi
 else
   : > "$changed"
 fi
@@ -30,12 +35,17 @@ if [[ "$EVENT_NAME" == workflow_dispatch && "$DEV_DAILY" == true ]]; then
       echo "error: deferred dev_daily asked for $DEV_DAILY_SHA but same-tree mode is $SAME_TREE_SHA" >&2
       exit 1
     }
-  else
-    [[ "$DEV_DAILY_SHA" == "$GITHUB_SHA" ]] || {
-      echo "error: dev_daily asked for $DEV_DAILY_SHA but feat-cmux-next moved to $GITHUB_SHA; the next dispatcher tick takes the new tip" >&2
-      exit 1
-    }
   fi
+fi
+if [[ "$EVENT_NAME" == workflow_dispatch && "$DEV_DAILY" == true && -z "$SAME_TREE_SHA" && "$DEV_DAILY_SHA" != "$GITHUB_SHA" ]]; then
+  # Why: docs/ci/cmux-next-workflow-notes.md#note-391
+  # A merge moved feat-cmux-next before this run started: nothing is broken, so end green with every tier off.
+  echo "::notice title=cmux-next dev_daily superseded::dev_daily asked for $DEV_DAILY_SHA but feat-cmux-next moved to $GITHUB_SHA; nothing builds here and the next dispatcher tick takes the new tip"
+  echo 'superseded=true' >> "$GITHUB_OUTPUT"
+  printf '%s=false\n' native swift_canary cmuxnext_swift mac_release macos scheme generated swift daemon full fast_tier >> "$GITHUB_OUTPUT"
+  printf '%s=\n' swift_canary_targets swift_filter swift_priority_filter swift_targets >> "$GITHUB_OUTPUT"
+  echo "- superseded dev-daily dispatch: asked for $DEV_DAILY_SHA, feat-cmux-next is at $GITHUB_SHA; every tier is off and the next dispatcher tick builds the new tip." >> "$GITHUB_STEP_SUMMARY"
+elif [[ "$EVENT_NAME" == workflow_dispatch && "$DEV_DAILY" == true ]]; then
   {
     echo 'native=false'
     echo 'swift_canary=false'
@@ -191,6 +201,10 @@ else
       --summary "$GITHUB_STEP_SUMMARY" || true
   fi
 fi
+# The route's own native and mac_release, before the cheap tier and the PR fast tier below turn them off: the land
+# head's app compile reads them (app_compile_land, last block).
+route_native="$(grep -E '^native=' "$GITHUB_OUTPUT" | tail -n 1 | cut -d= -f2- || true)"
+route_mac_release="$(grep -E '^mac_release=' "$GITHUB_OUTPUT" | tail -n 1 | cut -d= -f2- || true)"
 # A draft head, a ready head without ready-to-land (the land rule), or a base merge into a PR idle 24 h runs
 # the cheap tier: no Mac tier, and no cargo fast tier (set again after its route below; a later line of an
 # output wins). scripts/ci/head_tier.py decides.
@@ -265,4 +279,15 @@ fi
 # cargo fast tier too; the ready-to-land label runs it at the head handed to land.
 if [[ "$head_tier" == cheap || "$head_tier" == none ]]; then
   echo "fast_tier_cargo=false" >> "$GITHUB_OUTPUT"
+fi
+# The land head's app compile (docs/ci/cmux-next-workflow-notes/2026-11-26-one-hop-verdict.md: the build fleet's
+# app compile "moves to the head handed to land"). It never did: on a ready-to-land head the cheap tier
+# (CI_LAND_FULL_PER_PR=0) and the PR fast tier above both write native=false and mac_release=false, and
+# app-compile-fleet reads both, so a landing head that changed the app compiled nowhere before the merge. cmux#54956
+# (CmuxNextCloudUI using CmuxNextCloudStart with no package dependency or import) landed so, and feat-cmux-next's app
+# compile stayed red until a fix forward. A ready-to-land head whose route reached the app compile keeps it here.
+if [[ "$EVENT_NAME" == pull_request && "${PR_BASE_REF:-}" == feat-cmux-next && ",$labels," == *,ready-to-land,* \
+  && "${route_native:-}" == true && "${route_mac_release:-}" == true ]]; then
+  echo "app_compile_land=true" >> "$GITHUB_OUTPUT"
+  echo "- land head: the build fleet's app compile runs here (the route reached native and mac_release), so a missing target dependency or import is caught before the merge." >> "$GITHUB_STEP_SUMMARY"
 fi

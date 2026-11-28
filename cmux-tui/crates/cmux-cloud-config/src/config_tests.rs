@@ -209,6 +209,47 @@ fn no_build_adopts_nightlys_session() {
 }
 
 #[test]
+fn team_signed_production_channels_share_one_session_item() {
+    for bundle_id in [RELEASE_BUNDLE_ID, NIGHTLY_BUNDLE_ID, RC_BUNDLE_ID] {
+        let shared = configure(selection("prod", bundle_id, "n", true, None), &[], false)
+            .shared_session
+            .unwrap_or_else(|| panic!("{bundle_id} shares"));
+        // One item for every channel: named by the Stack project, never by the bundle.
+        assert_eq!(shared.keychain_service, "com.cmuxterm.app.shared.auth.staging-project");
+        assert_eq!(shared.access_group, "7WLXT3NR37.com.cmuxterm.app.shared");
+    }
+}
+
+#[test]
+fn no_other_build_shares_the_session_item() {
+    // A development backend: its accounts are not production's.
+    assert_eq!(
+        configure(selection("dev", NIGHTLY_BUNDLE_ID, "n", true, None), &[], false).shared_session,
+        None
+    );
+    // A Debug build, signed ad hoc.
+    assert_eq!(
+        configure(selection("prod", RELEASE_BUNDLE_ID, "n", true, None), &[], true).shared_session,
+        None
+    );
+    // Signed NEXT DEV, NEXT Stable and tagged builds embed no profile: no access group.
+    for bundle_id in [
+        NEXT_DEV_BUNDLE_ID,
+        "com.cmuxterm.app.nightly.cmux-next-stable",
+        "com.cmuxterm.app.debug.feature",
+        UNAVAILABLE_BUNDLE_ID,
+    ] {
+        assert_eq!(
+            configure(selection("prod", bundle_id, "n", true, None), &[], false).shared_session,
+            None,
+            "{bundle_id}"
+        );
+    }
+    // No Stack project: no item to name.
+    assert_eq!(shared_session(NIGHTLY_BUNDLE_ID, false, true, ""), None);
+}
+
+#[test]
 fn the_sign_in_url_nests_the_callback_with_its_state() {
     assert_eq!(
         sign_in_url("http://localhost:4577", "cmux-dev-safauth", Some("state-secret")),
@@ -224,6 +265,56 @@ fn the_sign_in_url_nests_the_callback_with_its_state() {
 fn the_vm_api_follows_the_backend() {
     assert_eq!(vm_api_base_url(&Backend::Production), PRODUCTION_VM_API);
     assert_eq!(vm_api_base_url(&Backend::Development("https://x".to_owned())), STAGING_VM_API);
+}
+
+#[test]
+fn the_sign_in_screen_names_the_backend() {
+    let label = |backend: Backend| {
+        let label = backend_label(&backend);
+        (label.kind, label.title, label.detail)
+    };
+    let owned = |kind: &str, title: &str, detail: Option<&str>| {
+        (kind.to_owned(), title.to_owned(), detail.map(str::to_owned))
+    };
+    assert_eq!(label(Backend::Production), owned("production", "cmux.com", None));
+    assert_eq!(
+        label(Backend::Development("https://dev-abc.cmux.dev".to_owned())),
+        owned("development", "Development backend", Some("dev-abc.cmux.dev"))
+    );
+    assert_eq!(
+        label(Backend::Development("https://Backend.Example.dev:3850/api".to_owned())),
+        owned("development", "Development backend", Some("backend.example.dev"))
+    );
+    // A selected local backend is `Development` at a loopback origin: local on the screen.
+    assert_eq!(
+        label(Backend::Development("http://localhost:3777".to_owned())),
+        owned("local", "Local backend", Some("localhost:3777"))
+    );
+    assert_eq!(
+        label(Backend::LocalOnly("http://127.0.0.1".to_owned())),
+        owned("local", "Local backend", Some("127.0.0.1"))
+    );
+    assert_eq!(
+        label(Backend::LocalOnly("http://[::1]:9000".to_owned())),
+        owned("local", "Local backend", Some("[::1]:9000"))
+    );
+    // The placeholder's `/dev/null` file URL has no host to name.
+    assert_eq!(
+        label(Backend::LocalOnly("file:///dev/null".to_owned())),
+        owned("local", "Local backend", None)
+    );
+}
+
+#[test]
+fn a_configuration_names_its_backend() {
+    let production = configure(selection("prod", NIGHTLY_BUNDLE_ID, "p", true, None), &[], false);
+    assert_eq!(backend_label(&production.backend).title, PRODUCTION_BACKEND_TITLE);
+    let staging = configure(selection("staging", NEXT_DEV_BUNDLE_ID, "s", false, None), &[], false);
+    let label = backend_label(&staging.backend);
+    assert_eq!(
+        (label.kind.as_str(), label.detail.as_deref()),
+        ("development", Some("backend.standin.invalid"))
+    );
 }
 
 /// The app pinned before cmux#43648 decodes `adoptsNightlySession` as a required `Bool`, so the key stays (false)

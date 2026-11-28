@@ -1,6 +1,124 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "mobile.terminal.phoneProjection.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Re-wrap on Phone"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf dem iPhone umbrechen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reformater sur l’iPhone"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة التفاف النص على iPhone"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reajustar en el iPhone"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 iPhone 上重新換行"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 iPhone 上重新换行"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone에서 줄바꿈"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhoneで折り返す"
+          }
+        }
+      }
+    },
+    "mobile.terminal.phoneProjection.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminals keep the Mac's columns by default. Re-wrap on Phone adapts text without resizing the Mac. Fit to Phone resizes the Mac. Applies to terminals opened next."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminals behalten standardmäßig die Spalten des Mac. „Auf dem iPhone umbrechen“ passt Text an, ohne die Mac-Größe zu ändern. „An iPhone anpassen“ ändert die Größe am Mac. Gilt für neu geöffnete Terminals."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Par défaut, les terminaux conservent les colonnes du Mac. Le reformatage adapte le texte sans redimensionner le Mac. L’ajustement à l’iPhone redimensionne le Mac. S’applique aux prochains terminaux ouverts."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحتفظ الطرفيات بأعمدة Mac افتراضيًا. تعيد ميزة الالتفاف تنسيق النص دون تغيير حجم طرفية Mac. تغيّر ميزة الملاءمة مع iPhone حجم طرفية Mac. يسري على الطرفيات التي تفتح لاحقًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los terminales conservan las columnas del Mac por defecto. El reajuste adapta el texto sin cambiar el tamaño en el Mac. Ajustar al iPhone cambia el tamaño en el Mac. Se aplica a los terminales que abras después."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機預設保留 Mac 的欄數。在 iPhone 上重新換行會調整文字，而不變更 Mac 的大小。「符合 iPhone」會調整 Mac 的大小。適用於之後開啟的終端機。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端默认保留 Mac 的列数。在 iPhone 上重新换行会调整文字，而不改变 Mac 的大小。“适合 iPhone”会调整 Mac 的大小。适用于之后打开的终端。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본적으로 터미널은 Mac의 열 수를 유지합니다. iPhone 줄바꿈은 Mac 크기를 바꾸지 않고 텍스트를 조정합니다. iPhone에 맞추기는 Mac 크기를 바꿉니다. 다음에 여는 터미널부터 적용됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルは標準でMacの列数を維持します。iPhoneでの折り返しはMacのサイズを変えずにテキストを調整します。iPhoneに合わせるとMacのサイズが変わります。次に開くターミナルから適用されます。"
+          }
+        }
+      }
+    },
     "mobile.account.deleteAppStore.title": {
       "extractionState": "manual",
       "localizations": {
@@ -223,6 +341,62 @@
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "AutoCloud 会显示在 Mac 睡眠或离线时仍在云端运行的聊天。"}},
         "ko": {"stringUnit": {"state": "translated", "value": "AutoCloud는 Mac이 잠자거나 오프라인일 때 클라우드에서 계속 실행되는 채팅을 표시합니다."}},
         "ja": {"stringUnit": {"state": "translated", "value": "AutoCloud は、Mac がスリープまたはオフラインのときもクラウドで実行され続けるチャットを表示します。"}}
+      }
+    },
+    "mobile.shakeReport.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Report a bug?"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Fehler melden?"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Signaler un bug ?"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "هل تريد الإبلاغ عن خطأ؟"}},
+        "es": {"stringUnit": {"state": "translated", "value": "¿Informar de un error?"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "要回報錯誤嗎？"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "要报告错误吗？"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "버그를 신고할까요?"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "バグを報告しますか？"}}
+      }
+    },
+    "mobile.shakeReport.report": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Copy Logs and Open Report"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Protokolle kopieren und Bericht öffnen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Copier les journaux et ouvrir le rapport"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "نسخ السجلات وفتح البلاغ"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Copiar registros y abrir informe"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "拷貝記錄並開啟回報"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "复制日志并打开报告"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "로그 복사 후 신고 열기"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ログをコピーしてレポートを開く"}}
+      }
+    },
+    "mobile.shakeReport.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Cancel"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Abbrechen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Annuler"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "إلغاء"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Cancelar"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "取消"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "取消"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "취소"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "キャンセル"}}
+      }
+    },
+    "mobile.shakeReport.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "This launch's log goes on the clipboard. Paste it into the form's Additional context."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Das Protokoll dieses Starts kommt in die Zwischenablage. Füge es im Formular unter „Additional context“ ein."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Le journal de ce lancement est copié dans le presse-papiers. Collez-le dans le champ « Additional context » du formulaire."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يُنسخ سجل هذا التشغيل إلى الحافظة. الصقه في حقل Additional context في النموذج."}},
+        "es": {"stringUnit": {"state": "translated", "value": "El registro de este inicio se copia al portapapeles. Pégalo en el campo Additional context del formulario."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "這次啟動的記錄會拷貝到剪貼簿，請貼到表單的 Additional context 欄位。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "本次启动的日志会复制到剪贴板，请粘贴到表单的 Additional context 字段。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이번 실행의 로그가 클립보드에 복사됩니다. 양식의 Additional context에 붙여 넣으세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "今回の起動のログがクリップボードにコピーされます。フォームの Additional context に貼り付けてください。"}}
       }
     }
   },

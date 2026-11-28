@@ -21,7 +21,7 @@ declare global {
     benchReady: boolean;
     benchRowRenders: { mark(): void; since(): number };
     /** Changes the `index`th entry's title and has the page read the list again. */
-    benchChangeOne(index: number): void | Promise<void>;
+    benchChangeOne(index?: number): void | Promise<void>;
   }
 }
 

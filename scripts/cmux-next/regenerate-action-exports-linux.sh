@@ -66,9 +66,10 @@ let package = Package(
 SWIFT
 swift build --package-path "$scratch/package" --scratch-path "$scratch/build" --product cmux-next-action-exports
 "$scratch/build/debug/cmux-next-action-exports" "$root"
-# The tool writes only the files whose bytes changed (an export already current keeps its mtime); a run that
-# succeeded wrote every export, as the Mac's tests do, so stamp them all (base-autofix-exports-pack.sh checks it).
-(cd "$root" && touch -- "${exports[@]}")
+# The tool writes only the exports whose bytes changed, so one already current keeps its old mtime.
+# base-autofix-exports-pack.sh reads "newer than its marker" as "this run's export" (the Mac's tests
+# rewrite every file): the tool exited 0, so every export holds its output.
+for file in "${exports[@]}"; do [[ ! -f "$root/$file" ]] || touch "$root/$file"; done
 echo "linux action exports: built and written in $((SECONDS - started))s"
 
 cd "$root"

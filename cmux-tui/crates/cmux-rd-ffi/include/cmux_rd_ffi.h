@@ -146,8 +146,11 @@ int32_t cmux_rd_receiver_pop_frame(CmuxRdReceiver *receiver, CmuxRdFrame *out);
 /* Returns 1 and fills *out with the oldest queued message, or 0 when none is queued. */
 int32_t cmux_rd_receiver_pop_message(CmuxRdReceiver *receiver, CmuxRdMessage *out);
 
-/* Records one decode time for the feedback. */
+/* Records one decode time for the feedback; acknowledges no LTR token. */
 int32_t cmux_rd_receiver_note_decode(CmuxRdReceiver *receiver, uint32_t decode_us);
+/* Records one decode time of popped frame `frame`, the frame that decoded:
+   its LTR token is acknowledged to the host. */
+int32_t cmux_rd_receiver_note_frame_decode(CmuxRdReceiver *receiver, uint32_t frame, uint32_t decode_us);
 /* Asks the host for a keyframe in every feedback until one is released. */
 int32_t cmux_rd_receiver_request_keyframe(CmuxRdReceiver *receiver);
 
@@ -215,6 +218,9 @@ int32_t cmux_rd_session_tick(CmuxRdSession *session, uint64_t now_us);
 int32_t cmux_rd_session_pop_frame(CmuxRdSession *session, CmuxRdFrame *out, uint16_t *out_stream);
 int32_t cmux_rd_session_pop_message(CmuxRdSession *session, CmuxRdMessage *out);
 int32_t cmux_rd_session_note_decode(CmuxRdSession *session, uint16_t stream, uint32_t decode_us);
+/* Records one decode time of frame `frame` of `stream`, acknowledging its LTR
+   token to the host. */
+int32_t cmux_rd_session_note_frame_decode(CmuxRdSession *session, uint16_t stream, uint32_t frame, uint32_t decode_us);
 int32_t cmux_rd_session_request_keyframe(CmuxRdSession *session, uint16_t stream);
 /* Writes the next due feedback datagram of any stream (its header names the
    stream). Returns 1 when written, 0 when none is due; call again until 0.
@@ -246,6 +252,15 @@ int32_t cmux_rd_session_note_frame_presented(CmuxRdSession *session, uint16_t st
 /* Writes the stage ledger so far as one UTF-8 JSON object. CMUX_RD_ERR_BUFFER
    when cap is too small; *out_len then holds the size needed. */
 int32_t cmux_rd_session_stage_ledger(CmuxRdSession *session, uint8_t *out, size_t cap, size_t *out_len);
+/* Session report (cmux.rd-session-report/1). The viewer began connecting at
+   at_us (the clock passed to push_*): the report's first frame counts from
+   the first call. */
+int32_t cmux_rd_session_note_connect_started(CmuxRdSession *session, uint64_t at_us);
+/* Writes this session's report so far (connect to first frame on glass,
+   display-to-glass and Present p50/p95 over every presented frame) as one
+   UTF-8 JSON object. CMUX_RD_ERR_BUFFER when cap is too small; *out_len then
+   holds the size needed. */
+int32_t cmux_rd_session_report(CmuxRdSession *session, uint8_t *out, size_t cap, size_t *out_len);
 /* The offset of the host's clock from this viewer's (host = viewer +
    *offset_us) and the round trip of the best sample: 1 when an estimate
    exists, 0 before the first answer. */

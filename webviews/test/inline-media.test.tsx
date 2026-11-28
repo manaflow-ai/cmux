@@ -3,10 +3,18 @@
 // thumbnail in a fixed glass frame, two in a row sit side by side, and the other references link.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { bareImageSource, imageOnlyItems, proseImages } from "../src/agent-session/acpmux/conversation/inlineMedia";
-import { codePath, isImagePath, isImageUrl, textLinks } from "../src/agent-session/acpmux/chips/paths";
-import { commitReferences, githubReferences, mentionedRepository } from "../src/githubReferences";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { bareImageSource, imageOnlyItems, proseImages } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/inlineMedia"),
+);
+const { codePath, isImagePath, isImageUrl, textLinks } = await importWithDom(
+  () => import("../src/agent-session/acpmux/chips/paths"),
+);
+const { commitReferences, githubReferences, mentionedRepository } = await importWithDom(
+  () => import("../src/githubReferences"),
+);
 
 const REPO = "manaflow-ai/cmux";
 const PR_MEDIA = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/23650/tabs-light.png";

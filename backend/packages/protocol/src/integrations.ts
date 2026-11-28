@@ -155,6 +155,41 @@ export const IntegrationApprovalGet = def({
   mcp: { expose: "never", group: "integration" }
 })
 
+/**
+ * G8, one call (cmux-next Cloud create): the person's own session approves a Cloud request it confirmed, by the request
+ * instead of a feed item id. The Worker checks what the Mac checked in three calls (integration.approval.get: the op,
+ * pending, exactly these params; feed.list: the open approve item of `team`'s Cloud owner for that request and digest),
+ * answers that item allow once (feed.answer), and waits, bounded, for the approved run so the answer carries its reply
+ * (the create's machine). Behind CLOUD_APPROVE_ONE_CALL (staging); off, `approval.one_call_off` and the caller uses feed.answer.
+ */
+export const IntegrationApprovalApprove = def({
+  name: "integration.approval.approve",
+  owner: "cloud:FeedDO",
+  class: "mutation",
+  risk: "mutate-own",
+  target: "feed_item",
+  principals: ["session"],
+  params: Schema.Struct({
+    request: Schema.String.check(isPattern(/^apr_[a-f0-9]{32}$/)),
+    op: Schema.String,
+    params: Schema.Unknown,
+    team: TeamId
+  }),
+  result: Schema.Struct({
+    request: Schema.String,
+    /** `here`: this call answered it; `elsewhere`: the team's item was already closed (the phone, the dashboard). */
+    answered: Schema.Literals(["here", "elsewhere"]),
+    /** The approval's state after the bounded wait (`pending`, `running`, `done`, `denied`, `expired`), when read. */
+    state: Schema.optionalKey(Schema.String),
+    /** The approved run's own answer once it is done: `{ok, value}` or `{ok: false, error}`. */
+    reply: Schema.optionalKey(Schema.Unknown)
+  }),
+  errors: [...mutationErrors, "selector.not_found", "approval.mismatch", "approval.one_call_off", "feed.closed"],
+  docs: "Approve, allow once, a Cloud request your own session confirmed, by its request id: refused unless it holds exactly that op and params, pending, posted by that team's Cloud. Answers the approved run's reply when it ends within the wait.",
+  cli: { path: "integration approve", visible: false },
+  mcp: { expose: "never", group: "integration" }
+})
+
 export const IntegrationPolicySet = def({
   name: "integration.policy.set",
   owner: "cloud:ConnectionDO",
@@ -361,6 +396,7 @@ export const integrationOps = [
   IntegrationList,
   IntegrationPolicyGet,
   IntegrationApprovalGet,
+  IntegrationApprovalApprove,
   IntegrationPolicySet,
   GitHubIssueComment,
   LinearIssueCreate,
