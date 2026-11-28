@@ -347,6 +347,9 @@ pub struct Session {
     /// Set on a freshly forked Claude session: the parent's agent session id
     /// to pass as `--resume <id> --fork-session` on first spawn.
     pub(super) fork_from: StdMutex<Option<String>>,
+    /// Set on a fresh OpenCode fork: the parent's agent session its own agent forks at its
+    /// first start, in place of a load (`fork_own_process.rs`).
+    pub(super) agent_fork: StdMutex<Option<super::fork_own_process::AgentFork>>,
     /// The model and the effort acpmux last set on this session (its own
     /// start values or a client's set), so a repeated set is no new pick
     /// (`start_defaults.rs`).
@@ -587,6 +590,9 @@ pub struct Session {
     /// (`idle.rs`), or 0: the next start of its agent is a wake, logged with its cause and how
     /// long it took.
     pub(super) hibernated_at: AtomicU64,
+    /// Its recent gaps between turns, which `adaptive-v1` picks its idle period from
+    /// (`residency.rs`).
+    pub(super) idle_rhythm: StdMutex<super::residency::Rhythm>,
     /// What asked for the agent the next wake starts (`idle.rs` `wake_cause`): `typing`, `prompt`,
     /// else a request that needs the agent.
     pub(super) wake_cause: StdMutex<Option<&'static str>>,
