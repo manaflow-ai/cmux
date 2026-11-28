@@ -15,7 +15,7 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 tokio = { version = "1", features = ["time", "macros"] }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["time", "macros", "rt", "test-util"] }
+tokio = { version = "1", features = ["time", "macros", "rt", "rt-multi-thread", "net", "io-util", "test-util"] }
 
 [lints]
 workspace = true
