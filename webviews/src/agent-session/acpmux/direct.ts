@@ -6920,12 +6920,11 @@ export class AcpmuxDirectClient {
   /// lacks is answered as a plain page or asked again (`sendAttach`), so it is no miss. A hold
   /// whose switch has not answered yet is a miss too: what goes out next is unknown.
   private guessHeld(early: EarlyAttach, guess: HandshakeGuess): boolean {
-    const sameSwitch = this.chatRows.asks(guess.capabilities) === this.chatRows.asks(this.capabilities);
-    const held =
-      this.localOrigin === guess.local && (sameSwitch || (early.sent.switched === true && !early.sent.hold));
-    // A switch guessed for a daemon without the hold: the chat leaves the store, so the next attach is
-    // plain. On an origin miss too, or the attach asked again would be the hold to that daemon.
-    if (!held && !sameSwitch) this.chatRows.close();
+    if (this.localOrigin !== guess.local) return false;
+    if (this.chatRows.asks(guess.capabilities) === this.chatRows.asks(this.capabilities)) return true;
+    const held = early.sent.switched === true && !early.sent.hold;
+    // A hold sent to a daemon without one: the chat leaves the store, so the next attach is plain.
+    if (!held) this.chatRows.close();
     return held;
   }
 
