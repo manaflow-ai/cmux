@@ -10,6 +10,7 @@ import email.utils
 import importlib.util
 import json
 from pathlib import Path
+import time
 import unittest
 from unittest import mock
 import urllib.error
@@ -46,6 +47,8 @@ class RetryTests(unittest.TestCase):
         download.active = None
         self.addCleanup(download.spares.clear)
         self.addCleanup(setattr, download, "active", None)
+        download.job_refusal = None
+        self.addCleanup(setattr, download, "job_refusal", None)
 
     def flaky(self, errors: list[Exception], result: str = "ok"):
         def call() -> str:
@@ -53,6 +56,26 @@ class RetryTests(unittest.TestCase):
                 raise errors.pop(0)
             return result
         return call
+
+    def test_dead_spares_hand_back_to_the_job_token_and_wait_for_its_reset(self) -> None:
+        # Run 46125411693 (2026-11-28 09:46Z): github.token's hour was spent, both spares answered 401,
+        # and the 401 ended keep-published-dsyms in 1 s with the reset 300 s away.
+        download.spares.extend(["spare-1", "spare-2"])
+        tokens: list[str | None] = []
+        errors = [refused(403, X_RateLimit_Remaining="0", X_RateLimit_Reset=str(int(time.time()) + 300)),
+                  refused(401), refused(401)]
+
+        def call() -> str:
+            tokens.append(download.active)
+            if errors:
+                raise errors.pop(0)
+            return "ok"
+
+        with mock.patch.object(download, "RETRY_BUDGET_SECONDS", 3600.0):
+            self.assertEqual(download.with_retries(call, "GET x"), "ok")
+        self.assertEqual(tokens, [None, "spare-1", "spare-2", None])
+        self.assertEqual(len(self.slept), 1)
+        self.assertGreaterEqual(self.slept[0], 290)
 
     def test_a_spent_hour_moves_to_a_spare_token_with_no_wait(self) -> None:
         # Runs 45823496118 and 45825165164 (2026-11-26): github.token's hour was spent and the reset was 1098 s
@@ -161,6 +184,8 @@ class CallSiteTests(unittest.TestCase):
         download.active = None
         self.addCleanup(download.spares.clear)
         self.addCleanup(setattr, download, "active", None)
+        download.job_refusal = None
+        self.addCleanup(setattr, download, "job_refusal", None)
 
     def test_the_lookup_retries_a_403_then_returns_the_listing(self) -> None:
         body = json.dumps({"artifacts": [{"name": "app", "expired": False, "created_at": "1"}]}).encode()

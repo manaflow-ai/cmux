@@ -8,13 +8,18 @@
 // its turn started has not seen every call; its accumulated usage stays unknown even once older pages load.
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
-import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { ContextCardBody } from "../src/agent-session/acpmux/ContextCard";
-import { WorkingFor } from "../src/agent-session/acpmux/conversation/WorkingFor";
-import { WorkingCountsContext, type WorkingCounts } from "../src/agent-session/acpmux/conversation/workingForModel";
-import { workingTokens } from "../src/agent-session/acpmux/conversation/turnTokensModel";
+import type { WorkingCounts } from "../src/agent-session/acpmux/conversation/workingForModel";
+import { importWithDom } from "./support/importWithDom";
+
+const { AcpmuxDirectClient } = await importWithDom(() => import("../src/agent-session/acpmux/direct"));
+const { translatorFor } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
+const { ContextCardBody } = await importWithDom(() => import("../src/agent-session/acpmux/ContextCard"));
+const { WorkingFor } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/WorkingFor"));
+const { WorkingCountsContext } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/workingForModel"),
+);
+const { workingTokens } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/turnTokensModel"));
 
 const CHAT = "0190a000-0000-7000-8000-0000000000e7";
 const START = Date.UTC(2026, 9, 20, 9, 0, 0);

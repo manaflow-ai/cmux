@@ -626,6 +626,9 @@ struct Probe<'s, 'e> {
     mirror_after_input_moved: Option<bool>,
     unsolicited_scroll_changed: u64,
     resized: u64,
+    /// The probe's own last reattach or stall and when it began, so a
+    /// resync the daemon sends names how long after it came.
+    last_disturbance: Option<(&'static str, Instant)>,
     overflow: u64,
     max_scrollback_seen: u64,
     newest: u64,
@@ -660,6 +663,7 @@ impl<'s, 'e> Probe<'s, 'e> {
             mirror_after_input_moved: None,
             unsolicited_scroll_changed: 0,
             resized: 0,
+            last_disturbance: None,
             overflow: 0,
             max_scrollback_seen: 0,
             newest: 0,
@@ -943,11 +947,26 @@ impl<'s, 'e> Probe<'s, 'e> {
                     .as_mut()
                     .filter(|m| m.attach == n && m.was_back)
                     .and_then(Mirror::anchor);
+                let from = self
+                    .mirror
+                    .as_ref()
+                    .filter(|m| m.attach == n)
+                    .map(|m| format!("{}x{}", m.term.cols(), m.term.rows()));
                 match Mirror::from_replay(cols, rows, &replay, &decode("pending"), n) {
                     Ok(mut mirror) => {
                         if let Some(anchor) = resync_anchor {
                             self.m.jumps += 1;
-                            self.m.note(format!("mirror rebuilt by {event} while scrolled back"));
+                            let since = self.last_disturbance.map_or_else(
+                                || "no reattach or stall before it".to_string(),
+                                |(what, at)| {
+                                    format!("{} ms after the {what}", at.elapsed().as_millis())
+                                },
+                            );
+                            self.m.note(format!(
+                                "mirror rebuilt by {event} {} -> {cols}x{rows} while scrolled \
+                                 back, {since}",
+                                from.as_deref().unwrap_or("?")
+                            ));
                             mirror.restore_anchor(&anchor);
                         }
                         self.mirror = Some(mirror);
@@ -1223,6 +1242,7 @@ impl<'s, 'e> Probe<'s, 'e> {
     fn detach_and_reattach(&mut self, why: &str, gap: Duration) -> Result<(), String> {
         let before_top = self.check_mirror(false);
         let anchor = self.mirror.as_mut().and_then(Mirror::anchor);
+        self.last_disturbance = Some(("reattach", Instant::now()));
         if let Some(link) = self.bytes.take() {
             let _ = link.writer.shutdown(std::net::Shutdown::Both);
         }
@@ -1256,6 +1276,7 @@ impl<'s, 'e> Probe<'s, 'e> {
     /// client reattach, as the app does; that reattach is checked as above.
     fn stall_bytes(&mut self, period: Duration) -> Result<(), String> {
         let bytes_before = self.output_bytes;
+        self.last_disturbance = Some(("stall", Instant::now()));
         if let Some(link) = self.bytes.as_ref() {
             link.paused.store(true, Ordering::Relaxed);
         }
