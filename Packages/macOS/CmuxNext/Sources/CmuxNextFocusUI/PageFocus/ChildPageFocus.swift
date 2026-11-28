@@ -71,6 +71,20 @@ public final class ChildPageFocus {
         setFocus(next, true)
     }
 
+    /// Re-grants a page that remains the focus target after its Chromium child window lost the keys
+    /// during a click. The regular `focus` method is intentionally idempotent, but an owner-window
+    /// mouse-down can return the keys without changing the focus target.
+    public func refocus(_ next: AnyObject) {
+        guard page === next, !granting else { return }
+        guard canTakeKeys(next) else {
+            keepAsk(next)
+            return
+        }
+        granting = true
+        defer { granting = false }
+        setFocus(next, true)
+    }
+
     /// `window` (the cmux window) took the keys back while a page has focus, and no click put them
     /// there: the page's window lost them (a new tab's page moved from its provisional pane to its
     /// real one, which presents its window again). The page loses focus with no key change, so the

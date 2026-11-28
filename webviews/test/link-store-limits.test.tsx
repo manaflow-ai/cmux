@@ -6,9 +6,13 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { resetLinkStore, useSiteInfo, usePathInfo } from "../src/agent-session/acpmux/chips/linkStore";
-import { setChipHost } from "../src/agent-session/acpmux/chips/host";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { resetLinkStore, useSiteInfo, usePathInfo } = await importWithDom(
+  () => import("../src/agent-session/acpmux/chips/linkStore"),
+);
+const { setChipHost } = await importWithDom(() => import("../src/agent-session/acpmux/chips/host"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
