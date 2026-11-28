@@ -53,6 +53,7 @@ pub(super) fn session(host: &str, id: &str, state: &str) -> BookSession {
         daemon_id: format!("d-{host}"),
         harness: "claude".into(),
         state: state.into(),
+        stuck_reason: None,
         last_seen_at: 5,
         ..Default::default()
     }
