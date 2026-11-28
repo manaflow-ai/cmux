@@ -31,9 +31,16 @@ struct Arrival {
 }
 
 /// The local address each peer address's datagrams arrive at.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(super) struct ReplySource {
     arrivals: Mutex<HashMap<SocketAddr, Arrival>>,
+}
+
+impl Default for ReplySource {
+    /// Room for every peer up front, so a received datagram never allocates.
+    fn default() -> Self {
+        Self { arrivals: Mutex::new(HashMap::with_capacity(MAX_PEERS)) }
+    }
 }
 
 impl ReplySource {
