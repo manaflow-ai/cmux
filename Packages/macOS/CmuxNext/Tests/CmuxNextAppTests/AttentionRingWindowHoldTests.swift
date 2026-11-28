@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextBridge
 @testable import CmuxNextApp
 import CmuxNextBridge
 @testable import CmuxNextLayout
