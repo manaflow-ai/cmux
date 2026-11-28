@@ -2242,6 +2242,7 @@ async fn dispatch_method(
                 create_key,
                 placed_by: pick("placedBy")
                     .filter(|p| p == crate::autocloud_enroll::PLACED_BY_AUTOCLOUD),
+                priority: crate::subrouter_priority::asked_tag(meta),
             };
             let s = match &admitted {
                 Some(admitted) => {
