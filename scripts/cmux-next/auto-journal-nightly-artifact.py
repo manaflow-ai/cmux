@@ -31,6 +31,7 @@ def pick_build(xml: bytes, build: str) -> dict[str, str]:
     if not re.fullmatch(r"[0-9]{3,}", build):
         raise ValueError("build must be an explicit numbered NIGHTLY")
     matches = []
+    published = []
     for item in ET.fromstring(xml).iter("item"):
         enclosure = item.find("enclosure")
         if enclosure is None:
@@ -38,6 +39,7 @@ def pick_build(xml: bytes, build: str) -> dict[str, str]:
         version = item.findtext(SPARKLE + "version")
         if version is None:
             version = enclosure.get(SPARKLE + "version", "")
+        published.append(version.strip())
         if version.strip() != build:
             continue
         url = enclosure.get("url", "")
@@ -56,9 +58,31 @@ def pick_build(xml: bytes, build: str) -> dict[str, str]:
         if not length.isdigit() or int(length) <= 0 or not signature:
             raise ValueError("feed enclosure has no length or signature")
         matches.append({"url": url, "length": length, "signature": signature})
+    if not matches:
+        # The feed keeps only the newest publications, so an older build rolls off it and its
+        # signature with it; name what the feed holds so the dispatch can pick one of them.
+        raise ValueError(
+            f"build {build} is not in the feed (it holds {', '.join(published) or 'no builds'}); "
+            "it rolled off or was never published: dispatch again with one of those builds"
+        )
     if len(matches) != 1:
         raise ValueError("the feed must contain exactly one signed enclosure for this build")
     return matches[0]
+
+
+def newest_build(xml: bytes) -> str:
+    """The highest numbered build the feed holds: a dispatch without a build tests this one."""
+    builds = []
+    for item in ET.fromstring(xml).iter("item"):
+        enclosure = item.find("enclosure")
+        if enclosure is None:
+            continue
+        version = (item.findtext(SPARKLE + "version") or enclosure.get(SPARKLE + "version", "")).strip()
+        if re.fullmatch(r"[0-9]{3,}", version):
+            builds.append(version)
+    if not builds:
+        raise ValueError("the feed holds no numbered NIGHTLY")
+    return max(builds, key=int)
 
 
 def run(*args: str, timeout: int = 120) -> str:
@@ -118,15 +142,22 @@ def app_receipt(app: Path, build: str, source: str, repo: Path, required: str) -
     }
 
 
-def prepare(build: str, out: Path, repo: Path, required: str) -> Path:
+def prepare(build: str | None, out: Path, repo: Path, required: str, feed_file: Path | None = None) -> Path:
     if sys.platform != "darwin":
         raise ValueError("NIGHTLY extraction requires a managed fleet Mac")
     out = out.resolve()
     out.mkdir(parents=True, exist_ok=False)
     feed = out / "feed.xml"
-    run("curl", "-fsSL", "--proto", "=https", "--max-time", "60", "-A",
-        "cmux-journal-nightly-recovery/1", "-H",
-        "Cache-Control: no-cache", "-o", str(feed), FEED, timeout=70)
+    if feed_file is not None:
+        # Read at job start (auto-journey.yml), before the long full-history checkout: the
+        # feed keeps only its newest builds, so one read minutes later can miss this build.
+        feed.write_bytes(feed_file.read_bytes())
+    else:
+        run("curl", "-fsSL", "--proto", "=https", "--max-time", "60", "-A",
+            "cmux-journal-nightly-recovery/1", "-H",
+            "Cache-Control: no-cache", "-o", str(feed), FEED, timeout=70)
+    if not build:
+        build = newest_build(feed.read_bytes())
     selected = pick_build(feed.read_bytes(), build)
     dmg = out / "nightly.dmg"
     run("curl", "-fsSL", "--proto", "=https", "--max-time", "600", "-A",
@@ -163,12 +194,13 @@ def prepare(build: str, out: Path, repo: Path, required: str) -> Path:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--build", required=True)
+    parser.add_argument("--build", default="", help="numbered NIGHTLY; empty: the newest one the feed holds")
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--contains", required=True, help="merged product commit being verified")
+    parser.add_argument("--feed-file", type=Path, help=f"a copy of {FEED} read earlier in the job")
     args = parser.parse_args()
-    print(prepare(args.build, args.out, args.repo, args.contains))
+    print(prepare(args.build, args.out, args.repo, args.contains, args.feed_file))
 
 
 if __name__ == "__main__":

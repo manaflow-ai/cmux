@@ -34,6 +34,17 @@ class FeedTests(unittest.TestCase):
             with self.subTest(build=build, xml=xml), self.assertRaises(ValueError):
                 artifact.pick_build(xml, build)
 
+    def test_rolled_off_build_names_what_the_feed_holds(self):
+        with self.assertRaisesRegex(ValueError, f"4592220755202 is not in the feed .*holds {BUILD}"):
+            artifact.pick_build(self.feed(), "4592220755202")
+
+    def test_no_build_picks_the_newest_numbered_one(self):
+        older = self.feed().split(b"<channel>")[1].split(b"</channel>")[0].replace(BUILD.encode(), b"4592220755100")
+        xml = self.feed().replace(b"</channel>", older + b"</channel>")
+        self.assertEqual(artifact.newest_build(xml), BUILD)
+        with self.assertRaisesRegex(ValueError, "no numbered NIGHTLY"):
+            artifact.newest_build(b"<rss><channel></channel></rss>")
+
     def test_published_subdirectory_and_enclosure_version(self):
         url = f"https://files-next.cmux.com/nightly-next/next/cmux-nightly-next-macos-arm64-{BUILD}.dmg"
         xml = self.feed(url).replace(f"<sparkle:version>{BUILD}</sparkle:version>".encode(), b"")

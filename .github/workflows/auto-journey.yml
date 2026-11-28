@@ -26,7 +26,7 @@ on:
         default: ""
         type: string
       nightly_build:
-        description: Numbered published NEXT NIGHTLY for isolated real-Claude journal recovery (leave ref empty)
+        description: Numbered published NEXT NIGHTLY for isolated real-Claude journal recovery (leave ref empty); empty runs it on the feed's newest build
         required: false
         default: ""
         type: string
@@ -198,7 +198,9 @@ jobs:
           bun scripts/cmux-next/auto-journey.ts --backend staging --cleanup "$OUT"
 
   nightly-journal-recovery:
-    if: github.ref == 'refs/heads/feat-cmux-next' && inputs.nightly_build != ''
+    # A dispatch without `ref` runs it too, on the feed's newest build (nightly_build empty),
+    # so a plain dispatch proves recovery on what ships; the lane broker allows only that form.
+    if: github.ref == 'refs/heads/feat-cmux-next' && inputs.ref == ''
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
@@ -211,10 +213,20 @@ jobs:
           AT: ${{ inputs.ref }}
         run: |
           set -euo pipefail
-          if [ -n "$AT" ] || ! printf '%s' "$BUILD" | grep -Eqx '[0-9]{3,20}'; then
-            echo '::error::nightly_build must be a numbered publication and ref must be empty'
+          if [ -n "$AT" ] || { [ -n "$BUILD" ] && ! printf '%s' "$BUILD" | grep -Eqx '[0-9]{3,20}'; }; then
+            echo '::error::nightly_build must be empty or a numbered publication, and ref must be empty'
             exit 1
           fi
+
+      # The feed keeps only its newest builds. Read it now: the full-history checkout below
+      # takes minutes, long enough for a dispatched build to roll off before the script reads it.
+      - name: Read the feed at job start
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 --proto =https --max-time 60 -A cmux-journal-nightly-recovery/1 \
+            -H "Cache-Control: no-cache" -o "$RUNNER_TEMP/auto-journal-feed.xml" \
+            https://files-next.cmux.com/nightly-next/appcast-arm64.xml
 
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -246,6 +258,7 @@ jobs:
           set -euo pipefail
           python3 scripts/cmux-next/auto-journal-nightly-artifact.py \
             --build "$BUILD" --out "$RUNNER_TEMP/auto-journal-artifact" \
+            --feed-file "$RUNNER_TEMP/auto-journal-feed.xml" \
             --contains 96ee46878c55c81ed64316b870a01cf6e3f2c71f
 
       - name: Recover the test-owned running Claude conversation
