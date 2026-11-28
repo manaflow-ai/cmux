@@ -26,6 +26,11 @@ on:
         required: false
         default: ''
         type: string
+      submittable:
+        description: "Build feat-cmux-next's head for App Review (the builder's `submittable`: no --internal-only, gated as an internal-submission, attached to the App Store version; nothing is submitted). Skips the nightly plan."
+        required: false
+        default: false
+        type: boolean
 
 permissions: {}
 
@@ -89,10 +94,18 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           GH_FALLBACK_TOKEN: ${{ github.token }}
+          SUBMITTABLE: ${{ inputs.submittable == true }}
         run: |
           set -euo pipefail
           head="$(git rev-parse HEAD)"
           echo "head=$head" >> "$GITHUB_OUTPUT"
+          # A submittable build is asked for, not planned: the plan would answer "head already built" for a head
+          # whose nightly uploaded. Base empty: the builder finds the last upload in App Store Connect.
+          if [ "$SUBMITTABLE" = true ]; then
+            printf 'build=true\nbase=\n' >> "$GITHUB_OUTPUT"
+            echo "submittable: dispatching $head for App Review" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           # A person's dispatch skips the failure backoff (never a running build of the head).
           force=()
           [ "$GITHUB_EVENT_NAME" != workflow_dispatch ] || force=(--force)
@@ -105,11 +118,14 @@ jobs:
           GH_FALLBACK_TOKEN: ${{ steps.app-token.outputs.token }}
           HEAD_SHA: ${{ steps.plan.outputs.head }}
           BASE_SHA: ${{ steps.plan.outputs.base }}
+          SUBMITTABLE: ${{ inputs.submittable == true }}
         run: |
           set -euo pipefail
           # ios-internal-nightly.yml on rc/cnx-ios-builder: the workflow token, then the App token, waiting out a
           # spent API limit instead of losing the head; a dispatch that never gets through fails the step.
-          python3 scripts/ci/ios_internal_builder.py dispatch --sha "$HEAD_SHA" --base "$BASE_SHA"
+          extra=()
+          [ "$SUBMITTABLE" != true ] || extra=(--submittable)
+          python3 scripts/ci/ios_internal_builder.py dispatch --sha "$HEAD_SHA" --base "$BASE_SHA" "${extra[@]}"
 
   # iPhone YOLO: feat-cmux-next plus the named PRs, built by the INTERNAL builder like a nightly.
   yolo:

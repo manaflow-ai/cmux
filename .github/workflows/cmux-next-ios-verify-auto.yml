@@ -1,0 +1,205 @@
+name: cmux ios verify (auto)
+
+# `cmux ios verify` on every iOS pull request head, by itself. pr-router.yml's ios-fast-status holds `cmux/ios-fast`
+# at "Build passed; ... no proof record" until a passing ios-flows record (scripts/ci/proof_record.py) sits on the
+# head, and only a person or lane running `cmux ios verify` posted one: nothing ran it, so a head waited for someone
+# to remember (Leo, 2026-11-27: "do we have that kinda loop? ... some of those ought to be in the monorepo so it's
+# just fire and forget"). Now this workflow runs it once per head:
+#
+# request: the pull request run, no secrets, no checkout. It dispatches this file on feat-cmux-next for the PR and
+#   head (`gh workflow run`), as cmux-next-hot-verify.yml does, so what runs with tokens is the protected branch's.
+# verify: the dispatched run. It checks the PR is open, same-repo, into feat-cmux-next and still at that head; skips a
+#   head that already has a passing record; runs scripts/ci/ios_verify.py from feat-cmux-next (--no-merge-base: it
+#   never pushes) with the flows' scripts in a worktree of the head and no token in their environment
+#   (--scripts-at); the simulator steps run on the fleet at the head. The record is posted as a CI pool App
+#   (quota-goblin-N[bot], which the gate trusts; github-actions[bot] it does not), and ios_verify.py reruns
+#   `ios fast verdict status`, which reads it. A head ios_verify.py's flows do not reach exits at the plan.
+#
+# One run per head: only opened and synchronize request one (a label, an edit, ready_for_review or reopened never
+# do), a ready-to-land head is the land's and gets none, and a newer head's run cancels the older one's (the fleet
+# steps keep their own per-head keys, ios-verify-PR-HEAD12-..., so a rerun reuses them). The gate is unchanged:
+# vars.CI_IOS_VERIFY_PROOF=0 still turns the requirement off, and vars.CI_IOS_VERIFY_AUTO=0 turns this off.
+# The push on this file's own path registers it, so the first dispatch does not 404
+# (tests/test_ci_workflows_registered.py).
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    types: [opened, synchronize]
+    # A superset of cmux-next-ios/FlowSuite/flows.json's compile paths and flow paths (the Rust crates it builds
+    # through the FFI closure); ios_verify.py's own selection decides, and a head it does not reach stops at the plan.
+    paths:
+      - "cmux-next-ios/**"
+      - "Packages/**"
+      - "cmux-tui/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "scripts/ci/cmux-next-ios-sim.sh"
+      - "!**/*.md"
+  push:
+    branches: [feat-cmux-next]
+    paths: [.github/workflows/cmux-next-ios-verify-auto.yml]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: The pull request number
+        required: true
+        type: string
+      sha:
+        description: Its head commit, the full 40-character id
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  request:
+    name: request cmux ios verify
+    if: ${{ github.event_name == 'pull_request' && github.repository == 'manaflow-ai/cmux' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_EVAL_STEP_GATEWAY != '' && format('{0}', vars.CI_IOS_VERIFY_AUTO) != '0' && format('{0}', vars.CI_IOS_VERIFY_PROOF) != '0' }}
+    runs-on: cmux-linux
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    concurrency:
+      group: cmux-ios-verify-auto-request-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - name: Dispatch the verify run on feat-cmux-next
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -uo pipefail
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::bad head $SHA"; exit 1; }
+          for try in 1 2 3; do
+            if gh workflow run cmux-next-ios-verify-auto.yml --repo "$REPO" --ref feat-cmux-next -f pr="$PR" -f sha="$SHA"; then
+              echo "### cmux ios verify requested for #$PR at ${SHA:0:12}" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep $((try * 10))
+          done
+          echo "::warning title=cmux ios verify (auto)::dispatch refused 3 times; run \`cmux ios verify --pr $PR\` by hand"
+
+  verify:
+    name: cmux ios verify
+    if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && vars.CI_EVAL_STEP_GATEWAY != '' && format('{0}', vars.CI_IOS_VERIFY_AUTO) != '0' }}
+    runs-on: cmux-linux
+    # Two simulator shards in parallel (their own bounds in ios_verify.py), plus queue time for a simulator worker.
+    timeout-minutes: 150
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+    concurrency:
+      group: cmux-ios-verify-auto-verify-${{ inputs.pr }}
+      cancel-in-progress: true
+    steps:
+      - name: Check the pull request
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ inputs.pr }}
+          SHA: ${{ inputs.sha }}
+        run: |
+          set -uo pipefail
+          [[ "$PR" =~ ^[0-9]+$ && "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::bad input pr=$PR sha=$SHA"; exit 1; }
+          read -r state head base from labels < <(gh api "repos/$REPO/pulls/$PR" --jq \
+            '[.state, .head.sha, .base.ref, .head.repo.full_name, ([.labels[].name] | join(","))] | @tsv') || {
+            echo "::error::pull request #$PR not read"; exit 1; }
+          why=""
+          [[ "$state" == open ]] || why="#$PR is $state"
+          [[ -z "$why" && "$head" != "$SHA" ]] && why="#$PR moved to ${head:0:12}; that head has its own run"
+          [[ -z "$why" && "$base" != feat-cmux-next ]] && why="#$PR is into $base"
+          [[ -z "$why" && "$from" != "$REPO" ]] && why="#$PR is from a fork"
+          [[ -z "$why" && ",${labels:-}," == *,ready-to-land,* ]] && why="#$PR is landing"
+          if [[ -n "$why" ]]; then
+            echo "skip: $why" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        if: ${{ steps.resolve.outputs.go == 'true' }}
+        with:
+          ref: ${{ github.sha }}
+          # ios_verify.py diffs merge-base...head (git diff --name-only reads trees, not blobs).
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+      - name: Mint the CI pool's tokens
+        if: ${{ steps.resolve.outputs.go == 'true' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
+          CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
+          CI_POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+          CI_POOL_PERMISSIONS: '{"contents":"read","actions":"write"}'
+        run: python3 scripts/ci/ci_pool_tokens.py
+      - name: Skip a head that already has a passing record
+        id: proved
+        if: ${{ steps.resolve.outputs.go == 'true' }}
+        env:
+          REPO: ${{ github.repository }}
+          PR: ${{ inputs.pr }}
+          SHA: ${{ inputs.sha }}
+          GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN || github.token }}
+          TOKENS: ${{ env.CI_POOL_GH_TOKEN_SPARES }} ${{ github.token }}
+        run: |
+          set -uo pipefail
+          if [[ -z "${CI_POOL_GH_TOKEN:-}" ]]; then
+            echo "::warning title=cmux ios verify (auto)::no pool App token: a record from github-actions[bot] is not trusted by cmux/ios-fast; not run"
+            echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          gated=$(python3 -I scripts/ci/proof_record.py gate --suite ios-flows) || gated="error"
+          IFS=$'\t' read -r pstate pdesc <<< "$gated"
+          if [[ "$pstate" == success ]]; then
+            echo "skip: ${SHA:0:12} already has a passing ios-flows record ($pdesc)" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Fetch the head into a worktree of its own
+        if: ${{ steps.proved.outputs.go == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          # The token goes on this one fetch's command line, never into .git/config: the head's scripts run in a
+          # worktree that shares it.
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git -c "http.https://github.com/.extraheader=$auth" fetch -q --filter=blob:none origin "$SHA"
+          git -c "http.https://github.com/.extraheader=$auth" worktree add -q --detach "$RUNNER_TEMP/ios-verify-head" "$SHA"
+      - uses: ./.github/actions/fleet-client
+        if: ${{ steps.proved.outputs.go == 'true' }}
+        with:
+          controller: ${{ vars.CMUX_FLEET_CONTROLLER }}
+      - name: Run cmux ios verify and post the record
+        if: ${{ steps.proved.outputs.go == 'true' }}
+        env:
+          REPO: ${{ github.repository }}
+          PR: ${{ inputs.pr }}
+          SHA: ${{ inputs.sha }}
+          GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN }}
+          GH_BUDGET_WAIT_MAX_SECONDS: 120
+        run: |
+          set -uo pipefail
+          # ios_verify.py calls `cmux-ci` by name: the checked client from the controller.
+          bin="$RUNNER_TEMP/ios-verify-bin"
+          mkdir -p "$bin"
+          ln -sf "${CMUX_CI_CLIENT:?no fleet client}" "$bin/cmux-ci"
+          export PATH="$bin:$PATH"
+          rc=0
+          python3 -I scripts/ci/ios_verify.py --pr "$PR" --repo "$REPO" --no-merge-base \
+            --scripts-at "$RUNNER_TEMP/ios-verify-head" --out "$RUNNER_TEMP/ios-verify-record.json" || rc=$?
+          # Exit 1 is a failing record, which is posted: the gate then says why. Anything else posted nothing.
+          if [[ -s "$RUNNER_TEMP/ios-verify-record.json" ]]; then
+            python3 -I -c 'import json, sys; r = json.load(open(sys.argv[1])); print(f"### cmux ios verify #{r[\"pr\"]} at {r[\"head_sha\"][:12]}: {r[\"verdict\"]}")' \
+              "$RUNNER_TEMP/ios-verify-record.json" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          [[ "$rc" -le 1 ]] || { echo "::error title=cmux ios verify (auto)::ios_verify.py exited $rc"; exit "$rc"; }
+          [[ "$rc" == 0 && ! -s "$RUNNER_TEMP/ios-verify-record.json" ]] && echo "not iOS-affecting at the plan: no record needed" >> "$GITHUB_STEP_SUMMARY"
+          exit 0
