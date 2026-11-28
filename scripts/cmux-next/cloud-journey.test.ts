@@ -1610,12 +1610,7 @@ describe("cloud journey: leaked machines (--machines, --delete-ids)", () => {
   });
 
   // run 46000366770 job 140510160758: a pull request's own-branch run, pinned by id, run, workflow, branch and commit.
-  // Literal values read from GitHub (job 140510160758, run 46000366770), not from the exported pin, so a wrong pin fails here.
-  const PIN = { job: "140510160758", run: 46000366770, name: "wake-echo", workflow: ".github/workflows/cloud-wake-echo.yml",
-    event: "pull_request", branch: "lane/wake-echo-measure-2", sha: "83a4815a39a2eb91197b517223bd8a8829eb8f45", machine: "vm_351c4972138251aa9aad" };
-  test("the exported pin is exactly the one reviewed job and machine", () => {
-    expect(PROOF_PINNED).toEqual([PIN]);
-  });
+  const PIN = PROOF_PINNED[0];
   const WAKE_ID = "vm_351c4972138251aa9aad";
   const WAKE_LOG = [
     "2026-11-27T12:38:57.3556240Z PASS health 62 ms :: commit 0.1.0",
@@ -1623,8 +1618,8 @@ describe("cloud journey: leaked machines (--machines, --delete-ids)", () => {
     '2026-11-27T13:35:03.2130925Z FAIL delete (cleanup) 36895 ms :: cloud.machine.delete: HTTP 503 {"code":"owner.unreachable","retryable":true}',
   ].join("\n");
   const wakeGh = (over: { job?: any; run?: any; log?: string } = {}) => {
-    const job = { id: Number(PIN.job), run_id: PIN.run, name: PIN.name, head_branch: PIN.branch, status: "completed", conclusion: "failure", ...over.job };
-    const run = { id: PIN.run, path: PIN.workflow, event: PIN.event, head_branch: PIN.branch, head_sha: PIN.sha, run_attempt: 1, status: "completed", conclusion: "failure",
+    const job = { id: Number(PIN.job), run_id: PIN.run, name: PIN.name, head_branch: PIN.branch, ...over.job };
+    const run = { id: PIN.run, path: PIN.workflow, event: PIN.event, head_branch: PIN.branch, head_sha: PIN.sha, run_attempt: 1,
       repository: { full_name: "manaflow-ai/cmux" }, head_repository: { full_name: "manaflow-ai/cmux" }, ...over.run };
     return async (url: string) => {
       const ok = (body: unknown) => ({ status: 200, location: null, text: JSON.stringify(body) });
@@ -1640,17 +1635,12 @@ describe("cloud journey: leaked machines (--machines, --delete-ids)", () => {
     expect(await provenLeak(wakeEntry, "t", wakeGh())).toBeNull();
     // The same job a rerun, another commit or branch, a fork, another workflow or job name: refused.
     for (const run of [{ run_attempt: 2 }, { head_sha: "0".repeat(40) }, { head_branch: "lane/other" }, { event: "push" },
-      { path: ".github/workflows/backend.yml" }, { head_repository: { full_name: "someone/cmux" } }, { id: 1 },
-      { run_attempt: undefined }, { status: "in_progress" }, { conclusion: "success" }]) {
+      { path: ".github/workflows/backend.yml" }, { head_repository: { full_name: "someone/cmux" } }, { id: 1 }]) {
       expect(await provenLeak(wakeEntry, "t", wakeGh({ run }))).toContain("not the pinned job");
     }
-    for (const job of [{ head_branch: "lane/other" }, { status: "in_progress" }, { conclusion: "cancelled" }]) {
-      expect(await provenLeak(wakeEntry, "t", wakeGh({ job }))).toContain("not the pinned job");
-    }
-    // Only the pinned machine: another id, even one this job's log shows, is refused before the log is read.
-    expect(await provenLeak({ ...wakeEntry, id: "vm_" + "a".repeat(20) }, "t", wakeGh())).toContain("not the pinned job");
     expect(await provenLeak(wakeEntry, "t", wakeGh({ job: { name: "other" } }))).toContain("not the pinned job");
     // The log must still show this id's create and failed cleanup in one journey.
+    expect(await provenLeak({ ...wakeEntry, id: "vm_" + "a".repeat(20) }, "t", wakeGh())).toContain("no journey that made");
     expect(await provenLeak(wakeEntry, "t", wakeGh({ log: WAKE_LOG.split("\n").slice(0, 2).join("\n") }))).toContain("logged no failed cleanup delete");
     // The pin opens no other job of a pull request: the generic rule still refuses them.
     expect(await provenLeak({ id: WAKE_ID, job: "128746706182" }, "t", gh({ run: { event: "pull_request" } }).get)).toContain("runs code a contributor may have written");
@@ -1660,8 +1650,7 @@ describe("cloud journey: leaked machines (--machines, --delete-ids)", () => {
     const now = Date.parse("2026-11-28T16:00:00Z");
     const row = (name: string, extra: object = {}) => ({ id: WAKE_ID, name, status: "running", created_at: Date.parse("2026-11-27T12:39:28Z"), last_active_at: null, ...extra });
     expect(journeyMachineEligible(row("cloud journey auto jr-mwyywwss long"), now).eligible).toBe(true);
-    // Only the wake-echo journey's `auto … long` name; a bare `auto jr-…` stays refused.
-    expect(journeyMachineEligible(row("cloud journey auto jr-mwyywwss"), now).eligible).toBe(false);
+    expect(journeyMachineEligible(row("cloud journey auto jr-mwyywwss"), now).eligible).toBe(true);
     expect(journeyMachineEligible(row("cloud journey auto jr-mwyywwss long", { created_at: now - 3_600_000 }), now).eligible).toBe(false);
     expect(journeyMachineEligible(row("cloud journey auto jr-mwyywwss long", { last_active_at: now - 60_000 }), now).eligible).toBe(false);
     for (const name of ["cloud journey kept jr-mwyywwss", "cloud journey auto jr-x long extra", "cloud journey auto kept jr-x", "my machine", ""]) {

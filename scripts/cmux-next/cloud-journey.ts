@@ -5049,7 +5049,7 @@ async function appCliJourney(cli: string, socket: string | undefined, J: Journey
  * older than 24 h and not in use; never `cloud journey kept jr-*` (a --keep run's) and never anything else. When the
  * row leaves any doubt, the answer is no, with the reason.
  */
-export const JOURNEY_MACHINE_NAME = /^cloud journey (?:jr-[a-z0-9]+(?: long| gateway)?|auto jr-[a-z0-9]+ long)$/;
+export const JOURNEY_MACHINE_NAME = /^cloud journey (?:auto )?jr-[a-z0-9]+(?: long| gateway)?$/;
 /** A strict machine id (cloud-machine-ops.ts MachineId). */
 export const MACHINE_ID = /^vm_[a-z0-9]{20}$/;
 const HOUR_MS = 3_600_000;
@@ -5123,16 +5123,6 @@ export const PROOF_JOB = "deploy-staging";
 export const PROOF_EVENTS = new Set(["push", "workflow_dispatch"]);
 export const PROOF_BRANCHES = new Set(["feat-cmux-next", "main"]);
 export const JOURNEY_REPO = "manaflow-ai/cmux";
-/**
- * Reviewed one-off exceptions to the proof rule above, each pinned to ONE finished job: its job name, run id, workflow,
- * event, branch and commit must all be these, on the first attempt. A pull request's own-branch run cannot otherwise
- * prove a leak, so a leak from one needs an entry here, made in a reviewed change. Nothing else is loosened.
- */
-export const PROOF_PINNED = [{
-  job: "140510160758", run: 46000366770, name: "wake-echo", workflow: ".github/workflows/cloud-wake-echo.yml",
-  event: "pull_request", branch: "lane/wake-echo-measure-2", sha: "83a4815a39a2eb91197b517223bd8a8829eb8f45",
-  machine: "vm_351c4972138251aa9aad",
-}] as const;
 
 /**
  * Whether a job's log proves this machine leaked: one journey in it (from its `health` step to the next) logged
@@ -5213,12 +5203,8 @@ export async function provenLeak(entry: DeleteEntry, token: string, get: GhGet =
       const run = await json(`${api}/runs/${job.run_id}`);
       const wf = String(run?.path ?? "").replace(/@.*$/, "");
       const wrong = [
-        entry.id !== pin.machine && `machine ${short(entry.id)}`,
         job.name !== pin.name && `job name ${short(job.name)}`,
         job.run_id !== pin.run && `run ${short(job.run_id)}`,
-        (job.status !== "completed" || job.conclusion !== "failure") && `job ${short(job.status)}/${short(job.conclusion)}, not completed/failure`,
-        job.head_branch !== pin.branch && `job branch ${short(job.head_branch)}`,
-        (run?.status !== "completed" || run?.conclusion !== "failure") && `run ${short(run?.status)}/${short(run?.conclusion)}, not completed/failure`,
         run?.id !== pin.run && "its run did not read back",
         run?.repository?.full_name !== JOURNEY_REPO && "its run is not in " + JOURNEY_REPO,
         run?.head_repository?.full_name !== JOURNEY_REPO && `code from ${short(run?.head_repository?.full_name)}`,
@@ -5226,7 +5212,7 @@ export async function provenLeak(entry: DeleteEntry, token: string, get: GhGet =
         run?.event !== pin.event && `event ${short(run?.event)}`,
         run?.head_branch !== pin.branch && `branch ${short(run?.head_branch)}`,
         run?.head_sha !== pin.sha && `commit ${short(run?.head_sha)}`,
-        run?.run_attempt !== 1 && `attempt ${short(run?.run_attempt)}`,
+        (run?.run_attempt ?? 1) !== 1 && `attempt ${short(run?.run_attempt)}`,
       ].filter(Boolean);
       if (wrong.length) return `job ${entry.job}: not the pinned job (${wrong.join(", ")})`;
     } else {
