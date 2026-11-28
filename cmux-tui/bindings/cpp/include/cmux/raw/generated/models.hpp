@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "22a108f69c37a55a77ce160d68e7b239f9b04fd55fb045f8dc4418c38286d797";
+inline constexpr std::string_view kProtocolIrSha256 = "7df57cce4f9e96c3daad0cc0e808f1ec0d7199a7f17efe43676557e7b2a6694c";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -51,6 +51,10 @@ enum class CloseReason;
 struct CloseTerminalResult;
 struct CloudConversationPresenceParticipant;
 struct ColorHex;
+struct ColumnDock;
+enum class ColumnDockEdge;
+enum class ColumnDockMode;
+enum class ColumnDockRole;
 enum class ColumnMoveDirection;
 struct ColumnPin;
 enum class ColumnSide;
@@ -2173,6 +2177,33 @@ struct ColorsChangedEvent {
     friend bool operator==(const ColorsChangedEvent&, const ColorsChangedEvent&) = default;
 };
 
+enum class ColumnDockEdge {
+    left,
+    right,
+    top,
+    bottom,
+};
+
+enum class ColumnDockMode {
+    docked,
+    overlay,
+};
+
+enum class ColumnDockRole {
+    agent_chat,
+};
+
+struct ColumnDock {
+    std::optional<bool> allow_tabs{};
+    ColumnDockEdge edge{};
+    ColumnDockMode mode{};
+    std::optional<bool> permanent{};
+    std::optional<bool> pinned{};
+    std::optional<ColumnDockRole> role{};
+    Json::Object additional_properties{};
+    friend bool operator==(const ColumnDock&, const ColumnDock&) = default;
+};
+
 enum class ColumnMoveDirection {
     left,
     right,
@@ -3769,7 +3800,7 @@ struct LayoutRowNode {
 };
 
 struct LayoutColumnNode {
-    std::optional<JsonValue> dock{};
+    std::optional<ColumnDock> dock{};
     Id id{};
     Layout layout{};
     std::optional<std::vector<LayoutRowNode>> rows{};
@@ -7263,6 +7294,30 @@ template <>
 struct Codec<ColorHex> {
     static Result<Json> encode(const ColorHex& value);
     static Result<ColorHex> decode(const Json& value);
+};
+
+template <>
+struct Codec<ColumnDock> {
+    static Result<Json> encode(const ColumnDock& value);
+    static Result<ColumnDock> decode(const Json& value);
+};
+
+template <>
+struct Codec<ColumnDockEdge> {
+    static Result<Json> encode(const ColumnDockEdge& value);
+    static Result<ColumnDockEdge> decode(const Json& value);
+};
+
+template <>
+struct Codec<ColumnDockMode> {
+    static Result<Json> encode(const ColumnDockMode& value);
+    static Result<ColumnDockMode> decode(const Json& value);
+};
+
+template <>
+struct Codec<ColumnDockRole> {
+    static Result<Json> encode(const ColumnDockRole& value);
+    static Result<ColumnDockRole> decode(const Json& value);
 };
 
 template <>

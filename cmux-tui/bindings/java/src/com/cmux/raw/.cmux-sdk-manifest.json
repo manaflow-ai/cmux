@@ -781,6 +781,26 @@
       "size": 8564
     },
     {
+      "path": "ColumnDock.java",
+      "sha256": "e811486b1da1c66a6e767cd45c45fb1ed5fede6ab615c1cee63d71b2913e0c57",
+      "size": 6453
+    },
+    {
+      "path": "ColumnDockEdge.java",
+      "sha256": "d77d92d765e269e8b0bd19e0c293a1256128405c339a6628794fcff59292a50a",
+      "size": 926
+    },
+    {
+      "path": "ColumnDockMode.java",
+      "sha256": "72ace5fd65a1a6ac5de1cb3679a20fb518f7f2a00acf15cf04c5ef8dd4e75e07",
+      "size": 896
+    },
+    {
+      "path": "ColumnDockRole.java",
+      "sha256": "d73750bc3fd7f54cd5e426f4ff065063ceb902c3bcd02c33ca2d88e4279c84b6",
+      "size": 880
+    },
+    {
       "path": "ColumnMoveDirection.java",
       "sha256": "178a47739f57e6fc29537961ff6e3b9033465595b3d6ce9e1e8572668a4f66dc",
       "size": 913
@@ -1777,8 +1797,8 @@
     },
     {
       "path": "LayoutColumnNode.java",
-      "sha256": "ce81501e698a5acef9b124d5e3bb42db2493c8ee3190abcd8b8b49f48eddd22e",
-      "size": 4543
+      "sha256": "c8e874ae85976cee06b4eedff0d19aec8fa1bf01bab815c26fcb29fa59989311",
+      "size": 4470
     },
     {
       "path": "LayoutLeaf.java",
@@ -2352,7 +2372,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "232d1eb30827ce02641471f29d60daaf913d0881c0986d271e29db6217e49557",
+      "sha256": "12f043010dd31a0a561fd6149ed7eeaf2f9033cf7bef337a9d5387415d56b193",
       "size": 8753
     },
     {
@@ -3947,7 +3967,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "22a108f69c37a55a77ce160d68e7b239f9b04fd55fb045f8dc4418c38286d797",
+  "ir_sha256": "7df57cce4f9e96c3daad0cc0e808f1ec0d7199a7f17efe43676557e7b2a6694c",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2
