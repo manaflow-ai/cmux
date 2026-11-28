@@ -2200,6 +2200,17 @@ export interface ReattachViewRequest extends CmuxRequestBase {
   "surface": T.Id;
 }
 
+/** Protocol v12; authority: control. */
+export interface RecordNotificationDeliveryRequest extends CmuxRequestBase {
+  cmd: "record-notification-delivery";
+  /** shown or suppressed. */
+  "desktop": string;
+  "notification": bigint;
+  /** Why: viewed, typing, muted, quiet-hours, desktop-never, app-active, poster-no-banner, permission-denied, incognito, digest. */
+  "reason"?: (string) | null;
+}
+export type RecordNotificationDeliveryResult = T.JsonValue;
+
 /** Protocol v10; authority: local-admin. */
 export interface RegisterBrowserProviderRequest extends CmuxRequestBase {
   cmd: "register-browser-provider";
@@ -3427,6 +3438,7 @@ export type CmuxRequest =
   | ReadScreenRequest
   | ReadScrollbackRequest
   | ReattachViewRequest
+  | RecordNotificationDeliveryRequest
   | RegisterBrowserProviderRequest
   | ReleaseAttachedViewSizeRequest
   | ReleaseSurfaceSizeRequest
@@ -5193,6 +5205,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "sizing-view-detach-v1";
+    stream: null;
+  };
+  "record-notification-delivery": {
+    request: RecordNotificationDeliveryRequest;
+    result: RecordNotificationDeliveryResult;
+    authority: "control";
+    since: 12;
+    capability: "notification-ack-v1";
     stream: null;
   };
   "register-browser-provider": {

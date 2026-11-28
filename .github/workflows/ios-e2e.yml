@@ -535,6 +535,31 @@ jobs:
           echo "CMUX_E2E_SIM_UDID=$udid" >> "$GITHUB_ENV"
           echo "simulator: $udid ($devtype, $runtime)"
 
+      # The app bundles the cmux-tui built from its own tree, which only
+      # cmux-tui-artifacts.yml publishes, and only once per coalesced window on a
+      # busy feat-cmux-next: run 46180311876 waited for tree c380fa48 of
+      # deea1f8e, which no run would publish, and failed. When HEAD's tree is not
+      # published, bundle the newest published tree within 24 h whose
+      # daemon-capabilities.json is HEAD's, as nightly.yml and reload-build.yml
+      # do (older-tree-for-tip.sh; Leo, 2026-11-26: "cant we just accept the
+      # nightly using an older tui version"). No such tree: reload.sh waits for
+      # HEAD's own, as before.
+      - name: Pick the cmux-tui tree to bundle
+        run: |
+          set -euo pipefail
+          older_rc=0
+          older="$(bash scripts/cmux-next/older-tree-for-tip.sh)" || older_rc=$?
+          case "$older_rc" in
+            0)
+              key="$(sed -n 's/^key=//p' <<<"$older")"
+              [[ "$key" =~ ^[0-9a-f]{40}$ ]] || { echo "::error title=cmux-tui tree::older-tree-for-tip.sh printed no key"; exit 1; }
+              echo "::warning title=cmux-tui tree fallback::HEAD's cmux-tui tree is not published; bundling tree $key ($(sed -n 's/^tree_from=//p' <<<"$older")), as the nightly does"
+              echo "CMUX_TUI_TREE_KEY=$key" >> "$GITHUB_ENV"
+              ;;
+            3) echo "HEAD's own cmux-tui tree is published" ;;
+            *) echo "::warning title=cmux-tui tree::no published tree within 24 h with HEAD's daemon-capabilities.json (exit $older_rc); waiting for HEAD's own" ;;
+          esac
+
       - name: Build and launch Mac app
         run: |
           set -euo pipefail

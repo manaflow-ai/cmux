@@ -78,10 +78,15 @@ WILDCARD = re.compile(r"[*?\[]")
 def literal_prefix(glob: str) -> str:
     """The leading folders with no wildcard: the bucket a glob is filed under. A glob with no wildcard is its own
     bucket (an exact path, or a folder: `a/b` also covers everything under it, as the coverage map writes paths)."""
-    m = WILDCARD.search(glob)
-    if m is None:
+    # Three str.find calls, not WILDCARD.search: the index files every glob of the scaled map (28k at 10x).
+    first = len(glob)
+    for ch in "*?[":
+        i = glob.find(ch, 0, first)
+        if i != -1:
+            first = i
+    if first == len(glob):
         return glob
-    cut = glob.rfind("/", 0, m.start())
+    cut = glob.rfind("/", 0, first)
     return glob[:cut] if cut != -1 else ""
 
 
@@ -91,6 +96,45 @@ def pattern_of(glob: str) -> str:
     if any(ch in glob for ch in "*?["):
         return glob_regex(glob)
     return re.escape(glob.rstrip("/")) + r"(?:/.*)?\Z"
+
+
+class Under:
+    """pattern_of for a glob with no wildcard, with no regex: the path itself or anything under it. The index's
+    matcher for the map's bare paths (a quarter of its globs); Scan keeps the regex, so the property test checks
+    the two agree."""
+
+    __slots__ = ("path", "folder")
+
+    def __init__(self, glob: str):
+        self.path = glob.rstrip("/")
+        self.folder = self.path + "/"
+
+    def match(self, path: str) -> bool:
+        return path == self.path or path.startswith(self.folder)
+
+
+def literal_suffix(glob: str) -> str:
+    """The literal text after a glob's last wildcard: a path that does not end in it cannot match, so a string
+    compare skips the regex. The map's root globs (`**/*.swift`, `**/Cargo.toml`) are tried on every path."""
+    m = None
+    for m in WILDCARD.finditer(glob):
+        pass
+    if m is None or glob[m.start()] == "[":
+        return ""
+    # `**/` may match nothing (`**/Cargo.toml` takes a root `Cargo.toml`), so the slash after it is not required.
+    return glob[m.end():].lstrip("/")
+
+
+_MATCHERS: dict[str, "Under | re.Pattern[str]"] = {}
+
+
+def matcher(glob: str) -> "Under | re.Pattern[str]":
+    """The compiled pattern_of(glob), once per glob string for the process: re's own cache holds 512 patterns,
+    fewer than the map's globs, so a lookup past it compiles again."""
+    got = _MATCHERS.get(glob)
+    if got is None:
+        got = _MATCHERS[glob] = re.compile(pattern_of(glob)) if WILDCARD.search(glob) else Under(glob)
+    return got
 
 
 @dataclass
@@ -106,14 +150,22 @@ class Rule:
     run: tuple[str, ...] = ()
     budget_s: float | None = None
     situations: tuple[str, ...] = ()
+    # Count budgets (`checks`): commands whose exit status is the verdict. A count does not move with host load, so
+    # unlike `run` a failing check is red, not fail open; only a missing tool (exit 127) warns.
+    checks: tuple[str, ...] = ()
+    # Who owns a red that is not a path: the NOW probe rows (`probes`), cmuxterm-hq goals (`goals`) and nightly.yml
+    # jobs or failure classes (`nightly`) this area answers for. `cmux-bench area-for NAME` reads them back.
+    probes: tuple[str, ...] = ()
+    goals: tuple[str, ...] = ()
+    nightly: tuple[str, ...] = ()
     generated: bool = False
-    ignore: tuple[tuple[bool, str], ...] = ()
+    ignore: tuple[tuple[bool, re.Pattern[str]], ...] = ()
     raw: dict = field(default_factory=dict)
 
     def ignores(self, path: str) -> bool:
         """ci/steps.toml `ignore`: the last glob that matches decides; a `!glob` takes the path back."""
         for negate, pattern in self.ignore:
-            if re.match(pattern, path):
+            if pattern.match(path):
                 return not negate
         return False
 
@@ -147,7 +199,7 @@ def parse_steps(text: str, start: int = 0) -> list[Rule]:
         inputs = tuple(g for g in step.get("inputs", ()) if not g.startswith("!"))
         if not inputs or CATCH_ALL & set(inputs):
             continue
-        ignore = tuple((g.startswith("!"), glob_regex(g.lstrip("!"))) for g in reversed(step.get("ignore", ())))
+        ignore = tuple((g.startswith("!"), re.compile(glob_regex(g.lstrip("!")))) for g in reversed(step.get("ignore", ())))
         rules.append(Rule(kind="step", name=name, globs=inputs, order=start + len(rules),
                           tests=(f"ci/run --step {name}",), budget=step.get("title", ""), ignore=ignore, raw=step))
     return rules
@@ -171,7 +223,13 @@ def parse(text: str) -> list[Rule]:
             if budget_s is not None and (isinstance(budget_s, bool) or not isinstance(budget_s, (int, float))
                                          or budget_s <= 0):
                 raise MapError(f"relevance map: [[{kind}]] {name}: `budget_s` is a positive number ({budget_s!r})")
-            rules.append(Rule(kind=kind, name=name, globs=tuple(globs), order=len(rules),
+            lists = {}
+            for key in ("checks", "probes", "goals", "nightly"):
+                v = entry.get(key, [])
+                if not isinstance(v, list) or not all(isinstance(c, str) and c.strip() for c in v):
+                    raise MapError(f"relevance map: [[{kind}]] {name}: `{key}` is a list of non-empty strings ({v!r})")
+                lists[key] = tuple(v)
+            rules.append(Rule(kind=kind, name=name, globs=tuple(globs), order=len(rules), **lists,
                               run=tuple(run), budget_s=float(budget_s) if budget_s is not None else None,
                               benches=tuple(entry.get("benches", ())), tests=tuple(entry.get("tests", ())),
                               template=entry.get("template", ""), budget=entry.get("budget", ""),
@@ -185,7 +243,7 @@ class Index:
     def __init__(self, rules: list[Rule]):
         self.rules = rules
         self.buckets: dict[str, list[tuple[Rule, str, int]]] = {}
-        self._compiled: dict[str, list[tuple[Rule, re.Pattern[str], int]]] = {}
+        self._compiled: dict[str, list[tuple[Rule, Under | re.Pattern[str], int, str]]] = {}
         # Counted work, for the flat-at-10x test (a count, not a clock, so a loaded host cannot fail it):
         # `probes` is glob patterns tried by match(); `compiles` is globs compiled into a bucket.
         self.probes = 0
@@ -203,10 +261,10 @@ class Index:
             if rule.kind == "situation":
                 self.situation_by_name.setdefault(rule.name, []).append(rule)
 
-    def _bucket(self, key: str) -> list[tuple[Rule, re.Pattern[str], int]]:
+    def _bucket(self, key: str) -> list[tuple[Rule, Under | re.Pattern[str], int, str]]:
         got = self._compiled.get(key)
         if got is None:
-            got = [(r, re.compile(pattern_of(g)), spec) for r, g, spec in self.buckets.get(key, ())]
+            got = [(r, matcher(g), spec, literal_suffix(g)) for r, g, spec in self.buckets.get(key, ())]
             self._compiled[key] = got
             self.compiles += len(got)
         return got
@@ -226,9 +284,9 @@ class Index:
         best: dict[str, tuple[int, int, Rule]] = {}
         situations: dict[str, Rule] = {}
         steps: dict[str, Rule] = {}
-        for rule, pattern, spec in self.candidates(path):
+        for rule, pattern, spec, suffix in self.candidates(path):
             self.probes += 1
-            if not pattern.match(path):
+            if not path.endswith(suffix) or not pattern.match(path):
                 continue
             if rule.kind == "situation":
                 situations.setdefault(rule.name, rule)
@@ -303,6 +361,10 @@ def _area_entry(same: list[Rule]) -> dict:
             "tests": list(dict.fromkeys(t for r in same for t in r.tests)),
             "budget": next((r.budget for r in same if r.budget), ""),
             "run": list(dict.fromkeys(c for r in same for c in r.run)),
+            "checks": list(dict.fromkeys(c for r in same for c in r.checks)),
+            "probes": list(dict.fromkeys(c for r in same for c in r.probes)),
+            "goals": list(dict.fromkeys(c for r in same for c in r.goals)),
+            "nightly": list(dict.fromkeys(c for r in same for c in r.nightly)),
             "budget_s": min(budgets) if budgets else None, "paths": []}
 
 
@@ -437,6 +499,57 @@ def run_benches(plan_: dict, timeout: float = 120, root: Path = ROOT, repeats: i
         if verdict == baselines.REGRESSED and r["status"] == OK:
             r["status"] = REGRESSED
     return results
+
+
+# ---- count budgets: a change's areas' `checks` ------------------------------------------------------------------
+
+FAILED = "failed"
+
+
+def run_checks(plan_: dict, timeout: float = 120, root: Path = ROOT) -> list[dict]:
+    """Every count check the plan's areas name, once each. FAILED (red) when the command exits non-zero: the count
+    went over its budget. A missing tool is MISSING and a timeout TIMEOUT (warnings: the runner, not the change)."""
+    cmds: dict[str, list[str]] = {}
+    for a in plan_.get("areas", []):
+        for c in a.get("checks") or []:
+            cmds.setdefault(c, []).append(a["name"])
+    out = []
+    for cmd, areas in cmds.items():
+        t = time.perf_counter()
+        try:
+            res = subprocess.run(["bash", "-c", cmd], cwd=root, capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            out.append({"cmd": cmd, "areas": areas, "status": TIMEOUT, "seconds": round(time.perf_counter() - t, 3),
+                        "detail": f"killed at the {timeout:g} s timeout"})
+            continue
+        took = round(time.perf_counter() - t, 3)
+        tail = [ln for ln in (res.stdout + res.stderr).strip().splitlines() if ln.strip()][-12:]
+        status = OK if res.returncode == 0 else MISSING if res.returncode == 127 else FAILED
+        out.append({"cmd": cmd, "areas": areas, "status": status, "seconds": took,
+                    "detail": "" if status == OK else f"exit {res.returncode}", "tail": tail if status != OK else []})
+    return out
+
+
+# ---- owners of reds that are not paths: probes, goals, nightly jobs -----------------------------------------------
+
+def area_for(rules: list[Rule], name: str) -> list[dict]:
+    """The [[area]]s that answer for NAME: a NOW probe row, a cmuxterm-hq goal slug, a nightly.yml job or failure
+    class, or a bench (a probe row an area lists among its benches). Exact names first, in that order; a nightly
+    name may also be a case-insensitive substring of NAME (a failed job "nightly-next-one / cmux-tui tree")."""
+    found: list[dict] = []
+    seen: set[str] = set()
+    low = name.lower()
+    for via in ("probes", "goals", "nightly", "benches"):
+        for r in rules:
+            if r.kind != "area" or r.name in seen:
+                continue
+            vals = getattr(r, via)
+            hit = name in vals or (via == "nightly" and any(v.lower() in low for v in vals))
+            if hit:
+                seen.add(r.name)
+                found.append({"name": name, "area": r.name, "via": {"probes": "probe", "goals": "goal", "benches": "bench"}.get(via, via),
+                              "paths": list(r.globs), "goals": list(r.goals), "probes": list(r.probes)})
+    return found
 
 
 def scaled(rules: list[Rule], scale: int) -> list[Rule]:
@@ -674,15 +787,15 @@ def generate_units(root: Path = ROOT, files: list[str] | None = None) -> list[di
             has_tests = parts[-2] == "Tests" or (root / pkg / "Tests" / target).is_dir()
             add(f"swift:{module}", d, [f"swift test --package-path {pkg} --filter {target}"] if has_tests else [])
         # webviews/src/<folder>: its colocated tests.
-        elif len(parts) == 3 and parts[:2] == ["webviews", "src"] and (root / d).is_dir():
+        elif len(parts) == 3 and parts[:2] == ["webviews", "src"]:
             add(f"web:{parts[2]}", d, [f"bash scripts/ci/run-webviews-tests.sh src/{parts[2]}"])
         # Second-level folders of the tooling trees.
-        elif len(parts) == 2 and parts[0] in TOOLING_TREES and (root / d).is_dir():
+        elif len(parts) == 2 and parts[0] in TOOLING_TREES:
             add(f"{parts[0].lstrip('.')}:{parts[1]}", d)
         # Rust workspace roots and language bindings.
-        elif len(parts) == 2 and parts[0] == "cmux-tui" and (root / d).is_dir() and parts[1] != "crates":
+        elif len(parts) == 2 and parts[0] == "cmux-tui" and parts[1] != "crates":
             add(f"cmux-tui:{parts[1]}", d)
-        elif len(parts) == 3 and parts[:2] == ["cmux-tui", "bindings"] and (root / d).is_dir():
+        elif len(parts) == 3 and parts[:2] == ["cmux-tui", "bindings"]:
             add(f"binding:{parts[2]}", d)
         # Package roots: a folder with its own manifest owns everything under it that no narrower unit takes
         # (Package.swift, Package.resolved, CEFShim/, Plugins/, Demo/, go.mod, ...), so a manifest or resources
@@ -705,6 +818,22 @@ def generate_units(root: Path = ROOT, files: list[str] | None = None) -> list[di
         if any(f.startswith(tree + "/") and f.count("/") == 1 for f in files) and tree != "tests":
             units.append({"name": f"{tree.lstrip('.')}:(top level)", "paths": [tree + "/*"], "tests": [],
                           "dependents": []})
+    # Every other top-level folder (cmux-next-ios/, Resources/, ios/, art/, ...): one unit per second-level folder
+    # and one for its top-level files, and one for the repo root's files, so no tracked file falls back to a
+    # default. A narrower unit (a crate, a Swift module, a package root) still wins on specificity.
+    have = {p for u in units for p in u["paths"]}
+    tops = sorted({f.split("/", 1)[0] for f in files if "/" in f})
+    for top in tops:
+        if top in TOOLING_TREES or top == "cmux-tui":
+            continue
+        name = top.lstrip(".")
+        for d in sorted(x for x in dirs if x.startswith(top + "/") and x.count("/") == 1):
+            if f"{d}/**" not in have:
+                add(f"{name}:{d.split('/', 1)[1]}", d)
+        if any(f.startswith(top + "/") and f.count("/") == 1 for f in files):
+            units.append({"name": f"{name}:(top level)", "paths": [top + "/*"], "tests": [], "dependents": []})
+    if any("/" not in f for f in files):
+        units.append({"name": "(repo root)", "paths": ["*"], "tests": [], "dependents": []})
     return units
 
 

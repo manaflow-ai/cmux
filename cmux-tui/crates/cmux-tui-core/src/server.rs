@@ -1,9 +1,9 @@
 //! Control protocol server over Unix JSON-lines and WebSocket text frames.
 //!
 //! This is the attach surface for external frontends (the cmux app, the
-//! bundled `cmux-tui attach` client, scripts). Unix uses one JSON message
-//! per line and WebSocket uses one JSON message per text frame. Two commands
-//! additionally turn the connection full-duplex:
+//! bundled `cmux-tui attach` client, scripts). Unix sends one JSON message
+//! per line, WebSocket one per text frame. Two commands make the connection
+//! full-duplex:
 //!
 //! - `subscribe` — the server pushes `{"event":...}` lines (tree-changed,
 //!   surface-output, surface-exited, title-changed, bell) interleaved
@@ -250,6 +250,8 @@ mod carrier_role;
 #[cfg(unix)]
 mod native_owner;
 mod new_screen;
+#[cfg(unix)]
+mod owner_phone;
 mod personal;
 #[cfg(unix)]
 mod phone_carrier;
@@ -2027,6 +2029,14 @@ enum Command {
         /// notices were read and how fast (`mux/agent_notice_stats.rs`).
         #[serde(default)]
         stats: bool,
+    },
+    /// The app's report of what it did with a notification's banner (shown, or
+    /// suppressed and why); `list-notifications` rows carry it as `delivery`.
+    RecordNotificationDelivery {
+        notification: u64,
+        desktop: String,
+        #[serde(default)]
+        reason: Option<String>,
     },
     /// Pin or unpin a tab placement; pinned tabs sort first in their pane.
     SetTabPinned {
