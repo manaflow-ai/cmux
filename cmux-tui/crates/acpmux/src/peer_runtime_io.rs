@@ -1183,9 +1183,16 @@ impl Peer {
                         silence_due = (left < timings.ping_every).then(|| now + left);
                     }
                     let overdue = silent >= timings.ping_every;
-                    self.with_quality(|q| q.tick(overdue));
+                    let tier_moved = self.with_quality(|q| {
+                        let before = q.tier();
+                        q.tick(overdue);
+                        q.tier() != before
+                    });
                     if overdue {
                         self.with_link(Link::overdue);
+                    } else if tier_moved {
+                        // `with_link` sends the note: a new tier is news (`quality`).
+                        self.with_link(|_| ());
                     }
                     check_wake!();
                     // Stamped, so its pong measures this path's round trip (`peer_paths.rs`).

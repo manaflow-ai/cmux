@@ -14,7 +14,7 @@
 use crate::no_panic::LockExt;
 use crate::protocol::composer_status::machine_link_item;
 use crate::protocol::peer_state::{
-    Carrier, DialFail, DownCause, MachineLink, OfflineReason, PeerStateChanged,
+    Carrier, DialFail, DownCause, LinkTier, MachineLink, OfflineReason, PeerStateChanged,
 };
 use serde_json::{Value, json};
 use std::collections::{HashMap, VecDeque};
@@ -149,11 +149,14 @@ pub struct Observed {
     /// When `link` took its value.
     pub since: u64,
     pub next_retry_at: Option<u64>,
+    /// How the open link feels (`quality`); None while it is not up or before a round trip.
+    pub quality: Option<LinkTier>,
     pub last_seen: Option<u64>,
     pub error: Option<String>,
 }
 
-/// What makes a note news: a change of any of these sends one; `since`, `lastSeen` and
+/// What makes a note news: a change of any of these sends one (a tier moves at most every few
+/// ping ticks, `peer_link_quality.rs` hysteresis, so `quality` adds no flood); `since`, `lastSeen` and
 /// `error` ride along.
 type Key = (
     MachineLink,
@@ -162,10 +165,19 @@ type Key = (
     Option<OfflineReason>,
     Option<DialFail>,
     Option<u64>,
+    Option<LinkTier>,
 );
 
 fn key(note: &PeerStateChanged) -> Key {
-    (note.link, note.carrier, note.cause, note.reason, note.down_reason, note.next_retry_at)
+    (
+        note.link,
+        note.carrier,
+        note.cause,
+        note.reason,
+        note.down_reason,
+        note.next_retry_at,
+        note.quality,
+    )
 }
 
 impl Observed {
@@ -179,13 +191,22 @@ impl Observed {
             down_reason: None,
             since: 0,
             next_retry_at: None,
+            quality: None,
             last_seen,
             error,
         }
     }
 
     fn key(&self) -> Key {
-        (self.link, self.carrier, self.cause, self.reason, self.down_reason, self.next_retry_at)
+        (
+            self.link,
+            self.carrier,
+            self.cause,
+            self.reason,
+            self.down_reason,
+            self.next_retry_at,
+            self.quality,
+        )
     }
 
     fn note(self, name: &str) -> PeerStateChanged {
@@ -205,6 +226,7 @@ impl Observed {
             // The composer dot's item for this link, decided here with the link.
             status: machine_link_item(name, self.link, Some(since), self.reason, removed),
             down_reason: self.down_reason,
+            quality: self.quality,
             last_seen: self.last_seen,
             error: self.error,
             at,

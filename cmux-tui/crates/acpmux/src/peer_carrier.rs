@@ -86,6 +86,9 @@ impl super::Peer {
             down_reason: facts.down_reason,
             since,
             next_retry_at: link.retry_at.filter(|_| !link.is_ready()),
+            // The ping bar only means something on an open link. `link` is locked here and
+            // `quality` after it, the order `_acpmux/peers` takes them in too.
+            quality: if link.is_ready() { self.with_quality(|q| q.tier()) } else { None },
             last_seen: link.last_seen,
             error,
         }
