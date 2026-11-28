@@ -525,7 +525,12 @@ import {
   pickOnlyNewChat,
 } from "./cloudRun";
 import { promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
-import { cloudStartOpenedSettled, cloudStartWaitsForFirstPage } from "./cloudStartOpened";
+import {
+  cloudChatNotShown,
+  cloudStartOpenedSettled,
+  cloudStartWaitsForFirstPage,
+  watchCloudChatShow,
+} from "./cloudStartOpened";
 import { folderRunLocation, newChatRunLocation, defaultFolderFor } from "./runLocationDefault";
 import {
   lastNewChatPlace,
@@ -4929,6 +4934,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const cloudSendHeld = cloudStarting;
   useEffect(
     () => watchCloudStartStall(cloudStart, (key) => setCloudStart((current) => cloudStartStalled(current, key))),
+    [cloudStart],
+  );
+  // An opened start whose Cloud chat has not drawn in a minute: the card names it, with Retry (ask-17e4ae3662).
+  useEffect(
+    () => watchCloudChatShow(cloudStart, (key) => setCloudStart((current) => cloudChatNotShown(current, key))),
     [cloudStart],
   );
   /// The same, for dictation's recording (below), whose callbacks are made once.

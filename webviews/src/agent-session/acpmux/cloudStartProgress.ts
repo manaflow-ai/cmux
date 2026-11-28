@@ -711,7 +711,17 @@ function hostFailureText(code: string, hostWords?: string): string | undefined {
 /// try again) retries or runs here, and anything else runs the prompt on this Mac. Empty for a start still on its way,
 /// one the host marked retryable (its own Retry), and the refusals whose card words their own way on (sign in, the
 /// plan, a cap, a folder too big).
-export type CloudStartWayOn = "retry" | "pick-folder" | "no-folder" | "new-cloud-chat" | "run-here" | "dismiss";
+export type CloudStartWayOn =
+  | "retry"
+  | "reload"
+  | "pick-folder"
+  | "no-folder"
+  | "new-cloud-chat"
+  | "run-here"
+  | "dismiss";
+/// An opened start whose Cloud chat never drew in this tab (cloudStartOpened `cloudChatNotShown`): its way on reloads
+/// the tab, which attaches the chat again; never a second start.
+export const CLOUD_CHAT_NOT_SHOWN = "cloud_chat_not_shown";
 const OWN_RECOVERY = new Set([
   "not_signed_in",
   "cloud_plan_required",
@@ -734,6 +744,7 @@ export function cloudStartWayOn(start: CloudStartProgress): readonly CloudStartW
   const code = start.code ?? "";
   if (start.state !== "failed" || start.retryable || OWN_RECOVERY.has(code)) return [];
   if (FOLDER_REFUSALS.has(code)) return ["pick-folder", "no-folder"];
+  if (code === CLOUD_CHAT_NOT_SHOWN) return ["reload", "dismiss"];
   if (code === "unavailable_now") return ["new-cloud-chat"];
   if (RETRY_REFUSALS.has(code)) return ["retry"];
   if (code === "cloud_start_failed") return ["retry", "run-here"];
