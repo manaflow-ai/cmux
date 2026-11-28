@@ -166,7 +166,7 @@ jobs:
     environment:
       name: ${{ inputs.backend == 'prod' && 'cmux-next-cloud-journey' || 'cmux-next-vm-image-dev' }}
       deployment: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-runner.outputs.label || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-runner.outputs.label || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 240
     permissions:
       contents: read

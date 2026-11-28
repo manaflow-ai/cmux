@@ -160,7 +160,9 @@ jobs:
       - name: RFD 0135 gates 2 to 4
         run: |
           set -euo pipefail
-          python3 scripts/cmux-next/rfd0135_gates.py summary "$RUNNER_TEMP"/gates/* --out "$RUNNER_TEMP/summary" || true
+          # A lone gate artifact (a PR skips move, and a gate with no JSON uploads nothing) lands flat in gates/;
+          # several land one folder each. Pass both: the root holds JSON only in the lone case, so nothing doubles.
+          python3 scripts/cmux-next/rfd0135_gates.py summary "$RUNNER_TEMP/gates" "$RUNNER_TEMP"/gates/*/ --out "$RUNNER_TEMP/summary" || true
           { echo "## RFD 0135 gates 2 to 4"; echo; cat "$RUNNER_TEMP/summary/summary.md" 2>/dev/null || echo "(no result)"; } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

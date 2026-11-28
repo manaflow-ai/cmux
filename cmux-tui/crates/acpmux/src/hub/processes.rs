@@ -312,7 +312,11 @@ impl ProcessTable {
             std::mem::take(&mut self.processes).into_iter().partition(drop);
         for process in &gone {
             self.dropped.ids.push(key(&process.id));
-            self.dropped.tools.push(key(&process.tool_call_id));
+            // A daemon task with no call has an empty one: kept out, so every later row with no
+            // call is not taken for a dropped one's (a lookup of it would read the whole history).
+            if !process.tool_call_id.is_empty() {
+                self.dropped.tools.push(key(&process.tool_call_id));
+            }
         }
         self.dropped.count += gone.len();
         self.dropped.before = self.dropped.before.max(cut);
@@ -351,12 +355,14 @@ impl ProcessTable {
             return false;
         }
         let tool = &process.tool_call_id;
+        // No call is no dropped row's call (`shrink` keys none for it).
+        let dropped_tool = |t: &str| !t.is_empty() && self.dropped.has_tool(t);
         match self.by_id.get(&process.id).and_then(|&at| self.processes.get(at)) {
             Some(slot) => {
                 slot.tool_call_id != *tool
-                    && (self.dropped.has_tool(&slot.tool_call_id) || self.dropped.has_tool(tool))
+                    && (dropped_tool(&slot.tool_call_id) || dropped_tool(tool))
             }
-            None => self.dropped.has_id(&process.id) || self.dropped.has_tool(tool),
+            None => self.dropped.has_id(&process.id) || dropped_tool(tool),
         }
     }
 
@@ -430,7 +436,17 @@ impl ProcessTable {
     /// the row already says the same, or already ended: a process ends once, so a runner that
     /// died (no end written, `lost` at the time it is read) is logged once, not at every look.
     /// The one exception: an end the runner wrote replaces a `lost`.
-    pub(super) fn daemon_upsert(&mut self, mut process: Process) -> Option<Process> {
+    #[cfg(test)]
+    pub(super) fn daemon_upsert(&mut self, process: Process) -> Option<Process> {
+        let changed = self.daemon_change(process)?;
+        self.daemon_apply(changed.clone());
+        Some(changed)
+    }
+
+    /// What [`Self::daemon_upsert`] would log for `process`, changing nothing: a publish logs it
+    /// first and applies it only once the log took it ([`Self::daemon_apply`]), so a record the
+    /// log refused never leaves the table saying what no client heard (`bg_registry.rs`).
+    pub(super) fn daemon_change(&self, mut process: Process) -> Option<Process> {
         process.daemon_task = true;
         // A row the table dropped had ended (`shrink` keeps every running one): it stays ended.
         if self.id_needs_history(&process.id) {
@@ -443,25 +459,64 @@ impl ProcessTable {
             let corrects = known.state == ProcessState::Lost
                 && process.state != ProcessState::Lost
                 && process.state != ProcessState::Running;
-            if *known == process || (known.state != ProcessState::Running && !corrects) {
+            // A daemon that knew no daemon tasks (a rollback) read the row as a harness shell and
+            // lost it with its harness: the task's own folder, which says it runs, wins.
+            let revives = known.state == ProcessState::Lost
+                && known.reason.as_deref() == Some(HARNESS_EXIT)
+                && process.state == ProcessState::Running;
+            if *known == process || (known.state != ProcessState::Running && !corrects && !revives)
+            {
                 return None;
             }
         }
         process.logged = true;
-        self.upsert(process.clone());
+        Some(process)
+    }
+
+    /// A daemon row change the log took ([`Self::daemon_change`]): in place, and the table shrunk
+    /// as a harness shell's end shrinks it.
+    pub(super) fn daemon_apply(&mut self, process: Process) {
+        self.upsert(process);
+        self.shrink(false);
+    }
+
+    /// Whether daemon task row `id` should be published from its folder: none holds it (a start a
+    /// history reload undid, a launch whose record read failed, a task from before this daemon's
+    /// rows), or a daemon that knew no daemon tasks lost it with its harness. A dropped row ended.
+    pub(super) fn daemon_row_missing(&self, id: &str) -> bool {
+        match self.find_id(id) {
+            None => !self.id_needs_history(id),
+            Some(p) => p.state == ProcessState::Lost && p.reason.as_deref() == Some(HARNESS_EXIT),
+        }
+    }
+
+    /// Daemon task row `id` moved with its chat (`server/bg_rearm.rs`): the wait runs again here
+    /// under a new task, which takes its call; this row ends, naming the move, and gives the call
+    /// up, so the chat lists the call once.
+    pub(super) fn daemon_moved_change(&self, id: &str) -> Option<Process> {
+        let mut process = self.find_id(id).filter(|p| p.daemon_task)?.clone();
+        if process.state != ProcessState::Running {
+            return None;
+        }
+        process.state = ProcessState::Killed;
+        process.ended_at = Some(now_ms());
+        process.reason = Some("moved".to_owned());
+        process.detail = Some("moved with its chat".to_owned());
+        process.tool_call_id = String::new();
+        process.logged = true;
         Some(process)
     }
 
     /// Daemon task row `id`, still `running` though its folder no longer holds the task (a
     /// purge, another generation): `lost` at `at`, for its `process_update`.
-    pub(super) fn daemon_lost(&mut self, id: &str, at: u64) -> Option<Process> {
+    pub(super) fn daemon_lost(&self, id: &str, at: u64) -> Option<Process> {
         let mut process = self.find_id(id).filter(|p| p.daemon_task)?.clone();
         if process.state != ProcessState::Running {
             return None;
         }
         process.state = ProcessState::Lost;
         process.ended_at = Some(at);
-        self.daemon_upsert(process)
+        self.daemon_change(process)
     }
 
     /// The live daemon-task rows, as `(row id, task id)`.
@@ -663,10 +718,12 @@ impl ProcessTable {
                 process.preview = slot.preview.clone();
             }
             let old_tool = std::mem::replace(slot, process).tool_call_id;
+            // Out of both sets first: a row an older daemon logged as a harness shell may come
+            // back as a daemon task (`daemon_change`), and is in the other set until then.
+            self.running.remove(&at);
+            self.daemon_running.remove(&at);
             if live {
                 self.live_set(daemon_task).insert(at);
-            } else {
-                self.live_set(daemon_task).remove(&at);
             }
             if old_tool == new_tool {
                 return;
@@ -1481,6 +1538,24 @@ impl Hub {
     /// daemon has not yet).
     pub(super) fn running_processes(&self, session: &Session) -> usize {
         self.process_table(session).running.len()
+    }
+
+    /// The session's running background processes as a move would interrupt them
+    /// (`move_interrupts.rs`): `(command, description, cwd, started_at, preview port)`.
+    pub(super) fn running_for_move(
+        &self,
+        session: &Session,
+    ) -> Vec<(String, Option<String>, String, u64, Option<u16>)> {
+        let table = self.process_table(session);
+        table
+            .running
+            .iter()
+            .filter_map(|&at| table.processes.get(at))
+            .map(|p| {
+                let port = p.preview.as_ref().map(|v| v.port);
+                (p.command.clone(), p.description.clone(), p.cwd.clone(), p.started_at, port)
+            })
+            .collect()
     }
 
     /// How many of the session's background processes run, from a table this
