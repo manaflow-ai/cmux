@@ -23,9 +23,6 @@ const { useAttachmentIntake } = await importWithDom(
   () => import("../src/agent-session/acpmux/composer/attachmentIntakeModel"),
 );
 const { intakeFiles } = await importWithDom(() => import("../src/agent-session/acpmux/composer/intakeFiles"));
-const { UPLOAD_RETRY_INPUT_WAIT_MS } = await importWithDom(
-  () => import("../src/agent-session/acpmux/composer/uploadRetry"),
-);
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
