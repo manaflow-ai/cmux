@@ -3057,6 +3057,9 @@ function TranscriptView({
                 measure();
               }
             } else flushDrawn();
+            // A synchronous placement can grow another row before its observer entry arrives.
+            // Refresh only the active glide's bounded clearance span before this frame paints.
+            tailGlide.current?.refresh(thread.current, () => ref.current?.getBoundingClientRect());
           }),
     [reportRow, discardEstimatedReports, flushDrawn, catchUpLive],
   );
@@ -4861,6 +4864,9 @@ function TranscriptView({
     // A streamed chunk that moved no row: nothing to place. Run, its reads of the scroller (`live`, the
     // pinned line's top) laid the page out again in every chunk's commit, ahead of the key typed in it.
     if (unmovedPass()) {
+      // Unchanged virtual tops do not imply unchanged DOM heights: streamed content can settle
+      // before its observer publishes a placement. Keep existing motion clear on this fast path.
+      tailGlide.current?.refresh(thread.current, () => ref.current?.getBoundingClientRect());
       acpmuxPerf.render("transcript:anchor-skipped");
       return;
     }

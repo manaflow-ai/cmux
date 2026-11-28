@@ -113,7 +113,30 @@ function started(lowerWas = 60, upperHeight = 80) {
   (lower as { offsetTop: number }).offsetTop = 120;
   const layout = placed([0, 20, 120], [20, upperHeight, 30]);
   place(layout);
-  return { upper, lower, rows, glide, layout, place };
+  return { upper, lower, rows, glide, layout, place, thread };
+}
+
+for (const mode of ["refresh", "held refresh", "pass without glide", "pass without anchor"] as const) {
+  test(`DOM-only growth updates active clearance during ${mode}`, () => {
+    const { upper, lower, rows, glide, layout, thread } = started();
+    try {
+      if (mode === "held refresh") glide.hold();
+      (upper as { offsetHeight: number }).offsetHeight = 100;
+      if (mode === "refresh" || mode === "held refresh") glide.refresh(thread);
+      else glide.place(thread, mode !== "pass without glide", undefined, true, undefined, undefined, layout);
+      expect(drawnTop(upper) + upper.offsetHeight - clipBottom(upper)).toBeLessThanOrEqual(drawnTop(lower));
+      if (mode === "held refresh") {
+        const animations = rows.flatMap((node) => node.animations.filter(active));
+        expect(animations.length).toBeGreaterThan(0);
+        expect(animations.every((animation) => animation.playState === "paused")).toBe(true);
+      }
+      glide.stop();
+      glide.refresh(thread);
+      expect(rows.flatMap((node) => node.animations.filter(active))).toHaveLength(0);
+    } finally {
+      glide.stop();
+    }
+  });
 }
 
 for (const stage of [

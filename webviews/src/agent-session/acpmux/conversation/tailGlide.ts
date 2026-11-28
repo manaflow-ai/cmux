@@ -182,6 +182,9 @@ export type TailGlide = {
     placed?: PlacedRows,
     view?: () => DOMRect | undefined,
   ): void;
+  /// Refresh the existing glide's clearance after DOM content changes without new placement.
+  /// Reads only the span already guarding that glide; never starts motion on an idle transcript.
+  refresh(thread: HTMLElement | null, view?: () => DOMRect | undefined): void;
   /// Ends what plays, the rows drawn at their places, and forgets where they were.
   stop(): void;
   /// The reader took the view: what plays holds where it is drawn (as the follow chase does).
@@ -222,6 +225,8 @@ const missesView = (top: number, bottom: number, view: { top: number; bottom: nu
 
 export function createTailGlide(): TailGlide {
   let last: Placement | undefined;
+  let activePass: { anchor: string; pinned?: string; view?: () => DOMRect | undefined } | undefined;
+  let refreshing = false;
   const playing = new Set<Animation>();
   let rested: (() => void) | undefined;
   /// The glide and the clip playing on each row.
@@ -361,10 +366,32 @@ export function createTailGlide(): TailGlide {
     clips.clear();
     clearance = [];
     last = undefined;
+    activePass = undefined;
     if (had) rested?.();
   };
-  return {
+  const api: TailGlide = {
     stop,
+    refresh(thread, view) {
+      if (!thread || !last || !activePass || !clearance.length || refreshing) return;
+      if (![...playing].some((animation) => glides.has(animation) && live(animation))) return;
+      const held = [...playing].some((animation) => glides.has(animation) && animation.playState === "paused");
+      refreshing = true;
+      try {
+        api.place(
+          thread,
+          true,
+          activePass.anchor,
+          true,
+          activePass.pinned,
+          undefined,
+          last.placed,
+          view ?? activePass.view,
+        );
+        if (held) api.hold();
+      } finally {
+        refreshing = false;
+      }
+    },
     onRest(next) {
       rested = next;
     },
@@ -402,15 +429,24 @@ export function createTailGlide(): TailGlide {
       const before = last;
       const now = placement(thread, placed ?? placedFromPage(thread));
       last = now;
-      if (!before || !glide || anchor === undefined) return;
-      const toIndex = now.placed.indexOf(anchor);
-      const fromIndex = before.placed.indexOf(anchor);
+      if (!before) return;
+      const updateOnly = refreshing || !glide || anchor === undefined;
+      if (!glide || anchor === undefined) {
+        if (!activePass || !clearance.length) return;
+        anchor = activePass.anchor;
+      }
+      const heldBeforeRefresh =
+        updateOnly && [...playing].some((animation) => glides.has(animation) && animation.playState === "paused");
+      // Clearance belongs to the live glides, even after their old chase anchor unmounts.
+      // An update-only pass applies no placement deltas and needs no surviving anchor.
+      const toIndex = updateOnly ? (now.placed.mounted[0]?.first ?? -1) : now.placed.indexOf(anchor);
+      const fromIndex = updateOnly ? (before.placed.mounted[0]?.first ?? -1) : before.placed.indexOf(anchor);
       if (toIndex < 0 || fromIndex < 0 || !isMounted(now.placed, toIndex) || !isMounted(before.placed, fromIndex))
         return;
       if (typeof thread.animate !== "function") return;
       const look = tailGlideLook(thread);
       if (look === "jump") return;
-      const anchorMoved = topIn(now, toIndex) - topIn(before, fromIndex);
+      const anchorMoved = updateOnly ? 0 : topIn(now, toIndex) - topIn(before, fromIndex);
       // Each row's index in the last pass's placement: where the row before it was, one further on
       // (rows come and go at the tail, so that holds), else looked up among the rows mounted then,
       // read into a map at most once a pass.
@@ -442,20 +478,27 @@ export function createTailGlide(): TailGlide {
         start: number;
       };
       const moving: { id: string; moved: number; held: number }[] = [];
-      for (const { first, last: end } of now.placed.mounted)
-        for (let index = Math.max(first, toIndex); index < end; index++) {
-          const id = now.placed.idAt(index)!;
-          // The New line never glides: placed again (a return, a turn's end), it shows where it now is,
-          // never sliding down from where it was (Leo, 2026-11-25: "falls from the top of the screen down").
-          if (id === pinned || id === SINCE_DIVIDER) continue;
-          const was = index === toIndex ? -1 : indexBefore(id, index);
-          const shift =
-            was < 0 || !isMounted(before.placed, was) ? 0 : topIn(now, index) - topIn(before, was) - anchorMoved;
-          const moved = Math.abs(shift) < MIN_MOVE_PX ? 0 : shift;
-          // The line let go this pass starts where it was held: back by the thread's offset too.
-          const held = carry && !carry.used && carry.id === id ? carry.y : 0;
-          if (moved !== 0 || held) moving.push({ id, moved, held });
-        }
+      const hasGlide = [...playing].some((animation) => glides.has(animation) && live(animation));
+      if (!refreshing)
+        for (const { first, last: end } of now.placed.mounted)
+          for (let index = Math.max(first, toIndex); index < end; index++) {
+            const id = now.placed.idAt(index)!;
+            // The New line never glides: placed again (a return, a turn's end), it shows where it now is,
+            // never sliding down from where it was (Leo, 2026-11-25: "falls from the top of the screen down").
+            if (id === pinned || id === SINCE_DIVIDER) continue;
+            const was = !updateOnly && index === toIndex ? -1 : indexBefore(id, index);
+            const shift =
+              updateOnly || was < 0 || !isMounted(before.placed, was)
+                ? 0
+                : topIn(now, index) - topIn(before, was) - anchorMoved;
+            const moved = Math.abs(shift) < MIN_MOVE_PX ? 0 : shift;
+            // The line let go this pass starts where it was held: back by the thread's offset too.
+            const held = !updateOnly && carry && !carry.used && carry.id === id ? carry.y : 0;
+            // A stationary arrival can sit across an older row's remaining glide. Include it in
+            // clearance even when every retained row kept the same placement this pass.
+            const arrived = (updateOnly || index !== toIndex) && (was < 0 || !isMounted(before.placed, was));
+            if (moved !== 0 || held || (hasGlide && arrived)) moving.push({ id, moved, held });
+          }
       if (!moving.length) {
         for (const part of clearance) {
           const index = now.placed.indexOf(part.id);
@@ -580,6 +623,7 @@ export function createTailGlide(): TailGlide {
       // Keep the first clear predecessor too: its next line can reach this glide before the
       // placement changes. It does not join the clipping sweep until its actual box reaches it.
       clearance = slides.size ? [...still, ...parts] : [];
+      activePass = slides.size ? { anchor, pinned, view: readView } : undefined;
       for (let index = 0; index < laid.length; index++) {
         const upper = laid[index]!;
         const over: { glide?: Animation; by: number }[] = [];
@@ -597,6 +641,8 @@ export function createTailGlide(): TailGlide {
       // box read per row this pass animates.
       if (readView && (slides.size || passClips.length))
         thread.ownerDocument.defaultView?.requestAnimationFrame(() => finishUnseen(readView, slides, passClips));
+      if (heldBeforeRefresh) api.hold();
     },
   };
+  return api;
 }
