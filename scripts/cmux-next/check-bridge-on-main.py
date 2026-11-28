@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Reads (scripts/ci/guard_step_inputs.py; check_pool_affected.py --verify --match check-bridge-on-main.py holds it):
+# guard-inputs: Packages/macOS/CmuxNext/Sources/**/*.swift Packages/**/*.h cmux-tui/crates/**/*.h
 """Ratchet for synchronous Rust bridge calls where they cost the most in CmuxNext.
 
 Leo, 2026-11-27: "can u guys take this thread: https://manaflow-workspace.slack.com/archives/C0CG8V89NER/p1795759419492319".
