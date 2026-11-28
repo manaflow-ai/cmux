@@ -55,6 +55,7 @@ pub(crate) const FEATURES: &[Feature] = &[
     Feature { name: "outputCaps", on: crate::harness_limits::output_caps },
     Feature { name: super::turn_artifacts::FEATURE, on: super::turn_artifacts::enabled },
     Feature { name: "consensus", on: super::surge_triage::consensus_enabled },
+    Feature { name: "continue", on: super::stop_condition::continue_enabled },
 ];
 
 /// The features the shared gate reads off unless their setting is `true` (opinionated nudges).
