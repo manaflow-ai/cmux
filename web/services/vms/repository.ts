@@ -257,6 +257,21 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
     readonly cidr: string;
   }) => Effect.Effect<number, VmDatabaseError>;
   /**
+   * The paused share of `countNetworkAddressHolders`: paused rows in the same
+   * scope whose IPv4 lies inside `cidr`, and the oldest such row's last write
+   * (a paused row's last write is about when it paused). A paused provider VM
+   * keeps its address and the provider has no way to detach it, so this is
+   * the reclaimable share the 80% address alert names (cmuxterm-hq#37377).
+   * Read only when admission alerts. Optional; absent reports nothing.
+   */
+  readonly countPausedNetworkAddressHolders?: (input: {
+    readonly provider: ProviderId;
+    readonly userId: string;
+    readonly billingTeamId: string | null;
+    readonly scope: "user" | "team";
+    readonly cidr: string;
+  }) => Effect.Effect<{ readonly paused: number; readonly oldestPausedWriteAt: number | null }, VmDatabaseError>;
+  /**
    * Live machines (provisioning, running, paused) on one provider across every
    * owner. Fleet admission (fleetAdmission.ts) reads it only when a fleet cap
    * is configured. Optional so older test doubles compile; absent admits.
@@ -1745,6 +1760,25 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           ),
         ));
       return Number(row?.total ?? 0);
+    }),
+
+  countPausedNetworkAddressHolders: (input) =>
+    dbEffect("countPausedNetworkAddressHolders", async () => {
+      const scope = input.scope === "team" && input.billingTeamId
+        ? eq(cloudVms.ownerTeamId, input.billingTeamId)
+        : eq(cloudVms.userId, input.userId);
+      const ipv4 = sql`(${cloudVms.providerMetadata} ->> 'networkIpv4')`;
+      const [row] = await cloudDb()
+        .select({ total: count(), oldest: sql<Date | string | null>`min(${cloudVms.updatedAt})` })
+        .from(cloudVms)
+        .where(and(
+          scope,
+          eq(cloudVms.provider, input.provider),
+          eq(cloudVms.status, "paused"),
+          sql`(${ipv4} ~ '^[0-9]{1,3}([.][0-9]{1,3}){3}$' and ${ipv4}::inet <<= ${input.cidr}::inet)`,
+        ));
+      const oldest = row?.oldest ? new Date(row.oldest).getTime() : null;
+      return { paused: Number(row?.total ?? 0), oldestPausedWriteAt: Number.isFinite(oldest) ? oldest : null };
     }),
 
   countLiveProviderVms: (input) =>
