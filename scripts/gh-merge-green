@@ -1364,6 +1364,7 @@ merged_head_checks() {
       'retry on the current head'
   fi
   tmp=$(mktemp -d)
+  tmp_files+=("$tmp")
   merged="$tmp/merged"
   mkdir -p "$merged"
   # The helper checkout is commonly a blob:none partial clone. Materializing a
@@ -1371,6 +1372,7 @@ merged_head_checks() {
   # Compute the exact merged tree first, then archive only the trees checked
   # below. This preserves merge-conflict detection without the worktree stall.
   if ! merged_tree=$(git -C "$repo_dir" merge-tree --write-tree "$base_sha" "$head_sha" 2>/dev/null); then
+    rm -rf "$tmp"
     refuse \
       "not merged: $ref does not merge cleanly into $base ($base_sha)" \
       'merge the base into the PR (scripts/merge-main.sh), push, and retry'
