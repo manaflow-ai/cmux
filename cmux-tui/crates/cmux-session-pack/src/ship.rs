@@ -180,7 +180,7 @@ pub(crate) fn read_bounded(
     let mut bytes = Vec::new();
     let mut buffer = [0u8; 64 << 10];
     while bytes.len() < len {
-        let n = (len - bytes.len()).min(buffer.len());
+        let n = len.saturating_sub(bytes.len()).min(buffer.len());
         let n = match input.read(&mut buffer[..n]) {
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
             result => result?,
@@ -192,9 +192,10 @@ pub(crate) fn read_bounded(
             )
             .into());
         }
-        if bytes.len() + n > bytes.capacity() {
-            let capacity = (bytes.len() + n).max(bytes.capacity().saturating_mul(2)).min(len);
-            bytes.try_reserve_exact(capacity - bytes.len())?;
+        let wanted = bytes.len().saturating_add(n);
+        if wanted > bytes.capacity() {
+            let capacity = wanted.max(bytes.capacity().saturating_mul(2)).min(len);
+            bytes.try_reserve_exact(capacity.saturating_sub(bytes.len()))?;
         }
         bytes.extend_from_slice(&buffer[..n]);
     }

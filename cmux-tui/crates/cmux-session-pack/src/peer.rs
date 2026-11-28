@@ -29,7 +29,8 @@ pub const NOPE: u32 = u32::MAX;
 pub const MAX_WANT: u32 = 1 << 16;
 /// The largest chunk file a peer may send (a chunk holds at most 4 GiB raw; files here are a few
 /// MiB, so anything past this is a lie).
-pub const MAX_FILE: u32 = MAX_STORED_CHUNK_BYTES as u32;
+pub const MAX_FILE: u32 = (256 << 20) + 6;
+const _: () = assert!(MAX_FILE as usize == MAX_STORED_CHUNK_BYTES);
 
 /// Serves `store`'s chunks to every peer that connects to `listener`, one scoped thread a
 /// connection (each joined before this returns), until the listener fails.
