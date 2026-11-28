@@ -54,6 +54,16 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { config
 // Wide enough for the minimap's pane-edge rail in these layout tests.
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 1040 });
 const offsets = new WeakMap<object, number>();
+// The content's height, as the browser reports it: the spacer's, rounded (support/jsdomScroller.ts).
+// The transcript reads it to tell a reader's scroll up from the browser's spring back at the end
+// (VirtualTranscript.tsx `sprangBack`, #48114); jsdom's 0 read every scroll up as a spring back.
+Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", {
+  configurable: true,
+  get(this: HTMLElement) {
+    const height = parseFloat(this.querySelector?.<HTMLElement>(":scope > .acpmux-spacer")?.style.height ?? "");
+    return Number.isFinite(height) ? Math.round(height) : this.clientHeight;
+  },
+});
 Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
   configurable: true,
   get(this: object) {

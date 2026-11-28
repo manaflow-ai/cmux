@@ -14,6 +14,11 @@ import type { MeasurableRenderer, NativeRegistry, RowProps } from "../src/agent-
 import { KeptLayouts, keptHeightFor } from "../src/agent-session/acpmux/conversation/keptLayouts";
 import { teardownDom } from "./support/domTeardown";
 
+// A browser runs frames after the task that asked them; jsdom runs them on timers, so on a loaded
+// host a sync task longer than a frame lets every overdue frame fire before a timer the test set
+// after it. A test that models "one sync task, then the frame" holds the frames through that task.
+let framesHeld = false;
+const heldFrames: FrameRequestCallback[] = [];
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
   pretendToBeVisual: true,
@@ -41,7 +46,8 @@ const replacements: Record<string, unknown> = {
     disconnect() {}
   },
   getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
-  requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
+  requestAnimationFrame: (callback: FrameRequestCallback) =>
+    framesHeld ? (heldFrames.push(callback), 0) : dom.window.requestAnimationFrame(callback),
   cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
   IS_REACT_ACT_ENVIRONMENT: true,
 };
@@ -221,7 +227,10 @@ test("a switch to another chat commits once, then its reset once, deferred", asy
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     commits = 0;
-    // The switch as the app does it: one sync task, then the frame.
+    // The switch as the app does it: one sync task, then the frame. Frames asked meanwhile wait for the
+    // task's end, as a browser runs them; under load jsdom's frame timers otherwise fire inside the
+    // reset's wait below and their own commit counts as a third (1 then 3, at load 110 on 16 cores).
+    framesHeld = true;
     flushSync(() => root.render(tree("chat-f", chat("f", 40))));
     // Sync work its effects ask runs in microtasks of the same task, still before the frame.
     for (let turn = 0; turn < 10; turn += 1) await Promise.resolve();
@@ -231,9 +240,13 @@ test("a switch to another chat commits once, then its reset once, deferred", asy
     });
     // The reset lands in one deferred commit; as blocking state it took two whole-transcript renders.
     expect(commits).toBe(2);
+    framesHeld = false;
+    for (const frame of heldFrames.splice(0)) dom.window.requestAnimationFrame(frame);
     // The new chat shows its own rows once the transition lands.
     expect(host.textContent).toContain("f message");
   } finally {
+    framesHeld = false;
+    heldFrames.length = 0;
     await act(async () => root.unmount());
     host.remove();
   }
