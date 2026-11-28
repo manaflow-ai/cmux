@@ -380,9 +380,9 @@ public extension PageDescriptor {
         id: "cmux.history", resource: "history", namespaces: ["cmux.history."],
         nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite], actions: ["history.open"])
 
-    /// The Feed page (plans/cmux-next/feed-page.md): the app shows only Chief Home's pinned
-    /// Needs you (`#/needs-you`); the Inbox tab (`#/inbox`) and the right sidebar's Feed
-    /// (`#/list`) have no entry point now. Its `cmux.feed.` ops go to the daemon's feed
+    /// The Feed page (plans/cmux-next/feed-page.md): Chief Home's pinned Needs you
+    /// (`#/needs-you`) and, with `experiments.feed` on, the Feed top page (`#/inbox`, its
+    /// sidebar item and `feed.show`); the right sidebar's Feed (`#/list`) has no entry point now. Its `cmux.feed.` ops go to the daemon's feed
     /// client; it opens an item and runs a GitHub action through the host's actions, and Add
     /// Connection opens Settings > Notifications at `feed.github.enabled` (`openSettings`). In
     /// Chief, `cmux.settings.hub.` draws and answers the integrations hub's approvals
