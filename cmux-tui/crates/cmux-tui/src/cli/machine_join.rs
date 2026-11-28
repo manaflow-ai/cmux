@@ -169,6 +169,16 @@ impl Failure {
     fn usage(message: impl Into<String>) -> Self {
         Self { code: "usage.invalid", message: message.into(), exit: 2 }
     }
+
+    /// An "isn't available on this server" failure names the server it asked: the platform origin
+    /// comes from --platform or CMUX_PLATFORM_ORIGIN as well as the default, and a 404 from staging
+    /// (joined machines off there by design) read as production's (leo-workspace ask-28e9b7d3c8).
+    fn naming_server(mut self, origin: &str) -> Self {
+        if self.code.ends_with(".unavailable") && self.message.contains(" on this server") {
+            self.message = self.message.replacen(" on this server", &format!(" on {origin}"), 1);
+        }
+        self
+    }
 }
 
 /// `Some(exit code)` when `args` is a verb this module runs.
@@ -878,6 +888,19 @@ pub(super) struct Hooks<'a> {
 }
 
 pub(super) fn run(
+    command: &Command,
+    platform: &Platform,
+    output: OutputMode,
+    options: RunOptions,
+    out: &mut dyn Write,
+    hooks: &mut Hooks<'_>,
+    interrupt: impl Future<Output = ()>,
+) -> Result<i32, Failure> {
+    run_verb(command, platform, output, options, out, hooks, interrupt)
+        .map_err(|failure| failure.naming_server(&platform.origin))
+}
+
+fn run_verb(
     command: &Command,
     platform: &Platform,
     output: OutputMode,

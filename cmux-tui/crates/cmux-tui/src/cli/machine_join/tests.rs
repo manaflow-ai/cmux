@@ -477,7 +477,8 @@ fn a_404_says_joining_is_not_available_and_errors_never_carry_a_secret() {
         let failure =
             run_with(&words, &origin, OutputMode::Human, false, true, never()).code.unwrap_err();
         assert_eq!(
-            failure.message, "joining isn't available on this server yet (it answered 404)",
+            failure.message,
+            format!("joining isn't available on {origin} yet (it answered 404)"),
             "{words:?}"
         );
         assert_eq!(failure.code, "machine_join.unavailable");
@@ -1107,6 +1108,11 @@ fn placement_refusals_name_the_role_and_a_404_and_never_a_secret() {
     .code
     .unwrap_err();
     assert_eq!(failure.code, "machine_join.unavailable");
+    // It names the platform it asked: staging's 404 read as production's (ask-28e9b7d3c8).
+    assert_eq!(
+        failure.message,
+        format!("joined placement isn't available on {origin} (it answered 404)")
+    );
 
     let (origin, _requests) = placement_platform(false, 401);
     let failure = run_with(
