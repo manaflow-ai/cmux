@@ -29,9 +29,7 @@ fn small_functions_answer() {
     let (c, n) = ("a.png", " a.png ");
     // SAFETY: valid bytes.
     assert_eq!(
-        take(unsafe {
-            cmux_screenshots_rename_target(c.as_ptr(), c.len(), n.as_ptr(), n.len())
-        }),
+        take(unsafe { cmux_screenshots_rename_target(c.as_ptr(), c.len(), n.as_ptr(), n.len()) }),
         None
     );
 }
@@ -74,16 +72,12 @@ fn rule_handle_reads_detect_json() {
     let movie = "Screen Recording 1.mov";
     // SAFETY: live rule, valid bytes.
     assert_eq!(
-        unsafe {
-            cmux_screenshots_rule_item_kind(rule, 1, false, movie.as_ptr(), movie.len(), 2)
-        },
+        unsafe { cmux_screenshots_rule_item_kind(rule, 1, false, movie.as_ptr(), movie.len(), 2) },
         2
     );
     // SAFETY: as above.
     assert_eq!(
-        unsafe {
-            cmux_screenshots_rule_item_kind(rule, 1, true, movie.as_ptr(), movie.len(), 2)
-        },
+        unsafe { cmux_screenshots_rule_item_kind(rule, 1, true, movie.as_ptr(), movie.len(), 2) },
         0
     );
     // SAFETY: freed once.
@@ -116,13 +110,7 @@ fn listing_handle_keeps_order_and_filters() {
         .collect();
     // SAFETY: live listing, valid items.
     unsafe {
-        cmux_screenshots_listing_replace(
-            listing,
-            b"a".as_ptr(),
-            1,
-            items.as_ptr(),
-            items.len(),
-        );
+        cmux_screenshots_listing_replace(listing, b"a".as_ptr(), 1, items.as_ptr(), items.len());
     };
     // SAFETY: live listing, valid bytes.
     unsafe {
@@ -145,16 +133,14 @@ fn listing_handle_keeps_order_and_filters() {
             // SAFETY: live listing, writable len.
             let ptr = unsafe { cmux_screenshots_listing_path_at(listing, i, &raw mut len) };
             // SAFETY: lent bytes.
-            String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(ptr, len) })
-                .into_owned()
+            String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(ptr, len) }).into_owned()
         })
         .collect();
     assert_eq!(order, ["/s/b/Café.png", "/s/a/Shot 2.png", "/s/a/Shot 10.png"]);
     // SAFETY: live listing.
-    let counts: serde_json::Value = serde_json::from_str(
-        &take(unsafe { cmux_screenshots_listing_counts(listing) }).unwrap(),
-    )
-    .unwrap();
+    let counts: serde_json::Value =
+        serde_json::from_str(&take(unsafe { cmux_screenshots_listing_counts(listing) }).unwrap())
+            .unwrap();
     assert_eq!(counts, serde_json::json!({"a": 2, "b": 1}));
     // SAFETY: null is allowed.
     assert!(unsafe { cmux_screenshots_listing_counts(std::ptr::null()) }.is_null());
@@ -191,18 +177,14 @@ fn listing_handle_keeps_order_and_filters() {
     assert_eq!((n, found[0]), (2, 1));
     // SAFETY: live listing, valid bytes.
     assert_eq!(
-        unsafe {
-            cmux_screenshots_listing_position(listing, paths[0].as_ptr(), paths[0].len())
-        },
+        unsafe { cmux_screenshots_listing_position(listing, paths[0].as_ptr(), paths[0].len()) },
         2
     );
     // SAFETY: as above.
     unsafe { cmux_screenshots_listing_remove(listing, paths[0].as_ptr(), paths[0].len()) };
     // SAFETY: as above.
     assert_eq!(
-        unsafe {
-            cmux_screenshots_listing_position(listing, paths[0].as_ptr(), paths[0].len())
-        },
+        unsafe { cmux_screenshots_listing_position(listing, paths[0].as_ptr(), paths[0].len()) },
         -1
     );
     // SAFETY: drops source a.
@@ -301,10 +283,8 @@ fn detect_calls_back_and_returns_json() {
     assert_eq!(value[0]["folder"], "/mac/home/Shots");
     // SAFETY: as above.
     assert_eq!(
-        take(unsafe {
-            cmux_screenshots_system_folder(&raw const env, home.as_ptr(), home.len())
-        })
-        .as_deref(),
+        take(unsafe { cmux_screenshots_system_folder(&raw const env, home.as_ptr(), home.len()) })
+            .as_deref(),
         Some("/mac/home/Shots")
     );
     // SAFETY: null env.
@@ -332,14 +312,12 @@ fn pane_round_trip() {
         {"id":"s","label":"Shots","folder":"/u/Shots","acceptsDrops":true,"rule":{"depth":1}},
         {"label":"no id","folder":"/x"}]"#;
     // SAFETY: live pane, valid bytes.
-    let plan = take(unsafe {
-        cmux_screenshots_pane_set_sources(pane, sources.as_ptr(), sources.len())
-    });
+    let plan =
+        take(unsafe { cmux_screenshots_pane_set_sources(pane, sources.as_ptr(), sources.len()) });
     assert_eq!(plan.as_deref(), Some(r#"{"changed":true,"read":["d","s"],"removed":[]}"#));
     // SAFETY: live pane, valid bytes.
-    let again = take(unsafe {
-        cmux_screenshots_pane_set_sources(pane, sources.as_ptr(), sources.len())
-    });
+    let again =
+        take(unsafe { cmux_screenshots_pane_set_sources(pane, sources.as_ptr(), sources.len()) });
     assert_eq!(again.as_deref(), Some(r#"{"changed":false,"read":[],"removed":[]}"#));
     // SAFETY: live pane.
     assert!(!unsafe { cmux_screenshots_pane_start(pane) });
@@ -378,17 +356,14 @@ fn pane_round_trip() {
     );
     // SAFETY: live pane, null selection.
     assert_eq!(
-        take(unsafe { cmux_screenshots_pane_drop_source(pane, std::ptr::null(), 0) })
-            .as_deref(),
+        take(unsafe { cmux_screenshots_pane_drop_source(pane, std::ptr::null(), 0) }).as_deref(),
         Some("s")
     );
     let path = "/u/Shots/a/x.png";
     // SAFETY: live pane, valid bytes.
     assert_eq!(
-        take(unsafe {
-            cmux_screenshots_pane_source_containing(pane, path.as_ptr(), path.len())
-        })
-        .as_deref(),
+        take(unsafe { cmux_screenshots_pane_source_containing(pane, path.as_ptr(), path.len()) })
+            .as_deref(),
         Some("s")
     );
     // SAFETY: live pane, valid bytes.
@@ -408,10 +383,7 @@ fn pane_round_trip() {
             names.len(),
         )
     });
-    assert_eq!(
-        look.as_deref(),
-        Some(r#"{"paths":["/u/Shots/x.png"],"relist":true,"source":"s"}"#)
-    );
+    assert_eq!(look.as_deref(), Some(r#"{"paths":["/u/Shots/x.png"],"relist":true,"source":"s"}"#));
     // SAFETY: live pane, valid bytes, null names.
     let rescan = take(unsafe {
         cmux_screenshots_pane_change(pane, folder.as_ptr(), folder.len(), std::ptr::null(), 0)
@@ -487,14 +459,9 @@ fn walk_round_trip() {
     };
     assert_eq!(kinds, [0, 1, 0]);
     // SAFETY: live walk.
-    assert_eq!(
-        take(unsafe { cmux_screenshots_walk_next(walk) }).as_deref(),
-        Some("/s/NSIRD_a")
-    );
+    assert_eq!(take(unsafe { cmux_screenshots_walk_next(walk) }).as_deref(), Some("/s/NSIRD_a"));
     // SAFETY: live walk; an unreadable subfolder has no entries.
-    unsafe {
-        cmux_screenshots_walk_listed(walk, false, std::ptr::null(), 0, std::ptr::null_mut())
-    };
+    unsafe { cmux_screenshots_walk_listed(walk, false, std::ptr::null(), 0, std::ptr::null_mut()) };
     // SAFETY: live walk.
     assert!(unsafe { cmux_screenshots_walk_next(walk) }.is_null());
     // SAFETY: live walk.
