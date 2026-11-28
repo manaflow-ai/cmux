@@ -8,9 +8,10 @@
 //! 3 package, anything else other. A handle is used by one thread at a time. No function unwinds
 //! across the boundary.
 
-use crate::detect::{Detector, Environment, looks_like_folder_key, sources_json};
+use crate::detect::{Detector, Environment, Origin, looks_like_folder_key, sources_json};
 use crate::gate::Gate;
 use crate::listing::{Item, Listing};
+use crate::open::{self, Note, Opened};
 use crate::pane::{ChangePlan, EntryAction, Pane, PaneSource};
 use crate::reader::{self, Entry, EntryKind};
 use crate::rule::{MediaKind, ScanRule};
@@ -20,7 +21,7 @@ use std::ffi::{CString, c_char, c_void};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// Bumped on any change to a type or a function.
-pub const CMUX_SCREENSHOTS_ABI_VERSION: u32 = 4;
+pub const CMUX_SCREENSHOTS_ABI_VERSION: u32 = 5;
 
 /// A scan rule (a source's `rule` from `cmux_screenshots_detect`).
 pub struct CmuxScreenshotsRule {
@@ -110,6 +111,17 @@ pub struct CmuxScreenshotsEnvironment {
         Option<unsafe extern "C" fn(*mut c_void, *const u8, usize, *mut CmuxScreenshotsReply)>,
 }
 
+/// What `cmux_screenshots_open` tells a `screenshots.open` run.
+#[repr(C)]
+pub struct CmuxScreenshotsOpen {
+    /// 0 nothing to tell (the person's own run), 1 a new tab opened behind, 2 the tab was there.
+    pub opened: u32,
+    /// Whether the tab lists its screenshots.
+    pub listing: bool,
+    /// 0 none, 1 opened in the background, 2 open but waiting for the person's click.
+    pub note: u32,
+}
+
 fn guard<T>(fallback: T, body: impl FnOnce() -> T) -> T {
     catch_unwind(AssertUnwindSafe(body)).unwrap_or(fallback)
 }
@@ -164,6 +176,49 @@ pub unsafe extern "C" fn cmux_screenshots_looks_like_folder_key(
     // SAFETY: caller contract.
     let key = unsafe { text(key, key_len) };
     guard(false, || looks_like_folder_key(&key))
+}
+
+/// Whether a source whose origin case is `origin` (`system`, `systemPreview`, `tool`,
+/// `toolHistory`, `custom`) takes dropped files; false for any other name.
+///
+/// # Safety
+/// `origin` is null or `origin_len` readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_screenshots_origin_accepts_drops(
+    origin: *const u8,
+    origin_len: usize,
+) -> bool {
+    // SAFETY: caller contract.
+    let origin = unsafe { text(origin, origin_len) };
+    guard(false, || Origin::named_accepts_drops(&origin))
+}
+
+/// What a `screenshots.open` run is told once the tab is open (`existing`: it was already there;
+/// `listing`: it lists). A run's note before the tab opens is its answer for a new tab.
+#[unsafe(no_mangle)]
+pub extern "C" fn cmux_screenshots_open(
+    persons_run: bool,
+    existing: bool,
+    listing: bool,
+) -> CmuxScreenshotsOpen {
+    let none = CmuxScreenshotsOpen { opened: 0, listing: false, note: 0 };
+    guard(none, || {
+        open::answer(persons_run, existing, listing).map_or(
+            CmuxScreenshotsOpen { opened: 0, listing: false, note: 0 },
+            |answer| CmuxScreenshotsOpen {
+                opened: match answer.opened {
+                    Opened::Background => 1,
+                    Opened::Existing => 2,
+                },
+                listing: answer.listing,
+                note: match answer.note {
+                    None => 0,
+                    Some(Note::OpenedInBackground) => 1,
+                    Some(Note::ExistingNeedsClick) => 2,
+                },
+            },
+        )
+    })
 }
 
 /// The name of an image dropped as data, from the local time it was saved.
@@ -498,6 +553,22 @@ pub unsafe extern "C" fn cmux_screenshots_listing_filter(
         }
     }
     found.len()
+}
+
+/// How many files each source lists, as a JSON object of source id to count; null for a null
+/// listing.
+///
+/// # Safety
+/// `listing` is null or a live listing.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_screenshots_listing_counts(
+    listing: *const CmuxScreenshotsListing,
+) -> *mut c_char {
+    // SAFETY: caller contract.
+    let Some(listing) = (unsafe { listing.as_ref() }) else { return std::ptr::null_mut() };
+    guard(std::ptr::null_mut(), || {
+        out(serde_json::to_string(&listing.inner.counts_by_source()).ok())
+    })
 }
 
 /// No pane unlocked. Free it with `cmux_screenshots_gate_free`.
