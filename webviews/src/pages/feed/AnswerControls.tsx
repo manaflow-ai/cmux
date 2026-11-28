@@ -8,7 +8,15 @@ import { cx } from "../../ui/cx";
 import { answerState, plain, type AnswerState, type FeedProps } from "./context";
 import { FeedIcon } from "./icons";
 import { useButtonMenu } from "./menus";
-import { Answers, approveScopes, choiceIssues, closedStatus, isOneTap, SCOPE_LABEL } from "./model";
+import {
+  Answers,
+  approveScopes,
+  choiceIssues,
+  closedStatus,
+  isOneTap,
+  SCOPE_LABEL,
+  type ChoiceSelection,
+} from "./model";
 import type { ViewItem } from "./types";
 import { WithFacts } from "../../agent-session/acpmux/chips/FactsHoverCard";
 
@@ -84,7 +92,6 @@ export function AnswerControls({ density = "inline", ...rest }: Props) {
 
 interface ControlProps extends Props {
   density: FeedDensity;
-  disabled: boolean;
 }
 
 /** Decline (secondary) and the primary action. */
@@ -161,6 +168,8 @@ function ApproveControls({ item, store, scope: drafted, strings, disabled }: Con
   );
 }
 
+const NO_CHOICE: ChoiceSelection = { selected: [] };
+
 /** A plain text field with the theme's faint fill. */
 function Field({
   value,
@@ -206,7 +215,7 @@ function ChoiceControls({ item, store, choices, strings, disabled }: ControlProp
   return (
     <div className="feed-choice">
       {questions.map((question) => {
-        const selection = choices?.[question.id] ?? { selected: [] };
+        const selection = choices?.[question.id] ?? NO_CHOICE;
         return (
           <div key={question.id} className="feed-choice-question">
             <span className="feed-choice-text">{question.question}</span>

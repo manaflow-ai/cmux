@@ -20,6 +20,11 @@ on:
 
 permissions: {}
 
+env:
+  SOURCE_WORKFLOW_PATHS: >-
+    .github/workflows/test-ios.yml
+    .github/workflows/cmux-next-ios-kit.yml
+
 concurrency:
   group: ios-base-bisect
   cancel-in-progress: false
@@ -27,11 +32,11 @@ concurrency:
 jobs:
   plan:
     if: >-
-      ${{ github.repository == 'manaflow-ai/cmux' && vars.IOS_BASE_BISECT != '0'
+      ${{ github.repository == 'manaflow-ai/cmux' && (vars.IOS_BASE_BISECT || '1') != '0'
           && github.event.workflow_run.event == 'push'
           && github.event.workflow_run.head_branch == 'feat-cmux-next'
           && github.event.workflow_run.conclusion == 'failure' }}
-    runs-on: ${{ vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       actions: read
@@ -63,7 +68,7 @@ jobs:
     needs: plan
     if: ${{ needs.plan.outputs.good != '' && vars.CI_EVAL_STEP_GATEWAY != '' }}
     # The build-fleet gateway runner: it only hands each probe to the controller with cmux-ci run.
-    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (#54437)
     # At most MAX_PROBES (8) simulator steps of up to an hour each, plus their queue.
     timeout-minutes: 600
     permissions:
@@ -71,13 +76,15 @@ jobs:
       issues: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ needs.plan.outputs.red }}
           fetch-depth: 0
           filter: blob:none
-          sparse-checkout: scripts/ci/ios_base_bisect.py
+          sparse-checkout: |
+            scripts/ci/ios_base_bisect.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Bisect the merges on the fleet simulator
         env:

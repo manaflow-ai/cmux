@@ -113,6 +113,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
     /// over a page that has already painted.
     var launchImageMayClear: (() -> Bool)?
     let launchImageDeadline = DemandTimer(owner: "pane.launch-image")
+    let launchReveal: LaunchReveal // holds `contentHost` clear; a launch image releases it
     /// Browsers this pane showed before, kept in place and hidden, oldest
     /// first (`PaneContentView+Parking`).
     var parked: [ParkedContent] = []
@@ -123,6 +124,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
     ///   the content until the first terminal frame (launch load-in).
     init(stripModel: TabStripModel, reveal: LaunchReveal = .shared) {
         stripView = TabStripView(model: stripModel)
+        launchReveal = reveal
         super.init(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         barPosition = DesignSettings.shared.tabBarPosition
         barOrder = DesignSettings.shared.tabBarOrder

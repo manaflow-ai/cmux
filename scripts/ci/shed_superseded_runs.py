@@ -15,7 +15,7 @@ One sweep (.github/workflows/ci-shed-superseded-runs.yml, every 10 minutes on an
 
 A run is cancelled only when every rule holds (verdict()):
   status queued, or in_progress with nothing running (unstarted(): every job of the latest attempt finished or
-  queued with no runner and no step, read again right before the cancel; at most SHED_MAX_JOB_READS, default 300,
+  queued with no runner and no step, read again right before every cancel, a queued run's too; at most SHED_MAX_JOB_READS, default 300,
   such runs read per sweep), so a cancel only ever stops jobs that never started; run_attempt 1, head in this repository, workflow
   name and path not nightly/dev/promote/release/testflight/app store/deploy/publish/sign, and then:
   - a lane branch (not master/release*/nightly*/gh-pages), event push, pull_request or workflow_run:
@@ -346,8 +346,12 @@ def main(argv: list[str] | None = None) -> int:
     done = errors = 0
     for run, why in picks:
         result = "dry run"
-        if not args.dry_run and run.get("status") == "in_progress":
-            # Read again right before the cancel: a runner may have taken a job since the first read.
+        if not args.dry_run:
+            # Read again right before the cancel: a runner may have taken a job since the first read. A run listed
+            # `queued` is read too: its listed status is no proof nothing of it runs. cmux run 45904512885
+            # (cloud-move-kill.yml, PR #51760) listed queued at 22:58Z on 2026-11-26 while its cut and pause-src
+            # drills ran mid-move on runners, and this sweep cancelled it as superseded (as hq stale-runs did run
+            # 45896711769 at 22:28Z): the drills uploaded nothing.
             fresh = gh.run_jobs(run["id"])
             if fresh is None or not unstarted(fresh):
                 summary_line(f"| {run['id']} | | | | | | {why} | kept: a job started since the first read |")

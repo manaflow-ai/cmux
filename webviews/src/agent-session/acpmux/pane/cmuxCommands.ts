@@ -25,7 +25,7 @@ import type { SendGesture } from "../heldPrompt";
 import { translate, type Translate } from "../i18n";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { postNative } from "../native";
-import { openPicker } from "../pickerOpeners";
+import { openPicker, runModelCommand } from "../pickerOpeners";
 import { runResume } from "../resumeCommand";
 import type { RunMode } from "../sandboxRun";
 import type { useSessionInfo } from "../session-info/useSessionInfo";
@@ -200,7 +200,8 @@ export function handleCmuxCommand(
   // Arguments keep the harness form useful (`/model opus`, `/plan explain`). New Tab has no chat
   // to act on yet, so there they go to the harness as typed.
   if (command.action === "model") {
-    if (argument || fresh) return CMUX_PASS_THROUGH;
+    if (argument) return runModelCommand(argument) ?? CMUX_PASS_THROUGH;
+    if (fresh) return CMUX_PASS_THROUGH;
     return openPicker(translate(PICKER_LABELS.model)) || CMUX_PASS_THROUGH;
   }
   if (command.action === "context") {

@@ -104,3 +104,35 @@ fn hostile_paths_are_refused() {
         assert!(Manifest::build(&t, |_, _| Ok(())).is_err(), "{path}");
     }
 }
+
+#[test]
+fn malformed_pack_ranges_return_errors() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::new(dir.path());
+    let id = cmux_cas::Id::of(b"x");
+    for (start, end, offset, len) in [
+        (2, 1, 2, 0),        // A reversed requested range.
+        (2, 3, 1, 1),        // Entry starts before the returned bytes.
+        (2, 3, 3, 1),        // Entry extends beyond the returned bytes.
+        (0, 1, u64::MAX, 1), // Entry arithmetic must not wrap.
+    ] {
+        let range =
+            pack::Range { pack: id, start, end, entries: vec![pack::Entry { id, offset, len }] };
+        assert!(pack::receive(&store, &range, b"x").is_err());
+    }
+}
+
+#[test]
+fn chunk_decoder_rejects_every_truncated_header() {
+    let data = b"small raw chunk";
+    let id = cmux_cas::Id::of(data);
+    let file = store::encode(data, 3).unwrap();
+    for cut in 0..5 {
+        assert!(store::decode(&file[..cut], &id).is_err());
+    }
+    assert_eq!(store::decode(&file, &id).unwrap(), data);
+    for bad in ["a".repeat(63), "a".repeat(65), "é".repeat(32), "G".repeat(64)] {
+        assert!(cmux_cas::Id::parse(&bad).is_err());
+    }
+    assert_eq!(cmux_cas::Id::parse(&id.hex()).unwrap(), id);
+}

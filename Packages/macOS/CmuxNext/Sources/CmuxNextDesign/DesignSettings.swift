@@ -225,6 +225,12 @@ public final class DesignSettings {
     /// `ui.paneAnimations`: pane layout changes spring when true (see
     /// `Motion.animatesPaneLayout`); on by default.
     public var paneAnimations = true
+    /// Snapshot-first right split (goal instant-splits, prototype): a split to the right opens as a retained picture
+    /// that slides in from the screen's right edge on the compositor, to its final place fixed at the key press, while
+    /// the live panes mount underneath; the live view takes over once it showed. Off by default (flipping it is Leo's
+    /// call): the `CmuxNextSplitSnapshotOpen` user default (`-CmuxNextSplitSnapshotOpen YES` at launch) or
+    /// `debug.motion {"kind":"splitSnapshotOpen","on":true}` turns it on.
+    public var splitSnapshotOpen = UserDefaults.standard.bool(forKey: "CmuxNextSplitSnapshotOpen")
     /// `home.channelsEnabled`: the sidebar shows the Channels entry after Home (cx-frn2y); off by default.
     public var homeChannelsEnabled = false
     /// `home.chiefBubbleStyle` is `theme`: the Chief chat's bubbles take the theme's colours; false (the
@@ -441,6 +447,8 @@ public final class DesignSettings {
     /// `appearance.chromeStyle`: the window look whose defaults the finer
     /// keys refine (`ChromeStyle`).
     public var chromeStyle: ChromeStyle = .default
+    /// `appearance.toolbarButtonStyle`: how a pane's top right buttons and the tab bar's + draw (`ToolbarButtonStyle`).
+    public var toolbarButtonStyle: ToolbarButtonStyle = .standard
     /// `appearance.titleAreaContrast`: how strongly the chrome around the content (the titlebar, the tab
     /// row and the sidebar) is shaded, as a share of the theme's shade
     /// (``Metrics/mainPaneChromeShade(isDark:)``). 1, the default, is the shade as it was; lower is softer.
@@ -470,6 +478,9 @@ public final class DesignSettings {
     public var tabShape: TabShape = .block {
         didSet { if tabShape != oldValue { ThemeScope.app.store.repaintAll() } }
     }
+    /// `appearance.homeCardStyle`: how the cards on Home and the New Tab page draw (``HomeCardStyle``). The cards are
+    /// web: open pages follow through the pane's theme push, which observes this property (`AgentPaneView.observeMotion`).
+    public var homeCardStyle: HomeCardStyle = .standard
     /// `appearance.gooeyTabs`: off (the default), subtle or full goo (``GooeyTabs``). Under subtle and full the corner
     /// resolves to flush-goo (``CornerFlush/current``) and the tone to Subtle Tone (``effectiveTitleAreaTone``)
     /// without writing either setting. A change repaints, as the corner does.

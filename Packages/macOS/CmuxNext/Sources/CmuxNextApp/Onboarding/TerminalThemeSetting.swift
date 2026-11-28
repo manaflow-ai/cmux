@@ -82,13 +82,14 @@ final class TerminalThemeSetting {
     func follow(_ settings: SettingsController) {
         // An opacity write with Material unset names the material of the config files' own blur.
         settings.ghosttyBackgroundBlur = { [ghostty] in ghostty().blur }
-        // The theme, its edits, the window background, the backdrop art and the tuning follow
+        AppearanceModeSetting.follow(settings) // `appearance.mode`: the theme's light/dark pair follows the app's appearance
+        // The theme, its edits, the highlight color, the window background, the backdrop art and the tuning follow
         // `applied`, so a theme picker's, the Opacity, Hue or Saturation slider's or the background
         // picker's live preview repaints the window; the rest follows the loaded
         // settings (a Theme File's preview included: `lookFollowed`), so a font size slider's preview never
         // reloads Ghostty per tick. A background step repaints at once and reloads Ghostty after the steps stop (`apply`).
         take(settings.lookFollowed, theme: settings.applied.appTheme, edits: settings.applied.themeEdits,
-             background: settings.applied.windowBackground, art: settings.applied.backdropSelection,
+             highlight: settings.applied.highlightColor, background: settings.applied.windowBackground, art: settings.applied.backdropSelection,
              shuffle: BackdropSwitch(settings.applied.root), tuning: settings.applied.windowTuning,
              reduced: settings.applied.reducedBackgrounds)
         BackdropLocation.prewarm()
@@ -99,18 +100,20 @@ final class TerminalThemeSetting {
             })
         }
         observation = Task { [weak self] in
-            for await (snapshot, theme, edits, background, art, shuffle, tuning, reduced) in ObservationStream({
-                (settings.lookFollowed, settings.applied.appTheme, settings.applied.themeEdits, settings.applied.windowBackground,
+            for await (snapshot, theme, edits, highlight, background, art, shuffle, tuning, reduced) in ObservationStream({
+                (settings.lookFollowed, settings.applied.appTheme, settings.applied.themeEdits, settings.applied.highlightColor,
+                 settings.applied.windowBackground,
                  settings.applied.backdropSelection, BackdropSwitch(settings.applied.root), settings.applied.windowTuning,
                  settings.applied.reducedBackgrounds)
             }) {
-                self?.take(snapshot, theme: theme, edits: edits, background: background, art: art, shuffle: shuffle, tuning: tuning,
-                           reduced: reduced)
+                self?.take(snapshot, theme: theme, edits: edits, highlight: highlight, background: background, art: art,
+                           shuffle: shuffle, tuning: tuning, reduced: reduced)
             }
         }
     }
 
-    private func take(_ snapshot: CmuxConfigSnapshot, theme: String?, edits: ThemeEdits, background: WindowBackgroundOverride,
+    private func take(_ snapshot: CmuxConfigSnapshot, theme: String?, edits: ThemeEdits, highlight: String?,
+                      background: WindowBackgroundOverride,
                       art: BackdropSelection?, shuffle: BackdropSwitch?, tuning: AppearanceTuning, reduced: Bool) {
         // `reduced` (`ui.reducedBackgrounds`, from `applied` so a preview of it repaints): the plain
         // theme background; the person's picks are kept.
@@ -124,7 +127,8 @@ final class TerminalThemeSetting {
         var state = State(snapshot)
         state.theme = theme
         state.edits = edits
-        state.edits.highlight = snapshot.highlightColor
+        // `applied`, so the Highlight color picker's live preview shows before it is saved.
+        state.edits.highlight = highlight
         state.background = ReducedBackgroundsSetting.drawn(background, reduced: reduced)
         apply(state)
     }
@@ -132,6 +136,7 @@ final class TerminalThemeSetting {
     /// Puts `snapshot`'s appearance on the Ghostty overrides before the
     /// runtime starts, so its first config load already has them.
     static func prime(_ snapshot: CmuxConfigSnapshot) {
+        AppearanceModeSetting.apply(snapshot.appearanceMode) // before any window, so the first frame picks its light/dark pair
         let state = State(snapshot)
         primed = state
         set(state)

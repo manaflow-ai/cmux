@@ -7,13 +7,13 @@
 // until you pick it.
 {
   "name": "Plush Clay Dark",
-  "description": "Dark: one warm sand surface, soft raised panes on even gaps, no borders, no glass, one saturated accent.",
+  "description": "Dark: warm sand, raised panels, one bright accent.",
   "appearance.theme": "Builtin Dark",
   "appearance.appTheme": "followTerminal",
   "colors": {
     "background": "#302924",
     "foreground": "#c8bbae",
-    "selection": "#6e4735",
+    "selection": "#a56a50",
     "accent": "#ff8d5e"
   },
   "appearance.accent": "theme",
@@ -22,8 +22,8 @@
     "foreground = #c8bbae",
     "cursor-color = #ff8d5e",
     "cursor-text = #302924",
-    "selection-background = #6e4735",
-    "selection-foreground = #c8bbae",
+    "selection-background = #a56a50",
+    "selection-foreground = #302924",
     "palette = 0=#564b42",
     "palette = 1=#d28983",
     "palette = 2=#72a97a",

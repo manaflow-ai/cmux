@@ -20,6 +20,17 @@ use super::*;
 /// The env var that turns eviction on: seconds of no use after which an idle chat leaves memory.
 pub(crate) const EVICT_IDLE_ENV: &str = "ACPMUX_EVICT_IDLE_SECS";
 
+/// The env var that caps the chats in memory: past it the reaper evicts the least recently used
+/// chats that may leave, however recently they were used (0 or unset: no cap).
+pub(crate) const RESIDENT_CAP_ENV: &str = "ACPMUX_RESIDENT_CAP";
+
+/// How often the reaper looks at the resident count while a cap is set: a chat made or read back
+/// anywhere can push the count over it, and no one place sees them all.
+const CAP_LOOK: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// How many rehydrate times the tier keeps for `status` (the newest).
+const REHYDRATE_SAMPLES: usize = 4096;
+
 /// How many chats one pass evicts at most, so a pass after a long sleep stays short.
 const EVICT_AT_ONCE: usize = 256;
 
@@ -167,6 +178,10 @@ pub(crate) struct Tier {
     after_ns: AtomicU64,
     pub(super) evictions: AtomicU64,
     pub(super) rehydrations: AtomicU64,
+    /// The most chats left in memory ([`RESIDENT_CAP_ENV`]); 0: no cap.
+    cap: std::sync::atomic::AtomicUsize,
+    /// How long the newest rehydrates took, in microseconds (a ring of [`REHYDRATE_SAMPLES`]).
+    rehydrate_us: StdMutex<std::collections::VecDeque<u64>>,
     /// The last pass stopped at [`EVICT_AT_ONCE`]: due chats remain that nothing kept.
     pub(super) more_due: AtomicBool,
     /// The row every evicted row is packed against ([`PackedRow`]): the first one evicted.
@@ -181,6 +196,13 @@ impl Default for Tier {
             after_ns: AtomicU64::new(secs.unwrap_or(0).saturating_mul(1_000_000_000)),
             evictions: AtomicU64::new(0),
             rehydrations: AtomicU64::new(0),
+            cap: std::sync::atomic::AtomicUsize::new(
+                std::env::var(RESIDENT_CAP_ENV)
+                    .ok()
+                    .and_then(|v| v.trim().parse().ok())
+                    .unwrap_or(0),
+            ),
+            rehydrate_us: Default::default(),
             more_due: AtomicBool::new(false),
             row_dict: StdMutex::new(None),
         }
@@ -205,6 +227,40 @@ impl Tier {
 
     pub(super) fn len(&self) -> usize {
         self.lock().len()
+    }
+
+    /// The most chats the reaper leaves in memory, None when no cap is set.
+    pub(super) fn cap(&self) -> Option<usize> {
+        Some(self.cap.load(Ordering::Relaxed)).filter(|c| *c != 0)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_cap(&self, cap: Option<usize>) {
+        self.cap.store(cap.unwrap_or(0), Ordering::Relaxed);
+    }
+
+    fn note_rehydrate(&self, took: std::time::Duration) {
+        let mut ring = self.rehydrate_us.lock().unwrap_or_else(|e| e.into_inner());
+        if ring.len() == REHYDRATE_SAMPLES {
+            ring.pop_front();
+        }
+        ring.push_back(u64::try_from(took.as_micros()).unwrap_or(u64::MAX));
+    }
+
+    /// (samples, p50, p99) of the newest rehydrate times in microseconds; zeros when none.
+    pub(crate) fn rehydrate_quantiles(&self) -> (usize, u64, u64) {
+        let mut v: Vec<u64> =
+            self.rehydrate_us.lock().unwrap_or_else(|e| e.into_inner()).iter().copied().collect();
+        if v.is_empty() {
+            return (0, 0, 0);
+        }
+        v.sort_unstable();
+        let last = v.len().saturating_sub(1);
+        let at = |q: f64| {
+            let rank = ((last as f64) * q).round() as usize;
+            v.get(rank.min(last)).copied().unwrap_or(0)
+        };
+        (v.len(), at(0.5), at(0.99))
     }
 
     /// The shared row rows are packed against, `first` when there is none yet.
@@ -288,6 +344,7 @@ impl Hub {
         let session = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
         if session.is_some() && self.evicted.lock().remove(id).is_some() {
             self.evicted.rehydrations.fetch_add(1, Ordering::Relaxed);
+            self.evicted.note_rehydrate(began.elapsed());
             tracing::debug!(session = %id, took_us = began.elapsed().as_micros() as u64, "rehydrated");
         }
         session
@@ -396,8 +453,10 @@ impl Hub {
     /// wakeups/s idle in the n=100 bench). Only when the last pass stopped at [`EVICT_AT_ONCE`] do
     /// past deadlines wake it at once.
     pub(super) fn next_evict_deadline(&self) -> Option<std::time::Duration> {
-        let after = self.evicted.after()?;
         let now = std::time::Duration::from_nanos(self.clock_now());
+        // With a cap set, look at the count every [`CAP_LOOK`].
+        let cap_look = self.evicted.cap().map(|_| now + CAP_LOOK);
+        let Some(after) = self.evicted.after() else { return cap_look };
         let retry = if self.evicted.more_due.load(Ordering::Relaxed) { now } else { now + after };
         self.session_handles()
             .iter()
@@ -409,7 +468,39 @@ impl Hub {
                     + after
             })
             .map(|due| if due > now { due } else { retry })
+            .chain(cap_look)
             .min()
+    }
+
+    /// One pass of the resident cap: while more chats are in memory than the cap, the least
+    /// recently used chat that may leave does, whatever its idle time. A chat `kept_because` keeps
+    /// (a turn, an inbound item, a client attached, ...) is never taken, so the count can stay
+    /// over the cap while those hold. Returns how many left.
+    pub(super) fn evict_over_cap(&self) -> usize {
+        let Some(cap) = self.evicted.cap() else { return 0 };
+        let resident = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).len();
+        let Some(mut over) = resident.checked_sub(cap).filter(|o| *o > 0) else { return 0 };
+        let now = self.clock_now();
+        // After 0: its idle period does not keep a chat, only what `kept_because` finds in it.
+        let mut due: Vec<Arc<Session>> =
+            self.session_handles().into_iter().filter(|s| self.evictable(s, now, 0)).collect();
+        due.sort_by_key(|s| s.last_active.load(Ordering::Relaxed));
+        let mut left = 0;
+        // Each handle moves into `evict` (see `evict_idle_chats`).
+        for s in due {
+            if over == 0 {
+                break;
+            }
+            let id = s.id.clone();
+            match self.evict(s, now, 0) {
+                Ok(()) => {
+                    left += 1;
+                    over -= 1;
+                }
+                Err(why) => tracing::debug!(session = %id, %why, "kept in memory over the cap"),
+            }
+        }
+        left
     }
 
     /// One pass of the idle reaper: every chat due leaves memory (at most [`EVICT_AT_ONCE`]).

@@ -1,24 +1,65 @@
 //! The `cloud` area's ops: the cloud link state machine, the session
-//! lease's rules and the cloud proxy's reply errors (the client's decisions;
+//! lease's rules, the cloud proxy's reply errors and Home's cloud rules
+//! (reach plan, Chiefs, archive, message requests, subscriptions) (the client's decisions;
 //! URLSession and socket I/O stay in each app).
 
 use crate::ops::{OpError, parse, reply};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+pub mod archive;
+pub mod chiefs;
+pub mod edit_echo;
+mod home_ops;
 pub mod lease;
 pub mod link;
+pub mod reach;
 pub mod reply;
+pub mod requests;
+pub mod server;
 pub mod source;
+pub mod subscriptions;
 
 /// This area's op names (without the `cloud.` prefix).
 pub const OPS: &[&str] = &[
+    "archive_after",
+    "archive_outcome",
+    "archive_plan",
+    "archive_sync",
+    "chiefs_created_here",
+    "chiefs_ensure",
+    "chiefs_is_open",
+    "chiefs_list",
+    "chiefs_move",
+    "chiefs_ok_value",
+    "chiefs_other_host",
+    "chiefs_placed_only",
+    "chiefs_placement",
+    "chiefs_shown",
+    "chiefs_stale_tabs",
+    "chiefs_tab",
     "cloud_id",
+    "echo_step",
     "jwt_claims",
     "lease_check",
     "link_step",
     "origin",
+    "reach_default_link_setup_file",
+    "reach_diff",
+    "reach_dns_label",
+    "reach_is_this_mac",
+    "reach_link_peers",
+    "reach_new",
+    "reach_parse_chiefs",
+    "reach_parse_hosts",
+    "reach_plan",
+    "reach_route",
     "reply_classify",
+    "requests_listed",
+    "requests_read_step",
+    "requests_restore",
+    "requests_take",
+    "server_rules",
     "source_answer",
     "source_derived_keys",
     "source_for_account",
@@ -30,6 +71,10 @@ pub const OPS: &[&str] = &[
     "source_message_request",
     "source_releases_key",
     "source_revision",
+    "subs_editable",
+    "subs_failed",
+    "subs_replied",
+    "subs_subscribe",
 ];
 
 #[derive(Deserialize)]
@@ -165,6 +210,6 @@ pub fn call(name: &str, request: &Value) -> Result<Value, OpError> {
             source::answer_op(&req.answer)
                 .ok_or_else(|| OpError::Invalid(format!("unknown answer {}", req.answer)))
         }
-        _ => Err(OpError::Unknown),
+        _ => home_ops::call(name, request).unwrap_or(Err(OpError::Unknown)),
     }
 }

@@ -10,16 +10,24 @@ public struct LiveAPI: Sendable {
     public let baseURL: URL
     /// A Stack access token; `true` forces a refresh after a 401.
     let accessToken: @Sendable (_ forceRefresh: Bool) async throws -> String
-    let session: URLSession
+    /// The session it sends on, replaced after a stale-connection failure (``APISessions``).
+    let sessions: APISessions
     /// A dev build's cloud data space (`X-Cmux-Build-Space`), on every request and the signaling
     /// upgrade; `.nightly` (nightly, TestFlight, App Store, Demo) sends no header, and a misconfigured
     /// dev build's requests throw ``CMUXBuildSpaceError``.
     public let buildSpace: CMUXBuildSpaceState
 
-    public init(baseURL: URL, session: URLSession = CmuxEgress.shared(site: "CmuxMobileLive.LiveAPI"), buildSpace: CMUXBuildSpaceState = .nightly,
+    public init(baseURL: URL, session: URLSession? = nil, buildSpace: CMUXBuildSpaceState = .nightly,
                 accessToken: @escaping @Sendable (_ forceRefresh: Bool) async throws -> String) {
+        self.init(baseURL: baseURL, sessions: session.map { first in
+            APISessions(first, make: { CmuxEgress.session(site: "CmuxMobileLive.LiveAPI", configuration: first.configuration) })
+        } ?? .shared, buildSpace: buildSpace, accessToken: accessToken)
+    }
+
+    init(baseURL: URL, sessions: APISessions, buildSpace: CMUXBuildSpaceState = .nightly,
+         accessToken: @escaping @Sendable (_ forceRefresh: Bool) async throws -> String) {
         self.baseURL = baseURL
-        self.session = session
+        self.sessions = sessions
         self.buildSpace = buildSpace
         self.accessToken = accessToken
     }
@@ -264,7 +272,7 @@ public struct LiveAPI: Sendable {
     func pinningToken() async throws -> LiveAPI {
         let token = try await accessToken(false)
         let provider = accessToken
-        return LiveAPI(baseURL: baseURL, session: session, buildSpace: buildSpace, accessToken: { forceRefresh in
+        return LiveAPI(baseURL: baseURL, sessions: sessions, buildSpace: buildSpace, accessToken: { forceRefresh in
             if forceRefresh { return try await provider(true) }
             return token
         })
@@ -318,6 +326,32 @@ public struct LiveAPI: Sendable {
         return request
     }
 
+    /// `POST` `pathAndQuery` (from Rust's `PhoneCatchUp.relayRequest`: `/v1/relay-cache/...?deviceId=`)
+    /// with a JSON body already encoded, bearer refreshed once on a 401 like ``call(_:_:body:)``.
+    func relayCache(pathAndQuery: String, json: String) async throws -> Data {
+        let parts = pathAndQuery.split(separator: "?", maxSplits: 1)
+        var components = URLComponents(url: baseURL.appending(path: String(parts.first ?? "")), resolvingAgainstBaseURL: false)
+        if parts.count == 2 { components?.percentEncodedQuery = String(parts[1]) }
+        guard let url = components?.url else { throw Failure(status: 0, code: "bad_request", message: "relay cache path") }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 15
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data(json.utf8)
+        try buildSpace.apply(to: &request)
+        for forceRefresh in [false, true] {
+            request.setValue("Bearer \(try await accessToken(forceRefresh))", forHTTPHeaderField: "Authorization")
+            let (data, response) = try await send(request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            if status == 401, !forceRefresh { continue }
+            guard (200..<300).contains(status) else {
+                throw Self.failure(status: status, data: data, requestID: Self.requestID(response as? HTTPURLResponse))
+            }
+            return data
+        }
+        throw Failure(status: 401, code: "unauthorized", message: "token refresh failed")
+    }
+
     /// The request ``call(_:_:body:)`` sends, before its bearer.
     func makeRequest(_ method: String, _ path: String, body: [String: Any]? = nil) throws -> URLRequest {
         var request = URLRequest(url: baseURL.appending(path: path))
@@ -336,7 +370,7 @@ public struct LiveAPI: Sendable {
         // A rejected token (expired while the app slept) is refreshed once.
         for forceRefresh in [false, true] {
             request.setValue("Bearer \(try await accessToken(forceRefresh))", forHTTPHeaderField: "Authorization")
-            let (data, response) = try await session.data(for: request)
+            let (data, response) = try await send(request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             if status == 401, !forceRefresh { continue }
             guard (200..<300).contains(status) else {
@@ -345,6 +379,34 @@ public struct LiveAPI: Sendable {
             return data
         }
         throw Failure(status: 401, code: "unauthorized", message: "token refresh failed")
+    }
+
+    /// How long the first try of an idempotent request waits for bytes before it is sent again on a fresh session
+    /// (``APISessions``): a stale pooled connection answers nothing, so its full 15 s was 15 s of a blank list.
+    static let firstTryTimeout: TimeInterval = 8
+
+    static func isIdempotent(_ request: URLRequest) -> Bool {
+        ["GET", "HEAD", "PUT", "DELETE", "OPTIONS"].contains((request.httpMethod ?? "GET").uppercased())
+    }
+
+    static func firstTry(_ request: URLRequest) -> URLRequest {
+        guard isIdempotent(request) else { return request }
+        var first = request
+        first.timeoutInterval = min(request.timeoutInterval, firstTryTimeout)
+        return first
+    }
+
+    /// `request` on the current session. After a stale-connection failure (``APISessions``) later requests use a
+    /// fresh session, and an idempotent request, or one that never left, is sent once more there at its full timeout.
+    func send(_ request: URLRequest) async throws -> (Data, URLResponse) {
+        let session = sessions.session
+        do {
+            return try await session.data(for: Self.firstTry(request))
+        } catch let error where APISessions.isStale(error) {
+            let fresh = sessions.renew(after: session)
+            guard Self.isIdempotent(request) || APISessions.wasNotSent(error) else { throw error }
+            return try await fresh.data(for: request)
+        }
     }
 
     static func failure(status: Int, data: Data, requestID: String? = nil) -> Failure {
@@ -453,7 +515,7 @@ extension LiveAPI {
 /// What a person reads for a failed service call: never the HTTP status, the code
 /// or the type. The service's own message shows when it reads as a sentence. Shown for loads
 /// (retried on their own) and actions alike, so only a server-enforced wait names a retry.
-extension LiveAPI.Failure: LocalizedError {
+extension LiveAPI.Failure: LocalizedError, LinkServiceFailure {
     public var errorDescription: String? {
         switch status {
         case 401: return "Your session expired. Sign in again."

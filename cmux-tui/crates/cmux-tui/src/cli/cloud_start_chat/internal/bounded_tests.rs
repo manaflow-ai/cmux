@@ -94,3 +94,32 @@ fn a_remote_script_holds_the_seconds_left() {
         Some("timeout -k 1 2 sh -c 'echo a b'")
     );
 }
+
+/// A step still running when its `until` comes runs on to the later instant `later` names (a new machine still
+/// booting, fresh.rs `Boot`), and is killed at the first `until` for which `later` names none.
+#[cfg(unix)]
+#[test]
+fn a_bounded_step_runs_on_while_later_moves_its_end() {
+    let began = Instant::now();
+    let mut asked = 0;
+    let mut command = cmux_process::Command::new("sh");
+    command.arg("-c").arg("sleep 1; echo up");
+    let ran = output_by_unless(command, began + Duration::from_millis(200), &mut || {
+        asked += 1;
+        Some(Instant::now() + Duration::from_secs(20))
+    });
+    assert_eq!((ran.code, ran.stdout.as_str()), (0, "up\n"), "{}", ran.stderr);
+    assert_eq!(asked, 1);
+
+    let began = Instant::now();
+    let mut asked = 0;
+    let mut command = cmux_process::Command::new("sh");
+    command.arg("-c").arg("sleep 30");
+    let ran = output_by_unless(command, began + Duration::from_millis(200), &mut || {
+        asked += 1;
+        (asked < 3).then(|| Instant::now() + Duration::from_millis(200))
+    });
+    assert_eq!(ran.code, PAST_DEADLINE, "{ran:?}");
+    assert_eq!(asked, 3);
+    assert!(began.elapsed() < Duration::from_secs(10), "{:?}", began.elapsed());
+}

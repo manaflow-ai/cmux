@@ -198,6 +198,15 @@ public struct TabSnapshotStore: Sendable {
 @Observable
 public final class TabSnapshotEntry {
     public fileprivate(set) var image: UIImage?
+    /// The persisted picture dimensions arrive before its bytes finish decoding, so a card can
+    /// reserve the same aspect on a cold launch.
+    public fileprivate(set) var pixelWidth: Int = 0
+    public fileprivate(set) var pixelHeight: Int = 0
+    public var hasKnownPicture: Bool { pixelWidth > 0 && pixelHeight > 0 }
+    public var knownPictureSize: CGSize? {
+        guard hasKnownPicture else { return nil }
+        return CGSize(width: pixelWidth, height: pixelHeight)
+    }
     /// When `image` was captured (0: unknown), so an older picture never replaces a newer one.
     @ObservationIgnored fileprivate var capturedAtMs: Int64 = 0
     /// The disk was asked for this tab's picture (once per launch, and again after a save or an eviction).
@@ -274,10 +283,14 @@ public final class TabCardSnapshots {
             entry.asked = true
             Task.detached(priority: .userInitiated) { [weak self] in
                 let newest = store.newestPicture(key)
+                await self?.loadedMetadata(newest?.pixelWidth ?? 0, pixelHeight: newest?.pixelHeight ?? 0,
+                                           capturedAtMs: newest?.capturedAtMs ?? 0, key: key)
                 // A picture an earlier build saved as a placeholder (the cannot-draw mark, one solid
                 // colour) is never shown; the card draws afresh instead.
                 let image = newest.flatMap { UIImage(data: $0.data) }.flatMap { CardPictureGate.isPlaceholder($0) ? nil : $0 }?.preparingForDisplay()
-                await self?.loaded(image, key, capturedAtMs: newest?.capturedAtMs ?? 0)
+                await self?.loaded(image, key, pixelWidth: newest?.pixelWidth ?? 0,
+                                   pixelHeight: newest?.pixelHeight ?? 0,
+                                   capturedAtMs: newest?.capturedAtMs ?? 0)
             }
         }
     }
@@ -288,9 +301,23 @@ public final class TabCardSnapshots {
         warm([key])
     }
 
-    private func loaded(_ image: UIImage?, _ key: TabSnapshotKey, capturedAtMs: Int64) {
+    private func loadedMetadata(_ pixelWidth: Int, pixelHeight: Int, capturedAtMs: Int64, key: TabSnapshotKey) {
+        guard let entry = entries[key], entry.image == nil else { return }
+        guard pixelWidth > 0, pixelHeight > 0 else { return }
+        entry.pixelWidth = pixelWidth
+        entry.pixelHeight = pixelHeight
+        entry.capturedAtMs = capturedAtMs
+    }
+
+    private func loaded(_ image: UIImage?, _ key: TabSnapshotKey, pixelWidth: Int, pixelHeight: Int,
+                        capturedAtMs: Int64) {
         loads += 1
-        guard let image, let entry = entries[key], entry.image == nil else { return }
+        guard let entry = entries[key], entry.image == nil else { return }
+        if let image {
+            entry.pixelWidth = pixelWidth > 0 ? pixelWidth : max(1, Int((image.size.width * image.scale).rounded()))
+            entry.pixelHeight = pixelHeight > 0 ? pixelHeight : max(1, Int((image.size.height * image.scale).rounded()))
+        }
+        guard let image else { return }
         entry.image = image
         entry.capturedAtMs = capturedAtMs
         touch(key)
@@ -376,6 +403,8 @@ public final class TabCardSnapshots {
     private func show(_ image: UIImage, _ key: TabSnapshotKey, capturedAtMs: Int64) {
         let entry = entry(key)
         entry.image = image
+        entry.pixelWidth = max(1, Int((image.size.width * image.scale).rounded()))
+        entry.pixelHeight = max(1, Int((image.size.height * image.scale).rounded()))
         entry.capturedAtMs = capturedAtMs
         entry.asked = true
         touch(key)
@@ -448,12 +477,28 @@ public final class TabCardSnapshots {
 /// A tab's last-known picture as its card shows it: full width, from the top.
 /// Draws nothing while the tab has none.
 struct TabSnapshotPicture: View {
-    let image: UIImage
+    let image: UIImage?
+    let pixelWidth: Int
+    let pixelHeight: Int
+
+    init(image: UIImage?, pixelWidth: Int = 0, pixelHeight: Int = 0) {
+        self.image = image
+        self.pixelWidth = pixelWidth
+        self.pixelHeight = pixelHeight
+    }
 
     var body: some View {
         GeometryReader { geo in
-            Image(uiImage: image).resizable().interpolation(.medium)
-                .frame(width: geo.size.width, height: geo.size.width * image.size.height / max(1, image.size.width))
+            let width = CGFloat(pixelWidth > 0 ? pixelWidth : Int(image?.size.width ?? 1))
+            let height = CGFloat(pixelHeight > 0 ? pixelHeight : Int(image?.size.height ?? 1))
+            Color.cmuxMobileBackground
+                .frame(width: geo.size.width, height: geo.size.width * height / max(1, width), alignment: .top)
+                .overlay(alignment: .top) {
+                    if let image {
+                        Image(uiImage: image).resizable().interpolation(.medium)
+                            .frame(width: geo.size.width, height: geo.size.width * height / max(1, width))
+                    }
+                }
         }
         .accessibilityHidden(true)
     }

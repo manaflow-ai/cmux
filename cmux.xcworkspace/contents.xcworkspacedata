@@ -32,10 +32,19 @@
          location = "group:CmuxAuthRuntime">
       </FileRef>
       <FileRef
+         location = "group:CmuxChiefList">
+      </FileRef>
+      <FileRef
          location = "group:CmuxChiefVoiceCore">
       </FileRef>
       <FileRef
+         location = "group:CmuxConnectivityTelemetry">
+      </FileRef>
+      <FileRef
          location = "group:CmuxDeviceHub">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxEgress">
       </FileRef>
       <FileRef
          location = "group:CmuxFeedPushCore">
@@ -53,22 +62,22 @@
          location = "group:CmuxInstallAuthCore">
       </FileRef>
       <FileRef
-         location = "group:CmuxIrohTransport">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxIrxTransport">
-      </FileRef>
-      <FileRef
          location = "group:CmuxMessagesLab">
       </FileRef>
       <FileRef
          location = "group:CMUXMobileCore">
       </FileRef>
       <FileRef
+         location = "group:CmuxPagePushBound">
+      </FileRef>
+      <FileRef
          location = "group:CmuxScreenKit">
       </FileRef>
       <FileRef
          location = "group:CmuxSentryTelemetry">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSpinner">
       </FileRef>
       <FileRef
          location = "group:CmuxTerminalSizing">
@@ -83,10 +92,16 @@
          location = "group:CmuxTheme">
       </FileRef>
       <FileRef
+         location = "group:CmuxVisibleRows">
+      </FileRef>
+      <FileRef
          location = "group:CmuxVNC">
       </FileRef>
       <FileRef
          location = "group:CmuxVNCWebRTC">
+      </FileRef>
+      <FileRef
+         location = "group:GlassHost">
       </FileRef>
    </Group>
    <Group
@@ -97,6 +112,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxConversation">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileBilling">
       </FileRef>
       <FileRef
          location = "group:CmuxMobilePairedMac">
@@ -128,6 +146,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxPhonePush">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxRemote">
       </FileRef>
       <FileRef
          location = "group:CmuxUpdater">

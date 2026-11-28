@@ -7,7 +7,8 @@
 //! to the machine it is on until this machine's one-time migration pinned every older chat
 //! there, Auto after it (a chat created since), so nothing moves unasked when this ships.
 //! `Auto` is only stored here: its later move to Cloud (lid closed, offline, overloaded) is not
-//! built yet and never goes back on its own.
+//! built yet and never goes back on its own. `Cloud` moves the chat to a fresh Cloud machine,
+//! started for it through the `cmux` CLI's own machine start ([`cloud_new_words`]).
 
 use crate::place_mode::PlaceMode;
 use serde::Serialize;
@@ -160,7 +161,8 @@ pub fn left_behind(i: &Inputs) -> Vec<LeftBehind> {
 pub enum State {
     /// Stored; the chat stays where it is.
     Pinned,
-    /// The move runs now.
+    /// The move runs now (for Cloud: its fresh machine starts now, and the chat moves once it is
+    /// up and the chat is between turns).
     Moving,
     /// The chat is mid-turn: it moves when the turn ends.
     AfterTurn,
@@ -170,52 +172,135 @@ pub enum State {
     Refused,
 }
 
+/// Where a move goes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Target {
+    /// One of the person's machines, by its id.
+    Machine(String),
+    /// A fresh Cloud machine, started for this chat ([`cloud_new_words`]).
+    NewCloud,
+}
+
+impl Target {
+    /// What the move line and a failure name: the machine, or `Cloud`.
+    pub fn label(&self) -> &str {
+        match self {
+            Self::Machine(id) => id,
+            Self::NewCloud => "Cloud",
+        }
+    }
+}
+
 /// What to do with a pick.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Plan {
     pub state: State,
-    /// The machine to move to, for `Moving` and `AfterTurn`.
-    pub move_to: Option<String>,
+    /// Where to move, for `Moving` and `AfterTurn`.
+    pub move_to: Option<Target>,
     /// Whether the pick is stored as the chat's pin.
     pub store: bool,
     pub reason: Option<String>,
 }
 
-/// Why Cloud only is refused today: a fresh VM is made by the app, not reachable from acpmux.
-pub const CLOUD_UNREACHABLE: &str = "Cloud only needs a fresh cloud machine, which only the app \
-can start today; pick a machine, or start the cloud move from the app";
-
-/// The state `want` lands in for a chat on `here`. `left` is read only when a move would run
-/// (`needs_left`).
-pub fn needs_left(want: &PlaceMode, here: &str) -> bool {
-    matches!(want, PlaceMode::Machine { id } if id != here)
+/// Whether a pick of `want` for a chat on `here` would move it, so what stays behind is read
+/// first. `on_cloud`: this daemon runs on a Cloud machine, where Cloud only already holds.
+pub fn needs_left(want: &PlaceMode, here: &str, on_cloud: bool) -> bool {
+    match want {
+        PlaceMode::Machine { id } => id != here,
+        PlaceMode::Cloud => !on_cloud,
+        PlaceMode::Auto => false,
+    }
 }
 
+/// The state `want` lands in for a chat on `here` (`on_cloud`: here is a Cloud machine). `left`
+/// is read only when a move would run ([`needs_left`]).
 pub fn plan(
     want: &PlaceMode,
     here: &str,
+    on_cloud: bool,
     running: bool,
     left: &[LeftBehind],
     confirm: bool,
 ) -> Plan {
-    let done = |state, store, move_to: Option<String>, reason: Option<String>| Plan {
-        state,
-        move_to,
-        store,
-        reason,
+    let done = |state, store, move_to: Option<Target>| Plan { state, move_to, store, reason: None };
+    let target = match want {
+        PlaceMode::Auto => return done(State::Pinned, true, None),
+        // Already on a Cloud machine: Cloud only holds, and is kept as the pin.
+        PlaceMode::Cloud if on_cloud => return done(State::Pinned, true, None),
+        PlaceMode::Cloud => Target::NewCloud,
+        PlaceMode::Machine { id } if id == here => return done(State::Pinned, true, None),
+        PlaceMode::Machine { id } => Target::Machine(id.clone()),
     };
-    match want {
-        PlaceMode::Auto => done(State::Pinned, true, None, None),
-        PlaceMode::Cloud => done(State::Refused, false, None, Some(CLOUD_UNREACHABLE.to_owned())),
-        PlaceMode::Machine { id } if id == here => done(State::Pinned, true, None, None),
-        PlaceMode::Machine { .. } if !left.is_empty() && !confirm => {
-            done(State::NeedsConfirm, false, None, None)
-        }
-        PlaceMode::Machine { id } => {
-            let state = if running { State::AfterTurn } else { State::Moving };
-            done(state, false, Some(id.clone()), None)
-        }
+    if !left.is_empty() && !confirm {
+        return done(State::NeedsConfirm, false, None);
     }
+    let state = if running { State::AfterTurn } else { State::Moving };
+    done(state, false, Some(target))
+}
+
+/// The fresh machine of a Cloud move: `cmux vm new --wait`, the create and wait a hybrid start's
+/// driver runs (cmux-tui `cli/vm_ready.rs` `new_and_wait`, `cli/chat_start/hybrid_start.rs`
+/// `ready_machine`). The app's sign-in carries it; acpmux reads no credential.
+pub fn cloud_new_words() -> Vec<String> {
+    ["vm", "new", "--wait", "--json"].map(str::to_owned).to_vec()
+}
+
+/// The move onto that machine: the app's Move to Cloud as the hybrid driver runs it
+/// (`hybrid_start.rs` `move_words`): the folder copied, the chat moved with its history, and
+/// shown there. No `--interrupt`: it runs between turns.
+pub fn cloud_move_words(session: &str, machine: &str) -> Vec<String> {
+    ["move", session, "--to", &format!("vm:{machine}"), "--json"].map(str::to_owned).to_vec()
+}
+
+/// The pause of a fresh machine the chat did not move to (`hybrid_start.rs` `pause_words`), so
+/// none is left running with no chat on it.
+pub fn cloud_pause_words(machine: &str) -> Vec<String> {
+    ["cloud", "pause-machine", "--target", &format!("machine:{machine}"), "--json"]
+        .map(str::to_owned)
+        .to_vec()
+}
+
+/// The last JSON object in `text` (a `--json` step prints one, maybe after other lines).
+fn json_of(text: &str) -> Option<Value> {
+    let text = text.trim();
+    serde_json::from_str::<Value>(text).ok().filter(Value::is_object).or_else(|| {
+        text.lines().rev().find_map(|line| {
+            serde_json::from_str::<Value>(line.trim()).ok().filter(Value::is_object)
+        })
+    })
+}
+
+/// A `cmux --json` step's answer, read as the Cloud start reads one (cmux-tui
+/// `cloud_start_chat.rs` `step_result`): its `result` (or the whole object) when it exited 0,
+/// else its error's message, else its last line.
+pub fn step_answer(ok: bool, stdout: &str, stderr: &str) -> Result<Value, String> {
+    if ok && let Some(value) = json_of(stdout) {
+        return Ok(value.get("result").cloned().unwrap_or(value));
+    }
+    let error = json_of(stderr).or_else(|| json_of(stdout));
+    let message = error.as_ref().and_then(|e| {
+        e.pointer("/error/message").or_else(|| e.get("message")).and_then(Value::as_str)
+    });
+    if let Some(message) = message {
+        return Err(message.to_owned());
+    }
+    let text = if stderr.trim().is_empty() { stdout } else { stderr };
+    Err(text
+        .lines()
+        .rev()
+        .find(|l| !l.trim().is_empty())
+        .map_or_else(|| "it failed and said nothing".to_owned(), |l| l.trim().to_owned()))
+}
+
+/// The machine `cmux vm new --wait` made: its answer's `machine_id`.
+pub fn machine_of(answer: &Value) -> Result<String, String> {
+    answer
+        .get("machine_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned)
+        .ok_or_else(|| "the fresh machine's answer names no machine_id".to_owned())
 }
 
 /// The line a move writes in the chat: `Moved to Cloud · Mac went to sleep`.

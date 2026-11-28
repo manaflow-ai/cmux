@@ -150,15 +150,18 @@ const b64 = (text: string) => Buffer.from(text, "utf8").toString("base64");
 test("a row renders to a string, with or without the store, as the transcript's server renders do", () => {
   // useSyncExternalStore throws under renderToString without a server snapshot.
   const { runs } = harness();
+  // A supplied label keeps this SSR check independent of inferred command names.
+  const item = call("in_progress", Date.now());
+  item.tool!.description = "Run the test suite";
   for (const Row of [CommandRow, ToolRow]) {
-    expect(renderToStaticMarkup(<Row item={call("in_progress", Date.now())} />)).toContain("cargo test");
+    expect(renderToStaticMarkup(<Row item={item} />)).toContain("Run the test suite");
     expect(
       renderToStaticMarkup(
         <RunElsewhereContext.Provider value={runs}>
-          <Row item={call("in_progress", Date.now())} />
+          <Row item={item} />
         </RunElsewhereContext.Provider>,
       ),
-    ).toContain("cargo test");
+    ).toContain("Run the test suite");
   }
 });
 

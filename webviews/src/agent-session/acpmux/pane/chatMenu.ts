@@ -38,10 +38,13 @@ import type { AcpmuxSnapshot } from "../model";
 import { hasNativeHost } from "../native";
 import type { PaneNotices } from "../paneToasts";
 import { sessionReplay } from "../replay/replay.experiment";
+import { shareRefused } from "../share/shareNudgeModel";
 import { steerQueueExperiment } from "../steerQueue/steerQueue.experiment";
 
 /// What AcpmuxPane's `chatMenu` reads from the pane (App.tsx builds it each time the menu is drawn).
 export type ChatMenuDeps = {
+  /// The pane view the chat is (paneViewStore.ts): its header state, not another view's.
+  paneView?: string | null;
   accessGrants: ReturnType<typeof chatAccessGrants>;
   archive: ReturnType<typeof archiveRow>;
   avatar: ReturnType<typeof avatarRows>;
@@ -86,9 +89,17 @@ export type ChatMenuDeps = {
   turnActions: TurnActions;
 };
 
+/// Whether chatMenuItems has rows whatever else the chat's state is: a tab's chat always has
+/// Rename and Pin, and Quick Chat's has Delete once it has a session. Only Quick Chat before its
+/// session may have none, and then the header reads the rows to draw "..." disabled.
+export function chatMenuHasRows(quick: boolean, sessionId: string | undefined): boolean {
+  return !quick || !!sessionId;
+}
+
 /// The header's "..." menu for the pane's chat (AcpmuxPane's `chatMenu`).
 export function chatMenuItems(deps: ChatMenuDeps): ChatMenuItem[] {
   const {
+    paneView = null,
     accessGrants,
     archive,
     avatar,
@@ -188,8 +199,10 @@ export function chatMenuItems(deps: ChatMenuDeps): ChatMenuItem[] {
         },
       ]
     : [];
+  // Share… only where the app can share the chat (shareRefused): another machine's chat would
+  // open a dialog the app refuses every step of.
   const share: ChatMenuItem | undefined =
-    snapshot.sessionId && hasNativeHost()
+    hasNativeHost() && !shareRefused(snapshot)
       ? { key: "share", label: t("share.menu"), icon: "action.share", onSelect: () => setShareOpen(true) }
       : undefined;
   // Fork immediately; destination choices are a separate action and Option-click shortcut.
@@ -354,7 +367,7 @@ export function chatMenuItems(deps: ChatMenuDeps): ChatMenuItem[] {
   // pane's "..." on the terminal.
   const terminalSwitch = guarded(
     terminalSwitchRow(
-      { switchable: headerState().terminalSwitch, native: hasNativeHost(), quick },
+      { switchable: headerState(paneView).terminalSwitch, native: hasNativeHost(), quick },
       () =>
         void callNative("action.run", {
           id: TERMINAL_SWITCH_ACTION,
@@ -410,7 +423,7 @@ export function chatMenuItems(deps: ChatMenuDeps): ChatMenuItem[] {
       },
       {
         key: "pin",
-        label: headerState().pinned ? t("chatMenu.unpin") : t("chatMenu.pin"),
+        label: headerState(paneView).pinned ? t("chatMenu.unpin") : t("chatMenu.pin"),
         icon: "action.pin",
         shortcutAction: HEADER_ACTIONS.pin,
         onSelect: () => runHeaderAction(HEADER_ACTIONS.pin),
@@ -443,7 +456,7 @@ export function chatMenuItems(deps: ChatMenuDeps): ChatMenuItem[] {
         shortcutAction: HEADER_ACTIONS.newWindow,
         onSelect: () => runHeaderAction(HEADER_ACTIONS.newWindow),
       },
-      ...(headerState().floatingChat && snapshot.sessionId
+      ...(headerState(paneView).floatingChat && snapshot.sessionId
         ? [
             {
               key: "floatingChat",

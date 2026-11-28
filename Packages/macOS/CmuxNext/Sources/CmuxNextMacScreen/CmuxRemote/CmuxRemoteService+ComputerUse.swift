@@ -41,39 +41,31 @@ public final class CmuxRemoteComputerUseState {
         actingClear = DemandTimer(owner: "computer-use.acting", clock: clock)
     }
 
-    /// Takes the host's own status object (`remote-host-status`'s `host`, or a host call's answer).
+    /// Takes the host's own status object (`remote-host-status`'s `host`, or a host call's answer):
+    /// Rust reads the worker's fields (service.hostStatus).
     func take(host: [String: Any]?) {
-        let pid = (host?["pid"] as? Int).map { pid_t($0) }
+        let status = RdUI.call("service.hostStatus", ["host": host ?? NSNull()]) as? [String: Any] ?? [:]
+        let pid = (status["hostPid"] as? Int).map { pid_t($0) }
         if hostPID != pid { hostPID = pid }
-        let worker = (host?["workers"] as? [String: Any])?["computer-use"] as? [String: Any]
-        let failed = worker?["state"] as? String == "unavailable"
+        let failed = status["failed"] as? Bool ?? false
         if computerUseFailed != failed { computerUseFailed = failed }
-        let reason = failed ? worker?["reason"] as? String : nil
+        let reason = status["failure"] as? String
         if failure != reason { failure = reason }
-        let state = worker?["state"] as? String
+        let state = status["workerState"] as? String
         if workerState != state { workerState = state }
-        let workerPID = (worker?["pid"] as? Int).map { pid_t($0) }
+        let workerPID = (status["workerPid"] as? Int).map { pid_t($0) }
         if self.workerPID != workerPID { self.workerPID = workerPID }
         // No host: no session acts. An answer without the worker's fields (a config reply) changes nothing.
-        if host == nil || worker != nil {
-            take(activity: CmuxRemoteComputerUseSession.sessions(from: worker?["activity"] as? [Any]))
+        if status["takeActivity"] as? Bool ?? true {
+            take(activity: CmuxRemoteComputerUseSession.sessions(from: status["activity"] as? [Any]))
         }
     }
 
-    /// Takes a `list` answer: `{"saved":{"always":[...],"never":[...]}}` (ids, or `{"app_id"|"id"}` objects).
+    /// Takes a `list` answer: `{"saved":{"always":[...],"never":[...]}}`, sorted by id in Rust (service.approvals).
     func take(approvals answer: [String: Any]?) {
-        let saved = answer?["saved"] as? [String: Any] ?? answer ?? [:]
-        func ids(_ key: String) -> [String] {
-            (saved[key] as? [Any] ?? []).compactMap { entry in
-                if let id = entry as? String { return id }
-                let object = entry as? [String: Any]
-                return (object?["app_id"] ?? object?["id"]) as? String
-            }
-        }
-        let next = (ids("always").map { ($0, "always") } + ids("never").map { ($0, "never") }).sorted { $0.0 < $1.0 }
-        if next.map(\.0) != approvals.map(\.appID) || next.map(\.1) != approvals.map(\.decision) {
-            approvals = next.map { (appID: $0.0, decision: $0.1) }
-        }
+        let rows = RdUI.call("service.approvals", ["answer": answer ?? NSNull()]) as? [[String: Any]] ?? []
+        let next = rows.compactMap { row in (row["appId"] as? String).map { (appID: $0, decision: row["decision"] as? String ?? "") } }
+        if next.map(\.appID) != approvals.map(\.appID) || next.map(\.decision) != approvals.map(\.decision) { approvals = next }
     }
 }
 
@@ -82,12 +74,7 @@ extension CmuxRemoteComputerUseState {
     package func addSettingsFields(to fields: inout [String: CmuxNextSettings.JSONValue]) {
         guard embedded else { return }
         fields["engine"] = .string("cmux Computer Use")
-        let state: String = switch workerState {
-        case "ready": "running"
-        case "starting": "starting"
-        case "unavailable": "failed"
-        default: "stopped"
-        }
+        let state = RdUI.call("service.workerLabel", ["state": workerState ?? NSNull()]) as? String ?? "stopped"
         let pid: CmuxNextSettings.JSONValue = workerPID.map { CmuxNextSettings.JSONValue.number(Double($0)) } ?? .null
         fields["worker"] = .object(["state": .string(state), "pid": pid])
         fields["approvals"] = .array(approvals.map { approval -> CmuxNextSettings.JSONValue in
@@ -204,10 +191,12 @@ extension CmuxRemoteService {
         return host
     }
 
-    /// Restarts the Computer Use worker (a new process reads new grants; grants and sessions stay).
+    /// Restarts the Computer Use worker (a new process reads new grants; grants and sessions stay):
+    /// cmux Remote's where the build embeds it, else the daemon's own (the Screen Sharing helper's
+    /// `__computer-use-worker`), which the daemon answers for the same `restart` call.
     public func restartComputerUse() async {
-        guard computerUse.embedded else { return }
         _ = try? await call("restart", .object(["worker": .string("computer-use")]))
+        guard computerUse.embedded else { return }
         _ = await computerUseStatus()
     }
 
