@@ -28,7 +28,6 @@ use crate::ScreenId;
 use crate::SplitId;
 use crate::SurfaceId;
 use crate::WorkspaceId;
-use serde_json::json;
 use serde_json::{Value, json};
 use std::sync::Arc;
 

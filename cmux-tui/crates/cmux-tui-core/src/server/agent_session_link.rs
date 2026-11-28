@@ -49,6 +49,10 @@ mod tests;
 /// page to `MAX_PAGE_BYTES` for its client); a longer line ends the link.
 pub(super) const MAX_LINE_BYTES: usize = 32 << 20;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
+/// Requests one link holds waiting for replies. Past it `call_until` sends nothing and
+/// returns [`LinkError::Timeout`] (callers read that as busy or reconcile), rather than
+/// queueing work behind a stalled acpmux.
+const MAX_IN_FLIGHT: usize = 64;
 const THREAD_STACK_BYTES: usize = 256 * 1024;
 
 /// The cheap request a long call asks beside itself to learn whether acpmux still answers
@@ -201,7 +205,7 @@ impl AcpmuxLink {
         {
             let mut pending = self.pending.lock().unwrap_or_else(|e| e.into_inner());
             if pending.len() >= MAX_IN_FLIGHT {
-                return Err(LinkError::Busy);
+                return Err(LinkError::Timeout);
             }
             pending.insert(id, sender);
         }
