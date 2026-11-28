@@ -18,7 +18,7 @@ import React, {
   useSyncExternalStore,
 } from "react";
 import { useScrollEdges } from "../../../ui/scrollEdges";
-import { useKeyStyleSettings, useListKeys } from "../../../ui/useListKeys";
+import { MODIFIER_KEYS, useKeyStyleSettings, useListKeys } from "../../../ui/useListKeys";
 import type { ConnectKind } from "../environments";
 import { githubFolder, githubFolderRepo } from "../githubRepos";
 import { useSendAfterCheckout } from "../sendAfterCheckout";
@@ -46,7 +46,8 @@ import {
 } from "../sessionList";
 import { leaders } from "../leads";
 import { WorktreeFailure } from "../startFolder";
-import { NewProjectName, NewProjectFailure, NewProjectUnsupported } from "./NewProjectName";
+import { NewProjectName, NewProjectFailure } from "./NewProjectName";
+import { NewProjectUnsupported } from "./newProjectUnsupported";
 import {
   awaitProjectPreview,
   forgetProjectPreview,
@@ -117,7 +118,8 @@ import {
   attachedRows,
   commandRows,
 } from "./screenModel";
-import { SuggestionGlyph, rowGlyphName } from "./RowGlyph";
+import { SuggestionGlyph } from "./RowGlyph";
+import { rowGlyphName } from "./rowGlyphNames";
 import { Icon } from "../icons/Icon";
 import { useNoEntryMotion } from "./noEntryMotion";
 import { EnvironmentCard, SuggestionsCard } from "./StageCards";
@@ -2174,6 +2176,8 @@ export function NewTabScreen(props: Props) {
     submit();
   };
   const keyDown = (event: KeyboardEvent) => {
+    // Showing shortcut hints is not input: the host refreshes its lists at first use.
+    if (MODIFIER_KEYS.has(event.key)) return;
     touch();
     if (composing.current || event.isComposing || event.keyCode === 229) return;
     if (isPasteAsPlainTextKey(event)) pastedChips.plainPaste();

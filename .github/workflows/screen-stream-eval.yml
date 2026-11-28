@@ -7,7 +7,9 @@ name: screen stream eval
 # the last daily run that left results (artifacts keep 3 days, the repo's limit, so a daily run
 # always finds yesterday's). Its one gate is the screen-share budget (budget_gate.py; cmuxterm-hq
 # docs/design/screen-share-under-100ms.md, piece 6): a stage whose p50 is over its budget fails the
-# run and is named in the job's error and in gate.json. It also publishes probe.json
+# run and is named in the job's error and in gate.json. gate.json is written as a fail before the step
+# reaches the fleet and marked with each stage the run reaches, so a run killed or cut short uploads a fail
+# naming its last stage (scripts/measure/budget_gate/, the shared runner; screen-share is its probe). It also publishes probe.json
 # (schema cmux.screen-share-fast/1) for the screen-share-fast goal board. It goes through the build-fleet
 # gateway runner, which only hands the step to the controller with `cmux-ci run`.
 # The daily targets are rd, webrtc and iphone-sim (the iPhone app's own viewer in a simulator: its key
@@ -79,6 +81,7 @@ jobs:
           filter: blob:none
           sparse-checkout: |
             /scripts/measure/screen-stream-eval/
+            /scripts/measure/budget_gate/
             /.gitmodules
           sparse-checkout-cone-mode: false
       - name: the last daily run with results
@@ -149,6 +152,33 @@ jobs:
           # on an unlocked console (worker screen_share.eval_launcher); the top-level screen_share grants are
           # the Computer Use helper's, and Macs read as granted from them failed the eval's preflight (exit 3).
           # The iPhone viewer target boots an iOS simulator, so it also needs the simulator label.
+          # A worker named by the input or vars.SCREEN_STREAM_EVAL_WORKER is strictly pinned, so one that is
+          # offline or lacks the eval grants holds the step in the queue until QUEUE_TIMEOUT: runs
+          # 46137161090 and 46137162688 (2026-11-28) sat 8 h pinned to cmux-austin-mini-0 (offline), and
+          # iphone-sim runs pinned to cmux18 (no simulator label, no Xcode.app) failed their build. Keep the
+          # named worker only while it is online and carries the labels this run needs; else resolve
+          # one below, as an empty worker does. A worker in an owner pool (fleet.json owner_only_hosts:
+          # cmux11 is the Slack bot's own Mac, pool slack-bot) carries the grant labels too, but the
+          # controller refuses any other owner's step there (HTTP 409, run 46196062879), so neither
+          # path takes a worker that names a pool.
+          if [ -n "$WORKER" ]; then
+            named="$WORKER"
+            WORKER=$("$client" workers --online --label gui-session-v1 2>/dev/null | python3 -I -c '
+          import json, sys
+          try:
+              rows, _ = json.JSONDecoder().raw_decode(sys.stdin.read())
+          except ValueError:
+              sys.exit(0)
+          iphone = ",iphone-sim," in "," + sys.argv[2] + ","
+          w = rows.get(sys.argv[1])
+          if w and w.get("state", "online") == "online" and not w.get("pool"):
+              labels = w.get("labels", [])
+              if ("measure" in labels and "screen-eval-granted" in labels
+                      and (not iphone or "simulator" in labels)):
+                  print(sys.argv[1])
+          ' "$named" "$TARGETS" || true)
+            [ -n "$WORKER" ] || echo "::warning title=screen stream eval::named worker $named is offline or lacks the labels for targets $TARGETS; resolving a granted worker instead"
+          fi
           if [ -z "$WORKER" ]; then
             WORKER=$("$client" workers --online --label gui-session-v1 2>/dev/null | python3 -I -c '
           import json, sys
@@ -159,7 +189,8 @@ jobs:
           iphone = ",iphone-sim," in "," + sys.argv[1] + ","
           def ok(w):
               labels = w.get("labels", [])
-              return ("measure" in labels and "screen-eval-granted" in labels
+              return (w.get("state", "online") == "online" and not w.get("pool")
+                      and "measure" in labels and "screen-eval-granted" in labels
                       and (not iphone or "simulator" in labels))
           names = sorted((n for n, w in rows.items() if ok(w)),
                          key=lambda n: (n != "cmux20-bench", bool(rows[n].get("claim_paused")), n))
@@ -179,18 +210,44 @@ jobs:
           print(" ".join(rows.get(sys.argv[1], {}).get("labels", [])))
           ' "$WORKER" || true)
           [[ " $labels " == *" bench "* ]] && target+=(--label bench)
-          # A strict pin never moves to another worker (that one would lack the console grants).
           [ -n "$WORKER" ] && target+=(--target-worker "$WORKER")
-          [ -n "$WORKER" ] && "$client" run --help 2>/dev/null | grep -q -- --pin-strict && target+=(--pin-strict)
+          # The grants travel as labels, so the pin is a preference, not a strict one: a strict pin to one
+          # Mac whose claims a runner job or host lock keeps paused held the step 8 h (runs 46137161090 and
+          # 46137162688, 2026-11-28; "pinned strictly ... never moves"), while other Macs carry
+          # screen-eval-granted. After the controller's pin_fallback_after (10 min) the step moves to
+          # another worker with these labels.
+          target+=(--label screen-eval-granted)
+          [[ ",${TARGETS// /}," == *",iphone-sim,"* ]] && target+=(--label simulator)
           # A queue wait past its bound ends the client with 75 and leaves the step queued; the step is
           # then cancelled below, so a paused or drained worker never holds this runner without end.
           "$client" run --help 2>/dev/null | grep -q -- --queue-timeout && target+=(--queue-timeout "$QUEUE_TIMEOUT")
+          # gate.json is a fail until the gate judges the run (budget_gate.py init): a run killed, timed out or
+          # left without results uploads a record naming the last stage it reached, never no record. The
+          # follower reads the client's log as it grows and marks each stage it names (submitted, queued,
+          # on a worker, each eval stage, each target); it writes atomically, so a kill keeps the last mark.
+          out=artifacts/screen-stream-eval
+          mkdir -p "$out"
+          : > "$log"
+          gate_py=scripts/measure/screen-stream-eval/budget_gate.py
+          overrides=()
+          for pair in $BUDGET; do overrides+=(--budget "$pair"); done
+          follower=""
+          if [[ ",${TARGETS// /}," == *",rd,"* ]]; then
+            python3 "$gate_py" init --out "$out/gate.json" ${overrides[@]+"${overrides[@]}"} || true
+            python3 "$gate_py" follow "$log" --out "$out/gate.json" --stop-file "$RUNNER_TEMP/gate.stop" &
+            follower=$!
+          fi
           "$client" run --class exclusive --measurement --label measure --label gui-session-v1 ${target[@]+"${target[@]}"} \
             --script scripts/measure/screen-stream-eval.sh --ref "$sha" --timeout 7200 \
             --artifact artifacts/screen-stream-eval/results.json \
-            --arg="targets=$TARGETS" --arg="samples=$SAMPLES" --arg="repeats=$REPEATS" 2>&1 | tee "$log" || status=${PIPESTATUS[0]}
-          out=artifacts/screen-stream-eval
-          mkdir -p "$out"
+            --arg="targets=$TARGETS" --arg="samples=$SAMPLES" --arg="repeats=$REPEATS" 2>&1 | tee -a "$log" || status=${PIPESTATUS[0]}
+          if [[ -n "$follower" ]]; then
+            # One last read of the log, then the follower ends; bounded so it never holds the step.
+            touch "$RUNNER_TEMP/gate.stop"
+            for _ in $(seq 1 30); do kill -0 "$follower" 2>/dev/null || break; sleep 1; done
+            kill "$follower" 2>/dev/null || true
+            wait "$follower" 2>/dev/null || true
+          fi
           step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2 || true)"
           if [[ "$status" -eq 75 && -n "$step" ]]; then
             echo "::error title=screen stream eval::step $step waited past ${QUEUE_TIMEOUT} s in the fleet queue (worker ${WORKER:-any}); cancelled, nothing measured"
@@ -207,16 +264,17 @@ jobs:
             cat "$out/summary.md" >> "$GITHUB_STEP_SUMMARY"
             # The budget gate: every stage's p50 against its budget; one over fails the run and is named.
             # It judges the rd target, so a dispatch without rd (targets=webrtc) stays a report.
+            # check overwrites the fail-by-default record with the verdict, keeping the stages it passed.
             if [[ ",${TARGETS// /}," == *",rd,"* ]]; then
-              overrides=()
-              for pair in $BUDGET; do overrides+=(--budget "$pair"); done
+              python3 "$gate_py" mark-stage "results.json back" --out "$out/gate.json" || true
               gate=0
-              python3 scripts/measure/screen-stream-eval/budget_gate.py check "$out/results.json" \
+              python3 "$gate_py" check "$out/results.json" \
                 --out "$out/gate.json" --summary "$GITHUB_STEP_SUMMARY" ${overrides[@]+"${overrides[@]}"} || gate=$?
               [[ "$status" -eq 0 ]] && status=$gate
             fi
           else
             echo "::error title=screen stream eval::no results.json came back (step ${step:-none}, exit $status)"
+            [[ -n "$follower" ]] && { python3 "$gate_py" mark-stage "no results.json (exit $status)" --out "$out/gate.json" || true; }
             # Nothing measured is never a pass, also when the fleet step itself exited 0.
             [[ "$status" -eq 0 ]] && status=2
           fi
@@ -231,4 +289,66 @@ jobs:
             artifacts/screen-stream-eval/probe.json
             artifacts/screen-stream-eval/gate.json
           if-no-files-found: ignore
+          retention-days: 3
+
+  # A runner that dies (run 46185238418: "runner lost communication") never reaches the upload above, so
+  # its run keeps no gate.json. This job runs after eval whatever its end and, when the run has no artifact,
+  # uploads the fail-by-default record naming the last workflow step the eval job reached. Not on a cancel:
+  # a cancelled eval job still runs its own always() upload, which keeps gate.json.
+  gate-fallback:
+    needs: eval
+    if: ${{ !cancelled() && needs.eval.result != 'skipped' && needs.eval.result != 'success' && contains(format(',{0},', inputs.targets || 'rd,webrtc,iphone-sim'), ',rd,') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 10
+    steps:
+      - name: the eval job's artifact
+        id: kept
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          n=$(curl -fsS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=screen-stream-eval" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin).get("total_count", 0))') || n=unknown
+          echo "artifacts=$n" >> "$GITHUB_OUTPUT"
+          echo "screen-stream-eval artifacts on this run: $n"
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        if: steps.kept.outputs.artifacts == '0'
+        with:
+          ref: refs/heads/feat-cmux-next
+          fetch-depth: 1
+          submodules: false
+          filter: blob:none
+          sparse-checkout: |
+            /scripts/measure/screen-stream-eval/
+            /scripts/measure/budget_gate/
+          sparse-checkout-cone-mode: false
+      - name: a fail naming the last step reached
+        if: steps.kept.outputs.artifacts == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUDGET: ${{ inputs.budget || '' }}
+          EVAL_RESULT: ${{ needs.eval.result }}
+        run: |
+          set -uo pipefail
+          out=artifacts/screen-stream-eval
+          mkdir -p "$out"
+          gate_py=scripts/measure/screen-stream-eval/budget_gate.py
+          overrides=()
+          for pair in $BUDGET; do overrides+=(--budget "$pair"); done
+          python3 "$gate_py" init --out "$out/gate.json" ${overrides[@]+"${overrides[@]}"}
+          last=$(curl -fsS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=20" | python3 -c '
+          import json, sys
+          jobs = [j for j in json.load(sys.stdin).get("jobs") or [] if j.get("name") == "eval"]
+          steps = [s for s in (jobs[0].get("steps") or []) if s.get("status") != "queued" and s.get("started_at")] if jobs else []
+          print(steps[-1]["name"] if steps else "")') || last=""
+          python3 "$gate_py" mark-stage "eval job ended ${EVAL_RESULT} in step '${last:-unknown}' with no artifact kept (runner lost or cut before its upload)" --out "$out/gate.json"
+          cat "$out/gate.json"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: steps.kept.outputs.artifacts == '0'
+        with:
+          name: screen-stream-eval
+          path: artifacts/screen-stream-eval/gate.json
+          if-no-files-found: error
           retention-days: 3

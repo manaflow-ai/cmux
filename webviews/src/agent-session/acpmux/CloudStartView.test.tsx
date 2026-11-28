@@ -109,7 +109,7 @@ test("the quiet line names the stage and counts its seconds, never a usual wait,
   // The copy stage, the hint arm's segments (machine done, copy current, agent next), and the arm
   // that keeps the line as it was.
   const hint = renderToStaticMarkup(<CloudStartView start={start} quietLook="hint" />);
-  expect(hint).toContain("Copying your project");
+  expect(hint).toContain("Connecting your project");
   expect(hint.match(/data-step="(done|current|next)"/g)).toEqual([
     'data-step="done"',
     'data-step="current"',
@@ -721,7 +721,7 @@ test("a start connecting GitHub would fix offers Connect GitHub beside Retry, an
     );
   });
   const connect = container.querySelector<HTMLButtonElement>('[data-action="connect-github"]');
-  expect(connect?.textContent).toBe("Connect GitHub");
+  expect(connect?.textContent).toBe("Sign in with GitHub");
   expect(connect?.getAttribute("data-role")).toBe("default");
   await act(async () => connect?.click());
   expect(calls).toEqual(["github.connect"]);

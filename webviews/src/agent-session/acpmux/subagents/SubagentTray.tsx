@@ -66,7 +66,6 @@ import {
   type CSSProperties,
   type FocusEvent,
   memo,
-  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactElement,
   type ReactNode,
@@ -78,6 +77,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
@@ -124,16 +124,18 @@ import { attentionFirst, type TrayCard } from "./trayAttention";
 import { actionDetail, latestLine, namedAction } from "./trayDetail";
 import { hatStepLook, type HatStepArm } from "./hatStep.experiment";
 import { hatPhase, PHASE_DWELL_MS } from "./hatStep";
-import { Dwelt, HatPhaseSlot, HatSampledSlot, useDwell } from "./HatStepSlot";
+import { Dwelt, HatPhaseSlot, HatSampledSlot } from "./HatStepSlot";
+import { useDwell } from "./useDwell";
 import { trayPanelLook, trayRowLook, trayStopLook } from "./trayPanel.experiment";
 import { trayMotionLook } from "./trayMotion.experiment";
 import { trayHeadLook } from "./trayHead.experiment";
 import { hatFacesLook } from "./hatFaces.experiment";
-import { HatFaces, hatFaces, type HatFace } from "./HatFaces";
-import { type TrayFoldHeadArm, trayFoldHeadLook } from "./trayFoldHead.experiment";
+import { HatFaces, type HatFace } from "./HatFaces";
+import { hatFaces } from "./hatFacesModel";
+import { trayFoldHeadLook, type TrayFoldHeadArm } from "./trayFoldHead.experiment";
 import { trayOpenLook } from "./trayOpen.experiment";
 import { trayHeadKindsLook } from "./trayHeadKinds.experiment";
-import { trayHead, trayHeadGroups, trayHeadLine, trayHeadParts, type TrayHeadPart } from "./trayHeadKinds";
+import { trayHead, trayHeadGroups, trayHeadParts, type TrayHeadPart, trayHeadLine } from "./trayHeadKinds";
 import { HeadSummary } from "./HeadSummary";
 import { trayHeadHeightLook } from "./trayHeadHeight.experiment";
 import { COMMAND_KIND_ICON, commandKind } from "./trayCommandKinds";
@@ -150,7 +152,8 @@ import { type HatLineArm, hatLineLook } from "./hatLine.experiment";
 import { HatHeadDeck } from "./HatHeadDeck";
 import "./hatHeader.css";
 import { DoneMark } from "./DoneMark";
-import { Tick, useGlide, GlideRow } from "./trayMotion";
+import { Tick } from "./trayMotion";
+import { GlideRow, useGlide } from "./trayGlide";
 import { useCountedRender } from "../perfRender";
 import { useTrayMotion } from "./trayMotionModel";
 import { useTraySeen } from "./traySeen";
@@ -413,7 +416,7 @@ export const SubagentTray = memo(function SubagentTray({
   // was in the list is kept as it moves (onFocus/onBlur below), not read after the commit.
   const headButton = useRef<HTMLButtonElement | null>(null);
   // "+N more" and the time move as one trailing segment: a width change before them glides them to
-  // their new place instead of jumping (trayMotion.tsx `useGlide`). So do the counts after the
+  // their new place instead of jumping (trayGlide.ts `useGlide`). So do the counts after the
   // subagent icons (HatFaces.tsx): the icons' row takes its new width at once, and the words after
   // it glide on transform, never by an eased layout width (the feel harness's layout-shift check);
   // the icons' own held count starts that glide in its own commit (GlideRow, HatFaces.tsx).
