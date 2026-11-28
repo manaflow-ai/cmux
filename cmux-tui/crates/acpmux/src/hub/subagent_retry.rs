@@ -49,9 +49,23 @@
 //!   attempt, a resume (`running`), Stop and close. A person's retry meanwhile is `retry.busy`.
 //!   Every entry reads it from the state at its logging ([`Hub::log_entry`]), so none can say
 //!   in flight after the attempt ended.
-//! - A wait is not persisted: a daemon restart (or a move) drops it. The chat's next load (or
-//!   its import) logs each entry the log left waiting or in flight again with `retry` and
-//!   `retryInFlight` null and `retryable: false` ([`Hub::settle_subagent_retries`]). A retry
+//! - A wait lives in memory, and the log is its journal: each attempt is a `subagent_retry`
+//!   record, and each entry carries its `retry` or `retryInFlight`. A daemon restart (or a move)
+//!   drops the wait itself. The chat's next load (or its import) reads the entries the log left
+//!   waiting or in flight ([`Hub::settle_subagent_retries`]): one still failed on a transient
+//!   error, in an open chat that is no copy's first start, is re-armed (`recovered`, `rearmed`,
+//!   `retryable: true`), its attempts so far counted, and once the queues resume
+//!   ([`Hub::rearm_subagent_retries`]) its next attempt is scheduled as after any failure.
+//!   Before, every such entry was settled `retryable: false` and its subagent was lost (on one
+//!   lane VM, 2026-11-24, 8 of 26 top-level helpers that failed on a 503 lost their retry to a
+//!   restart this way). Any other open entry is logged again with `retry` and `retryInFlight`
+//!   null and `retryable: false`, as before.
+//! - An attempt waits its configured delay, or the error's own `retry after Ss` when that is
+//!   later (jittered like a turn's capacity continuation): an attempt fired while the pool is
+//!   still empty only fails the chat's turn on the same error and spends one of the attempts.
+//! - Given up (`exhausted`), the parent chat's agent is told, in one prompt whose provenance is
+//!   `{kind: "subagent_failed", subagentId, agentId, attempts, reason, error}`, that the
+//!   subagent's work is not done: a typed failure, never a silent end. A retry
 //!   prompt its queue kept leaves the queue as it is restored
 //!   ([`Hub::drop_unsent_subagent_retries`]): no wait is left to take it out when its subagent
 //!   runs again or ends, and a paused queue would keep it for good. One that still reaches its
@@ -76,6 +90,9 @@ pub const PROVENANCE_KIND: &str = "subagent_retry";
 pub(super) fn is_retry(provenance: Option<&Value>) -> bool {
     provenance.and_then(|p| p.get("kind")).and_then(Value::as_str) == Some(PROVENANCE_KIND)
 }
+
+/// The provenance kind of the prompt that tells the parent a subagent was given up.
+pub const FAILED_KIND: &str = "subagent_failed";
 
 /// Longest error text quoted to the agent, in characters.
 const MAX_ERROR_CHARS: usize = 300;
@@ -135,6 +152,8 @@ struct Settled {
     error: Value,
     /// acpmux's last entry for it left a retry waiting or in flight.
     open: bool,
+    /// Attempts fired at it by then: an in-flight attempt counts, a waiting one not yet.
+    attempts: usize,
 }
 
 #[derive(Default)]
@@ -275,6 +294,50 @@ fn retry_text(name: Option<&str>, agent_id: &str, error: &str) -> String {
          ({error}). Resume it with SendMessage to \"{agent_id}\": it picks up from its \
          transcript. Start a new subagent for its task only if that resume fails. If it is \
          already running again, or you already resumed or replaced it, do nothing."
+    )
+}
+
+/// Longest wait an error's own `retry after` sets for one attempt: the longest configured
+/// attempt wait (`autoResumeDelaysMs`).
+const MAX_HINTED_WAIT_MS: u64 = 3_600_000;
+
+/// The wait before attempt `attempts + 1`: the configured `delay`, staggered per chat, or the
+/// failure's own `retry after Ss` when later (jittered as a turn's capacity continuation, at
+/// most [`MAX_HINTED_WAIT_MS`]).
+fn retry_wait(delay: u64, failure: &Failure, session_id: &str, attempts: usize) -> u64 {
+    let base = super::auto_resume::staggered(delay, session_id);
+    with_reset_hint(base, failure, session_id, attempts, crate::store::now_ms())
+}
+
+/// `base` (an attempt's staggered wait), or longer when `failure`'s error names when the
+/// upstream is back (a retry-after or reset time), capped at `MAX_HINTED_WAIT_MS`.
+fn with_reset_hint(
+    base: u64,
+    failure: &Failure,
+    session_id: &str,
+    attempts: usize,
+    now: u64,
+) -> u64 {
+    use crate::protocol::session::RetryReason;
+    let reset = super::auto_resume::reset_hint::reset_at(&failure.error, None, now);
+    let reason =
+        if failure.reason == "capacity" { RetryReason::Capacity } else { RetryReason::Transport };
+    let key = format!("{session_id}#subagent#{attempts}");
+    let reset = super::auto_resume::jittered_reset(reason, reset, now, &key);
+    let hinted = reset.map_or(0, |at| at.saturating_sub(now)).min(MAX_HINTED_WAIT_MS);
+    base.max(hinted)
+}
+
+/// The prompt the parent's agent gets once the automatic resumes of its subagent are used up.
+fn given_up_text(name: Option<&str>, agent_id: &str, error: &str, attempts: usize) -> String {
+    let name = name.map(|n| format!("\"{n}\" ")).unwrap_or_default();
+    let error = clip_error(error);
+    format!(
+        "Your subagent {name}(agent id {agent_id}) failed for good: {attempts} automatic \
+         resumes did not bring it back from a transient upstream error ({error}). Its work is \
+         not done. Resume it once more (SendMessage, to its agent id), or start a new \
+         subagent for its task, or report that task as failed to whoever asked for it. If it \
+         is already running again, or you already resumed or replaced it, do nothing."
     )
 }
 
@@ -576,6 +639,13 @@ impl Hub {
                     if entry.get("retryable").is_some() {
                         let set = |k: &str| entry.get(k).is_some_and(|v| !v.is_null());
                         sub.open = set("retry") || set("retryInFlight");
+                        let attempt =
+                            |k: &str| entry.pointer(k).and_then(Value::as_u64).map(|a| a as usize);
+                        if let Some(a) = attempt("/retryInFlight/attempt") {
+                            sub.attempts = a;
+                        } else if let Some(a) = attempt("/retry/attempt") {
+                            sub.attempts = a.saturating_sub(1);
+                        }
                     }
                 }
                 true
@@ -584,8 +654,15 @@ impl Hub {
             tracing::warn!(session = %session.id, "settling subagent retries: {e}");
             return;
         }
+        // A copy's first start resumes nothing (`clone_boot.rs`); a closed chat nothing either.
+        let can_rearm = self.clone_of().is_none() && session.status() != SessionStatus::Closed;
+        let mut rearmed = 0;
         for (id, sub) in subs.into_iter().filter(|(_, s)| s.open) {
             let state = sub.state.as_str().unwrap_or("failed").to_owned();
+            if can_rearm && state == "failed" && self.rearm(session, &id, &sub) {
+                rearmed += 1;
+                continue;
+            }
             // An end written after the fact (`recovered`), with what names it and why it failed:
             // a pane that never read its spawn (an older page) draws nothing for it, and one that
             // did keeps its line, now with no retry to wait for (cmux#52916: two "Subagent Failed
@@ -603,7 +680,90 @@ impl Hub {
             }
             self.append_entry(session, &id, &state, entry);
         }
-        self.set_retry_open(session, false);
+        // A re-armed one is open until its next attempt is planned and logged.
+        self.set_retry_open(session, rearmed > 0);
+    }
+
+    /// Puts a failed subagent the restart cut its retry off from back among the chat's retries,
+    /// with the attempts its log says were fired, and logs its entry re-armed. False (nothing
+    /// done) when its failure is not transient or names no agent id.
+    fn rearm(&self, session: &Session, id: &str, sub: &Settled) -> bool {
+        let (Some(agent_id), Some(error)) = (sub.agent_id.as_str(), sub.error.as_str()) else {
+            return false;
+        };
+        let Some(reason) = super::turn_errors::transient_cause(error) else { return false };
+        let name = sub.task.as_str().map(str::to_owned);
+        let failure = Failure {
+            agent_id: agent_id.to_owned(),
+            error: error.to_owned(),
+            reason,
+            at: crate::store::now_ms(),
+            idle: false,
+            wait: None,
+        };
+        {
+            let mut all = self.subagent_retries.lock();
+            let subs = all.subs.entry(session.id.clone()).or_default();
+            subs.insert(
+                id.to_owned(),
+                Sub { name, attempts: sub.attempts, failed: Some(failure), raw_agent: None },
+            );
+        }
+        let mut entry = json!({"id": id, "parent": null, "state": "failed",
+            "agentId": agent_id, "retry": null, "retryInFlight": null,
+            "retryable": true, "recovered": true, "rearmed": true, "error": error});
+        if let (Some(fields), false) = (entry.as_object_mut(), sub.task.is_null()) {
+            fields.insert("task".into(), sub.task.clone());
+        }
+        self.append_entry(session, id, "failed", entry);
+        let msg = json!({"subagentId": id, "agentId": agent_id, "reason": reason,
+            "outcome": "rearmed", "attempt": sub.attempts});
+        self.append(session, "mux", "subagent_retry", msg);
+        true
+    }
+
+    /// Once a loaded chat's queue resumes (`queue.rs`): schedules the next attempt at each
+    /// failed subagent its load re-armed ([`Hub::settle_subagent_retries`]). Any other call
+    /// finds none waiting to be planned, or plans it once (`plan_retry` holds `steps`).
+    pub(super) fn rearm_subagent_retries(self: &Arc<Self>, session: &Arc<Session>) {
+        let ids: Vec<String> = {
+            let all = self.subagent_retries.lock();
+            let subs = all.subs.get(&session.id).into_iter().flatten();
+            subs.filter(|(_, s)| s.failed.as_ref().is_some_and(|f| f.wait.is_none() && !f.idle))
+                .map(|(id, _)| id.clone())
+                .collect()
+        };
+        for id in ids {
+            let (hub, session) = (self.clone(), session.clone());
+            self.scope.spawn_until_cancelled("subagent-retry-rearm", async move {
+                hub.wait_startup().await;
+                hub.schedule_subagent_retry(&session, &id).await;
+            });
+        }
+    }
+
+    /// Tells the parent chat's agent that its subagent was given up after `attempts` automatic
+    /// resumes: one prompt, `subagent_failed` provenance (see the module docs).
+    fn tell_given_up(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        id: &str,
+        failure: &Failure,
+        attempts: usize,
+        name: Option<String>,
+    ) {
+        let provenance = json!({"kind": FAILED_KIND, "subagentId": id,
+            "agentId": failure.agent_id, "attempts": attempts, "reason": failure.reason,
+            "error": clip_error(&failure.error)});
+        let opts = PromptOptions { provenance: Some(provenance), ..PromptOptions::default() };
+        let text = given_up_text(name.as_deref(), &failure.agent_id, &failure.error, attempts);
+        let (hub, session) = (self.clone(), session.clone());
+        self.scope.spawn_until_cancelled("subagent-retry-given-up", async move {
+            let blocks = vec![json!({"type": "text", "text": text})];
+            if let Err(e) = hub.prompt_with(&session, blocks, "acpmux", false, opts).await {
+                tracing::warn!(session = %session.id, "subagent given up: {}", e.message);
+            }
+        });
     }
 
     /// After `restore_queue` (a restart's load, its second pass after adoption, or a chat moved
@@ -664,7 +824,12 @@ impl Hub {
 
     /// Records the next attempt's wait and logs it (`scheduled`, or `exhausted` past the
     /// configured attempts): the wait and its delay in ms.
-    fn plan_retry(&self, session: &Arc<Session>, id: &str, delays: &[u64]) -> Option<(Wait, u64)> {
+    fn plan_retry(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        id: &str,
+        delays: &[u64],
+    ) -> Option<(Wait, u64)> {
         let _steps = self.subagent_retries.steps();
         if closing(session) {
             return None;
@@ -681,12 +846,16 @@ impl Hub {
             } else {
                 delays.len()
             };
-            let delay = match attempt_delay(failure, attempts, delays, &session.id, now) {
+            let delay = match attempt_delay(failure, attempts, delays, &session.id, now)
+                .map(|delay| with_reset_hint(delay, failure, &session.id, attempts, now))
+            {
                 Some(delay) => delay,
                 None => {
                     failure.idle = true;
                     let failure = failure.clone();
+                    let name = sub.name.clone();
                     drop(all);
+                    self.tell_given_up(session, id, &failure, attempts, name);
                     let extra = json!({"attempt": attempts, "of": of});
                     self.log_step(
                         session,
@@ -1114,6 +1283,34 @@ mod tests {
         let refused = retries.start("s2", "p", true, || restored = true).unwrap_err();
         assert!(!restored);
         assert_eq!(refused.data.unwrap()["reason"], "subagent_retry.skipped");
+    }
+
+    /// An attempt waits the configured delay, or the error's own `retry after` when later
+    /// (capped), never less than the delay.
+    #[test]
+    fn an_attempt_waits_for_the_errors_retry_after() {
+        let failure = |error: &str| Failure {
+            agent_id: "a1".into(),
+            error: error.into(),
+            reason: "capacity",
+            at: 0,
+            idle: false,
+            wait: None,
+        };
+        let plain = failure("API Error: 503 no non-exhausted claude accounts available");
+        let wait = retry_wait(10_000, &plain, "s1", 0);
+        assert!((10_000..20_000).contains(&wait), "{wait}");
+        let hinted =
+            failure("API Error: 503 no non-exhausted claude accounts available, retry after 1269s");
+        let wait = retry_wait(10_000, &hinted, "s1", 0);
+        assert!((1_260_000..=MAX_HINTED_WAIT_MS).contains(&wait), "{wait}");
+        // A later configured delay still wins over a short hint.
+        let short = failure("API Error: 529 overloaded, retry after 5s");
+        assert!(retry_wait(300_000, &short, "s1", 0) >= 300_000);
+        // A hint past the cap waits the cap.
+        let far = failure("API Error: 503 no non-exhausted accounts, retry after 86400s");
+        assert_eq!(retry_wait(10_000, &far, "s1", 0), MAX_HINTED_WAIT_MS);
+        assert_eq!(given_up_text(None, "a1", "x", 4).contains("4 automatic"), true);
     }
 
     /// Past the limit the oldest stopped or given-up failures go; a waiting one stays.
