@@ -9,6 +9,7 @@
 // restart) and check every answered message's Fork and Edit; and, for an agent that forks only
 // from its end, that the earlier messages keep a Fork control that says why instead of vanishing.
 import { afterEach, expect, test } from "bun:test";
+import { settleReact } from "./support/domTeardown";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -24,7 +25,6 @@ import {
 import { promptTurns, trackEditableTurns } from "../src/agent-session/acpmux/conversation/editPrompt";
 import { TurnActionsContext, type TurnActions } from "../src/agent-session/acpmux/conversation/turnActions";
 import { UserBubble } from "../src/agent-session/acpmux/conversation/UserBubble";
-import { settleReact } from "./support/domTeardown";
 
 const START = Date.UTC(2026, 10, 11, 9, 0, 0);
 const CHAT = "sr2-chat";
@@ -67,6 +67,7 @@ afterEach(async () => {
   for (const client of live) client.close();
   live = [];
   if (root) await act(async () => root!.unmount());
+  await settleReact();
   root = undefined;
   dom?.window.close();
   dom = undefined;

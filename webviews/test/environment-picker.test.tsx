@@ -2043,28 +2043,28 @@ test("the machine list groups machines acpmux has not reached for a while under 
     peerKinds: Object.fromEntries(peers.map((peer) => [peer, "ssh"])),
     peerConnected: {
       "gpu-box": true,
-      "ash": false,
-      "birch": false,
-      "cedar": false,
-      "dune": false,
-      "elm": false,
+      ash: false,
+      birch: false,
+      cedar: false,
+      dune: false,
+      elm: false,
     },
     peerStates: {
       "gpu-box": "connected",
-      "ash": "reconnecting",
-      "birch": "reconnecting",
-      "cedar": "offline",
+      ash: "reconnecting",
+      birch: "reconnecting",
+      cedar: "offline",
       // Just dropped: it keeps its row in place while acpmux dials again.
-      "dune": "reconnecting",
+      dune: "reconnecting",
       // On its way up: never grouped.
-      "elm": "connecting",
+      elm: "connecting",
     },
     peerLinks: {
-      "ash": { link: "reconnecting", since: now - UNAVAILABLE_AFTER_MS - 1 },
-      "birch": { link: "reconnecting", since: now - 3 * UNAVAILABLE_AFTER_MS },
-      "cedar": { link: "offline" },
-      "dune": { link: "reconnecting", since: now - 1000 },
-      "elm": { link: "connecting", since: now - 3 * UNAVAILABLE_AFTER_MS },
+      ash: { link: "reconnecting", since: now - UNAVAILABLE_AFTER_MS - 1 },
+      birch: { link: "reconnecting", since: now - 3 * UNAVAILABLE_AFTER_MS },
+      cedar: { link: "offline" },
+      dune: { link: "reconnecting", since: now - 1000 },
+      elm: { link: "connecting", since: now - 3 * UNAVAILABLE_AFTER_MS },
     },
   });
   // Where > Other devices opens the person's machines.

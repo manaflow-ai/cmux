@@ -415,7 +415,12 @@ test("the summary card mounts only the subagents its body shows, and scrolls to 
     // which runs before the parent's ref is set (#46128).
     const scroller = body ?? this.closest<HTMLElement>(".acpmux-summary-card__body");
     const list = this.parentElement;
-    if (scroller && this.tagName === "LI" && list?.classList.contains("acpmux-summary-list") && scroller.contains(list)) {
+    if (
+      scroller &&
+      this.tagName === "LI" &&
+      list?.classList.contains("acpmux-summary-list") &&
+      scroller.contains(list)
+    ) {
       // A row is ROW tall; a windowed list's boxes (WindowedRows) as tall as their style says.
       const height = (li: HTMLElement) =>
         li.dataset.rowsRest === undefined ? ROW : li.style.display === "none" ? 0 : parseFloat(li.style.height) || 0;
@@ -454,7 +459,9 @@ test("the summary card mounts only the subagents its body shows, and scrolls to 
           // (running first, then finished newest first: the oldest finished, reviewer-1) draws, nothing
           // is left under it, and the rows above sit in the top box.
           const lastName = () =>
-            [...host.querySelectorAll(".acpmux-summary-agents .acpmux-agent-line")].at(-1)?.querySelector(".acpmux-summary-agent__name")?.textContent ?? "";
+            [...host.querySelectorAll(".acpmux-summary-agents .acpmux-agent-line")]
+              .at(-1)
+              ?.querySelector(".acpmux-summary-agent__name")?.textContent ?? "";
           expect(await settle(() => lastName() === "reviewer-1", 5_000)).toBe(true);
           expect(spacer?.style.display).toBe("none");
           expect(lines()).toBeLessThan(n);

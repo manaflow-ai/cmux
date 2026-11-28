@@ -110,18 +110,20 @@ function expectUnreadVideoTile() {
   expect(host.querySelector(".acpmux-attachment-link-name")).toBeNull();
 }
 
-/// A video the host is still reading: since #63541 ("an attached video loads in one look, from its
-/// drop to its poster") the tile wears the pending chip's loading glass (busy) with its play glyph,
-/// never the neutral square first, and never a pending chip's spinner: it is ready to send.
+/// A video whose poster the host is still reading: since #63541 ("an attached video loads in one
+/// look", Leo 2026-11-08: "it is bad that there are 2+ loading states it goes from themed opaque
+/// (which is frequently ugly) into unthemed then to loaded") the tile wears the loading glass with its
+/// play glyph until the poster comes, never the neutral square; nothing spins and it is not pending.
 function expectLoadingVideoTile() {
-  const tile = host.querySelector(".acpmux-attachment-video.acpmux-paste-loading");
+  const tile = host.querySelector(".acpmux-attachment-video");
   expect(tile?.classList.contains("acpmux-attachment-image")).toBe(true);
+  expect(tile?.classList.contains("acpmux-paste-loading")).toBe(true);
   expect(tile?.classList.contains("acpmux-attachment-video-unread")).toBe(false);
   expect(tile?.getAttribute("aria-busy")).toBe("true");
   expect(tile?.getAttribute("title")).toBe(video().name);
   expect(tile?.querySelector("img")).toBeNull();
   expect(tile?.querySelector(".acpmux-attachment-video-play")).not.toBeNull();
-  expect(host.querySelector(".acpmux-attachment-pending")).toBeNull();
+  expect(host.querySelector(".acpmux-attachment-pending, .acpmux-paste-late")).toBeNull();
   expect(host.querySelector(".acpmux-attachment-link-name")).toBeNull();
 }
 
@@ -159,7 +161,8 @@ try {
   test("a dropped video is its tile at once while the host reads it, then shows its poster and length, and a click plays it", async () => {
     await render([video()]);
     expect(calls.map(({ method, params }) => [method, params])).toEqual([["video.info", { src: PATH }]]);
-    // While the host reads it: the tile in its box with its play glyph in the loading look, ready to send.
+    // While the host reads it: the tile in its box with its play glyph in its one loading look, ready
+    // to send, nothing spinning (expectLoadingVideoTile).
     expectLoadingVideoTile();
     expect(state?.reading).toBe(1);
 

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
+import { settleReact } from "../../../../test/support/domTeardown";
 import { PullRequestActionView, type PullRequestAction } from "./pullRequestActionView";
 import type { HeaderPullRequest } from "./headerState";
-import { settleReact } from "../../../../test/support/domTeardown";
 
 const pr: HeaderPullRequest = {
   number: 1,

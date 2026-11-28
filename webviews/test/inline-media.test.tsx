@@ -432,7 +432,10 @@ describe("rendered replies", () => {
   test("a commit, cmux#N and a relative file:line are links", async () => {
     const { container, unmount } = await render("Fixed in 2f1920a (cmux#2713), see webviews/src/app.ts:42.");
     const hrefs = [...container.querySelectorAll("a")].map((anchor) => anchor.getAttribute("href"));
-    expect(hrefs).toEqual([`https://github.com/${REPO}/commit/2f1920a`, "https://github.com/manaflow-ai/cmux/pull/2713"]);
+    expect(hrefs).toEqual([
+      `https://github.com/${REPO}/commit/2f1920a`,
+      "https://github.com/manaflow-ai/cmux/pull/2713",
+    ]);
     const path = container.querySelector<HTMLElement>(".cv-chip.is-path");
     expect(path?.dataset.path).toBe("webviews/src/app.ts");
     expect(path?.textContent).toBe("app.ts:42");

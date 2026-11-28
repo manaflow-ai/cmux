@@ -242,7 +242,9 @@ test("a same-target recheck keeps known refusal, while A-B-A discards the old se
     // `answered`), while its fresh probe runs.
     expect(state).toBe("expired");
     // The old selection's recheck answers late, saying otherwise: it is discarded.
-    await act(async () => pending[2]!.resolve({ state: "signedOut", source: "turn", evidenceAt: 1, fromSessionId: "A" }));
+    await act(async () =>
+      pending[2]!.resolve({ state: "signedOut", source: "turn", evidenceAt: 1, fromSessionId: "A" }),
+    );
     expect(state).toBe("expired");
     await act(async () => pending[4]!.resolve({ state: "ready", source: "turn", evidenceAt: 2, fromSessionId: "A" }));
     expect(state).toBe("ready");

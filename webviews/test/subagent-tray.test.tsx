@@ -502,10 +502,7 @@ describe("the tray", () => {
     // A known harness no mark draws ("acme"): since #62299 the stack leaves a harnessless agent's
     // slot blank, and a harness with no logo draws the sparkle in its tone, which this checks.
     const few = trayItems(
-      [
-        agent("A", { startedAt: now - 5000, harness: "acme" }),
-        agent("B", { startedAt: now - 4000, harness: "acme" }),
-      ],
+      [agent("A", { startedAt: now - 5000, harness: "acme" }), agent("B", { startedAt: now - 4000, harness: "acme" })],
       [command("bg1", { command: "bun run dev", startedAt: now - 3000 })],
       NONE,
       true,
@@ -1035,7 +1032,10 @@ describe("a tray line says what it is and what a click does", () => {
       expect(opened).toEqual([]);
       // The detail leads with the chat's Shell block; Open in terminal is its foot's named button (#53464).
       await act(async () =>
-        line.closest("li")!.querySelector<HTMLButtonElement>("[data-line-detail] .acpmux-running-tray__terminal")!.click(),
+        line
+          .closest("li")!
+          .querySelector<HTMLButtonElement>("[data-line-detail] .acpmux-running-tray__terminal")!
+          .click(),
       );
       expect(opened).toEqual(["s/1"]);
       // One stop control on the line, and it says exactly what it stops.

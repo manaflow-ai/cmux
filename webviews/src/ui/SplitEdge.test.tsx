@@ -2,12 +2,12 @@
 // writes the pane's width to its property (on the pane or its parent) within bounds, once a frame; the
 // release saves it and a later mount restores it before paint; a double-click puts the default back.
 import { afterEach, expect, test } from "bun:test";
+import { settleReact } from "../../test/support/domTeardown";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { openDeclarations } from "../layout/motionContract";
 import { declareSplitResize, SplitEdge, splitEdgeWidth } from "./SplitEdge";
-import { settleReact } from "../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -75,9 +75,8 @@ const flushFrames = () => {
 };
 
 afterEach(async () => {
-  // React's queued work runs before the globals go (test/support/domTeardown.ts).
-  await settleReact();
   act(() => root?.unmount());
+  await settleReact();
   root = undefined;
   dom?.window.localStorage.clear();
   // A global the file added goes again, never stays as `undefined` for the next file to find.

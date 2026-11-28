@@ -3,6 +3,7 @@
 // pair belongs to the turn's ending summary, reads stay bounded, and the card draws the shared
 // before/after split with both fixture pictures.
 import { afterAll, afterEach, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
+import { settleReact } from "./support/domTeardown";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -18,7 +19,6 @@ import {
   type TurnShotPair,
   type TurnShotsReader,
 } from "../src/agent-session/acpmux/turnChanges/turnShots";
-import { settleReact } from "./support/domTeardown";
 
 // Stand-ins for the base64 PNG bytes acpmux sends (never decoded here).
 const RED = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC";
@@ -167,7 +167,6 @@ afterEach(() => {
 });
 
 afterAll(async () => {
-  // React's queued work runs before the globals go (test/support/domTeardown.ts).
   await settleReact();
   for (const [key, had, value] of [...saved, ...domConstructors]) {
     if (had) scope[key] = value;

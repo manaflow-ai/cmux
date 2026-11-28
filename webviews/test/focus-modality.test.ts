@@ -381,7 +381,10 @@ describe("detectors", () => {
     for (const [file, call] of [
       ["src/pages/shared/pageStreams.ts", /\(data\) => \{(?:\s*\/\/.*)*\s*dismissFocusRing\(\);\s*onCommand\(data\);/],
       // The pane's command handler lives in the snapshot effect (pane/paneSnapshot.ts, #50902).
-      ["src/agent-session/acpmux/pane/paneSnapshot.ts", /command\(name, sessionId\) \{(?:\s*\/\/.*)*\s*dismissFocusRing\(\);/],
+      [
+        "src/agent-session/acpmux/pane/paneSnapshot.ts",
+        /command\(name, sessionId\) \{(?:\s*\/\/.*)*\s*dismissFocusRing\(\);/,
+      ],
     ] as const)
       expect([file, call.test(readFileSync(path.join(webviews, file), "utf8"))]).toEqual([file, true]);
     // The pages served to a browser outside the app boot without the desktop layer.

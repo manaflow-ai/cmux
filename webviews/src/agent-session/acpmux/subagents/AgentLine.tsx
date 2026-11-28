@@ -293,7 +293,10 @@ export function AgentLine({
         <>
           {time !== undefined && <span className="acpmux-summary-meta acpmux-agent-line__time">{time}</span>}
           {/* Running is its mark, never a word (#51848, #56223); a line with no time shows any other word. */}
-          {(time === undefined && status !== "running") || status === "waiting" || status === "failed" || status === "stopped" ? (
+          {(time === undefined && status !== "running") ||
+          status === "waiting" ||
+          status === "failed" ||
+          status === "stopped" ? (
             <span className="acpmux-summary-meta acpmux-summary-agent__state">{state}</span>
           ) : (
             <span className="acpmux-agent-line__sr">{state}</span>

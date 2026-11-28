@@ -2,12 +2,12 @@
 // read still out never sets them over a restored draft's. A chat shown again reads them again, and
 // is not ready until that read answers.
 import { afterEach, expect, test } from "bun:test";
+import { settleReact } from "../../../../test/support/domTeardown";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { ComposerAttachment } from "../attachments";
 import { useKeptAttachments, type KeptAttachments } from "./keptAttachments";
-import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -30,6 +30,7 @@ afterEach(async () => {
   // React's queued work runs before the globals go (test/support/domTeardown.ts).
   await settleReact();
   if (root) await act(async () => root!.unmount());
+  await settleReact();
   root = undefined;
   dom?.window.close();
   dom = undefined;
