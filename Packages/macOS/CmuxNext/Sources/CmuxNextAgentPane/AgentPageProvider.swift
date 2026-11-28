@@ -401,6 +401,11 @@ public final class AgentPageProvider: PageProvider {
         // When the page's open of its acpmux socket reached the app: after the handshake the page asks
         // at once, so the time to here is the bridge's (bench_relaunch_reconnect.py PHASES).
         if method == "transport.open" { AgentPaneLaunchTimings.shared.mark("agent_pane.transport_open_asked") }
+        // The handshake's marks, as AgentPaneBridge.reply makes them on the WebKit route: without them a CEF
+        // page's time from browser created to handshake endpoint is one span, the page's load and `ready`
+        // not told apart from the host's handshake (goal startup-matrix, dock rows).
+        let handshake = method == "ready"
+        if handshake { AgentPaneLaunchTimings.shared.mark("agent_pane.handshake_task_start") }
         // Short words and numbers for the flicker ring file: written off the main thread, answered
         // at once, and never parsed as a pane request nor logged (it comes once a second while the page draws).
         if method == AgentPageFlickerLog.method {
@@ -452,6 +457,8 @@ public final class AgentPageProvider: PageProvider {
         if case .unsupported = request { throw PageError.invalidParams(op) }
         guard let model = prepare(request) else { throw PageError.closed }
         if request == .ready { onHandshake?() }
+        if handshake, request == .ready { AgentPaneLaunchTimings.shared.mark("agent_pane.handshake_start") }
+        defer { if handshake, request == .ready { AgentPaneLaunchTimings.shared.mark("agent_pane.handshake_end") } }
         // `context.userGesture` is host-authenticated PageRouter state; it cannot be supplied by
         // page params. Pass it through only at this seam so shared-page user-only writes survive a
         // long native menu, while the legacy bridge still uses its pane gesture credit.
