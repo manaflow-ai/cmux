@@ -187,3 +187,94 @@ fn a_fleet_hold_lifts_at_its_until_and_an_older_unmarked_one_after_the_default()
     assert!(!older.active(at + DEFAULT_FOR_MS));
     assert!(!FleetHold { on: false, ..never }.active(at));
 }
+
+async fn named(hub: &Arc<Hub>, name: &str) -> Arc<Session> {
+    let req = NewRequest {
+        cwd: Some(std::env::temp_dir()),
+        name: Some(name.to_owned()),
+        ..NewRequest::default()
+    };
+    hub.new_session(req).await.unwrap()
+}
+
+fn thaws(hub: &Hub, s: &Session) -> usize {
+    hub.events(&s.id, 0, 1_000_000)
+        .unwrap()
+        .iter()
+        .filter(|e| e.kind == "session_hold" && e.msg["by"] == "fleet")
+        .count()
+}
+
+/// RFD 0177 piece 4: lifting the fleet hold thaws what it froze, in its thaw order, once; a
+/// chat held on its own stays held, and one released on its own is not thawed again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn lifting_the_fleet_hold_thaws_its_chats_in_thaw_order() {
+    let (hub, first) = chat().await;
+    let dir = tempfile::tempdir().unwrap();
+    hub.fleet_hold.lock().unwrap().path = Some(dir.path().join(FILE));
+    let coord = named(&hub, "zz-coord").await;
+    let lane = named(&hub, "aa-lane").await;
+    let own = named(&hub, "own-hold").await;
+    let released = named(&hub, "released").await;
+    let set = hub
+        .set_fleet_hold(&json!({"on": true, "by": "c", "thawOrder": ["*coord*", "aa-*"]}))
+        .unwrap();
+    assert_eq!(set["fleetHold"]["thawOrder"], json!(["*coord*", "aa-*"]), "{set}");
+    hub.set_session_hold(&own, true).await.unwrap();
+    hub.release_session_hold_for_person(&released);
+    let was = hub.fleet_held_ids();
+    assert!(was.contains(&coord.id) && was.contains(&first.id), "{was:?}");
+    assert!(!was.contains(&own.id) && !was.contains(&released.id), "{was:?}");
+
+    // A hold that is still on thaws nothing.
+    let hold = hub.fleet_hold();
+    assert!(hub.thaw_fleet(&was, &hold).is_empty());
+    // Re-held with no thawOrder: the order stays.
+    hub.set_fleet_hold(&json!({"on": true, "by": "c"})).unwrap();
+    assert_eq!(hub.fleet_hold().thaw_order, vec!["*coord*", "aa-*"]);
+
+    let hold = hub.fleet_hold();
+    hub.set_fleet_hold(&json!({"on": false})).unwrap();
+    let thawed = hub.thaw_fleet(&was, &hold);
+    let first_name = first.meta().name;
+    assert_eq!(&thawed[..2], ["zz-coord", "aa-lane"], "{thawed:?}");
+    assert!(thawed.contains(&first_name), "{thawed:?}");
+    assert_eq!(thawed.len(), 3, "{thawed:?}");
+    assert!(hub.session_held(&own), "a chat's own hold thawed with the fleet's");
+    assert_eq!(thaws(&hub, &own), 0);
+    assert_eq!(thaws(&hub, &released), 0, "a chat released on its own was thawed again");
+    assert_eq!(thaws(&hub, &coord), 1);
+    assert_eq!(thaws(&hub, &lane), 1);
+}
+
+/// A fleet hold thaws at its `until` by itself: the thaw task, not a lane's action.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_fleet_hold_thaws_at_its_until() {
+    let (hub, s) = chat().await;
+    let dir = tempfile::tempdir().unwrap();
+    hub.fleet_hold.lock().unwrap().path = Some(dir.path().join(FILE));
+    hub.set_fleet_hold(&json!({"on": true, "by": "c", "forMs": 400})).unwrap();
+    assert!(hub.session_held(&s));
+    hub.start_fleet_thaw();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while thaws(&hub, &s) == 0 {
+        assert!(std::time::Instant::now() < deadline, "the hold lifted but nothing thawed");
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert!(!hub.session_held(&s));
+    // Once: the next wakes thaw nothing more.
+    hub.fleet_thaw.notify_one();
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    assert_eq!(thaws(&hub, &s), 1);
+    hub.shutdown.notify_waiters();
+}
+
+#[test]
+fn thaw_rank_follows_the_first_matching_entry() {
+    let hold =
+        FleetHold { thaw_order: vec!["*coord*".into(), "lane-*".into()], ..Default::default() };
+    assert_eq!(hold.thaw_rank("sr2-Coord", ""), 0);
+    assert_eq!(hold.thaw_rank("lane-coord", ""), 0);
+    assert_eq!(hold.thaw_rank("lane-7", ""), 1);
+    assert_eq!(hold.thaw_rank("other", ""), 2);
+}

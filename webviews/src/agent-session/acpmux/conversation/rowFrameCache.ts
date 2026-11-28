@@ -7,6 +7,7 @@ export type RowFrameInputs = {
   index: number;
   top: number;
   gapBelow: number;
+  intrinsicHeight: number | undefined;
   setSize: number;
   expanded: boolean;
   active: boolean;
@@ -27,6 +28,7 @@ const INPUT_KEYS = [
   "index",
   "top",
   "gapBelow",
+  "intrinsicHeight",
   "setSize",
   "expanded",
   "active",
@@ -74,6 +76,7 @@ export class RowFrameCache {
     index: 0,
     top: 0,
     gapBelow: 0,
+    intrinsicHeight: undefined,
     setSize: 0,
     expanded: false,
     active: false,

@@ -35,7 +35,10 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-          sparse-checkout: scripts/ci/leo-session-archive-bucket.py
+          sparse-checkout: |
+            scripts/ci/leo-session-archive-bucket.py
+            scripts/ci/deadline_http.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Check, or create and seal
         env:

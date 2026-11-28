@@ -4,6 +4,7 @@ import CmuxNextAppCore
 import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextDaemonService
+import enum CmuxNextHomeEngine.AgentPaneHostKind
 import CmuxNextTabs
 import Foundation
 import Observation
@@ -188,6 +189,22 @@ extension CloudFrontedChats {
             }
         }
         return true
+    }
+
+    /// Where chat tab `chat`'s header Files opens: this Mac's tree for a chat here; for a Cloud or SSH chat, its
+    /// machine's tree, read through that machine's daemon (never this Mac's folder), beside the Mac tab that shows the
+    /// chat in place when one does. Nil when the chat names no machine this Mac reaches.
+    static func filesPlace(_ chat: AgentTabKey, services: AppServices) -> (link: AgentPaneGitLink, machine: DaemonService?, beside: String)? {
+        guard let link = services.agentTabs.gitLinkScoped?(chat),
+              let (tab, _) = chat.machine.isEmpty ? services.locateTab(chat.key) : services.locateTab(chat.key, onMachine: chat.machine) else { return nil }
+        // This Mac's tree only for a chat this Mac's acpmux runs (any of its install hosts), listed here: never a chat whose
+        // folder is another host's path.
+        if link === services.agentGit.local {
+            guard services.machines.daemon(forTab: tab).isLocal, let record = tab.agentSession, services.agentTabs.hostKind(record, listedHere: true) == .local else { return nil }
+            return (link, nil, chat.key)
+        }
+        guard let daemon = try? services.machines.agentDaemon(forTab: tab) else { return nil }
+        return (link, daemon, services.agentTabs.frontedChats.mac(showing: chat)?.key ?? chat.key)
     }
 
     /// The machine's desktop in a browser tab beside Mac tab `mac`, where the header's Browser opens on a chat of this

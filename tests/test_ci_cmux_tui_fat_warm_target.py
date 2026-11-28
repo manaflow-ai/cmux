@@ -488,6 +488,42 @@ class PoolRunnerWarmTarget(ToolchainStamp):
         out = self.warm("record", self.STAMP)
         self.assertIn("warm target: prune bound 450000 bytes", out)
 
+    def test_a_pool_restore_leaves_the_cargo_registry_a_directory(self) -> None:
+        # Entry v0-rust-cmux-tui-acpmux-tests-ad0a7f2f... held ~/.cargo/registry as a link into
+        # cmux-runner-pool-w4a-0079-2's tree; restored on another runner it dangled and cargo failed
+        # with "File exists (os error 17)" (jobs 140850174447, 140851740236, 2026-11-28).
+        registry = Path(self.env["CARGO_HOME"]) / "registry"
+        (registry / "cache" / "index" / "dep-1.0.crate").parent.mkdir(parents=True)
+        (registry / "cache" / "index" / "dep-1.0.crate").write_text("crate\n")
+        self.build_once(self.STAMP)
+        out = self.warm("restore", self.STAMP)
+        self.assertFalse(registry.is_symlink(), out)
+        self.assertTrue((registry / "cache" / "index" / "dep-1.0.crate").exists())
+        self.assertFalse((self.disk / "cargo-registry").exists())
+        self.assertEqual(os.readlink(self.repo / "cmux-tui" / "target"), str(self.disk / "target"))
+
+    def test_a_pool_restore_turns_a_link_an_earlier_job_left_back_into_a_directory(self) -> None:
+        registry = Path(self.env["CARGO_HOME"]) / "registry"
+        kept = self.disk / "cargo-registry" / "cache" / "index" / "dep-1.0.crate"
+        kept.parent.mkdir(parents=True)
+        kept.write_text("crate\n")
+        registry.parent.mkdir(parents=True, exist_ok=True)
+        registry.symlink_to(self.disk / "cargo-registry")
+        out = self.warm("restore", self.STAMP)
+        self.assertIn("made a directory again", out)
+        self.assertFalse(registry.is_symlink())
+        self.assertTrue((registry / "cache" / "index" / "dep-1.0.crate").exists())
+        self.assertFalse((self.disk / "cargo-registry").exists())
+
+    def test_a_sticky_disk_restore_still_links_the_registry(self) -> None:
+        self.env["RUNNER_NAME"] = "blacksmith-16vcpu-ubuntu-2404"
+        (self.tmp / "bin" / "mountpoint").write_text("#!/bin/sh\nexit 0\n")
+        self.disk = self.tmp / "sticky"
+        self.disk.mkdir()
+        self.warm("restore", self.STAMP)
+        registry = Path(self.env["CARGO_HOME"]) / "registry"
+        self.assertEqual(os.readlink(registry), str(self.disk / "cargo-registry"))
+
     def test_workflow_routes_the_pool_darwin_leg_to_its_own_tree(self) -> None:
         locate = step("Locate the pool warm target (feat-cmux-next, fat, aarch64 macOS on Linux)")
         cond = str(locate["if"])

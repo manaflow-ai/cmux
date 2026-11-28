@@ -453,24 +453,36 @@ held_pr() {
   # after its push, and at 08:53Z re-pin run 44042861860 moved it for "8 failed check(s) of its own" while its Mac jobs
   # had been queued 47 minutes. The move cancelled those, the CI started over, and feat-cmux-next stayed red on "Check
   # the app FFI pin". A head whose cancelled check never runs again is still moved once it is older than the hold.
+  check_runs() {
+    GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the checks at the head}" \
+      gh_retry python3 scripts/ci/gh_pages.py "repos/$GITHUB_REPOSITORY/commits/$1/check-runs"
+  }
   failed_names() {
     local runs
-    runs="$(GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the checks at the head}" \
-      gh_retry python3 scripts/ci/gh_pages.py "repos/$GITHUB_REPOSITORY/commits/$1/check-runs")" || return 1
+    runs="${2:-}"
+    [[ -n "$runs" ]] || runs="$(check_runs "$1")" || return 1
+    # An advisory check gates nothing (land-judge lands past it), so its failure is not a reason to throw away the
+    # head's CI. 2026-11-27: re-pin run 46033637560 moved cmux#60965 off 2da59316 for "2 failed check(s) of its own":
+    # "nightly app compile arm64 fleet job (advisory)" and the merge-train status (below), while its land was seated.
     jq -r '.[] | select(.conclusion as $c
-      | ["failure", "timed_out", "action_required", "startup_failure", "stale"] | index($c)) | .name' <<<"$runs"
+      | ["failure", "timed_out", "action_required", "startup_failure", "stale"] | index($c))
+      | select(.name | test("\\(advisory\\)$") | not) | .name' <<<"$runs"
   }
-  local head_failed base_failed="" staged_on
-  head_failed="$(failed_names "$previous")" || return 2
+  local head_runs head_failed base_failed="" staged_on running
+  head_runs="$(check_runs "$previous")" || return 2
+  head_failed="$(failed_names "$previous" "$head_runs")" || return 2
   if staged_on="$(git merge-base "$previous" "$tip" 2>/dev/null)" && [[ "$staged_on" =~ ^[0-9a-f]{40}$ ]]; then
     base_failed="$(failed_names "$staged_on")" || base_failed=""
   fi
   failed="$(comm -23 <(sed '/^$/d' <<<"$head_failed" | sort -u) <(sed '/^$/d' <<<"$base_failed" | sort -u) | wc -l)"
   failed="${failed//[[:space:]]/}"
   [[ "$failed" =~ ^[0-9]+$ ]] || return 2
-  status="$(read_api "repos/$GITHUB_REPOSITORY/commits/$previous/status" --jq '.state')" || return 2
-  [[ "$status" =~ ^(success|pending|failure|error)$ ]] || return 2
-  [[ "$status" == failure || "$status" == error ]] && failed=$((failed + 1))
+  # The merge-train status is the train's seat answer ("turned this head away: not seated"), not a verdict on the
+  # head: its error is the queue, and moving the head for it restarts the CI the train is waiting on.
+  status="$(read_api "repos/$GITHUB_REPOSITORY/commits/$previous/status" \
+    --jq '[.statuses[]? | select(.context != "merge-train") | select(.state == "failure" or .state == "error")] | length')" || return 2
+  [[ "$status" =~ ^[0-9]+$ ]] || return 2
+  failed=$((failed + status))
   # A workflow run that never started at the head has no check run, so the count above misses it, and the check it
   # owns stays pending for good. 2026-11-26: #58251's head a04b30c8 sat on a base whose cmux-next.yml was over GitHub's
   # 512,000-byte limit (fixed on the base by #59284), so next-autoland's cmux-next.yml dispatch 45880000763 ended
@@ -481,6 +493,20 @@ held_pr() {
     --jq '[.workflow_runs[] | select(.conclusion == "startup_failure")] | length')" || return 2
   [[ "$unstarted" =~ ^[0-9]+$ ]] || return 2
   failed=$((failed + unstarted))
+  # A head whose CI is still running keeps it while young: a move throws away every check still queued or running
+  # for one red that a re-run or the land queue answers. 2026-11-28: cmux#64303 was moved off 512ee340 (11:51Z) and
+  # 68a65d55 (12:07Z), 28 and 16 min after their pushes, for "backend migrations applied" ("migration plan
+  # cancelled") and the build fleet's app compile ("source-checkout: git fetch failed ... not our ref"), faults
+  # with nothing to do with the pin, while their Mac and fleet compiles were still running; each glaeda land pinned
+  # to the head then stopped head_moved and the app FFI pin fell 250 min behind. Once every check has finished, a
+  # failure of its own moves the head as before; the hold (hold_min) still bounds the wait.
+  running="$(jq '[.[] | select(.status != "completed" and .conclusion == null)
+    | select(.name | test("\\(advisory\\)$") | not)] | length' <<<"$head_runs")" || return 2
+  [[ "$running" =~ ^[0-9]+$ ]] || return 2
+  if (( failed > 0 && running > 0 )); then
+    echo "kept #$number at ${previous:0:12}: pushed $age min ago (hold $hold_min min), $failed failed check(s) with $running still running; it moves once they finish or the hold ends"
+    return 0
+  fi
   if (( failed > 0 )); then
     echo "#$number's head ${previous:0:12} has $failed failed check(s) of its own: moving it" >&2
     return 1

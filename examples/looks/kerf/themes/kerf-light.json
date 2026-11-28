@@ -3,7 +3,7 @@
 // One Light palette in the terminal, deepened where a color would not read on white.
 {
   "name": "Kerf Light",
-  "description": "A fast editor, light: One Light grays, one-pixel chrome, a dense project panel, an indigo-blue accent.",
+  "description": "Light: cool grays, tight and flat, an indigo-blue accent.",
 
   "appearance.theme": "Builtin Light",
   "appearance.appTheme": "followTerminal",

@@ -593,7 +593,12 @@ elif args[0] == "api":
         query = dict(part.split("=", 1) for part in endpoint.split("?", 1)[1].split("&") if "=" in part)
         size, number = int(query.get("per_page", 30)), int(query.get("page", 1))
         emit({"total_count": len(runs), "check_runs": runs[(number - 1) * size:number * size]})
-    elif endpoint.endswith("/status"): emit({"state": state.get("status", "pending")})
+    elif endpoint.endswith("/status"):
+        # A status given as a string is one "ci" context in that state; a list is [context, state] pairs.
+        given = state.get("status", "pending")
+        pairs = [("ci", given)] if isinstance(given, str) else [tuple(p) for p in given]
+        emit({"state": given if isinstance(given, str) else "error",
+              "statuses": [{"context": c, "state": st} for c, st in pairs]})
     elif "/commits/" in endpoint:
         import datetime
         at = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=state.get("head_age_min", 600))
@@ -630,7 +635,10 @@ def pin_step(job: dict) -> dict:
 
 def dispatch_step(job: dict) -> dict:
     """The re-pin job's step that starts app-ffi-repin.yml when the re-pin failed."""
-    return next(step for step in job["steps"] if "gh workflow run" in str(step.get("run", "")))
+    # #63649 moved the dispatch into scripts/cmux-next/dispatch-app-ffi-repin.sh (cmux-bot's budget, a wait for the
+    # rate limit's reset); the step that runs it is the one.
+    return next(step for step in job["steps"] if any(
+        mark in str(step.get("run", "")) for mark in ("gh workflow run", "dispatch-app-ffi-repin.sh")))
 
 
 class RePinPublication(unittest.TestCase):
@@ -1015,6 +1023,16 @@ class RePinPublication(unittest.TestCase):
             "a check run cancelled by a newer run of its workflow": {"checks": ("success", "cancelled"),
                                                                      "staged_on": "5" * 40,
                                                                      "base_checks": ("success",)},
+            # 2026-11-27: re-pin run 46033637560 moved cmux#60965 off 2da59316, seated on the merge train, for an
+            # advisory fleet compile and the train's own "not seated" status: neither gates the land.
+            "an advisory check's failure": {"checks": ("success", ["nightly app compile arm64 fleet job (advisory)",
+                                                                   "failure"])},
+            "the merge train's seat status": {"checks": ("success",),
+                                              "status": [["merge-train", "error"], ["ci", "success"]]},
+            # 2026-11-28: cmux#64303 was moved off 512ee340 and 68a65d55 for one red each (a cancelled migration
+            # plan, a build fleet fetch fault) while its Mac and fleet compiles still ran; every pinned land stopped.
+            "a failed check while others still run": {"checks": ("success", "failure", None)},
+            "a failed commit status while a check still runs": {"checks": ("success", None), "status": "failure"},
         }
         for name, options in cases.items():
             with self.subTest(name):
@@ -1028,6 +1046,10 @@ class RePinPublication(unittest.TestCase):
         cases = {
             "past the hold": {"head_age_min": 95},
             "a failed check run": {"head_age_min": 20, "checks": ("success", "failure")},
+            "a failed check run, and only an advisory one still running": {
+                "head_age_min": 20, "checks": ("failure", ["nightly app compile arm64 fleet job (advisory)", None])},
+            "a failed check with checks still running, past the hold": {"head_age_min": 95,
+                                                                       "checks": ("failure", None)},
             "a timed-out check run": {"head_age_min": 20, "checks": ("timed_out",)},
             "a check run that never started": {"head_age_min": 20, "checks": ("startup_failure",)},
             "a stale check run": {"head_age_min": 20, "checks": ("stale",)},
@@ -1043,6 +1065,10 @@ class RePinPublication(unittest.TestCase):
             "a workflow run that never started": {"head_age_min": 20, "head_runs": ("success", "startup_failure")},
             "a failed commit status": {"head_age_min": 20, "status": "failure"},
             "an errored commit status": {"head_age_min": 20, "status": "error"},
+            "an errored status beside the merge train's": {"head_age_min": 20,
+                                                           "status": [["merge-train", "error"], ["ci", "error"]]},
+            "a failed check named like an advisory one, not ending in it": {
+                "head_age_min": 20, "checks": (["nightly (advisory) compile", "failure"],)},
             "the PR is closed": {"head_age_min": 20, "closed": True},
             # 2026-11-27: #60275's head c175a22a conflicted with feat-cmux-next, no check failed, and each re-pin kept
             # it for the 90 min hold while the app FFI pin sat 182 min behind.
@@ -1071,8 +1097,8 @@ class RePinPublication(unittest.TestCase):
         self.assertEqual(job["concurrency"], {"group": "app-ffi-repin-v2", "cancel-in-progress": False})
         self.assertEqual(job["permissions"], {"actions": "write", "contents": "read", "checks": "read", "statuses": "read"})
         self.assertEqual(release["permissions"], job["permissions"])
-        self.assertEqual(pin_step(job)["env"]["READ_TOKEN"], "${{ github.token }}")
-        self.assertEqual(pin_step(release)["env"]["READ_TOKEN"], "${{ github.token }}")
+        self.assertEqual(pin_step(job)["env"]["READ_TOKEN"], "${{ steps.bot-token.outputs.token || github.token }}")
+        self.assertEqual(pin_step(release)["env"]["READ_TOKEN"], "${{ steps.bot-token.outputs.token || github.token }}")
         cells = workflow_jobs.runs_on_cells(job)
         self.assertTrue(cells, "repin: runs-on reads a matrix value nothing resolves, or is missing")
         for runs_on in cells:
@@ -1454,7 +1480,7 @@ class RePinPublication(unittest.TestCase):
                 env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", STATE=str(state_path),
                            GH_TOKEN="actions-token", GITHUB_REPOSITORY=REPO)
                 result = subprocess.run(["bash", "-e", "-c", step["run"]], env=env, capture_output=True, text=True,
-                                        timeout=10)
+                                        timeout=10, cwd=ROOT)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(json.loads(state_path.read_text())["dispatches"],
                                  [["app-ffi-repin.yml", "--ref", "feat-cmux-next"]])
@@ -1853,7 +1879,7 @@ class BuildGoesAheadOfThePullRequestQueue(unittest.TestCase):
     PROMOTE = "glaeda-promote-trusted-std-xcode-26.6"
     SMALL = "blacksmith-6vcpu-macos-26"
 
-    NIGHTLY_SLOT = "glaeda-nightly-std-xcode-26.6"
+    NIGHTLY_SLOT = "mac-nightly"  # #61222 (RFD 0185): workflows read the unified mac-* labels
 
     def runner(self, promote: str, event: str = "push", attempt: int = 1, slot: str = "off",
                owner: str = "manaflow-ai") -> str:
@@ -1952,7 +1978,7 @@ class BuildRescueToBlacksmith(unittest.TestCase):
         self.assertEqual(self.runner(""), self.SIDE)
         self.assertEqual(self.runner("something-else"), self.SIDE)
         # with the switch unset the ordinary run takes the nightly slot; a rescue still goes first
-        self.assertEqual(self.runner("", pin_slot=""), "glaeda-nightly-std-xcode-26.6")
+        self.assertEqual(self.runner("", pin_slot=""), "mac-nightly")
         self.assertEqual(self.runner("blacksmith", pin_slot=""), self.SMALL)
 
     POOL = "glaeda-promote-trusted-light-xcode-26.6"
@@ -1980,7 +2006,7 @@ class BuildRescueToBlacksmith(unittest.TestCase):
         self.assertEqual(self.pool_runner(""), self.SIDE)
         # the dedicated pool, when set, goes ahead of the nightly slot; unset, the nightly slot takes the build
         self.assertEqual(self.pool_runner(self.POOL, pin_slot=""), self.POOL)
-        self.assertEqual(self.pool_runner("", pin_slot=""), "glaeda-nightly-std-xcode-26.6")
+        self.assertEqual(self.pool_runner("", pin_slot=""), "mac-nightly")
 
     def test_only_this_workflow_reads_the_ffi_release_pool(self):
         readers = sorted(path.name for path in (ROOT / ".github/workflows").glob("*.yml")

@@ -292,3 +292,120 @@ fn protected_descendants_keep_their_parent_even_after_scan() {
         assert!(!sibling.exists());
     }
 }
+
+/// A Rust checkout at `dir` with a build folder.
+fn checkout_with_target(dir: &Path) -> PathBuf {
+    std::fs::create_dir_all(dir.join(".git")).unwrap();
+    std::fs::write(dir.join("Cargo.toml"), "[package]\n").unwrap();
+    let target = dir.join("target");
+    std::fs::create_dir_all(target.join("debug")).unwrap();
+    std::fs::write(target.join("debug/app"), b"bin").unwrap();
+    target
+}
+
+/// First-run findings, new row (clean macOS 26 VM): the daemon's startup cleanup pass listed
+/// every folder in the home folder and read inside each, so a new Mac's first launch raised
+/// macOS's Desktop, Documents and Downloads prompts one after another, "A program running within
+/// cmux would like to access files in your Desktop folder", before the person did anything
+/// (LAUNCH-NO-TCC-PROMPTS). The build-folder search never reads inside a folder macOS guards
+/// (data/protected-folders.json in acpmux), nor treats one as a checkout; a checkout elsewhere
+/// in the home folder is still found.
+#[test]
+fn the_build_folder_search_never_reads_inside_a_folder_macos_guards() {
+    let home = scratch("caches-guarded");
+    let found = checkout_with_target(&home.join("code/app"));
+    let top = checkout_with_target(&home.join("site"));
+    let mut guarded = Vec::new();
+    for name in ["Desktop", "Documents", "Downloads", "Pictures", "Movies", "Music"] {
+        guarded.push(checkout_with_target(&home.join(name).join("app")));
+    }
+    // A guarded folder that is itself a checkout, and one two levels down in Library.
+    guarded.push(checkout_with_target(&home.join("Documents")));
+    guarded.push(checkout_with_target(&home.join("Library/Mobile Documents/app")));
+    let families = default_families(&home);
+    let build = families.iter().position(|f| f.name == "checkout-build-dirs").unwrap();
+    let paths: Vec<PathBuf> =
+        entries(&families).into_iter().filter(|e| e.family == build).map(|e| e.path).collect();
+    assert!(paths.contains(&found), "{paths:?}");
+    assert!(paths.contains(&top), "{paths:?}");
+    for path in &guarded {
+        assert!(!paths.contains(path), "read inside a guarded folder: {path:?}");
+    }
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+/// The guarded folders are acpmux's one list, read whole: a folder in it and one inside it are
+/// guarded, the home folder's other folders are not, and a name that only starts like one is not.
+#[test]
+fn guarded_folders_follow_the_one_protected_folder_list() {
+    let home = Path::new("/Users/someone");
+    for guarded in [
+        "Desktop",
+        "Documents/app",
+        "Downloads",
+        "Library/Mobile Documents",
+        "Library/Containers/x",
+    ] {
+        assert!(guarded_folder(home, &home.join(guarded)), "{guarded}");
+    }
+    for open in ["code", "Library", "Desktopper", "site/Documents"] {
+        assert!(!guarded_folder(home, &home.join(open)), "{open}");
+    }
+    assert!(!guarded_folder(home, Path::new("/elsewhere/Desktop")));
+}
+
+fn projected_target(home: &Path, checkout: &str, sub: &str) -> PathBuf {
+    let target =
+        home.join(".cache/cmux-projection/wt/owner/repo").join(checkout).join("real").join(sub);
+    std::fs::create_dir_all(target.join("debug")).unwrap();
+    std::fs::write(target.join("CACHEDIR.TAG"), "Signature: 8a477f597d28d172789f06886806bc55\n# This file is a cache directory tag created by cargo.\n").unwrap();
+    std::fs::write(target.join("debug/.cargo-lock"), "").unwrap();
+    target
+}
+
+/// a lane VM, 2026-11-28: four projected checkouts' `real/*/target` held 16 GiB and
+/// `care why` named none of them. Their Cargo targets are entries of `projected-build-dirs`,
+/// found at any depth up to three below `real`; a folder without cargo's tag is not one.
+#[test]
+fn projected_checkouts_cargo_targets_are_a_family() {
+    let home = scratch("caches-projected");
+    let tui = projected_target(&home, "lane--a-1", "cmux-tui/target");
+    let top = projected_target(&home, "lane--b-2", "target");
+    let plain = home.join(".cache/cmux-projection/wt/owner/repo/lane--c-3/real/target");
+    std::fs::create_dir_all(&plain).unwrap();
+    let families = default_families(&home);
+    let index = families.iter().position(|f| f.name == "projected-build-dirs").unwrap();
+    let found: Vec<Entry> = entries(&families).into_iter().filter(|e| e.family == index).collect();
+    let paths: Vec<&PathBuf> = found.iter().map(|e| &e.path).collect();
+    assert!(paths.contains(&&tui) && paths.contains(&&top), "{paths:?}");
+    assert!(!paths.contains(&&plain), "{paths:?}");
+    let a = found.iter().find(|e| e.path == tui).unwrap();
+    assert!(a.guard.ends_with("lane--a-1"), "{:?}", a.guard);
+    assert_eq!(guard_of(&families[index], &tui), a.guard);
+    assert!(family_names().contains(&"projected-build-dirs"));
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+/// A target folder a cargo build is writing (it holds `<profile>/.cargo-lock`) is kept at the
+/// last check, whatever its age; once the build lets go it is an entry again.
+#[cfg(unix)]
+#[test]
+fn a_projected_target_a_build_holds_is_kept() {
+    let home = scratch("caches-projected-busy");
+    let target = projected_target(&home, "lane--a-1", "cmux-tui/target");
+    let family =
+        default_families(&home).into_iter().find(|f| f.name == "projected-build-dirs").unwrap();
+    let opts = options(&home, Pressure::Critical, 0, true, &no_uses, &not_open);
+    assert!(still_an_entry(&opts, &family, &target).is_ok());
+    let file = std::fs::File::open(target.join("debug/.cargo-lock")).unwrap();
+    let lock = cmux_file_lock::FileLock::take(file, cmux_file_lock::Kind::Exclusive).unwrap();
+    let kept = still_an_entry(&opts, &family, &target).unwrap_err();
+    assert!(kept.reason.contains("debug/.cargo-lock"), "{}", kept.reason);
+    drop(lock);
+    assert!(still_an_entry(&opts, &family, &target).is_ok());
+    let outside = home.join("elsewhere/target");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("CACHEDIR.TAG"), "cargo").unwrap();
+    assert!(still_an_entry(&opts, &family, &outside).is_err());
+    let _ = std::fs::remove_dir_all(&home);
+}

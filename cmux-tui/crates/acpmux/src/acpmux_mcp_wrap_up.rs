@@ -38,13 +38,13 @@ pub(crate) const MAX_FACT: usize = 200;
 pub(super) fn tool() -> Value {
     json!({
         "name": NAME,
-        "description": "Finish with a recap below your answer. An answer button sends the person's next message; a {label, run} answer runs cmux customize try, keep or revert.",
+        "description": "Finish with a recap below your answer. An answer button sends the person's next message; a {label, run} answer runs cmux customize try, keep, revert or go.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "recap": {"type": "string", "description": format!("Two or three sentences: changes, verification, unfinished work; at most {MAX_RECAP} characters (trimmed above {RECAP_CEILING}).")},
                 "ask": {"type": "string", "description": format!("Only a decision the person must make, at most {MAX_ASK} characters. Never ask them to click or switch tabs: focus or capture it yourself. An unanswered one still waits: do not ask it again.")},
-                "actions": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "object", "properties": {"label": {"type": "string"}, "run": {"type": "object", "properties": {"customize": {"type": "string", "enum": ["try", "keep", "revert"]}, "target": {"type": "string", "description": "pr:N, branch:B, sha:S, dir:PATH or a profile."}, "minutes": {"type": "integer", "description": "How long it stays on, 1 to 240."}}, "required": ["customize"]}}, "required": ["run"]}]}, "description": format!("With ask, up to {MAX_ACTIONS} buttons of at most {MAX_ACTION} characters, preferred first (default Yes, Not now). After a customization, run {{customize: \"try\", target: \"pr:123\", minutes: 15}} tries it on (the card then offers Keep and Revert); or customize keep or revert.")},
+                "actions": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "object", "properties": {"label": {"type": "string"}, "run": {"type": "object", "properties": {"customize": {"type": "string", "enum": ["try", "keep", "revert", "go"]}, "target": {"type": "string", "description": "pr:N, branch:B, sha:S, dir:PATH or a profile; go: the pr:N tried on."}, "minutes": {"type": "integer", "description": "How long it stays on, 1 to 240."}}, "required": ["customize"]}}, "required": ["run"]}]}, "description": format!("With ask, up to {MAX_ACTIONS} buttons of at most {MAX_ACTION} characters, preferred first (default Yes, Not now). After a customization, run {{customize: \"try\", target: \"pr:123\", minutes: 15}} tries it on (the card then offers Keep and Revert, and Go for a pr:N: merge-ready at the head seen); or customize keep or revert.")},
                 "learned": {"type": "array", "items": {"type": "string"}, "description": format!("After a correction or a failed then working command: up to {MAX_LEARNED} one-line project facts to accept, at most {MAX_FACT} characters each.")}
             },
             "required": ["recap"]
@@ -214,6 +214,7 @@ pub(super) fn check(args: &Value) -> Result<(Value, Vec<String>), String> {
             let verb = |run: &Value| match run["customize"].as_str() {
                 Some("try") => "Try it on",
                 Some("keep") => "Keep",
+                Some("go") => "Go",
                 _ => "Revert",
             };
             let label = object
