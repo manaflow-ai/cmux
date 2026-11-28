@@ -3842,6 +3842,7 @@ function TranscriptView({
   // change an estimate.
   const estimated = useMemo(() => {
     const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
+    { const g = globalThis as any; const d = { rows, registry, sessionId, chatLook, attachmentView, scaledRowWidth, resizeSettled, layoutBuffers } as any; const prev = g.__h34prev; g.__h34 ??= []; g.__h34.push({ t: Math.round(performance.now()), n: rows.length, w: scaledRowWidth, changed: prev ? Object.keys(d).filter((k) => prev[k] !== d[k]) : ["first"], firstRowSame: prev ? prev.rows[0] === rows[0] : null, sameRowObjs: prev ? rows.filter((r: unknown, i: number) => prev.rows[i] === r).length : 0 }); g.__h34prev = d; }
     // Keep the session in this memo's inputs: its cache is cleared synchronously above even
     // when a host reuses the same rows array for a newly selected chat.
     const sameSession = measurementSession.current === sessionId;
@@ -3891,6 +3892,7 @@ function TranscriptView({
       coldOpenRoughAbove(cache, kept, resizing, rows, coldView.current),
       layoutBuffers,
     );
+    { const g = globalThis as any; g.__h34[g.__h34.length-1].ms = Math.round(performance.now() - g.__h34[g.__h34.length-1].t); g.__h34[g.__h34.length-1].kept = kept ? 'yes' : 'no'; g.__h34[g.__h34.length-1].fresh = fresh; }
     lastEstimate.current = {
       rows,
       layout,

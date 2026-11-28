@@ -2337,7 +2337,7 @@ try {
           profile: CpuProfile & { startTime: number; endTime: number };
         };
         await cdp.detach();
-        if (process.env.PROFILE_DUMP) console.log("H34ROWS " + JSON.stringify(await page.evaluate(() => { const rows = [...document.querySelectorAll(".acpmux-row[data-row-id]")]; const h = innerHeight; return { rows: rows.length, inView: rows.filter((r) => { const b = r.getBoundingClientRect(); return b.bottom > 0 && b.top < h; }).length, elements: document.querySelectorAll("*").length }; })));
+        if (process.env.PROFILE_DUMP) console.log("H34ROWS " + JSON.stringify(await page.evaluate(() => { const rows = [...document.querySelectorAll(".acpmux-row[data-row-id]")]; const h = innerHeight; return { rows: rows.length, inView: rows.filter((r) => { const b = r.getBoundingClientRect(); return b.bottom > 0 && b.top < h; }).length, elements: document.querySelectorAll("*").length, h34: (globalThis as any).__h34 }; })));
         if (process.env.PROFILE_DUMP) fs.writeFileSync(`${process.env.PROFILE_DUMP}-${profiled + 1}.json`, JSON.stringify({ profile, nowMs }));
         const metrics = classifyFrames(got.frames);
         const settledMs = restartSettled(got.frames, metrics, got.liveLatestAt || null).settledMs ?? nowMs;
