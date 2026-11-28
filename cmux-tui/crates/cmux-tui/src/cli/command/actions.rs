@@ -910,7 +910,9 @@ pub(in crate::cli) const ACTIONS: &[ActionSpec] = &[
                 "state",
                 "<working|blocked|done|idle|unknown|ended>",
                 "Only agents with this status (done: idle with an unread notification; \
-                 ended: the session ended, which --state done selected before)",
+                 ended: the session ended, which --state done selected before). Rows carry \
+                 status; state is a deprecated alias of it. Ended agents of closed terminals \
+                 are hidden unless --state ended",
             ),
         ],
     ),
@@ -932,7 +934,11 @@ pub(in crate::cli) const ACTIONS: &[ActionSpec] = &[
         "Report an agent's state",
         &[
             req("terminal", "<term_id>", "Terminal the agent runs in"),
-            req("state", "<working|blocked|idle|done|unknown>", "Agent state"),
+            req(
+                "state",
+                "<working|blocked|idle|ended|unknown>",
+                "Agent state (ended: the session ended; done is an old alias of it)",
+            ),
             req("source", "<hook|socket>", "Where the report comes from"),
             opt("source-session", "<value>", "Agent session ID"),
         ],

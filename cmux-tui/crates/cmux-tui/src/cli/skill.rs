@@ -130,8 +130,10 @@ pub(super) const RECIPES: &[Recipe] = &[
         commands: &["cmux --json agent list", "cmux --json agent list --state blocked"],
         read: "One record per agent terminal of this session (`terminal_id`, `name`, \
                `tab_id`, `pane_id`, `status`, `state`, `source`). `status` is the word the TUI shows: `done` is a finished \
-               turn nobody has viewed, `null` a session that ended. `--state blocked` lists \
-               the agents that wait on the person; `--state ended` the ended sessions.",
+               turn nobody has viewed, `ended` a session that ended; `state` is a deprecated \
+               alias with the same word. Ended agents of closed terminals are hidden; \
+               `--state ended` shows them. `--state blocked` lists the agents that wait on \
+               the person.",
     },
     Recipe {
         ask: "Stop it. / Press Ctrl-C. / Answer the dialog with Escape.",
