@@ -4467,17 +4467,16 @@ class E2EQueueRounds(unittest.TestCase):
             self.assertFalse(pool.persistent(within.runner))
             self.assertEqual(within.runner, without.runner, pull_requests_since)
             self.assertIn("no owned pool within 2 queue round(s)", within.reason)
-        # With the owned pools full the Blacksmith pick is 6vcpu: a free 12vcpu
-        # machine no longer takes E2E (12vcpu left E2E_POOLS on 2026-11-28).
+        # A free 12vcpu machine still wins on the headroom rule, not the least expected wait.
         snap = backlog(small=0, large=0)
         snap["pools"][LARGE]["running"] = 4
         for label in (MINI, ROOT_MINI, self.LIGHT, self.ROOT_LIGHT):
             snap["pools"][label] = {"queued": 60, "running": 40, "committed": 99}
-        self.assertEqual(self.choice("2", 0, snap).runner, SMALL)
+        self.assertEqual(self.choice("2", 0, snap).runner, LARGE)
         # With owned pools off the reason names no owned pool.
         choice = e2e_pool.decide(e2e_pool.PoolLoad(snap, {}, 0), e2e_pool.settings("", "", "", PR_XCODE, "2"),
                                  now=NOW, owned_slots=self.SLOTS)
-        self.assertEqual(choice.runner, SMALL)
+        self.assertEqual(choice.runner, LARGE)
         self.assertNotIn("owned", choice.reason)
         # A stale snapshot's empty pick passes through.
         stale = self.snapshot()
