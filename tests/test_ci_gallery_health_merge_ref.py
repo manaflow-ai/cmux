@@ -645,7 +645,8 @@ class GalleryHealthPathRouting(unittest.TestCase):
         # schedule on this branch never fires.
         self.assertIn("workflow_dispatch", triggers())
         run = plan_step("Choose the entries to render")["run"]
-        branch = run[run.index('[ "$EVENT" = workflow_dispatch ]'):]
+        # The last workflow_dispatch branch is the full render (the nightly, a batch with no base, a probe).
+        branch = run[run.rindex('elif [ "$EVENT" = workflow_dispatch ]; then'):]
         branch = branch[:branch.index("elif", 1)]
         self.assertIn("echo .github/workflows/gallery-health.yml", branch)
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
@@ -657,6 +658,25 @@ class GalleryHealthPathRouting(unittest.TestCase):
         self.assertEqual(plan_step("Choose the entries to render")["env"]["EVENT"], batch_event)
         self.assertEqual(step("Resolve the head and the merge")["env"]["EVENT"], batch_event)
         self.assertIn("inputs.sha || github.sha", workflow["concurrency"]["group"])
+
+    def test_a_batch_renders_the_entries_its_merges_touch(self) -> None:
+        # 2026-11-28 (Leo: "de facto, im asking for 99% fewer minutes of ci time, period."): a post-merge batch
+        # call diffs its base (the last judged batch's head) and renders what touched.ts picks, with the same
+        # fallbacks to everything; a probe (job, states or only set) and the nightly (no inputs.sha) never do.
+        entries = plan_step("Choose the entries to render")
+        self.assertEqual(
+            entries["env"]["BATCH_BASE"],
+            "${{ inputs.sha != '' && inputs.job == '' && inputs.states == '' && inputs.only == '' && inputs.base || '' }}",
+        )
+        run = entries["run"]
+        batch = run[run.index('[ -n "${BATCH_BASE:-}" ]'):run.index('elif [ "$EVENT" = workflow_dispatch ]; then')]
+        self.assertIn('git diff --name-only "$BATCH_BASE" HEAD > "$RUNNER_TEMP/changed.txt"', batch)
+        self.assertIn('"${BATCH_ALL:-}" != 1', batch)
+        self.assertIn('^[0-9a-f]{40}$', batch)
+        # The checker and the unplaced fallbacks still follow, for every event.
+        tail = run[run.index("touched entries"):]
+        self.assertIn("unplaced.py", tail)
+        self.assertIn("gallery-health\\.yml", tail)
 
 
 def sparse_patterns() -> list[str]:
