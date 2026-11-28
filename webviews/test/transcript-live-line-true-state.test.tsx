@@ -11,11 +11,15 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup as renderMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
-import { SILENT_MS } from "../src/agent-session/acpmux/conversation/thinkingModel";
-import { continuationStart, liveClock, THINKING, turnView } from "../src/agent-session/acpmux/conversation/turns";
-import { StatusVerbContext } from "../src/agent-session/acpmux/statusVerbs";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { Thinking } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/Thinking"));
+const { SILENT_MS } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/thinkingModel"));
+const { continuationStart, liveClock, THINKING, turnView } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/turns"),
+);
+const { StatusVerbContext } = await importWithDom(() => import("../src/agent-session/acpmux/statusVerbs"));
 
 // The line's two times (liveLineTimes.experiment.ts `labelled`) on the line itself
 // (liveTurnClock.experiment.ts `line`): this file reads the thinking time and the turn's clock.
