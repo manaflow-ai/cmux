@@ -3,9 +3,9 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use super::{
-    AcpmuxLink, IF_IDLE_FLAG, IN_PLACE_FLAG, Route, STORE_ACPMUX, STORE_CURRENT, StoreNext, acpmux_link, claim,
-    claim_path, keep_previous, parse, relink, runs_a_store_entry, runs_this_install, status_names,
-    stop, store_answer, store_next,
+    AcpmuxLink, IF_IDLE_FLAG, IN_PLACE_FLAG, Route, STORE_ACPMUX, STORE_CURRENT, StoreNext,
+    acpmux_link, claim, claim_path, keep_previous, parse, relink, runs_a_store_entry,
+    runs_this_install, status_names, stop, store_answer, store_next,
 };
 
 const INSTALL: &str = "/home/u/.cmux/bin/cmux-tui";
@@ -350,7 +350,8 @@ fn a_session_mid_turn_makes_the_machine_busy() {
     assert!(why.contains("cloud-chat"), "{why}");
     let asks = json!({"sessionId": "c", "name": "asks", "status": "idle", "turn": null, "pendingPermissions": 1, "starting": false});
     assert!(super::busy_reason(&ls(json!([asks]))).is_some());
-    let starting = json!({"sessionId": "d", "name": "new", "status": "idle", "turn": null, "starting": true});
+    let starting =
+        json!({"sessionId": "d", "name": "new", "status": "idle", "turn": null, "starting": true});
     assert!(super::busy_reason(&ls(json!([starting]))).is_some());
     let peer = json!({"sessionId": "e", "name": "peer", "status": "running", "turn": {"id": "t"}, "peer": "mac"});
     assert_eq!(super::busy_reason(&ls(json!([peer]))), None);

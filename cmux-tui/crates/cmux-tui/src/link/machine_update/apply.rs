@@ -551,7 +551,9 @@ fn agents_busy() -> Option<String> {
 /// answer that is no session list.
 pub(super) fn busy_reason(ls: &str) -> Option<String> {
     let busy = acpmux::cli::hosts::busy_sessions(ls, None)?;
-    (!busy.is_empty()).then(|| format!("an agent works on this machine ({}); it updates once idle", busy.join(", ")))
+    (!busy.is_empty()).then(|| {
+        format!("an agent works on this machine ({}); it updates once idle", busy.join(", "))
+    })
 }
 
 /// `systemctl --user restart acpmux.service`, at most a minute. The session host passes no

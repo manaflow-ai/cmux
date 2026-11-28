@@ -174,7 +174,10 @@ fn only_the_automatic_update_waits_for_idle_agents() {
     for route in [apply::Route::Work, apply::Route::Store] {
         assert!(route_args(route, &request(true, true)).contains(&apply::IF_IDLE_FLAG.to_owned()));
         for (to_bundled, if_older) in [(true, false), (false, false)] {
-            assert!(!route_args(route, &request(to_bundled, if_older)).contains(&apply::IF_IDLE_FLAG.to_owned()));
+            assert!(
+                !route_args(route, &request(to_bundled, if_older))
+                    .contains(&apply::IF_IDLE_FLAG.to_owned())
+            );
         }
     }
 }
