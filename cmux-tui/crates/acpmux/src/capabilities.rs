@@ -587,6 +587,16 @@ pub const CAPABILITIES: &[Capability] = &[
         id: "team-directory-v1",
         wire: &[method::MUX_TEAM_NAVIGATOR, method::MUX_TEAM_PICK, method::MUX_TEAM_SESSION_INFO],
     },
+    // RFD 0170 phase 4: team and person customization and the `Open in cmux` handoff, under the
+    // same team-messaging gate (`server/team_settings.rs`).
+    Capability {
+        id: "team-settings-v1",
+        wire: &[
+            method::MUX_TEAM_CUSTOMIZATION,
+            method::MUX_TEAM_CUSTOMIZE,
+            method::MUX_TEAM_HANDOFF,
+        ],
+    },
     // A chat's sign-in before a send, by session or target (`hub/session_auth.rs`).
     Capability { id: "session-auth-v1", wire: &[method::MUX_SESSION_AUTH] },
     // Owner-captured Cloud turns: prepare reserves a stable id before the native bridge mints

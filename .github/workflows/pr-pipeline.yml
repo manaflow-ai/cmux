@@ -95,9 +95,9 @@ jobs:
     # and the four web test shards 6 min each, the cmux_next_ daemon tests 65 min, the cmux_next_ tests of acpmux,
     # cmux-tui-core and cmux-tui 45 min each, the iOS matrix protocol 45 min, the App Store shelf 45 min, the acpmux
     # instruction counts 40 min, the compile canary 30 min, the Rust notices 20 min, the cmux VM Rust clients 30 min,
-    # wire-lockstep-peers 30 min, the nightly and cmux-tui release guards 20 min, the cmux cloud CLI 15 min): 693 min
-    # with 52 shared steps (26 waves) and the setup and tool bounds, so a slow step is reported by the runner, not cut here.
-    timeout-minutes: 693
+    # wire-lockstep-peers 30 min, the nightly and cmux-tui release guards 20 min, the cmux cloud CLI 15 min): 710 min
+    # with 59 shared steps (30 waves) and the setup and tool bounds, so a slow step is reported by the runner, not cut here.
+    timeout-minutes: 710
     permissions:
       contents: read
       # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
@@ -206,7 +206,7 @@ jobs:
           [ "${CI_PR_PIPELINE_LINUX_PR_SCOPE:-0}" = 1 ] && scope=(--pr-scope)
           # The router's nightly gate (a landing head of the affected tier): only the steps the nightly also runs.
           if [ -n "${ROUTER_ONLY:-}" ]; then
-            echo "Nightly gate: running only ${ROUTER_ONLY} (the steps the nightly also runs that this change routes)."
+            echo "Nightly gate: running only ${ROUTER_ONLY} (the steps the nightly also runs, or ci/steps.toml land_gate steps, that this change routes)."
             exec ci/run run --job linux ${PATHS_FILE:+--paths-file "$PATHS_FILE"} --only "$ROUTER_ONLY" "${scope[@]}"
           fi
           # The routed linux steps less tooling-tests-N; a route that cannot be read runs every step (fails open).
