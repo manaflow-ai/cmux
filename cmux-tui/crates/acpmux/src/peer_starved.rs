@@ -2,7 +2,9 @@
 //! is not the peer's (cmuxterm-hq RFD 0124, "starved is slow, never dead").
 //!
 //! One canary task per process sleeps [`TICK`] at a time on the daemon's runtime and records how
-//! late each wake was, by the second, for the last [`KEPT`] seconds. A link's loop takes the
+//! late each wake was, by the second, for the last [`KEPT`] seconds, while a link loop watches
+//! ([`watch`]); with none it waits with no timer. A link reads the meter over its own silence
+//! only, which its loop watched throughout. A link's loop takes the
 //! starved time over the window it was silent ([`Starved::within`]) off that silence before it
 //! judges it against the budget. The loop's own late tick (`peer_runtime_io.rs`) saw only the
 //! tick that ran; a host at load 187 on 15 cores (cosmic-gray, 2026-11-27) starves every tick a
@@ -148,8 +150,12 @@ pub fn watch() -> Watch {
 /// Sleep `TICK` and record how late each wake came, by the wall clock: under a paused test
 /// clock the sleeps return at once and record nothing.
 pub async fn canary(meter: &'static Starved, gate: &'static Gate) {
-    let _ = &gate.wake;
     loop {
+        // No link loop reads the meter: wait for one, with no timer (a `watch` stores a permit, so
+        // one that comes between the load and the wait is not missed).
+        while gate.watchers.load(Relaxed) == 0 {
+            gate.wake.notified().await;
+        }
         let asked = Instant::now();
         tokio::time::sleep(TICK).await;
         gate.ticks.fetch_add(1, Relaxed);
