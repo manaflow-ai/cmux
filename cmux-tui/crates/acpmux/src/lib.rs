@@ -14,6 +14,7 @@
 // there, code only its Unix paths reach is unused on Windows.
 #![cfg_attr(not(unix), allow(dead_code, unused_imports, unused_variables, unused_mut))]
 
+pub mod abi_hello;
 pub mod accept_errors;
 pub(crate) mod acp_key_auth;
 pub mod acpmux_mcp;
@@ -26,12 +27,14 @@ pub mod agent;
 pub mod agent_card;
 pub mod agent_credentials;
 pub mod agent_displays;
+pub mod agent_env;
 pub mod agent_guidance;
 pub mod agent_home;
 pub mod agent_host;
 pub mod agent_launch_choices;
 pub mod agent_link;
 pub mod agent_login;
+pub mod agent_sandbox;
 pub mod agent_text;
 pub mod agent_tools;
 mod artifacts_fs;
@@ -57,6 +60,7 @@ pub mod chat_size_fixture;
 pub mod chatgpt;
 pub mod chats;
 pub mod ci_log_cache;
+pub mod class;
 pub mod claude_auth;
 mod claude_cloud_auth;
 pub mod claude_inbox_relay;
@@ -91,9 +95,14 @@ pub mod codex_desktop;
 pub mod codex_repo_gate;
 mod codex_signed_out;
 pub mod complete;
+pub mod compose_wake;
 pub mod computer_use;
 pub mod config;
 pub mod conn_origin;
+/// Control and Screen switched from the owner's app on another machine, over the hub carrier
+/// (`consent_grant_service.rs`, `cli/consent_grant.rs`).
+#[cfg(feature = "hub-carrier")]
+pub mod consent_grant_service;
 pub mod context_inventory;
 pub mod cpu_class;
 pub mod customize_run;
@@ -116,6 +125,7 @@ pub(crate) mod disk_writer;
 pub mod folder_instructions;
 pub mod fork_place;
 pub mod fork_risky;
+pub mod fork_spec;
 #[cfg(all(test, unix))]
 mod fork_tests;
 pub mod forum;
@@ -142,6 +152,9 @@ pub mod hypervisor;
 pub mod install_share;
 pub mod key_check;
 pub mod memory_follow;
+mod subscription_store;
+mod subscriptions;
+pub mod model_router;
 /// GitHub's MCP server needs the Cloud agent's unix socket (`github_mcp.rs`): elsewhere it is
 /// never offered, and the command says so.
 #[cfg(not(unix))]
@@ -259,6 +272,7 @@ pub mod mesh_relay_config;
 pub mod mesh_retry;
 pub mod meta_fields;
 pub mod model_copies;
+pub mod model_settings;
 pub mod name_match;
 #[cfg(target_os = "macos")]
 mod named_files_watch;
@@ -287,6 +301,7 @@ pub mod perf_trace;
 // One host-wide gate for peer links' dials, so many dropped links do not redial in one instant.
 pub mod peer_dial_gate;
 pub(crate) mod peer_notice_outbox;
+pub mod peer_starved;
 // The dialing side of a peer's list stream: the mirror into the index (row 8, part two).
 pub mod peer_mirror;
 pub mod peer_path_stats;
@@ -324,6 +339,7 @@ pub mod protected_folders;
 pub mod protocol;
 pub mod provenance_keys;
 mod provider_cloud_auth;
+pub mod provider_settings;
 pub mod qos;
 pub mod question_answer;
 pub(crate) mod questions;
@@ -331,6 +347,7 @@ pub(crate) mod questions;
 mod quiet_dirs;
 pub mod race_records;
 pub mod range_fetch;
+pub(crate) mod rearm;
 pub(crate) mod rebalance;
 pub mod recovery;
 pub mod registry;
@@ -430,6 +447,7 @@ pub mod subsession_settings;
 pub mod subsession_worktree;
 pub mod suggestion_gate;
 pub(crate) mod supervise;
+pub mod supervisor;
 pub mod surge_triage;
 pub mod tailnet;
 pub mod tailnet_carrier;

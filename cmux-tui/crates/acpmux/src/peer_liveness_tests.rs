@@ -193,8 +193,12 @@ async fn a_request_on_a_link_that_answers_keeps_it() {
     use futures_util::StreamExt;
     let (tx, _rx) = mpsc::channel(8);
     let mut peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
-    Arc::get_mut(&mut peer).expect("only this test holds it").timings.handshake =
-        Duration::from_secs(3_600);
+    let timings = &mut Arc::get_mut(&mut peer).expect("only this test holds it").timings;
+    timings.handshake = Duration::from_secs(3_600);
+    // A budget past the 3 s of silence (one a slow peer already earned), so only the request's
+    // probe is under test: under the 2 s floor the silence alone would end the link first.
+    timings.ping_every = Duration::from_secs(2);
+    timings.ping_misses = 3;
     let (ours, theirs) = tokio::io::duplex(1 << 16);
     let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
     let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
@@ -231,7 +235,11 @@ fn own_network(peer: &Peer) -> tokio::sync::watch::Sender<u64> {
 #[tokio::test(start_paused = true)]
 async fn a_network_change_drops_a_link_that_stopped_answering_within_2_s() {
     let (tx, _rx) = mpsc::channel(8);
-    let peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+    let mut peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+    // A 6 s budget, so the drop is the network change's probe and not the 2 s silence floor.
+    let timings = &mut Arc::get_mut(&mut peer).expect("only this test holds it").timings;
+    timings.ping_every = Duration::from_secs(2);
+    timings.ping_misses = 3;
     let changes = own_network(&peer);
     let (ours, _theirs) = tokio::io::duplex(1 << 16);
     let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
@@ -711,11 +719,24 @@ where
     F: FnOnce(tokio::io::DuplexStream) -> Fut,
     Fut: std::future::Future<Output = ()> + Send + 'static,
 {
+    a_ready_link_pinging_each_that_goes_silent(url, Duration::from_millis(200), peer_end).await
+}
+
+/// `a_ready_link_that_goes_silent_then`, pinging each `ping_every` (its budget three of them).
+async fn a_ready_link_pinging_each_that_goes_silent<F, Fut>(
+    url: &str,
+    ping_every: Duration,
+    peer_end: F,
+) -> (Result<LinkEnd, String>, Duration, bool)
+where
+    F: FnOnce(tokio::io::DuplexStream) -> Fut,
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+{
     let (tx, _rx) = mpsc::channel(8);
     let mut peer = Peer::new("p", url, None, None, tx);
     {
         let timings = &mut Arc::get_mut(&mut peer).expect("only this test holds it").timings;
-        timings.ping_every = Duration::from_millis(200);
+        timings.ping_every = ping_every;
         timings.handshake = Duration::from_secs(3_600);
     }
     peer.set_serving(Some(crate::peer_paths::Via::Url));
@@ -777,6 +798,42 @@ async fn a_silent_link_whose_replacement_does_not_open_still_drops() {
     assert!(error.contains("stopped answering"), "{error}");
     assert!(!replaced);
     assert!(took <= Duration::from_millis(1_500), "{took:?}");
+}
+
+/// fleet-recovery-bench, a host whose daemon stopped (SIGSTOP; a dead VM is the same to a dial):
+/// its kernel still takes a dial's TCP connection, but nothing answers the upgrade. The
+/// replacement waited for twice the budget, so the host read down at 12 s, not 6 to 8
+/// (N=100: detect 10.4 s, resume p50 12.4 s against 7.06 s before #56587). Past the budget it
+/// gets a probe's wait (2 s): with a 3 s budget the link drops by 5 s, not 6.
+#[tokio::test]
+async fn a_replacement_a_stopped_host_never_answers_drops_the_link_a_probe_after_its_budget() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    // Taken, held and never answered, as by a stopped process's kernel.
+    let server = tokio::spawn(async move {
+        let mut held = Vec::new();
+        while let Ok((stream, _)) = listener.accept().await {
+            held.push(stream);
+        }
+    });
+    let (ended, took, replaced) = a_ready_link_pinging_each_that_goes_silent(
+        &format!("ws://127.0.0.1:{port}"),
+        Duration::from_secs(1),
+        |theirs| async move {
+            let _held = theirs;
+            std::future::pending::<()>().await;
+        },
+    )
+    .await;
+    server.abort();
+    let error = ended.expect_err("the link drops");
+    assert!(error.contains("did not open"), "{error}");
+    assert!(!replaced);
+    assert!(
+        took >= Duration::from_millis(4_500),
+        "dropped before its budget and a probe: {took:?}"
+    );
+    assert!(took < Duration::from_millis(5_800), "waited out twice its budget: {took:?}");
 }
 
 /// The peer's end of a blacked-out link: silent for `quiet`, then the backlog it wrote into the
