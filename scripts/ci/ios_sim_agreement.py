@@ -190,8 +190,11 @@ def fetch_run(cache: Path, run_id: int, notes: list[str]) -> None:
             (d / "mac.log").write_text("\n".join(step_lines(log)) + "\n")
         if not (d / "linux").exists() and any(s["name"] == "Upload the fleet pool result" and s.get("conclusion") == "success"
                                               for j in jobs for s in j.get("steps", [])):
-            listing = gh(["api", f"repos/{REPO}/actions/runs/{run_id}/artifacts", "--paginate", "--jq",
-                          ".artifacts[] | select(.expired|not) | .name"]).split()
+            # Bounded pages through gh_pages.py: the gh quota wrapper refuses gh api's paginate flag.
+            pages = subprocess.run([sys.executable, str(Path(__file__).with_name("gh_pages.py")),
+                                    f"repos/{REPO}/actions/runs/{run_id}/artifacts"],
+                                   check=True, capture_output=True, text=True, timeout=900).stdout
+            listing = [a["name"] for a in json.loads(pages) if not a.get("expired")]
             names = [n for n in listing if n.startswith("kit-sim-linux-result-")]
             (d / "linux").mkdir()
             if names:
