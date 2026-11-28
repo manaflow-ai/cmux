@@ -166,9 +166,12 @@ test("a stale attach cannot suppress view updates for the newly selected session
     () => socket as unknown as WebSocket,
   );
   try {
+    // The open's own attaches: since the 0-RTT open (#55175) it may send two, a guessed one with the
+    // handshake and the plain one when the handshake does not hold the guess. The held one is the next.
+    const opened = socket.attachCounts.get(SESSION_A) ?? 0;
     socket.holdA = true;
     const staleSelection = client.select(SESSION_A);
-    await socket.waitForAttach(SESSION_A, 2);
+    await socket.waitForAttach(SESSION_A, opened + 1);
     setVisibility("hidden");
     await client.select(SESSION_B);
 

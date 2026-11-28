@@ -29,3 +29,7 @@ export const tokenLineMarkup = (line: ReactElement, split?: TurnTokenSplit) =>
       {line}
     </WorkingCountsContext.Provider>,
   );
+
+/// Token and time figures keep tabular numerals, through the Instrument numerals token since #53716
+/// ("Instrument: font family, tracking, numerals and link underline tokens at today's values").
+export const TABULAR_NUMS = /font-variant-numeric: (?:tabular-nums|var\(--instrument-type-numerals, tabular-nums\));/;
