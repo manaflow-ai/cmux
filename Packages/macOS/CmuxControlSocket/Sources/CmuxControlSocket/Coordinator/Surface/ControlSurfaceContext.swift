@@ -131,6 +131,9 @@ public protocol ControlSurfaceContext: AnyObject {
         force: Bool
     ) -> ControlSurfaceCloseResolution
 
+    /// Observes or closes one terminal, conditional on its process, runtime and input identity.
+    func controlOwnedProcess(params: [String: JSONValue], close: Bool) -> ControlCallResult
+
     // MARK: - move / reorder
 
     /// Moves a surface for `surface.move`, delegating to the shared
@@ -439,6 +442,10 @@ public protocol ControlSurfaceContext: AnyObject {
 }
 
 public extension ControlSurfaceContext {
+    func controlOwnedProcess(params: [String: JSONValue], close: Bool) -> ControlCallResult {
+        .err(code: "unavailable", message: "Terminal unavailable", data: nil)
+    }
+
     /// Backward-compatible non-forced close for app-owned callers.
     func controlSurfaceClose(
         routing: ControlRoutingSelectors,

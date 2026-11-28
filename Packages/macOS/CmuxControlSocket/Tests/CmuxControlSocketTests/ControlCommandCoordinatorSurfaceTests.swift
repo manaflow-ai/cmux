@@ -174,6 +174,17 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(data == .object(["type": .string("agentSession")]))
     }
 
+    @Test func ownedProcessMethodsDispatchSeparately() {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        for (method, expected) in [("surface.owned_process_identity", false), ("surface.close_owned", true)] {
+            guard case .ok = coordinator.handle(ControlRequest(id: .int(1), method: method, params: [:])) else {
+                Issue.record("owned process method unavailable"); return
+            }
+            #expect(context.ownedProcessClose == expected)
+        }
+    }
+
     @Test func surfaceCloseRejectsUnresolvedExplicitSurfaceRef() {
         let context = FakeSurfaceControlCommandContext()
         let coordinator = ControlCommandCoordinator(context: context)

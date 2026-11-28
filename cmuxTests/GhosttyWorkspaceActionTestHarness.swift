@@ -22,15 +22,19 @@ final class GhosttyWorkspaceActionTestHarness {
     private let defaultsName = "cmux.tests.ghostty-host-actions.\(UUID().uuidString)"
     private let defaults: UserDefaults
 
-    init() throws {
+    init(initialTerminalCommand: String? = nil) throws {
         app = try #require(AppDelegate.shared)
         defaults = try #require(UserDefaults(suiteName: defaultsName))
         CloseTabWarningStore(defaults: defaults).setWarnsBeforeClosingTab(true)
         manager = TabManager(
             autoWelcomeIfNeeded: false,
+            createInitialWorkspace: initialTerminalCommand == nil,
             settings: UserDefaultsSettingsClient(defaults: defaults),
             closeTabWarningDefaults: defaults
         )
+        if let initialTerminalCommand {
+            manager.addWorkspace(initialTerminalCommand: initialTerminalCommand, autoWelcomeIfNeeded: false)
+        }
         sourceWorkspaceID = try #require(manager.selectedTabId)
         previousManager = app.tabManager
         window = NSWindow(

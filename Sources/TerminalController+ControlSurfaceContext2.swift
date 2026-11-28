@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import CmuxControlSocket
 import CmuxPanes
+import Darwin
 import Foundation
 /// The surface-domain lifecycle witnesses (`split` / `respawn` / `create` /
 /// `close` / `move` / `reorder`) plus the browser-disabled mapping and the
@@ -721,6 +722,93 @@ extension TerminalController {
             workspaceID: ws.id,
             surfaceID: surfaceId
         )
+    }
+
+    func controlOwnedProcess(params: [String: JSONValue], close: Bool) -> ControlCallResult {
+        guard case .string(let workspaceText)? = params["workspace_id"],
+              let workspaceID = UUID(uuidString: workspaceText),
+              case .string(let surfaceText)? = params["surface_id"],
+              let surfaceID = UUID(uuidString: surfaceText),
+              case .int(let rawPID)? = params["pid"],
+              let pid = Int32(exactly: rawPID), pid > 0,
+              let manager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID),
+              let workspace = manager.tabs.first(where: { $0.id == workspaceID }),
+              let panel = workspace.panels[surfaceID] as? TerminalPanel,
+              !workspace.isRemoteWorkspace, !workspace.isRemoteTmuxMirror,
+              !workspace.isChiefHome,
+              let tty = panel.surface.controllingTTYDeviceIdentifier,
+              let foreground = panel.surface.foregroundProcessID() else {
+            return .err(code: "not_found", message: "Owned terminal or process unavailable", data: nil)
+        }
+        var info = proc_bsdinfo()
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(MemoryLayout<proc_bsdinfo>.size)) == MemoryLayout<proc_bsdinfo>.size,
+              Int64(info.e_tdev) == tty, Int(info.pbi_pgid) == foreground,
+              info.e_tpgid == info.pbi_pgid else {
+            return .err(code: "invalid_state", message: "Process is not the terminal foreground owner", data: nil)
+        }
+        var task: mach_port_name_t = 0
+        guard task_name_for_pid(mach_task_self_, pid, &task) == KERN_SUCCESS else {
+            return .err(code: "unavailable", message: "Process identity unavailable", data: nil)
+        }
+        defer { mach_port_deallocate(mach_task_self_, task) }
+        var audit = audit_token_t()
+        var count = mach_msg_type_number_t(MemoryLayout<audit_token_t>.size / MemoryLayout<natural_t>.size)
+        let status = withUnsafeMutablePointer(to: &audit) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(task, task_flavor_t(TASK_AUDIT_TOKEN), $0, &count)
+            }
+        }
+        guard status == KERN_SUCCESS else {
+            return .err(code: "unavailable", message: "Process identity unavailable", data: nil)
+        }
+        let token = withUnsafeBytes(of: &audit) { Data($0).base64EncodedString() }
+        let inputGeneration = "\(panel.surface.explicitInputGeneration):\(panel.surface.clipboardReadGeneration)"
+        let runtimeGeneration = String(panel.surface.runtimeSurfaceGeneration)
+        if close {
+            // Main-actor input admission, identity validation and panel removal have no suspension.
+            guard case .string(let expected)? = params["audit_token"], expected == token,
+                  params["input_generation"] == .string(inputGeneration),
+                  params["runtime_generation"] == .string(runtimeGeneration),
+                  panel.textBoxContent.isEmpty, panel.textBoxAttachments.isEmpty,
+                  panel.textBoxInputView?.string.isEmpty != false,
+                  panel.textBoxInputView?.hasMarkedText() != true,
+                  panel.textBoxInputView?.hasPendingAttachmentUploadPlaceholder() != true,
+                  !TextBoxSubmit.hasPendingSubmission(via: panel.surface),
+                  !panel.surface.hasPendingImageTransferInput,
+                  !panel.hostedView.surfaceView.hasMarkedText(),
+                  !panel.hostedView.surfaceView.hasClipboardInputDeferral else {
+                return .err(code: "invalid_state", message: "Terminal process or input changed", data: nil)
+            }
+            let hasWorkspaceDock = workspace._dockSplit?.panels.isEmpty == false
+            let hasWindowDock = AppDelegate.shared?.existingWindowDock(for: manager)?.panels.isEmpty == false
+            if workspace.panels.count > 1 || hasWorkspaceDock {
+                // The panel object is the authority; no external PID is signalled.
+                guard workspace.closePanel(surfaceID, force: true) else {
+                    return .err(code: "invalid_state", message: "Owned surface close failed", data: nil)
+                }
+                AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspaceID, surfaceId: surfaceID)
+            } else {
+                guard params["workspace_close_title"] == .string(workspace.title) else {
+                    return .err(code: "invalid_state", message: "Workspace close title changed or was not supplied", data: nil)
+                }
+                if manager.tabs.count > 1 || hasWindowDock {
+                    if manager.tabs.count == 1,
+                       manager.addWorkspaceIfActive(inheritWorkingDirectory: false, autoWelcomeIfNeeded: false) == nil {
+                        return .err(code: "invalid_state", message: "Could not preserve the window dock", data: nil)
+                    }
+                    manager.closeWorkspace(workspace, recordHistory: false, removeOrphanedGeneratedAnchor: false)
+                } else {
+                    AppDelegate.shared?.closeMainWindowContainingTabId(
+                        workspaceID, recordHistory: false, closeAlreadyConfirmed: true
+                    )
+                }
+            }
+        }
+        return .ok(.object(["workspace_id": .string(workspaceID.uuidString),
+                            "surface_id": .string(surfaceID.uuidString),
+                            "pid": .int(Int64(pid)), "audit_token": .string(token),
+                            "input_generation": .string(inputGeneration),
+                            "runtime_generation": .string(runtimeGeneration)]))
     }
 
     /// The byte-faithful twin of the file-private `closeSurfaceRecordingHistory`,

@@ -20,12 +20,14 @@ extension GhosttyNSView {
                 )
                 return false
             }
+            let pendingInput = terminalSurface.beginImageTransferInput()
             let knownTarget = terminalSurface.resolvedImageTransferTarget(mode: mode)
             guard terminalSurface.imageTransferDetectionTTY(mode: mode) != nil else {
                 return executePreparedImageTransfer(
                     preparedContent,
                     mode: mode,
                     target: knownTarget,
+                    pendingInput: pendingInput,
                     onCancel: onCancel
                 )
             }
@@ -50,6 +52,7 @@ extension GhosttyNSView {
                     preparedContent,
                     mode: mode,
                     target: target,
+                    pendingInput: pendingInput,
                     onCancel: onCancel
                 )
             }
@@ -66,6 +69,7 @@ extension GhosttyNSView {
         _ preparedContent: TerminalImageTransferPreparedContent,
         mode: TerminalImageTransferMode,
         target: TerminalImageTransferTarget,
+        pendingInput: NSUUID,
         onCancel: @escaping () -> Void
     ) -> Bool {
         if mode == .paste, case .fileURLs(let urls) = preparedContent,
@@ -78,6 +82,7 @@ extension GhosttyNSView {
                            preparedContent,
                            mode: mode,
                            target: target,
+                           pendingInput: pendingInput,
                            onCancel: onCancel
                        )
                    } else {
@@ -106,7 +111,11 @@ extension GhosttyNSView {
                 )
                 return false
             }
-            return executeImageTransferPlan(plan, onCancel: onCancel)
+            return executeImageTransferPlan(
+                plan,
+                onCancel: onCancel,
+                onTextCompletion: { withExtendedLifetime(pendingInput) {} }
+            )
         }
     }
 

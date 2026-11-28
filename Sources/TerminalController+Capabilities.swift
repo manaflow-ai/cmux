@@ -299,6 +299,8 @@ extension TerminalController {
             "surface.respawn",
             "surface.create",
             "surface.close",
+            "surface.owned_process_identity",
+            "surface.close_owned",
             "surface.drag_to_split",
             "surface.split_off",
             "surface.move",
