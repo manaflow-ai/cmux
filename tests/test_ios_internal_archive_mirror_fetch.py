@@ -121,8 +121,8 @@ class ArchiveCheckoutFromMirrorTest(unittest.TestCase):
         github = step(GITHUB_STEP)
         self.assertEqual(github["if"], "steps.kept.outputs.directory == ''")
         self.assertIn("--depth=1 --filter=blob:none", github["run"])
-        self.assertIn("http.lowSpeedLimit=1024", github["run"])
-        self.assertIn("http.lowSpeedTime=45", github["run"])
+        self.assertIn("http.lowSpeedLimit=1", github["run"])
+        self.assertIn("http.lowSpeedTime=60", github["run"])
 
 
 class ArchiveKeepsSwiftPackagesTest(unittest.TestCase):

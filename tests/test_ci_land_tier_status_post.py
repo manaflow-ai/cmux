@@ -170,7 +170,9 @@ class LandTierStatusPost(unittest.TestCase):
         self.assertGreater(wait, 0)
         self.assertLessEqual(wait * sum(range(1, rounds)), 60, "transient retries must stay short")
         self.assertGreater(max_wait, 0)
-        self.assertLessEqual(max_wait, 60, "do not hold a runner for a distant quota reset")
+        self.assertLessEqual(max_wait, 600, "do not hold a runner for a distant quota reset")
+        self.assertGreaterEqual(max_wait, 600, "an hourly reset up to 10 minutes away is waited out, not a false red")
+        self.assertLessEqual(post["timeout-minutes"], job["timeout-minutes"] - 1)
         self.assertLess((max_wait + wait * sum(range(1, rounds))) / 60, post["timeout-minutes"])
         mint = [s for s in job["steps"] if s.get("name") == "Mint the land tier status token"][0]
         self.assertEqual(mint["with"]["permission-statuses"], "write")

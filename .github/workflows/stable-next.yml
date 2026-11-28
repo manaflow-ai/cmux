@@ -102,7 +102,7 @@ env:
   # The same pinned key as nightly.yml: stable ships the nightly's bits with their SUPublicEDKey.
   NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY: IOPItMLjtc4NsROTNZ6a/jsUW+C4fcicl6SNjVVvzRM=
   MODE: ${{ github.event_name == 'push' && 'dry-run' || inputs.mode || 'publish' }}
-  STABLE_XCODE_APP: /Applications/Xcode_26.6.app
+  STABLE_XCODE_APP: /Applications/Xcode_27.2.app
 
 jobs:
   # main's copy, every hour of the night: dispatch one publish run on nightly-next.
@@ -357,7 +357,7 @@ jobs:
   perf-budgets:
     needs: plan
     if: needs.plan.outputs.go == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'mac-gui' || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 600
     permissions: {}
     steps:
@@ -388,13 +388,17 @@ jobs:
             [ -s "$why" ] || return 0
             echo "::error title=cmux NEXT Stable: slower than the baseline::$(head -24 "$why" | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"}1')"
           }
+          # Build at light class first, so the M4 Pro's exclusive hold covers only the measuring
+          # (split-spring.sh CMUX_MEASURE_PHASE). Only a client that knows the flag sends it.
+          build_first=()
+          [[ "$("$client" run --help 2>/dev/null || true)" == *--build-first* ]] && build_first=(--build-first)
           # Attempt 1 may wait 3 h for an idle M4 Pro; a retry after a fault gets 1 h (fits the job's 600 min).
           for n in 1 2 3; do
             status=0
             queue=$([ "$n" = 1 ] && echo 10800 || echo 3600)
             "$client" run --class exclusive --measurement --script scripts/measure/split-spring.sh --ref "$COMMIT" \
               --label measure --label macos-27 --label ram48 --label cmux --key "$KEY-$n" \
-              --artifact artifacts/split-spring/report.json \
+              ${build_first[@]+"${build_first[@]}"} --artifact artifacts/split-spring/report.json \
               --arg=--suite=budgets --arg=--gate --arg=--profile --arg=--vdisplay=120 \
               --timeout 7200 --queue-timeout "$queue" 2>&1 | tee "$log" || status=${PIPESTATUS[0]}
             case "$status" in
@@ -416,7 +420,7 @@ jobs:
                   annotate
                   exit "$status"
                 fi
-                id="$(grep -o -E 'cmux-ci: step [0-9a-f]{24}' "$log" | head -1 | awk '{print $3}')"
+                id="$(grep -o -E 'cmux-ci: step [0-9a-f]{24}' "$log" | head -1 | awk '{print $3}' || true)"
                 report="$RUNNER_TEMP/perf-report-$n.json"
                 regressed=0
                 if [ -n "$id" ] && { "$client" artifact "$id" "$report" --failed || "$client" artifact "$id" "$report"; } >/dev/null 2>&1; then
@@ -451,7 +455,7 @@ jobs:
     if: needs.plan.outputs.go == 'true'
     # Publish runs sign with the release-next secrets; a dry run signs ad hoc with none.
     environment: ${{ github.ref == 'refs/heads/nightly-next' && github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' && 'release-next' || '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.ref == 'refs/heads/nightly-next' && github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' && 'blacksmith-6vcpu-macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.ref == 'refs/heads/nightly-next' && github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' && 'blacksmith-6vcpu-macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'mac-gui' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 180
     permissions:
       contents: read
@@ -622,7 +626,7 @@ jobs:
   smoke-27:
     needs: [plan, sign]
     if: needs.plan.outputs.go == 'true' && needs.sign.result == 'success'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'mac-gui' || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 30
     permissions:
       contents: read

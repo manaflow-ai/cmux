@@ -72,6 +72,22 @@ fn the_start_checks_answer() {
     assert_eq!(wait(60_000, false), json!({"next": "unread"}));
     assert_eq!(wait(0, true), json!({"next": "proceed"}));
     assert_eq!(
+        call(
+            c"cloud_start_pane_recovery",
+            &json!({"code": "cloud.list_unread", "retryable": false, "reruns": 0, "elapsedMs": 0}),
+        )
+        .1,
+        json!({"next": "rerun", "pauseMs": 5000, "class": "ListUnread"})
+    );
+    assert_eq!(
+        call(
+            c"cloud_start_pane_recovery",
+            &json!({"code": "cloud.signed_out", "retryable": true, "reruns": 0, "elapsedMs": 0}),
+        )
+        .1,
+        json!({"next": "surface"})
+    );
+    assert_eq!(
         call(c"cloud_folder_too_broad", &json!({"root": "/Users/me", "home": "/Users/me"})).1,
         json!({"tooBroad": true})
     );

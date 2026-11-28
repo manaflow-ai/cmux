@@ -350,20 +350,24 @@ impl HubWriter {
     /// All cleanup and released arrivals share the writer's 256-item budget.
     pub(super) fn advance_origins(&mut self, limit: usize) -> usize {
         let mut used = 0;
-        if let Some(id) = self.origins.leaving.front().cloned() {
+        // Leaving origins share the budget: 256 one-row machines leave in one turn and one
+        // group sync, not one turn (and one sync) each.
+        while used < limit {
+            let Some(id) = self.origins.leaving.front().cloned() else { break };
             let current = self.published.load_full();
-            let (next, removed) = current.remove_origin_batch(current.seq(), &id, limit);
+            let (next, removed) = current.remove_origin_batch(current.seq(), &id, limit - used);
             let finished = !next.is_origin_leaving(&id);
             self.published.store(Arc::new(next));
             used += removed.max(1);
-            if finished {
-                self.origins.leaving.pop_front();
-                if self.origins.held.get(&id).is_some_and(Held::allows_release) {
-                    self.origins.ready.push_back(id);
-                } else {
-                    self.origins.held.remove(&id);
-                    self.retire_finished_source(&id);
-                }
+            if !finished {
+                break;
+            }
+            self.origins.leaving.pop_front();
+            if self.origins.held.get(&id).is_some_and(Held::allows_release) {
+                self.origins.ready.push_back(id);
+            } else {
+                self.origins.held.remove(&id);
+                self.retire_finished_source(&id);
             }
         }
         while used < limit {

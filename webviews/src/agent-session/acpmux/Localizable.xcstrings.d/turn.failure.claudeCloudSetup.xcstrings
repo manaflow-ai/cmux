@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "turn.failure.claudeCloudSetup" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "رفض Claude تسجيل الدخول لـ Cloud. أعِد إعداده."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude je odbio Cloud prijavu. Podesite je ponovo."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude afviste Cloud-login. Sæt det op igen."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude hat die Cloud-Anmeldung abgelehnt. Richte sie neu ein."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude refused the Cloud sign-in. Set it up again."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude rechazó el acceso a Cloud. Configúralo de nuevo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude a refusé la connexion cloud. Reconfigurez-la."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude ha rifiutato l’accesso al cloud. Riconfiguralo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claudeがクラウドのサインインを拒否しました。再設定してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude បដិសេធការចូល Cloud។ សូមរៀបចំម្ដងទៀត។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude가 클라우드 로그인을 거부했습니다. 다시 설정하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude avviste Cloud-innloggingen. Sett den opp på nytt."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude odrzucił logowanie w chmurze. Skonfiguruj je ponownie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O Claude recusou o login na nuvem. Configure-o de novo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude отклонил вход в облаке. Настройте его заново."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude ปฏิเสธการลงชื่อเข้าบนคลาวด์ โปรดตั้งค่าใหม่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude bulut girişini reddetti. Yeniden kurun."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude відхилив вхід у хмарі. Налаштуйте його знову."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude từ chối đăng nhập Cloud. Hãy thiết lập lại."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude 拒绝了云端登录。请重新设置。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude 拒絕了雲端登入。請重新設定。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

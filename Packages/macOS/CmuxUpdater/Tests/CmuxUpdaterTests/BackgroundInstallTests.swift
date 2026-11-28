@@ -89,6 +89,15 @@ import Testing
         #expect(!harness.defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
     }
 
+    /// cmux NEXT shares this defaults domain with the classic NIGHTLY app. Enabling the app-owned
+    /// path leaves the shared preference on for the classic app's automatic-update behavior.
+    @Test func aSharedDefaultsHostCanKeepAutomaticUpdatePreference() {
+        let harness = Harness(automaticDownloads: true)
+        harness.controller.disablesSparkleSilentStagingPreference = false
+        harness.controller.installsUpdatesInBackground = true
+        #expect(harness.defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
+    }
+
     /// A build the host refuses (cmux NEXT: a pulled build) is never downloaded, offered or
     /// accepted: background mode does not accept it, the prompt flow does not show it, and a
     /// prompt that waits when the host comes to refuse it is not downloaded.
@@ -220,73 +229,6 @@ import Testing
 
         #expect(readyBox.choice == nil)
         #expect(harness.controller.stagedUpdate != nil)
-    }
-
-    /// Sparkle's own silent driver (`SUAutomaticallyUpdate`) stages through
-    /// `willInstallUpdateOnQuit`, not this driver: the host still learns which
-    /// build waits, so it can show its version and never offer the build it runs.
-    @Test func sparklesSilentInstallNamesTheStagedUpdate() {
-        let harness = Harness()
-        harness.controller.installsUpdatesInBackground = true
-        let updater = unsafeBitCast(NSNull(), to: SPUUpdater.self)
-        let held = harness.controller.driver.updater(updater, willInstallUpdateOnQuit: item, immediateInstallationBlock: {})
-        #expect(!held, "the uncancellable silent Sparkle cycle was held")
-        harness.finishSparkleCycle()
-        let resumed = ChoiceBox()
-        find(harness, into: resumed)
-        #expect(resumed.choice == .skip, "the silent installer was not physically cancelled")
-        harness.finishSparkleCycle()
-        #expect(harness.updater.checkForUpdatesCallCount == 2, "no fresh manual cycle cleared Sparkle's skipped version")
-        let download = ChoiceBox(), staged = ChoiceBox()
-        find(harness, into: download)
-        #expect(download.choice == .install)
-        ready(harness, into: staged)
-        #expect(harness.controller.stagedUpdate?.versionString == "0.64.17")
-        #expect(harness.controller.stagedUpdate?.displayVersionString == "0.64.17")
-
-        harness.controller.installStagedUpdate()
-        #expect(staged.choice == .install)
-        #expect(harness.controller.stagedUpdate == nil, "the installing update still reads as staged")
-    }
-
-    /// A silent Sparkle installer can already be in the installing state when the running build
-    /// is pulled. Restart to Update must take that installer back before asking Sparkle for the
-    /// newest build; otherwise ``checkForUpdates()`` is ignored forever while the stale installer
-    /// remains held.
-    @Test func aManualCheckReplacesSparkleSilentInstall() async {
-        let harness = Harness()
-        harness.controller.installsUpdatesInBackground = true
-        let updater = unsafeBitCast(NSNull(), to: SPUUpdater.self)
-        _ = harness.controller.driver.updater(updater, willInstallUpdateOnQuit: item, immediateInstallationBlock: {})
-
-        harness.controller.checkForUpdates()
-        harness.finishSparkleCycle()
-        await waitUntil("the replacement check") { harness.updater.checkForUpdatesCallCount == 1 }
-        #expect(harness.controller.stagedUpdate == nil, "the stale silent installer was not released")
-        if case .installing = harness.model.state {
-            Issue.record("the controller stayed in the stale installing state")
-        }
-    }
-
-    @Test func cancellingAStagedUpdateReleasesSparkleSilentInstall() {
-        let harness = Harness()
-        harness.controller.installsUpdatesInBackground = true
-        let updater = unsafeBitCast(NSNull(), to: SPUUpdater.self)
-        _ = harness.controller.driver.updater(updater, willInstallUpdateOnQuit: item, immediateInstallationBlock: {})
-        harness.finishSparkleCycle()
-        let resumed = ChoiceBox()
-        find(harness, into: resumed)
-        #expect(resumed.choice == .skip)
-        harness.finishSparkleCycle()
-        #expect(harness.updater.checkForUpdatesCallCount == 2)
-        let download = ChoiceBox(), staged = ChoiceBox()
-        find(harness, into: download)
-        ready(harness, into: staged)
-
-        #expect(harness.controller.cancelStagedUpdate())
-        #expect(staged.choice == .skip, "ordinary quit did not use the non-version-skipping ready reply")
-        #expect(harness.controller.stagedUpdate == nil)
-        #expect(harness.model.state.isIdle)
     }
 
     @Test func cancellingOrReplacingACheckInvalidatesThePendingAppcast() async {

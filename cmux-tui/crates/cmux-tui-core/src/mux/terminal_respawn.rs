@@ -143,9 +143,9 @@ pub(crate) struct TerminalRespawns {
     /// Respawn launches still to fail on purpose with a launch error
     /// (`CMUX_TUI_TEST_RESPAWN_LAUNCH_ERRORS`, debug builds).
     injected_launch_errors: AtomicU64,
-    /// Lazy start (`terminal_respawn/lazy.rs`, `CMUX_TUI_LAZY_START`): a
-    /// lost plain shell of a workspace nobody shows is parked, not
-    /// respawned, and starts on its first need.
+    /// Lazy start (`terminal_respawn/lazy.rs`, `CMUX_TUI_LAZY_START`, on
+    /// by default, `0` turns it off): a lost plain shell of a workspace
+    /// nobody shows is parked, not respawned, and starts on its first need.
     lazy_start: AtomicBool,
     /// Never-started lazy tabs by host terminal id (`lazy.rs`): their
     /// placeholder runtime is placed, and their park is pending or done.

@@ -111,11 +111,12 @@ import UIKit
         quiet.ingest(.connection(.reattaching(mac: "Mac Studio")))
         #expect(quiet.connectionLine == nil, "nothing for the first 10 s")
 
-        let model = makeModel(delay: .milliseconds(60))
+        // A gate already past its bound shows at once, on this actor: no timer to race a loaded
+        // main actor (CI ran a 60 ms gate past a 5 s wait while other suites drew frames).
+        let model = makeModel(delay: .zero)
         model.ingest(.connection(.attached))
         model.ingest(.connection(.reattaching(mac: "Mac Studio")))
-        #expect(model.connectionLine == nil)
-        try await Task.sleep(for: .milliseconds(300))
+        #expect(model.quietStatus.isShown)
         #expect(model.connectionLine == nil, "a reattach says nothing, however long (Leo 2026-11-22)")
         // Retries keep the first instant; a failure after them reads plainly.
         model.ingest(.connection(.failed(message: "daemon channel closed")))

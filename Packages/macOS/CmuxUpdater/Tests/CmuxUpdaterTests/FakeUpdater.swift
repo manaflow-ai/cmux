@@ -22,7 +22,7 @@ final class FakeUpdater: UpdaterHandle {
     var startError: (any Error)?
     // False so the controller skips the background launch probe in tests.
     var automaticallyChecksForUpdates = false
-    var automaticallyDownloadsUpdates = false
+    let automaticallyDownloadsUpdates = false
     var updateCheckInterval: TimeInterval = 3600
     var lastUpdateCheckDate: Date?
 
