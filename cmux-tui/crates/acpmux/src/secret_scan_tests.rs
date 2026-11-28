@@ -460,3 +460,18 @@ mod labelled {
         }
     }
 }
+
+/// `translate` walks characters, not bytes: multibyte text, an escape at the
+/// end, an escaped brace, a brace inside a class and a real repetition each
+/// come through without a slice off a character boundary.
+#[test]
+fn translate_keeps_character_boundaries_and_repetitions() {
+    assert_eq!(translate("é{{ env }}ü"), "é\\{\\{ env }}ü");
+    assert_eq!(translate("a{2,3}b{4}c{5,}"), "a{2,3}b{4}c{5,}");
+    assert_eq!(translate("x{"), "x\\{");
+    assert_eq!(translate("[{]\\{é\\"), "[{]\\{é\\");
+    assert_eq!(translate("\\é{1}"), "\\é{1}");
+    assert!(!repetition("{"));
+    assert!(!repetition("{,2}"));
+    assert!(repetition("{1,}"));
+}
