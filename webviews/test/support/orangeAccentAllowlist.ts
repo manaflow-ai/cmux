@@ -8,9 +8,12 @@ import { GOLDEN_SETTINGS_SECTIONS } from "../../src/gallery/golden/look";
 export type OrangeAccentAllowlist = { allowed: { name: string; themes: string[] }[]; looks?: { id: string }[] };
 
 export const GOLDEN_LOOKS_ENTRY = "looks.golden";
-/** The golden screen and the golden Settings page's sections (src/gallery/golden/settings.ts): each variant is one look. */
+/** The golden screen, the golden menus and the golden Settings page's sections (src/gallery/golden/settings.ts): each variant is one look. */
 export const GOLDEN_LOOK_ENTRIES: ReadonlySet<string> = new Set([
   GOLDEN_LOOKS_ENTRY,
+  // The golden menus screen (GoldenMenus.gallery.tsx) draws each look's own menus and popover, so a look's orange
+  // is its own there too (accent-glass part 7 flagged tandem-addon's menus stage once it was scanned).
+  "looks.golden-menus",
   ...GOLDEN_SETTINGS_SECTIONS.map((section) => `${GOLDEN_LOOKS_ENTRY}.settings.${section}`),
 ]);
 

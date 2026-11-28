@@ -72,3 +72,8 @@
   border-radius: 0;
   border-width: 0 0 1px;
 }
+/* Tool rows and "Worked for" in the light recipe: the look's muted level (66%, as --cv-text-muted), since
+   the chat's stock 58% of this ink read 4.0 to 4.2:1 on the light paper (golden-look-contrast). */
+:root[data-theme="light"] {
+  --instrument-ink-tool-row: 66%;
+}

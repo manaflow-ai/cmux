@@ -25,6 +25,9 @@ test("a look is honored on its own looks.golden stage and nowhere else", () => {
     // The golden Settings page draws the same look on its own stages.
     expect(allowed({ entry: "looks.golden.settings.appearance", variant: id, theme: undefined })).toBe(true);
     expect(allowed({ entry: "looks.golden.settings.chat", variant: id, theme: "Dracula" })).toBe(false);
+    // The golden menus screen draws the same look's menus.
+    expect(allowed({ entry: "looks.golden-menus", variant: id, theme: undefined })).toBe(true);
+    expect(allowed({ entry: "looks.golden-menus", variant: id, theme: "Dracula" })).toBe(false);
     // Another entry with a variant of the same name, or the same stage under another theme, is not admitted.
     expect(allowed({ entry: "agent-pane.composer", variant: id, theme: undefined })).toBe(false);
     expect(allowed({ entry: "looks.golden.extra", variant: id, theme: undefined })).toBe(false);
