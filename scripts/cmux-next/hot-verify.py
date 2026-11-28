@@ -157,6 +157,19 @@ LAUNCH_SECONDS = 120
 WINDOW_SECONDS = 60
 STEP_SECONDS = 45
 APPLY_SECONDS = 900
+# How long a Swift look waits for its fleet app build (build_swift_app), from the submit to the build's end: the
+# Linux pool's cmux builds as the controller measured them over the last 24 h (GET /v1/linux-pool, metrics_24h
+# queue_p90 + run_p90), times APP_BUILD_MARGIN for the builds past p90, between APP_BUILD_FLOOR and APP_BUILD_CAP.
+# It was APPLY_SECONDS, shorter than the build itself: the pool's cmux builds of 2026-11-27 from 12Z ran 2017 s at
+# p50, 2672 s at p90 and 3331 s at most, after a 593 s p90 queue, so a Swift look stopped waiting with its build
+# still running and no look (cmux#44800, #62151). When the controller gives no reading: APP_BUILD_UNREAD, that
+# day's queue_p90 + run_p90 (3265 s) with the margin. The fleet look's own run bound (cmuxterm-hq
+# build-fleet/pr_capture/hot_verify_run.py RUN_SECONDS) leaves room for APP_BUILD_CAP after a daemon build.
+APP_BUILD_MARGIN = 1.25
+APP_BUILD_FLOOR, APP_BUILD_CAP = APPLY_SECONDS, 5400
+APP_BUILD_UNREAD = 4080
+DEFAULT_CONTROLLER = "http://100.89.225.106:18765"
+FLEET_CLIENT_CONFIG = Path.home() / ".local/share/cmux-fleet-client/client.json"
 # The most a look waits for the copy's window to repaint (the release socket says nothing about paint, so the
 # window's own pixels are read: Repaint): after launch, a theme change, and an overlay reload.
 REPAINT_LAUNCH = 20.0
@@ -2340,6 +2353,41 @@ def _ci_run(argv: list[str], cwd: Path | None = None, timeout: int = APPLY_SECON
     return done
 
 
+def _controller() -> str:
+    """The fleet controller cmux-ci talks to: CMUX_CI_CONTROLLER, else the fleet client's configured one."""
+    url = os.environ.get("CMUX_CI_CONTROLLER", "")
+    if not url:
+        with contextlib.suppress(OSError, ValueError, AttributeError):
+            url = str(json.loads(FLEET_CLIENT_CONFIG.read_text()).get("controller") or "")
+    return (url or DEFAULT_CONTROLLER).rstrip("/")
+
+
+def _linux_pool_metrics() -> dict | None:
+    """The controller's 24 h view of the Linux pool's cmux builds (GET /v1/linux-pool metrics_24h), or None."""
+    try:
+        request = urllib.request.Request(f"{_controller()}/v1/linux-pool", headers={"User-Agent": "cmux-hot-verify"})
+        with urllib.request.urlopen(request, timeout=10) as response:
+            metrics = json.loads(response.read()).get("metrics_24h")
+    except (urllib.error.URLError, OSError, ValueError, AttributeError):
+        return None
+    return metrics if isinstance(metrics, dict) else None
+
+
+def app_build_seconds(metrics: dict | None) -> int:
+    """How long build_swift_app waits for its build: the measured queue_p90 + run_p90 of the pool's cmux builds
+    times APP_BUILD_MARGIN, rounded up, between APP_BUILD_FLOOR and APP_BUILD_CAP; APP_BUILD_UNREAD when METRICS
+    has no usable reading (none, no builds done, or not numbers)."""
+    try:
+        done = int((metrics or {}).get("done") or 0)
+        measured = float(metrics["queue_p90"]) + float(metrics["run_p90"])
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return APP_BUILD_UNREAD
+    if done <= 0 or not measured > 0:  # NaN, no builds and empty readings
+        return APP_BUILD_UNREAD
+    wait = min(float(APP_BUILD_CAP), measured * APP_BUILD_MARGIN)  # clamped before rounding: inf stays out of it
+    return int(max(APP_BUILD_FLOOR, -(-wait // 1)))
+
+
 def _artifact_app(bundle: Path) -> Path:
     apps = sorted(p for pattern in ("*.app", "*/*.app") for p in bundle.glob(pattern)
                   if p.is_dir() and (p / "Contents/Info.plist").is_file())
@@ -2366,8 +2414,12 @@ def build_swift_app(repo: Path, planned: dict, source: str, out: Path) -> Path:
         job = str(json.loads(submitted.stdout)["id"])
     except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
         raise LookError(f"cmux-ci build returned no job id: {why_failed(submitted.stdout, 300) or 'no output'}") from error
-    log(f"fleet app build {job} for {planned['head'][:12]}")
-    _ci_run([ci, "wait", "--timeout", str(APPLY_SECONDS), job], cwd=tree, timeout=APPLY_SECONDS + 30)
+    metrics = _linux_pool_metrics()
+    wait = app_build_seconds(metrics)
+    measured = (f"the pool's p90 queue {metrics.get('queue_p90')} s + run {metrics.get('run_p90')} s"
+                if wait != APP_BUILD_UNREAD and metrics else "no pool reading")
+    log(f"fleet app build {job} for {planned['head'][:12]}: waiting up to {wait} s ({measured})")
+    _ci_run([ci, "wait", "--timeout", str(wait), job], cwd=tree, timeout=wait + 30)
     bundle = out / "fleet-bundle"
     bundle.mkdir(parents=True, exist_ok=True)
     artifact = subprocess.run([ci, "artifact", job, str(bundle), "--bundle"], cwd=tree,
