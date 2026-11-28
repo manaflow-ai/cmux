@@ -1,9 +1,9 @@
 //! Control protocol server over Unix JSON-lines and WebSocket text frames.
 //!
 //! This is the attach surface for external frontends (the cmux app, the
-//! bundled `cmux-tui attach` client, scripts). Unix uses one JSON message
-//! per line and WebSocket uses one JSON message per text frame. Two commands
-//! additionally turn the connection full-duplex:
+//! bundled `cmux-tui attach` client, scripts). Unix sends one JSON message
+//! per line, WebSocket one per text frame. Two commands make the connection
+//! full-duplex:
 //!
 //! - `subscribe` — the server pushes `{"event":...}` lines (tree-changed,
 //!   surface-output, surface-exited, title-changed, bell) interleaved
