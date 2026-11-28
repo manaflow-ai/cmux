@@ -481,6 +481,7 @@ impl Hub {
             // where it is.
             let family = crate::config::derive_family(&meta.harness, profile);
             let state2 = state.clone();
+            let found = found.clone();
             tokio::task::spawn_blocking(move || routes::env_for(&found, &family, &state2))
                 .await
                 .map_err(|e| RpcError::internal(e.to_string()))?
