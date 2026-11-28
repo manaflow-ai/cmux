@@ -1014,12 +1014,30 @@ job = "linux"
 timeout = 300
 title = "No literal state roots (cmux NEXT)"
 about = "check-state-roots.sh: no new literal state root and no new Classic path or id in cmux NEXT code (the cmux-next.yml checks step of the same name), red only when this change adds it"
+# The files check-state-roots.sh scans (its files() and ids_files()), by extension. land_gate: a source pull request
+# runs it, not only the post-merge batch (whole-directory globs alone never route it under --pr-scope).
+land_gate = true
 inputs = [
-  "Packages/macOS/**",
-  "cmux-tui/crates/**",
-  "webviews/**",
-  "scripts/cmux-next/**",
+  "Packages/macOS/**/*.swift",
+  "cmux-tui/crates/**/*.rs",
+  "webviews/**/*.ts",
+  "webviews/**/*.tsx",
+  "webviews/**/*.js",
+  "webviews/**/*.mjs",
+  "scripts/cmux-next/**/*.sh",
+  "scripts/cmux-next/**/*.py",
+  "scripts/cmux-next/**/*.ts",
+  "scripts/cmux-next/**/*.js",
+  "scripts/cmux-next/**/*.mjs",
+  "scripts/cmux-next/**/*.swift",
+  "scripts/cmux-next/state-roots-baseline.tsv",
   "scripts/ci/new_red_only.sh",
+]
+ignore = [
+  "**/node_modules/**",
+  "**/*.test.*",
+  "**/*.spec.*",
+  "**/__tests__/**",
 ]
 run = '''
 scripts/ci/new_red_only.sh "No literal state roots" -- bash scripts/cmux-next/check-state-roots.sh .
@@ -1030,8 +1048,10 @@ job = "linux"
 timeout = 300
 title = "Every exported FFI function has a Swift caller"
 about = "ffi_caller_ratchet.py: no new cmux-tui C header export without a Swift caller, and the baseline only shrinks, red only when this change adds it"
+# ffi_caller_ratchet.INPUTS, narrowed to headers and Swift. land_gate: a Swift or header pull request runs it.
+land_gate = true
 inputs = [
-  "cmux-tui/crates/*/include/**",
+  "cmux-tui/crates/*/include/*.h",
   "Packages/**/*.swift",
   "Packages/macOS/CmuxNext/app-ffi-pin.json",
   "scripts/cmux-next/ffi-caller-baseline.txt",
@@ -1047,8 +1067,10 @@ job = "linux"
 timeout = 300
 title = "Every workflow is classified for the base-red classifier"
 about = "test_base_red_excuse.py's GuardJobsFollowTheWorkflows: every pull request workflow is a guard or named not one, red only when this change adds it"
+land_gate = true
 inputs = [
-  ".github/workflows/**",
+  ".github/workflows/*.yml",
+  ".github/workflows/*.yaml",
   "scripts/ci/base_red_excuse.py",
   "scripts/ci/base_red_guard_jobs.json",
   "tests/test_base_red_excuse.py",
