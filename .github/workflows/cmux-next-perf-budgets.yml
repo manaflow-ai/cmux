@@ -326,6 +326,9 @@ jobs:
           if-no-files-found: warn
 
   plan:
+    environment:
+      name: ci-routing-agent
+      deployment: false
     name: perf cron plan
     if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && inputs.tip_sha == '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
@@ -658,6 +661,9 @@ jobs:
           if-no-files-found: ignore
 
   report:
+    environment:
+      name: ci-routing-agent
+      deployment: false
     name: perf cron report
     needs: [plan, measure, linux]
     if: ${{ !cancelled() && needs.plan.result == 'success' }}

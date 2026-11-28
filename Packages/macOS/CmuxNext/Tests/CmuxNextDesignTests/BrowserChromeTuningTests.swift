@@ -35,10 +35,13 @@ import Testing
         let nudge = preset == .spacious ? DensityPreset.spaciousGapNudge : 0
         let rowGap: Double = preset.scaleFactor >= 1 ? half(DensityPreset.defaultStripPadding * preset.scaleFactor) + nudge : half(3 * preset.scaleFactor)
         #expect(derived(.rowGap) == rowGap)
-        #expect(derived(.closeSize) == half(15 * preset.scaleFactor))
-        #expect(derived(.closeCorner) == half(4.5 * preset.scaleFactor))
-        #expect(derived(.closeInk) == half(8.5 * preset.scaleFactor))
-        #expect(derived(.closeTrailing) == half(6.5 * preset.scaleFactor))
+        // Helium's x in its own points (Lawrence 2026-11-28: "size and icon size etc must perfectly match helium"): the
+        // 14 pt square and icon, 7.83 pt of ink, a 4 pt corner, 6 pt from the end below a 32 pt row and 8 pt from it.
+        let row = preset.tokens.tokens["browserRowHeight"] ?? 0
+        #expect(derived(.closeSize) == 14)
+        #expect(derived(.closeCorner) == 4)
+        #expect(abs((derived(.closeInk) ?? 0) - 14 * 13.42 / 24) < 0.0001)
+        #expect(derived(.closeTrailing) == (row >= 32 ? 8 : 6), "\(preset): row \(row)")
         let o = preset.omnibarScaleFactor // Default's omnibar is Compact's
         #expect(derived(.chipLeading) == half(2 * o))
         let bar = preset == .cozy ? 34 : half(28 / 0.9 * o) // Default: Chrome's 34 pt bar

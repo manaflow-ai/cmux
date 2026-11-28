@@ -48,6 +48,37 @@ final class EventLog: @unchecked Sendable {
     var all: [DeviceHubSocket.Event] { lock.withLock { events } }
 }
 
+/// A clock whose short sleeps return at once and are recorded (the reconnect backoff); a sleep
+/// of 900 s or more (the ping interval, a connect deadline) waits for cancellation.
+final class HubRecordingClock: Clock, @unchecked Sendable {
+    struct Instant: InstantProtocol {
+        var offset: Duration
+        func advanced(by duration: Duration) -> Instant { Instant(offset: offset + duration) }
+        func duration(to other: Instant) -> Duration { other.offset - offset }
+        static func < (lhs: Instant, rhs: Instant) -> Bool { lhs.offset < rhs.offset }
+    }
+
+    private let lock = NSLock()
+    private var elapsed: Duration = .zero
+    private var waits: [Duration] = []
+    var now: Instant { lock.withLock { Instant(offset: elapsed) } }
+    var minimumResolution: Duration { .zero }
+    var recorded: [Duration] { lock.withLock { waits } }
+
+    func sleep(until deadline: Instant, tolerance: Duration?) async throws {
+        let wait = lock.withLock { deadline.offset - elapsed }
+        if wait >= .seconds(900) {
+            try await Task.sleep(for: .seconds(3600))
+            return
+        }
+        lock.withLock {
+            waits.append(wait)
+            elapsed += max(wait, .zero)
+        }
+        try Task.checkCancellation()
+    }
+}
+
 @Suite struct DeviceHubSocketTests {
     @Test func pushMessagesDecode() throws {
         #expect(DeviceHubPush(text: #"{"type":"devices.changed"}"#) == .devicesChanged)
@@ -202,6 +233,16 @@ final class EventLog: @unchecked Sendable {
         #expect(connector.count.value == 1)
     }
 
+    /// URLSession fails a WebSocket receive idle past `timeoutIntervalForRequest`; between pings the
+    /// hub's pong is the only frame, so the socket's session must outlast the ping (#54449 went to 60 s
+    /// while the shared REST transport kept 30 s, and every socket timed out between pings).
+    @Test func theSocketSessionOutlastsThePingInterval() {
+        let timeout = URLSessionDeviceHubConnector.makeTransport().configuration.timeoutIntervalForRequest
+        let ping = TimeInterval(DeviceHubSocket.defaultPingInterval.components.seconds)
+        #expect(timeout > ping)
+        #expect(timeout == TimeInterval(URLSessionDeviceHubConnector.idleTimeout.components.seconds))
+    }
+
     @Test func onlyTheReplacedRemovedAndSignedOutCloseCodesAreTerminal() {
         #expect(DeviceHubSocket.terminalState(closeCode: 4000) == .replaced)
         #expect(DeviceHubSocket.terminalState(closeCode: 4001) == .removed)
@@ -237,5 +278,31 @@ final class EventLog: @unchecked Sendable {
         task.cancel()
         await task.value
         #expect(connection.sent.first == #"{"type":"ping"}"#)
+    }
+
+    /// A Worker that accepts the socket and drops it at once must not be redialed every second:
+    /// the backoff keeps growing until a socket stays up `stableAfter` (Leo, 2026-11-27: "That's a
+    /// loop that keeps going once it starts"). Before, each connect reset it: 1, 1, 1, 1 s.
+    @Test(.timeLimit(.minutes(1))) func aSocketThatDropsAtOnceKeepsBackingOff() async throws {
+        let connector = FakeConnector((0 ..< 5).map { _ in FakeConnection([]) })
+        let clock = HubRecordingClock()
+        let socket = DeviceHubSocket(connector: connector, pingInterval: .seconds(3600),
+                                     backoff: Backoff(initial: .seconds(1), maximum: .seconds(60), jitter: 0),
+                                     connectTimeout: .seconds(3600), clock: clock)
+        let (enough, signal) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
+        let counter = EventLog()
+        let task = Task {
+            await socket.run { event in
+                counter.append(event)
+                if counter.all.filter({ if case .state(.reconnecting) = $0 { true } else { false } }).count >= 5 {
+                    signal.yield()
+                }
+            }
+        }
+        for await _ in enough { break }
+        task.cancel()
+        await task.value
+        let waits = Array(clock.recorded.prefix(4))
+        #expect(waits == [.seconds(1), .seconds(2), .seconds(4), .seconds(8)])
     }
 }

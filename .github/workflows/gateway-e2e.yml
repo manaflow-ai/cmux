@@ -12,7 +12,7 @@ name: Inference gateway E2E (development)
 # Leo, 2026-11-07: "what we are willing to do for now is a tiny vm per subscription (user)/per team. that's it."
 #
 # Secrets: the repo-level dev stack account (CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD, as in
-# machine-join-e2e.yml) reaches the one journey step through env only; cloud-journey.ts keeps the session
+# machine-vault-e2e suite=machine-join) reaches the one journey step through env only; cloud-journey.ts keeps the session
 # and tokens in memory and hands `cmux inference setup` the install token in a 0600 temporary file.
 # Runs on feat-cmux-next only: a push there that changes .github/gateway-e2e/request (land a PR that edits it), or a
 # manual dispatch once this file is on the default branch. A pull request run would not get the environment, whose
@@ -45,7 +45,7 @@ env:
 jobs:
   e2e:
     if: github.ref == 'refs/heads/feat-cmux-next'
-    # The environment machine-join-e2e.yml uses: limited to feat-cmux-next by GitHub's branch policy.
+    # The environment machine-vault-e2e suite=machine-join uses: limited to feat-cmux-next by GitHub's branch policy.
     environment:
       name: cmux-next-vm-image-dev
       deployment: false

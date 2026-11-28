@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import datetime as dt
 import importlib.util
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -115,10 +116,20 @@ class WiringTests(unittest.TestCase):
         self.assertFalse(publisher.is_daemon_job(None))
 
     def test_the_pool_matches_the_daemon_test_job(self):
+        # Every label the gate's runs-on can pick is a pool the deferral counts:
+        # #64136 moved attempt-2+ nightly reruns to cmux-gcp-nightly-x64, and a
+        # DAEMON_POOL naming only cmux-linux stopped deferring to them.
         runs_on = gate_runs_on(self.WORKFLOW)
-        self.assertEqual(runs_on, "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}")
+        labels = set(re.findall(r"'([a-z0-9][a-z0-9.-]*)'", runs_on)) - {"manaflow-ai", "refs/heads/nightly-next"}
+        labels = {label for label in labels if "/" not in label and label != "workflow_dispatch"}
+        self.assertIn("cmux-linux", labels)
         pools = [line.strip() for line in self.WORKFLOW.splitlines() if line.lstrip().startswith("DAEMON_POOL: ")]
-        self.assertEqual(pools, [f"DAEMON_POOL: {runs_on}"] * 2)
+        self.assertEqual(len(pools), 2)
+        for line in pools:
+            hosted, _, owned = line.removeprefix("DAEMON_POOL: ").partition("|| ")
+            self.assertIn("'ubuntu-24.04'", hosted)
+            named = set(owned.strip(" '}").split(","))
+            self.assertEqual(named, labels - {"ubuntu-24.04"}, line)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

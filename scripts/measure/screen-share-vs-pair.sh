@@ -6,7 +6,7 @@
 #   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/screen-share-vs-pair.sh \
 #     --ref SHA --target-worker cmux20 --artifact artifacts/screen-share-vs-pair/report.tgz --timeout 3600 \
 #     --arg=mode=run --arg=partner=cmux17 [--arg=loss=1] [--arg=profile=ultra] [--arg=source=screen] [--arg=fps-trials=3] [--arg=trials=10] \
-#     [--arg=inputs=key,click,scroll] [--arg=samples=30] [--arg=host=nightly]
+#     [--arg=inputs=key,click,scroll] [--arg=samples=30] [--arg=host=nightly] [--arg=scene=churn] [--arg=stats-ms=100] [--arg=marker-log=1]
 #
 # mode=probe  prints this Mac's name and LAN address and whether `ssh -o BatchMode=yes` reaches the partner by
 #             each name it tries (NAME, NAME.local, partner-ip=IP when given). Exit 0 when one does, 1 when none.
@@ -23,10 +23,17 @@
 #             times each through the host's injector, samples= presses per trial (default 30). run.jsonl
 #             holds every leg's rows; the fps trials run with the first kind only.
 # host=nightly  the shared Mac serves from the NIGHTLY's Screen Sharing helper (its
-#             Contents/Library/cmux NIGHTLY Helper.app, what the app's `cmux rd serve` runs) through
-#             --host-bin, not the cmux-rd built at this commit: the installed /Applications/cmux NIGHTLY.app
-#             (the granted copy), else the newest DMG in the appcast; probe.txt names which and its version.
+#             cmux NIGHTLY Helper.app, what the app's `cmux rd serve` runs) through --host-bin, not the
+#             cmux-rd built at this commit: the copy the NIGHTLY stages at ~/Library/Application Support/
+#             cmux-next/helper/com.cmuxterm.app.nightly.screen-sharing/ (the granted copy), else the one in
+#             /Applications/cmux NIGHTLY.app/Contents/Library, else the newest DMG in the appcast; probe.txt
+#             names the helper picked and its version.
 #             Default host=commit.
+# scene=      bars|text|noise|churn is --synthetic-scene for source=synthetic (default: none sent, bars);
+# stats-ms=N  is --host-arg=--stats-every-ms=N, how often the host reports its target and sent rate (the
+#             100 ms rows a time-to-rate read needs: at the default 1000 ms the first row lands at 1.0 s);
+# marker-log=1 is --marker-log. With source=synthetic scene=churn stats-ms=100 marker-log=1 fps-trials=3 a pair
+#             runs the args of the daily rate leg (leo-workspace screen_share_fast_nightly.py RATE_ARGS).
 # peer-token=HEX (64 hex) runs the pair with no ssh between the Macs (fleet Macs hold no key to each other) as
 #             the two halves of one `--pair KEY` job, as screen-stream-eval.sh stage-table= does: the viewing
 #             Mac's step (role=viewer) serves `screen-share-vs.py peer-serve` on its LAN address, port 4181, and
@@ -53,7 +60,7 @@
 # Exit: 0 measured, 1 the run failed, 2 bad arguments, 3 the partner is unreachable or the tools did not build.
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
-mode="" partner="" partner_ip="" loss=0 profile= source=screen fps_trials=3 trials=10 inputs=key samples=30 host=commit role=host peer_token="" hold_s=3600 host_ip_kind=lan queue_depth="" max_refresh=0 max_fps=60
+mode="" partner="" partner_ip="" loss=0 profile= source=screen fps_trials=3 trials=10 inputs=key samples=30 host=commit role=host peer_token="" hold_s=3600 host_ip_kind=lan queue_depth="" max_refresh=0 max_fps=60 scene="" stats_ms="" marker_log=0
 for arg in "$@"; do
   case "$arg" in
     mode=probe|mode=run) mode="${arg#mode=}" ;;
@@ -74,6 +81,9 @@ for arg in "$@"; do
     queue-depth=*) queue_depth="${arg#queue-depth=}" ;;
     max-refresh=0|max-refresh=1) max_refresh="${arg#max-refresh=}" ;;
     max-fps=*) max_fps="${arg#max-fps=}" ;;
+    scene=bars|scene=text|scene=noise|scene=churn) scene="${arg#scene=}" ;;
+    stats-ms=*) stats_ms="${arg#stats-ms=}" ;;
+    marker-log=0|marker-log=1) marker_log="${arg#marker-log=}" ;;
     *) echo "screen-share-vs-pair.sh: unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
@@ -81,6 +91,8 @@ done
 [[ "$hold_s" =~ ^[0-9]{1,5}$ ]] || { echo "hold-s= is seconds" >&2; exit 2; }
 [[ -z "$queue_depth" || "$queue_depth" =~ ^[3-8]$ ]] || { echo "queue-depth= is 3 to 8" >&2; exit 2; }
 [[ "$max_fps" =~ ^[0-9]{2,3}$ ]] || { echo "max-fps= is a frame rate" >&2; exit 2; }
+[[ -z "$stats_ms" || "$stats_ms" =~ ^[0-9]{2,5}$ ]] || { echo "stats-ms= is milliseconds (10 to 99999)" >&2; exit 2; }
+[[ -z "$scene" || "$source" == synthetic ]] || { echo "scene= needs source=synthetic" >&2; exit 2; }
 [[ "$role" == host || -n "$peer_token" ]] || { echo "role=viewer needs peer-token=" >&2; exit 2; }
 [[ "$role" == viewer ]] && mode=run partner=peer
 [[ -n "$mode" ]] || { echo "screen-share-vs-pair.sh: mode=probe or mode=run" >&2; exit 2; }
@@ -224,9 +236,28 @@ scripts/measure/screen-stream-eval.sh tools-only=1 >"$work/tools.log" 2>&1 \
 
 host_args=()
 if [[ "$host" == nightly ]]; then
-  # The installed NIGHTLY first: its helper is the copy macOS granted Screen Recording and Accessibility.
-  app="/Applications/cmux NIGHTLY.app" dmg="installed"
-  if [[ ! -d "$app" ]]; then
+  # The granted copy first: the NIGHTLY runs its helper from a copy outside the app, at
+  # ~/Library/Application Support/cmux-next/helper/<helper bundle id>/<its name>.app (SignedHelperStaging.swift
+  # screenSharing, cmux_signed_bundle::helper_folder), and macOS keeps Screen Recording per executable path, so
+  # that copy holds the grants. Then the installed app's own Contents/Library copy, then the newest DMG.
+  # The step's HOME may not be the login user's (chat-probe.sh), so both homes are tried.
+  real_home="$(/usr/bin/dscl . -read "/Users/$(/usr/bin/id -un)" NFSHomeDirectory 2>/dev/null | /usr/bin/awk '{print $2}')"
+  staged_rel="Library/Application Support/cmux-next/helper/com.cmuxterm.app.nightly.screen-sharing/cmux NIGHTLY Helper.app"
+  # The helper's executable, named by its Info.plist (CFBundleExecutable); fails when it is not there.
+  helper_exe() {
+    local exe; exe="$(plutil -extract CFBundleExecutable raw -o - "$1/Contents/Info.plist" 2>/dev/null)"
+    [[ -n "$exe" && "$exe" != */* && -x "$1/Contents/MacOS/$exe" ]] && printf '%s\n' "$1/Contents/MacOS/$exe"
+  }
+  app="/Applications/cmux NIGHTLY.app" dmg="installed" helper="" helper_app=""
+  candidates=("$HOME/$staged_rel")
+  [[ -n "$real_home" && "$real_home" != "$HOME" ]] && candidates+=("$real_home/$staged_rel")
+  candidates+=("$app/Contents/Library/cmux NIGHTLY Helper.app")
+  for c in "${candidates[@]}"; do
+    helper="$(helper_exe "$c")" && { helper_app="$c"; break; }
+  done
+  [[ -n "$helper_app" && "$helper_app" != "$app"/* ]] && dmg="staged"
+  if [[ -z "$helper_app" ]]; then
+    echo "SSVP no Screen Sharing helper at ${candidates[*]}; trying the newest DMG" | tee -a "$work/probe.txt"
     dmg="$(curl -fsSL --retry 3 --retry-all-errors https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
       | grep -oE 'url="https://[^"]+-macos-arm64-[0-9]+\.dmg"' | head -1 | cut -d'"' -f2)"
     [[ "$dmg" == https://* ]] || { echo "SSVP no NIGHTLY installed and no DMG in the feed" | tee -a "$work/probe.txt"; pack; exit 3; }
@@ -235,13 +266,15 @@ if [[ "$host" == nightly ]]; then
       && hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$work/nightly.dmg" >/dev/null \
       && ditto "$(find "$mnt" -maxdepth 1 -name '*.app' | head -1)" "$app"
     hdiutil detach "$mnt" >/dev/null 2>&1
+    helper_app="$app/Contents/Library/cmux NIGHTLY Helper.app"
+    helper="$(helper_exe "$helper_app")" \
+      || { echo "SSVP no Screen Sharing helper in $app ($dmg)" | tee -a "$work/probe.txt"; pack; exit 3; }
   fi
-  helper="$app/Contents/Library/cmux NIGHTLY Helper.app/Contents/MacOS/cmux-screen-sharing"
-  [[ -x "$helper" ]] || { echo "SSVP no Screen Sharing helper in $app ($dmg)" | tee -a "$work/probe.txt"; pack; exit 3; }
   version="$(plutil -extract CFBundleVersion raw -o - "$app/Contents/Info.plist" 2>/dev/null)"
+  helper_version="$(plutil -extract CFBundleVersion raw -o - "$helper_app/Contents/Info.plist" 2>/dev/null)"
   printf '#!/bin/sh\nexec %q "$@"\n' "$helper" >"$work/nightly-host"; chmod +x "$work/nightly-host"
   host_args=(--host-bin "$work/nightly-host")
-  echo "SSVP host NIGHTLY ${version:-?} $dmg" | tee -a "$work/probe.txt"
+  echo "SSVP host NIGHTLY ${version:-?} $dmg helper=$helper helper_version=${helper_version:-?}" | tee -a "$work/probe.txt"
 fi
 
 # source=screen over the peer route: the rig (it starts the host and posts the input) runs in the launcher app's
@@ -266,7 +299,10 @@ fi
 link=wired loss_args=() profile_args=() suffix=
 [[ "$host_ip_kind" == tailnet ]] && link=wired-tailnet
 [[ -n "$profile" ]] && { profile_args=(--encode-profile "$profile"); suffix="-$profile"; }
-env_args=()
+env_args=() rate_args=()
+[[ -n "$scene" ]] && rate_args+=(--synthetic-scene "$scene")
+[[ -n "$stats_ms" ]] && rate_args+=("--host-arg=--stats-every-ms=$stats_ms")
+[[ "$marker_log" == 1 ]] && rate_args+=(--marker-log)
 [[ -n "$queue_depth" ]] && { env_args+=(--host-env "CMUX_RD_SCK_QUEUE_DEPTH=$queue_depth"); suffix+="-q$queue_depth"; }
 [[ "$max_refresh" == 1 ]] && { env_args+=(--host-env CMUX_RD_MAC_MAX_REFRESH=1); suffix+="-maxhz"; }
 [[ "$max_fps" != 60 ]] && suffix+="-fps$max_fps"
@@ -281,7 +317,7 @@ for kind in ${inputs//,/ }; do
   python3 -I "$vs" run \
     --host "$self" --viewer "$target" --host-ip "$dial_ip" --local-mac "$self" "${via_args[@]}" \
     --tools "$work/tools" ${host_args[@]+"${host_args[@]}"} --stacks cmux --source "$source" --link "$link" \
-    ${loss_args[@]+"${loss_args[@]}"} ${profile_args[@]+"${profile_args[@]}"} ${env_args[@]+"${env_args[@]}"} --max-fps "$max_fps" --cmux-input "$kind" --samples "$samples" \
+    ${loss_args[@]+"${loss_args[@]}"} ${profile_args[@]+"${profile_args[@]}"} ${env_args[@]+"${env_args[@]}"} ${rate_args[@]+"${rate_args[@]}"} --max-fps "$max_fps" --cmux-input "$kind" --samples "$samples" \
     --fps-trials "$legfps" --trials "$trials" --label "pair-job-$host-$kind$suffix" --rev "$(git rev-parse HEAD)" \
     ${root_args[@]+"${root_args[@]}"} \
     --out "$work/run-$kind.jsonl" 2>&1 | tee -a "$work/run.log"

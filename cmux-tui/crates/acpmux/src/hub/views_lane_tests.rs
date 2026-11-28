@@ -130,7 +130,8 @@ fn whitespace_before_a_secret_does_not_move_the_scan_cut_into_it() {
 }
 
 /// manaflow-ai/cmux#25230: between turns, work the session started that still runs keeps it
-/// working; a failed last turn, a lost agent and a peer gone unreachable still say so.
+/// working; a failed last turn (unless that work began after it), a lost agent and a peer gone
+/// unreachable still say so.
 #[test]
 fn work_below_the_turn_is_working_unless_the_chat_failed_or_its_peer_went() {
     use super::status_indicator;
@@ -151,7 +152,14 @@ fn work_below_the_turn_is_working_unless_the_chat_failed_or_its_peer_went() {
     assert_eq!(status_indicator(&at("idle", Some("completed"))), Some("working"));
     assert_eq!(status_indicator(&at("disconnected", Some("completed"))), Some("working"));
     assert_eq!(status_indicator(&at("ready", None)), Some("working"));
-    assert_eq!(status_indicator(&at("ready", Some("failed"))), Some("failed"));
+    // Work started after the failed turn ended (7 > 6) is newer than the failure: working.
+    assert_eq!(status_indicator(&at("ready", Some("failed"))), Some("working"));
+    // Work that was already running when the turn failed keeps the failure showing.
+    let mut older = at("ready", Some("failed"));
+    older["subagentsWorkingSince"] = json!(5);
+    assert_eq!(status_indicator(&older), Some("failed"));
+    older["subagentsWorkingSince"] = Value::Null;
+    assert_eq!(status_indicator(&older), Some("failed"));
     assert_eq!(status_indicator(&at("disconnected", Some("cancelled"))), Some("lost"));
     assert_eq!(status_indicator(&at("unreachable", Some("completed"))), Some("done"));
     assert_eq!(status_indicator(&at("unreachable", None)), None);
