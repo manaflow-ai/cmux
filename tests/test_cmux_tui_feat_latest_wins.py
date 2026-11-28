@@ -78,9 +78,14 @@ class PreflightGroup(unittest.TestCase):
         group = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["concurrency"]["group"]
         self.assertIn("format('push-{0}', github.sha)", group)
 
-    def test_supersede_job_is_feat_push_only_and_needs_nothing(self):
+    def test_supersede_job_is_feat_push_only_and_sweeps_once_per_window(self):
         job = jobs()["supersede-feat-runs"]
-        self.assertNotIn("needs", job)
+        # Only the push whose coalesce window runs sweeps; a failed coalesce (empty output) still does, and
+        # vars.NEXT_TUI_SUPERSEDE_EVERY_PUSH = '1' sweeps on every push again.
+        self.assertEqual(job.get("needs"), "coalesce")
+        self.assertIn("!cancelled()", job["if"])
+        self.assertIn("needs.coalesce.outputs.run != 'false'", job["if"])
+        self.assertIn("vars.NEXT_TUI_SUPERSEDE_EVERY_PUSH", job["if"])
         self.assertIs(job["continue-on-error"], True)
         self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", job["if"])
         self.assertIn("github.event_name == 'push'", job["if"])

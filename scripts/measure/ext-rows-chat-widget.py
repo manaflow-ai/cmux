@@ -6,9 +6,8 @@ remain a cheap daemon check while the GUI row gets a real completed ACP transcri
 pixel read-back.  The main driver should load this module and call
 ``row_chat_widget_drawn(ctx, ext_rows_module)`` from its ``chat_widget`` row.  The row
 requires ``ctx.control``, ``ctx.app``, ``ctx.pid_file`` and ``ctx.mcp_config`` from the
-isolated side instance.  The side copy must be launched after
-``prepare_test_copy_config(ctx.mcp_config)`` so ``experiments.chatWidgets`` is enabled in
-that copy only.
+isolated side instance.  The user-only ``experiments.chatWidgets`` setting must already be enabled in
+the side copy. The harness only reads it; a refusal never triggers a file or RPC write.
 
 Evidence is intentionally conjunctive.  A ready ``apps.views`` mount proves that the
 extension scene was produced, while a screenshot of the same side-instance window and
@@ -34,31 +33,19 @@ WIDGET_INTERFACE = "cmux.chat.widget/1"
 
 
 def prepare_test_copy_config(config: Path) -> dict:
-    """Enable the user-only experiment in one side-instance config file.
-
-    The shell integration calls this before launching the copy.  It edits no global
-    defaults or personal settings.  A running-copy fallback exists in
-    ``_enable_running_copy`` for callers that cannot prepare the file before launch.
-    """
+    """Read the side-instance config without changing a user-only setting."""
     config = Path(config)
     try:
-        root = json.loads(config.read_text()) if config.is_file() and config.read_text().strip() else {}
+        text = config.read_text() if config.is_file() else ""
+        root = json.loads(text) if text.strip() else {}
     except (OSError, ValueError) as error:
         return {"ok": False, "path": str(config), "error": f"config: {error}"}
     if not isinstance(root, dict):
         return {"ok": False, "path": str(config), "error": "config is not a JSON object"}
     experiments = root.get("experiments")
-    if not isinstance(experiments, dict):
-        experiments = {}
-        root["experiments"] = experiments
-    before = experiments.get("chatWidgets")
-    experiments["chatWidgets"] = True
-    try:
-        config.parent.mkdir(parents=True, exist_ok=True)
-        config.write_text(json.dumps(root, indent=2) + "\n")
-    except OSError as error:
-        return {"ok": False, "path": str(config), "before": before, "error": f"write: {error}"}
-    return {"ok": True, "path": str(config), "before": before, "after": True}
+    enabled = isinstance(experiments, dict) and experiments.get("chatWidgets") is True
+    return {"ok": enabled, "path": str(config), "read_only": True,
+            "error": None if enabled else "user-only experiments.chatWidgets is not enabled"}
 
 
 def _load(name: str, path: Path):
@@ -71,22 +58,12 @@ def _load(name: str, path: Path):
     return module
 
 
-def _enable_running_copy(ctx) -> dict:
-    """Turn the experiment on through the copied NIGHTLY's own CLI."""
-    setting = ctx.ext(["settings", "set", "experiments.chatWidgets", "true"], timeout=30)
-    enabled = setting.get("exit") == 0 or setting.get("ok") is True
-    if enabled:
-        return {"ok": True, "via": "copy-cli", "reply": setting}
-    if ctx.mcp_config:
-        file_reply = prepare_test_copy_config(Path(ctx.mcp_config))
-        if file_reply.get("ok") and ctx.control:
-            rpc = ctx.rpc("settings.set", {"path": "experiments.chatWidgets", "value": True}, timeout=30)
-            file_reply["rpc"] = rpc
-            file_reply["ok"] = "error" not in rpc
-        return {"ok": bool(file_reply.get("ok")), "via": "copy-config", "reply": file_reply,
-                "cli": setting}
-    return {"ok": False, "via": "copy-cli", "reply": setting,
-            "error": "the integration did not pass ctx.mcp_config for the isolated copy"}
+def _read_running_copy(ctx) -> dict:
+    """Read effective settings; never retry a refusal through a mutation path."""
+    reply = ctx.rpc("settings.get", {"path": "experiments.chatWidgets"}, timeout=30)
+    enabled = isinstance(reply, dict) and "error" not in reply and reply.get("value") is True
+    return {"ok": enabled, "via": "copy-settings-read", "reply": reply,
+            "error": None if enabled else "user-only experiments.chatWidgets must already be enabled"}
 
 
 def _agent_script(ctx) -> Path:
@@ -171,12 +148,12 @@ def _start_transcript(ctx) -> dict:
                 "acp": (made.stdout + made.stderr)[-1000:], "error": "acpmux did not create a session"}
     completed = _read_completed_tool(ctx, cli, session, env)
     opened = ctx.rpc("action.run", {"action": "agent.openSessionWorkspace", "focus": False,
-                                     "wait": False, "session": session}, timeout=60)
+                                     "wait": False, "args": {"session": session}}, timeout=60)
     created = [value for value in opened.get("created", []) if str(value).startswith("ws_")]
     workspace = created[0] if created else None
     if workspace:
         shown = ctx.rpc("action.run", {"action": "goToWorkspace", "focus": True,
-                                        "workspace": workspace}, timeout=60)
+                                        "args": {"workspace": workspace}}, timeout=60)
     else:
         shown = {"error": "agent.openSessionWorkspace returned no workspace", "reply": opened}
     return {"ok": bool(session and workspace and "error" not in shown and completed["ok"]), "harness": added, "socket": sock,
@@ -241,6 +218,13 @@ def _read_completed_tool(ctx, cli: Path, session: str, env: dict) -> dict:
 def row_chat_widget_drawn(ctx, base) -> dict:
     """Run the real-transcript, same-window drawing proof for the main matrix row."""
     marker = f"CHATWIDGETDRAWN{ctx.token[-8:]}"
+    enabled = _read_running_copy(ctx)
+    if not enabled["ok"]:
+        return {"checks": {"installed": False, "experiment_enabled_in_copy": False,
+                           "completed_transcript": False, "widget_view_ready": False,
+                           "drawn_capture": False},
+                "marker": marker, "experiment": enabled, "views": [],
+                "capture": {"drawn": False, "error": "user-only experiment unavailable"}}
     install = base.install_customize(ctx, {
         "name": "Rows chat card", "description": "A card under a completed tool call.",
         "runtime": {"main": "main.js"},
@@ -250,11 +234,10 @@ def row_chat_widget_drawn(ctx, base) -> dict:
                       f"  return VStack([Text({json.dumps(marker)})])\n"
                       "}\n"
                       "globalThis.__cmuxAppExports = { renderCard }\n")})
-    enabled = _enable_running_copy(ctx)
     transcript = _start_transcript(ctx)
     views = []
     deadline = time.monotonic() + 45
-    while time.monotonic() < deadline:
+    while transcript.get("ok") is True and time.monotonic() < deadline:
         views = _chat_views(ctx, base, marker)
         if views:
             break
@@ -278,8 +261,8 @@ row_chat_widget_drawn.needs_app = True
 INTEGRATION_REQUIREMENTS = (
     "Load this module beside ext-rows-nightly.py and call "
     "row_chat_widget_drawn(ctx, ext_rows_nightly) for the chat_widget row.",
-    "Prepare the isolated side config with prepare_test_copy_config(config) before side launch, "
-    "and pass that same config as --mcp-config.",
+    "Read the isolated config with prepare_test_copy_config(config) before side launch; "
+    "the user-only experiment must already be enabled. Pass the same config as --mcp-config.",
     "Run only in app/display mode with --rows=chat_widget. The CLI/headless mode must skip it.",
     "Keep the existing route-only checks if desired, but the row's pass must require every check returned here, "
     "including the same-window marker OCR.",
