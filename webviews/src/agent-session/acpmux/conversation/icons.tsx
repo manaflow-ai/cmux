@@ -63,10 +63,7 @@ export const PointerClick = glyph("computeruse.click");
 export const Pin = ({ filled, ...props }: CvIconProps & { filled?: boolean }) => (
   <Icon name="action.pin" selected={filled} {...props} />
 );
-
-export const TurnCopy = ({ size = 14 }: CvIconProps = {}) => <Copy size={size} />;
 export const TurnFork = ({ size = 14 }: CvIconProps = {}) => <Icon name={FORK_ICON} size={size} />;
-export const TurnAnchor = ({ size = 14 }: CvIconProps = {}) => <Icon name="bookmark" size={size} />;
 export const StopSquare = (props: CvIconProps) => <Icon name="action.stop" selected {...props} />;
 export const PlayTriangle = (props: CvIconProps) => <Icon name="media.play" selected {...props} />;
 

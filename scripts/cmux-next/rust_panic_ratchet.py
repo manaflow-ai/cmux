@@ -39,10 +39,10 @@ count: a base already over its row is the base's red, and the change is red
 only for hits it adds. A base run that did not finish excuses nothing.
 
 --untouched-is-base --diff-base SHA (cmux-tui-clippy-changed.py --compare-base, before it lints the base):
-a deny count over the baseline whose every hit is in a file `git diff SHA HEAD` does not name is the
+a deny count over the baseline with no hit on a line `git diff -U0 SHA HEAD` adds or edits is the
 base's red, the same rule a base run that did not finish already uses. The base's standing drift (crates
-that merged over their row, or with no row) then costs no second lint of the base; only a count with a hit
-in a file the change touched still needs the base run to judge.
+that merged over their row, or with no row, including old hits in files the change edits) then costs no
+second lint of the base; only a count with a hit on a changed line still needs the base run to judge.
 
 --record-base writes each checked crate's row as this run's counts, every lint, up or down: the run must
 be the same command on the tip of feat-cmux-next (cmux-tui.yml's whole-workspace step), so the baseline
@@ -199,6 +199,8 @@ def read_clippy(path):
                 continue
             if "custom-build" in (item.get("target") or {}).get("kind", []):
                 continue  # build scripts run at build time, never in a daemon
+            if "example" in (item.get("target") or {}).get("kind", []):
+                continue  # examples ship nowhere; the run selects them only to unify features as --all-targets does
             message = item.get("message") or {}
             code = (message.get("code") or {}).get("code") or ""
             if not code.startswith("clippy::"):
@@ -307,12 +309,54 @@ def changed_files(root):
     return frozenset(line.split("cmux-tui/", 1)[-1] for line in out.splitlines())
 
 
+@functools.cache
+def changed_lines(root):
+    """{cmux-tui-relative file: frozenset of the lines this change added or edited, numbered as in HEAD}, from
+    `git diff -U0` against the same base changed_files uses; None when git cannot say."""
+    import re
+    import subprocess
+    against = [DIFF_BASE, "HEAD"] if DIFF_BASE else ["refs/remotes/origin/feat-cmux-next...HEAD"]
+    try:
+        done = subprocess.run(["git", "-C", root, "diff", "-U0", "--no-color", "--no-ext-diff", *against],
+                              capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if done.returncode != 0:
+        return None
+    lines = collections.defaultdict(set)
+    current = None
+    for line in done.stdout.splitlines():
+        if line.startswith("+++ "):
+            path = line[4:]
+            current = None if path == "/dev/null" else path.split("/", 1)[-1].split("cmux-tui/", 1)[-1]
+        elif current is not None and line.startswith("@@ "):
+            match = re.match(r"@@ -\S+ \+(\d+)(?:,(\d+))? @@", line)
+            if match:
+                start, count = int(match.group(1)), int(match.group(2) or 1)
+                lines[current].update(range(start, start + count))
+    return {name: frozenset(numbers) for name, numbers in lines.items()}
+
+
+def _on_changed_line(loc, lines):
+    name, _, rest = loc.partition(":")
+    line = rest.split(":", 1)[0]
+    return line.isdigit() and int(line) in lines.get(name.split("cmux-tui/", 1)[-1], ())
+
+
 def untouched_by_change(root, locations):
-    """True when the change touched files and none of these hit locations is in one: with no base run to
-    compare, a count over the baseline in files the change never touched is the base's, not the change's
-    (a base that does not compile charged every PR, its own fix too, with the whole workspace's drift)."""
+    """True when the change touched files and none of these hits is on a line it added or edited: with no base
+    run to compare, a count over the baseline the change added nothing to is the base's, not the change's (a
+    base that does not compile charged every PR, its own fix too, with the whole workspace's drift). Judged per
+    changed line, not per file: a PR that edits a file pays only for its own lines, not for the hits the file
+    already had (#63818 touched acpmux protocol/mod.rs and was charged its existing :840 unwrap). Without
+    git's line ranges it falls back to the file rule."""
     changed = changed_files(root)
-    return bool(changed) and not any(loc.split(":", 1)[0].split("cmux-tui/", 1)[-1] in changed for loc in locations)
+    if not changed:
+        return False
+    lines = changed_lines(root)
+    if lines is None:
+        return not any(loc.split(":", 1)[0].split("cmux-tui/", 1)[-1] in changed for loc in locations)
+    return not any(_on_changed_line(loc, lines) for loc in locations)
 
 
 def load_baseline():
@@ -459,7 +503,7 @@ def main():
                         and untouched_by_change(args.repo, hits.get((crate, lint), []))):
                     why = "the base clippy run did not finish" if base_broken else "the base was not linted"
                     base_reds.append(f"{crate}: clippy::{lint} {got} > {where}, {why}, "
-                                     "and no hit is in a file this change touched: the base's red, not this change's")
+                                     "and no hit is on a line this change added or edited: the base's red, not this change's")
                     continue
                 # Tracked lints warn only: an added `x + 1` must not block a landing.
                 (failures if lint in DENY_LINTS else warnings).append(f"{crate}: clippy::{lint} {got} > {where}")

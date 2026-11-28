@@ -36,6 +36,11 @@ if [[ -n "${FAKE_TAR_HANG:-}" ]]; then
   : > "$FAKE_TAR_HANG"
   exec sleep 600
 fi
+# Hold the unpack until the gate opens: a restore whose step is killed meanwhile, the script running on.
+if [[ -n "${FAKE_TAR_GATE:-}" ]]; then
+  : > "$FAKE_TAR_GATE.waiting"
+  while [[ ! -e "$FAKE_TAR_GATE" ]]; do sleep 0.1; done
+fi
 exec "$REAL_TAR" "$@"
 FAKE
 mkdir -p "$tmp/slowbin"; mv "$tmp/slowbin-tar" "$tmp/slowbin/tar"
@@ -76,5 +81,25 @@ bash "$script" restore "$tmp/target" k2 > "$tmp/out3" 2>&1
 grep -q 'could not unpack k2.tar.gz' "$tmp/out3" || { cat "$tmp/out3"; echo "FAIL: expected an unpack failure"; exit 1; }
 [[ "$(cat "$tmp/target/sentinel")" == keep ]] || { echo "FAIL: a corrupt archive changed the directory"; exit 1; }
 ! ls -d "$tmp"/target.r2-restoring.* > /dev/null 2>&1 || { echo "FAIL: the corrupt archive's staging directory was left behind"; exit 1; }
+
+# 4. The step's shell killed by its timeout-minutes while this script, its child, keeps unpacking: the
+# job's next step is already building in the directory, so the orphan must not swap a cache in under it
+# (batch run 46058976708: cargo "failed to write .../target/debug/.fingerprint/..." ~2 min after the
+# restore step timed out).
+echo building > "$tmp/target/sentinel"
+gate="$tmp/gate"
+FAKE_TAR_GATE="$gate" bash -c 'bash "$1" restore "$2" k1 > "$3" 2>&1 & echo $! > "$4"; wait' _ \
+  "$script" "$tmp/target" "$tmp/out4" "$tmp/child4" &
+step=$!
+for _ in $(seq 1 100); do [[ -f "$gate.waiting" ]] && break; sleep 0.1; done
+[[ -f "$gate.waiting" ]] || { cat "$tmp/out4"; echo "FAIL: the gated tar never started"; exit 1; }
+kill -KILL "$step"; wait "$step" 2>/dev/null || true
+child="$(cat "$tmp/child4")"
+: > "$gate"
+for _ in $(seq 1 100); do kill -0 "$child" 2>/dev/null || break; sleep 0.1; done
+! kill -0 "$child" 2>/dev/null || { echo "FAIL: the orphaned restore did not finish"; exit 1; }
+grep -q 'step ended before k1' "$tmp/out4" || { cat "$tmp/out4"; echo "FAIL: expected the orphan to stand down"; exit 1; }
+[[ "$(cat "$tmp/target/sentinel")" == building ]] || { echo "FAIL: the orphaned restore swapped the directory"; exit 1; }
+! ls -d "$tmp"/target.r2-restoring.* > /dev/null 2>&1 || { echo "FAIL: the orphan left its staging directory"; exit 1; }
 
 echo PASS

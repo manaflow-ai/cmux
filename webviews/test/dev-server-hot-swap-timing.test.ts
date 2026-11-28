@@ -2,7 +2,16 @@ import { describe, expect, it } from "bun:test";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { formatHotSwap, hotSwapStages, refreshRuntimeWithoutTimer } from "../dev-server/hotSwapTiming";
+import vm from "node:vm";
+import {
+  CLIENT_SOURCE,
+  formatHotSwap,
+  HMR_ACK_EVENT,
+  HMR_HELLO_EVENT,
+  hotSwapStages,
+  hotSwapTiming,
+  refreshRuntimeWithoutTimer,
+} from "../dev-server/hotSwapTiming";
 import { refreshInMicrotask } from "../dev-server/refreshNow";
 
 // The runtime @vitejs/plugin-react serves at /@react-refresh, as installed.
@@ -64,5 +73,45 @@ describe("dev server hot swap timing", () => {
     expect(formatHotSwap("/w/a.css", stages)).toBe(
       "[cmux hot swap] a.css committed in 12 ms, no frame drawn in 2000 ms: watch 5, server 1, socket 0, module 6",
     );
+  });
+
+  it("marks the page connected only once the server answers its hello", () => {
+    const handlers = new Map<string, (payload: unknown) => void>();
+    const sent: string[] = [];
+    const hot = {
+      on: (event: string, fn: (payload: unknown) => void) => handlers.set(event, fn),
+      send: (event: string) => sent.push(event),
+    };
+    const dataset: Record<string, string> = {};
+    const page = {
+      document: { documentElement: { dataset } },
+      location: { origin: "cmux-agent://pane" },
+      window: { addEventListener() {} },
+    };
+    // The page half is source text the dev server serves; running it on stand-ins is the test.
+    vm.runInNewContext(CLIENT_SOURCE.replaceAll("import.meta.hot", "hot"), { hot, ...page });
+    expect(dataset).toEqual({ cmuxHmrOrigin: "cmux-agent://pane", cmuxHmr: "connecting" });
+    expect(sent).toEqual([HMR_HELLO_EVENT]);
+    handlers.get(HMR_ACK_EVENT)!({});
+    expect(dataset.cmuxHmr).toBe("connected");
+    handlers.get("vite:ws:disconnect")!({});
+    expect(dataset.cmuxHmr).toBe("disconnected");
+  });
+
+  it("answers a page's hello on its own socket", () => {
+    const on = new Map<string, (data: unknown, client: { send: (event: string) => void }) => void>();
+    const server = {
+      config: { server: { port: 0 }, logger: { info() {} } },
+      watcher: { on() {} },
+      ws: {
+        send() {},
+        on: (event: string, fn: (data: unknown, client: { send: (event: string) => void }) => void) =>
+          on.set(event, fn),
+      },
+    };
+    (hotSwapTiming().configureServer as (s: unknown) => void)(server);
+    const answered: string[] = [];
+    on.get(HMR_HELLO_EVENT)!({}, { send: (event) => answered.push(event) });
+    expect(answered).toEqual([HMR_ACK_EVENT]);
   });
 });
