@@ -133,6 +133,7 @@ def named(all_steps: list[dict], name: str) -> dict:
 class Workflows(unittest.TestCase):
     # (workflow, job, script path in the job, floor argument or None)
     MARKED = [
+        ("cloud-vm-image-roll-tick-dispatch.yml", "dispatch", ".gh-budget-tooling/scripts/ci/app_spend_mark.py", "pass"),
         ("ci-cloud-overflow-probe.yml", "watch", "scripts/ci/app_spend_mark.py", "pass"),
         ("ci-hosted-backlog-rescue.yml", "backlog", "scripts/ci/app_spend_mark.py", "pass"),
         ("nightly-next-tick.yml", "unstick", ".tick-tooling/scripts/ci/app_spend_mark.py", "pass"),
