@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.models.claude.keyWins" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يستخدم Claude Code مفتاح API المُعدّ فيه قبل اشتراكك في Claude."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code daje prednost podešenom API ključu nad tvojim Claude paketom."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code bruger sin konfigurerede API-nøgle før dit Claude-abonnement."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code verwendet zuerst den konfigurierten API-Schlüssel und danach dein Claude-Abo."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code uses its configured API key before your Claude plan."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code da prioridad a la clave de API configurada sobre tu plan de Claude."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code donne la priorité à la clé API configurée sur votre abonnement Claude."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code usa la chiave API configurata prima del tuo piano Claude."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code は Claude プランより設定済みの API キーを優先します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code ផ្តល់អាទិភាពដល់សោ API ដែលបានកំណត់រចនាសម្ព័ន្ធជាងគម្រោង Claude របស់អ្នក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code는 Claude 플랜보다 설정된 API 키를 먼저 사용합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code bruker den konfigurerte API-nøkkelen før Claude-abonnementet ditt."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code używa skonfigurowanego klucza API przed planem Claude."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O Claude Code prioriza a chave de API configurada em relação ao seu plano Claude."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code использует настроенный ключ API в первую очередь, даже если у вас есть подписка Claude."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code ใช้คีย์ API ที่ตั้งค่าไว้ก่อนแพ็กเกจ Claude ของคุณ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code, Claude planınızdan önce yapılandırılmış API anahtarını kullanır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code надає перевагу налаштованому ключу API перед вашим планом Claude."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code ưu tiên khoá API đã cấu hình hơn gói Claude của bạn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code 会优先使用已配置的 API 密钥，再使用你的 Claude 套餐。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code 會優先使用已設定的 API 金鑰，再使用你的 Claude 方案。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

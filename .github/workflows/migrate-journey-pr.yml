@@ -3,7 +3,9 @@ name: Migrate journey (PR CLI on staging)
 # `cmux migrate` end to end (hq RFD 0168, scripts/cmux-next/migrate-journey-ci.sh): this pull request's
 # cmux-tui reads real public repos (a devcontainer, a compose file), then `migrate apply --headless` moves
 # each to a new staging machine through `cloud journey --repo` with the model stub and deletes it after.
-# The job summary and results.jsonl give each repo's result and time to its first working chat.
+# The job summary, results.jsonl and verdict.json give each case's result and time to its first working chat.
+# The cases run side by side inside a budget that ends before timeout-minutes, so the job always ends with the
+# script's verdict (pass, red, or exit 4 when staging capacity stopped every case), never a cancellation.
 #
 # Leo, 2026-11-24: "we ought to be able to have good migration capabilities all around for people of all
 # stages any and all levels of technical sophistication and teams and organizations of any size and demand
@@ -39,22 +41,81 @@ jobs:
   # A workflow sweep that reaches this only through workflow files skips its heavy jobs (self-edit-sweep.yml,
   # scripts/ci/self_edit_sweep.py); a pull request under 10 changed files or with full-ci never starts the gate.
   self-edit:
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.changed_files >= 10 && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.changed_files >= 10 && !(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
     uses: ./.github/workflows/self-edit-sweep.yml
     with:
       workflow: .github/workflows/migrate-journey-pr.yml
     permissions:
       contents: read
 
+  # ci10k, Leo: "de facto, im asking for 99% fewer minutes of ci time, period." `migrate` holds a runner 25 to 45
+  # minutes, nearly all of it waiting on staging, and ran on every push of a PR touching its paths (90 runs on
+  # 2026-11-27, ~2,300 runner-min, one branch 8 times). A pull request whose journey inputs
+  # (scripts/ci/migrate_journey_key.py: what `paths:` watches) match a tree whose journey already passed has
+  # nothing new to prove: `migrate` skips. Only on a pull_request without full-ci; a dispatch always runs.
+  # CI_MIGRATE_JOURNEY_REUSE=0 turns the reuse off.
+  scope:
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (vars.CI_MIGRATE_JOURNEY_REUSE || '1') != '0' && !(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      key: ${{ steps.key.outputs.key }}
+      hit: ${{ steps.reuse.outputs.hit }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/migrate_journey_key.py
+          sparse-checkout-cone-mode: false
+      - name: Hash the migrate journey's inputs
+        id: key
+        run: echo "key=$(python3 scripts/ci/migrate_journey_key.py)" >> "$GITHUB_OUTPUT"
+      - name: Look up a green marker for these inputs
+        id: green
+        if: ${{ steps.key.outputs.key != '' }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/migrate-journey-green-marker
+          key: migrate-journey-green-${{ steps.key.outputs.key }}
+          lookup-only: true
+      - name: Decide whether the journey runs
+        id: reuse
+        env:
+          KEY: ${{ steps.key.outputs.key }}
+          HIT: ${{ steps.green.outputs.cache-hit }}
+        run: |
+          if [ -n "$KEY" ] && [ "$HIT" = true ]; then
+            echo "::notice title=Migrate journey::these inputs already passed on staging (key $KEY); the journey skips"
+            echo "hit=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "hit=false" >> "$GITHUB_OUTPUT"
+          fi
+
   migrate:
-    needs: self-edit
-    if: ${{ !cancelled() && needs.self-edit.outputs.run != 'false' && (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next' || github.event.pull_request.head.repo.full_name == github.repository) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    needs: [self-edit, scope]
+    if: ${{ !cancelled() && needs.self-edit.outputs.run != 'false' && needs.scope.outputs.hit != 'true' && (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-fleet-linux-x64' }} # frozen-label: LINUX_RUNNER/RUNNER_POOLS.linux_8 (#54437)
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
+    # The workspace crates build unoptimized with line tables, as cloud-journey-pr.yml's `seed` does: equal profile
+    # env gives an equal R2 key (scripts/cmux-next/cloud-journey-cargo-key.sh), so the restore below hits.
+    # tests/test_ci_relay_journey_build_cache.py keeps the two in step.
+    env:
+      CARGO_PROFILE_DEV_OPT_LEVEL: "0"
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      CARGO_INCREMENTAL: "0"
     timeout-minutes: 50
     steps:
+      # The script's budget: every apply ends by this, 4 minutes inside timeout-minutes (50) for the artifact
+      # upload, so the verdict is the script's and never a cancellation (run 45899973376 was cancelled at 50 min
+      # with two cases still unrun). tests/test_migrate_journey_verdict.py checks the margin.
+      - name: Set the journey's deadline
+        run: echo "MIGRATE_JOURNEY_END_BY=$(( $(date +%s) + 46 * 60 ))" >> "$GITHUB_ENV"
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -91,6 +152,39 @@ jobs:
           use-cache: false
       - name: Restore the Zig global cache (feat-cmux-next pushes save it)
         uses: ./.github/actions/zig-global-cache
+      # The compiled dependencies come from R2 (public reads, no credentials), seeded by cloud-journey-pr.yml's
+      # `seed` on feat-cmux-next; a miss or a slow restore builds cold as before. The cold build was 13m58s at
+      # opt-level 1 (run 45899973376); cloud journey's warm one is 8m02s for two binaries (run 45914273747).
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-cloud-journey-pr-wall
+      - name: Key the cargo build in R2
+        id: r2-cargo-key
+        if: ${{ github.repository == 'manaflow-ai/cmux' && !startsWith(runner.name, 'blacksmith-') }}
+        continue-on-error: true
+        run: bash scripts/cmux-next/cloud-journey-cargo-key.sh >> "$GITHUB_OUTPUT"
+      - name: Restore the cargo build from R2
+        if: ${{ steps.r2-cargo-key.outputs.target-key != '' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: cmux-tui/target
+          key: ${{ steps.r2-cargo-key.outputs.target-key }}
+          restore-keys: ${{ steps.r2-cargo-key.outputs.target-prefix }}
+      - name: Restore the cargo registry from R2
+        if: ${{ steps.r2-cargo-key.outputs.registry-key != '' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: ${{ steps.r2-cargo-key.outputs.registry }}
+          key: ${{ steps.r2-cargo-key.outputs.registry-key }}
+          restore-keys: ${{ steps.r2-cargo-key.outputs.registry-prefix }}
       - name: Build this pull request's Linux cmux-tui
         id: build-cmux-tui
         working-directory: cmux-tui
@@ -204,6 +298,20 @@ jobs:
           CMUX_PATH: ${{ steps.build-cmux-tui.outputs.path }}
           TARGET: staging
         run: bash scripts/cmux-next/migrate-journey-ci.sh
+      # A pass (exit 0) marks these inputs green for the `scope` lookup; a red, timeout or exit 4 saves nothing.
+      - name: Mark these journey inputs green
+        id: green-marker
+        if: ${{ success() && needs.scope.outputs.key != '' }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/migrate-journey-green-marker"
+          echo "${{ github.sha }}" > "$RUNNER_TEMP/migrate-journey-green-marker/passed"
+      - name: Save the green marker
+        if: ${{ success() && steps.green-marker.outcome == 'success' }}
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/migrate-journey-green-marker
+          key: migrate-journey-green-${{ needs.scope.outputs.key }}
       - name: Keep plans, journeys, ledgers and the results table
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

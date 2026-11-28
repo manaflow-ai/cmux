@@ -131,18 +131,21 @@ pub fn ranges(indexes: &[Index], want: &[Chunk], gap: u64) -> (Vec<Range>, Vec<I
 
 /// Store the wanted chunk files a fetched range's `bytes` hold, each checked against its id.
 pub fn receive(store: &Store, range: &Range, bytes: &[u8]) -> Result<()> {
-    if bytes.len() as u64 != range.len() {
+    let length = range.end.checked_sub(range.start).ok_or("reversed pack range")?;
+    if bytes.len() as u64 != length {
         return Err(format!(
             "range of pack {} came back {} bytes, not {}",
             range.pack,
             bytes.len(),
-            range.len()
+            length
         )
         .into());
     }
     for e in &range.entries {
-        let from = usize::try_from(e.offset - range.start)?;
-        let file = &bytes[from..from + e.len as usize];
+        let relative = e.offset.checked_sub(range.start).ok_or("entry precedes pack range")?;
+        let from = usize::try_from(relative)?;
+        let end = from.checked_add(usize::try_from(e.len)?).ok_or("entry offset overflow")?;
+        let file = bytes.get(from..end).ok_or("entry outside pack range")?;
         store.receive(&e.id, file)?;
     }
     Ok(())
