@@ -837,6 +837,38 @@ export class MockSettingsProvider {
           node: { dnsName: `${vm}.ts.net`, ips: ["100.64.0.7"], tags: ["tag:cmux"], online: true },
         };
       },
+      "cmux.settings.tailnet.connectVM": (params) => {
+        const vm = String((params as { vm?: unknown }).vm ?? "");
+        this.tailnetSteps.push(`connectVM:${vm}`);
+        if (String((params as { key?: unknown }).key ?? "").includes("KEPT")) {
+          return {
+            ok: false,
+            vm,
+            error:
+              "your vault already keeps your node mock-cmux; `cmux vm tailnet adopt " +
+              vm +
+              "` brings it up there (same name and addresses, no key), or `cmux vm tailnet leave` the VM that holds it first",
+          };
+        }
+        const name = String((params as { hostname?: unknown }).hostname ?? "") || "you-cmux";
+        return {
+          ok: true,
+          vm,
+          node: { dnsName: `${name}.tail1234.ts.net`, ips: ["100.64.0.2"], tags: ["tag:cmux"], online: true },
+        };
+      },
+      "cmux.settings.tailnet.acl": (params) => {
+        const tag = String((params as { tag?: unknown }).tag ?? "") || "tag:cmux";
+        return {
+          ok: true,
+          tag,
+          acl: [
+            `"tagOwners": {"${tag}": ["autogroup:admin"]},`,
+            `"grants": [{"src": ["autogroup:member"], "dst": ["${tag}"], "ip": ["*"]}],`,
+            `"ssh": [{"action": "accept", "src": ["autogroup:member"], "dst": ["${tag}"], "users": ["root", "autogroup:nonroot"]}],`,
+          ].join("\n"),
+        };
+      },
       "cmux.settings.tailnet.leaveVM": (params) => {
         const vm = String((params as { vm?: unknown }).vm ?? "");
         this.tailnetSteps.push(`leaveVM:${vm}`);
@@ -1293,6 +1325,8 @@ export class MockSettingsProvider {
       "cmux.settings.tailnet.login",
       "cmux.settings.tailnet.logout",
       "cmux.settings.tailnet.joinVM",
+      "cmux.settings.tailnet.connectVM",
+      "cmux.settings.tailnet.acl",
       "cmux.settings.tailnet.leaveVM",
       "cmux.settings.integrations.state",
       "cmux.settings.integrations.run",

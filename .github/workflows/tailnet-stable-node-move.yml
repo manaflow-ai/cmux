@@ -51,7 +51,8 @@ jobs:
       deployment: false
     # Two cold debug builds (acpmux --features tailnet, then cmux-tui) took 52 min in run 45715050700
     # and 68 min on a freestyle runner in run 45830130860, whose move then hit a 100-min cap mid-step.
-    timeout-minutes: 150
+    # Run 46187511771 (cmux-fleet-linux-x64, fsr runner) spent 106 min on acpmux alone and hit 150 inside cmux-tui.
+    timeout-minutes: 210
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -115,17 +116,26 @@ jobs:
           # most of a debug target dir, and this binary is only run, never debugged.
           CARGO_PROFILE_DEV_DEBUG: "0"
           CARGO_INCREMENTAL: "0"
+          # Workspace crates unoptimized (dependencies keep profile.dev.package."*" at opt-level 3), as
+          # cloud-journey-pr.yml builds: cmux-tui at the workspace's opt-level 1 is most of a cold build.
+          CARGO_PROFILE_DEV_OPT_LEVEL: "0"
           GHOSTTY_ZIG_SOURCE: ghostty-next
           CMUX_GHOSTTY_SRC: ""
         run: |
           set -euo pipefail
           df -h "$GITHUB_WORKSPACE" "${CARGO_TARGET_DIR:-$GITHUB_WORKSPACE}" 2>/dev/null || true
-          (cd cmux-tui && cargo build -p acpmux --features tailnet --locked --bin acpmux)
+          # One job per 6 GiB of a memory-capped pool slot (scripts/ci/cargo-mem-jobs.sh): uncapped, the kernel
+          # SIGKILLed the acpmux lib rustc twice (run 46177212071, both attempts, cmux-runner-pool-w1a-0246).
+          CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-$(bash "$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh" 2>/dev/null || true)}"
+          if [[ -n "$CARGO_BUILD_JOBS" ]]; then export CARGO_BUILD_JOBS; echo "CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS"; else unset CARGO_BUILD_JOBS; fi
+          # One cargo invocation for both binaries: two (acpmux with tailnet, then cmux-tui without) resolve
+          # different feature sets, so every shared crate compiled twice; run 46187511771 spent 2 h 20 min in
+          # this step on a freestyle runner and hit the 150-min cap before the move started.
+          # The cmux CLI (cmux-tui) mints VM B's key from a headscale API key (`cmux vm tailnet mint-key`).
+          (cd cmux-tui && cargo build --locked -p acpmux --features acpmux/tailnet --bin acpmux -p cmux-tui --bin cmux-tui)
           bin="$(cd cmux-tui && echo "${CARGO_TARGET_DIR:-$PWD/target}")/debug/acpmux"
           test -x "$bin"
           echo "acpmux=$bin" >> "$GITHUB_OUTPUT"
-          # The cmux CLI (cmux-tui) mints VM B's key from a headscale API key (`cmux vm tailnet mint-key`).
-          (cd cmux-tui && cargo build -p cmux-tui --locked --bin cmux-tui)
           cli="$(dirname "$bin")/cmux-tui"
           test -x "$cli"
           echo "cmux=$cli" >> "$GITHUB_OUTPUT"

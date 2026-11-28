@@ -30,6 +30,7 @@ cmux vm tailnet move FROM TO [--timeout SECONDS]
 cmux vm tailnet keep VM
 cmux vm tailnet adopt VM [--take-over] [--timeout SECONDS]
 cmux vm tailnet mint-key (--key-file FILE | --key-stdin) (--oauth | --headscale-api ...) --out FILE
+cmux vm tailnet acl [--tag TAG]
 
 Adds a Cloud VM to your own tailnet (Tailscale or Headscale), or takes it off.
 `move` hands the node FROM holds to TO: same name, addresses and node key, no new
@@ -68,6 +69,9 @@ refuses while another VM holds it (`move` that VM instead, or `--take-over` if i
 mint-key takes --oauth or --headscale-api with --login-server, --headscale-user, --tag,
 --ephemeral and --allow-http as above, and writes the minted key (single-use, pre-authorized,
 10 minutes) to --out FILE, a new 0600 file.
+
+acl prints the lines to paste into your tailnet policy for `connect`: TAG (default tag:cmux)
+exists and your admins own it, your devices reach it, and Tailscale SSH lets you in.
 ";
 
 #[derive(Debug, PartialEq, Eq)]
@@ -591,6 +595,22 @@ pub(super) fn joined_here(env: &dyn Fn(&str) -> Option<String>, vm_id: &str) -> 
 // MARK: The command
 
 /// `cmux vm tailnet …`.
+/// `acl`'s words: an optional `--tag TAG` (default `tag:cmux`, the tag `connect` asks for).
+pub(super) fn parse_acl(words: &[String]) -> Result<String, String> {
+    let mut tag = "tag:cmux".to_owned();
+    let mut words = words.iter();
+    while let Some(word) = words.next() {
+        match word.split_once('=') {
+            Some(("--tag", value)) => tag = value.to_owned(),
+            _ if word == "--tag" => {
+                tag = words.next().cloned().ok_or("--tag needs a value")?;
+            }
+            _ => return Err(format!("cmux vm tailnet acl: unknown argument {word}")),
+        }
+    }
+    Ok(tag)
+}
+
 pub(super) fn run(
     words: &[String],
     json_output: bool,
@@ -784,6 +804,20 @@ pub(super) fn run(
                 Err(message) => fail(&message, 1),
             }
         }
+        "acl" => match parse_acl(tail) {
+            Ok(tag) => match cmux_tailnet_join::acl_snippet(&tag) {
+                Ok(acl) => {
+                    if json_output {
+                        println!("{}", json!({"ok": true, "tag": tag, "acl": acl}));
+                    } else {
+                        println!("{acl}");
+                    }
+                    0
+                }
+                Err(invalid) => fail(&invalid.to_string(), 2),
+            },
+            Err(message) => fail(&message, 2),
+        },
         "mint-key" => {
             let (args, out) = match parse_mint(tail) {
                 Ok(parsed) => parsed,

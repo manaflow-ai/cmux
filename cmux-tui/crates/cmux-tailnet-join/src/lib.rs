@@ -141,6 +141,19 @@ pub struct Checked {
     request: JoinRequest,
 }
 
+/// The policy lines a person pastes into their tailnet policy file so the cmux node can be minted
+/// and reached (RFD 0169): the tag exists and their admins own it, their own devices reach it, and
+/// Tailscale SSH accepts them on it. cmux never edits a policy; the node itself reaches nothing of
+/// theirs until they add a line saying so.
+pub fn acl_snippet(tag: &str) -> Result<String, Invalid> {
+    let tag = check_tag(tag)?;
+    Ok(format!(
+        "\"tagOwners\": {{\"{tag}\": [\"autogroup:admin\"]}},\n\
+         \"grants\": [{{\"src\": [\"autogroup:member\"], \"dst\": [\"{tag}\"], \"ip\": [\"*\"]}}],\n\
+         \"ssh\": [{{\"action\": \"accept\", \"src\": [\"autogroup:member\"], \"dst\": [\"{tag}\"], \"users\": [\"root\", \"autogroup:nonroot\"]}}],"
+    ))
+}
+
 impl Checked {
     pub fn request(&self) -> &JoinRequest {
         &self.request

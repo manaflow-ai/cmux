@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.tailnet.aclHelp" : {
+      "comment" : "Settings > Tailscale Cloud machines: why the policy lines show.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "If your tailnet policy does not allow these yet, paste them into it. cmux never edits your policy."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "If your tailnet policy does not allow these yet, paste them into it. cmux never edits your policy."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "If your tailnet policy does not allow these yet, paste them into it. cmux never edits your policy."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "If your tailnet policy does not allow these yet, paste them into it. cmux never edits your policy."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "If your tailnet policy does not allow these yet, paste them into it. cmux never edits your policy."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "If your tailnet policy does not allow these yet, paste them into it. cmux never edits your policy."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "If your tailnet policy does not allow these yet, paste them into it. cmux never edits your policy."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "If your tailnet policy does not allow these yet, paste them into it. cmux never edits your policy."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "If your tailnet policy does not allow these yet, paste them into it. cmux never edits your policy."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "If your tailnet policy does not allow these yet, paste them into it. cmux never edits your policy."
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "If your tailnet policy does not allow these yet, paste them into it. cmux never edits your policy."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "If your tailnet policy does not allow these yet, paste them into it. cmux never edits your policy."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "If your tailnet policy does not allow these yet, paste them into it. cmux never edits your policy."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "If your tailnet policy does not allow these yet, paste them into it. cmux never edits your policy."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "If your tailnet policy does not allow these yet, paste them into it. cmux never edits your policy."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "If your tailnet policy does not allow these yet, paste them into it. cmux never edits your policy."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "If your tailnet policy does not allow these yet, paste them into it. cmux never edits your policy."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "If your tailnet policy does not allow these yet, paste them into it. cmux never edits your policy."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "If your tailnet policy does not allow these yet, paste them into it. cmux never edits your policy."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "If your tailnet policy does not allow these yet, paste them into it. cmux never edits your policy."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "If your tailnet policy does not allow these yet, paste them into it. cmux never edits your policy."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

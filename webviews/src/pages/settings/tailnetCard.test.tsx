@@ -9,7 +9,7 @@ import type { Rendered } from "./testing";
 
 const restore = installDom();
 afterAll(() => restore());
-const { renderPage, settle, click } = await import("./testing");
+const { renderPage, settle, click, changeValue, ops } = await import("./testing");
 const { tailnetView } = await import("./tailnet");
 
 let page: Rendered | null = null;
@@ -148,4 +148,57 @@ test("a dropped read after Sign In keeps going and still reaches the sign-in pag
   await settle();
   expect(card()!.dataset.tailnetState).toBe("needsLogin");
   expect(card()!.textContent).not.toContain("didn’t answer");
+});
+
+// RFD 0169: Connect Your Tailnet makes the person's one stable node through `cmux vm tailnet connect`
+// and shows the policy lines `cmux vm tailnet acl` prints, with Copy; a vault that already keeps a
+// node is refused with the CLI's own text.
+async function openConnect() {
+  page = await renderPage({
+    path: "/settings/devices",
+    mock: { values: { "tailnet.join.enabled": true, "tailnet.join.tags": ["tag:cmux"] } },
+  });
+  await settle();
+  const cloud = page.container.querySelector<HTMLElement>('[data-card="tailnet-cloud"]')!;
+  await click(cloud.querySelector("[data-tailnet-vm-connect]")!);
+  await settle();
+  return document.querySelector<HTMLFormElement>("[data-tailnet-connect-sheet]")!;
+}
+
+test("Connect Your Tailnet shows the policy lines with Copy and connects through the CLI's connect", async () => {
+  const sheet = await openConnect();
+  const acl = sheet.querySelector<HTMLElement>("[data-tailnet-acl]")!;
+  expect(acl.textContent!.split("\n")).toHaveLength(3);
+  expect(acl.textContent).toContain('"tagOwners": {"tag:cmux"');
+  const copyButton = sheet.querySelector<HTMLElement>("[data-tailnet-acl-copy]")!;
+  let copied = "";
+  Object.defineProperty(window.navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: async (text: string) => void (copied = text) },
+  });
+  await click(copyButton);
+  expect(copied).toBe(acl.textContent!);
+  expect(copyButton.textContent).toBe("Copied");
+  const submit = sheet.querySelector<HTMLButtonElement>("[data-tailnet-connect-submit]")!;
+  expect(submit.disabled).toBe(true);
+  await changeValue(sheet.querySelector<HTMLInputElement>("[data-tailnet-connect-vm]")!, "vm_studio");
+  await changeValue(sheet.querySelector<HTMLInputElement>("[data-tailnet-connect-key]")!, "tskey-auth-kONCE");
+  await click(submit);
+  await settle();
+  const [sent] = ops(page!.provider, "cmux.settings.tailnet.connectVM") as Array<Record<string, unknown>>;
+  expect(sent).toMatchObject({ vm: "vm_studio", key: "tskey-auth-kONCE", tags: ["tag:cmux"] });
+  expect(sent.hostname).toBeUndefined();
+  expect(document.querySelector("[data-tailnet-connect-sheet]")).toBeNull();
+  const cloud = page!.container.querySelector<HTMLElement>('[data-card="tailnet-cloud"]')!;
+  expect(cloud.textContent).toContain("you-cmux.tail1234.ts.net");
+  expect(cloud.querySelector("[data-tailnet-vm-connect]")).toBeNull();
+});
+
+test("a vault that already keeps a node refuses Connect with the CLI's own text", async () => {
+  const sheet = await openConnect();
+  await changeValue(sheet.querySelector<HTMLInputElement>("[data-tailnet-connect-vm]")!, "vm_studio");
+  await changeValue(sheet.querySelector<HTMLInputElement>("[data-tailnet-connect-key]")!, "tskey-auth-KEPT");
+  await click(sheet.querySelector("[data-tailnet-connect-submit]")!);
+  await settle();
+  expect(sheet.querySelector('[role="alert"]')!.textContent).toContain("cmux vm tailnet adopt vm_studio");
 });
