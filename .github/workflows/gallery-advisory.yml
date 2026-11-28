@@ -83,7 +83,7 @@ permissions:
 # A body edit that does not touch a `Gallery:` or `Visual-change:` line gets its own group, so it
 # never cancels a capture in flight; every job then skips.
 concurrency:
-  group: gallery-advisory-${{ github.event.pull_request.number || github.sha }}${{ github.event.action == 'edited' && !(github.event.changes.body && (contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:') || contains(github.event.pull_request.body, 'isual-change:') || contains(github.event.changes.body.from, 'isual-change:'))) && format('-noop-{0}', github.run_id) || '' }}
+  group: gallery-advisory-${{ github.event.pull_request.number || github.sha }}${{ github.event.action == 'edited' && !(github.event.changes.body && (contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:') || contains(github.event.pull_request.body, 'isual-change:') || contains(github.event.changes.body.from, 'isual-change:'))) && format('-noop-{0}', github.run_id) || '' }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:
@@ -511,9 +511,13 @@ jobs:
           fetch-depth: 1
           filter: blob:none
           sparse-checkout-cone-mode: false
+          # cargo loads every package of the cmux-tui workspace, and cmux-tui links workers/cmux-vm/cli by path
+          # (tests/test_ci_sparse_cargo_path_deps.py).
           sparse-checkout: |
             /scripts/ci/
             /cmux-tui/
+            /workers/cmux-vm/cli/
+            /first-party-apps/cloud/server/
             /.github/actions/
       - name: Download the receipt
         continue-on-error: true
@@ -569,7 +573,8 @@ jobs:
     if: ${{ !cancelled() && needs.capture.result != 'skipped' && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token
     continue-on-error: true
-    timeout-minutes: 5
+    # 10: the baseline post waits out a rate limit (scripts/ci/visual_baseline.py POST_ROUNDS).
+    timeout-minutes: 10
     permissions:
       contents: read
       pull-requests: write

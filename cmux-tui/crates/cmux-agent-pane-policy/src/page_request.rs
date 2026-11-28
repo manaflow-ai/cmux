@@ -104,8 +104,8 @@ pub fn is_github_owner(value: &str) -> bool {
     let bytes = value.as_bytes();
     (1..=39).contains(&bytes.len())
         && bytes.iter().all(|b| b.is_ascii_alphanumeric() || *b == b'-')
-        && bytes[0] != b'-'
-        && bytes[bytes.len() - 1] != b'-'
+        && bytes.first() != Some(&b'-')
+        && bytes.last() != Some(&b'-')
 }
 
 /// A GitHub repository's full name (webviews githubConnect.ts `isGitHubRepo`): an owner as
@@ -466,7 +466,7 @@ fn decode(method: &str, p: &Params) -> Option<Option<Value>> {
             _ => None,
         },
         "dictation.toggle" | "dictation.start" | "dictation.stop" | "dictation.cancel" => {
-            Some(case("dictation", json!({"command": &method["dictation.".len()..]})))
+            method.strip_prefix("dictation.").map(|command| case("dictation", json!({"command": command})))
         }
         "dictation.handoff" => bare("dictationHandoff"),
         "dictation.sources" => bare("dictationSources"),

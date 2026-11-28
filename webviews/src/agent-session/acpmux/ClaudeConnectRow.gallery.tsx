@@ -44,7 +44,8 @@ export default componentEntry<Props>({
     "agent-session/acpmux/ConnectCard.tsx#ConnectCard",
   ],
   load: async () => {
-    const { ClaudeConnectRow, useClaudeConnectFlow } = await import("./ClaudeConnectRow");
+    const { ClaudeConnectRow } = await import("./ClaudeConnectRow");
+    const { useClaudeConnectFlow } = await import("./useClaudeConnectFlow");
     const { ClaudeConnectContext } = await import("./claudeConnect");
     const { ConnectCard } = await import("./ConnectCard");
     const Section = ({ children }: { children: ReactNode }) => (
@@ -79,6 +80,7 @@ export default componentEntry<Props>({
       const [phase, setPhase] = useState<"starting" | "signing_in" | "saving" | null>(null);
       const begin = async () => {
         setPhase("starting");
+        // gallery-capture: these steps run only inside the `connect` play, which waits for the saving card and then the Connected row.
         const step = (next: typeof phase, ms: number) =>
           new Promise((done) => setTimeout(() => done(setPhase(next)), ms));
         await step("signing_in", 500);

@@ -63,7 +63,7 @@ jobs:
       group: ios-fast-verdict-seed-${{ github.ref }}
       cancel-in-progress: false
     # The pool pr-pipeline.yml's ios-fast-runner falls back to, so the workspace path matches.
-    runs-on: blacksmith-6vcpu-macos-26
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 40
     environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
     permissions:
@@ -89,15 +89,44 @@ jobs:
           echo "fleet_key=cmux-next-ios-link-ffi-xcf-fleet-v1-${inputs}" >> "$GITHUB_OUTPUT"
 
       # The verdict's FFI is the fleet entry; the seed builds against the same one, so a reader's restored copy is
-      # the seed's byte for byte. A miss is no seed: it would link a framework no reader has.
+      # the seed's byte for byte. It is restored the way the verdict restores it (pr-pipeline.yml's
+      # xcf-fleet-restore, then xcf-r2-restore): this job runs on a Blacksmith Mac, whose actions/cache reads a
+      # store of its own that the FFI seed's cmux-linux save never reaches, so the GitHub-store restore alone
+      # missed on every seed (21 of 21 failed at it, 2026-11-28; run 46139239654). A miss in both is no seed: it
+      # would link a framework no reader has.
       - name: Restore the fleet-built CmuxMobileLinkFFI.xcframework
         id: xcf-fleet-restore
+        continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
           enableCrossOsArchive: true
           key: ${{ steps.key.outputs.fleet_key }}
-          fail-on-cache-miss: true
+
+      - name: Restore the fleet-built CmuxMobileLinkFFI.xcframework from R2
+        id: xcf-r2-restore
+        if: ${{ steps.xcf-fleet-restore.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_NAMESPACE: any
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+          key: ${{ steps.key.outputs.fleet_key }}
+
+      - name: Require the verdict's CmuxMobileLinkFFI.xcframework
+        env:
+          FLEET_HIT: ${{ steps.xcf-fleet-restore.outputs.cache-hit }}
+          R2_HIT: ${{ steps.xcf-r2-restore.outputs.cache-hit }}
+        run: |
+          set -euo pipefail
+          if [[ "$FLEET_HIT" != true && "$R2_HIT" != true ]]; then
+            echo "::error::no fleet-built CmuxMobileLinkFFI.xcframework for ${{ steps.key.outputs.fleet_key }} in the GitHub store or R2; a seed built without it would link a framework no reader has"
+            exit 1
+          fi
+          echo "CmuxMobileLinkFFI.xcframework: fleet=${FLEET_HIT:-false} r2=${R2_HIT:-false}"
 
       # The reader's "Mark the restored CmuxMobileLinkFFI.xcframework as this job's copy", at the time it sets.
       - name: Mark the restored CmuxMobileLinkFFI.xcframework as this job's copy
@@ -144,6 +173,9 @@ jobs:
       - name: Prune seeds older than a day
         if: ${{ success() }}
         continue-on-error: true
+        # Bounded: the prune is best effort (storage-maintenance.yml prunes the bucket daily too), and unbounded it
+        # ran 7.5 min without a line until the job's 30 min limit cancelled seed run 46139555693 after its saves.
+        timeout-minutes: 4
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
