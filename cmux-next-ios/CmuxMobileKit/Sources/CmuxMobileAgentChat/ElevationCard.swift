@@ -68,7 +68,7 @@ public struct ElevationCard: View {
     }
 
     private var note: String {
-        let base = "Your password goes only to sudo on the Mac; the agent never sees it. It covers this one command."
+        let base = "The agent never sees your password."
         guard let seconds = ask.timeoutSecs else { return base }
         return base + " Stops after \(seconds) s."
     }
