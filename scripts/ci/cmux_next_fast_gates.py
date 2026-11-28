@@ -638,6 +638,28 @@ def sweep_dead_holders(prefix: str, grace_seconds: float = 600.0) -> int:
     return removed
 
 
+FIXIT_LINT_SECONDS = 300.0
+
+
+def fixit_lint(repo: Path, base: str, merge: str, deadline: float | None) -> None:
+    """A red web lint (a finding, not a stall): its tools' own safe fixes, linted again, as a fixup patch
+    (scripts/ci/oops/fixit_lint.py; off unless the workflow sets FIXIT_COMPILE_HEAD_SHA). Only after every gate has
+    finished, since it edits the checkout and puts it back; never changes this run's result. Leo, 2026-11-22: "hell,
+    maybe even should've been automatic. how are our fixit type things for lint errors and random bullshit?\""""
+    seconds = FIXIT_LINT_SECONDS if deadline is None else min(FIXIT_LINT_SECONDS, deadline - time.monotonic())
+    if seconds < 30:
+        print(f"fixit-lint: {max(seconds, 0):.0f}s of the gates' budget left; not tried", flush=True)
+        return
+    script = Path(__file__).resolve().parent / "oops" / "fixit_lint.py"
+    print("::group::fixit-lint", flush=True)
+    try:
+        subprocess.run([sys.executable, "-I", str(script), "run", "--base", base, "--merge", merge, "--repo", str(repo),
+                        "--seconds", str(int(seconds))], cwd=repo, timeout=seconds + 60, check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print(f"fixit-lint: {type(exc).__name__}: {exc}", flush=True)
+    print("::endgroup::", flush=True)
+
+
 def ensure_bun_tmpdir(env: dict) -> Path | None:
     """Give every gate a writable BUN_TMPDIR (set in ENV, which the gates inherit); the directory made, or None when
     the caller already set one or none could be made. bun unpacks into a temporary directory and fails `error: EACCES
@@ -713,6 +735,9 @@ def run(args: argparse.Namespace) -> int:
             if code not in (0, None):
                 print(f"::error title=fast gates: {name}::{name} failed on the merge with base {args.base}")
             rows.append((name, outcome, seconds))
+        # Inside the try: its --fix runs bun too, under the BUN_TMPDIR the finally removes.
+        if any(name == "web lint" and outcome.startswith("failed (exit") for name, outcome, _ in rows):
+            fixit_lint(repo, args.base, merge, deadline)
     finally:
         shutil.rmtree(holder, ignore_errors=True)
         if bun_tmp:

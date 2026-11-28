@@ -132,7 +132,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
   /** Client sessions (migration 0016), as cmux_vm.vm_client_sessions holds them. */
   const clientSessions: ClientSessionRow[] = [];
   // The Worker names its provider resources with the same environment its policy runs in.
-  const upstreamClient = makeUpstreamClient(upstreamConfigOf({ baseUrl: UPSTREAM_URL, apiKey: UPSTREAM_KEY, environment: options.environment ?? "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1, startPollMs: 1, ...(options.createAdmission === undefined ? {} : { createAdmission: options.createAdmission }) }));
+  const upstreamClient = makeUpstreamClient(upstreamConfigOf({ baseUrl: UPSTREAM_URL, apiKey: UPSTREAM_KEY, environment: options.environment ?? "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1, backgroundOutageMs: 5_000, startPollMs: 1, ...(options.createAdmission === undefined ? {} : { createAdmission: options.createAdmission }) }));
   const upstreamRequests = upstream.calls;
   const audit: AuditRow[] = [];
   /** Tenants whose plan allows creating VMs. */
@@ -455,7 +455,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     recordFault,
     meshRecordFault,
     setProviderConfig(baseUrl = UPSTREAM_URL, apiKey = UPSTREAM_KEY) {
-      Object.assign(upstreamClient, makeUpstreamClient(upstreamConfigOf({ baseUrl, apiKey, environment: options.environment ?? "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1, startPollMs: 1, ...(options.createAdmission === undefined ? {} : { createAdmission: options.createAdmission }) })));
+      Object.assign(upstreamClient, makeUpstreamClient(upstreamConfigOf({ baseUrl, apiKey, environment: options.environment ?? "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1, backgroundOutageMs: 5_000, startPollMs: 1, ...(options.createAdmission === undefined ? {} : { createAdmission: options.createAdmission }) })));
     },
     /** One agent reaper run, as the Worker's cron does. */
     reap,
