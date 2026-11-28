@@ -15,8 +15,7 @@ export type DevHostParams = {
   newTab?: boolean;
   cwd?: string;
   editorOrigin?: string;
-  /// `#must`: the tab's recorded session must exist (the app's `sessionMustExist`), so a session
-  /// the daemon lacks shows the pane's unavailable state instead of another chat.
+  /// An explicit session binds the tab to that chat. Older links can also pass `#must`.
   sessionMustExist?: boolean;
   /// `#machine=…`: the machine the app names the chat's (`machineName`), for the composer and the
   /// unavailable state.
@@ -65,7 +64,7 @@ export function devHostParams(hash: string): DevHostParams | undefined {
     newTab: params.has("newtab") || undefined,
     cwd: params.get("cwd") ?? undefined,
     editorOrigin,
-    sessionMustExist: params.has("must") || undefined,
+    sessionMustExist: Boolean(params.get("session")) || params.has("must") || undefined,
     machineName: params.get("machine") ?? undefined,
     linkScheme: params.get("scheme") ?? undefined,
   };

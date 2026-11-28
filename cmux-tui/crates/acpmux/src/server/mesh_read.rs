@@ -458,8 +458,26 @@ pub(crate) fn explain_no_session(
     reply: &mut Result<Value, RpcError>,
 ) {
     let Err(e) = reply else { return };
-    if e.code != RpcError::not_found("").code
-        || !super::super::peer_forward::names_a_session(m)
+    if e.code != RpcError::not_found("").code {
+        return;
+    }
+    if m == method::MUX_ATTACH {
+        // The dashboard can list a hub chat, but cannot read it with the listener token.
+        // Explain the refusal only to that dashboard, after local and peer routing failed.
+        if conn.origin == Origin::Web
+            && conn.auth == ConnAuth::ListenerToken
+            && !may_reach_hub(conn)
+            && key
+                .is_some_and(|key| hub.mesh_book_resolve(key).is_some() && hub.mesh_may_route(key))
+        {
+            *e = RpcError::new(-32003, "reading this chat requires an enrolled device")
+                .with_data(json!({"reason": "device.required"}));
+        } else if let Some(data) = e.data.get_or_insert_with(|| json!({})).as_object_mut() {
+            data.entry("reason").or_insert_with(|| json!("no_session"));
+        }
+        return;
+    }
+    if !super::super::peer_forward::names_a_session(m)
         || READ_METHODS.contains(&m)
         || WRITE_METHODS.contains(&m)
     {
