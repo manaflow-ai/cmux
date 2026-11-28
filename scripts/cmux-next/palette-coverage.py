@@ -37,6 +37,8 @@ the keys every list in NEXT takes.
   python3 scripts/cmux-next/palette-coverage.py --json     the same as JSON
   python3 scripts/cmux-next/palette-coverage.py --refresh-cli CMUX_BINARY [--source TEXT]
                                                            re-read the cli verbs (tools/cmux-cli --info: the commit)
+  python3 scripts/cmux-next/palette-coverage.py --check-cli CMUX_BINARY
+                                                           exit 1 when the binary's verbs differ from cli_verbs
   python3 scripts/cmux-next/palette-coverage.py --self-test
 """
 
@@ -468,6 +470,32 @@ def refresh_cli(binary: str, source: str | None) -> int:
     return 0
 
 
+def check_cli(binary: str) -> int:
+    """Exit 1 when the binary's verbs and the keep list's `cli_verbs` differ, without writing anything.
+
+    The keep list only learns of a verb when someone runs `--refresh-cli`, so a new verb (no palette row yet) was
+    invisible to the count and a removed one stayed mapped (the 4 `coderouter` verbs NOW read on 2026-11-28).
+    cmux-tui's tests/palette_cli_verbs.rs runs this against the binary the PR builds, so the PR that adds or
+    removes a verb is the one that fails, naming the refresh command."""
+    keep = json.loads(KEEP.read_text())
+    try:
+        verbs = read_cli(binary)
+    except (HelpFailed, OSError, subprocess.SubprocessError) as e:
+        print(f"check-cli: {e}", file=sys.stderr)
+        return 2
+    _, added, removed = merge_cli(keep, verbs)
+    for v in added:
+        print(f"new verb\t{v}\tmap it to a palette action or keep it with a reason")
+    for v in removed:
+        print(f"gone verb\t{v}\tthe binary no longer has it")
+    if added or removed:
+        print(f"{len(added)} new, {len(removed)} gone: run python3 scripts/cmux-next/palette-coverage.py "
+              f"--refresh-cli {binary}, then map or keep each new verb in {KEEP.relative_to(ROOT)}")
+        return 1
+    print(f"{len(verbs)} cli verbs match {KEEP.relative_to(ROOT)}")
+    return 0
+
+
 def report() -> dict:
     keep = json.loads(KEEP.read_text())
     surfaces = json.loads(SURFACES.read_text())
@@ -661,6 +689,26 @@ Prose: cmux workspace close --all closes them.
         self.assertEqual(merged["cli_verbs"], [{"verb": "a", "palette": "x"}, {"verb": "b"}])
         self.assertEqual((added, removed), (["b"], ["gone"]))
 
+    def test_check_cli_fails_on_a_new_or_gone_verb_and_writes_nothing(self):
+        import contextlib, io, tempfile
+        global KEEP, read_cli
+        saved = KEEP, read_cli
+        with tempfile.TemporaryDirectory(dir=ROOT) as d:
+            KEEP = Path(d) / "keep.json"
+            text = json.dumps({"cli_verbs": [{"verb": "a", "palette": "x"}, {"verb": "gone"}]})
+            KEEP.write_text(text)
+            try:
+                for verbs, code in ((["a", "gone"], 0), (["a", "gone", "new"], 1), (["a"], 1)):
+                    with self.subTest(verbs=verbs):
+                        read_cli = lambda _binary, v=verbs: v
+                        with contextlib.redirect_stdout(io.StringIO()) as out:
+                            self.assertEqual(check_cli("cmux"), code)
+                        if code:
+                            self.assertIn("--refresh-cli", out.getvalue())
+                self.assertEqual(KEEP.read_text(), text)
+            finally:
+                KEEP, read_cli = saved
+
     def test_this_tree(self):
         got = report()
         self.assertEqual(got["problems"], [])
@@ -672,6 +720,8 @@ def main(argv: list[str]) -> int:
         return 0 if unittest.main(argv=[sys.argv[0]], exit=False).result.wasSuccessful() else 1
     if argv[:1] == ["--refresh-cli"] and len(argv) in (2, 4) and (len(argv) == 2 or argv[2] == "--source"):
         return refresh_cli(argv[1], argv[3] if len(argv) == 4 else None)
+    if argv[:1] == ["--check-cli"] and len(argv) == 2:
+        return check_cli(argv[1])
     got = report()
     if argv == ["--json"]:
         print(json.dumps(got, indent=2))
