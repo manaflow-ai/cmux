@@ -742,6 +742,7 @@ sims=""
 perf_udid=""
 cleanup() {
   local result=$?
+  rm -f "${TMPDIR:-/tmp}/cmux-sim-display.$$."* 2>/dev/null || true  # sim_display's answers
   # A cancelled UI test profile: stop xctrace before its simulator goes.
   if [[ -n "${profile_waiter:-}" ]]; then kill "$profile_waiter" 2>/dev/null || true; fi
   if [[ -n "${profiler:-}" ]]; then stop_profiler "$profiler" 60; fi
@@ -945,7 +946,35 @@ if [[ "$mode" != release-build && "$mode" != try && "$mode" != ui-build ]]; then
   fi
   udid="$(sim_create "$sim_name" "$device_type" "$runtime" "$sims")"
 fi
-simctl() { xcrun simctl --set "$sims" "$@"; }
+# A device type with two displays (iPhone Duo, the iOS 27.2 runtime's fallback phone) refuses
+# `io UDID screenshot` and `recordVideo` with "Cannot choose between 2 displays" (exit 22) unless
+# --display names one. sim_display prints the primary's flag for a device that has two (once per
+# device and set, then cached), else nothing: every screenshot and recording here means the primary.
+sim_display() {  # UDID [SET]
+  # The answer is kept in a file named for this script's pid ($$ is the same in every subshell, and
+  # most calls run in one) and only once known: a probe of a device not yet booted keeps nothing.
+  local cache="${TMPDIR:-/tmp}/cmux-sim-display.$$.$1" probe err display=""
+  if [[ ! -f "$cache" ]]; then
+    probe="$(mktemp "${TMPDIR:-/tmp}/sim-display.XXXXXX")"
+    if err="$(xcrun simctl ${2:+--set "$2"} io "$1" screenshot "$probe.png" 2>&1 >/dev/null)"; then
+      : >"$cache"
+    else
+      display="$(sed -n 's/^ *--display=\([0-9][0-9]*\) .*(primary).*/\1/p' <<<"$err" | head -n 1)"
+      [[ -z "$display" ]] || printf -- '--display=%s' "$display" >"$cache"
+    fi
+    rm -f "$probe" "$probe.png"
+  fi
+  [[ ! -f "$cache" ]] || cat "$cache"
+}
+simctl() {
+  if [[ "${1-}" == io && ( "${3-}" == screenshot || "${3-}" == recordVideo ) && " $* " != *" --display"* ]]; then
+    local display
+    display="$(sim_display "$2" "$sims")"
+    xcrun simctl --set "$sims" io "$2" "$3" ${display:+"$display"} "${@:4}"
+    return
+  fi
+  xcrun simctl --set "$sims" "$@"
+}
 
 note "# cmux-next-ios simulator step ($mode)"
 note ""
@@ -1387,7 +1416,7 @@ if [[ "$mode" == handoff ]]; then
     # xcrun itself in the background, never the simctl() wrapper: `wrapper &` is a subshell, which
     # ignores SIGINT (an async command in a non-interactive shell) and waits on its xcrun, so the
     # SIGINT below never reached the recorder and the step hung until its 6 h timeout (2026-11-18).
-    xcrun simctl --set "$sims" io "$udid" recordVideo --codec h264 --force "$out/recording.mp4" >"$work/recording.log" 2>&1 &
+    simctl io "$udid" recordVideo --codec h264 --force "$out/recording.mp4" >"$work/recording.log" 2>&1 &
     rec_pid=$!
     # Until the recorder says "Recording started" (simctl prints it once its first frame is in), at most 10 s.
     for _ in $(seq 100); do
@@ -1889,7 +1918,7 @@ if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
     fi
   fi
   if [[ $ui_video -eq 1 ]]; then
-    xcrun simctl io "$ui_udid" recordVideo --codec h264 --force "$out/ui-video.mp4" >"$work/ui-video.log" 2>&1 &
+    xcrun simctl io "$ui_udid" recordVideo $(sim_display "$ui_udid") --codec h264 --force "$out/ui-video.mp4" >"$work/ui-video.log" 2>&1 &
     recorder=$!
     # The wall-clock time of the recording's first frame, for scripts/mobile-bench/cut.py: simctl prints
     # "Recording started" once it writes frames (bounded: 10 s). Without that line the time is the launch's,
@@ -2574,7 +2603,18 @@ if [[ "$mode" == pair-e2e ]]; then
   set -e
   cp "$work/mac-build.log" "$out/mac-build.log"
   mac_app="$mac_dd/Build/Products/Debug/cmux DEV $mac_tag.app"
-  [[ $status -eq 0 && -d "$mac_app" ]] || { tail -60 "$work/mac-build.log"; echo "error: tagged cmux NEXT Mac app build failed" >&2; exit 1; }
+  if [[ $status -ne 0 || ! -d "$mac_app" ]]; then
+    # xcodebuild's failing step is often thousands of lines above its "BUILD FAILED" tail (run
+    # 46162159864: the tail named only plug-in steps), and the log stays on the runner, so print
+    # every compiler/tool error line first, then the tail.
+    echo "== Mac app build errors (reload.sh exit $status):"
+    grep -n -E '(^|[[:space:]:])(fatal )?error:|^error\[|Command .* failed with a nonzero exit code' "$work/mac-build.log" \
+      | grep -v 'tagged cmux NEXT Mac app build failed' | head -80 || true
+    echo "== last 60 lines:"
+    tail -60 "$work/mac-build.log"
+    echo "error: tagged cmux NEXT Mac app build failed" >&2
+    exit 1
+  fi
   note "- Mac app: $((SECONDS - t0)) s (reload.sh --tag $mac_tag, Debug)"
   set +e
   python3 -I scripts/ci/cmux_next_pair_e2e.py --mac-app "$mac_app" --ios-app "$app" --sims "$sims" \
