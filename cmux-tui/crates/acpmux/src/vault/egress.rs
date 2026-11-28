@@ -47,7 +47,8 @@
 //!   ([`write_trust`]), so they hold the CA once however often it restarts.
 //! - Every spawn also gets [`EPOCH_VAR`], naming the CA it trusts (from the
 //!   certificate, so the same across daemons that serve it); an agent whose
-//!   env names our proxy and another CA is restarted between turns, on
+//!   env names our proxy and another CA, or a port this daemon's proxy no
+//!   longer serves ([`moved_proxy_env`]), is restarted between turns, on
 //!   adoption (`hub/stale_host_respawn.rs`) and before an automatic retry
 //!   (`hub/auto_resume.rs`), never in a turn ([`stale_proxy_env`]).
 
@@ -150,13 +151,45 @@ pub(crate) fn stale_proxy_env(
     ours && get(EPOCH_VAR) != live
 }
 
-/// [`stale_proxy_env`] for the running process `pid`, judged against this
-/// daemon's proxy; false when its env cannot be read (unknown is not stale).
+/// The running proxy's port, if it runs in this daemon.
+fn live_port() -> Option<u16> {
+    match &*SLOT.lock().unwrap_or_else(|e| e.into_inner()) {
+        Slot::Up(running) => Some(running.port),
+        _ => None,
+    }
+}
+
+/// Whether an agent started with `env` was sent through this daemon's proxy
+/// (as in [`stale_proxy_env`]) at a port other than `live`, the one it serves
+/// now (None: the proxy has not started in this daemon, which
+/// [`stale_proxy_env`] judges). The CA can outlive a port: when another process
+/// holds the kept port, [`bind_stable`] takes a new one (`vault.egress_port_moved`)
+/// under the same CA and epoch, and every agent on the old port is refused on
+/// every turn. On fs-agent-lane-38 (2026-11-28) the port moved 41591 -> 32881 at
+/// 11:01Z and three chats sat `harness_unavailable` on `ECONNREFUSED` for 11 h,
+/// auto resume at attempt 55, because only the epoch was compared.
+pub(crate) fn moved_proxy_env(env: &[(String, String)], node_ca: &Path, live: Option<u16>) -> bool {
+    let get = |name: &str| env.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str());
+    let Some(live) = live else { return false };
+    if !get("NODE_EXTRA_CA_CERTS").is_some_and(|p| Path::new(p) == node_ca) {
+        return false;
+    }
+    let port = get("HTTPS_PROXY")
+        .and_then(|u| u.strip_prefix("http://127.0.0.1:"))
+        .map(|rest| rest.trim_end_matches('/'))
+        .and_then(|p| p.parse::<u16>().ok());
+    port.is_some_and(|p| p != live)
+}
+
+/// [`stale_proxy_env`] or [`moved_proxy_env`] for the running process `pid`,
+/// judged against this daemon's proxy; false when its env cannot be read
+/// (unknown is not stale).
 #[cfg(unix)]
 pub(crate) fn stale_proxy_pid(pid: u32) -> bool {
     let Some(env) = crate::agent_host::tree::environ(pid) else { return false };
     let node_ca = crate::config::home().join("vault-egress").join("node-extra-ca.pem");
     stale_proxy_env(&env, &node_ca, live_epoch().as_deref())
+        || moved_proxy_env(&env, &node_ca, live_port())
 }
 
 #[cfg(not(unix))]

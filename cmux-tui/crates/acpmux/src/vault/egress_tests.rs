@@ -314,3 +314,27 @@ fn an_expired_or_corrupt_kept_ca_is_replaced() {
     let third = kept_or_new_authority(dir.path()).unwrap();
     assert_ne!(third.pem(), old.pem());
 }
+
+#[test]
+fn an_agent_on_a_moved_port_is_stale_under_the_same_ca() {
+    let ca = Path::new("/h/vault-egress/node-extra-ca.pem");
+    let env = |proxy: &str, node_ca: &str| -> Vec<(String, String)> {
+        vec![
+            ("HTTPS_PROXY".to_owned(), proxy.to_owned()),
+            ("NODE_EXTRA_CA_CERTS".to_owned(), node_ca.to_owned()),
+            (EPOCH_VAR.to_owned(), "e1".to_owned()),
+        ]
+    };
+    let ours = |proxy: &str| env(proxy, "/h/vault-egress/node-extra-ca.pem");
+    // The incident: same CA, so the epoch matches, but the port moved 41591 -> 32881.
+    assert!(!stale_proxy_env(&ours("http://127.0.0.1:41591"), ca, Some("e1")));
+    assert!(moved_proxy_env(&ours("http://127.0.0.1:41591"), ca, Some(32881)));
+    assert!(moved_proxy_env(&ours("http://127.0.0.1:41591/"), ca, Some(32881)));
+    // On the live port: not moved.
+    assert!(!moved_proxy_env(&ours("http://127.0.0.1:32881"), ca, Some(32881)));
+    // No proxy in this daemon yet: the epoch check judges it, not this one.
+    assert!(!moved_proxy_env(&ours("http://127.0.0.1:41591"), ca, None));
+    // A proxy of the person's own, or another CA file: never ours to restart.
+    assert!(!moved_proxy_env(&ours("http://corp:3128"), ca, Some(32881)));
+    assert!(!moved_proxy_env(&env("http://127.0.0.1:41591", "/etc/other.pem"), ca, Some(32881)));
+}
