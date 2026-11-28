@@ -45,6 +45,7 @@ mod join;
 mod keybinding;
 mod launch_times;
 mod live;
+mod mac_screen_replay;
 mod nightly;
 mod open;
 mod open_link;
@@ -217,6 +218,9 @@ pub(super) enum AppCommand {
         params: Value,
         seconds: u64,
     },
+    /// `app mac-screen-replay`: `mac_screen.replay`, then `mac_screen.state` until the replay's
+    /// pane has presented its frames (app/mac_screen_replay.rs).
+    MacScreenReplay(mac_screen_replay::Replay),
     /// Local settings completion/schema/validation (`app/settings.rs`).
     Settings(settings::Command),
     /// `browser right <verb>` (app/right.rs): `browser.page.right` names the
@@ -377,6 +381,9 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("app", Some("chat")) if rest.get(1).is_some_and(|verb| verb == "perf") => {
             chat_perf::parse(rest)?
         }
+        // A recorded screen share played through a Screen Sharing tab with no host peer
+        // (`mac_screen.replay`, every build), then its Decode and Present once presented.
+        ("app", Some("mac-screen-replay")) => mac_screen_replay::parse(rest)?,
         // The Cloud desktop tabs (`remote_view.state`, every build): per tab its
         // viewer, whether it is connected and who has control; never a credential
         // or a pixel of the screen.
@@ -1125,6 +1132,9 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         }
         AppCommand::ChatPerf { params, seconds } => {
             return Ran::Done(chat_perf::run(global, stream, params, seconds));
+        }
+        AppCommand::MacScreenReplay(replay) => {
+            return Ran::Done(mac_screen_replay::run(global, stream, replay));
         }
         AppCommand::Record(request) => return Ran::Done(record::run(global, request)),
         AppCommand::Settings(command) => return Ran::Done(command.run(global)),
