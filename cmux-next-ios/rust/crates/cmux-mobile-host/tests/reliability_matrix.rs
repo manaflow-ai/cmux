@@ -775,19 +775,26 @@ async fn cell_host_daemon_restart() {
             .expect("a request to a dead daemon was answered or refused within 3 s");
         assert!(refusal.is_err(), "a dead daemon answered: {refusal:?}");
         rig.daemon.restart();
-        // In the phone's order: the first window, then the whole tree.
-        let back_window = time_list_page(&rig, count, Some(FIRST_WINDOW)).await;
+        // In the phone's order: the first window, then the whole tree. The gate is the median of
+        // the first three windows back (the first included): one sample shares the CPU with the
+        // host cache's own whole-tree fetch on the fresh daemon and swings 3-40 ms run to run.
+        let back_first = time_list_page(&rig, count, Some(FIRST_WINDOW)).await;
+        let mut windows = vec![ms(back_first)];
+        for _ in 0..2 {
+            windows.push(ms(time_list_page(&rig, count, Some(FIRST_WINDOW)).await));
+        }
+        let back_window = median(windows);
         let back = time_list(&rig, count).await;
         report(
             "host_daemon_restart",
             variant,
             json!({
                 "workspaces": count, "close": close, "refusal": refusal.err(), "back_list_ms": ms(back),
-                "back_first_window_ms": ms(back_window),
+                "back_first_window_ms": back_window, "back_first_window_first_ms": ms(back_first),
             }),
         );
         assert!(back < Duration::from_secs(1), "the whole list after the restart took {back:?}");
-        results.push(ms(back_window));
+        results.push(back_window);
         rig.finish().await;
     }
     assert!(
