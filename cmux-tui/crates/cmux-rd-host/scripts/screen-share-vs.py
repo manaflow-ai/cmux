@@ -187,6 +187,7 @@ import contextlib
 import errno
 import ipaddress
 import json
+import math
 import os
 import queue
 import re
@@ -3085,6 +3086,19 @@ class Orchestrator:
         out = self.host.run(f"cat {timing} 2>/dev/null; : > {timing}", timeout=60)
         return [json.loads(x) for x in out.splitlines() if x.strip()]
 
+    @staticmethod
+    def trial_offset_ns(rec, clock):
+        """(offset ns, source) a key trial's cross-host rows use: its session's own live offset
+        (stage_ledger.offset_us, host minus viewer, as the probe's) when the build hands one, else
+        the run-start probe's. The two Macs drift ~0.6 ms a trial (5.7 ms over one run,
+        goals/screen-share-encode-transport.md in cmuxterm-hq), so one run-wide offset skewed
+        every later trial's down and up by the drift."""
+        ledger = rec.get("stage_ledger") if isinstance(rec.get("stage_ledger"), dict) else {}
+        off = ledger.get("offset_us")
+        if type(off) in (int, float) and math.isfinite(off):
+            return int(off * 1000), "stage_ledger"
+        return clock["offset_ns"], "clock_probe"
+
     def run_cmux(self, clock):
         firsts, g2g, fps, rows = [], [], [], []
         clipboard = getattr(self.a, "cmux_input", "key") == "clipboard"
@@ -3111,9 +3125,11 @@ class Orchestrator:
                                  if s.get("ledger")]
                 if rec.get("stage_ledger"):
                     self.summaries.append(rec["stage_ledger"])
-                rec["breakdown"] = self.breakdown(rec, timing, clock["offset_ns"])
+                offset_ns, rec["breakdown_offset_source"] = self.trial_offset_ns(rec, clock)
+                rec["breakdown_offset_ns"] = offset_ns
+                rec["breakdown"] = self.breakdown(rec, timing, offset_ns)
                 rows += rec["breakdown"]
-                ff = self.first_frame_breakdown(rec, timing, clock["offset_ns"])
+                ff = self.first_frame_breakdown(rec, timing, offset_ns)
                 if ff:
                     rec["first_frame_breakdown"] = ff
                     self.ff_rows.append(ff)

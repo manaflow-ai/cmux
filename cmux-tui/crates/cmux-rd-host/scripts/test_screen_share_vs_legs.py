@@ -467,5 +467,31 @@ class AppleViewer(unittest.TestCase):
         self.assertIn("left", json.loads(out.getvalue()))
 
 
+
+class TrialOffset(unittest.TestCase):
+    """A key trial's cross-host rows use its own session's clock offset, not the run start's."""
+
+    CLOCK = {"offset_ns": -15939725306000}
+
+    def test_stage_ledger_offset_wins(self):
+        rec = {"stage_ledger": {"offset_us": -15939730980}}
+        self.assertEqual(vs.Orchestrator.trial_offset_ns(rec, self.CLOCK), (-15939730980000, "stage_ledger"))
+
+    def test_probe_offset_without_a_ledger(self):
+        for rec in ({}, {"stage_ledger": {}}, {"stage_ledger": {"offset_us": None}}, {"stage_ledger": "x"}):
+            self.assertEqual(vs.Orchestrator.trial_offset_ns(rec, self.CLOCK), (-15939725306000, "clock_probe"))
+
+    def test_drifted_offset_moves_down_back(self):
+        # r12e trial 10: on the run-start offset down read 6.29 ms; the trial's own offset is 5.674 ms lower.
+        o = vs.Orchestrator(types.SimpleNamespace(
+            source="synthetic", host="h", viewer="v", via="ssh", root="/r", python="p", out=None))
+        timing = [{"recv_us": 1_000, "inject_us": 1_100},
+                  {"release_us": 10_000, "encoded_us": 15_000, "sent_us": 16_000, "shown_us": 5_000, "arrived_us": 7_000}]
+        sample = {"capture_us": 10_000, "sent_ns": 900_000, "first_rx_ns": 17_000_000,
+                  "complete_ns": 17_500_000, "decoded_ns": 20_000_000}
+        run_start = o.breakdown({"sample_times": [sample]}, timing, 0)[0]["down"]
+        trial = o.breakdown({"sample_times": [sample]}, timing, -5_674_000)[0]["down"]
+        self.assertAlmostEqual(run_start - trial, 5.674, places=3)
+
 if __name__ == "__main__":
     unittest.main()
