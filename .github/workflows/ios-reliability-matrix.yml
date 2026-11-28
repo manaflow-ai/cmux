@@ -193,7 +193,8 @@ jobs:
           # A pull request's checkout is the merge commit: HEAD^1 is the base, so the diff is the change.
           if [ "$EVENT" = pull_request ] && files="$(git diff --name-only HEAD^1 HEAD 2>/dev/null)" && [ -n "$files" ]; then
             # Anything the workflow's path filter admits that is not the phone's Swift (CmuxMobileKit/) can reach the Rust workspace.
-            if ! printf '%s\n' "$files" | grep -qvE '^cmux-next-ios/CmuxMobileKit/'; then
+            # A herestring, not printf | grep -q: under pipefail grep's early exit fails printf on a long list.
+            if ! grep -qvE '^cmux-next-ios/CmuxMobileKit/' <<<"$files"; then
               protocol=false
             fi
           fi
