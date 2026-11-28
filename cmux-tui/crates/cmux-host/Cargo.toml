@@ -23,6 +23,8 @@ cmux-cloud-start-core.workspace = true
 # The gate's and the updater's flocks (unlock before close).
 cmux-file-lock.workspace = true
 cmux-supervise-core.workspace = true
+# The cmux vault's machine side (`cloud/vault.rs`): open what devices sealed to this machine.
+cmux-vault-e2e.workspace = true
 cmux-json.workspace = true
 # Patience: Cloud reads retried through a transient outage (`cloud/client.rs`).
 cmux-tui-util.workspace = true
