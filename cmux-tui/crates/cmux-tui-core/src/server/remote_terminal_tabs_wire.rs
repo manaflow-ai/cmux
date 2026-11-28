@@ -6,9 +6,7 @@
 //! terminal; the app attaches on the terminal's own session.
 
 use super::*;
-use crate::state::remote_terminal_tabs_store::{
-    REMOTE_TERMINAL_KIND, RemoteTerminalRecord, RemoteTerminalUpdate,
-};
+use crate::state::remote_terminal_tabs_store::{RemoteTerminalRecord, RemoteTerminalUpdate};
 
 #[derive(Deserialize)]
 pub(super) struct NewParams {
@@ -73,33 +71,4 @@ pub(super) fn update(mux: &Arc<Mux>, params: UpdateParams) -> anyhow::Result<Val
 pub(super) fn snapshot(mux: &Arc<Mux>, params: SnapshotParams) -> anyhow::Result<Value> {
     let snapshot = mux.remote_terminal_snapshot(params.surface)?;
     Ok(json!({"surface": params.surface, "snapshot": snapshot}))
-}
-
-/// Report a remote-terminal tab's placeholder as a remote-terminal tab:
-/// `kind:"remote-terminal"` with its `remote` reference and title, and none
-/// of the placeholder browser's or a local terminal's fields.
-pub(super) fn apply(tab: &mut Value, remote: Option<&RemoteTerminalRecord>) {
-    let (Some(remote), Some(object)) = (remote, tab.as_object_mut()) else { return };
-    for field in ["terminal_id", "terminal_resource_id", "terminal_incarnation"] {
-        object.remove(field);
-    }
-    for field in [
-        "browser_source",
-        "browser_status",
-        "browser_error",
-        "browser_renderer",
-        "browser_engine",
-        "browser_owner",
-        "favicon_url",
-        "browser_profile_id",
-        "browser_frames_stalled",
-        "url",
-        "cwd",
-        "git_branch",
-    ] {
-        object.insert(field.to_string(), Value::Null);
-    }
-    object.insert("kind".into(), json!(REMOTE_TERMINAL_KIND));
-    object.insert("remote".into(), remote.wire());
-    object.insert("title".into(), json!(remote.display_title()));
 }
