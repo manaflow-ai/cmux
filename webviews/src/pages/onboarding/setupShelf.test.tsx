@@ -181,12 +181,7 @@ test("every key a setup writes is one the host allows (FirstRunChoicesSettingsSo
   };
   // The picks' paths (`pickPaths`) are named by their settings' constants; a setup writes two of them:
   // the density and the new-tab template (terminal-first, #60084).
-  const allowed = new Set([
-    ...block("walkPaths"),
-    ...block("setupPaths"),
-    "appearance.density",
-    "tabs.newTabTemplate",
-  ]);
+  const allowed = new Set([...block("walkPaths"), ...block("setupPaths"), "appearance.density", "tabs.newTabTemplate"]);
   for (const setup of SHELF_SETUPS) {
     for (const path of Object.keys(setup.settings)) expect([setup.id, allowed.has(path)]).toEqual([setup.id, true]);
   }
