@@ -2414,6 +2414,8 @@ async fn dispatch_method(
                     hub.resolve(id).ok().filter(|from| from.id == id).map(|from| from.meta())
                 })
             });
+            // A time watch's wake names its due time (`hub/cold_wake.rs` `due_wake`).
+            let provenance = crate::hub::cold_wake::stamp_due(provenance, &params);
             // Who the daemon knows sent it, apart from what the sender claims
             // (`prompt_provenance.rs` `verified`, `transport`, `claimed`): the proven person's
             // prompt carries none; one no proof attributes is `unverified`, never the person's.

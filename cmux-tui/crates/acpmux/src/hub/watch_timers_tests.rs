@@ -151,3 +151,42 @@ fn a_fired_wake_is_no_inbox_item_so_it_wakes_an_idle_chat() {
     let plain = json!({"sessionId": "sink", "prompt": [], "_meta": {"acpmux": {"promptId": "p"}}});
     assert!(!crate::hub::inbox::watch_wake(&plain));
 }
+
+/// A time watch's wake is an alarm: it waits for no cold batch (`cold_wake.rs` `due_wake`). Four
+/// alarms due 13:40Z to 15:05Z fired at 17:54:43, when their machine came back, and the chat,
+/// cold 4.5 h with 49K tokens, opened a 300 s batch for them: the turn started at 17:59:47.
+/// Another agent's message to the same cold chat still waits for the batch.
+#[tokio::test]
+async fn a_fired_time_watch_waits_for_no_cold_batch() {
+    use crate::hub::cold_wake::{MIN_WINDOW_MS, stamp_due};
+    use crate::prompt_provenance::session_message;
+    let config = serde_json::from_value(json!({})).unwrap();
+    let hub = Hub::new(config, Box::new(crate::store::MemoryStore::default()));
+    let now = crate::store::now_ms();
+    let cold_since = now - 16_000_000;
+    let meta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": "sink", "name": "sink",
+        "harness": "claude", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 2,
+    }));
+    let mut meta: crate::store::SessionMeta = meta.unwrap();
+    meta.usage = Some(json!({"sessionUpdate": "usage_update", "used": 49_389, "size": 1_000_000,
+        "_meta": {"acpmux": {"cacheExpiresAt": cold_since}}}));
+    meta.last_turn = Some(json!({"turnId": "t0", "endedAt": cold_since - 3_600_000}));
+    let session = hub.insert_test_session(meta);
+
+    let watch =
+        Watch { caller: Some("owner".into()), ..timer("alarm", now - 15_000_000, None, None) };
+    hub.watches.add(watch).unwrap();
+    let (fired, _) = hub.watches.fire_timers(now).unwrap();
+    let wake = hub.watches.inner.lock().unwrap().saved.pending[&fired[0]].request.clone();
+    let alarm = stamp_due(Some(session_message("owner", "owner", "sink")), &wake);
+    assert_eq!(
+        hub.cold_batch_wait(&session, alarm.as_ref(), now),
+        0,
+        "the alarm waited: {alarm:?}"
+    );
+
+    let plain = session_message("lane", "lane", "sink");
+    let waits = hub.cold_batch_wait(&session, Some(&plain), now);
+    assert!(waits >= MIN_WINDOW_MS, "another agent's message joins the batch: {waits}");
+}
