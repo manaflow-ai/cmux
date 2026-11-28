@@ -3,8 +3,11 @@
 // a snapshot draws the chat, live records past the newest held fold once, and an older page joins
 // in front of what is held.
 import { expect, test } from "bun:test";
-import { AcpmuxDirectClient, type EventRecord } from "../src/agent-session/acpmux/direct";
+import type { EventRecord } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
+import { importWithDom } from "./support/importWithDom";
+
+const { AcpmuxDirectClient } = await importWithDom(() => import("../src/agent-session/acpmux/direct"));
 
 const say = (seq: number, text: string): EventRecord => ({
   sessionId: "owner-session",
