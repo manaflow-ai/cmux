@@ -116,21 +116,30 @@ pub(crate) fn authenticate_client(
         anyhow::bail!("terminal-host capability denied");
     }
     if constant_time_equal(hello.token.as_bytes(), host.owner_token.as_bytes()) {
-        if hello.role != ClientRole::Admin
-            || !owner_rights_allowed(hello.requested_rights)
-            || hello.min_version > PROTOCOL_VERSION
-            || hello.max_version < PROTOCOL_VERSION
-        {
+        if hello.role != ClientRole::Admin || !owner_rights_allowed(hello.requested_rights) {
             anyhow::bail!("terminal-host owner capability denied");
         }
+        // The newest version both sides speak (RFD 0224). A daemon rolled back to the build before
+        // this host's one still adopts it, and one with no version in common gets the typed
+        // `version.incompatible` error, logged here. The wire stays a close without a HostHello
+        // (`host_refusal`), which is the refusal every older daemon already reads.
+        let selected_version = crate::terminal_host::negotiate_version(
+            hello.min_version,
+            hello.max_version,
+            crate::terminal_host_protocol::served_versions(),
+        )?;
         return Ok(HostHello {
-            selected_version: PROTOCOL_VERSION,
+            selected_version,
             granted_rights: hello.requested_rights,
             terminal_id: host.terminal_id,
             incarnation: host.incarnation,
         });
     }
-    Ok(host.capabilities.accept(hello, PROTOCOL_VERSION..=PROTOCOL_VERSION, host.incarnation)?)
+    Ok(host.capabilities.accept(
+        hello,
+        crate::terminal_host_protocol::served_versions(),
+        host.incarnation,
+    )?)
 }
 
 pub(crate) fn mint_renderer_capability(
