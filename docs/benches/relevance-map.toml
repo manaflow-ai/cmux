@@ -3518,12 +3518,6 @@ tests = ["cargo test --manifest-path cmux-tui/crates/cmux-codecs/Cargo.toml -p c
 dependents = ["cmux-rd-host"]
 
 [[unit]]
-name = "rust:cmux-coderouter"
-paths = ["cmux-tui/crates/cmux-coderouter/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-coderouter", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux"]
-dependents = ["acpmux"]
-
-[[unit]]
 name = "rust:cmux-command-class"
 paths = ["cmux-tui/crates/cmux-command-class/**"]
 tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-command-class", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux"]
@@ -3619,8 +3613,8 @@ tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-duress"]
 [[unit]]
 name = "rust:cmux-egress"
 paths = ["cmux-tui/crates/cmux-egress/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-egress", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p chatmux-relay -p cmux-autocloud -p cmux-browser-sync -p cmux-cloud-api -p cmux-cloud-client -p cmux-cloud-environment -p cmux-coderouter -p cmux-git-cache -p cmux-no-checkout -p cmux-projection -p cmux-server -p cmux-session-cloud -p cmux-stack-auth -p cmux-tailnet -p cmux-tui -p cmux-tui-cloud-conversations -p cmux-tui-core -p cmux-vm-pool -p cmux-weft", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-host -p cmux-mobile-link"]
-dependents = ["acpmux", "chatmux-relay", "cmux-autocloud", "cmux-browser-sync", "cmux-cloud-api", "cmux-cloud-client", "cmux-cloud-environment", "cmux-coderouter", "cmux-git-cache", "cmux-mobile-host", "cmux-mobile-link", "cmux-no-checkout", "cmux-projection", "cmux-server", "cmux-session-cloud", "cmux-stack-auth", "cmux-tailnet", "cmux-tui", "cmux-tui-cloud-conversations", "cmux-tui-core", "cmux-vm-pool", "cmux-weft"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-egress", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p chatmux-relay -p cmux-autocloud -p cmux-browser-sync -p cmux-cloud-api -p cmux-cloud-client -p cmux-cloud-environment -p cmux-git-cache -p cmux-no-checkout -p cmux-projection -p cmux-server -p cmux-session-cloud -p cmux-stack-auth -p cmux-tailnet -p cmux-tui -p cmux-tui-cloud-conversations -p cmux-tui-core -p cmux-vm-pool -p cmux-weft", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-host -p cmux-mobile-link"]
+dependents = ["acpmux", "chatmux-relay", "cmux-autocloud", "cmux-browser-sync", "cmux-cloud-api", "cmux-cloud-client", "cmux-cloud-environment", "cmux-git-cache", "cmux-mobile-host", "cmux-mobile-link", "cmux-no-checkout", "cmux-projection", "cmux-server", "cmux-session-cloud", "cmux-stack-auth", "cmux-tailnet", "cmux-tui", "cmux-tui-cloud-conversations", "cmux-tui-core", "cmux-vm-pool", "cmux-weft"]
 
 [[unit]]
 name = "rust:cmux-embed"
@@ -3666,6 +3660,12 @@ name = "rust:cmux-feed-core"
 paths = ["cmux-tui/crates/cmux-feed-core/**"]
 tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-feed-core", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-tui-core"]
 dependents = ["cmux-tui-core"]
+
+[[unit]]
+name = "rust:cmux-feed-push-core"
+paths = ["cmux-tui/crates/cmux-feed-push-core/**"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-feed-push-core", "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-layout-reducer-ffi", "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-mobile-ffi"]
+dependents = ["cmux-layout-reducer-ffi", "cmux-mobile-ffi"]
 
 [[unit]]
 name = "rust:cmux-felt"
@@ -3812,8 +3812,8 @@ dependents = ["acpmux"]
 [[unit]]
 name = "rust:cmux-json"
 paths = ["cmux-tui/crates/cmux-json/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-json", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p acpmux-tui -p chatmux-relay -p cmux-app-host -p cmux-browser-host -p cmux-cloud-api -p cmux-coderouter -p cmux-config -p cmux-feed-core -p cmux-host -p cmux-remote -p cmux-server -p cmux-server-core -p cmux-terminal-client -p cmux-tui -p cmux-tui-cdp -p cmux-tui-cloud-conversations -p cmux-tui-core -p cmux-tui-hooks -p cmux-tui-util", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-host"]
-dependents = ["acpmux", "acpmux-tui", "chatmux-relay", "cmux-app-host", "cmux-browser-host", "cmux-cloud-api", "cmux-coderouter", "cmux-config", "cmux-feed-core", "cmux-host", "cmux-mobile-host", "cmux-remote", "cmux-server", "cmux-server-core", "cmux-terminal-client", "cmux-tui", "cmux-tui-cdp", "cmux-tui-cloud-conversations", "cmux-tui-core", "cmux-tui-hooks", "cmux-tui-util"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-json", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p acpmux-tui -p chatmux-relay -p cmux-app-host -p cmux-browser-host -p cmux-cloud-api -p cmux-config -p cmux-feed-core -p cmux-host -p cmux-remote -p cmux-server -p cmux-server-core -p cmux-terminal-client -p cmux-tui -p cmux-tui-cdp -p cmux-tui-cloud-conversations -p cmux-tui-core -p cmux-tui-hooks -p cmux-tui-util", "cargo test --manifest-path cmux-next-ios/rust/Cargo.toml -p cmux-mobile-host"]
+dependents = ["acpmux", "acpmux-tui", "chatmux-relay", "cmux-app-host", "cmux-browser-host", "cmux-cloud-api", "cmux-config", "cmux-feed-core", "cmux-host", "cmux-mobile-host", "cmux-remote", "cmux-server", "cmux-server-core", "cmux-terminal-client", "cmux-tui", "cmux-tui-cdp", "cmux-tui-cloud-conversations", "cmux-tui-core", "cmux-tui-hooks", "cmux-tui-util"]
 
 [[unit]]
 name = "rust:cmux-keymap"
@@ -3877,14 +3877,14 @@ dependents = ["cmux-cloud-client", "cmux-cloud-machine", "cmux-tui", "cmux-vm"]
 [[unit]]
 name = "rust:cmux-link"
 paths = ["cmux-tui/crates/cmux-link/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-link", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-coderouter -p cmux-host -p cmux-remote -p cmux-server -p cmux-tui -p cmux-tui-core -p cmux-tui-platform -p cmux-tui-remote-access"]
-dependents = ["acpmux", "cmux-coderouter", "cmux-host", "cmux-remote", "cmux-server", "cmux-tui", "cmux-tui-core", "cmux-tui-platform", "cmux-tui-remote-access"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-link", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-host -p cmux-remote -p cmux-server -p cmux-tui -p cmux-tui-core -p cmux-tui-platform -p cmux-tui-remote-access"]
+dependents = ["acpmux", "cmux-host", "cmux-remote", "cmux-server", "cmux-tui", "cmux-tui-core", "cmux-tui-platform", "cmux-tui-remote-access"]
 
 [[unit]]
 name = "rust:cmux-local-auth"
 paths = ["cmux-tui/crates/cmux-local-auth/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-local-auth", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-coderouter -p cmux-daemon-launch-core -p cmux-pane-protocol -p cmux-tui-core"]
-dependents = ["acpmux", "cmux-coderouter", "cmux-daemon-launch-core", "cmux-pane-protocol", "cmux-tui-core"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-local-auth", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p cmux-daemon-launch-core -p cmux-pane-protocol -p cmux-tui-core"]
+dependents = ["acpmux", "cmux-daemon-launch-core", "cmux-pane-protocol", "cmux-tui-core"]
 
 [[unit]]
 name = "rust:cmux-local-url"
@@ -4440,8 +4440,8 @@ dependents = ["acpmux", "cmux-host", "cmux-remote", "cmux-server", "cmux-tui-cor
 [[unit]]
 name = "rust:cmux-unix-socket"
 paths = ["cmux-tui/crates/cmux-unix-socket/**"]
-tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-unix-socket", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p chatmux-relay -p cmux-agent-pane-policy -p cmux-coderouter -p cmux-host -p cmux-link -p cmux-remote -p cmux-server-core -p cmux-tui -p cmux-tui-core -p cmux-tui-platform"]
-dependents = ["acpmux", "chatmux-relay", "cmux-agent-pane-policy", "cmux-coderouter", "cmux-host", "cmux-link", "cmux-remote", "cmux-server-core", "cmux-tui", "cmux-tui-core", "cmux-tui-platform"]
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-unix-socket", "cargo test --manifest-path cmux-tui/Cargo.toml -p acpmux -p chatmux-relay -p cmux-agent-pane-policy -p cmux-host -p cmux-link -p cmux-remote -p cmux-server-core -p cmux-tui -p cmux-tui-core -p cmux-tui-platform"]
+dependents = ["acpmux", "chatmux-relay", "cmux-agent-pane-policy", "cmux-host", "cmux-link", "cmux-remote", "cmux-server-core", "cmux-tui", "cmux-tui-core", "cmux-tui-platform"]
 
 [[unit]]
 name = "rust:cmux-update-prewarm-core"
