@@ -54,6 +54,7 @@ await requireBrowserLane("agent-pane-scroll-render-count.test.ts", async () => {
     page.evaluate(
       (wait) =>
         new Promise<void>((resolve) =>
+          // fixed-wait: the caller's pause (0 by default, a task boundary); the frames after it are the condition.
           setTimeout(
             () =>
               requestAnimationFrame(() =>
@@ -89,12 +90,12 @@ await requireBrowserLane("agent-pane-scroll-render-count.test.ts", async () => {
     await page.locator(".acpmux-scroll").hover();
     // One step first, outside the window: the first scroll up leaves the followed end, a state change of its own.
     await page.mouse.wheel(0, -40);
-    await settle(page, 300);
+    await settle(page, 300); // fixed-wait: the first step's smooth scroll ends before the counted window opens.
     const before = await page.evaluate(() => document.querySelector(".acpmux-scroll")!.scrollTop);
     await renderCountsReset(page);
     for (let i = 0; i < STEPS; i += 1) {
       await page.mouse.wheel(0, -40);
-      await settle(page);
+      await settle(page); // fixed-wait: 0 ms, two frames and a task: each step commits before the next.
     }
     const counts = await renderCountsTake(page);
     const after = await page.evaluate(() => document.querySelector(".acpmux-scroll")!.scrollTop);
