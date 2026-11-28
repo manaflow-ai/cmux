@@ -584,7 +584,7 @@
         {"by": "machine:vm_a", "op": "list", "refuse": {"status": 403, "code": "auth.forbidden"}},
         {"by": "machine:vm_a", "op": "create", "body": {"harness": "claude", "repo": {"remote": "git@example.com:a/b.git", "branch": "main"}, "firstMessage": {"id": "first", "text": "go"}}, "refuse": {"status": 403, "code": "auth.forbidden"}},
         {"by": "machine:vm_a", "op": "post_inbox", "id": "chat", "body": {"id": "m1", "text": "hello"}, "refuse": {"status": 403, "code": "auth.forbidden"}},
-        {"by": "machine:vm_a", "op": "keep", "id": "chat", "body": {"keepInCloud": true}, "refuse": {"status": 403, "code": "auth.forbidden"}},
+        {"by": "machine:vm_a", "op": "keep", "id": "chat", "body": {"keepInCloud": true}, "refuse": {"status": 404, "code": "not_found"}},
         {"by": "machine:vm_a", "op": "wait", "id": "chat", "query": {"after": 0, "timeoutMs": 0}, "refuse": {"status": 403, "code": "auth.forbidden"}},
         {"by": "owner", "op": "assignments", "query": {"timeoutMs": 0}, "refuse": {"status": 401, "code": "auth.unauthenticated"}},
         {"by": "owner", "op": "ack_assignment", "id": "chat", "body": {"holder": "vm:vm_a", "epoch": 1}, "refuse": {"status": 401, "code": "auth.unauthenticated"}},
@@ -799,12 +799,12 @@
       ]
     },
     {
-      "name": "a chat started with no laptop is made in Cloud mode when asked; a move is the owner's, names a laptop only to go local, and changes nothing for a chat that is already there",
+      "name": "a chat started with no laptop is made in Cloud mode when asked; a move is the owner's or its holder machine's, names a laptop only to go local, and changes nothing for a chat that is already there",
       "steps": [
         {"by": "owner", "op": "set_machine", "body": {"team": "$team", "machine": "vm_a"}},
         {"by": "owner", "op": "create", "body": {"title": "New chat", "harness": "claude", "repo": {"remote": "git@example.com:a/b.git", "branch": "main"}, "firstMessage": {"id": "first", "text": "go"}, "keepInCloud": true}, "expect": {"session": {"auto": true, "keepInCloud": true, "holder": "vm:vm_a", "epoch": 1, "state": "resuming"}}},
         {"by": "owner", "op": "move", "id": "$created", "body": {"to": "cloud"}, "expect": {"session": {"holder": "vm:vm_a", "epoch": 1, "state": "resuming", "keepInCloud": true, "move": null}}},
-        {"by": "machine:vm_a", "op": "move", "id": "$created", "body": {"to": "local"}, "refuse": {"status": 403, "code": "auth.forbidden"}},
+        {"by": "machine:vm_a", "op": "move", "id": "$created", "body": {"to": "local"}, "refuse": {"status": 409, "code": "auto.no_laptop"}},
         {"by": "owner", "op": "move", "id": "$created", "body": {"to": "cloud", "device": "device:mac1"}, "refuse": {"status": 400, "code": "validation.invalid"}},
         {"by": "owner", "op": "move", "id": "$created", "body": {"to": "local", "device": "vm:vm_a"}, "refuse": {"status": 400, "code": "validation.invalid"}},
         {"by": "owner", "op": "move", "id": "nochat", "body": {"to": "cloud"}, "refuse": {"status": 404, "code": "not_found"}},

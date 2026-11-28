@@ -401,7 +401,9 @@ describe("auto sessions: who may reach a chat, and the owner's list", { timeout:
     // A machine's credential is no owner, and an owner's is no machine.
     expect((await open(vm, "private")).status).toBe(403)
     expect((await post(vm, "private", "inbox", { id: "m", text: "hi" })).status).toBe(403)
-    expect((await post(vm, "private", "keep", { keepInCloud: true })).status).toBe(403)
+    // Its holder machine may say the chat is kept in the Cloud (and move it), for the agent in it; no other machine may.
+    expect((await post(vm, "private", "keep", { keepInCloud: true })).body.session).toMatchObject({ holder: VM, keepInCloud: true })
+    for (const t of [other, foreign]) expect((await post(t, "private", "keep", { keepInCloud: false })).status).toBe(404)
     expect((await call("GET", "/v1/auto-sessions", as(vm))).status).toBe(403)
     expect((await call("PUT", "/v1/auto-sessions/machine", as(vm), { team: a.team, machine: M })).status).toBe(403)
     expect((await call("GET", "/v1/auto-sessions/assignments?timeoutMs=0", as(a.installToken))).status).toBe(401)
@@ -428,7 +430,7 @@ describe("auto sessions: who may reach a chat, and the owner's list", { timeout:
     await runIn(stub, async (instance, state) => {
       const real = instance.env
       instance.env = { ...real, AUTO_SESSION_INDEX_DO: { idFromName: () => "x", get: () => ({ put: async () => Promise.reject(new Error("reset")) }) } }
-      await instance.keep(a.user, true)
+      await instance.keep({ kind: "owner", owner: a.user, install: null }, true)
       instance.env = real
       expect(await state.storage.getAlarm()).not.toBeNull()
     })

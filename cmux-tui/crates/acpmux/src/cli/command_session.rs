@@ -211,8 +211,9 @@ pub enum SessionCmd {
     /// Move a chat between Local (this Mac), Cloud (stays in cmux Cloud) and AutoCloud (here
     /// while the Mac is up, in the Cloud while it sleeps), through Auto mode's fenced handoff. The
     /// person may make any move; a chat's own agent may move it off the Mac only while the
-    /// AutoCloud setting is on, and back to local never (the answer says needs_person and the
-    /// command). `cmux chat move SESSION --on PLACE` runs this.
+    /// AutoCloud setting is on, and back to local, also from the Cloud machine it runs on (else
+    /// the answer says needs_person and the command). `cmux chat move SESSION --on PLACE` runs
+    /// this.
     Place {
         session: String,
         /// local, cloud or auto (autocloud).

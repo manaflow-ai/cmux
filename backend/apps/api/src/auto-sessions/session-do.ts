@@ -292,8 +292,20 @@ export class AutoSessionDO extends DurableObject<Env> {
     return r.ok ? ok(r.value.session) : r
   }
 
-  async keep(owner: string, keepInCloud: boolean): Promise<AutoResult<AutoSessionView>> {
-    if (!this.admitted({ kind: "owner", owner }, true)) return NOT_FOUND
+  /**
+   * Who may move a chat or say whether it is kept in the Cloud (`keep`, `move`): its owner, and the Cloud machine that
+   * holds it now, for the agent of a chat that runs there (Leo, 2026-11-25: "cli stuff/agents being able to toggle
+   * to and from and whatever autocloud and such"). A machine the chat is only assigned to, or another machine, is not
+   * admitted.
+   */
+  private mover(by: AutoCaller): AutoRecord | undefined {
+    if (by.kind === "owner") return this.admitted(by, true)
+    const r = this.admitted(by, true)
+    return r && r.holder === vmHolder(by.machine) ? r : undefined
+  }
+
+  async keep(by: AutoCaller, keepInCloud: boolean): Promise<AutoResult<AutoSessionView>> {
+    if (!this.mover(by)) return NOT_FOUND
     const r = await this.apply((current) => keep(current, keepInCloud))
     return r.ok ? ok(r.value.session) : r
   }
@@ -302,8 +314,8 @@ export class AutoSessionDO extends DurableObject<Env> {
    * `POST move`: the person moves the chat now (move.ts). To the Cloud, the owner's Auto machine is found first,
    * by the lookup a takeover uses; the chat's row in the owner's index then names it, so it is started.
    */
-  async move(owner: string, to: MoveTo, device: string | null): Promise<AutoResult<AutoSessionView>> {
-    const chat = this.admitted({ kind: "owner", owner }, true)
+  async move(by: AutoCaller, to: MoveTo, device: string | null): Promise<AutoResult<AutoSessionView>> {
+    const chat = this.mover(by)
     if (!chat) return NOT_FOUND
     const machine = to === "cloud" && chat.auto ? await this.autoMachine(chat) : null
     const r = await this.apply((current, now) => move(current, to, device, machine, now))

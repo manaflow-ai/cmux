@@ -4,9 +4,9 @@
 //!
 //! It runs `acpmux session place SESSION --on PLACE --json` (acpmux `chat_place.rs`), which makes
 //! the move one Auto `set`: the store's fenced handoff. From the person's terminal any move goes;
-//! from an agent's shell only its own chat, off the Mac, while AutoCloud is on, and the answer
-//! says `needs_person` with this command otherwise. An agent in a chat has the same move as its
-//! `move_chat` tool.
+//! from an agent's shell only its own chat: off the Mac while AutoCloud is on, and home to the
+//! Mac, also from the Cloud machine it runs on; the answer says `needs_person` with this command
+//! otherwise. An agent in a chat has the same move as its `move_chat` tool.
 
 use std::time::Duration;
 
@@ -23,8 +23,9 @@ Moves the chat SESSION (with none, the chat this runs in) to where it should run
   cloud   cmux Cloud, staying there when the Mac comes back
   auto    AutoCloud: here while the Mac is up, in the Cloud while it sleeps
 
-From an agent's shell only its own chat moves, off the Mac, while the AutoCloud setting is on;
-otherwise the answer is needs_person and the person runs this command.
+From an agent's shell only its own chat moves: off the Mac while the AutoCloud setting is on,
+and back to local, also from the Cloud machine it runs on (it arrives as auto; local again there
+keeps it on the Mac only). Otherwise the answer is needs_person and the person runs this command.
 
   cmux chat move --on cloud          # from an agent: its own chat
   cmux chat move s-1 --on cloud
