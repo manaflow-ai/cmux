@@ -29,6 +29,7 @@
 //! message for a chat of this daemon that moved to another machine goes on through the hub to
 //! where it went, under one key per message and destination (`forward_moved`).
 
+use super::mesh_send::forward_key;
 use super::*;
 use crate::mesh::{Ack, Backoff, Heartbeat, HubError, InMessage, Kind, MeshHub, Mode, StartWork};
 use crate::mesh_http::MeshControlFrom;
@@ -1568,12 +1569,6 @@ fn gone_reason(why: &str, next: &super::outbox::Next) -> String {
 /// How long a forward of a moved chat's message waits for the hub before its lease brings the
 /// message back (the post's key makes the next try the same message).
 const FORWARD_WAIT: Duration = Duration::from_secs(30);
-
-/// The hub key of the forward of message `message_id` to `to`: one post per message and
-/// destination, so a lease of the same message again (a lost ack, a restart) posts nothing new.
-pub(crate) fn forward_key(message_id: &str, to: &str) -> String {
-    format!("{message_id}~moved~{to}")
-}
 
 /// Delivers `message`, which a chat here refused because it moved to `to` (`HOST/SESSION`), to
 /// where the chat went: the same text, mode and sender, posted to the hub for `to` under
