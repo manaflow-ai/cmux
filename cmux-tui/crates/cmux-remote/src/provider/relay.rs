@@ -43,6 +43,7 @@ mod credential_read;
 #[path = "relay_liveness.rs"]
 mod liveness;
 use credential_read::*;
+use liveness::retry_after_of;
 
 /// The last [`CREDENTIAL_COMMAND_STDERR_TAIL_BYTES`] a credential command
 /// wrote to stderr, read while it runs so a full pipe never stalls it. The
@@ -2044,7 +2045,12 @@ async fn authenticate_daemon_control(
             },
             DAEMON_REGISTER_STAGGER,
             DAEMON_REGISTER_ATTEMPTS,
-            |error| matches!(error, RelaySocketConnectError::Authentication),
+            |error| {
+                matches!(
+                    error,
+                    RelaySocketConnectError::Authentication | RelaySocketConnectError::Busy { .. }
+                )
+            },
         )
         .await
         {
@@ -2117,6 +2123,11 @@ async fn connect_provider_control(
 
 enum RelaySocketConnectError {
     Authentication,
+    /// 503 or 429 on the upgrade: a wait, by its `Retry-After`.
+    Busy {
+        status: u16,
+        retry_after: Option<Duration>,
+    },
     Provider(ProviderError),
 }
 
@@ -2126,6 +2137,7 @@ impl RelaySocketConnectError {
             Self::Authentication => {
                 ProviderError::Transport("relay WebSocket authentication was rejected".into())
             }
+            Self::Busy { status, retry_after } => ProviderError::RelayBusy { status, retry_after },
             Self::Provider(error) => error,
         }
     }
@@ -2198,6 +2210,17 @@ async fn open_relay_socket(
             if matches!(response.status(), StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) =>
         {
             Err(RelaySocketConnectError::Authentication)
+        }
+        Err(tokio_tungstenite::tungstenite::Error::Http(response))
+            if matches!(
+                response.status(),
+                StatusCode::SERVICE_UNAVAILABLE | StatusCode::TOO_MANY_REQUESTS
+            ) =>
+        {
+            Err(RelaySocketConnectError::Busy {
+                status: response.status().as_u16(),
+                retry_after: retry_after_of(response.headers()),
+            })
         }
         Err(error) => Err(RelaySocketConnectError::Provider(relay_connect_error(error))),
     }

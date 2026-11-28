@@ -3537,6 +3537,12 @@
       "title" : "Agent Pointer Motion",
       "type" : "string"
     },
+    "browser.agents.openSignedOut" : {
+      "default" : false,
+      "description" : "Agent tabs open in the Agents profile, signed in nowhere, until you lend a site. Off, they use the workspace's profile.",
+      "title" : "Open Agent Tabs Signed Out",
+      "type" : "boolean"
+    },
     "browser.builtInAdBlocker" : {
       "default" : true,
       "description" : "Blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts.",
@@ -4890,6 +4896,12 @@
       "default" : false,
       "description" : "The browser's profile menu opens with a profile card.",
       "title" : "Browser Profile Card",
+      "type" : "boolean"
+    },
+    "experiments.chat_render_pipeline" : {
+      "default" : false,
+      "description" : "Skip rendering offscreen rows from completed turns while keeping their place in the chat.",
+      "title" : "Chat Render Pipeline",
       "type" : "boolean"
     },
     "experiments.chatInstantUnderLoad" : {
