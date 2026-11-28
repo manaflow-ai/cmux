@@ -288,6 +288,7 @@ dependencies = [
  "plist",
  "serde",
  "serde_json",
+ "sha2",
  "unicode-segmentation",
 ]
 
@@ -347,6 +348,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -490,6 +492,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-error-journal"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "serde",
+ "serde_json",
+ "unicode-general-category",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "cmux-felt"
 version = "0.1.0"
 dependencies = [
@@ -604,6 +617,7 @@ dependencies = [
  "cmux-cloud-machine",
  "cmux-cloud-start-core",
  "cmux-cloud-tasks",
+ "cmux-error-journal",
  "cmux-focus-core",
  "cmux-imessage",
  "cmux-layout-reducer",

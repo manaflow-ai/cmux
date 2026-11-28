@@ -13,6 +13,28 @@ name: pr pipeline
 on:
   workflow_call:
     inputs:
+      defer_web_browser:
+        description: The router runs web-browser separately after the bundle producer.
+        required: false
+        type: boolean
+        default: false
+      web_browser_only:
+        description: Do not plan the iOS fast verdict in the web-only invocation.
+        required: false
+        type: boolean
+        default: false
+      web_bundle_key:
+        required: false
+        type: string
+        default: ""
+      web_bundle_transport:
+        required: false
+        type: string
+        default: ""
+      web_bundle_artifact:
+        required: false
+        type: string
+        default: ""
       # The table's jobs the change routes, a JSON list (pr-router.yml's `table` output). Empty: every job runs
       # its routed steps (a job with none routed prints so and passes).
       jobs:
@@ -38,9 +60,13 @@ on:
       ios_fast_run:
         value: ${{ jobs.ios-fast-runner.outputs.run }}
       ios_fast_summary:
-        value: ${{ jobs.ios-fast-runner.outputs.summary }}
+        value: ${{ jobs.ios-fast-runner.outputs.reused == 'true' && format('{0} (reused the pass of {1})', jobs.ios-fast-runner.outputs.summary, jobs.ios-fast-runner.outputs.reused_run) || jobs.ios-fast-runner.outputs.summary }}
+      # false when the plan builds only to test the fast verdict's own files: no ios-flows proof applies.
+      ios_fast_proof:
+        value: ${{ jobs.ios-fast-runner.outputs.proof }}
+      # A reused pass (ios-fast-runner found one on the same inputs, so ios-fast never took a Mac) is success.
       ios_fast_verdict:
-        value: ${{ jobs.ios-fast.outputs.verdict }}
+        value: ${{ jobs.ios-fast.outputs.verdict || (jobs.ios-fast-runner.outputs.reused == 'true' && 'success' || '') }}
     secrets:
       # The org's manaflow-glaeda-route App key (read-only on runners), for the ios-runner job's live read of the
       # owned simulator Macs. Optional: without it the picker reads with the run's token.
@@ -63,16 +89,16 @@ jobs:
     # The land tier (#54886's condition, tests/test_head_tier.py land_tier_condition): a ready head into feat-cmux-next
     # runs this job only once it is handed to land (`ready-to-land` or `full-ci`), not on every push; then the label guard.
     # Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period."
-    if: ${{ (inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'linux')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'linux')) && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # Above setup (10 min), the tool downloads (3 min), the waves of the slowest step (6 min; steps two at
     # once on 2 CPUs) and the `alone` steps (ci-artifact-worker, web-production-build, the package conventions gate
     # and the four web test shards 6 min each, the cmux_next_ daemon tests 65 min, the cmux_next_ tests of acpmux,
     # cmux-tui-core and cmux-tui 45 min each, the iOS matrix protocol 45 min, the App Store shelf 45 min, the acpmux
     # instruction counts 40 min, the compile canary 30 min, the Rust notices 20 min, the cmux VM Rust clients 30 min, the nightly and cmux-tui
-    # release guards 20 min, the cmux cloud CLI 15 min): 649 min with 47 shared steps (24 waves) and the setup and
+    # release guards 20 min, the cmux cloud CLI 15 min): 674 min with 57 shared steps (29 waves) and the setup and
     # tool bounds, so a slow step is reported by the runner, not cut here.
-    timeout-minutes: 649
+    timeout-minutes: 674
     permissions:
       contents: read
       # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
@@ -133,7 +159,9 @@ jobs:
             [[ $try -lt 3 ]] || { echo "::error::merge ref fetch failed on all 3 tries (240 s each) on runner ${RUNNER_NAME:-unknown}"; exit 1; }
             echo "::warning::merge ref fetch failed on try $try of 3, trying again"; sleep $((try == 1 ? 5 : 15))
           done
-          git checkout -q -f --detach "$SHA"
+          # 8 parallel workers halve writing the ~69k-file tree (12.5 -> 6.2 s median, fresh .git or a sparse widen after a
+          # narrower job on this VM; rnd rc-c6f133b4).
+          git -c checkout.workers=8 checkout -q -f --detach "$SHA"
           [[ $reuse == fresh ]] || git sparse-checkout disable
           echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse"
       - name: List the changed paths
@@ -154,7 +182,7 @@ jobs:
       # steps are left out of the run rather than passed, so no skip is stored as a pass under their inputs.
       - name: Tooling tests red on the base right now?
         id: tooling-tests-base-red
-        if: ${{ github.event_name == 'pull_request' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        if: ${{ github.event_name == 'pull_request' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
         continue-on-error: true
         timeout-minutes: 2
         env:
@@ -172,13 +200,14 @@ jobs:
           # tooling-tests-1..5 leave a step only a wide reach selects to the post-merge batch, as the job does.
           CI_TOOLING_TESTS_PR_SCOPE: ${{ vars.CI_TOOLING_TESTS_PR_SCOPE || '1' }}
           TOOLING_TESTS_BASE_RED: ${{ steps.tooling-tests-base-red.outputs.base_red }}
+          TIER: ${{ (vars.CI_PR_PIPELINE_TIER || 'pr') != 'full' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && 'pr' || 'full' }}
           ROUTER_ONLY: ${{ inputs.only }}
         run: |
           scope=()
           [ "${CI_PR_PIPELINE_LINUX_PR_SCOPE:-0}" = 1 ] && scope=(--pr-scope)
           # The router's nightly gate (a landing head of the affected tier): only the steps the nightly also runs.
           if [ -n "${ROUTER_ONLY:-}" ]; then
-            echo "Nightly gate: running only ${ROUTER_ONLY} (the steps the nightly also runs that this change routes)."
+            echo "Nightly gate: running only ${ROUTER_ONLY} (the steps the nightly also runs, or ci/steps.toml land_gate steps, that this change routes)."
             exec ci/run run --job linux ${PATHS_FILE:+--paths-file "$PATHS_FILE"} --only "$ROUTER_ONLY" "${scope[@]}"
           fi
           # The routed linux steps less tooling-tests-N; a route that cannot be read runs every step (fails open).
@@ -191,7 +220,7 @@ jobs:
               exit 0
             fi
           fi
-          ci/run run --job linux ${PATHS_FILE:+--paths-file "$PATHS_FILE"} ${only:+--only "$only"} "${scope[@]}"
+          ci/run run --job linux --tier "$TIER" ${PATHS_FILE:+--paths-file "$PATHS_FILE"} ${only:+--only "$only"} "${scope[@]}"
       # A type check (the `web-typecheck` step) whose every error had one safe language-service fix, and passed with
       # them: the patch fixit_compile.py wrote to $RUNNER_TEMP/fixit-compile, for the cmuxterm-hq fixit-compile
       # reconciler (tools/ci-oops/fixit_push.py, which reads a run's `fixit-compile-*` artifacts) to push onto a
@@ -248,7 +277,7 @@ jobs:
     # The land tier (#54886's condition, tests/test_head_tier.py land_tier_condition): a ready head into feat-cmux-next
     # runs this job only once it is handed to land (`ready-to-land` or `full-ci`), not on every push; then the label guard.
     # Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period."
-    if: ${{ (inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'web-browser')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ !inputs.defer_web_browser && (inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'web-browser')) && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # Setup (10 min), the tool downloads (3 min), the web-browser steps two at once, each wave as long as its slowest
     # step, then each `alone` step (tests/test_ci_step_table.py holds this).
@@ -309,7 +338,9 @@ jobs:
             [[ $try -lt 3 ]] || { echo "::error::merge ref fetch failed on all 3 tries (240 s each) on runner ${RUNNER_NAME:-unknown}"; exit 1; }
             echo "::warning::merge ref fetch failed on try $try of 3, trying again"; sleep $((try == 1 ? 5 : 15))
           done
-          git checkout -q -f --detach "$SHA"
+          # 8 parallel workers halve writing the ~69k-file tree (12.5 -> 6.2 s median, fresh .git or a sparse widen after a
+          # narrower job on this VM; rnd rc-c6f133b4).
+          git -c checkout.workers=8 checkout -q -f --detach "$SHA"
           [[ $reuse == fresh ]] || git sparse-checkout disable
           echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse"
       - name: List the changed paths
@@ -334,7 +365,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           CI_PR_RECEIPTS: ${{ vars.CI_PR_RECEIPTS }}
-          FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          FULL_CI: ${{ (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
           HEAD_REF: ${{ github.head_ref }}
           BASE_REF: ${{ github.base_ref }}
         run: |
@@ -367,20 +398,57 @@ jobs:
           shared-key: agent-pane-real-acpmux
           save-if: false
           workspaces: cmux-tui -> target
+      - name: Source key of the web bundles
+        id: web-bundle-key
+        if: steps.receipt.outputs.run == '' && inputs.web_bundle_key != ''
+        env:
+          CMUX_WEB_NODE_VERSION: "24.22.1"
+        run: echo "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
+      - name: Validate the producer source key
+        if: steps.receipt.outputs.run == '' && inputs.web_bundle_key != ''
+        env:
+          PRODUCER_KEY: ${{ inputs.web_bundle_key }}
+          SOURCE_KEY: ${{ steps.web-bundle-key.outputs.key }}
+        run: test -z "$PRODUCER_KEY" || test "$PRODUCER_KEY" = "$SOURCE_KEY"
+      - name: Restore this run's web bundles from R2
+        if: steps.receipt.outputs.run == '' && inputs.web_bundle_key != '' && inputs.web_bundle_transport == 'r2'
+        uses: ./.github/actions/r2-artifact/download
+        with:
+          name: ${{ inputs.web_bundle_artifact }}
+          path: ${{ runner.temp }}/web
+      - name: Restore this run's web bundles without a fleet identity
+        if: steps.receipt.outputs.run == '' && inputs.web_bundle_key != '' && inputs.web_bundle_transport == 'github'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ inputs.web_bundle_artifact }}
+          path: ${{ runner.temp }}/web
+      - name: Verify this run's web bundles
+        id: web-bundle-run
+        if: steps.receipt.outputs.run == '' && inputs.web_bundle_key != ''
+        env:
+          KEY: ${{ steps.web-bundle-key.outputs.key }}
+          TRANSPORT: ${{ inputs.web_bundle_transport }}
+        run: |
+          test "$TRANSPORT" = r2 || test "$TRANSPORT" = github
+          python3 -I scripts/ci/compile_preflight.py web-artifact verify "$RUNNER_TEMP/web" "$KEY"
+          echo hit=true >> "$GITHUB_OUTPUT"
+
       - name: Run the routed web-browser steps (ci/steps.toml)
         if: ${{ steps.receipt.outputs.run == '' }}
         # The react-apps-check step asks scripts/ci/react_apps_fleet.py, as ci-web.yml's shard pick does, with these.
         env:
           CI_PR_BASE_REF: ${{ github.base_ref }}
-          CI_FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          CI_FULL_CI: ${{ (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
           CI_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CMUX_WEB_BUNDLES_FROM: ${{ steps.web-bundle-run.outputs.hit == 'true' && format('{0}/web', runner.temp) || '' }}
           CI_REACT_APPS_FLEET: ${{ vars.CI_REACT_APPS_FLEET || '1' }}
           CI_REACT_APPS_FLEET_AUDIT: ${{ vars.CI_REACT_APPS_FLEET_AUDIT || '16' }}
           CI_WEBVIEWS_FULL_TO_BATCH: ${{ vars.CI_WEBVIEWS_FULL_TO_BATCH || '1' }}
           CI_WEBVIEWS_PUSH_CLASSES: ${{ vars.CI_WEBVIEWS_PUSH_CLASSES || '1' }}
           CI_WEBVIEWS_CI_EDIT_SAMPLE: ${{ vars.CI_WEBVIEWS_CI_EDIT_SAMPLE || '1' }}
           CI_WEBVIEWS_NARROW_SELECTION: ${{ vars.CI_WEBVIEWS_NARROW_SELECTION || '1' }}
-        run: ci/run run --job web-browser ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
+          TIER: ${{ (vars.CI_PR_PIPELINE_TIER || 'pr') != 'full' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && 'pr' || 'full' }}
+        run: ci/run run --job web-browser --tier "$TIER" ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
       - name: Write the green receipt for later heads (pr_receipt.py)
         id: record
         if: ${{ success() && steps.receipt.outputs.key != '' && steps.receipt.outputs.run == '' }}
@@ -423,7 +491,7 @@ jobs:
     # The land tier (#54886's condition, tests/test_head_tier.py land_tier_condition), as linux and web-browser:
     # a ready head into feat-cmux-next runs this job only once it is handed to land, not on every push.
     # Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period."
-    if: ${{ (inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'ios')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'ios')) && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
@@ -571,7 +639,7 @@ jobs:
     # The land tier (#54886's condition, tests/test_head_tier.py land_tier_condition), as linux and web-browser:
     # a ready head into feat-cmux-next runs this job only once it is handed to land, not on every push.
     # Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period."
-    if: ${{ (inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'ios')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'ios')) && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) && needs.ios-runner.outputs.retry_runs_on || needs.ios-runner.outputs.runs_on) }}
     # ci/run's setup (10 min) and tool downloads (3 min), then the `alone` kit (80 min with the fleet pool's wait) and
     # phone cells (45 min), the fleet pool's build (25 min), with room for the checkout and Xcode
@@ -718,7 +786,8 @@ jobs:
   # pipeline needs fast-gates, which skips on a landing head (cmux#57755, router run 45952045688).
   ios-fast-runner:
     name: ios fast verdict runner
-    if: ${{ !cancelled() && format('{0}', vars.CI_IOS_FAST_VERDICT) != '0' }}
+    # Why: docs/ci/cmux-next-workflow-notes/2026-11-27-ios-fast-unset-switch.md
+    if: ${{ !cancelled() && !inputs.web_browser_only && format('{0}', vars.CI_IOS_FAST_VERDICT) != '0' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
@@ -727,10 +796,14 @@ jobs:
     outputs:
       run: ${{ steps.plan.outputs.run }}
       plan: ${{ steps.plan.outputs.plan }}
+      proof: ${{ steps.plan.outputs.proof }}
       summary: ${{ steps.plan.outputs.summary }}
       runs_on: ${{ steps.pool.outputs.runs_on }}
       retry_runs_on: ${{ steps.pool.outputs.retry_runs_on }}
       label: ${{ steps.pool.outputs.label }}
+      reuse_key: ${{ steps.reuse-key.outputs.key }}
+      reused: ${{ steps.reuse.outputs.hit }}
+      reused_run: ${{ steps.reuse.outputs.run_url }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -746,6 +819,33 @@ jobs:
       - name: Plan the changed iOS targets
         id: plan
         run: python3 scripts/ci/ios_fast_verdict.py plan
+      # Content-addressed skip (goal ci-runner-min-per-day-10k; Leo, 11-28: "im asking for 99% fewer minutes of ci
+      # time, period."). The key (scripts/ci/job_input_fingerprint.py ios-fast-verdict) is every path the ios-kit
+      # step routes at this merge commit, this check's own files, pr-pipeline.yml and the plan's targets, so a pass
+      # is reused only on identical iOS inputs with the same targets: a rerun, a re-push, a base move that touched
+      # nothing iOS reads. 11-27: 1,166 of 7,675 Mac min re-ran a head whose own run had passed. A hit skips
+      # ios-fast before it takes a Mac and the verdict reads success, naming the run that passed; any failure to
+      # key or look up is a miss and the job runs. vars.CI_IOS_FAST_REUSE=0 turns it off.
+      - name: Key the fast verdict's inputs
+        id: reuse-key
+        if: steps.plan.outputs.run == 'true' && format('{0}', vars.CI_IOS_FAST_REUSE) != '0'
+        continue-on-error: true
+        env:
+          PLAN: ${{ steps.plan.outputs.plan }}
+          XCODE_APP: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR || '' }}
+        run: |
+          set -euo pipefail
+          targets=$(python3 -I -c 'import json, os; p = json.loads(os.environ["PLAN"]); print(json.dumps({k: p[k] for k in ("tests", "build", "app")}, sort_keys=True, separators=(",", ":")))')
+          python3 -I scripts/ci/job_input_fingerprint.py ios-fast-verdict \
+            --extra "plan=$targets" --extra "xcode_app=$XCODE_APP" >> "$GITHUB_OUTPUT"
+      - name: Look for a pass on the same inputs
+        id: reuse
+        if: steps.plan.outputs.run == 'true' && steps.reuse-key.outputs.key != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEY: ${{ steps.reuse-key.outputs.key }}
+        run: python3 -I scripts/ci/job_reuse.py lookup --key "$KEY" | tee -a "$GITHUB_OUTPUT"
       - name: Mint the cmux-bot read token (even runs)
         # Even run ids read on cmux-bot's installation budget, odd ones on
         # manaflow-glaeda-route's, so per-PR reads stop draining the build
@@ -864,7 +964,7 @@ jobs:
   ios-fast:
     name: ios fast verdict
     needs: [ios-fast-runner]
-    if: ${{ needs.ios-fast-runner.outputs.run == 'true' }}
+    if: ${{ needs.ios-fast-runner.outputs.run == 'true' && needs.ios-fast-runner.outputs.reused != 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) && needs.ios-fast-runner.outputs.retry_runs_on || needs.ios-fast-runner.outputs.runs_on) }}
     # Warm: about 3-4 min. Cold (a new Mac, a changed FFI or Package.resolved): the FFI (the fleet's copy, up to
     # 10 min, or this Mac builds it) and a full kit build.
@@ -891,6 +991,55 @@ jobs:
       # owned_pool_rescue.py reads this step by name.
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
+      # A hosted Mac (the picker's fallback when every owned simulator Mac is busy, or a fork) has no warm
+      # xcframework and no build fleet client, so scripts/ci/ios_link_ffi.sh built the FFI here: 286 s of the 645 s
+      # build on cmux#61812 (2026-11-27, blacksmith-6vcpu-macos-26). ios-link-ffi-cache-seed.yml saves that framework
+      # once per input key on the feat-cmux-next push, under the fleet entry every iOS Mac job restores; this reads
+      # it, then marks it as this job's copy (the stamp ios_fast_verdict.sh checks, the mark ios_link_ffi.sh checks),
+      # so the build step reuses it. An owned Mac keeps its own warm copy and skips this. A miss builds, as before.
+      - name: CmuxMobileLinkFFI.xcframework key (hosted Mac)
+        id: xcf-key
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          if [[ "${RUNNER_NAME:-}" == blacksmith* || "${RUNNER_ENVIRONMENT:-}" == github-hosted ]]; then
+            inputs="$(python3 scripts/ci/ios_link_ffi_key.py)"
+            echo "fleet_key=cmux-next-ios-link-ffi-xcf-fleet-v1-${inputs}" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Restore the fleet-built CmuxMobileLinkFFI.xcframework
+        id: xcf-fleet-restore
+        if: ${{ steps.xcf-key.outputs.fleet_key != '' }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+          enableCrossOsArchive: true
+          key: ${{ steps.xcf-key.outputs.fleet_key }}
+      # The same entry in R2 (ios-link-ffi-cache-seed.yml's r2 job): a Blacksmith Mac's actions/cache reads a store of its
+      # own, which the seed's cmux-linux save never reaches, so the GitHub-store restore above misses there.
+      - name: Restore the fleet-built CmuxMobileLinkFFI.xcframework from R2
+        id: xcf-r2-restore
+        if: ${{ steps.xcf-key.outputs.fleet_key != '' && steps.xcf-fleet-restore.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          CI_CACHE_R2_NAMESPACE: any
+        with:
+          backend: r2
+          path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+          key: ${{ steps.xcf-key.outputs.fleet_key }}
+      - name: Mark the restored CmuxMobileLinkFFI.xcframework as this job's copy
+        if: ${{ steps.xcf-fleet-restore.outputs.cache-hit == 'true' || steps.xcf-r2-restore.outputs.cache-hit == 'true' }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          frameworks=cmux-next-ios/CmuxMobileKit/Frameworks
+          key="$(python3 -I scripts/ci/ios_link_ffi_key.py)"
+          mtime="$(python3 -I -c 'import os, sys; print(int(os.stat(sys.argv[1]).st_mtime))' "$frameworks/CmuxMobileLinkFFI.xcframework/Info.plist")"
+          printf '%s %s\n' "$key" "$mtime" > "$frameworks/.ios-fast-verdict-ffi"
+          printf '%s\n' "$key" > "$RUNNER_TEMP/link-ffi-fleet.key"
+          echo "CmuxMobileLinkFFI.xcframework: the build fleet's cached copy ($key)"
       - name: Build the changed iOS target and run its tests
         env:
           PLAN: ${{ needs.ios-fast-runner.outputs.plan }}
@@ -898,6 +1047,23 @@ jobs:
         run: |
           echo "::notice title=iOS fast verdict::$SUMMARY"
           bash scripts/ci/ios_fast_verdict.sh
+      # The pass ios-fast-runner's lookup reuses (scripts/ci/job_reuse.py): same-repository runs only.
+      - name: Record this pass for the same inputs
+        if: ${{ success() && needs.ios-fast-runner.outputs.reuse_key != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        continue-on-error: true
+        run: |
+          mkdir -p "$RUNNER_TEMP/ci-job-pass"
+          printf '%s\n' "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT" "$GITHUB_SHA" > "$RUNNER_TEMP/ci-job-pass/pass.txt"
+      - name: Save the pass
+        if: ${{ success() && needs.ios-fast-runner.outputs.reuse_key != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ needs.ios-fast-runner.outputs.reuse_key }}
+          path: ${{ runner.temp }}/ci-job-pass
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
       # pr-router.yml's ios-fast-status posts this as `cmux/ios-fast`.
       - name: Record the verdict
         id: verdict
@@ -918,7 +1084,7 @@ jobs:
     # The land tier (#54886's condition, tests/test_head_tier.py land_tier_condition), as linux and web-browser:
     # a ready head into feat-cmux-next runs this job only once it is handed to land, not on every push.
     # Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period."
-    if: ${{ (inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'mac')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'mac')) && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || 'cmux-mac' }}
     # The Mac setup below (Xcode, the owned build root, two cache restores of up to 8 min each), then ci/run: its
     # setup (10 min), the tool downloads (3 min), then the `alone` fast tier (tests/test_ci_step_table.py

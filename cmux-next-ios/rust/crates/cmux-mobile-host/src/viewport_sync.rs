@@ -66,6 +66,15 @@ pub fn skip_superseded() -> bool {
     enabled_from(std::env::var(SKIP_SUPERSEDED_ENV).ok().as_deref())
 }
 
+/// Off by default: a sync starts on the datagram path instead of waiting for the selector's
+/// evidence ([`SelectorConfig::start`]).
+pub const DATAGRAM_START_ENV: &str = "CMUX_MOBILE_VIEWPORT_DATAGRAM_START";
+
+/// Whether [`DATAGRAM_START_ENV`] is on in this process.
+pub fn datagram_start() -> bool {
+    enabled_from(std::env::var(DATAGRAM_START_ENV).ok().as_deref())
+}
+
 /// Binds [`PORT`] on a WireGuard session when the gate is on; `None` when it is off.
 pub async fn bind_wg(net: &WgNet) -> io::Result<Option<WgDatagramSocket>> {
     if !enabled() {
@@ -235,6 +244,12 @@ pub struct SelectorConfig {
     /// While nothing else goes, a small datagram every `probe` keeps the round trip and loss
     /// measured.
     pub probe: Duration,
+    /// The path a sync starts on. [`Path::Stream`] by default: the switch to the datagrams then
+    /// waits for `slow_samples` sends unacked past `srtt_above` (one launch, then a probe every
+    /// `probe`: about 220 ms), and the stream batches sent meanwhile queue ahead of the switch.
+    /// [`Path::Datagram`] ([`DATAGRAM_START_ENV`]) starts there, before the first batch, and
+    /// comes back to the stream after `hold` on a fast, clean link.
+    pub start: Path,
 }
 
 impl Default for SelectorConfig {
@@ -246,11 +261,18 @@ impl Default for SelectorConfig {
             srtt_below: Duration::from_millis(15),
             hold: Duration::from_secs(5),
             probe: Duration::from_millis(100),
+            start: Path::Stream,
         }
     }
 }
 
 impl SelectorConfig {
+    /// hostd's: the defaults, starting on the datagrams when [`DATAGRAM_START_ENV`] is on.
+    pub fn from_env() -> Self {
+        let start = if datagram_start() { Path::Datagram } else { Path::Stream };
+        Self { start, ..Self::default() }
+    }
+
     /// The datagram path from the first poll on, and never back (tests, and measuring the
     /// datagram path alone): a switch needs zero losses, the way back a hold that never ends.
     pub fn datagram_first() -> Self {
@@ -295,7 +317,7 @@ pub struct PathSelector {
 
 impl PathSelector {
     pub fn new(config: SelectorConfig) -> Self {
-        Self { config, path: Path::Stream, good_since: None, switches: Vec::new() }
+        Self { path: config.start, config, good_since: None, switches: Vec::new() }
     }
 
     pub fn path(&self) -> Path {
@@ -493,7 +515,13 @@ impl ViewportSync {
     /// Choose the path per link ([`PathSelector`]): the stream until the link's round trip or
     /// loss says the datagrams win. Without it the driver is always on the datagram path.
     pub fn select_path(&mut self, config: SelectorConfig) {
+        let start = config.start;
         self.selector = Some(PathSelector::new(config));
+        if start == Path::Datagram {
+            // Told to the phone before any batch; the phone's state is the prime's, not ours.
+            self.switched = Some(Path::Datagram);
+            self.dirty = true;
+        }
     }
 
     /// The path the screen goes by now.
@@ -1469,6 +1497,26 @@ mod tests {
         assert_eq!(switches.len(), 2, "{switches:?}");
         assert!(switches[1].at >= now + SelectorConfig::default().hold);
         assert!(later > switches[1].at);
+    }
+
+    #[test]
+    fn viewport_sync_datagram_start_switches_before_anything_and_back_on_a_fast_link() {
+        let start = Instant::now();
+        let mut sync = driver(start);
+        sync.select_path(SelectorConfig { start: Path::Datagram, ..SelectorConfig::default() });
+        assert_eq!(sync.path(), Path::Datagram);
+        assert_eq!(sync.take_switch(), Some(Path::Datagram), "the phone hears it first");
+        assert!(!sync.poll(start).is_empty(), "the screen goes at once");
+        // A fast, clean link: back to the stream after the hold.
+        let mut link = FakeLink::new(Duration::from_millis(1), Duration::ZERO, 0.0);
+        drive_fake(&mut sync, &mut link, start, 20);
+        assert_eq!(sync.path(), Path::Stream);
+        assert_eq!(sync.take_switch(), Some(Path::Stream));
+        assert!(sync.switches()[0].at >= start + SelectorConfig::default().hold);
+        // The default still starts on the stream.
+        let mut sync = driver(start);
+        sync.select_path(SelectorConfig::default());
+        assert_eq!((sync.path(), sync.take_switch()), (Path::Stream, None));
     }
 
     #[test]

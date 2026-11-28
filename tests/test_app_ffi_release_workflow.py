@@ -462,6 +462,7 @@ if Path(sys.argv[0]).name == "git":
     if args[0] == "log" and "--format=%ct" in args:
         # `git log --format=%ct PIN..RELEASE -- INPUTS`: the times of the FFI commits the base's pin lacks, newest
         # first; the test gives the oldest one's age, else the read fails.
+        state["unpinned_walks"] = state.get("unpinned_walks", 0) + 1; save()
         if state.get("unpinned_age_min") is None: sys.exit(128)
         import time
         if "--" in args and state.get("input_walk_hangs"):
@@ -517,6 +518,12 @@ elif args[:2] == ["workflow", "run"]:
 elif args[:2] == ["pr", "create"]:
     state["prs"]["2"] = "open"; save()
     print("https://github.com/manaflow-ai/cmux/pull/2")
+elif args[:2] == ["api", "rate_limit"]:
+    # GET /rate_limit (free of the limit): the token's core budget, when the test gives it; else the read fails.
+    if state.get("core_limit") is None: sys.exit(1)
+    import time
+    remaining, reset_in = state["core_limit"]
+    emit({"resources": {"core": {"remaining": remaining, "reset": int(time.time()) + reset_in}}})
 elif args[0] == "api":
     endpoint = next(a for a in args if a.startswith("repos/"))
     if "PATCH" in args and "/pulls/" in endpoint:
@@ -586,7 +593,12 @@ elif args[0] == "api":
         query = dict(part.split("=", 1) for part in endpoint.split("?", 1)[1].split("&") if "=" in part)
         size, number = int(query.get("per_page", 30)), int(query.get("page", 1))
         emit({"total_count": len(runs), "check_runs": runs[(number - 1) * size:number * size]})
-    elif endpoint.endswith("/status"): emit({"state": state.get("status", "pending")})
+    elif endpoint.endswith("/status"):
+        # A status given as a string is one "ci" context in that state; a list is [context, state] pairs.
+        given = state.get("status", "pending")
+        pairs = [("ci", given)] if isinstance(given, str) else [tuple(p) for p in given]
+        emit({"state": given if isinstance(given, str) else "error",
+              "statuses": [{"context": c, "state": st} for c, st in pairs]})
     elif "/commits/" in endpoint:
         import datetime
         at = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=state.get("head_age_min", 600))
@@ -636,7 +648,7 @@ class RePinPublication(unittest.TestCase):
                   jobs_read="ok", base_result="newer", base_enabled="true", pin_age_min=None,
                   unpinned_age_min=None, staged_on=None, base_checks=(), base_checks_read="ok", checks_read="ok",
                   rate_limits=(), wait_bound=None, pr_read="ok", fleet_verdict=None, head_runs=(),
-                  head_runs_read="ok", mergeable=None, input_walk_hangs=False, env_extra=None):
+                  head_runs_read="ok", mergeable=None, input_walk_hangs=False, env_extra=None, core_limit=None):
         step = pin_step(yaml.safe_load(workflow.read_text())["jobs"]["repin"])
         with tempfile.TemporaryDirectory() as temp:
             work = Path(temp)
@@ -703,7 +715,7 @@ class RePinPublication(unittest.TestCase):
                 "status_read": status_read, "runs": list(runs), "ancestry": [list(pair) for pair in ancestry],
                 "runs_read": runs_read, "jobs": jobs or {}, "same_inputs": same_inputs,
                 "pr_files": pr_files or {}, "diff_exit": diff_exit, "jobs_read": jobs_read,
-                "pin_age_min": pin_age_min, "unpinned_age_min": unpinned_age_min, "staged_on": staged_on, "base_checks": list(base_checks),
+                "pin_age_min": pin_age_min, "unpinned_age_min": unpinned_age_min, "core_limit": core_limit, "staged_on": staged_on, "base_checks": list(base_checks),
                 "base_checks_read": base_checks_read, "checks_read": checks_read,
                 "rate_limits": [dict(rule) for rule in rate_limits], "pr_read": pr_read,
                 "head_runs": list(head_runs), "head_runs_read": head_runs_read,
@@ -1008,6 +1020,12 @@ class RePinPublication(unittest.TestCase):
             "a check run cancelled by a newer run of its workflow": {"checks": ("success", "cancelled"),
                                                                      "staged_on": "5" * 40,
                                                                      "base_checks": ("success",)},
+            # 2026-11-27: re-pin run 46033637560 moved cmux#60965 off 2da59316, seated on the merge train, for an
+            # advisory fleet compile and the train's own "not seated" status: neither gates the land.
+            "an advisory check's failure": {"checks": ("success", ["nightly app compile arm64 fleet job (advisory)",
+                                                                   "failure"])},
+            "the merge train's seat status": {"checks": ("success",),
+                                              "status": [["merge-train", "error"], ["ci", "success"]]},
         }
         for name, options in cases.items():
             with self.subTest(name):
@@ -1036,6 +1054,10 @@ class RePinPublication(unittest.TestCase):
             "a workflow run that never started": {"head_age_min": 20, "head_runs": ("success", "startup_failure")},
             "a failed commit status": {"head_age_min": 20, "status": "failure"},
             "an errored commit status": {"head_age_min": 20, "status": "error"},
+            "an errored status beside the merge train's": {"head_age_min": 20,
+                                                           "status": [["merge-train", "error"], ["ci", "error"]]},
+            "a failed check named like an advisory one, not ending in it": {
+                "head_age_min": 20, "checks": (["nightly (advisory) compile", "failure"],)},
             "the PR is closed": {"head_age_min": 20, "closed": True},
             # 2026-11-27: #60275's head c175a22a conflicted with feat-cmux-next, no check failed, and each re-pin kept
             # it for the 90 min hold while the app FFI pin sat 182 min behind.
@@ -1352,6 +1374,37 @@ class RePinPublication(unittest.TestCase):
                 self.assertEqual("Re-pin held" in result.stdout, holds, result.stdout + result.stderr)
                 if not holds:
                     self.assertIn("no newer run holds its re-pin", result.stderr)
+
+    def test_a_release_past_the_bound_skips_the_unpinned_commit_walk(self):
+        # 2026-11-27: the path-limited `git log` of the unpinned FFI commits fetched trees one by one in the treeless
+        # clone, 16 min in job 140515668328 for a release 481 min old against the 60 min bound. The walk can only make
+        # the age larger, so a release already past the bound pins with no walk; a young one still walks.
+        for age, walks in ((481, 0), (5, 1)):
+            with self.subTest(age=age):
+                result, state = self.run_repin(pin_age_min=age, unpinned_age_min=90)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(state.get("unpinned_walks", 0), walks)
+                self.assertIn("no newer run holds its re-pin", result.stderr)
+
+    def test_a_headerless_refusal_reads_the_reset_from_rate_limit(self):
+        # 2026-11-27 job 140440306992: gh_pages.py's refusal carries no headers, so the backoff slept 60+120+240+180 s
+        # for a limit that reset 30 min later. GET /rate_limit names the reset: one past the bound fails at once, one
+        # inside it is waited out, and a budget that is not spent (a secondary limit) keeps the backoff.
+        match = "/check-runs"
+        for core, sleeps, ok in (((0, 1800), [], False), ((0, 7), None, True), ((40, 1800), [60], True)):
+            with self.subTest(core=core):
+                result, state = self.run_repin(rate_limits=[{"match": match, "style": "secondary",
+                                                             "times": -1 if not ok else 1}],
+                                               head_age_min=20, core_limit=core)
+                if ok:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    if sleeps is None:
+                        self.assertEqual(len(state["sleeps"]), 1)
+                        self.assertLessEqual(state["sleeps"][0], 8)
+                    else:
+                        self.assertEqual(state["sleeps"], sleeps)
+                else:
+                    self.assert_failed_loud(result, state, sleeps)
 
     def test_a_young_release_does_not_hold_once_the_oldest_unpinned_ffi_commit_is_past_the_bound(self):
         # 2026-11-18: four FFI pushes 07:56Z to 09:46Z, each 25 to 45 min apart. Every release run held its re-pin for

@@ -17,7 +17,7 @@
   },
   "families": {
     "Agents": {
-      "$comment": "list-notifications stays hand-written: the schema adds a stats field the app never sends. The agent-inventory*, agent-session-share-* and agent-cli-update-job requests are not in the schema.",
+      "$comment": "The agent-inventory*, agent-session-share-* and agent-cli-update-job requests are not in the schema.",
       "enums": {},
       "requests": {
         "list-agents": {
@@ -177,6 +177,21 @@
           "fields": {
             "surface": {
               "type": "SurfaceID"
+            }
+          },
+          "response": "hand-written"
+        },
+        "list-notifications": {
+          "name": "ListNotificationsRequest",
+          "doc": [
+            "`list-notifications`: the agent notices, newest first; `stats` (the notice counters) is not sent by the app."
+          ],
+          "order": [
+            "limit"
+          ],
+          "fields": {
+            "limit": {
+              "type": "Int"
             }
           },
           "response": "hand-written"
@@ -571,6 +586,20 @@
             "revision",
             "confirm_close"
           ],
+          "response": "hand-written"
+        },
+        "float-pane": {
+          "name": "FloatPaneRequest",
+          "doc": [
+            "Floats `pane` above the tiled layout of its screen, puts it back, or gives a floating pane a frame.",
+            "The frame is `x`, `y`, `w` and `h`, all four or none; with a frame and `mode` `on` a floating pane",
+            "moves and comes to the front. Build it from a `FloatingPaneSnapshot.Frame` with",
+            "`init(pane:mode:frame:transaction:)`."
+          ],
+          "order": ["pane", "mode", "x", "y", "w", "h", "transaction"],
+          "fields": {
+            "mode": { "type": "Mode" }
+          },
           "response": "hand-written"
         },
         "zoom-pane": {
@@ -1323,7 +1352,7 @@
       }
     },
     "Session": {
-      "$comment": "Hand-written still: browser-host-provider and device-setup (the schema adds a capability the app lacks), client-hello (not in the schema), set-client-info (sends person_name, defaults kind), ScopedPageCredentialRequest (a second type for page-credential).",
+      "$comment": "Hand-written still: browser-host-provider and device-setup (the schema adds a capability the app lacks), client-hello (not in the schema), set-client-info (sends person_name, which the schema lacks; defaults kind), ScopedPageCredentialRequest (a second type for page-credential). Chief inspect and machine-listening-tcp are hand-written for the same capability reason.",
       "enums": {},
       "requests": {
         "shutdown-daemon": {
@@ -1460,11 +1489,22 @@
             "allow_origins"
           ],
           "response": "hand-written"
+        },
+        "pairing-response": {
+          "name": "PairingResponseRequest",
+          "doc": [
+            "`pairing-response` (cmux-tui spec/transports.md \"Authentication and Pairing\"): approves or denies one WebSocket pairing the daemon announced with `pairing-requested`. Only the verified app (the `frontend` actor) may approve; any other local connection may only deny."
+          ],
+          "order": [
+            "request",
+            "approve"
+          ],
+          "response": "hand-written"
         }
       }
     },
     "TabGroups": {
-      "$comment": "close-tab-group and move-tab-group-to-column stay hand-written: the first sends end_terminals only when true, the second encodes its ColumnDropTarget enum as pane or screen.",
+      "$comment": "move-tab-group-to-column stays hand-written: it encodes its ColumnDropTarget enum as pane or screen.",
       "requests": {
         "unsave-tab-group": {
           "name": "UnsaveTabGroupRequest",
@@ -1794,6 +1834,24 @@
             }
           },
           "response": "TabGroupResult"
+        },
+        "close-tab-group": {
+          "name": "CloseTabGroupRequest",
+          "doc": [
+            "Closes every member placement in one commit. Terminal processes keep",
+            "running, as with any closed view, unless `endTerminals` (`batch-close-v1`)",
+            "ends each member terminal left with no tab and not kept in the same",
+            "commit; a linked saved group remains. Result: `{group, closed}`."
+          ],
+          "fields": {
+            "group": {
+              "type": "TabGroupID"
+            },
+            "end_terminals": {
+              "encode": "if_true"
+            }
+          },
+          "response": "TabGroupResult"
         }
       }
     },
@@ -1883,7 +1941,7 @@
       }
     },
     "Tabs": {
-      "$comment": "Hand-written still: close-pane, close-screen and close-tabs (end_terminals is sent only when true), set-terminal-keep, set-terminal-tail-pin, terminal-last-command and terminal-resume-command (an enum target), create-terminal {detached} (constant fields), new-frontend-browser-tab, new-remote-terminal-tab and terminal-resources (their inits do work), process-info (a failable init), SetFrontendBrowserTabProfileRequest (a second type for update-frontend-browser-tab).",
+      "$comment": "Hand-written still: set-terminal-keep, set-terminal-tail-pin, terminal-last-command and terminal-resume-command (an enum target), create-terminal {detached} (constant fields), new-frontend-browser-tab, new-remote-terminal-tab and terminal-resources (their inits do work), process-info (a failable init), SetFrontendBrowserTabProfileRequest (a second type for update-frontend-browser-tab).",
       "requests": {
         "close-surface": {
           "name": "CloseTabRequest",
@@ -2045,6 +2103,74 @@
         "remote-terminal-snapshot": {
           "name": "RemoteTerminalSnapshotRequest",
           "response": "hand-written"
+        },
+        "close-pane": {
+          "name": "ClosePaneRequest",
+          "doc": [
+            "`endTerminals` (`batch-close-v1`) also ends, in the same commit, each",
+            "terminal whose tabs all close and that is not kept. Sent only when true."
+          ],
+          "order": [
+            "pane",
+            "end_terminals"
+          ],
+          "fields": {
+            "end_terminals": {
+              "encode": "if_true"
+            }
+          },
+          "response": "EmptyResponse"
+        },
+        "close-screen": {
+          "name": "CloseScreenRequest",
+          "doc": [
+            "`endTerminals` as in `ClosePaneRequest`."
+          ],
+          "order": [
+            "screen",
+            "end_terminals"
+          ],
+          "fields": {
+            "end_terminals": {
+              "encode": "if_true"
+            }
+          },
+          "response": "EmptyResponse"
+        },
+        "close-tabs": {
+          "name": "CloseTabsRequest",
+          "doc": [
+            "Closes several tabs in one daemon commit (`batch-close-v1`). With",
+            "`endTerminals`, each terminal whose tabs all close ends in that same",
+            "commit, unless it is kept; a terminal still shown elsewhere keeps running."
+          ],
+          "mutation": true,
+          "order": [
+            "surfaces",
+            "end_terminals",
+            "transaction",
+            "mutation",
+            "reason"
+          ],
+          "fields": {
+            "surfaces": {
+              "type": "[SurfaceID]"
+            },
+            "end_terminals": {
+              "encode": "if_true"
+            },
+            "transaction": {
+              "type": "ClientTransactionID"
+            }
+          },
+          "response": "CloseTabsResult"
+        }
+      },
+      "enums": {
+        "CloseReason": {
+          "doc": [
+            "Why `close-tabs` closes its tabs (`close-reason-v1`)."
+          ]
         }
       }
     },
@@ -2172,7 +2298,7 @@
       }
     },
     "Workspace": {
-      "$comment": "Hand-written still: close, create, rename, move and set-metadata (WorkspaceRefFields or fields sent only when true or set), put-blob (its init base64-encodes).",
+      "$comment": "Hand-written still: close, create and rename (fields sent only with another or only when set, a revision sent as a string), put-blob (its init base64-encodes).",
       "enums": {},
       "requests": {
         "get-blob": {
@@ -2189,6 +2315,78 @@
             }
           },
           "response": "IconAssetBlob"
+        },
+        "move-workspace": {
+          "name": "MoveWorkspaceRequest",
+          "workspace_ref": true,
+          "mutation": true,
+          "order": [
+            "workspace",
+            "index",
+            "mutation"
+          ],
+          "fields": {
+            "index": {
+              "type": "Int"
+            }
+          },
+          "response": "WorkspaceMutationResult"
+        },
+        "set-workspace-metadata": {
+          "name": "SetWorkspaceMetadataRequest",
+          "doc": [
+            "Shared color/icon/title (`workspace-metadata-v1`), the sidebar pin",
+            "(`workspace-pin-v1`), and the manual unread mark",
+            "(`notification-mark-unread-v1`), and Keep Awake (`workspace-keep-awake-v1`). Emits `workspace-changed`."
+          ],
+          "workspace_ref": true,
+          "mutation": true,
+          "order": [
+            "workspace",
+            "color",
+            "icon",
+            "title",
+            "pinned",
+            "marked_unread",
+            "keep_awake",
+            "mutation"
+          ],
+          "fields": {
+            "color": {
+              "update": true,
+              "doc": [
+                "Palette token `[a-z][a-z0-9-]{0,31}` or `#RRGGBB[AA]`."
+              ]
+            },
+            "icon": {
+              "update": true,
+              "doc": [
+                "SF Symbol name."
+              ]
+            },
+            "title": {
+              "update": true,
+              "doc": [
+                "1-256 characters; overrides `name` for display."
+              ]
+            },
+            "pinned": {
+              "doc": [
+                "Nil leaves the pin unchanged; the field has no clear state."
+              ]
+            },
+            "marked_unread": {
+              "doc": [
+                "Nil leaves the manual unread mark unchanged."
+              ]
+            },
+            "keep_awake": {
+              "doc": [
+                "Nil leaves Keep Awake unchanged."
+              ]
+            }
+          },
+          "response": "WorkspaceMetadataResult"
         }
       }
     },
@@ -2206,6 +2404,103 @@
       }
     },
     "Conversations": {
+      "requests": {
+        "conversation-agent-token": {
+          "name": "ConversationAgentTokenRequest",
+          "doc": [
+            "`conversation-agent-token`: mints the credential of agent `participant`."
+          ],
+          "response": "ConversationAgentToken"
+        },
+        "conversation-bind": {
+          "name": "ConversationBindRequest",
+          "doc": [
+            "`conversation-bind`: binds the connection to agent `participant`."
+          ],
+          "order": [
+            "participant",
+            "token"
+          ],
+          "response": "ConversationAgentToken"
+        },
+        "conversation-create": {
+          "name": "CreateConversationRequest",
+          "doc": [
+            "`conversation-create`: idempotent by `idempotencyKey`."
+          ],
+          "order": [
+            "idempotency_key",
+            "actor",
+            "title",
+            "participants"
+          ],
+          "fields": {
+            "actor": {
+              "doc": [
+                "Omitted: the owner stamps the connection's principal."
+              ]
+            },
+            "participants": {
+              "type": "[ConversationParticipant]",
+              "optional": false
+            }
+          },
+          "response": "ConversationCreated"
+        },
+        "conversation-link-resolve": {
+          "name": "ConversationLinkResolveRequest",
+          "doc": [
+            "`conversation-link-resolve` (conversation-tree-v1): a permalink's conversation, message, the",
+            "message's top thread root and the path from that root down to it."
+          ],
+          "response": "ConversationLinkTarget"
+        },
+        "conversation-list": {
+          "name": "ListConversationsRequest",
+          "doc": [
+            "`conversation-list`: every conversation, newest `updated_at` first."
+          ],
+          "response": "ConversationList"
+        },
+        "conversation-live": {
+          "name": "ConversationLiveRequest",
+          "doc": [
+            "`conversation-live {conversation}` (`chief-live-v1`): the local owner's",
+            "`run.live` snapshot of a conversation, the text so far and the activity of",
+            "every running run. Home asks when it opens a conversation and after a gap."
+          ],
+          "response": "ChiefLiveFrame"
+        },
+        "conversation-search": {
+          "name": "ConversationSearchRequest",
+          "doc": [
+            "`conversation-search` (`conversation-search-v1`): Home-only search over the",
+            "text of the caller's conversations, newest first (the shared read model)."
+          ],
+          "response": "hand-written",
+          "order": [
+            "query",
+            "limit"
+          ],
+          "fields": {
+            "limit": {
+              "type": "Int"
+            }
+          }
+        },
+        "conversation-typing": {
+          "name": "ConversationTypingRequest",
+          "doc": [
+            "`conversation-typing`: ephemeral, never stored."
+          ],
+          "order": [
+            "conversation",
+            "actor",
+            "on"
+          ],
+          "response": "EmptyResponse"
+        }
+      },
       "objects": {
         "ConversationList": {
           "result": "conversation-list",
@@ -2512,9 +2807,88 @@
             }
           }
         }
+      },
+      "requests": {
+        "get-frontend-projection": {
+          "name": "GetFrontendProjectionRequest",
+          "order": [
+            "frontend",
+            "scope",
+            "subject_key"
+          ],
+          "fields": {
+            "scope": {
+              "type": "ProjectionScope"
+            }
+          },
+          "response": "FrontendProjection"
+        },
+        "put-frontend-projection": {
+          "name": "PutFrontendProjectionRequest",
+          "doc": [
+            "CAS write of an opaque (<= 1 MiB) per-window/profile document."
+          ],
+          "order": [
+            "frontend",
+            "scope",
+            "subject_key",
+            "schema_version",
+            "projection",
+            "expected_projection_revision",
+            "mutation"
+          ],
+          "fields": {
+            "scope": {
+              "type": "ProjectionScope"
+            }
+          },
+          "mutation": true,
+          "response": "FrontendProjection"
+        },
+        "flush-launch-snapshot": {
+          "name": "FlushLaunchSnapshotRequest",
+          "doc": [
+            "`flush-launch-snapshot` (`launch-snapshot-flush-v1`, cmux-tui spec/commands.md): the daemon writes its launch snapshot now, not after changes settle, and answers once it landed (or after 1 s)."
+          ],
+          "response": "hand-written"
+        }
       }
     },
     "History": {
+      "requests": {
+        "set-terminal-command-history": {
+          "name": "SetTerminalCommandHistoryRequest",
+          "doc": [
+            "`set-terminal-command-history`: enables or disables terminal command history and optionally changes its retention."
+          ],
+          "order": [
+            "enabled",
+            "retention_days"
+          ],
+          "fields": {
+            "retention_days": {
+              "type": "Int"
+            }
+          },
+          "response": "hand-written"
+        },
+        "list-terminal-commands": {
+          "name": "ListTerminalCommandsRequest",
+          "doc": [
+            "`list-terminal-commands`: reads unexpired terminal commands after an optional id."
+          ],
+          "order": [
+            "after_id",
+            "limit"
+          ],
+          "fields": {
+            "limit": {
+              "type": "Int"
+            }
+          },
+          "response": "hand-written"
+        }
+      },
       "objects": {
         "TerminalCommandRow": {
           "type": "TerminalCommandRecord",
@@ -2953,6 +3327,199 @@
               "type": "LayoutNode",
               "doc": [
                 "The split tree inside the row."
+              ]
+            }
+          }
+        },
+        "TabGroupSnapshot": {
+          "type": "TabGroupRun",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable",
+            "Identifiable"
+          ],
+          "doc": [
+            "A tab group inside one pane's strip (`tab-groups-v1`): named, colored, collapsible, members contiguous.",
+            "Wire shape `Pane.tab_groups[]`; `list-tab-groups` rows add `pane`. Command results carry the same object",
+            "without the run fields, so every field but `id` decodes leniently. `count` is `surfaces.count`",
+            "(TabGroupSnapshot+Members.swift)."
+          ],
+          "order": [
+            "id",
+            "name",
+            "color",
+            "collapsed",
+            "saved_id",
+            "start",
+            "surfaces",
+            "pane",
+            "icon"
+          ],
+          "omit": [
+            "count"
+          ],
+          "fields": {
+            "id": {
+              "type": "TabGroupID"
+            },
+            "name": {
+              "default": "\"\""
+            },
+            "color": {
+              "optional": true,
+              "doc": [
+                "One of the nine group colors (`grey`, `blue`, `red`, `yellow`, `green`, `pink`, `purple`, `cyan`, `orange`)."
+              ]
+            },
+            "collapsed": {
+              "default": "false"
+            },
+            "saved_id": {
+              "type": "SavedTabGroupID",
+              "doc": [
+                "The saved record this live group is linked to (`saved-tab-groups-v1`)."
+              ]
+            },
+            "start": {
+              "type": "Int",
+              "default": "0",
+              "doc": [
+                "Strip index of the first member."
+              ]
+            },
+            "surfaces": {
+              "type": "[SurfaceID]",
+              "default": "[]",
+              "doc": [
+                "Member tabs in strip order."
+              ]
+            },
+            "pane": {
+              "type": "PaneID",
+              "doc": [
+                "The pane, in `list-tab-groups` rows only."
+              ]
+            },
+            "icon": {
+              "doc": [
+                "The group's icon (`tab-group-icon-v1`): the shared icon string (emoji, SF Symbol name or stored asset); nil is none."
+              ]
+            }
+          }
+        },
+        "ScreenGroupSnapshot": {
+          "type": "ScreenGroupRun",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable",
+            "Identifiable"
+          ],
+          "doc": [
+            "A group of screens inside one workspace (`screen-groups-v1`): named, colored, collapsible, members",
+            "contiguous in screen order. Wire shape `Workspace.screen_groups[]`. `count` is `screens.count`",
+            "(ScreenGroupSnapshot.swift)."
+          ],
+          "order": [
+            "id",
+            "name",
+            "color",
+            "collapsed",
+            "saved_id",
+            "start",
+            "screens",
+            "icon"
+          ],
+          "omit": [
+            "count"
+          ],
+          "fields": {
+            "id": {
+              "type": "ScreenGroupID"
+            },
+            "name": {
+              "default": "\"\""
+            },
+            "color": {
+              "optional": true,
+              "doc": [
+                "One of the nine group colors."
+              ]
+            },
+            "collapsed": {
+              "default": "false"
+            },
+            "saved_id": {
+              "type": "SavedScreenGroupID",
+              "doc": [
+                "The saved record this live group is linked to."
+              ]
+            },
+            "start": {
+              "type": "Int",
+              "default": "0",
+              "doc": [
+                "Index of the first member in the workspace's screen list."
+              ]
+            },
+            "screens": {
+              "type": "[ScreenID]",
+              "default": "[]",
+              "doc": [
+                "Member screens in order."
+              ]
+            },
+            "icon": {
+              "doc": [
+                "The group's icon (`screen-group-icon-v1`): the shared icon string (emoji, SF Symbol name or stored asset); nil is none."
+              ]
+            }
+          }
+        },
+        "TabNotification": {
+          "type": "NotificationMarker",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable"
+          ],
+          "doc": [
+            "Retained unread marker on a tab (one per tab; a later one overwrites it)."
+          ],
+          "order": [
+            "notification",
+            "unread",
+            "level",
+            "createdAtMs",
+            "source"
+          ],
+          "fields": {
+            "notification": {
+              "type": "NotificationID"
+            },
+            "unread": {
+              "default": "false"
+            },
+            "level": {
+              "type": "NotificationLevel",
+              "optional": true,
+              "lenient": true
+            },
+            "source": {
+              "type": "String",
+              "lenient": true,
+              "doc": [
+                "Who posted it (`notification-source-v1`: `cli`, `terminal`, `agent`, `daemon`); nil from older daemons."
+              ]
+            }
+          },
+          "extra": {
+            "createdAtMs": {
+              "type": "UInt64?",
+              "default": "nil",
+              "doc": [
+                "Not on `Tab.notification`: the app fills it from the `list-notifications` ledger (`created_at_ms`)."
               ]
             }
           }

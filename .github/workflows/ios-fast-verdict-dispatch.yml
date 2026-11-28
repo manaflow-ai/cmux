@@ -116,6 +116,7 @@ jobs:
           RUN: ${{ needs.pipeline.outputs.ios_fast_run }}
           VERDICT: ${{ needs.pipeline.outputs.ios_fast_verdict }}
           SUMMARY: ${{ needs.pipeline.outputs.ios_fast_summary }}
+          PROOF: ${{ needs.pipeline.outputs.ios_fast_proof }}
           PR: ${{ inputs.pr }}
           GH_TOKEN: ${{ github.token }}
           NEED_PROOF: ${{ format('{0}', vars.CI_IOS_VERIFY_PROOF) != '0' }}
@@ -131,8 +132,11 @@ jobs:
           else
             state=error; desc="No verdict: the ios fast verdict did not finish (no Mac, or the pipeline was cancelled or skipped); rerun it"
           fi
-          if [ "$state" = success ] && [ "$RUN" != false ] && [ "$NEED_PROOF" = true ]; then
-            IFS=$'\t' read -r pstate pdesc < <(python3 -I scripts/ci/proof_record.py gate --suite ios-flows)
+          if [ "$state" = success ] && [ "$RUN" != false ] && [ "$PROOF" != false ] && [ "$NEED_PROOF" = true ]; then
+            # An unread record (gate exits 3) fails this job instead of posting `error` for a passed build: a
+            # passed job cannot be rerun, so that status would stay until a new head.
+            gated=$(python3 -I scripts/ci/proof_record.py gate --suite ios-flows) || { echo "::error::proof record not read; failing so this job can be rerun"; exit 1; }
+            IFS=$'\t' read -r pstate pdesc <<< "$gated"
             if [ "$pstate" != success ]; then state="${pstate:-error}"; desc="Build passed; ${pdesc}"; fi
           fi
           python3 -I scripts/ci/ios_fast_verdict.py status "$state" "$desc"

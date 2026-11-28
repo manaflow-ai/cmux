@@ -1,3 +1,4 @@
+public import CmuxNextCloud
 import CmuxNextDictation
 public import CmuxNextDesign
 public import CmuxNextSettings
@@ -206,10 +207,15 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// up Claude, Add an API key, Open Settings), on its click. Runs that way in, waits for a
     /// connection serving `family`, and keeps the click for the start `key` like `cloud.signIn`.
     /// With no `key` (the model picker's set up button, cmux#51731) it only runs that way in and waits: no start keeps the click.
-    case cloudSetUp(key: String?, action: String, family: String)
-    /// `cloud.setupState`: which families a Cloud chat can run now (``CloudSetup/serving()``), for the composer's
-    /// model picker with Cloud picked. Reads only; no gesture.
-    case cloudSetupState
+    case cloudSetUp(key: String?, action: String, family: String, machine: String?, environment: String?)
+    /// `cloud.setup.state`: per family a Cloud chat runs, whether a connection serves it now (``CloudSetup/served()``),
+    /// so a new chat's model picker shows Connect before any send. A read: no gesture, no secret.
+    case cloudSetupState(machine: String?, environment: String?)
+    /// `cloud.connect {family}`: the picker's Connect row opens Settings > Cloud > Cloud models on its click.
+    /// Unlike `cloud.setUp` it belongs to no start: it keeps no click and waits for nothing.
+    case cloudConnect(family: String, machine: String?, environment: String?)
+    /// `cloud.setupState`: the model picker's unscoped read of Cloud family readiness.
+    case cloudPickerSetupState
     /// `cloud.signInCancel {expired?}`: the page stopped waiting on a `cloud.signIn` (it left Cloud,
     /// or its deadline passed); that sign-in keeps no click. `expired` also ends the browser sign-in.
     case cloudSignInCancel(expired: Bool)
@@ -364,6 +370,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `copy` (`pane.painted {copy: true}`, chatSnapshot/live.ts): the frame is the inert saved copy of the
     /// chat, drawn before the page's own app ran; the page's own paint reports again, without it.
     case painted(fromKeptTail: Bool, settled: Bool, copy: Bool = false, live: Bool = false)
+    /// `pane.renderFailed` (webviews PaneBoundary.tsx): the page's last error boundary caught a render error, so
+    /// the document now draws nothing until its own retry reloads it. The pane covers it with its last frame at once
+    /// (``AgentPaneView/pageRenderFailed()``) instead of showing the empty document through that wait.
+    case renderFailed
     /// `pane.launchSettle {settledEpochMs, maxMovePx, element, shifts}` (webviews launchSettle.ts): once per chat
     /// document, what moved after its first paint. Forwarded as launch marks only
     /// (``AgentPaneLaunchTimings/layoutSettle(at:maxMovePx:element:shifts:)``).

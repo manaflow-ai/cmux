@@ -1,46 +1,51 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { copyFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { parseInputsLock } from "../scripts/cmux-vm-image/lock.ts";
+import { parseInputsLock } from "../scripts/cmux-vm-image/lock";
+import { runChild } from "./helpers/run-child";
 
-const repoRoot = path.resolve(import.meta.dir, "../..");
+const repoRoot = path.resolve(import.meta.dirname, "../..");
 const script = path.join(repoRoot, "images/cmux-vm/pin-cmux-tui.ts");
 const TARGET = "x86_64-unknown-linux-musl";
 const FILES = "https://files.cmux.com/cmux-tui";
 const sha = (bytes: string) => createHash("sha256").update(bytes).digest("hex");
 
 /** files.cmux.com as a map of path (under cmux-tui/) to body; anything else answers 404. */
-function serve(files: Record<string, string>) {
-  return Bun.serve({
-    port: 0,
-    fetch(req) {
-      const key = new URL(req.url).pathname.replace(/^\//, "");
-      const body = files[key];
-      if (body === undefined) return new Response("not found", { status: 404 });
-      return new Response(req.method === "HEAD" ? null : body, { headers: { "content-length": String(Buffer.byteLength(body)) } });
-    },
+async function serve(files: Record<string, string>): Promise<{ server: Server; port: number }> {
+  const server = createServer((req, res) => {
+    const key = new URL(req.url ?? "/", "http://127.0.0.1").pathname.replace(/^\//, "");
+    const body = files[key];
+    if (body === undefined) {
+      res.writeHead(404).end("not found");
+      return;
+    }
+    res.writeHead(200, { "content-length": String(Buffer.byteLength(body)) });
+    res.end(req.method === "HEAD" ? undefined : body);
   });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  return { server, port: (server.address() as AddressInfo).port };
 }
 
 async function pin(files: Record<string, string>, commit: string) {
   const dir = mkdtempSync(path.join(tmpdir(), "pin-cmux-tui-"));
-  const server = serve(files);
+  const { server, port } = await serve(files);
   try {
     const lock = path.join(dir, "inputs.lock.json");
     copyFileSync(path.join(repoRoot, "images/cmux-vm/inputs.lock.json"), lock);
     // Async: a synchronous child would block this process's server.
-    const proc = Bun.spawn(["bun", script, "--commit", commit, "--lock", lock, "--write"], {
-      env: { ...process.env, CMUX_TUI_FILES: `http://127.0.0.1:${server.port}` },
-      stderr: "pipe",
-      stdout: "pipe",
+    const { status, stderr } = await runChild("bun", [script, "--commit", commit, "--lock", lock, "--write"], {
+      env: { ...process.env, CMUX_TUI_FILES: `http://127.0.0.1:${port}` },
+      timeout: 25_000,
     });
-    const [status, stderr] = await Promise.all([proc.exited, new Response(proc.stderr).text()]);
     const programs = parseInputsLock(readFileSync(lock, "utf8")).programs.filter((p) => p.name.startsWith("cmux-tui"));
     return { status, stderr, programs };
   } finally {
-    server.stop(true);
+    server.closeAllConnections();
+    server.close();
     rmSync(dir, { recursive: true, force: true });
   }
 }
