@@ -61,7 +61,7 @@ phone from its DEBUG launch environment (CMUX_MOBILE_STACK_REFRESH_TOKEN, adopte
 session), the Mac from its own token store file, written before its launch. The refresh token is
 never printed, and is in no argv and no artifact.
 """
-import argparse, calendar, glob, hashlib, json, math, os, plistlib, pwd, re, secrets, shutil, signal, socket, stat, statistics, subprocess, sys, threading, time
+import argparse, calendar, glob, hashlib, json, math, os, plistlib, pwd, random, re, secrets, shutil, signal, socket, stat, statistics, subprocess, sys, threading, time
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../.."))
 sys.path.insert(0, os.path.join(ROOT, "scripts/cmux-next"))
@@ -407,7 +407,9 @@ def main():
     # The reconnect leg (flows.json reconnect-after-drop, cmux-next-ios-sim.sh's reconnect-drops=10,60): the Mac's
     # link drops for each of these seconds; the phone must reattach by itself.
     ap.add_argument("--reconnect-drops", default="")
-    ap.add_argument("--flaps", type=int, default=0, help="flip the link N times through a pf anchor (ask-7a463b923d)")
+    ap.add_argument("--flaps", type=flap_spec, default=None,
+                    help="flip the link through a pf anchor (ask-7a463b923d): N flips, or "
+                         "duration:S,every:A-B (flips for S s, each block and each gap A..B s, jittered)")
     a = ap.parse_args()
     drops = [int(x) for x in a.reconnect_drops.split(",") if x.strip()]
     proof_path = os.environ.get("CMUX_IOS_CLOUD_PROOF_FILE")
@@ -717,9 +719,16 @@ def main():
                     reconnect_ok = False
                     note(f"- reconnect after drop: FAIL ({type(error).__name__}: {redact(str(error))[:300]})")
             if a.flaps and paired and not connect_runs:
+                def phone_link_launch(path):
+                    """The phone again, its link library logging handshakes to PATH (CMUX_MOBILE_LOG, stderr)."""
+                    subprocess.run(simctl + ["terminate", a.udid, a.bundle_id], capture_output=True)
+                    subprocess.run(simctl + ["launch", f"--stderr={path}", a.udid, a.bundle_id,
+                                             "-cmux-mobile-settings-page", "devices"],
+                                   env=dict(phone_env, SIMCTL_CHILD_CMUX_MOBILE_LOG=FLAP_LINK_LOG),
+                                   check=True, capture_output=True)
                 try:
                     flaps_ok = flap_leg(app, a.flaps, simctl, a.udid, a.bundle_id, a.out, status, phone_log,
-                                        phone_shot, note)
+                                        phone_shot, note, phone_link_launch)
                 except Exception as error:  # noqa: BLE001  the leg fails; the restart leg still runs
                     flaps_ok = False
                     note(f"- flaps: FAIL ({type(error).__name__}: {redact(str(error))[:300]})")
@@ -1250,6 +1259,52 @@ def reconnect_after_drop(app, drops, simctl, udid, out, status, phone_log, phone
 FLAP_ANCHOR = "com.apple/cmuxflap"  # the stock /etc/pf.conf evaluates anchor "com.apple/*"
 FLAP_DWELL = {"udp": 10, "dark": 8}  # seconds each flip keeps the link blocked
 FLAP_MODES = {"udp": "UDP blocked (Wi-Fi gone, TCP relay up)", "dark": "all blocked (short outage)"}
+# The phone's link library logs each handshake initiation it sends (new, repeated, resent) and each one
+# answered at debug (cmux-mobile-link dial/wireguard.rs); answers lost = sent - answered, #63296's terms.
+FLAP_LINK_LOG = "info,cmux_mobile_link::dial=debug"
+HS_SENT = re.compile(r"WireGuard (sends a handshake initiation|repeats an unanswered handshake initiation"
+                     r"|resends its handshake initiation)")
+HS_NEW = re.compile(r"WireGuard sends a handshake initiation")
+HS_ANSWERED = re.compile(r"WireGuard hears its handshake initiation answered")
+HS_TIME = re.compile(r"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(\.\d+)?Z")
+
+
+def flap_spec(text):
+    """`--flaps`: N (1-99) flips, or duration:S,every:A-B (S s of flips, each block and gap A..B s)."""
+    if re.fullmatch(r"[1-9][0-9]?", text):
+        return {"count": int(text)}
+    m = re.fullmatch(r"duration:([1-9][0-9]{1,3}),every:([1-9][0-9]?)-([1-9][0-9]?)", text)
+    if not m or int(m.group(2)) > int(m.group(3)):
+        raise argparse.ArgumentTypeError(f"--flaps wants N or duration:S,every:A-B, got {text!r}")
+    return {"duration_s": int(m.group(1)), "every_s": [int(m.group(2)), int(m.group(3))],
+            "seed": secrets.randbelow(1 << 31)}
+
+
+def handshake_events(path):
+    """(wall time, "sent" | "new" | "answered") from the phone's link log, in order."""
+    events = []
+    try:
+        with open(path, errors="replace") as f:
+            for line in f:
+                m = HS_TIME.search(line[:40])
+                if not m:
+                    continue
+                at = calendar.timegm(time.strptime(m.group(1), "%Y-%m-%dT%H:%M:%S")) + float(m.group(2) or 0)
+                if HS_SENT.search(line):
+                    events.append((at, "sent"))
+                    if HS_NEW.search(line):
+                        events.append((at, "new"))
+                elif HS_ANSWERED.search(line):
+                    events.append((at, "answered"))
+    except OSError:
+        pass
+    return events
+
+
+def handshake_count(events, start, end):
+    sent = sum(1 for at, k in events if start <= at < end and k == "sent")
+    answered = sum(1 for at, k in events if start <= at < end and k == "answered")
+    return {"sent": sent, "answered": answered, "lost": max(0, sent - answered)}
 
 
 def pf(*args, stdin=None):
@@ -1331,7 +1386,7 @@ def flap_rules(mode, peers, ports):
     return "\n".join(rules) + "\n"
 
 
-def flap_leg(app, flaps, simctl, udid, bundle_id, out, status, phone_log, phone_shot, note):
+def flap_leg(app, spec, simctl, udid, bundle_id, out, status, phone_log, phone_shot, note, relaunch):
     """Leo's flapping Wi-Fi/cellular path, on the real client path (ask-7a463b923d): FLAPS flips, alternating
     "udp" (UDP to the phone's peers and hostd's ports dropped: Wi-Fi gone, the TCP relay is what is left) and
     "dark" (TCP and UDP dropped: a short outage), each held FLAP_DWELL s through the pf anchor FLAP_ANCHOR,
@@ -1339,8 +1394,17 @@ def flap_leg(app, flaps, simctl, udid, bundle_id, out, status, phone_log, phone_
     connected and any dial begun since the block reached a CONNECT_FRESH mark). The pf drop is real packet
     loss on this host; the interface change is not (the simulator shares the Mac's network stack and never
     sees a Wi-Fi -> cellular path change). Writes flaps.json; teardown always flushes the anchor and releases
-    the pf enable token. Without `sudo -n pfctl` it is NOT RUN, never a pass."""
-    report = {"flaps": flaps, "anchor": FLAP_ANCHOR, "fault": "real: pf drops this host's packets; simulated: "
+    the pf enable token. Without `sudo -n pfctl` it is NOT RUN, never a pass.
+
+    SPEC is {"count": N} (block FLAP_DWELL by mode, then wait for a settled link) or {"duration_s": S,
+    "every_s": [A, B]} (Leo's flapping path for S s: each block and each gap after it jittered in A..B s,
+    seeded; a reattach slower than its gap is still timed in full, the next block waits for it). Each row
+    also counts the phone's WireGuard handshake initiations sent and answered from block to reattach (the
+    phone relaunched with its link log on: RELAUNCH(path)); "N of M handshake answers lost" sums them."""
+    count, duration = spec.get("count"), spec.get("duration_s")
+    lo, hi = spec.get("every_s") or (0, 0)
+    rng = random.Random(spec.get("seed"))
+    report = {"flaps": spec, "anchor": FLAP_ANCHOR, "fault": "real: pf drops this host's packets; simulated: "
               "the Wi-Fi -> cellular interface change (none in the simulator)", "rows": []}
     path = os.path.join(out, "flaps.json")
 
@@ -1360,45 +1424,64 @@ def flap_leg(app, flaps, simctl, udid, bundle_id, out, status, phone_log, phone_
         save()
         note("- flaps: NOT RUN (pf's main ruleset has no com.apple/* anchor, a rule there would not apply)")
         return False
+    link_log = os.path.join(out, "phone-link.log")
+    relaunch(link_log)
+    linked = wait_for(lambda: status().get("connectedPhones", 0) >= 1, 90, every=1)
+    note(f"- flaps: phone relaunched with its link log ({FLAP_LINK_LOG}), "
+         f"{'attached again' if linked else 'NOT attached in 90 s'}")
     code, enabled = pf("-E")
     token = next((line.split(":", 1)[1].strip() for line in enabled.splitlines() if line.startswith("Token")), None)
     video = os.path.join(out, "flaps.mp4")
-    rec = subprocess.Popen(simctl + ["io", udid, "recordVideo", "--codec=h264", "--force", video],
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    time.sleep(2)
-    note(f"| flip | mode | dwell s | Mac saw phone drop | phone redials (transport) | escaped to | reattach s | result |")
-    note("|---|---|---|---|---|---|---|---|")
+    rec = None
+    if not duration:  # 30 min of video would outgrow the evidence zip
+        rec = subprocess.Popen(simctl + ["io", udid, "recordVideo", "--codec=h264", "--force", video],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(2)
+    note(f"| flip | mode | dwell s | Mac saw phone drop | phone redials (transport) | escaped to | reattach s | "
+         f"handshake answers lost/sent | result |")
+    note("|---|---|---|---|---|---|---|---|---|")
+    leg_start = time.time()
+    end_at = time.monotonic() + duration if duration else None
+    i = 0
     try:
-        for i in range(flaps):
-            mode = "udp" if i % 2 == 0 else "dark"
-            before = wait_for(lambda: status().get("connectedPhones", 0) >= 1, 30, every=1)
-            time.sleep(3)  # a settled link, not one still finishing the last flip's dial
+        while (time.monotonic() < end_at) if duration else (i < count):
+            i += 1
+            mode = "udp" if i % 2 == 1 else "dark"
+            if duration:
+                dwell, gap = round(rng.uniform(lo, hi), 2), round(rng.uniform(lo, hi), 2)
+                before = status().get("connectedPhones", 0) >= 1
+            else:
+                dwell, gap = FLAP_DWELL[mode], None
+                before = wait_for(lambda: status().get("connectedPhones", 0) >= 1, 30, every=1)
+                time.sleep(3)  # a settled link, not one still finishing the last flip's dial
             hostd = app_tree(app.pid)[1:]
             phone = phone_pid(simctl, udid, bundle_id)
             peers, ports = flap_targets(phone, hostd)
             rules = flap_rules(mode, peers, ports)
-            row = {"flip": i + 1, "mode": mode, "dwell_s": FLAP_DWELL[mode], "connected_before": bool(before),
+            row = {"flip": i, "mode": mode, "dwell_s": dwell, "gap_s": gap, "connected_before": bool(before),
                    "phone_pid": phone, "peers": peers, "hostd_ports": [f"{p}/{n}" for p, n in ports]}
             if not peers and not ports:
                 row.update(result="NOT RUN", why="no phone peers and no hostd ports to block")
                 report["rows"].append(row)
-                note(f"| {i + 1} | {mode} | - | - | - | - | - | NOT RUN (nothing to block) |")
+                note(f"| {i} | {mode} | - | - | - | - | - | - | NOT RUN (nothing to block) |")
+                time.sleep(1)
                 continue
             code, loaded = pf("-a", FLAP_ANCHOR, "-f", "-", stdin=rules)
             _, listed = pf("-a", FLAP_ANCHOR, "-s", "rules")
             if code != 0 or "block drop" not in listed:
                 row.update(result="NOT RUN", why=f"anchor load exited {code}: {loaded[-200:]}")
                 report["rows"].append(row)
-                note(f"| {i + 1} | {mode} | - | - | - | - | - | NOT RUN (anchor did not load) |")
+                note(f"| {i} | {mode} | - | - | - | - | - | - | NOT RUN (anchor did not load) |")
+                time.sleep(1)
                 continue
             for host in peers:  # pf keeps established states past a new rule; drop theirs
                 pf("-k", "0.0.0.0/0" if ":" not in host else "::/0", "-k", host)
                 pf("-k", host)
             if ports:
                 pf("-k", "127.0.0.1", "-k", "127.0.0.1")
-            t_block = time.monotonic()
+            t_block, w_block = time.monotonic(), time.time()
             seen_low = False
-            while time.monotonic() - t_block < FLAP_DWELL[mode]:
+            while time.monotonic() - t_block < dwell:
                 if status().get("connectedPhones", 0) < 1:
                     seen_low = True
                 time.sleep(0.5)
@@ -1418,29 +1501,36 @@ def flap_leg(app, flaps, simctl, udid, bundle_id, out, status, phone_log, phone_
 
             back = wait_for(reattached, RECONNECT_BOUND, every=0.25)
             took = time.monotonic() - t_back
+            w_back = time.time()
+            if gap is not None and (rest := gap - took) > 0:
+                time.sleep(rest)  # the link stays up for its jittered gap; a slower reattach ate it
+            time.sleep(0.5)  # the log line of an answer at reattach reaches the file
+            hs = handshake_count(handshake_events(link_log), w_block, w_back)
             dials = marks("dial_start")
             after_peers, _ = flap_targets(phone_pid(simctl, udid, bundle_id), app_tree(app.pid)[1:])
             escaped = sorted(set(after_peers) - set(peers))
             held = not dials and not seen_low
             ok = bool(back)
             row.update(mac_saw_drop=seen_low, dials=[f"{a} {d}".strip() for a, d in dials], escaped_to=escaped,
-                       reattach_s=round(took, 2) if ok else None, held=held,
-                       result="PASS" if ok else "FAIL")
+                       reattach_s=round(took, 2) if ok else None, held=held, handshakes=hs,
+                       gap_overrun=gap is not None and took > gap, result="PASS" if ok else "FAIL")
             report["rows"].append(row)
             save()
-            note(f"| {i + 1} | {mode} | {FLAP_DWELL[mode]} | {'yes' if seen_low else 'no'} | "
+            note(f"| {i} | {mode} | {dwell} | {'yes' if seen_low else 'no'} | "
                  f"{'; '.join(f'{a} {d}'.strip()[:60] for a, d in dials) or 'none (link held)'} | "
                  f"{', '.join(escaped) or '-'} | {'%.2f' % took if ok else '>%d' % RECONNECT_BOUND} | "
+                 f"{hs['lost']}/{hs['sent']} | "
                  f"{'PASS' if ok else 'FAIL'}{' (held)' if held and ok else ''} |")
     finally:
         pf("-a", FLAP_ANCHOR, "-F", "all")
         if token:
             pf("-X", token)
-        rec.send_signal(signal.SIGINT)
-        try:
-            rec.wait(30)
-        except subprocess.TimeoutExpired:
-            rec.kill()
+        if rec:
+            rec.send_signal(signal.SIGINT)
+            try:
+                rec.wait(30)
+            except subprocess.TimeoutExpired:
+                rec.kill()
         _, left = pf("-a", FLAP_ANCHOR, "-s", "rules")
         report["teardown"] = {"anchor_rules_left": left, "token_released": bool(token)}
         save()
@@ -1454,13 +1544,34 @@ def flap_leg(app, flaps, simctl, udid, bundle_id, out, status, phone_log, phone_
             report.setdefault("summary", {})[scope] = {"n": len(vals), "p50": round(percentile(vals, 0.5), 2),
                                                         "p95": round(percentile(vals, 0.95), 2), "max": round(max(vals), 2),
                                                         "fails": sum(1 for r in rows if r["result"] == "FAIL")}
+        if rows:
+            sent = sum(r["handshakes"]["sent"] for r in rows)
+            lost = sum(r["handshakes"]["lost"] for r in rows)
+            report.setdefault("summary", {}).setdefault(scope, {"n": 0}).update(
+                handshakes_sent=sent, handshake_answers_lost=lost)
+    events = handshake_events(link_log)
+    report["handshakes_leg"] = handshake_count(events, leg_start, time.time())
+    report["handshake_log"] = ("counted" if any(k == "new" for _, k in events) else
+                               "NOT MEASURED: no 'sends a handshake initiation' line in phone-link.log "
+                               "(a build before the counter, or the link log did not start)")
     save()
+    hs_ok = report["handshake_log"] == "counted"
     for scope, s in (report.get("summary") or {}).items():
-        note(f"- flaps {scope}: n {s['n']}, reattach p50 {s['p50']} s, p95 {s['p95']} s, max {s['max']} s, "
-             f"fails {s['fails']}")
-    note(f"- flaps: {len(ran)}/{flaps} ran, {len(timed)} reattached; flaps.json, "
+        lost = (f"; {s['handshake_answers_lost']} of {s['handshakes_sent']} handshake answers lost"
+                if hs_ok and "handshakes_sent" in s else "")
+        if "p50" in s:
+            note(f"- flaps {scope}: n {s['n']}, reattach p50 {s['p50']} s, p95 {s['p95']} s, max {s['max']} s, "
+                 f"fails {s['fails']}{lost}")
+        elif lost:
+            note(f"- flaps {scope}: none reattached{lost}")
+    leg = report["handshakes_leg"]
+    note("- flaps handshakes over the whole leg: " + (f"{leg['lost']} of {leg['sent']} handshake answers lost"
+         if hs_ok else report["handshake_log"]))
+    note(f"- flaps: {len(ran)}/{count or i} ran" + (f" over {duration} s, blocks and gaps {lo}-{hi} s "
+         f"(seed {spec['seed']}), {sum(1 for r in ran if r.get('gap_overrun'))} reattached past their gap"
+         if duration else "") + f", {len(timed)} reattached; flaps.json, "
          f"{os.path.basename(video) if os.path.exists(video) else 'no recording'}")
-    return len(ran) == flaps and all(r["result"] == "PASS" for r in ran)
+    return len(ran) == (count or len(ran)) and bool(ran) and all(r["result"] == "PASS" for r in ran)
 
 
 def random_file(path, size):
