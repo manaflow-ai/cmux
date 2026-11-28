@@ -36,6 +36,7 @@ pub(crate) struct Feature {
 /// list stamps `enabled: []` and reads no settings.
 pub(crate) const FEATURES: &[Feature] = &[
     Feature { name: super::turn_rules::FEATURE, on: || enabled(super::turn_rules::FEATURE) },
+    Feature { name: super::fresh_review::FEATURE, on: super::fresh_review::enabled },
     Feature { name: super::cache_alarm::FEATURE, on: || enabled(super::cache_alarm::FEATURE) },
     Feature { name: crate::spec_exec::FEATURE, on: crate::spec_exec::enabled },
     Feature {
