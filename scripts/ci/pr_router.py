@@ -851,13 +851,13 @@ def same_head_applies(event: dict, switch: str = "1") -> bool:
     return FULL_CI not in head_tier.labels_of(event) and added != FULL_CI
 
 
-def earlier_router_runs(runs: list | None, current: str) -> list[dict] | None:
-    """This head's pr-router.yml runs other than CURRENT (this run's id), newest first, at most SAME_HEAD_RUNS; None
-    when RUNS is unread."""
+def earlier_router_runs(runs: list | None, current: str, workflow: str = "pr-router.yml") -> list[dict] | None:
+    """This head's WORKFLOW (a .github/workflows file name) runs other than CURRENT (this run's id), newest first, at
+    most SAME_HEAD_RUNS; None when RUNS is unread. scripts/ci/same_head_job.py reads it for a workflow's own job."""
     if not isinstance(runs, list):
         return None
     mine = [r for r in runs if isinstance(r, dict)
-            and str(r.get("path") or "").split("@")[0].endswith("/pr-router.yml")
+            and str(r.get("path") or "").split("@")[0].endswith(f"/{workflow}")
             and str(r.get("id") or "") != str(current) and re.fullmatch(r"\d+", str(r.get("id") or ""))]
     return sorted(mine, key=lambda r: int(r["id"]), reverse=True)[:SAME_HEAD_RUNS]
 

@@ -22,9 +22,10 @@ need not share a size, and same_pixels.py cannot vouch for them; this does, per 
 
 `calibrate` writes `cmux.rd-marker-calibration/1` to OUT_JSON (`verified`, crops, evidence or reason)
 and, when verified, the viewer crop as a PPM to VIEWER_CROP_PPM and prints `HOST_CROP VIEWER_CROP`
-(X,Y,W,H in each image's top-left pixels; the host one is for `sips`, which reads the PNG). Exits 1
+(X,Y,W,H in each image's top-left pixels; the host one is for `screen-eval-ocr --cut-host`). Exits 1
 when not verified. `receipt` rewrites screen-eval-ocr's JSON of the two crops with the `crops` receipt
-and `comparison_ready`, true only for a verified calibration and a finite CER.
+and `comparison_ready`, true only for a verified calibration, a finite CER, and OCR that read each
+crop's size (host_ocr_image, viewer_ocr_image): an uncut host screenshot is not a host baseline.
 """
 
 import importlib.util
@@ -283,6 +284,17 @@ def crop_ppm(image: Image, crop: list[int]) -> bytes:
     return f"P6\n{w} {h}\n255\n".encode() + b"".join(row[3 * x:3 * (x + w)] for row in image.rows[y:y + h])
 
 
+def read_size_mismatch(ocr: dict, host_crop, viewer_crop) -> str | None:
+    """Why the pixels OCR read are not the two crops, or None. 11-28 ssqc-1141: `sips --cropOffset` left
+    the host screenshot whole, and the host baseline read 42-100 % against the drawn text, unnoticed."""
+    for side, crop in (("host", host_crop), ("viewer", viewer_crop)):
+        read = ocr.get(f"{side}_ocr_image")
+        want = {"width": crop[2], "height": crop[3]} if isinstance(crop, list) and len(crop) == 4 else None
+        if read != want:
+            return f"OCR read a {side} image of {read}, not the {side} crop {want}"
+    return None
+
+
 def receipt(ocr: dict, calibration: dict) -> dict:
     out = dict(ocr)
     cer = ocr.get("cer")
@@ -291,6 +303,8 @@ def receipt(ocr: dict, calibration: dict) -> dict:
         reason = "rd marker calibration not verified: " + str(calibration.get("reason", "missing"))
     elif type(cer) not in (int, float) or not math.isfinite(cer):
         reason = "OCR measured no CER"
+    else:
+        reason = read_size_mismatch(ocr, calibration.get("host_crop"), calibration.get("viewer_crop"))
     crops = {k: calibration.get(k) for k in ("host_image", "viewer_image", "host_crop", "viewer_crop",
                                             "viewer_pixels_per_host_pixel", "source_content_rect_points",
                                             "source_display_size_points")}

@@ -3752,13 +3752,20 @@ def deferred_ci_layers(pushed_lines: list[str]) -> frozenset[str]:
 # backup/cmux-tp-mutedtokens.noindex, over arch-ratchet rows). The layers about what GitHub runs for any pushed branch
 # with the repo's secrets (its workflows: they parse, each job is bounded, a reusable call stays within its caller's
 # permissions) still judge them. Checkpoint `-wip` refs are not backups: the fleet opens draft PRs from them.
+# The WIP net's backup of a checkout the gate refused is one (lane/backup/<branch>-<host>-wip, leo-workspace
+# tools/wip_checkpoint.py backup_push): under lane/ because a lane VM's broker takes no other name, ending in -wip
+# because no first-push draft is opened for such a ref (lane_gh_auto_draft.side_ref), and never the head of a PR.
+# lane/cold-activation-865-next, 2026-11-28: the arch ratchet (CmuxNextApp +13 lines) refused every
+# checkpoint of lane/cold-activation-865-next-wip from 02:00Z to 14:17Z, so 3 commits were only on that VM's disk 12 h.
 BACKUP_PUSH_PREFIX = "refs/heads/backup/"
+WIP_BACKUP_PREFIX, WIP_BACKUP_SUFFIX = "refs/heads/lane/backup/", "-wip"
 BACKUP_PUSH_LAYERS = frozenset({"workflows", "job-bounds", "reusable-perms"})
 
 
 def backup_only_push(pushed_lines: list[str]) -> bool:
-    """True when every pushed ref with commits is under refs/heads/backup/ (BACKUP_PUSH_PREFIX); a line the gate
-    cannot read, a push with no commits, or any other ref beside them is False (every layer runs)."""
+    """True when every pushed ref with commits is under refs/heads/backup/ (BACKUP_PUSH_PREFIX) or is a WIP-net backup
+    (refs/heads/lane/backup/<name>-wip); a line the gate cannot read, a push with no commits, or any other ref beside
+    them is False (every layer runs)."""
     refs = []
     for line in pushed_lines:
         parts = line.split()
@@ -3769,7 +3776,9 @@ def backup_only_push(pushed_lines: list[str]) -> bool:
         if set(parts[1]) == {"0"}:
             continue  # a delete sends no commits
         refs.append(parts[2])
-    return bool(refs) and all(ref.startswith(BACKUP_PUSH_PREFIX) and len(ref) > len(BACKUP_PUSH_PREFIX)
+    return bool(refs) and all((ref.startswith(BACKUP_PUSH_PREFIX) and len(ref) > len(BACKUP_PUSH_PREFIX))
+                              or (ref.startswith(WIP_BACKUP_PREFIX) and ref.endswith(WIP_BACKUP_SUFFIX)
+                                  and len(ref) > len(WIP_BACKUP_PREFIX) + len(WIP_BACKUP_SUFFIX))
                               for ref in refs)
 
 
@@ -4815,7 +4824,8 @@ def _main(argv: list[str] | None = None) -> int:
     backup_push = args.pre_push and only is None and backup_only_push(pushed_lines)
     if backup_push:
         only = set(BACKUP_PUSH_LAYERS)
-        log("prepush-gate: every pushed ref is under backup/ (saved work, no pull request): the code-quality layers "
+        log("prepush-gate: every pushed ref is under backup/ or lane/backup/...-wip (saved work, no pull request): "
+            "the code-quality layers "
             "and the arch ratchet are skipped; the workflow checks (" + ", ".join(sorted(BACKUP_PUSH_LAYERS))
             + ") still run.")
     for own in ranges:

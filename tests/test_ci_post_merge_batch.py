@@ -357,6 +357,21 @@ class RateLimitTest(unittest.TestCase):
         self.assertEqual(got, {"jobs": []})
         self.assertEqual(slept, [105.0])
 
+    def test_reset_is_the_soonest_of_the_tokens(self) -> None:
+        # Probe run 46155774726 (11-28): token resets 14:51:46 and 14:55:12; the first one back lets the read through.
+        replies = {"app": '{"resources": {"core": {"reset": 1795877712}}}', "job": '{"resources": {"core": {"reset": 1795877506}}}', "bad": "nope"}
+
+        def fake(argv, env=None, **_):
+            return subprocess.CompletedProcess(argv, 0, stdout=replies[(env or {}).get("GH_TOKEN", "bad")], stderr="")
+
+        with mock.patch.object(pmb.subprocess, "run", fake):
+            self.assertEqual(pmb._core_reset(["app", "job", "bad"]), 1795877506.0)
+            self.assertIsNone(pmb._core_reset(["bad"]))
+
+    def test_judge_budget_outlasts_an_hourly_reset(self) -> None:
+        with mock.patch.object(pmb, "cmd_judge", lambda _a: pmb.API_WAIT_BUDGET["seconds"]):
+            self.assertGreaterEqual(pmb.main(["judge", "--branch", "b", "--mode", "batch", "--sha", "s", "--run-id", "1"]), 3600)
+
     def test_gives_up_past_the_budget_and_never_retries_other_errors(self) -> None:
         limited = "gh: API rate limit exceeded for installation ID 1. (HTTP 403)"
         with self.assertRaises(RuntimeError):
@@ -1154,6 +1169,18 @@ class DeeperReachTest(unittest.TestCase):
         self.assertEqual([r["id"] for r in runs], [50, 40, 30, 20])
         self.assertEqual(pmb.stuck_reds("6" * 40, self.verdicts, runs, jobs_of, self.suites),
                          [(self.job, "cmux-tui-sdks", "2" * 40, "3" * 40)])
+
+    def test_a_skipped_red_says_why(self) -> None:
+        """Run 45987000605 said only "a known red, no bisect" for 23 of its 25 known reds."""
+        jobs_of = lambda rid: self.jobs[rid]
+        skipped: dict = {}
+        self.assertEqual(pmb.stuck_reds("6" * 40, self.verdicts, self.reach, jobs_of, self.suites, skipped=skipped), [])
+        self.assertEqual(list(skipped), [self.job])
+        self.assertIn("no green batch run in reach (2 read)", skipped[self.job])
+        note = f"`{self.job}` was already red on `44444444444` (run 40): a known red, no bisect."
+        self.assertEqual(pmb.with_skip_reason(note, skipped), note[:-1] + ": " + skipped[self.job] + ".")
+        self.assertEqual(pmb.with_skip_reason("`other / job` was already red: a known red, no bisect.", skipped),
+                         "`other / job` was already red: a known red, no bisect.")
 
     def test_no_deeper_read_when_every_red_has_a_green_in_reach(self) -> None:
         self.jobs[40] = ({self.job: ("cmux-tui-sdks", "success")}, True)
