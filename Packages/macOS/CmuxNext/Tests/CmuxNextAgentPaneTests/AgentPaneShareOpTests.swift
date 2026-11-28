@@ -15,6 +15,7 @@ struct AgentPaneShareOpTests {
         if case .shareOp(.manage, session: nil) = request(["op": "manage"]) {} else { Issue.record("manage") }
         if case .shareOp(.link(role: "view"), session: nil) = request(["op": "link", "role": "view"]) {} else { Issue.record("link view") }
         if case .shareOp(.link(role: "view"), session: nil) = request(["op": "link"]) {} else { Issue.record("link default") }
+        if case .shareOp(.team(teamId: "team-1", role: "talk"), session: nil) = request(["op": "team", "teamId": " team-1 ", "role": "TALK"]) {} else { Issue.record("team talk") }
         if case .shareOp(.invite(account: "a@b.co", role: "talk"), session: nil) = request(["op": "invite", "account": " a@b.co ", "role": "talk"]) {} else {
             Issue.record("invite")
         }
@@ -36,6 +37,9 @@ struct AgentPaneShareOpTests {
     @Test func unknownOpsAndBadFieldsAreRefused() {
         let refused: [[String: Any]] = [
             [:], ["op": "delete"], ["op": 7], ["op": "link", "role": "admin"], ["op": "link", "role": "drive"], ["op": "link", "role": 1],
+            ["op": "team"], ["op": "team", "teamId": "team-1"], ["op": "team", "teamId": "", "role": "view"],
+            ["op": "team", "teamId": 7, "role": "view"], ["op": "team", "teamId": "team-1", "role": "admin"],
+            ["op": "team", "teamId": "team-1", "role": "drive"],
             ["op": "invite", "account": "a@b.co"], ["op": "invite", "account": "", "role": "view"],
             ["op": "invite", "account": String(repeating: "a", count: 400), "role": "view"],
             ["op": "uninvite"], ["op": "approve"], ["op": "approve", "account": "@leo", "role": "admin"], ["op": "decline"], ["op": "revoke"], ["op": "revoke", "shareId": "  "],
@@ -52,14 +56,14 @@ struct AgentPaneShareOpTests {
         let model = AgentPaneModel(host: NoHost())
         var asked: [AgentPaneShareOp] = []
         model.onShareOp = { op, _ in asked.append(op); return .value(["ok": true]) }
-        for op in [AgentPaneShareOp.link(role: "view"), .invite(account: "a@b.co", role: "view")] {
+        for op in [AgentPaneShareOp.link(role: "view"), .team(teamId: "team-1", role: "view"), .invite(account: "a@b.co", role: "view")] {
             let refused = await model.respond(to: .shareOp(op))
             #expect((refused["error"] as? [String: Any])?["code"] as? String == "gesture_required")
             #expect(refused["ok"] as? Bool == false)
             let done = await model.respond(to: .shareOp(op), userGesture: true)
             #expect(done["ok"] as? Bool == true)
         }
-        #expect(asked == [.link(role: "view"), .invite(account: "a@b.co", role: "view")], "no op reached the app without a click")
+        #expect(asked == [.link(role: "view"), .team(teamId: "team-1", role: "view"), .invite(account: "a@b.co", role: "view")], "no op reached the app without a click")
         for op in [AgentPaneShareOp.state, .uninvite(account: "a@b.co"), .revoke(shareId: "s1"), .manage] {
             #expect(await model.respond(to: .shareOp(op))["ok"] as? Bool == true)
         }
@@ -78,7 +82,7 @@ struct AgentPaneShareOpTests {
         #expect(asked.last?.1 == "chat-a", "the session goes on to the app as the daemon's pin")
         shown = "chat-b"
         model.transport.gestures.record()
-        for op in [AgentPaneShareOp.state, .link(role: "view"), .revoke(shareId: "s1")] {
+        for op in [AgentPaneShareOp.state, .link(role: "view"), .team(teamId: "team-1", role: "view"), .revoke(shareId: "s1")] {
             let refused = await model.respond(to: .shareOp(op, session: "chat-a"), userGesture: true)
             #expect((refused["error"] as? [String: Any])?["code"] as? String == "unavailable")
         }

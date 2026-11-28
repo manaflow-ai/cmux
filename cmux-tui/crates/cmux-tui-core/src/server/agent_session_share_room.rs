@@ -259,8 +259,11 @@ fn view(mux: &Mux, share_id: &str) -> Option<View> {
     change(mux, share_id, |s| {
         let room = |field: &str| s.room_str(field).map(str::to_owned);
         let active = s.guests.iter().filter(|g| g.state == GuestState::Active && s.live().is_ok());
-        let body = json!({"provision_key": s.provision_key, "secret_sha256": s.secret_sha256,
+        let mut body = json!({"provision_key": s.provision_key, "secret_sha256": s.secret_sha256,
             "expires_at": s.expires_at, "uses": s.uses_left});
+        if let Some(team) = &s.team_id {
+            body.set("team_id", json!(team));
+        }
         let view = View {
             url: room("url"),
             host_token: room("host_token"),
@@ -340,6 +343,7 @@ enum Put {
     Done {
         host_token: String,
         url_base: String,
+        team_acknowledged: bool,
     },
     /// The room answered no: the code create answers.
     Refused(&'static str),
@@ -387,12 +391,15 @@ async fn put(room: &Room, share_id: &str, token: &str, body: &Value) -> Put {
     let url = format!("{}/v1/chat-shares/{share_id}", room.url);
     let reply = call(reqwest::Method::PUT, &url, token, Some(body), room.timing.request).await;
     match reply {
-        Some((200..=299, body)) => match (
-            body.get("host_token").and_then(Value::as_str),
-            body.get("url_base").and_then(Value::as_str),
+        Some((200..=299, reply)) => match (
+            reply.get("host_token").and_then(Value::as_str),
+            reply.get("url_base").and_then(Value::as_str),
         ) {
             (Some(token), Some(base)) if valid_host_token(token) && valid_url_base(room, base) => {
-                Put::Done { host_token: token.into(), url_base: base.into() }
+                // Older rooms may accept the PUT while ignoring an unknown team_id.
+                let team_acknowledged =
+                    body.get("team_id").is_none_or(|team| reply.get("team_id") == Some(team));
+                Put::Done { host_token: token.into(), url_base: base.into(), team_acknowledged }
             }
             _ => Put::Unreachable,
         },
@@ -450,15 +457,23 @@ pub(super) fn provision(
         return Err("share.room_unreachable");
     };
     match runtime.block_on(put(&room, &share_id, &token, &body)) {
-        Put::Done { host_token, url_base } => {
-            if let Err(code) = adopt(mux, &share_id, &room.url, &host_token) {
+        Put::Done { host_token, url_base, team_acknowledged } => {
+            let opened = if team_acknowledged {
+                adopt(mux, &share_id, &room.url, &host_token)
+            } else {
+                abandon(mux, &share_id, true);
+                Err("share.room_refused")
+            };
+            if let Err(code) = opened {
                 delete(mux, &share_id, Some(Held::Host(room.url, Zeroizing::new(host_token))));
                 return Err(code);
             }
-            let secret =
-                created.get("secret").and_then(Value::as_str).unwrap_or_default().to_owned();
             let app = shares(mux).bridge.app_query();
-            created.set("url", json!(format!("{url_base}{app}#{secret}")));
+            let url = match created.get("secret").and_then(Value::as_str) {
+                Some(secret) => format!("{url_base}{app}#{secret}"),
+                None => format!("{}/i/{share_id}{app}", room.url),
+            };
+            created.set("url", json!(url));
             created.set("room", json!(room.url));
             host(mux, &share_id);
             Ok(created)
@@ -1223,6 +1238,7 @@ fn answer(mux: &Mux, share_id: &str, frame: &Value, ready: &mut bool) -> Vec<Val
                 // The account the room signed in: an invitee's (no secret then), or a signed-in
                 // guest's who joins by the link (with the secret).
                 account: frame.get("account").and_then(Value::as_str).map(str::to_owned),
+                team_id: frame.get("team_id").and_then(Value::as_str).map(str::to_owned),
                 // That account's profile picture (`https://`, else dropped by the redeem).
                 avatar_url: frame.get("avatar_url").and_then(Value::as_str).map(str::to_owned),
             };

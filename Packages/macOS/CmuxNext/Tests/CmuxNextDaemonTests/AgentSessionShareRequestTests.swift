@@ -5,6 +5,15 @@ import Testing
 /// The link share verbs as the daemon reads them (cmux-tui-core agent_session_shares.rs, whose
 /// params refuse unknown fields): snake_case fields, absent options left out.
 struct AgentSessionShareRequestTests {
+    @Test func teamRoleIsExplicitAndDefaultsToView() throws {
+        for role in [nil, "view", "talk"] as [String?] {
+            let request = AgentSessionShareCreateRequest(surface: 1, role: role, teamId: "team-1")
+            #expect(request.role == (role ?? "view"))
+            guard case .object(let body) = try fields(request) else { Issue.record("missing request body"); return }
+            #expect(body["role"] == .string(role ?? "view"))
+        }
+        #expect(AgentSessionShareCreateRequest(surface: 1).role == nil)
+    }
     private func fields(_ request: some DaemonRequest) throws -> JSONValue {
         try JSONDecoder().decode(JSONValue.self, from: WireCoding.encodeRequest(request, id: 1))
     }

@@ -9,7 +9,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { ShareDialogBody } from "./ShareDialog";
 import { translate } from "../i18n";
-import type { ShareView } from "./shareState";
+import { shareView, type ChatShare, type ShareView } from "./shareState";
 import { settleReact } from "../../../../test/support/domTeardown";
 
 import { actTurn, until } from "../../../../test/support/until";
@@ -78,26 +78,32 @@ const settle = () =>
 const shared: ShareView = {
   people: [{ account: "@sam", role: "view", joined: false }],
   general: "anyone",
+  teams: [],
+  teamShares: [],
   links: [],
   inviteUrl: "https://share.example.com/i/1",
   guestsNow: 0,
   requests: [],
 };
 
-async function render(calls: string[]) {
+async function render(calls: string[], view = shared, busy = false) {
   const container = installDom();
   await act(async () => {
     root = createRoot(container);
     root.render(
       <ShareDialogBody
         chat="Add retries"
-        view={shared}
+        view={view}
+        busy={busy}
         onInvite={() => {}}
         onRole={(account, role) => calls.push(`role ${account} ${role}`)}
         onRemove={(account) => calls.push(`remove ${account}`)}
         onApprove={() => {}}
         onDecline={() => {}}
         onGeneral={(access) => calls.push(`general ${access}`)}
+        onTeam={(teamId, role) => calls.push(`team ${teamId} ${role}`)}
+        onTeamCopy={(url) => calls.push(`copy ${url}`)}
+        onTeamRemove={(shareId) => calls.push(`revoke ${shareId}`)}
         onCopy={() => {}}
         onDone={() => {}}
       />,
@@ -346,4 +352,77 @@ test("a failed read of the chat's shares is read again on its own, with no Try a
   expect(reads).toBe(2);
   expect(document.body.textContent).not.toContain(translate("share.error.generic"));
   expect(document.body.textContent).not.toContain(translate("share.stillReading"));
+});
+
+const teams = [
+  { id: "team-a", name: "Design" },
+  { id: "team-b", name: "Engineering" },
+];
+const teamShare: ChatShare = {
+  shareId: "team-share",
+  teamId: "team-a",
+  state: "active",
+  role: "talk",
+  url: null,
+  inviteUrl: "https://room/i/team-share",
+  createdAt: 1,
+  expiresAt: 2,
+  usesLeft: 0,
+  guests: [],
+  invitees: [],
+};
+
+async function choose(button: HTMLButtonElement, label: string) {
+  await act(async () => button.click());
+  await settle();
+  const item = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(
+    (row) => row.textContent === label,
+  );
+  expect(item).toBeDefined();
+  await act(async () => item!.click());
+  await settle();
+}
+
+test("team sharing requires explicit team and role choices before one native confirmation", async () => {
+  const calls: string[] = [];
+  const container = await render(calls, shareView([], teams));
+  const form = container.querySelector<HTMLElement>(".share-dialog__team-add")!;
+  const invite = [...form.querySelectorAll<HTMLButtonElement>("button")].find(
+    (button) => button.textContent === translate("share.invite"),
+  )!;
+  expect(invite.disabled).toBe(true);
+  await choose(form.querySelectorAll<HTMLButtonElement>(".ui-select-button")[0], "Engineering");
+  await choose(form.querySelectorAll<HTMLButtonElement>(".ui-select-button")[1], translate("share.role.talk"));
+  expect(calls).toEqual([]);
+  expect(invite.disabled).toBe(false);
+  await act(async () => invite.click());
+  expect(calls).toEqual(["team team-b talk"]);
+});
+
+test("saved team grants display role and copy their own invitation, not a bearer URL", async () => {
+  const calls: string[] = [];
+  const container = await render(calls, shareView([teamShare], teams));
+  const row = container.querySelector<HTMLElement>(".share-dialog__teams li")!;
+  expect(row.textContent).toContain("Design");
+  expect(row.textContent).toContain(translate("share.role.talk"));
+  expect(container.querySelector(".share-dialog__general")?.textContent).toContain(translate("share.restricted"));
+  const buttons = row.querySelectorAll<HTMLButtonElement>("button");
+  await act(async () => buttons[0].click());
+  await act(async () => buttons[1].click());
+  expect(calls).toEqual(["copy https://room/i/team-share", "revoke team-share"]);
+  await act(async () =>
+    container.querySelector<HTMLButtonElement>(".share-dialog__team-add .ui-select-button")!.click(),
+  );
+  await settle();
+  const options = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].map((item) => item.textContent);
+  expect(options).toEqual(["Engineering"]);
+});
+
+test("team writes and copies wait while a request is pending", async () => {
+  const container = await render([], shareView([teamShare], teams), true);
+  for (const button of container.querySelectorAll<HTMLButtonElement>(
+    ".share-dialog__team-add button, .share-dialog__teams button",
+  )) {
+    expect(button.disabled).toBe(true);
+  }
 });

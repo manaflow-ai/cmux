@@ -52,6 +52,8 @@ struct Shared {
     on_put: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     /// Overrides the next successful `PUT`'s URL base (used to exercise bad room responses).
     url_base_once: Mutex<Option<String>>,
+    /// The room predates team shares and ignores the requested team.
+    omit_team_ack: AtomicBool,
     /// Holds every `DELETE` response until the test releases it.
     delete_gate: Mutex<Option<DeleteGate>>,
     /// Signals a test watcher as each `DELETE` enters the fake room.
@@ -221,7 +223,7 @@ fn serve(stream: TcpStream, shared: &Shared, seen: &Sender<Seen>, base: &str) {
             let _ = sender.send(());
         }
     }
-    let (status, reply) = match method.as_str() {
+    let (status, mut reply) = match method.as_str() {
         "PUT" => match shared.puts.lock().unwrap().pop_front() {
             None if shared.on_put.lock().unwrap().is_some() => {
                 shared.on_put.lock().unwrap().take().unwrap()();
@@ -250,6 +252,15 @@ fn serve(stream: TcpStream, shared: &Shared, seen: &Sender<Seen>, base: &str) {
         },
         _ => (shared.deletes.lock().unwrap().pop_front().unwrap_or(200), json!({})),
     };
+    // The real room echoes a requested team id. This lets daemon tests exercise the
+    // compatibility check that rejects an older room silently dropping team access.
+    if method == "PUT"
+        && !shared.omit_team_ack.load(Ordering::SeqCst)
+        && let Some(team) = body.get("team_id").cloned()
+        && let Some(object) = reply.as_object_mut()
+    {
+        object.insert("team_id".into(), team);
+    }
     let _ = seen.send(Seen::Request { method, path, bearer, body });
     if is_delete {
         if let Some(gate) = shared.delete_gate.lock().unwrap().clone() {
@@ -433,6 +444,108 @@ fn every_invite_url_of_an_answer_names_the_build() {
     let mut after = before.clone();
     name_app_in_invites(&mut after, "");
     assert_eq!(after, before);
+}
+
+#[test]
+fn a_team_share_is_provisioned_with_a_secretless_invite_url_and_acknowledged_team() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, _mux, surface, mut owner) = bridged("room-team-share", &room);
+    let team = "team_0123456789abcdef0123";
+    let reply = owner.request(json!({
+        "cmd": "agent-session-share-create",
+        "surface": surface,
+        "owner_token": OWNER_TOKEN,
+        "team_id": team,
+        "role": "talk"
+    }));
+    assert_eq!(reply["ok"], true, "{reply}");
+    let share = &reply["data"];
+    let id = share["share_id"].as_str().unwrap();
+    assert_eq!(share["team_id"], team);
+    assert!(share.get("secret").is_none(), "team access must not expose a link secret");
+    assert_eq!(share["url"], format!("{}/i/{id}", room.url));
+    let (path, bearer, body) = room.request("PUT");
+    assert_eq!(path, format!("/v1/chat-shares/{id}"));
+    assert_eq!(bearer, OWNER_TOKEN);
+    assert_eq!(body["team_id"], team);
+}
+
+#[test]
+fn a_room_that_ignores_team_access_is_deleted() {
+    let room = FakeRoom::start(&[]);
+    room.shared.omit_team_ack.store(true, Ordering::SeqCst);
+    let (_fake, _mux, surface, mut owner) = bridged("room-no-team-ack", &room);
+    let reply = owner.request(json!({"cmd":"agent-session-share-create", "surface":surface,
+        "owner_token":OWNER_TOKEN, "team_id":"team_0123456789abcdef0123"}));
+    assert_code(&reply, "share.room_refused");
+    let (put_path, _, _) = room.request("PUT");
+    let (delete_path, bearer, _) = room.request("DELETE");
+    assert_eq!(delete_path, put_path);
+    assert_eq!(bearer, "host-token-1");
+}
+
+#[test]
+fn a_team_redeem_carries_the_room_attestation_to_the_daemon() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, _mux, surface, mut owner) = bridged("room-team-redeem", &room);
+    let team = "team_0123456789abcdef0123";
+    let reply = owner.request(json!({
+        "cmd": "agent-session-share-create",
+        "surface": surface,
+        "owner_token": OWNER_TOKEN,
+        "team_id": team,
+        "role": "talk"
+    }));
+    assert_eq!(reply["ok"], true, "{reply}");
+    let share = &reply["data"];
+    // Only the authenticated room may attest membership, even on the owner's control socket.
+    let forged = owner.request(json!({"cmd":"agent-session-share-redeem", "share_id":share["share_id"],
+        "attempt_id":"local", "account":"member@example.com", "name":"Member", "team_id":team, "secret":""}));
+    assert_code(&forged, "share.bad_request");
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    room.send(json!({"v": 1, "t": "redeem", "request_id": "r1", "attempt_id": "a1",
+        "account": "member@example.com", "team_id": team, "name": "Member"}));
+    let redeemed = room.frame(conn);
+    assert_eq!(redeemed["t"], "redeemed");
+    assert_eq!(redeemed["role"], "talk");
+    assert!(redeemed.get("error").is_none(), "{redeemed}");
+    let row = state(&mut owner);
+    assert_eq!(row["uses_left"], 1);
+    assert_eq!(row["guests"][0]["via"], "team");
+}
+
+#[test]
+fn a_kicked_team_guest_cannot_join_again_by_the_team() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, _mux, surface, mut owner) = bridged("room-team-kick", &room);
+    let team = "team_0123456789abcdef0123";
+    let reply = owner.request(json!({
+        "cmd": "agent-session-share-create",
+        "surface": surface,
+        "owner_token": OWNER_TOKEN,
+        "team_id": team,
+        "role": "talk"
+    }));
+    assert_eq!(reply["ok"], true, "{reply}");
+    let share_id = reply["data"]["share_id"].clone();
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    room.send(json!({"v": 1, "t": "redeem", "request_id": "r1", "attempt_id": "a1",
+        "account": "member@example.com", "team_id": team, "name": "Member"}));
+    let redeemed = room.frame(conn);
+    assert!(redeemed.get("error").is_none(), "{redeemed}");
+    let guest = state(&mut owner)["guests"][0]["guest_id"].clone();
+    let kick = json!({"cmd":"agent-session-share-kick", "share_id":share_id, "guest_id":guest});
+    assert_eq!(owner.request(kick)["ok"], true);
+    assert_eq!(room.next(conn, "kick")["guest_id"], guest);
+    // Team membership still holds, but the owner's kick sticks: the next join is refused.
+    room.send(json!({"v": 1, "t": "redeem", "request_id": "r2", "attempt_id": "a2",
+        "account": "member@example.com", "team_id": team, "name": "Member"}));
+    // The kick also sends a `guests` frame; read on to the answer to this redeem.
+    let again = room.next(conn, "redeemed");
+    assert_eq!(again["request_id"], "r2", "{again}");
+    assert_eq!(again["error"], "share.kicked", "{again} {}", state(&mut owner));
 }
 
 #[test]
@@ -915,6 +1028,7 @@ fn restart_resumes_roomless_pending_deletes_at_expiry_and_frees_capacity() {
                 requests: Vec::new(),
                 role: None,
                 signed_in_role: None,
+                team_id: None,
             }));
             Ok(((), true))
         })
@@ -968,7 +1082,8 @@ fn restart_resumes_roomless_pending_deletes_at_expiry_and_frees_capacity() {
                     uses: 1,
                     create_id: None,
                     role: None,
-                    signed_in_role: None
+                    signed_in_role: None,
+                    team_id: None,
                 },
                 false
             )
@@ -1048,7 +1163,14 @@ fn retry_exhaustion_keeps_owner_cleanup_when_revocation_cannot_be_written() {
             None,
             SESSION.into(),
             surface,
-            ShareTerms { ttl_secs: 60, uses: 1, create_id: None, role: None, signed_in_role: None },
+            ShareTerms {
+                ttl_secs: 60,
+                uses: 1,
+                create_id: None,
+                role: None,
+                signed_in_role: None,
+                team_id: None,
+            },
             true,
         )
         .unwrap();
@@ -1089,7 +1211,14 @@ fn revoking_before_the_put_answer_persists_cleanup_across_restart() {
             Some(&directory),
             SESSION.into(),
             1,
-            ShareTerms { ttl_secs: 60, uses: 1, create_id: None, role: None, signed_in_role: None },
+            ShareTerms {
+                ttl_secs: 60,
+                uses: 1,
+                create_id: None,
+                role: None,
+                signed_in_role: None,
+                team_id: None,
+            },
             true,
         )
         .unwrap();
@@ -1126,7 +1255,14 @@ fn a_revoked_inflight_provision_is_not_evicted_before_its_late_host_token() {
             None,
             SESSION.into(),
             surface,
-            ShareTerms { ttl_secs: 60, uses: 1, create_id: None, role: None, signed_in_role: None },
+            ShareTerms {
+                ttl_secs: 60,
+                uses: 1,
+                create_id: None,
+                role: None,
+                signed_in_role: None,
+                team_id: None,
+            },
             true,
         )
         .unwrap();
@@ -1144,6 +1280,7 @@ fn a_revoked_inflight_provision_is_not_evicted_before_its_late_host_token() {
                     create_id: None,
                     role: None,
                     signed_in_role: None,
+                    team_id: None,
                 },
                 false,
             )
@@ -1154,7 +1291,14 @@ fn a_revoked_inflight_provision_is_not_evicted_before_its_late_host_token() {
             None,
             SESSION.into(),
             surface,
-            ShareTerms { ttl_secs: 60, uses: 1, create_id: None, role: None, signed_in_role: None },
+            ShareTerms {
+                ttl_secs: 60,
+                uses: 1,
+                create_id: None,
+                role: None,
+                signed_in_role: None,
+                team_id: None
+            },
             false
         ),
         Err("share.limit")
@@ -1175,7 +1319,14 @@ fn a_late_host_token_for_an_inflight_tokenless_delete_still_reaches_the_room() {
             None,
             SESSION.into(),
             surface,
-            ShareTerms { ttl_secs: 60, uses: 1, create_id: None, role: None, signed_in_role: None },
+            ShareTerms {
+                ttl_secs: 60,
+                uses: 1,
+                create_id: None,
+                role: None,
+                signed_in_role: None,
+                team_id: None,
+            },
             true,
         )
         .unwrap();
@@ -1314,6 +1465,7 @@ fn a_restart_reopens_the_host_socket_of_an_active_bridged_share() {
                 requests: Vec::new(),
                 role: None,
                 signed_in_role: None,
+                team_id: None,
             });
             Ok(((), true))
         })
@@ -1356,6 +1508,7 @@ fn a_kick_of_an_ended_share_holds_no_capacity_and_goes_with_its_delete() {
                 requests: Vec::new(),
                 role: None,
                 signed_in_role: None,
+                team_id: None,
             }));
             Ok(((), false))
         })
@@ -1371,7 +1524,8 @@ fn a_kick_of_an_ended_share_holds_no_capacity_and_goes_with_its_delete() {
                     uses: 1,
                     create_id: None,
                     role: None,
-                    signed_in_role: None
+                    signed_in_role: None,
+                    team_id: None,
                 },
                 false
             )

@@ -891,17 +891,9 @@ final class CloudService {
     }
 
     /// A guest link's owner token from `api` (the daemon's room's, cmux#31372; nil: the build's default), registering that install first when
-    /// sign-in did not (a DEV build on the local backend never calls the Cloud API). Nil signed out, switched, or with Cloud off or no team.
-    func shareOwnerToken(api: URL?) async -> String? {
-        guard let stackUser = await auth.restoredUserID(), !policyDisabled, auth.managedTeamID == nil || auth.teamID != nil else { return nil }
-        let auth = auth, share = await shareInstalls.identity(for: api)
-        do {
-            try await share.signedIn(stackUser: stackUser, session: { try await auth.tokens().access })
-            let token = try await share.installToken()
-            return auth.user?.id == stackUser ? token : nil // an account switch meanwhile: not the old account's token
-        } catch {
-            logger.error("share owner token failed: \(String(describing: error), privacy: .public)")
-            return nil
-        }
+    /// sign-in did not (a DEV build on the local backend never calls the Cloud API). Nil signed out, switched, or with Cloud off or no team;
+    /// with `team` or `accountScope`, a scoped token, by Rust's share-team rules (`CloudAuth.shareOwnerToken`).
+    func shareOwnerToken(api: URL?, team: String? = nil, accountScope: String? = nil) async -> String? {
+        policyDisabled ? nil : await auth.shareOwnerToken(installs: shareInstalls, api: api, team: team, accountScope: accountScope)
     }
 }

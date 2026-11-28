@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "share.teamHint" : {
+      "comment" : "Agent pane: explicit team access in the Share dialog; team permission does not bypass owner approval for sending.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يمكن لأعضاء الفريق فتح هذه المحادثة. يتطلب إرسال الرسائل موافقة المالك."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Članovi tima mogu otvoriti ovaj razgovor. Slanje poruka zahtijeva odobrenje vlasnika."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Teammedlemmer kan åbne denne chat. Afsendelse af beskeder kræver ejerens godkendelse."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Teammitglieder können diesen Chat öffnen. Das Senden von Nachrichten erfordert die Zustimmung des Eigentümers."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Team members can open this chat. Sending messages requires owner approval."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Los miembros del equipo pueden abrir este chat. Enviar mensajes requiere la aprobación del propietario."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les membres de l’équipe peuvent ouvrir cette discussion. L’envoi de messages nécessite l’approbation du propriétaire."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "I membri del team possono aprire questa chat. L’invio di messaggi richiede l’approvazione del proprietario."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "チームメンバーはこのチャットを開けます。メッセージの送信には所有者の承認が必要です。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "សមាជិកក្រុមអាចបើកការជជែកនេះបាន។ ការផ្ញើសារតម្រូវឱ្យមានការយល់ព្រមពីម្ចាស់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "팀 구성원은 이 채팅을 열 수 있습니다. 메시지를 보내려면 소유자의 승인이 필요합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Teammedlemmer kan åpne denne chatten. Sending av meldinger krever eierens godkjenning."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Członkowie zespołu mogą otworzyć ten czat. Wysyłanie wiadomości wymaga zgody właściciela."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Membros da equipe podem abrir este chat. O envio de mensagens requer a aprovação do proprietário."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Участники команды могут открыть этот чат. Для отправки сообщений требуется одобрение владельца."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "สมาชิกทีมสามารถเปิดแชตนี้ได้ การส่งข้อความต้องได้รับการอนุมัติจากเจ้าของ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Takım üyeleri bu sohbeti açabilir. Mesaj göndermek için sahibin onayı gerekir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Учасники команди можуть відкрити цей чат. Для надсилання повідомлень потрібне схвалення власника."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Thành viên nhóm có thể mở cuộc trò chuyện này. Việc gửi tin nhắn cần chủ sở hữu phê duyệt."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "团队成员可以打开此聊天。发送消息需要所有者批准。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "團隊成員可以開啟此聊天。傳送訊息需要擁有者核准。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
