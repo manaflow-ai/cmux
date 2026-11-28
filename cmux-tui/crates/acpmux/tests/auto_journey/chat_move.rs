@@ -7,6 +7,8 @@
 //!   Asked again on its way, it is set to local already.
 //! - Cloud, for a chat kept in the Cloud that still runs on the laptop: it is moved, not
 //!   answered as there already.
+//! - Asked of the Cloud machine that runs the chat (the agent's own `cmux chat move` there):
+//!   Cloud and Auto are a keep toggle, and Local gives it home to the laptop that stands by.
 
 use cmux_auto_session::consts::RENEW_MS;
 use serde_json::{Value, json};
@@ -115,4 +117,64 @@ async fn a_chat_kept_in_the_cloud_that_still_runs_here_is_moved_when_asked() {
     .await;
     let there = chat_move(&laptop, &id, "cloud").await;
     assert_eq!(outcome(&there), ("already", "cloud", "cloud"), "{there}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_cloud_machine_moves_a_chat_it_runs_between_cloud_and_auto_and_home() {
+    let _hermetic = &crate::HERMETIC;
+    let world = World::new().await;
+    let laptop = world.start_laptop();
+    let machine = &world.machine;
+    let id = auto_chat(&world, &laptop, None).await;
+    let session = laptop.hub.resolve(&id).expect("the chat");
+    send(&laptop.hub, &session, "p-hello", "hello").await;
+    log_when(&laptop.hub, &id, "the laptop's turn", |log| answered(log, "hello")).await;
+    chat_move(&laptop, &id, "cloud").await;
+    world.until_view(&id, "the chat is on the machine", |view| view.holder == vm()).await;
+    world.machine_at_rest(&id).await;
+    world
+        .until_view(&id, "the laptop is listed as standby", |view| view.standby.contains(&device()))
+        .await;
+
+    // Cloud -> Auto, asked where the chat runs: it stops being kept in the Cloud.
+    let auto = chat_move(machine, &id, "auto").await;
+    assert_eq!(outcome(&auto), ("moved", "cloud", "auto"), "{auto}");
+    assert!(!world.view(&id).keep_in_cloud, "the store stopped keeping it");
+    // Auto -> Cloud: kept there again, and nothing moved.
+    let cloud = chat_move(machine, &id, "cloud").await;
+    assert_eq!(outcome(&cloud), ("moved", "auto", "cloud"), "{cloud}");
+    let view = world.view(&id);
+    assert!(view.keep_in_cloud && view.holder == vm() && view.epoch == 2, "{view:?}");
+
+    // Cloud -> Local: the machine gives the chat home to the laptop that stands by, which runs
+    // it as an Auto chat; the conversation comes along.
+    let home = chat_move(machine, &id, "local").await;
+    assert_eq!(outcome(&home), ("moving", "cloud", "local"), "{home}");
+    assert_eq!(home["autoSession"]["moving"], "local", "{home}");
+    assert!(home["note"].as_str().is_some_and(|note| note.contains("auto")), "{home}");
+    world.pass(RENEW_MS);
+    world.until_view(&id, "the chat left the machine", |view| view.holder == device()).await;
+    world.pass(RENEW_MS);
+    until("the laptop runs the chat", || {
+        let row = laptop.row(&id);
+        row["here"] == true && row["mode"] == "auto" && row.get("moving").is_none()
+    })
+    .await;
+    assert!(answered(&log_of(&laptop.hub, &id), "hello"), "the chat's history came along");
+    // And from the laptop, the last step to this Mac only.
+    let local = chat_move(&laptop, &id, "local").await;
+    assert_eq!(outcome(&local).2, "local", "{local}");
+    until("Auto is off for the chat on the laptop", || laptop.row(&id)["auto"] == false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_cloud_machine_does_not_move_a_chat_it_does_not_run() {
+    let _hermetic = &crate::HERMETIC;
+    let world = World::new().await;
+    let laptop = world.start_laptop();
+    let id = auto_chat(&world, &laptop, None).await;
+    // The laptop holds the chat; the machine has nothing of it to move.
+    let asked = world.machine.request("_acpmux/chat_move", json!({"sessionId": id, "on": "local"}));
+    assert!(asked.await.is_err(), "a chat the machine does not have");
+    assert_eq!(world.view(&id).holder, device());
 }
