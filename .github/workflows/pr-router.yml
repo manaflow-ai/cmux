@@ -447,7 +447,7 @@ jobs:
   size-budget:
     name: cmux-next size budget
     needs: [route, compile-preflight]
-    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-next-size-budget.yml') }}
+    if: ${{ !cancelled() && !failure() && needs.compile-preflight.result == 'success' && (contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-next-size-budget.yml')) }}
     uses: ./.github/workflows/cmux-next-size-budget.yml
     with:
       web_bundle_key: ${{ needs.compile-preflight.outputs.web_bundle_key }}
