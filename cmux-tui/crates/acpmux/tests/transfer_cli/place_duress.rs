@@ -179,7 +179,31 @@ fn signal(pids: &[u32], sig: &str) {
         .args(pids.iter().map(u32::to_string))
         .status()
         .unwrap();
-    assert!(status.success() || sig == "KILL", "kill -{sig} {pids:?}");
+    // The tree is listed before the signal, so a short-lived child (a stand-in `vm` call) can exit in
+    // between and `kill` reports it gone. Only a listed process that is still there and refused counts.
+    let refused: Vec<u32> = if status.success() || sig == "KILL" {
+        Vec::new()
+    } else {
+        pids.iter().copied().filter(|p| alive(*p)).collect()
+    };
+    let retry_ok = refused.is_empty()
+        || Command::new("kill")
+            .arg(format!("-{sig}"))
+            .args(refused.iter().map(u32::to_string))
+            .status()
+            .unwrap()
+            .success()
+        || refused.iter().all(|p| !alive(*p));
+    assert!(retry_ok, "kill -{sig} {refused:?} (listed {pids:?})");
+}
+
+fn alive(pid: u32) -> bool {
+    Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 /// The source machine dies: its daemon and everything under it, SIGKILL; then it starts again
