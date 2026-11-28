@@ -105,7 +105,7 @@ public nonisolated struct ServerReachPlan: Sendable, Equatable {
     /// one is built here, by ``ServerReach/brainRoute(serverName:)`` and its SSH checks.
     public static func route(for host: PairedServer, install: String? = nil, local: LocalServer?, link: LinkPeers? = nil) -> ServerReach.Route? {
         let request = ChiefRules.RouteRequest(host: host, install: install, local: local, link: link)
-        let route = ChiefRules.rule(.reachRoute, request, else: ChiefRules.RouteReply()).route
+        let route = ChiefRules.rule("reach_route", request, else: ChiefRules.RouteReply()).route
         switch route?.kind {
         case "unix": if let socket = route?.socket { return .unix(socket) }
         case "overlay": if let socket = route?.linkSocket { return .overlay(linkSocket: socket) }
@@ -120,7 +120,7 @@ public nonisolated struct ServerReachPlan: Sendable, Equatable {
     /// when this Mac has no link install (bead cx-ill).
     public static func isThisMac(_ host: PairedServer, install: String?, local: LocalServer, link: LinkPeers?) -> Bool {
         let request = ChiefRules.ThisMacRequest(host: host, install: install, local: local, link: link)
-        return ChiefRules.rule(.reachIsThisMac, request, else: ChiefRules.ThisMac()).thisMac
+        return ChiefRules.rule("reach_is_this_mac", request, else: ChiefRules.ThisMac()).thisMac
     }
 
     /// `cmux link show` and `cmux link peer list` JSON: the link, running or
@@ -168,7 +168,7 @@ public nonisolated struct ServerReachPlan: Sendable, Equatable {
             list.indices.map { .init(hostID: list[$0].hostID, installID: list[$0].installID, name: "\(prefix)\($0)", route: token(list[$0].route)) }
         }
         let request = ChiefRules.DiffRequest(shown: reaches(shown, "s"), desired: reaches(desired, "d"))
-        let diff = ChiefRules.rule(.reachDiff, request, else: ChiefRules.Diff())
+        let diff = ChiefRules.rule("reach_diff", request, else: ChiefRules.Diff())
         func back(_ named: [ChiefRules.Diff.Reach]) -> [ServerReach] {
             named.compactMap { Int($0.name.dropFirst()).flatMap { desired.indices.contains($0) ? desired[$0] : nil } }
         }

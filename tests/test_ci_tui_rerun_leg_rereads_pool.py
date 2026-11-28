@@ -20,8 +20,6 @@ WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-build-package.yml"
 CALLER = ROOT / ".github" / "workflows" / "cmux-tui-artifacts.yml"
 RETRY_MAC = "glaeda-side-std-xcode-26.6"
 RETRY_LINUX = "cmux-gcp-nightly-x64"
-# The build legs' retry: the nightly's on-demand one-job JIT label, off the spot pool (cmuxterm-hq#36618).
-RETRY_LINUX_BUILD = "cmux-gcp-nightly-jit-x64"
 
 
 def runs_on() -> str:
@@ -78,7 +76,7 @@ class BuildLegRunner(unittest.TestCase):
         callers = [line for line in lines if line.strip().startswith("linux_retry_runner:")]
         self.assertGreaterEqual(len(callers), 2, "build-linux and build must pass linux_retry_runner")
         for line in callers:
-            self.assertIn(f"'{RETRY_LINUX_BUILD}'", line)
+            self.assertIn(f"'{RETRY_LINUX}'", line)
             self.assertIn("github.repository_owner == 'manaflow-ai'", line)
 
 

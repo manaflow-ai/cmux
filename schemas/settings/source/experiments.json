@@ -932,30 +932,6 @@
           ]
         },
         {
-          "key": "experiments.feed",
-          "note": "Taste prototype: the Feed page (webviews/src/pages/feed, the daemon's feed client) as its own page in the sidebar, beside Home, so agent turns, approvals, PR and CI updates and notifications read as one feed (hq docs/design/feed-sidebar.md, ask c-9f58e14079). Off by default; off shows no Feed entry anywhere.",
-          "title": {
-            "key": "settings.experiments.feed",
-            "text": "Feed"
-          },
-          "help": {
-            "key": "settings.experiments.feed.help",
-            "text": "Read every update in one feed: agents that finished or wait on you, approvals, pull requests, CI and notifications, newest first."
-          },
-          "kind": "toggle",
-          "default": false,
-          "keywords": [
-            "experiments",
-            "experimental",
-            "prototype",
-            "feed",
-            "updates",
-            "inbox",
-            "notifications",
-            "agents"
-          ]
-        },
-        {
           "key": "experiments.foldSummaryCounts",
           "note": "Fold summary: duration only (off, today's line) or with counts (on). A finished turn's closed \"Worked for\" names the work it hides after its time, as the tool runs name theirs: \"Worked for 36s · ran 4 commands, edited 2 files\", failed calls as the runs' \"(1 failed)\" in the failure tone (webviews conversation/turns.ts workedCountsText, useExperimentSwitch(\"foldSummaryCounts\")). Off by default until Leo picks; off keeps today's duration-only line.",
           "title": {

@@ -76,39 +76,6 @@ fn three_way_merges_separate_edits_and_refuses_overlapping_ones() {
 }
 
 #[test]
-fn a_side_that_only_added_lines_the_other_has_takes_the_fuller_side() {
-    let base = "---\nname: s\n---\n- 11-27 start\n";
-    let ours = "---\nname: s\n---\n- 11-27 start\n- 11-28 01:00Z step\n";
-    let theirs = "---\nname: s\n---\n- 11-27 start\n- 11-28 01:00Z step\n- 11-28 02:00Z next\n";
-    assert_eq!(
-        three_way("s-state.md", base.as_bytes(), ours.as_bytes(), theirs.as_bytes()),
-        Merged::Clean(theirs.as_bytes().to_vec())
-    );
-    assert_eq!(
-        three_way("s-state.md", base.as_bytes(), theirs.as_bytes(), ours.as_bytes()),
-        Merged::Clean(theirs.as_bytes().to_vec())
-    );
-    // Ours removed a base line theirs kept: not a pure addition, so still a conflict.
-    let ours_cut = "---\nname: s\n---\n- 11-28 01:00Z step\n";
-    let theirs_more =
-        "---\nname: s\n---\n- 11-27 start\n- 11-28 02:00Z next\n- 11-28 01:00Z step\n";
-    assert_eq!(
-        three_way("s-state.md", base.as_bytes(), ours_cut.as_bytes(), theirs_more.as_bytes()),
-        Merged::Conflict
-    );
-    // Both added different lines at the same place: a conflict, as before.
-    assert_eq!(
-        three_way(
-            "s-state.md",
-            base.as_bytes(),
-            format!("{base}- ours\n").as_bytes(),
-            format!("{base}- theirs\n").as_bytes()
-        ),
-        Merged::Conflict
-    );
-}
-
-#[test]
 fn jsonl_merges_by_lines_keeping_both_sides_appends() {
     let base = "{\"a\":1}\n";
     let ours = "{\"a\":1}\n{\"b\":2}\n";

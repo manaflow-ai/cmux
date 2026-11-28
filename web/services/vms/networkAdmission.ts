@@ -60,8 +60,7 @@ export type NetworkAdmissionInput = {
   readonly vmId: string;
 };
 
-type AdmissionRepo = Pick<VmRepositoryShape, "countNetworkAddressHolders" | "countPausedNetworkAddressHolders">;
-const NETWORK_PAUSED_COUNT_TIMEOUT_MS = 1_000;
+type AdmissionRepo = Pick<VmRepositoryShape, "countNetworkAddressHolders">;
 type AdmissionProviders = {
   readonly listNetworkTunnelIds?: (provider: ProviderId, networkId: string) => Effect.Effect<string[], unknown>;
 };
@@ -110,10 +109,7 @@ export function admitNetworkAddress(
 
     const usage: NetworkAddressUsage = { held: machines + (tunnels ?? 0), capacity, machines, tunnels };
     const verdict = networkAdmissionVerdict(usage);
-    if (verdict !== "admit" && shouldAlert(input, verdict)) {
-      const paused = yield* pausedHolders(repo, input);
-      alertNetworkAddressUsage(input, usage, verdict, paused);
-    }
+    if (verdict !== "admit") alertNetworkAddressUsage(input, usage, verdict);
     if (verdict === "full") {
       return yield* Effect.fail(new VmProviderOperationError({
         provider: input.provider,
@@ -128,50 +124,12 @@ export function admitNetworkAddress(
   });
 }
 
-/** At most one alert per network and verdict an hour; claims the slot when it answers true. */
-function shouldAlert(input: NetworkAdmissionInput, verdict: "alert" | "full"): boolean {
+function alertNetworkAddressUsage(input: NetworkAdmissionInput, usage: NetworkAddressUsage, verdict: "alert" | "full"): void {
   const now = Date.now();
   const key = `${input.provider}:${input.network.providerNetworkId}:${verdict}`;
   const last = lastAlertAt.get(key);
-  if (last !== undefined && now - last < NETWORK_ALERT_INTERVAL_MS) return false;
+  if (last !== undefined && now - last < NETWORK_ALERT_INTERVAL_MS) return;
   lastAlertAt.set(key, now);
-  return true;
-}
-
-export type PausedAddressHolders = { readonly paused: number; readonly oldestPausedHours: number | null };
-
-/**
- * How many of the held addresses belong to paused machines, and how long the
- * oldest has sat (Leo's item 4: "Paused sandboxes must release addresses or
- * have bounded expiry"). The provider keeps a paused machine's address and
- * cannot detach it, so the alert names this share for an operator to reclaim.
- * Read only when an alert fires; a failed or slow read reports null.
- */
-export function pausedHolders(repo: AdmissionRepo, input: NetworkAdmissionInput): Effect.Effect<PausedAddressHolders | null> {
-  const read = repo.countPausedNetworkAddressHolders;
-  if (!read || !input.network.cidr) return Effect.succeed(null);
-  return read({
-    provider: input.provider,
-    userId: input.userId,
-    billingTeamId: input.billingTeamId ?? null,
-    scope: input.network.scope,
-    cidr: input.network.cidr,
-  }).pipe(
-    Effect.map((row): PausedAddressHolders | null => ({
-      paused: row.paused,
-      oldestPausedHours: row.oldestPausedWriteAt === null ? null : Math.floor((Date.now() - row.oldestPausedWriteAt) / 3_600_000),
-    })),
-    Effect.timeoutTo({ duration: NETWORK_PAUSED_COUNT_TIMEOUT_MS, onSuccess: (v) => v, onTimeout: () => null }),
-    Effect.catchAll(() => Effect.succeed(null)),
-  );
-}
-
-function alertNetworkAddressUsage(
-  input: NetworkAdmissionInput,
-  usage: NetworkAddressUsage,
-  verdict: "alert" | "full",
-  paused: PausedAddressHolders | null,
-): void {
   reportError(new Error(verdict === "full" ? "Cloud VM private network full at admission" : "Cloud VM private network past 80% of its addresses"), {
     subsystem: "cloud_vm_alerts",
     code: verdict === "full" ? "private_network_full" : "private_network_addresses_high",
@@ -183,8 +141,6 @@ function alertNetworkAddressUsage(
     capacity: usage.capacity,
     machines: usage.machines,
     tunnels: usage.tunnels,
-    pausedMachines: paused?.paused ?? null,
-    oldestPausedHours: paused?.oldestPausedHours ?? null,
   });
 }
 

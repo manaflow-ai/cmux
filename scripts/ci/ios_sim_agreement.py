@@ -190,13 +190,8 @@ def fetch_run(cache: Path, run_id: int, notes: list[str]) -> None:
             (d / "mac.log").write_text("\n".join(step_lines(log)) + "\n")
         if not (d / "linux").exists() and any(s["name"] == "Upload the fleet pool result" and s.get("conclusion") == "success"
                                               for j in jobs for s in j.get("steps", [])):
-            listing = []
-            for page in range(1, 11):  # one bounded page per call, never gh's own paginate flag
-                got = json.loads(gh(["api", f"repos/{REPO}/actions/runs/{run_id}/artifacts?per_page=100&page={page}"]) or "{}")
-                arts = got.get("artifacts") or []
-                listing += [x["name"] for x in arts if not x.get("expired")]
-                if len(arts) < 100:
-                    break
+            listing = gh(["api", f"repos/{REPO}/actions/runs/{run_id}/artifacts", "--paginate", "--jq",
+                          ".artifacts[] | select(.expired|not) | .name"]).split()
             names = [n for n in listing if n.startswith("kit-sim-linux-result-")]
             (d / "linux").mkdir()
             if names:

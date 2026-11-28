@@ -251,22 +251,6 @@ export function isClaudeAccountId(value: unknown): value is string {
   return typeof value === "string" && ACCOUNT_ID.test(value);
 }
 
-/**
- * A new Bedrock link with a long-lived IAM user key (`AKIA...`, or any key without a session token). RFD 0222 stops
- * uploading those to coderouter: a long-lived AWS key belongs in the person's own secret store or a local Bedrock route.
- * Temporary STS credentials (`ASIA...` with their session token) are still linked. Accounts already stored are not
- * read through here and keep working.
- */
-export const BEDROCK_LONG_LIVED_KEY_ERROR = "bedrock_long_lived_key";
-export const BEDROCK_LONG_LIVED_KEY_MESSAGE =
-  "coderouter no longer stores long-lived AWS keys (AKIA...). Link temporary credentials (an ASIA... key with its session token), or keep the key in your own secret store or a local Bedrock route.";
-
-export function isLongLivedBedrockKey(value: unknown): boolean {
-  if (!isRecord(value) || value.kind !== "bedrock") return false;
-  const accessKeyId = trimmed(value.accessKeyId) ?? "";
-  return accessKeyId.startsWith("AKIA") || !trimmed(value.sessionToken);
-}
-
 export function parseClaudeUpstreamInput(value: unknown): ClaudeUpstreamInput | null {
   if (!isRecord(value)) return null;
   const label = parseLabel(value.label);

@@ -11,7 +11,6 @@ name: Bench baselines (pull request)
 # class), and compares each with its area's nightly baseline read from the public R2 URL with no credential.
 # Bun is set up only when one of the areas' benches is a `bun` command.
 #
-# The machine class carries the CPU model: one pool label hands out hosts with different CPUs (cmux#65157).
 # Red only when all 3 repeats are more than 15% over the baseline (or a bench is over its area's budget_s). A
 # missing baseline, an unreachable store, a bench that cannot run or a broken map warns and passes. The check is
 # not required: it informs a pull request and the landing tools, it does not gate a merge.
@@ -82,11 +81,8 @@ jobs:
           PATHS: ${{ steps.plan.outputs.paths }}
         run: |
           set -uo pipefail
-          # --base-ref HEAD^1: a bench with no baseline for this runner's machine class (OS, arch, cores, CPU model)
-          # also runs at the base on this same runner; slower than base is a notice, never a red (cmux#65157 was
-          # red against a baseline from another CPU in the linux_4 pool). fetch-depth 2 has HEAD^1.
           python3 -I scripts/bench/cmux-bench for-paths --stdin --markdown --run --timeout 150 --repeats 3 --baselines \
-            --base-ref HEAD^1 < "$PATHS" | tee -a "$GITHUB_STEP_SUMMARY"
+            < "$PATHS" | tee -a "$GITHUB_STEP_SUMMARY"
           code=${PIPESTATUS[0]}
           if [ "$code" -eq 1 ]; then
             echo "::error title=Bench baselines::3 of 3 repeats are >15% over the area's nightly baseline, or a bench is over its budget_s; see the Bench runs above"

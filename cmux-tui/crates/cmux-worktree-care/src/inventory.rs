@@ -304,12 +304,8 @@ fn worktree(
         match crate::walk_memo::facts(&entry.path, now, |f| {
             signature(&entry, common_dir, &f.git_dir)
         }) {
-            // Whether its owner still runs, and what a fetch moved, are asked every time.
-            Some(facts) => {
-                let mut facts = Facts { owner: owner(&facts.git_dir), ..facts };
-                remote_facts(&entry, common_dir, overrides, bases, finished_memo, &mut facts)
-                    .map(|()| facts)
-            }
+            // Whether its owner still runs is asked every time.
+            Some(facts) => Ok(Facts { owner: owner(&facts.git_dir), ..facts }),
             None => {
                 let facts = facts(&entry, common_dir, overrides, bases, finished_memo);
                 if let Ok(read) = &facts {
@@ -334,11 +330,9 @@ fn worktree(
 
 /// What a worktree's facts were read under, from stats alone: HEAD and the
 /// branch the listing names, and the times of its folder, its `.git` file,
-/// its private git folder's HEAD, index and reflog, and the branch's local
-/// ref and reflog. A commit, checkout, stage or new top-level file moves one.
-/// A fetch or push does not: the common folder is shared by every lane's
-/// worktree and fetched all day, so naming it here kept any facts from being
-/// reused; what a fetch moves is read afresh ([`remote_facts`]).
+/// its private git folder's HEAD, index and reflog, and the common folder's
+/// packed refs, FETCH_HEAD and the branch's local and remote-tracking refs.
+/// A commit, checkout, stage, fetch, push or new top-level file moves one.
 fn signature(entry: &ListEntry, common_dir: &Path, git_dir: &Path) -> crate::walk_memo::Signature {
     let mut paths = vec![
         entry.path.clone(),
@@ -347,10 +341,14 @@ fn signature(entry: &ListEntry, common_dir: &Path, git_dir: &Path) -> crate::wal
         git_dir.join("HEAD"),
         git_dir.join("index"),
         git_dir.join("logs/HEAD"),
+        common_dir.join("packed-refs"),
+        common_dir.join("FETCH_HEAD"),
+        common_dir.join("refs/remotes"),
     ];
     if let Some(branch) = entry.branch.as_deref().filter(|b| !b.split('/').any(|p| p == "..")) {
         paths.push(common_dir.join("refs/heads").join(branch));
         paths.push(common_dir.join("logs/refs/heads").join(branch));
+        paths.push(common_dir.join("refs/remotes/origin").join(branch));
     }
     crate::walk_memo::Signature {
         head: entry.head.clone(),
@@ -495,7 +493,16 @@ fn facts(
         }
     }
 
-    remote_facts(entry, common_dir, overrides, bases, finished_memo, &mut facts)?;
+    // Commits only here, and whether the work is on a base already.
+    let remotes = git::read(root, overrides, &["for-each-ref", "--count=1", "refs/remotes/"])?;
+    facts.has_remotes = !remotes.is_empty();
+    if let Some(head) = &entry.head {
+        let count =
+            git::line(root, overrides, &["rev-list", "--count", "HEAD", "--not", "--remotes"])?;
+        facts.unpushed = count.parse().unwrap_or(u32::MAX);
+        facts.finished =
+            finished(root, head, &common_dir.join("objects"), overrides, bases, finished_memo);
+    }
 
     facts.sparse = sparse(root, overrides, &git_dir);
     facts.submodules = match populated_submodules(root, overrides) {
@@ -532,33 +539,6 @@ fn facts(
             .max(branch_activity(common_dir, entry.branch.as_deref()));
     facts.owner = owner(&git_dir);
     Ok(facts)
-}
-
-/// Commits only here, and whether the work is on a base already: the facts
-/// that move with a fetch into the shared common folder. They are read on
-/// every pass, memo or not, so the memo's signature need not name the
-/// common folder's remote refs (which any lane's fetch touches).
-fn remote_facts(
-    entry: &ListEntry,
-    common_dir: &Path,
-    overrides: &[Override],
-    bases: &[String],
-    finished_memo: &FinishedMemo,
-    facts: &mut Facts,
-) -> Result<(), String> {
-    let root = &entry.path;
-    let remotes = git::read(root, overrides, &["for-each-ref", "--count=1", "refs/remotes/"])?;
-    facts.has_remotes = !remotes.is_empty();
-    facts.unpushed = 0;
-    facts.finished = Default::default();
-    if let Some(head) = &entry.head {
-        let count =
-            git::line(root, overrides, &["rev-list", "--count", "HEAD", "--not", "--remotes"])?;
-        facts.unpushed = count.parse().unwrap_or(u32::MAX);
-        facts.finished =
-            finished(root, head, &common_dir.join("objects"), overrides, bases, finished_memo);
-    }
-    Ok(())
 }
 
 /// Whether an ignored path (relative to `root`) is build output: it, or a

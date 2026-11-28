@@ -104,8 +104,6 @@ FAILED, ERRORED, PASSED, AMBIGUOUS = "failed", "errored", "passed", "ambiguous"
 # the runner's exit line, so it is ERRORED: shown, never base evidence. Text that only reads like one (`expected:
 # Process completed with exit code 1.` from a passing negative case) is not (#40542's fourth Codex BLOCK, F1).
 SECTION_RED = re.compile(r"^##\[error\]")
-# The live line the runner ends a failed `run:` step with: a passing step's section never holds one (_aligned_starts).
-RUNNER_EXIT_RED = re.compile(r"^##\[error\]Process completed with exit code \d+\.$")
 # Past this many lines a log is not placed: every line is AMBIGUOUS (kept for a comment, never evidence for an excuse).
 STEP_OWNERS_MAX_LINES = 2_000_000
 
@@ -203,7 +201,7 @@ def step_owners(job: dict, log: str, *, step_names) -> list[tuple[str, int | Non
     return found
 
 
-def _live_red(texts: list[str], low: int, high: int, *, opened: bool, red: re.Pattern = SECTION_RED) -> bool:
+def _live_red(texts: list[str], low: int, high: int, *, opened: bool) -> bool:
     """Whether the section TEXTS[LOW:HIGH] (OPENED: by its step's own header) has a live SECTION_RED line. Every line
     is live but the runner's echo of the step's script and env: the group its own `##[group]Run ...` header opens, up
     to its `##[endgroup]` with no other group opened before it. A post step's `Post job cleanup.`, a group that is not
@@ -217,7 +215,7 @@ def _live_red(texts: list[str], low: int, high: int, *, opened: bool, red: re.Pa
             if texts[n] == "##[endgroup]":
                 live = n + 1
                 break
-    return any(red.match(texts[n]) for n in range(live, high))
+    return any(SECTION_RED.match(texts[n]) for n in range(live, high))
 
 
 def _line_time(line: str) -> datetime | None:
@@ -368,24 +366,15 @@ def _aligned_starts(steps: list[dict], lines: list[str], texts: list[str], windo
     chosen = [starts[s] for s in reversed(own)]
     # The one choice must also agree with what the jobs API says of each workflow step that cannot fail quietly (no
     # `continue-on-error`): failed, its section has a live `##[error]` line (the runner's exit line, an action's
-    # failure); passed, it has no live runner exit line (RUNNER_EXIT_RED; below). A step that printed no header of
-    # its own (a "silent" step, which the runner never makes of a step it ran) would take a composite's same-second inner line for its own and with it the
+    # failure); passed, it has none. A step that printed no header of its own (a "silent" step, which the runner
+    # never makes of a step it ran) would take a composite's same-second inner line for its own and with it the
     # composite's failure: the composite's section then has no `##[error]` line, and nothing is placed
     # (LocalCompositeCannotPose).
-    # A passing step may print `##[error]` lines of its own: a suite whose code under test writes Actions annotations
-    # to stdout (hq's fleet-reconcilers-tests.yml 'freestyle-lane-vms suite' prints `##[error]<lane>: refused: ...`
-    # from passing tests). Its section only disagrees with a pass when it holds the line the runner ends a
-    # failed step with (RUNNER_EXIT_RED), which no passing step ever gets. 2026-11-28: every such line made the one
-    # fitting choice disagree, so main run 46106377067's 'tests' (job 140859953348) was unplaced and hq#35967's and
-    # hq#35280's reds of the same base failure were refused: "its red base verdict's log does not map one to one".
     edges = [*chosen, len(lines)]
     for i, step in enumerate(printing):
         if not expected[i][2] or step.get("conclusion") not in ("success", "failure"):
             continue
-        if step.get("conclusion") == "failure":
-            if not _live_red(texts, edges[i], edges[i + 1], opened=True):
-                return None
-        elif _live_red(texts, edges[i], edges[i + 1], opened=True, red=RUNNER_EXIT_RED):
+        if (step.get("conclusion") == "failure") != _live_red(texts, edges[i], edges[i + 1], opened=True):
             return None
     return chosen
 

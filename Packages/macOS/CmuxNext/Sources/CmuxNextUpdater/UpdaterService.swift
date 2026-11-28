@@ -254,10 +254,9 @@ public final class UpdaterService {
     @ObservationIgnored var droppedPulled: Set<String> = []
     /// The running build's pull started its fetch of the newest build (once per launch).
     @ObservationIgnored var runningPulledHandled = false
-    /// Replaces the install's disk preflight (``installPreflightFailure()``), a click's or an automatic one's, in tests.
+    /// Replaces the install click's disk preflight (``installPreflightFailure()``) in tests.
     @ObservationIgnored var preflightOverride: (() -> UpdateInstallPreflight.Failure?)?
-    /// Sparkle's cancel of the staged installer alone; it returns whether an installer was held and is now cancelled.
-    /// Callers use ``cancelStagedUpdate()``, which stops the staged build's pre-warm first.
+    /// The cancel returns whether an installer was held and is now cancelled.
     @ObservationIgnored var cancelStaged: () -> Bool = { false }
     @ObservationIgnored var acceptAvailable: () -> Void = {}
     /// Stops Sparkle's running download (its cancellation deletes the partial file); returns

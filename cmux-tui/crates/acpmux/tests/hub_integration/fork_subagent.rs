@@ -135,14 +135,12 @@ async fn a_claude_subagent_forks_into_a_chat_of_its_own() {
     // The mode and the model, before the reply.
     assert_eq!(meta.modes.as_ref().unwrap()["currentModeId"], "plan", "{:?}", meta.modes);
     assert!(
-        // Whichever way the harness takes it: at spawn (Claude Code's `--model`, the fork's
-        // `model_request` since #50272), as a config option, or set_model.
-        meta.model_request.as_deref() == Some("haiku")
-            || events.iter().any(|e| {
-                let sets_model = matches!(e.kind.as_str(), "model" | "config")
-                    || e.msg["method"] == method::SESSION_SET_MODEL;
-                sets_model && e.msg.to_string().contains("haiku")
-            }),
+        // Whichever way the harness takes it: at spawn, as a config option, or set_model.
+        events.iter().any(|e| {
+            let sets_model = matches!(e.kind.as_str(), "model" | "config")
+                || e.msg["method"] == method::SESSION_SET_MODEL;
+            sets_model && e.msg.to_string().contains("haiku")
+        }),
         "the model is set: {events:?}"
     );
     // The info view's forkOf.

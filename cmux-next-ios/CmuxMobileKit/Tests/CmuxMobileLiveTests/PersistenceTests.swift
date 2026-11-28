@@ -188,17 +188,13 @@ import Testing
 
     @Test func theMacIsAskedToForgetThisPhoneWithASignedUnpair() async throws {
         let keys = PhoneKeys(userID: "user-a", service: "test.unpair", store: MemorySecretStore(), enclave: false)
-        var pairing = LinkPairing(keys: keys, phoneID: "phone-1", name: "iPhone", pins: MacPins(file: nil))
-        // The test host has its own bundle id and build: pin them, so the Mac's log sees which app asked (#63408).
-        pairing.bundleID = "dev.cmux.test"
-        pairing.appBuild = "42"
+        let pairing = LinkPairing(keys: keys, phoneID: "phone-1", name: "iPhone", pins: MacPins(file: nil))
         let channel = AuthChannel(.object(["challenge": .string("nonce-1"), "mac": .string("mac-1")]))
         let link = RecordingLink(channel)
         await pairing.unpair(link: link, macID: "mac-1")
         let (identity, approval) = try keys.publicKeys()
         #expect(link.opened.map(\.0) == ["auth"])
-        #expect(link.opened.first?.1 == ["identityKey": identity, "approvalKey": approval, "name": "", "action": "unpair",
-                                         "bundleId": "dev.cmux.test", "appBuild": "42"])
+        #expect(link.opened.first?.1 == ["identityKey": identity, "approvalKey": approval, "name": "", "action": "unpair"])
         let sent = try #require(channel.sent.first)
         let reply = try JSONDecoder().decode(JSONValue.self, from: sent)
         let signatureHex = try #require(reply["signature"]?.stringValue)

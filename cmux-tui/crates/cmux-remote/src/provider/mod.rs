@@ -329,20 +329,10 @@ pub fn lane_bindings(policy: LanePolicy, capabilities: ProviderCapabilities) -> 
 #[derive(Debug)]
 pub enum ProviderError {
     UnsupportedScheme(String),
-    UnsupportedClientAuth {
-        scheme: String,
-        auth: AuthKind,
-    },
+    UnsupportedClientAuth { scheme: String, auth: AuthKind },
     Configuration(String),
     Link(LinkError),
     Transport(String),
-    /// The relay is full or rate limiting: it answered the WebSocket upgrade 503 or 429. A
-    /// recoverable wait, never a failure; `retry_after` is the relay's `Retry-After`, when it
-    /// sent one. A caller waits it out (with jitter) and tries another relay meanwhile.
-    RelayBusy {
-        status: u16,
-        retry_after: Option<std::time::Duration>,
-    },
 }
 
 impl ProviderError {
@@ -365,7 +355,6 @@ impl ProviderError {
         matches!(
             self,
             Self::Link(LinkError::Closed | LinkError::Transport(_) | LinkError::Refused(_))
-                | Self::RelayBusy { .. }
         )
     }
 
@@ -401,15 +390,6 @@ impl fmt::Display for ProviderError {
             }
             Self::Link(error) => error.fmt(formatter),
             Self::Transport(message) => write!(formatter, "transport provider failed: {message}"),
-            Self::RelayBusy { status, retry_after: Some(wait) } => write!(
-                formatter,
-                "relay WebSocket connection failed: HTTP status {status}, relay busy, retry after {} s",
-                wait.as_secs()
-            ),
-            Self::RelayBusy { status, retry_after: None } => write!(
-                formatter,
-                "relay WebSocket connection failed: HTTP status {status}, relay busy"
-            ),
         }
     }
 }

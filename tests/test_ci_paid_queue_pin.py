@@ -63,9 +63,6 @@ PAID_ONLY_JOBS: dict[tuple[str, str], str] = {
     ("cmux-tui-team-signed.yml", "sign-helper"): SIGNING + " (Developer ID, environment release-next)",
     ("ios-internal-nightly.yml", "upload"): SIGNING + " (App Store Connect key and iOS distribution certificate)",
     ("ios-testflight.yml", "upload"): SIGNING + " (App Store Connect key and iOS distribution certificate)",
-    ("machine-vault-e2e.yml", "e2e"): "adds a macOS user as root (sudo); an owned mini's runner user may not, so it needs a one-job ephemeral Mac",
-    ("ios-fast-verdict-seed.yml", "seed"): "seeds the DerivedData the iOS fast verdict restores on the Blacksmith Mac pool; the workspace path and Xcode must match that pool, so it seeds on the same ephemeral Mac",
-    ("relay-tls.yml", "system-keychain"): "adds a System keychain trust root as root, which must not outlive the job on a shared machine; a one-job ephemeral Mac",
 }
 
 

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, setSystemTime, test } from "bun:test";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import postgres, { type Sql } from "postgres";
@@ -49,7 +49,6 @@ import { accountDeletionUserHash } from "../services/account/deletionLock";
 import { networkSlugForTeam } from "../services/vms/privateNetwork";
 import { isVmAttachTransportUnsupportedError } from "../services/vms/errors";
 import { settleOnTestClock } from "./helpers/test-clock";
-import { resetFleetAdmissionForTest } from "../services/vms/fleetAdmission";
 import { freestyleGuestFixture, guestCreateOptions } from "./fixtures/freestyleGuest";
 import {
   VM_DISK_MB_MAX,
@@ -84,9 +83,6 @@ import {
   snapshotVm,
   type VmModelPlaneProvisioner,
 } from "../services/vms/workflows";
-
-// Fleet admission keeps a per-process provider cooldown; one test's refusal must not refuse the next.
-beforeEach(() => resetFleetAdmissionForTest());
 
 describe("VM hard restart", () => {
   test("restarts a frozen machine without probing its status or guest", async () => {

@@ -45,7 +45,7 @@ struct AcpmuxPaneMachineHarnessesParamsTests {
     /// The relay filters no `_acpmux/harnesses` reply itself, so a peer's harness list (and its
     /// `peer` field) reaches the page as acpmux sends it.
     @Test func theRelayLeavesTheHarnessReplyWhole() {
-        #expect(!AcpmuxPaneMethods.replyShapedMethods.contains("_acpmux/harnesses"))
+        #expect(AcpmuxPaneMethods.replyShapes["_acpmux/harnesses"] == nil)
     }
 }
 

@@ -586,15 +586,20 @@ final class TabCell {
         if let closeRect {
             let appearing = !hasCloseLayers
             let (closeBackgroundLayer, closeGlyphLayer) = makeCloseLayers()
-            // Helium's plate, centered on the x's square (tab_close_button.cc's highlight around its contents or its
-            // whole button): 14 pt on a tab under 32 pt, 24 pt from 32 pt, with its 4 pt corner. It stays inside the
-            // pill and a point clear of a favicon shown before it, so a narrow tab shrinks it, centered still.
-            var plateSide = min(m.closePlateSide, bounds.height, 2 * (bounds.width - closeRect.midX))
-            if visibility.showsIcon, iconFrame.maxX <= closeRect.minX { plateSide = min(plateSide, 2 * (closeRect.midX - iconFrame.maxX - 1)) }
-            plateSide = max(closeRect.width, plateSide)
-            let plate = CGRect(x: pixel(closeRect.midX - plateSide / 2), y: pixel(midY - plateSide / 2), width: plateSide, height: plateSide)
+            // The plate nests in the pill (Lawrence msg 48706): as far from its top and bottom as its corner is smaller
+            // than the pill's (``TabStripMetrics/closePlateSide``), and in the trailing slot as far from its end too,
+            // to the pixel; elsewhere (a centered x) around the slot. The x is drawn at the plate's center.
+            let plateSide = min(m.closePlateSide, bounds.height)
+            let gap = (bounds.height - plateSide) / 2
+            let trailing = abs(bounds.width - closeRect.midX - bounds.height / 2) <= 0.5
+            let plate = CGRect(x: trailing ? pixel(bounds.width - gap - plateSide) : pixel(closeRect.midX - plateSide / 2),
+                               y: pixel(midY - plateSide / 2), width: plateSide, height: plateSide)
             closeBackgroundLayer.frame = plate
-            closeBackgroundLayer.cornerRadius = min(m.closeCornerRadius, plateSide / 2)
+            // Concentric by default: the pill's corner less the inset as drawn, so a plate the pixel snap moved by a
+            // fraction of a point still shares the pill's centers (a tuned or token corner is used as set).
+            let drawnInset = min(plate.minY - bounds.minY, bounds.maxY - plate.maxY)
+            let corner = m.closeCornerIsConcentric ? max(0, backgroundLayer.cornerRadius - drawnInset) : m.closeCornerRadius
+            closeBackgroundLayer.cornerRadius = min(corner, plateSide / 2)
             closeGlyphLayer.lineWidth = m.closeGlyphLineWidth
             let ink = m.closeGlyphInk, inset = m.closeGlyphPathInset
             let glyph = CGRect(x: pixel(plate.midX - ink / 2), y: pixel(plate.midY - ink / 2), width: ink, height: ink)

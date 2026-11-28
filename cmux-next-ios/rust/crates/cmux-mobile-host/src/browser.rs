@@ -1089,29 +1089,21 @@ async fn launch_process(
     let cache = cache_root.join(&request.tab);
     std::fs::create_dir_all(&cache).map_err(|e| format!("cache {}: {e}", cache.display()))?;
     let log = std::fs::File::create(cache.join("host.log")).map_err(|e| format!("host log: {e}"))?;
-    // `--use-mock-keychain` reaches Chromium through the host's argv: a host binary
-    // built without the switch in rb_shim.mm (the pin e9bed2bc) otherwise waits for
-    // the login Keychain's "Chromium Safe Storage" key it can never read, and every
-    // http(s) load hangs on about:blank (PR #22555 smoke).
-    let args =
-        ["--serve", "--listen", "127.0.0.1:0", "--lifeline", "--use-mock-keychain", "--url", &request.url];
-    launch_lifeline(exe, &args, &[("CMUX_RB_CACHE_DIR", cache.as_os_str())], log, "the browser host").await
-}
-
-/// Starts `exe ARGS` with the lifeline launch contract (`cmux-remote-browser-host` launch.rs):
-/// the new per-launch secret is its first stdin line, stdin stays open while the host may run,
-/// and it prints `{"listening":"ADDR"}` (loopback) on stdout once it takes connections. `what`
-/// names the host in errors.
-pub(crate) async fn launch_lifeline(
-    exe: &std::path::Path,
-    args: &[&str],
-    envs: &[(&str, &std::ffi::OsStr)],
-    log: std::fs::File,
-    what: &str,
-) -> Result<RunningHost, String> {
     let mut child = tokio::process::Command::new(exe)
-        .args(args)
-        .envs(envs.iter().copied())
+        // `--use-mock-keychain` reaches Chromium through the host's argv: a host binary
+        // built without the switch in rb_shim.mm (the pin e9bed2bc) otherwise waits for
+        // the login Keychain's "Chromium Safe Storage" key it can never read, and every
+        // http(s) load hangs on about:blank (PR #22555 smoke).
+        .args([
+            "--serve",
+            "--listen",
+            "127.0.0.1:0",
+            "--lifeline",
+            "--use-mock-keychain",
+            "--url",
+            &request.url,
+        ])
+        .env("CMUX_RB_CACHE_DIR", &cache)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::from(log))
@@ -1125,9 +1117,9 @@ pub(crate) async fn launch_lifeline(
     let mut line = String::new();
     let read = tokio::time::timeout(LAUNCH_TIMEOUT, stdout.read_line(&mut line))
         .await
-        .map_err(|_| format!("{what} did not start in time"))?;
+        .map_err(|_| "the browser host did not start in time".to_owned())?;
     if !matches!(read, Ok(n) if n > 0) {
-        return Err(format!("{what} exited before listening"));
+        return Err("the browser host exited before listening".into());
     }
     let addr = serde_json::from_str::<Value>(line.trim())
         .ok()

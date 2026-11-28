@@ -55,7 +55,7 @@ public nonisolated struct TerminalLinkOpenerRule: Sendable, Hashable {
             guard callers.contains(where: { glob in lowered.contains { globMatches(glob, $0) } }) else { return false }
         }
         guard let urlPattern else { return true }
-        return LinkRouting.externalRulesMatch([urlPattern], url)
+        return BrowserExternalURLPatternMatcher(patterns: [urlPattern]).matches(url.absoluteString)
     }
 }
 

@@ -425,42 +425,6 @@ function isUpstreamFailure(row: RouteEventRow): boolean {
     (row.failure_stage === "credential_refresh" || row.failure_stage === "upstream_transport");
 }
 
-function bump(counts: Map<string, number>, key: string, count: number): void {
-  counts.set(key, (counts.get(key) ?? 0) + count);
-}
-
-function addUpstreamFailure(
-  row: RouteEventRow,
-  count: number,
-  byProvider: Map<string, number>,
-  byStage: Map<string, number>,
-  byStatus: Map<string, number>,
-): void {
-  bump(byProvider, row.provider || "unknown", count);
-  bump(byStage, `${row.outcome}/${row.failure_stage || "unknown"}`, count);
-  bump(byStatus, typeof row.status === "number" && row.status > 0 ? String(row.status) : "unknown", count);
-}
-
-function isNoUsableAccount(row: RouteEventRow): boolean {
-  return row.outcome === "no_usable_account" &&
-    (row.failure_stage === "account_selection" || row.failure_stage === "provider_config");
-}
-
-function addNoUsableAccount(
-  row: RouteEventRow,
-  count: number,
-  byStage: Map<string, number>,
-  byProvider: Map<string, number>,
-  teams: Set<string>,
-): void {
-  bump(byStage, row.failure_stage || "unknown", count);
-  bump(byProvider, row.provider || "unknown", count);
-  if (teams.size < 10) {
-    const teamId = typeof row.team_id === "string" ? row.team_id.trim() : "";
-    if (teamId) teams.add(teamId);
-  }
-}
-
 function aggregateRouteEvents(rows: readonly RouteEventRow[]): RouteEventCounts {
   let total = 0;
   let operatorFailures = 0;
@@ -479,11 +443,24 @@ function aggregateRouteEvents(rows: readonly RouteEventRow[]): RouteEventCounts 
     if (isOperatorFailure(row)) operatorFailures += count;
     if (isUpstreamFailure(row)) {
       upstreamFailures += count;
-      addUpstreamFailure(row, count, upstreamByProvider, upstreamByStage, upstreamByStatus);
+      const provider = row.provider || "unknown";
+      const stage = `${row.outcome}/${row.failure_stage || "unknown"}`;
+      const status = typeof row.status === "number" && row.status > 0 ? String(row.status) : "unknown";
+      upstreamByProvider.set(provider, (upstreamByProvider.get(provider) ?? 0) + count);
+      upstreamByStage.set(stage, (upstreamByStage.get(stage) ?? 0) + count);
+      upstreamByStatus.set(status, (upstreamByStatus.get(status) ?? 0) + count);
     }
-    if (isNoUsableAccount(row)) {
+    if (row.outcome === "no_usable_account" &&
+      (row.failure_stage === "account_selection" || row.failure_stage === "provider_config")) {
       noUsableAccount += count;
-      addNoUsableAccount(row, count, noUsableAccountByStage, noUsableAccountByProvider, noUsableAccountTeams);
+      const stage = row.failure_stage || "unknown";
+      const provider = row.provider || "unknown";
+      noUsableAccountByStage.set(stage, (noUsableAccountByStage.get(stage) ?? 0) + count);
+      noUsableAccountByProvider.set(provider, (noUsableAccountByProvider.get(provider) ?? 0) + count);
+      if (noUsableAccountTeams.size < 10) {
+        const teamId = typeof row.team_id === "string" ? row.team_id.trim() : "";
+        if (teamId) noUsableAccountTeams.add(teamId);
+      }
     }
     if (row.outcome === "unauthorized") authRejected += count;
   }

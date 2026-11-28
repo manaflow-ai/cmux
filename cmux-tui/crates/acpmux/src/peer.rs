@@ -74,7 +74,7 @@ mod runtime;
 #[path = "peer_runtime_io.rs"]
 mod runtime_io;
 #[path = "peer_runtime_requests.rs"]
-pub(crate) mod runtime_requests;
+mod runtime_requests;
 pub(crate) use runtime_io::{
     ATTACH_RETRY_AFTER, attach_failure_class, lends_over, page_max_seq, refuses_attach, replayable,
 };

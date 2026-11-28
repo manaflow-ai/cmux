@@ -29,7 +29,13 @@ public struct XcodePhoneBackend: PhoneBackend {
     }
 
     public func capabilities(for device: PhoneDevice) -> PhoneCapabilities {
-        PhoneCapabilities(for: device.mode, liveInput: hid != nil)
+        switch device.mode {
+        case .simulator:
+            PhoneCapabilities([.boot, .screenshot, .recordVideo, .deviceLog, .openURL, .pasteboard, .appearance, .location, .locale, .apps])
+                .union(hid == nil ? [] : [.touch, .keyboard, .buttons, .liveScreen])
+        case .device: [.screenshot, .recordVideo]
+        case .virtualMachine, .emulator, .androidDevice: []
+        }
     }
 
     public func boot(_ id: PhoneDeviceID) async throws {
@@ -59,6 +65,10 @@ public struct XcodePhoneBackend: PhoneBackend {
         case .virtualMachine, .emulator, .androidDevice:
             throw PhoneError.unsupported(mode: id.mode, what: "screenshot")
         }
+    }
+
+    public func videoExtension(for id: PhoneDeviceID) -> String {
+        id.mode == .device ? "mp4" : "mov"
     }
 
     public func startVideo(_ id: PhoneDeviceID, to file: URL) async throws -> any PhoneRunningCommand {

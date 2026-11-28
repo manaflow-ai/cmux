@@ -31,9 +31,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "slider.horizontal.3",
         surfaces: PALETTE | KEYBOARD | MENU,
-        // The sidebar background menu's one door to Settings > Sidebar: its Customize… row
-        // (`customize.open`) is an agent chat and hidden from right-click menus by default.
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarBackground", "view", 103)], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
         cli_name: "sidebar customize",
         ..Action::DEFAULT
     },

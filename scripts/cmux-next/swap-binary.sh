@@ -237,7 +237,6 @@ cmd_build() {
     [[ -f "$src/scripts/live-code/lib/two-pass.sh" ]] || die "$ref has no scripts/live-code/lib/two-pass.sh (no live code build)"
     # shellcheck disable=SC1091
     source "$src/scripts/live-code/lib/two-pass.sh"
-    declare -F live_code_pin_static_link >/dev/null && live_code_pin_static_link "$src/Packages/macOS/CmuxNext/Package.swift"
     defines="${defines:+$defines }$(live_code_swift_flags | paste -sd ' ' -)"
     dead_strip=NO
   fi

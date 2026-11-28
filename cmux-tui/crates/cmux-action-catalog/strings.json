@@ -23462,29 +23462,6 @@
     "vi": "Mở thay đổi của lượt gần nhất",
     "zh-Hans": "打开上一轮的更改",
     "zh-Hant": "開啟上一輪的變更"
-   },
-   "action.feed.show": {
-    "ar": "الموجز",
-    "bs": "Feed",
-    "da": "Feed",
-    "de": "Feed",
-    "en": "Feed",
-    "es": "Feed",
-    "fr": "Fil",
-    "it": "Feed",
-    "ja": "フィード",
-    "km": "ព័ត៌មាន",
-    "ko": "피드",
-    "nb": "Feed",
-    "pl": "Kanał",
-    "pt-BR": "Feed",
-    "ru": "Лента",
-    "th": "ฟีด",
-    "tr": "Akış",
-    "uk": "Стрічка",
-    "vi": "Bảng tin",
-    "zh-Hans": "动态",
-    "zh-Hant": "動態"
    }
   },
   "AgentChatMenu": {

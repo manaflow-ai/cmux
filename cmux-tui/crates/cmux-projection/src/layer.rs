@@ -195,12 +195,11 @@ impl Layer {
             stack.extend(below.into_iter().rev());
         }
         upper.sort_by(|a, b| a.path.cmp(&b.path));
-        // The overlay's log, replayed (its tombstones undo earlier whiteouts; a torn tail is no
-        // entry); an older file of lines still reads.
-        let whiteouts = fs::read(state.join("whiteouts"))
-            .map(|bytes| {
-                let (live, _, _) = crate::whiteouts::parse_whiteouts(&bytes);
-                live.into_iter().filter(|path| plain(path)).collect()
+        let whiteouts = fs::read_to_string(state.join("whiteouts"))
+            .map(|text| {
+                // NUL-ended, as the overlay writes them; an older file of lines still reads.
+                let ends = if text.contains('\0') { '\0' } else { '\n' };
+                text.split(ends).filter(|path| plain(path)).map(str::to_owned).collect()
             })
             .unwrap_or_default();
         pruned.sort_by(|a, b| a.path.cmp(&b.path));

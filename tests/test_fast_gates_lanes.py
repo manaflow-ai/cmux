@@ -39,26 +39,6 @@ class GateLanes(unittest.TestCase):
         self.assertEqual([[name for name, _ in lane] for lane in lanes],
                          [["prepush gate"], ["crash-class rules"], ["web lint", "webviews checks"]])
 
-    def test_a_shared_install_gives_every_gate_its_own_lane(self) -> None:
-        active = [("web lint", ["a"]), ("webviews checks", ["d"]), ("prepush gate", ["b"])]
-        lanes = fast_gates.gate_lanes(active, shared_install=True)
-        self.assertEqual([[name for name, _ in lane] for lane in lanes],
-                         [["web lint"], ["webviews checks"], ["prepush gate"]])
-
-    def test_every_check_left_to_web_lint_is_a_webviews_check_web_lint_runs(self) -> None:
-        import json  # noqa: PLC0415
-        spec = importlib.util.spec_from_file_location("fgwc", ROOT / "scripts/ci/fast_gate_webviews_checks.py")
-        checks = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(checks)
-
-        pieces = json.loads((ROOT / "webviews/package.json")
-                            .read_text())["scripts"]["check:pieces"]
-        for name in fast_gates.WEB_LINT_RUNS:
-            self.assertIn(name, checks.CHECKS)
-            self.assertIn(f"bun run {name}", pieces)
-        self.assertNotIn("typecheck", fast_gates.WEB_LINT_RUNS)
-        self.assertNotIn("check:bundle-matrix", fast_gates.WEB_LINT_RUNS)
-
     def test_webviews_checks_alone_gets_its_own_lane(self) -> None:
         lanes = fast_gates.gate_lanes([("crash-class rules", ["c"]), ("webviews checks", ["d"])])
         self.assertEqual([[name for name, _ in lane] for lane in lanes],

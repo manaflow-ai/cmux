@@ -50,18 +50,6 @@ use std::time::{Duration, SystemTime};
 
 use tokio::time::Instant;
 
-/// The longest `Retry-After` a registration honours; a relay that names more is waited out for
-/// this long and asked again.
-pub(super) const RETRY_AFTER_MAX: Duration = Duration::from_secs(60);
-
-/// A relay's `Retry-After` in whole seconds (the HTTP-date form is not used by our relays), at
-/// most [`RETRY_AFTER_MAX`]; None when absent or not a number.
-pub(super) fn retry_after_of(headers: &http::HeaderMap) -> Option<Duration> {
-    let seconds: u64 =
-        headers.get(http::header::RETRY_AFTER)?.to_str().ok()?.trim().parse().ok()?;
-    Some(Duration::from_secs(seconds).min(RETRY_AFTER_MAX))
-}
-
 /// How often the loop checks the clocks and an outstanding ping.
 pub(crate) const CHECK_INTERVAL: Duration = Duration::from_secs(1);
 /// How long a ping may go unanswered.
@@ -250,18 +238,11 @@ impl Backoff {
     }
 }
 
-/// The wait after a relay answers 503 or 429 (full, or rate limiting), before the first retry.
-pub(crate) const FIRST_BUSY_BACKOFF: Duration = Duration::from_secs(1);
-/// The longest wait between two registration attempts on a relay that keeps answering busy.
-pub(crate) const MAX_BUSY_BACKOFF: Duration = Duration::from_secs(60);
-
 /// How an attempt to register ended, for [`Retry::wait`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Ended {
     /// The relay refused or the socket failed.
     Relay,
-    /// The relay answered the upgrade 503 or 429, with its `Retry-After` when it sent one.
-    Busy { retry_after: Option<Duration> },
     /// The credential source (the ticket command) failed.
     Credential,
     /// The machine resumed: the registration from before the pause is gone.
@@ -274,23 +255,17 @@ pub(crate) enum Ended {
 #[derive(Debug)]
 pub(crate) struct Retry {
     relay: Backoff,
-    busy: Backoff,
     credential: Backoff,
 }
 
 impl Retry {
     pub(crate) fn new() -> Self {
-        Self {
-            relay: Backoff::new(),
-            busy: Backoff::with_bounds(FIRST_BUSY_BACKOFF, MAX_BUSY_BACKOFF),
-            credential: Backoff::credential(),
-        }
+        Self { relay: Backoff::new(), credential: Backoff::credential() }
     }
 
     /// A registration got ready (and may have ended since).
     pub(crate) fn ready(&mut self) {
         self.relay.reset();
-        self.busy.reset();
         self.credential.reset();
     }
 
@@ -300,19 +275,6 @@ impl Retry {
         match ended {
             Ended::Relay => self.relay.next(unit),
             Ended::Credential => self.credential.next(unit),
-            Ended::Busy { retry_after } => {
-                // Never under the relay's own word, and never in step with the other daemons
-                // it told the same: the jitter is on top of it, up to half again. Without a
-                // word, a doubling wait from 1 s to 60 s, at least half its ceiling (not the
-                // full jitter's near-zero draws, which kept a full relay full).
-                let ceiling = self.busy.ceiling;
-                self.busy.next(unit);
-                let own = ceiling / 2 + ceiling.mul_f64(unit.clamp(0.0, 1.0) / 2.0);
-                let told = retry_after.map_or(Duration::ZERO, |after| {
-                    after.min(RETRY_AFTER_MAX).mul_f64(1.0 + unit.clamp(0.0, 1.0) / 2.0)
-                });
-                own.max(told)
-            }
             Ended::Resumed => {
                 self.ready();
                 Duration::ZERO

@@ -23,16 +23,13 @@ public nonisolated struct AutomationTabPlace: Sendable, Equatable {
 
     /// The place a `tabs.open` call's params name (`callerWorkspace`,
     /// `callerTerminal`); a field that is not a non-empty string is ignored.
-    /// The rule is Rust's (cmux-browser-rules `driver.rs` `TabPlace`, op
-    /// `browser_rules_automation_tab_place`).
     ///
     /// - Parameter params: The call's params.
     public init(_ params: DriverJSON) {
-        let request = BrowserRulesFFI.foundation(params) as? [String: Any] ?? [:]
-        guard case .object(let fields)? = BrowserRulesFFI.call("tab_place", request) else {
-            self.init()
-            return
+        func field(_ key: String) -> String? {
+            guard case .object(let fields) = params, case .string(let value)? = fields[key], !value.isEmpty else { return nil }
+            return value
         }
-        self.init(workspace: fields["workspace"]?.stringValue, terminal: fields["terminal"]?.stringValue)
+        self.init(workspace: field("callerWorkspace"), terminal: field("callerTerminal"))
     }
 }

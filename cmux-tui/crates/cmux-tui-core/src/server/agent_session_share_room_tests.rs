@@ -2360,7 +2360,7 @@ fn a_host_token_or_room_the_shares_file_cannot_keep_is_refused() {
 #[test]
 fn the_rooms_request_frame_records_an_access_request_the_owner_approves() {
     let room = FakeRoom::start(&[]);
-    let (_fake, mux, surface, mut owner) = bridged("room-access-request", &room);
+    let (_fake, _mux, surface, mut owner) = bridged("room-access-request", &room);
     let share = create(&mut owner, surface)["data"].clone();
     let share_id = share["share_id"].clone();
     let (conn, _) = room.host();
@@ -2389,27 +2389,6 @@ fn the_rooms_request_frame_records_an_access_request_the_owner_approves() {
     let shown = state(&mut owner);
     assert_eq!(shown["requests"].as_array().unwrap().len(), 1, "{shown}");
     assert_eq!(shown["requests"][0]["account"], "sam@example.com");
-    // The owner is told, once, on the chat's surface (ask-fe19418926: Docs-like sharing).
-    let asks = |mux: &Mux| {
-        mux.resource_notifications(256)
-            .into_iter()
-            .filter(|n| n.title.ends_with("asks to join this chat"))
-            .collect::<Vec<_>>()
-    };
-    let told = asks(&mux);
-    assert_eq!(told.len(), 1, "one notification for a new request");
-    assert_eq!(told[0].title, "Sam Park asks to join this chat");
-    assert_eq!(told[0].body, "sam@example.com · Open Share to approve or decline.");
-    assert_eq!(
-        told[0].surface,
-        Some(surface),
-        "it opens the shared chat: {told:?} tab_session={:?} terminal={:?}",
-        crate::server::agent_session_attach::tab_session(&mux, surface),
-        mux.surface(surface).and_then(|s| s.terminal_public_id().cloned())
-    );
-    room.send(request("r1b", Some("sam@example.com")));
-    assert_eq!(room.frame(conn)["state"], "requested");
-    assert_eq!(asks(&mux).len(), 1, "a repeat ask is not told again");
     // Not yet: the account holds no access.
     room.send(json!({"v": 1, "t": "redeem", "request_id": "d1", "attempt_id": "a1",
         "name": "Sam", "account": "sam@example.com"}));
@@ -2436,8 +2415,6 @@ fn the_rooms_request_frame_records_an_access_request_the_owner_approves() {
     room.send(request("r4", Some("eve@example.com")));
     assert_eq!(room.frame(conn)["state"], "requested", "a declined account is not told");
     assert_eq!(state(&mut owner)["requests"], json!([]));
-    // Sam's and Eve's first asks only: refusals, repeats and the declined ask tell nothing.
-    assert_eq!(asks(&mux).len(), 2, "the owner is not told of a declined account asking again");
 }
 
 #[test]

@@ -302,24 +302,6 @@ mod api_compat {
         }
 
         #[test]
-        fn api_compat_coverage_typing_server_opaque_json_is_not_a_break() {
-            let json_field = field(json!({"kind": "opaque_json"}), true);
-            let old_sdk = sdk(json!({"blob": json_field.clone()}), json!({"blob": json_field}));
-            let old = surface_from_sdk_schema(&old_sdk);
-            let mut new_sdk = old_sdk.clone();
-            let typed = field(
-                json!({"kind": "array", "items": {"kind": "scalar", "name": "string"}}),
-                true,
-            );
-            new_sdk["events"]["tab"]["payload"]["fields"]["blob"] = typed.clone();
-            new_sdk["commands"]["rename-tab"]["request"]["fields"]["blob"] = typed;
-            let breaks = breaking_changes(&old, &surface_from_sdk_schema(&new_sdk));
-            let paths: Vec<_> =
-                breaks.iter().map(|b| format!("{} {}", b.message, b.path)).collect();
-            assert_eq!(paths, vec!["request:rename-tab /blob"], "{breaks:?}");
-        }
-
-        #[test]
         fn api_compat_coverage_breaks_need_rules() {
             let old = surface_from_sdk_schema(&base());
             let mut new_sdk = base();

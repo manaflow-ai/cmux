@@ -9,8 +9,8 @@ import {
   type AttachmentError,
   type ComposerAttachment,
   type DroppedKind,
-  type LinkItem,
   type KnownPaths,
+  type LinkItem,
   filesOnce,
 } from "../attachments";
 import { localImagePreview, previewForFile } from "./imagePool";
@@ -58,9 +58,8 @@ export type IntakeEvents = {
 };
 
 /// How long the host may take to say where a drop's or paste's files are (`chat.attach.dropped`
-/// answers from memory; a native drop's come pushed with it, composer/dropPush.ts): past it the files
-/// go as if it did not know, never held.
-export const LOCAL_PATHS_DEADLINE_MS = 1500;
+/// answers from memory): past it the files go as if it did not know, never held.
+export const LOCAL_PATHS_DEADLINE_MS = 3000;
 
 /// `promise`, or undefined once `ms` pass without it settling.
 export function settleWithin<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
@@ -262,13 +261,11 @@ export async function droppedPaths(
 ): Promise<KnownPaths | undefined> {
   try {
     const names = files.map((file) => file.name);
-    const reply = await call("chat.attach.dropped", { kind, names, ...(gestureAt === undefined ? {} : { gestureAt }) });
-    const items = linkItems(reply);
+    const items = linkItems(
+      await call("chat.attach.dropped", { kind, names, ...(gestureAt === undefined ? {} : { gestureAt }) }),
+    );
     if (items.length === 0) return undefined;
-    const paths = alignPaths(files, items) as KnownPaths;
-    const dropId = (reply as { dropId?: unknown } | null | undefined)?.dropId;
-    if (typeof dropId === "string" && dropId) Object.defineProperty(paths, "dropId", { value: dropId });
-    return paths;
+    return alignPaths(files, items);
   } catch {
     return undefined;
   }

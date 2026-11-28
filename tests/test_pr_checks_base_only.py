@@ -54,7 +54,7 @@ SKIPPED_ON_BASE_ONLY = ("review-link", "swift-logic", "split-plan", "ui-review")
 ALWAYS = ("pr-size",)
 EVERY = ("review-link", "swift-logic", "pr-size", "ui-review", "split-plan")
 # The description lints (CI v2 step 6, second cut: pr-body-checks.yml's push runs): every push, whatever else holds.
-BODY = ("capture", "design-spec", "perf-section", "cloud-backend", "bench-relevance")
+BODY = ("capture", "design-spec", "perf-section", "cloud-backend")
 LINES = "".join(f"let a{i} = {i}\n" for i in range(60))
 SAME = "x\n" * 30  # identical lines: one replacement reads the same wherever it is
 

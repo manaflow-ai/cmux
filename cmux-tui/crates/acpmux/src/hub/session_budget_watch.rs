@@ -143,14 +143,11 @@ impl Hub {
             Action::Warn => (
                 format!("Disk budget passed: {used} of {}", gib(budget)),
                 format!(
-                    "Processes in {} wrote {} in the last {} h and did not delete it before \
-                     writeback ({} in this session's temporary directory). Deleting a file later \
-                     does not lower this count; it ages out. Delete what you no longer need; if \
-                     the host's disk gets low, the top writer's process group is stopped until \
-                     space comes back.",
+                    "Processes in {} have written and kept {} ({} in this session's temporary \
+                     directory). Delete what you no longer need; if the host's disk gets low, the \
+                     top writer's process group is stopped until space comes back.",
                     sample.scope,
                     gib(sample.written),
-                    session_disk::WINDOW.as_secs() / 3600,
                     gib(sample.tmp)
                 ),
             ),

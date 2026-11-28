@@ -45,7 +45,6 @@ pub(super) fn text(name: &str, answer: Option<&Value>, dry_run: bool) -> Vec<Str
     out
 }
 
-// unix only: the stand-in daemon listens on a unix socket.
-#[cfg(all(test, unix))]
+#[cfg(test)]
 #[path = "session_move_interrupts_tests.rs"]
 mod tests;

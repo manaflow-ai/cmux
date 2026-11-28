@@ -1,5 +1,4 @@
 import CCmuxSettingsFFI
-import CmuxNextCompat
 import Foundation
 
 /// The settings reads Rust answers (cmux-tui/crates/cmux-config/src/app_ops, linked through
@@ -26,7 +25,6 @@ public nonisolated struct SettingsRust {
                 cmux_settings_call(operation, bytes.baseAddress, bytes.count, &out)
             }
         }
-        BridgeByteMeter.record(op, sent: body.count, received: out.len)
         defer { cmux_settings_bytes_free(out) }
         guard status == 0, let pointer = out.ptr else { throw Failure(status: status) }
         return try JSONValue.parse(Data(bytes: pointer, count: out.len))

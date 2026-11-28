@@ -98,18 +98,6 @@ class TargetsOfTheMatches(unittest.TestCase):
         args = run(self.box.root)
         self.assertEqual(args, ["-p", "a", "--test", "hits"])
 
-    def test_a_crate_with_its_own_workspace_is_not_named(self) -> None:
-        # cmux-next-linux (#64481) has its own [workspace] table and `cmux_next_linux::` in its sources:
-        # `-p cmux-next-linux` failed the job ("did not match any packages"), so no tree published from
-        # 2026-11-28 14:44Z (run 46156345440).
-        self.box.crate("a")
-        self.box.write("cmux-tui/crates/a/tests/hits.rs", "#[test] fn cmux_next_hit() {}\n")
-        self.box.crate("own-ws", "\n[workspace]\n")
-        self.box.write("cmux-tui/crates/own-ws/src/main.rs", "use cmux_next_linux::run;\n")
-        self.box.commit()
-        args = run(self.box.root)
-        self.assertEqual(args, ["-p", "a", "--test", "hits"])
-
     def test_a_match_it_cannot_place_builds_the_whole_members(self) -> None:
         # A member that sets autotests = false names its own targets; a match outside src/ and
         # tests/ (a bench) belongs to no target the script names. Either keeps every test target.

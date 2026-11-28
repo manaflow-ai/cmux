@@ -90,13 +90,6 @@ else
   echo "TRB no video: $(tail -c 300 "$out/rec.log")"
 fi
 "$side" stop "$name" >&2 || true
-# Full-resolution window and desktop PNGs made report.tgz 230+ MB (step 3f208802, 11-28), and every download of it
-# broke off partway (IncompleteRead, then the controller restarting). The shots go in as JPEG at most 1600 px wide,
-# which is still enough to read text, and the PNGs stay out of the archive; the recording goes in as it is.
-while IFS= read -r -d '' png; do
-  sips -s format jpeg -s formatOptions 70 -Z 1600 "$png" --out "${png%.png}.jpg" >/dev/null 2>&1 && rm -f "$png"
-done < <(find "$out" -name '*.png' -print0)
 tar -czf "$out/report.tgz" -C "$out" --exclude report.tgz . 2>/dev/null || true
-echo "TRB report $(($(stat -f %z "$out/report.tgz" 2>/dev/null || echo 0) / 1024)) KiB; largest: $(cd "$out" && du -sk -- * 2>/dev/null | sort -rn | head -4 | tr '\n\t' '; ')"
 echo "TRB exit=$status"
 exit "$status"

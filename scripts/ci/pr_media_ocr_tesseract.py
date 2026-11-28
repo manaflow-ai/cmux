@@ -29,11 +29,7 @@ import tempfile
 STILLS = frozenset({".png", ".jpg", ".jpeg", ".webp"})
 MOVING = frozenset({".gif", ".mp4", ".mov"})
 MODES = ("3", "11")
-TIMEOUT = float(os.environ.get("PR_MEDIA_OCR_TIMEOUT_SECONDS", "120"))
-# A frame that runs past TIMEOUT is read once more with this much longer bound before the whole file is held as
-# unreadable: one dense frame of a 13-clip nightly reel on a shared runner outlasted 120 s and failed the reel after
-# 31 min of reading (Finish run 46154524454, 2026-11-28: "nightly-next/4614691423701/reel.mp4: read failed").
-RETRY_TIMEOUT = float(os.environ.get("PR_MEDIA_OCR_RETRY_TIMEOUT_SECONDS", "600"))
+TIMEOUT = 120
 # The tools parse media from a pull request's run, so they get no secret or token
 # from the publishing step; one thread each, since frames already run in parallel.
 TOOL_ENV = {key: value for key, value in os.environ.items() if key in {"PATH", "HOME", "LANG", "TMPDIR"}}
@@ -51,14 +47,8 @@ def read_picture(path: Path) -> list[str]:
     data = path.read_bytes()
     lines: list[str] = []
     for mode in MODES:
-        try:
-            done = subprocess.run(["tesseract", "stdin", "stdout", "--psm", mode], input=data,
-                                  capture_output=True, timeout=TIMEOUT, env=TOOL_ENV)
-        except subprocess.TimeoutExpired:
-            print(f"pr-media-ocr: {path.name} --psm {mode} ran past {TIMEOUT:g} s; reading it again with "
-                  f"{RETRY_TIMEOUT:g} s", file=sys.stderr, flush=True)
-            done = subprocess.run(["tesseract", "stdin", "stdout", "--psm", mode], input=data,
-                                  capture_output=True, timeout=RETRY_TIMEOUT, env=TOOL_ENV)
+        done = subprocess.run(["tesseract", "stdin", "stdout", "--psm", mode], input=data,
+                              capture_output=True, timeout=TIMEOUT, env=TOOL_ENV)
         if done.returncode != 0:
             raise RuntimeError(f"tesseract exited {done.returncode}")
         text = done.stdout.decode("utf-8", errors="replace")

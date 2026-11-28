@@ -23,7 +23,6 @@ import tempfile
 import threading
 import time
 import unittest
-import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -205,56 +204,6 @@ class EndToEnd(unittest.TestCase):
                        "--baselines", "http://127.0.0.1:9", values="9,9,9", stdin="fake/x.py\n")
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         self.assertIn("unreachable", res.stderr)
-
-    def test_other_machine_class_compares_with_base_on_this_runner(self):
-        """cmux#65157: a baseline from another CPU in the same pool is never the yardstick. A pull request on a
-        machine class the nightly did not record finds no baseline, runs the bench at --base-ref on its own runner
-        and compares with that: slower than base is a notice and exits 0, never a red."""
-        rec = self.cli("baselines", "record", "--out", str(self.store), "--map", str(self.map), values="0.5,0.5,0.5")
-        self.assertEqual(rec.returncode, 0, rec.stderr)
-        # Recorded under test-class; this run is another CPU.
-        self.env["CMUX_BENCH_MACHINE_CLASS"] = "test-class-other-cpu"
-        args = ("for-paths", "--stdin", "--map", str(self.map), "--run", "--repeats", "3", "--baselines",
-                str(self.store), "--base-ref", "HEAD")
-        # Head repeats come first (2 s each), then the base's (1 s each): the 0.5 s cross-host value is not used.
-        slow = self.cli(*args, values="2,2,2,1,1,1", stdin="fake/x.py\n")
-        self.assertEqual(slow.returncode, 0, slow.stdout + slow.stderr)
-        self.assertIn("slower-than-base", slow.stdout)
-        self.assertIn("at base, this runner", slow.stdout)
-        self.assertIn("::notice title=Bench vs base::", slow.stderr)
-        self.assertNotIn("0.500", slow.stdout)
-        same = self.cli(*args, values="1,1,1,1,1,1", stdin="fake/x.py\n")
-        self.assertEqual(same.returncode, 0, same.stdout + same.stderr)
-        self.assertIn("within-baseline", same.stdout)
-        # Without --base-ref it is the old fail-open warning, still no cross-host compare.
-        bare = self.cli(*args[:-2], values="2,2,2", stdin="fake/x.py\n")
-        self.assertEqual(bare.returncode, 0, bare.stdout + bare.stderr)
-        self.assertIn("no baseline recorded", bare.stderr)
-
-    def test_unknown_base_ref_fails_open(self):
-        res = self.cli("for-paths", "--stdin", "--map", str(self.map), "--run", "--repeats", "3", "--baselines",
-                       str(self.store), "--base-ref", "no-such-ref-xyz", values="9,9,9", stdin="fake/x.py\n")
-        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertIn("no worktree at no-such-ref-xyz", res.stderr)
-
-
-class MachineClass(unittest.TestCase):
-    def test_cpu_model_is_in_the_key(self):
-        """One pool label hands out different CPUs: the key carries the model, so two CPUs never share a baseline."""
-        env = {k: v for k, v in os.environ.items() if k != "CMUX_BENCH_MACHINE_CLASS"}
-        with unittest.mock.patch.dict(os.environ, env, clear=True):
-            with unittest.mock.patch.object(bl, "cpu_model", return_value="AMD EPYC 9454P 48-Core Processor"):
-                a = bl.machine_class()
-            with unittest.mock.patch.object(bl, "cpu_model", return_value="Intel(R) Xeon(R) Platinum 8375C"):
-                b = bl.machine_class()
-            with unittest.mock.patch.object(bl, "cpu_model", return_value=""):
-                c = bl.machine_class()
-        self.assertNotEqual(a, b)
-        self.assertIn("amd-epyc-9454p", a)
-        self.assertTrue(c.endswith("-cpu-unknown"), c)
-        for k in (a, b, c):
-            self.assertEqual(len(bl.slug(k)), len(k))  # object_path does not truncate it (48 chars)
-            self.assertLessEqual(len(k), 48)
 
 
 class MacFleetLog(unittest.TestCase):

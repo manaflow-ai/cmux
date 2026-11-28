@@ -98,56 +98,12 @@ pub fn hook_flags(command: &str) -> anyhow::Result<Vec<String>> {
 /// `args` of a `codex app-server` launch with the hook first (global options go before the
 /// subcommand), run by this binary. `None` when this binary cannot be named.
 pub fn gated_args(args: &[String]) -> Option<Vec<String>> {
-    let (exe, prefix) = this_words()?;
-    let flags = hook_flags(&hook_command(&exe, &prefix)).ok()?;
-    Some(flags.into_iter().chain(args.iter().cloned()).collect())
-}
-
-/// This binary and the words before its own arguments, as text. `None` when it cannot be named.
-fn this_words() -> Option<(String, Vec<String>)> {
     let this = crate::self_command::SelfCommand::current().ok()?;
     let exe = this.exe.to_str()?.to_owned();
     let prefix: Vec<String> =
         this.prefix.iter().map(|w| w.to_str().map(str::to_owned)).collect::<Option<_>>()?;
-    Some((exe, prefix))
-}
-
-/// The session-flag hooks a `codex app-server` launch gets: this repository gate, harness
-/// magic's dedupe (`codex_dedupe.rs`), or both.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct Hooks {
-    pub gate: bool,
-    pub dedupe: bool,
-}
-
-/// `args` of a `codex app-server` launch with `hooks` first, run by this binary. The gate alone
-/// is [`gated_args`]; with the dedupe, both share one `hooks.PreToolUse` (gate first, so a held
-/// tool is held before it is deduped). `None` when this binary cannot be named.
-pub fn hooked_args(args: &[String], hooks: Hooks) -> Option<Vec<String>> {
-    if !hooks.dedupe {
-        return if hooks.gate { gated_args(args) } else { Some(args.to_vec()) };
-    }
-    let (exe, prefix) = this_words()?;
-    let gate = hooks
-        .gate
-        .then(|| ("PreToolUse".to_owned(), hook_command(&exe, &prefix), HOOK_TIMEOUT_SECS));
-    let all: Vec<(String, String, u64)> = gate
-        .into_iter()
-        .chain(crate::codex_dedupe::hooks(&exe, &prefix, &crate::codex_dedupe::tables_dir()))
-        .collect();
-    let flags = hooks_flags(&all).ok()?;
+    let flags = hook_flags(&hook_command(&exe, &prefix)).ok()?;
     Some(flags.into_iter().chain(args.iter().cloned()).collect())
-}
-
-/// The global options that add every (event, command, timeout) of `hooks`, trusted.
-pub fn hooks_flags(hooks: &[(String, String, u64)]) -> anyhow::Result<Vec<String>> {
-    let hooks: Vec<(&str, &str, u64)> =
-        hooks.iter().map(|(e, c, t)| (e.as_str(), c.as_str(), *t)).collect();
-    let mut flags = vec!["--enable".to_owned(), "hooks".to_owned()];
-    for setting in cmux_tui_hooks::codex_session_flag_hooks_settings(&hooks)? {
-        flags.extend(["-c".to_owned(), setting]);
-    }
-    Ok(flags)
 }
 
 /// Whether `args` (a launch's, as started) carry the hook [`gated_args`] adds.
@@ -209,7 +165,7 @@ static VERSIONS: LazyLock<Mutex<std::collections::HashMap<(PathBuf, u64, i128), 
 /// checkout asks it (`--version`, `harness_health::probe::installed_version`, bounded by that
 /// probe's timeout); later ones read the answer. One that does not answer gets no hook, and its
 /// start waits for the whole checkout instead.
-pub(crate) fn supported(program: &str, cwd: &Path, env: &[(String, Option<String>)]) -> bool {
+fn supported(program: &str, cwd: &Path, env: &[(String, Option<String>)]) -> bool {
     let Some(path) = resolve(program, cwd, env) else { return false };
     let Ok(meta) = std::fs::metadata(&path) else { return false };
     let changed = meta

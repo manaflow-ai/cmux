@@ -349,7 +349,7 @@ async function main(): Promise<number> {
       const t0 = Date.now();
       const err = (e: unknown) => String((e as Error)?.message ?? e).slice(0, 300);
       try {
-        const rows = await listAllMachines((params) => api.read("cloud.machine.list", params), 20, { partial: true });
+        const rows = await listAllMachines((params) => api.read("cloud.machine.list", params));
         const stale = staleJourneyMachines(rows, Date.now());
         const failed: string[] = [];
         for (const m of stale) {

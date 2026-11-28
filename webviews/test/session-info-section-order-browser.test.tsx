@@ -12,10 +12,11 @@ import path from "node:path";
 import type { Browser, Page } from "playwright";
 import { settleReact } from "./support/domTeardown";
 import { importWithDom } from "./support/importWithDom";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+
+const { requireBrowserLane } = await importWithDom(() => import("./support/requireBrowserLane"));
+const { gridLength } = await importWithDom(() => import("../src/agent-session/acpmux/transcriptGrid"));
 
 await requireBrowserLane("session-info-section-order-browser.test.tsx", async () => {
-  const { gridLength } = await importWithDom(() => import("../src/agent-session/acpmux/transcriptGrid"));
   setDefaultTimeout(60_000);
   const { JSDOM, VirtualConsole } = await import("jsdom");
   const dom = new JSDOM("<!doctype html><div id=root></div>", {

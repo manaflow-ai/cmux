@@ -98,28 +98,6 @@ public nonisolated final class RemoteRdSession {
         _ = try RemoteRdCoreError.check(cmux_rd_session_note_frame_presented(handle, stream, frame, presentedAtMicros))
     }
 
-    /// The viewer began connecting at `atMicros` (this core's clock): the session report's first
-    /// frame time counts from the first call.
-    public func noteConnectStarted(atMicros: UInt64) {
-        _ = cmux_rd_session_note_connect_started(handle, atMicros)
-    }
-
-    /// The session report so far (`cmux.rd-session-report/1` JSON: first frame ms and the whole
-    /// session's display-to-glass and Present p50/p95, numbers only), nil on an error.
-    public func sessionReport() -> String? {
-        var length = 0
-        var buffer = [UInt8](repeating: 0, count: 1024)
-        for _ in 0..<2 {
-            let code = buffer.withUnsafeMutableBufferPointer { buf in
-                cmux_rd_session_report(handle, buf.baseAddress, buf.count, &length)
-            }
-            if code >= 0 { return String(decoding: buffer.prefix(length), as: UTF8.self) }
-            guard RemoteRdCoreError(code: code) == .buffer else { return nil }
-            buffer = [UInt8](repeating: 0, count: length)
-        }
-        return nil
-    }
-
     /// The stage ledger so far (`cmux.rd-stage-ledger/1` JSON), nil on an error.
     public func stageLedger() -> String? {
         var length = 0

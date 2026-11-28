@@ -107,11 +107,8 @@ COULD_NOT_COMPILE = re.compile(r"\berror: could not compile `")
 # on a clean runner can pass, so these are no evidence the source is broken.
 RUNNER_CODES = frozenset({"0460", "0461", "0462", "0463", "0464", "0514", "0519", "0523", "0786"})
 # rustc killed or starved by the runner: also ends in "could not compile", and a re-run can pass.
-# A lost runner (job 140873130298, 2026-11-28: "The runner has received a shutdown signal", then "The operation was
-# canceled") is not the source's fault either, even when rustc printed an error before the runner went away.
 RUNNER_FAULT = re.compile(r"signal: 9\b|SIGKILL|SIGSEGV|out of memory|No space left on device|\bKilled\b|"
-                          r"memory allocation of \d+ bytes failed|The runner has received a shutdown signal|"
-                          r"The operation was canceled|lost communication with the server", re.IGNORECASE)
+                          r"memory allocation of \d+ bytes failed", re.IGNORECASE)
 GLAEDA_BUDGET = Path(os.environ.get("GLAEDA_GH_DIR") or Path.home() / ".cache" / "glaeda" / "gh") / "budget.json"
 
 
@@ -247,25 +244,6 @@ def may_rerun(run: Mapping[str, Any], cap: int = MAX_ATTEMPT) -> tuple[bool, str
     return True, f"attempt {attempt}"
 
 
-def superseded(run: Mapping[str, Any], newest: Mapping[str, Any] | None) -> bool:
-    """A feat-cmux-next run a newer push at another commit superseded: that push builds and publishes its own tree
-    (latest wins, as cmux_tui_artifacts_retry.py treats a cancelled run). A run on another branch, or an unreadable
-    newest run (None), is not superseded."""
-    if (run.get("head_branch") or "") != "feat-cmux-next" or not newest or not newest.get("head_sha"):
-        return False
-    return newest["head_sha"] != run.get("head_sha") and int(newest.get("id") or 0) > int(run.get("id") or 0)
-
-
-def newest_feat_push(repo: str) -> Mapping[str, Any] | None:
-    """The newest feat-cmux-next push run of this workflow (one bounded read), or None when it cannot be read."""
-    result = _gh("api", f"repos/{repo}/actions/workflows/cmux-tui-artifacts.yml/runs?branch=feat-cmux-next"
-                        "&event=push&per_page=1")
-    try:
-        return (json.loads(result.stdout).get("workflow_runs") or [None])[0] if result.returncode == 0 else None
-    except ValueError:
-        return None
-
-
 def _gh(*args: str, run_id: int | None = None) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(["gh", *args], capture_output=True, text=True)
     spare = os.environ.get("GH_TOKEN_SPARE")
@@ -374,13 +352,6 @@ def rerun_published(repo: str, run_id: int, key: str) -> None:
         raise RuntimeError("; ".join(failed))
 
 
-def _output(name: str, value: str) -> None:
-    path = os.environ.get("GITHUB_OUTPUT")
-    if path:
-        with open(path, "a", encoding="utf-8") as handle:
-            handle.write(f"{name}={value}\n")
-
-
 def handoff(repo: str, run_id: int, key: str) -> None:
     jobs = _list(f"repos/{repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100", "jobs")
 
@@ -400,9 +371,6 @@ def handoff(repo: str, run_id: int, key: str) -> None:
               f"attestation; a re-run would spend the same quota. Tree {key} is left for the next push of the key.")
         return
     if compile_error_failure(jobs, log_of):
-        # RED_TREE_MARK: the workflow saves cmux-tui-red-tree-<key>, and tree-preflight of a later feat-cmux-next push
-        # of the same key skips its builds instead of failing the same way (base-coalesce re-opens the window on a red).
-        _output("red_tree", "true")
         print(f"::warning title=tree hand-off skipped::run {run_id} failed on a Rust compile error in a build leg; a "
               f"run that deferred tree {key} builds the same source and fails the same way. The next push of a new "
               "key builds it; a person can still re-run a run by hand (gh run rerun RUN).")
@@ -412,21 +380,12 @@ def handoff(repo: str, run_id: int, key: str) -> None:
     if not candidates:
         print(f"No run of tree {key} deferred to this one.")
         return
-    newest = newest_feat_push(repo) if any(row[2] == "feat-cmux-next" for row in candidates) else None
     for artifact, deferred, branch, _ in candidates:
         result = _gh("api", f"repos/{repo}/actions/runs/{deferred}")
         if result.returncode != 0 or not result.stdout.strip():
             print(f"::warning::could not read run {deferred} ({branch}): {result.stderr.strip()}")
             continue
-        record = json.loads(result.stdout)
-        # A whole-run re-run of an older feat-cmux-next commit rebuilds every target for a tree nothing installs once
-        # a newer push exists: 2026-11-28, the hand-off's re-runs (CI pool and cmux-bot tokens) cost about 2,400
-        # runner-min a day, most of them on such heads.
-        if superseded(record, newest):
-            print(f"Not re-running run {deferred} ({branch}): superseded by run {newest.get('id')} at "
-                  f"{str(newest['head_sha'])[:12]}, a newer feat-cmux-next push that builds its own tree.")
-            continue
-        allowed, why = may_rerun(record)
+        allowed, why = may_rerun(json.loads(result.stdout))
         if not allowed:
             print(f"Not re-running run {deferred} ({branch}): {why}.")
             continue

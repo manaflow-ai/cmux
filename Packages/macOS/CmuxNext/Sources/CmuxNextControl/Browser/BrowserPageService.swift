@@ -128,17 +128,12 @@ public struct BrowserPageService: Sendable {
     }
 
     /// `method`, telling the engine while it runs whether the call only reads its page (``BrowserPageIntent``).
-    /// Every async method also runs with its caller's agent session (``BrowserPageIntent/agentSession``).
     static func intending(_ method: ControlMethod) -> ControlMethod {
-        let page = method.name.hasPrefix("browser.page.")
+        guard method.name.hasPrefix("browser.page.") else { return method }
         return method.wrappingAsync { call, body in
             // concurrency-allow: the async overload of withValue binds inside the handler's task (always current in an
             // async function), never in the thread's fallback storage that cx-bpcj is about.
-            try await BrowserPageIntent.$agentSession.withValue(BrowserPageIntent.agentSession(of: call)) {
-                guard page else { return try await body(call) }
-                // concurrency-allow: as above, the async overload inside the handler's task.
-                return try await BrowserPageIntent.$current.withValue(BrowserPageIntent.of(call)) { try await body(call) }
-            }
+            try await BrowserPageIntent.$current.withValue(BrowserPageIntent.of(call)) { try await body(call) }
         }
     }
 

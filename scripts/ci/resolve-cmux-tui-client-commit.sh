@@ -37,12 +37,6 @@
 #      CMUX_TUI_CLIENT_PROBE_RETRY_SECONDS (default 3; wait between manifest probes after
 #      a transient failure; a 404 never waits).
 # The chosen 40-hex commit is the only stdout line; diagnostics go to stderr.
-# Exit 0 chosen; 4 not published: every probe of the allowed candidates was a definitive
-# miss (HTTP 404/410), so the artifacts run for HEAD's inputs failed or was coalesced
-# away and a caller may take an older tree (reload-build.yml takes the nightly's,
-# scripts/cmux-next/older-tree-for-tip.sh); 1 lookup failed (a probe still failed
-# after its retries, or the history could not be read): "not published" is unknown;
-# 64 usage error.
 set -euo pipefail
 
 PATHS=(cmux-tui ghostty ghostty-next .github/workflows/cmux-tui-artifacts.yml .github/workflows/cmux-tui-build-package.yml)
@@ -208,12 +202,11 @@ if [[ ${#CANDIDATES[@]} -eq 0 ]]; then
   exit 1
 fi
 
-# Returns 0 when the manifest exists and 1 on a definitive miss (HTTP 404/410, or a
-# missing file:// path, curl exit 37), at once. Anything else (DNS, connection reset,
-# 5xx, 429, an empty answer) is retried with bounded delay so a network hiccup on the
-# release runner does not read as a missing manifest, and returns 2 (lookup failed)
-# when every attempt failed. curl --retry-all-errors cannot tell the two apart and
-# slept through five retries on every genuine 404.
+# Succeeds when the manifest exists. A definitive miss (HTTP 404/410, or a missing
+# file:// path, curl exit 37) returns at once. Anything else (DNS, connection reset,
+# 5xx, 429) is retried with bounded delay so a network hiccup on the release runner
+# does not read as a missing manifest. curl --retry-all-errors cannot tell the two
+# apart and slept through five retries on every genuine 404.
 PROBE_ATTEMPTS=6
 probe_manifest() {
   local url="$1" attempt code rc
@@ -224,7 +217,7 @@ probe_manifest() {
       # Like curl -f, anything below 400 is found; file:// reports 000 on success.
       case "$code" in
         404|410) return 1 ;;
-        [45]??|'') ;;
+        [45]??) ;;
         *) return 0 ;;
       esac
     elif [[ $rc -eq 37 ]]; then
@@ -232,8 +225,8 @@ probe_manifest() {
     fi
     if [[ $attempt -lt $PROBE_ATTEMPTS ]]; then sleep "$PROBE_RETRY_SECONDS"; fi
   done
-  log "manifest probe still failing after $PROBE_ATTEMPTS attempts (curl exit $rc, HTTP ${code:-none}): $url"
-  return 2
+  log "manifest probe still failing after $PROBE_ATTEMPTS attempts (curl exit $rc, HTTP $code): $url"
+  return 1
 }
 
 # Group candidates by input content, keeping newest-first order of each group's first
@@ -266,40 +259,27 @@ fi
 
 chosen=""
 skipped=0
-unread=()
 for ((g = 0; g < ${#GROUP_KEYS[@]}; g++)); do
   # One probe per member: the first published member wins; a group with none moves on
   # to the next group (or fails exact mode).
   for sha in ${GROUP_MEMBERS[$g]}; do
     url="$BASE/$sha/manifest.json"
-    prc=0
-    probe_manifest "$url" || prc=$?
-    if [[ $prc -eq 0 ]]; then
+    if probe_manifest "$url"; then
       chosen="$sha"
       break
     fi
-    if [[ $prc -eq 1 ]]; then
-      log "no published cmux-tui client for $sha ($url): not published (HTTP 404)"
-    else
-      unread+=("$sha")
-      log "could not read the cmux-tui client manifest of $sha ($url): lookup failed, not \"not published\""
-    fi
+    log "no published cmux-tui client for $sha ($url)"
   done
   if [[ -n "$chosen" ]]; then break; fi
   skipped=$((skipped + 1))
   if [[ $skipped -gt $MAX_FALLBACK ]]; then break; fi
 done
 
-if [[ -z "$chosen" && ${#unread[@]} -gt 0 ]]; then
-  echo "error: lookup failed: could not read the cmux-tui client manifest at $BASE/<commit>/manifest.json for ${unread[*]} after $PROBE_ATTEMPTS attempts each (network, 5xx or 429); whether HEAD's client is published is unknown" >&2
-  echo "       tried: ${GROUP_MEMBERS[0]} (--max-fallback $MAX_FALLBACK)" >&2
-  exit 1
-fi
 if [[ -z "$chosen" ]]; then
-  echo "error: not published: no commit with HEAD's cmux-tui client inputs has a client at $BASE/<commit>/manifest.json (every probe answered 404)" >&2
+  echo "error: no commit with HEAD's cmux-tui client inputs has a published client at $BASE/<commit>/manifest.json" >&2
   echo "       tried: ${GROUP_MEMBERS[0]}" >&2
-  echo "       the 'cmux-tui artifacts' run for those commits failed or was coalesced into a newer push (--max-fallback $MAX_FALLBACK)" >&2
-  exit 4
+  echo "       check the 'cmux-tui artifacts' run for those commits (--max-fallback $MAX_FALLBACK)" >&2
+  exit 1
 fi
 if [[ $skipped -gt 0 ]]; then
   echo "::warning title=cmux-tui client fallback::bundling the client of $chosen; $skipped newer cmux-tui input version(s) have no published artifacts (newest: ${CANDIDATES[0]})" >&2

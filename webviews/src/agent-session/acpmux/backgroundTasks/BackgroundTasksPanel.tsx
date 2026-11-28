@@ -19,8 +19,8 @@
 //
 // A Claude workflow's agent is the one transcript that is not in the snapshot: it is read from the
 // run's folder through acpmux (summary/useWorkflowTranscript.ts, the reader the app's workflow pane
-// uses). Its drill-in draws on the click as well, empty until the first page lands (no loading words,
-// Leo, 2026-11-27), then the agent's rows; its progress refreshes it while it is open, and closing it
+// uses). Its drill-in draws on the click as well, with the transcript's Loading line until the first
+// page lands, then the agent's rows; its progress refreshes it while it is open, and closing it
 // disposes the reader. Workflow agents open only where the app reads workflows (Labs), as elsewhere.
 //
 // What runs draws no running symbol (no spinner, no pulsing dot), only its ticking time and its
@@ -227,45 +227,48 @@ export function BackgroundTasksPanel({
               data-rows={rowsLook}
               hidden={drill !== undefined}
             >
-              {groups.length === 0
-                ? // Nothing while the list loads, no loading words (Leo, 2026-11-27: "unnecesssary message").
-                  !loading && <p className="acpmux-bg__empty">{t("backgroundTasks.empty")}</p>
-                : sections.map((section) => (
-                    <Section
-                      key={section.id}
-                      id={section.id}
-                      count={section.groups.length + section.commands.length}
-                      openAt={focusedIn(section.commands, target)}
-                      onClear={
-                        section.id === "finished" && finished.length > 0 ? () => onClearFinished(finished) : undefined
-                      }
-                    >
-                      {section.commands.map((task) => (
-                        <TaskRow
-                          key={task.id}
-                          task={task}
-                          openAt={focusedIn([task], target)}
-                          now={now}
-                          onDrill={open}
-                          onStop={onStop}
-                          onOpenCommand={onOpenCommand}
-                        />
-                      ))}
-                      {section.groups.map((group, index) => (
-                        <GroupBlock
-                          key={group.id}
-                          group={group}
-                          look={look}
-                          now={now}
-                          startsOpen={section.id === "running" && index === 0}
-                          onDrill={open}
-                          onStop={onStop}
-                          onOpenSession={onOpenSession}
-                          onOpenCommand={onOpenCommand}
-                        />
-                      ))}
-                    </Section>
-                  ))}
+              {groups.length === 0 ? (
+                <p className="acpmux-bg__empty">
+                  {loading ? t("backgroundTasks.loading") : t("backgroundTasks.empty")}
+                </p>
+              ) : (
+                sections.map((section) => (
+                  <Section
+                    key={section.id}
+                    id={section.id}
+                    count={section.groups.length + section.commands.length}
+                    openAt={focusedIn(section.commands, target)}
+                    onClear={
+                      section.id === "finished" && finished.length > 0 ? () => onClearFinished(finished) : undefined
+                    }
+                  >
+                    {section.commands.map((task) => (
+                      <TaskRow
+                        key={task.id}
+                        task={task}
+                        openAt={focusedIn([task], target)}
+                        now={now}
+                        onDrill={open}
+                        onStop={onStop}
+                        onOpenCommand={onOpenCommand}
+                      />
+                    ))}
+                    {section.groups.map((group, index) => (
+                      <GroupBlock
+                        key={group.id}
+                        group={group}
+                        look={look}
+                        now={now}
+                        startsOpen={section.id === "running" && index === 0}
+                        onDrill={open}
+                        onStop={onStop}
+                        onOpenSession={onOpenSession}
+                        onOpenCommand={onOpenCommand}
+                      />
+                    ))}
+                  </Section>
+                ))
+              )}
             </div>
             {drill?.workflow && workflow && (
               // Workflow transcripts list no nested agents today (summary/workflowTranscript.ts reads
@@ -287,6 +290,7 @@ export function BackgroundTasksPanel({
                   rows={drillRows}
                   running={drillRunning}
                   anchor={drill.rowId}
+                  notice={drillRows.length === 0 && own.loading ? t("subagents.loading.title") : undefined}
                 />
               </NestedAgents.Provider>
             )}
@@ -373,8 +377,8 @@ function agentOf(groups: readonly BackgroundGroup[], agentId: string) {
 }
 
 /// A workflow agent's transcript, read through acpmux as the app's workflow pane reads it. Its rows
-/// draw in the same transcript as a subagent's, from the click; nothing shows until the first page
-/// lands (no loading words, Leo, 2026-11-27: "unnecesssary message").
+/// draw in the same transcript as a subagent's; the Loading line shows from the click until the
+/// first page lands, so the pane is never blank.
 function WorkflowAgentTranscript({
   pane,
   agent,

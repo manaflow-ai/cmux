@@ -46,6 +46,7 @@ function RejectedLoading({ look }: { look: "skeleton" | "spinner" }) {
           borderRightColor: "transparent",
         }}
       />
+      Loading messages…
     </div>
   );
 }

@@ -23,23 +23,6 @@ set -euo pipefail
 : "${GITHUB_ENV:?GITHUB_ENV is required}"
 : "${GITHUB_PATH:?GITHUB_PATH is required}"
 
-# The registry is a directory before rust-cache restores, never a link. A pool runner keeps
-# HOME between jobs, and the darwin warm-target leg (scripts/ci/machine-channel-warm-target.sh)
-# left ~/.cargo/registry a link into its slot's tree; rust-cache then saved the link, and on a
-# runner without that path its restore made a dangling one, so cargo's first call failed with
-# "failed to create directory ~/.cargo/registry/cache/...: File exists (os error 17)" (acpmux
-# tests, jobs 140850174447 and 140851740236, 2026-11-28; entry
-# v0-rust-cmux-tui-acpmux-tests-ad0a7f2f...). With a directory there, tar cannot lay a saved
-# link over it, so such an entry restores everything else and the job runs.
-registry="${CARGO_HOME:-${HOME:-}/.cargo}/registry"
-if [[ "$registry" == /* ]]; then
-  if [[ -L "$registry" ]]; then
-    echo "::warning::$registry was a link (to $(readlink "$registry")); replaced with a directory"
-    rm -f "$registry"
-  fi
-  mkdir -p "$registry"
-fi
-
 # dtolnay/rust-toolchain writes CARGO_HOME=$HOME/.cargo to GITHUB_ENV: that is
 # the shared home, not a home of the job's own, so it does not count.
 if [[ -n "${CARGO_HOME:-}" && "${CARGO_HOME%/}" != "${HOME%/}/.cargo" ]]; then

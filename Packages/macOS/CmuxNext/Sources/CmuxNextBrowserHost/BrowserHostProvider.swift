@@ -198,18 +198,6 @@ public final class BrowserHostProvider {
         return true
     }
 
-    /// A person's Take over, Hand back or Stop on tab `targetID` (the
-    /// shared lease action path: badge button, palette, menu). Sends
-    /// `lease.user`; the host applies it and answers with a `lease` frame.
-    /// False when the tab has no lease, the action does not apply to its
-    /// state, or the link is down. Never call it for agent input.
-    @discardableResult
-    public func requestLeaseAction(_ action: ProviderLeaseAction, targetID: String) -> Bool {
-        guard let lease = leases[targetID], action.applies(toWireState: lease.state), connection != nil else { return false }
-        send(.leaseUser(op: action.rawValue, targetID: targetID, actor: nil))
-        return true
-    }
-
     // MARK: Connection lifecycle
 
     /// Starts a new connection attempt, replacing any current link.

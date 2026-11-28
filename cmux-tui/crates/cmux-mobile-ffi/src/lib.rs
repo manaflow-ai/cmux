@@ -29,7 +29,6 @@ use cmux_mobile_core::sizing::{
 
 uniffi::setup_scaffolding!();
 
-pub mod feed_push;
 pub mod ownership;
 pub mod screen;
 

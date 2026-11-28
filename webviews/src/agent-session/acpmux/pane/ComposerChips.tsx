@@ -4,7 +4,6 @@ import { newTabChipSnapshot } from "../newtab/chipDefaults";
 import { useHarnessesPage } from "../harnesses/harnessesPage";
 import { holdCloudModePick } from "../cloudModePick";
 import { holdCloudAgentPick, useCloudAgentPick } from "../cloudAgentPick";
-import { useCloudLastPick } from "../cloudLastPick";
 import { useDraftActionsVersion } from "../composerDraft";
 import { useHarnessesListed } from "../catalog";
 import { usePickerCatalog } from "../modelCatalogHost";
@@ -73,12 +72,7 @@ function PickerChips({
   const harnessesListed = useHarnessesListed();
   // Cloud picked: the agent picked for the machine (cloudAgentPick.ts) is the one the chips show and the
   // Cloud send names; this Mac starts no chat for it (cmux#51731).
-  // With none held on this page, Cloud's own last pick (cloudLastPick.ts), never This Mac's: the two are
-  // separate buckets (Austin, 2026-11-27: "We should store a state for the local models and a different
-  // state for the cloud+autocloud").
-  const heldCloudPick = useCloudAgentPick();
-  const rememberedCloudPick = useCloudLastPick();
-  const cloudPick = heldCloudPick ?? rememberedCloudPick;
+  const cloudPick = useCloudAgentPick();
   const onCloud = snapshot.startsOnCloud === true && !snapshot.summary?.sessionId;
   const shown: AcpmuxSnapshot =
     onCloud && cloudPick
@@ -98,10 +92,8 @@ function PickerChips({
   useDraftActionsVersion();
   // `chat.new` for the same agent and folder is the switch already running, so a second pick
   // never restarts it.
-  // `faceHarness`: the agent the chips name where the snapshot names none yet (ComposerPickers'
-  // chip harness), the one a New Tab's mode pick starts.
-  const start = (faceHarness?: string) => {
-    const harness = snapshot.summary?.harness ?? faceHarness;
+  const start = () => {
+    const harness = snapshot.summary?.harness;
     if (!startsChat || !harness || snapshot.summary?.sessionId) return;
     void callNative("chat.new", { harness, ...inFolder }).catch(() => undefined);
   };
@@ -111,21 +103,21 @@ function PickerChips({
   // made before the connect installs `chat.mode` is held, and runs through the same chat.new and
   // chat.mode path as any other pick once it does; a later pick replaces it. The chip shows the
   // pick meanwhile (AccessMenu's optimistic mode, settled by the returned promise).
-  const pickMode = (modeId: string, faceHarness?: string) => {
-    start(faceHarness);
+  const pickMode = (modeId: string) => {
+    start();
     return callNative("chat.mode", { modeId });
   };
   // A pick before the connect is the page's (heldModePick.ts), so a first send that unmounts these
   // chips never loses it; the connect flushes it. The run reads the page's actions when it runs.
-  const onMode = (modeId: string, faceHarness?: string): Promise<unknown> => {
+  const onMode = (modeId: string): Promise<unknown> => {
     // Cloud picked: the pick waits for the Cloud send, which starts the chat in it on the machine;
     // this Mac starts nothing for it.
     if (snapshot.startsOnCloud) {
-      holdCloudModePick(shown.summary?.harness ?? faceHarness, modeId);
+      holdCloudModePick(shown.summary?.harness, modeId);
       return Promise.resolve();
     }
-    if (!startsChat || window.cmuxAcpmuxActions?.["chat.mode"] !== undefined) return pickMode(modeId, faceHarness);
-    return holdModePick(modeId, (held) => pickMode(held, faceHarness));
+    if (!startsChat || window.cmuxAcpmuxActions?.["chat.mode"] !== undefined) return pickMode(modeId);
+    return holdModePick(modeId, pickMode);
   };
   const picker = usePickerCatalog(
     snapshot.catalog,

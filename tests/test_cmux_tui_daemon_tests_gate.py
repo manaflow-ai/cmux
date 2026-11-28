@@ -110,11 +110,6 @@ class DaemonTestsGateTests(unittest.TestCase):
         self.assertIn("scripts/ci/cmux-next-daemon-tests.sh", step(daemon, "cargo test cmux_next_")["run"])
         script = (ROOT / "scripts/ci/cmux-next-daemon-tests.sh").read_text(encoding="utf-8")
         self.assertIn("--locked cmux_next_", script)
-        # A 14 GiB cmux-linux slot SIGKILLed the test compile at -j8 (job 140997699588): the jobs follow its memory,
-        # and an OOM-killed attempt retries at half.
-        self.assertIn("scripts/ci/cargo-mem-jobs.sh", script)
-        self.assertLess(script.index("cargo-mem-jobs.sh"), script.index("for attempt in 1 2 3"))
-        self.assertIn("signal: 9, SIGKILL", script)
         self.assertNotIn("continue-on-error", daemon)
 
     def test_a_pass_writes_the_marker_without_naming_an_os(self) -> None:

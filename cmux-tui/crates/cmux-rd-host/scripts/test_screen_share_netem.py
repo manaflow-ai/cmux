@@ -24,36 +24,14 @@ class ScreenShareNetemCliTests(unittest.TestCase):
     def _error(self, msg):
         raise ValueError(msg)
 
-    def test_probe_runs_a_baseline_three_drops_and_a_switch_at_50ms_and_1pct(self):
+    def test_probe_runs_a_baseline_then_a_10s_and_a_60s_drop_at_50ms_and_1pct(self):
         args = self._args(probe=True, rtt=0.0)
         rows = netem.plan(args, self._error)
-        self.assertEqual(rows, [None, 10.0, 60.0, 300.0, netem.SWITCH])
+        self.assertEqual(rows, [None, 10.0, 60.0])
         self.assertEqual((args.rtt, args.loss, args.blip_at, args.attempts), (50, 1, 3, 10))
-        self.assertGreaterEqual(args.timeout, 3 + 300 + 30)
-        self.assertEqual([netem.row_name(r) for r in rows],
-                         ["baseline", "drop-10s", "drop-60s", "drop-300s", "switch"])
-        self.assertEqual([netem.row_attempts(args, r) for r in rows], [10, 10, 10, 5, 10])
-
-    def test_an_explicit_small_attempt_count_also_bounds_the_long_drop(self):
-        args = self._args(probe=True, attempts=3)
-        netem.plan(args, self._error)
-        self.assertEqual(netem.row_attempts(args, 300.0), 3)
-        self.assertEqual(netem.row_attempts(self._args(attempts=7), 300.0), 7)
-
-    def test_switch_recovers_only_on_a_marker_sent_after_the_move(self):
-        before = {"sent_ns": 100, "decoded_ns": 150}
-        after = {"sent_ns": 300, "decoded_ns": 360}
-        self.assertTrue(netem.recovered_after_switch(200, [before, after], None))
-        self.assertFalse(netem.recovered_after_switch(200, [before], None))
-        self.assertFalse(netem.recovered_after_switch(200, [before, after], "viewer silent for 3 s"))
-        self.assertFalse(netem.recovered_after_switch(None, [after], None))
-        self.assertFalse(netem.recovered_after_switch(200, None, None))
-
-    def test_drop_gate_covers_the_switch_row(self):
-        records = [{"attempt": 1, "row": "switch", "connect_ms": 5, "recovered_after_drop": False,
-                    "host_ended": "viewer silent for 3 s"}]
-        self.assertEqual(netem.drop_gate(records, 5_000),
-                         ["attempt 1 (switch): did not recover: viewer silent for 3 s"])
+        self.assertGreaterEqual(args.timeout, 3 + 60 + 30)
+        self.assertEqual([f"drop-{d:g}s" if d is not None else "baseline" for d in rows],
+                         ["baseline", "drop-10s", "drop-60s"])
 
     def test_probe_keeps_an_explicit_attempt_count(self):
         args = self._args(probe=True, attempts=3)
@@ -84,7 +62,6 @@ class ScreenShareNetemCliTests(unittest.TestCase):
         self.assertEqual(netem.sample_budget(20, None), 20)
         self.assertEqual(netem.sample_budget(20, 10, 5), 80)
         self.assertEqual(netem.sample_budget(20, 60, 5), 130)
-        self.assertEqual(netem.sample_budget(20, 300, 3), 350)
 
     def test_a_run_with_no_first_frame_fails(self):
         self.assertEqual(netem.run_status([]), 1)

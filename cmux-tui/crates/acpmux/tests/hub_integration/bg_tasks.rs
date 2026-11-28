@@ -826,11 +826,8 @@ async fn a_task_end_is_sent_once_across_a_restart() {
         acpmux::bg_run::notified_path(&bg, &first).exists() && ends(&hub, &id).len() == 1
     })
     .await;
-    // The second ends while no daemon runs. It fails: an exit-0 end in a chat that is idle
-    // after a turn waits 5 min in its inbox (`bg_notify.rs` `OWN_END_HOLD_MS`, #59782), while a
-    // failure is sent at once, so the restart's send is what this reads.
-    let second =
-        c.request(method::MUX_BG_START, start("sleep 1; echo second; exit 3")).await.unwrap();
+    // The second ends while no daemon runs.
+    let second = c.request(method::MUX_BG_START, start("sleep 1; echo second")).await.unwrap();
     let second = second["id"].as_str().unwrap().to_owned();
     hub.shutdown_all().await;
     drop(c);
@@ -906,11 +903,12 @@ async fn a_chat_runs_past_the_old_cap_of_32_tasks_and_every_end_is_sent() {
     }
 }
 
-/// The task ends chat `id` took: as a turn's message, or held in its inbox, by the surge rate or,
-/// once the chat ran a turn, as its own exit-0 end (`bg_notify.rs` `OWN_END_HOLD_MS`, #59782).
+/// The task ends chat `id` took: as a turn's message, or held by the surge rate in its inbox.
 fn reached(hub: &Hub, id: &str) -> Vec<String> {
     let events = hub.events(id, 0, 10_000).unwrap();
-    let held = |e: &&acpmux::store::EventRecord| e.kind == "inbox";
+    let held = |e: &&acpmux::store::EventRecord| {
+        e.kind == "inbox" && e.msg["surgeHeld"].as_bool() == Some(true)
+    };
     events
         .iter()
         .filter(|e| e.kind == "user_message" || held(e))

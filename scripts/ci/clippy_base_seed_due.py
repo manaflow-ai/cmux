@@ -20,10 +20,6 @@ import re
 import sys
 import urllib.error
 import urllib.request
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import deadline_http  # noqa: E402  (scripts/ci: every call ends by its deadline)
 
 PUBLIC_URL = "https://ci-cache-next.cmux.com"
 POINTER = "v1/Linux-X64/latest/cmux-tui-clippy-seed-ws-v1-"
@@ -33,8 +29,8 @@ KEY_INPUT = re.compile(r"^(?:cmux-tui/(?:.+/)?Cargo\.lock|cmux-tui/rust-toolchai
 def read_pointer_time(timeout: int = 15) -> datetime | None:
     request = urllib.request.Request(f"{PUBLIC_URL}/{POINTER}", method="HEAD")
     try:
-        _, _, headers = deadline_http.request(request, timeout, raise_errors=True)
-        value = headers.get("Last-Modified")
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            value = response.headers.get("Last-Modified")
     except (urllib.error.URLError, TimeoutError, OSError):
         return None
     return parsedate_to_datetime(value).astimezone(timezone.utc) if value else None

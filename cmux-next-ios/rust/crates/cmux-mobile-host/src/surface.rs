@@ -106,25 +106,6 @@ impl SurfaceConfig {
         }
     }
 
-    /// Standalone hostd (no app): each tab's source is `exe surface-source --tab TAB --lifeline`
-    /// (`CMUX_MOBILE_SURFACE_SOURCE`, e.g. `cmux-rd`, which captures this Mac's displays), with
-    /// the lifeline launch contract; its log is `<log_dir>/surface-<tab>.log`. It streams no
-    /// simulator tabs.
-    pub fn process(exe: std::path::PathBuf, log_dir: std::path::PathBuf, max_tabs: usize) -> Self {
-        let source: Launcher = Arc::new(move |request: LaunchRequest| {
-            let (exe, log_dir) = (exe.clone(), log_dir.clone());
-            Box::pin(async move {
-                std::fs::create_dir_all(&log_dir)
-                    .map_err(|e| format!("log dir {}: {e}", log_dir.display()))?;
-                let log = std::fs::File::create(log_dir.join(format!("surface-{}.log", request.tab)))
-                    .map_err(|e| format!("source log: {e}"))?;
-                let args = ["surface-source", "--tab", request.tab.as_str(), "--lifeline", "1"];
-                crate::browser::launch_lifeline(&exe, &args, &[], log, "the surface source").await
-            })
-        });
-        Self::new(Some(source), max_tabs).without_simulators()
-    }
-
     /// The same source, but one that streams no simulator tabs (`CMUX_MOBILE_SURFACE_SIMULATORS=0`:
     /// SimulatorKit does not load); it still streams Cloud desktops.
     pub fn without_simulators(mut self) -> Self {

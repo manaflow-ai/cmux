@@ -171,7 +171,6 @@ extension SidebarBuiltIn {
         case .chief: "sparkles"
         case .automations: "clock.badge.checkmark"
         case .forum: "text.bubble"
-        case .feed: "list.bullet.rectangle"
         }
     }
 
@@ -196,7 +195,6 @@ extension SidebarBuiltIn {
         case .chief: .sparkles
         case .automations: .automation
         case .forum: .agentChatList
-        case .feed: nil
         }
     }
 
@@ -223,7 +221,6 @@ extension SidebarBuiltIn {
         case .chief: SectionStrings.chief
         case .automations: SectionStrings.automations
         case .forum: SectionStrings.forum
-        case .feed: SectionStrings.feed
         }
     }
 
@@ -237,19 +234,17 @@ extension SidebarBuiltIn {
 
     public var defaultInfo: SidebarItemInfo { SidebarItemInfo(title: title, symbol: symbol, icon: icon, caption: caption) }
 
-    /// ``defaultInfo``, hidden for the App Store while it is hidden until it is ready, and for the Forum and the Feed
-    /// while their experiments are off.
+    /// ``defaultInfo``, hidden for the App Store while it is hidden until it is ready, and for the Forum while its
+    /// experiment is off.
     /// - Parameters:
     ///   - showsStore: Whether the App Store shows (`CmuxConfigSnapshot.showsAppStore`, Labs on).
     ///   - showsForum: Whether the Forum shows (`CmuxConfigSnapshot.showsForum`, `experiments.forum` on).
-    ///   - showsFeed: Whether the Feed shows (`CmuxConfigSnapshot.showsFeed`, `experiments.feed` on).
     /// - Returns: The built-in's presentation; the App Store's is hidden when `showsStore` is false, the Forum's
-    ///   when `showsForum` is false, the Feed's when `showsFeed` is false.
-    public func defaultInfo(showsStore: Bool, showsForum: Bool = false, showsFeed: Bool = false) -> SidebarItemInfo {
+    ///   when `showsForum` is false.
+    public func defaultInfo(showsStore: Bool, showsForum: Bool = false) -> SidebarItemInfo {
         var info = defaultInfo
         if self == .appStore, !showsStore { info.isHidden = true }
         if self == .forum, !showsForum { info.isHidden = true }
-        if self == .feed, !showsFeed { info.isHidden = true }
         return info
     }
 }

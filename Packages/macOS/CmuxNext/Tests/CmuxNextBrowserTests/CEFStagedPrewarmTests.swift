@@ -36,7 +36,7 @@ import Testing
     }
 
     @Test func outcomesAreDistinctExitStatusesWithALoadAsSuccess() {
-        let all: [CEFStagedPrewarm.Outcome] = [.loaded, .notEmbedded, .loadFailed, .application, .initializeFailed, .browserRefused, .timedOut, .stalled]
+        let all: [CEFStagedPrewarm.Outcome] = [.loaded, .notEmbedded, .loadFailed, .application, .initializeFailed, .browserRefused, .timedOut]
         #expect(CEFStagedPrewarm.Outcome.loaded.rawValue == 0)
         #expect(Set(all.map(\.rawValue)).count == all.count)
     }
@@ -69,21 +69,6 @@ import Testing
         session.createEnded()  // a refused create call
         #expect(ready())
         withExtendedLifetime(session) {}
-    }
-
-    /// One round in five hung past 60 s outside both waits (hq run 46137037007, cmux8s): the whole run has a deadline
-    /// under the updater's 60 s stop, and its watchdog fires off the main thread the hang holds.
-    @MainActor @Test func theWholeRunHasADeadlineUnderTheUpdatersStop() async {
-        let prewarm = CEFStagedPrewarm()
-        #expect(prewarm.deadline == prewarm.timeout + prewarm.closeTimeout + CEFStagedPrewarm.callAllowance)
-        #expect(prewarm.deadline < .seconds(60), "the updater stops the run at 60 s (StagedUpdatePrewarm.runTimeout)")
-        #expect(CEFStagedPrewarm(deadline: .seconds(5)).deadline == .seconds(5))
-        let (ends, end) = AsyncStream.makeStream(of: Bool.self)
-        let source = CEFStagedPrewarm.watchdog(after: .milliseconds(20)) { end.yield(!Thread.isMainThread); end.finish() }
-        var fired = false
-        for await offMain in ends { fired = offMain }
-        withExtendedLifetime(source) {}
-        #expect(fired, "the watchdog ran on the main thread, which the hang it ends holds")
     }
 
     @MainActor @Test func aBundleWithNoRuntimeEndsBeforeChromium() {

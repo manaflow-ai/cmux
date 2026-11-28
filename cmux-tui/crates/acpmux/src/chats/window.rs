@@ -268,72 +268,6 @@ pub fn ranked(
     rows.into_iter().map(|(_, index)| index).collect()
 }
 
-/// The palette ranker with the last keystroke's entries installed, so the next keystroke ranks
-/// without folding every title again and, when it extends the query, scores only the chats the
-/// shorter query could still lead to (`cmux_palette_ranker::Ranker`). A keystroke that finds
-/// other entries (a chat renamed, added, filtered differently) installs them first.
-#[derive(Default)]
-pub struct TitleRanker {
-    held: std::sync::Mutex<Option<Held>>,
-}
-
-struct Held {
-    version: i64,
-    entries: Vec<cmux_palette_ranker::Entry>,
-    ranker: cmux_palette_ranker::Ranker,
-}
-
-fn same_entries(a: &[cmux_palette_ranker::Entry], b: &[cmux_palette_ranker::Entry]) -> bool {
-    a.len() == b.len()
-        && a.iter().zip(b).all(|(a, b)| {
-            a.title == b.title
-                && a.keywords == b.keywords
-                && a.subtitle == b.subtitle
-                && a.frecency_key == b.frecency_key
-        })
-}
-
-impl TitleRanker {
-    /// [`ranked`], reusing what the last call installed when `entries` are the same.
-    pub fn rank(
-        &self,
-        query: &str,
-        entries: Vec<cmux_palette_ranker::Entry>,
-        history: Option<(f64, cmux_palette_ranker::Frecency)>,
-    ) -> Vec<usize> {
-        let mut held = self.held.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let version = match held.as_ref() {
-            Some(h) if same_entries(&h.entries, &entries) => h.version,
-            other => {
-                let version = other.map_or(0, |h| h.version + 1);
-                let mut ranker = cmux_palette_ranker::Ranker::new();
-                ranker.install(version, entries.clone());
-                *held = Some(Held { version, entries, ranker });
-                version
-            }
-        };
-        let Some(h) = held.as_ref() else { return Vec::new() };
-        let count = i64::try_from(h.entries.len()).unwrap_or(i64::MAX);
-        let (now, frecency) =
-            history.map_or((None, None), |(now, frecency)| (Some(now), Some(frecency)));
-        let request = cmux_palette_ranker::RankRequest {
-            operation: "rank".to_owned(),
-            version: Some(version),
-            query: Some(query.to_owned()),
-            frecency,
-            now,
-            row_limit: Some(count),
-            highlight_limit: Some(0),
-            ..Default::default()
-        };
-        let mut rows: Vec<(i64, usize)> = Vec::new();
-        for section in h.ranker.rank(&request).unwrap_or_default() {
-            rows.extend(section.rows.into_iter().map(|row| (row.score, row.index)));
-        }
-        rows.into_iter().map(|(_, index)| index).collect()
-    }
-}
-
 /// The rows of `spec` in `index`: one walk of the index in its order (newest first) that stops
 /// once the window is full and one more chat passes; a value is built only for a chat the filter
 /// and the exclusions pass.
@@ -432,11 +366,7 @@ fn ranked_rows(
         ));
         candidates.push((key, chat));
     }
-    let history = spec.history.as_ref().map(|h| (h.now, h.frecency.clone()));
-    let order = match text {
-        Some(text) => text.titles().rank(query, entries, history),
-        None => ranked(query, entries, history),
-    };
+    let order = ranked(query, entries, spec.history.as_ref().map(|h| (h.now, h.frecency.clone())));
     let mut total = order.len();
     let mut rows: Vec<Row> = order
         .iter()

@@ -198,9 +198,8 @@ save() {
   size_gib="$(du -sxk "$target" | awk '{ printf "%d", $1 / 1048576 }')"
   if ((size_gib > max_gib)); then
     say "the target is $size_gib GiB, over $max_gib: saving third-party output only"
-    # No mapfile: macOS runners may run this under /bin/bash 3.2, which has no mapfile (kit_sim_fleet.sh, #63758).
-    local crates=() crate
-    while IFS= read -r crate; do crates+=("$crate"); done < <(cargo metadata --no-deps --format-version 1 --manifest-path "$repo/cmux-tui/Cargo.toml" \
+    local crates
+    mapfile -t crates < <(cargo metadata --no-deps --format-version 1 --manifest-path "$repo/cmux-tui/Cargo.toml" \
       | python3 -I -c 'import json,sys; m=json.load(sys.stdin); print("\n".join(sorted({p["name"] for p in m["packages"]} | {t["name"] for p in m["packages"] for t in p["targets"]})))')
     python3 -I "$repo/scripts/ci/cargo_target_strip.py" "$target" --workspace-crates "${crates[@]}"
   else

@@ -140,12 +140,7 @@ impl Hub {
             match (saving.get(&session.id), every) {
                 // One runs.
                 (Some(None), _) => return,
-                // A big checkpoint waits longer (`checkpoint::write_gap`): it is written whole.
-                (Some(Some(at)), Some(every))
-                    if at.elapsed() < super::checkpoint::write_gap(&session.id, every) =>
-                {
-                    return;
-                }
+                (Some(Some(at)), Some(every)) if at.elapsed() < every => return,
                 _ => {}
             }
             saving.insert(session.id.clone(), None);

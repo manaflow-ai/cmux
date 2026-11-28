@@ -81,12 +81,17 @@ public struct TabStripMetrics: Equatable, Sendable {
     /// Every pill's corner radius (`Metrics.tabCornerRadius`): concentric with the card
     /// corner the strip sits in; the strip's + and a tab's hover card share it.
     public var cornerRadius: CGFloat
-    /// The x's hover and pressed plate's corner: Helium's 4 pt (``BrowserChromeTuning/HeliumClose``), unless the density's
+    /// The x's hover and pressed plate's corner, concentric with the pill (Lawrence msg 48706, "be concentric with the
+    /// tab roundness itself"): the pill's corner less the plate's inset, as Helium's 4 in its 8 pt tab at its Spacious
+    /// density (``BrowserChromeTuning/closePlate(pillHeight:pillRadius:minimumSide:)``), unless the density's
     /// `closeCorner` is tuned or set.
     public var closeCornerRadius: CGFloat
-    /// The side of the x's hover plate: Helium's 14 pt square on a tab under 32 pt, its 24 pt Spacious button from 32 pt
-    /// (``BrowserChromeTuning/HeliumClose/plateSide(row:)``), centered on the x; never wider than the x's square when a
-    /// tuned or set close size makes the square the larger.
+    /// Whether ``closeCornerRadius`` is the concentric default (no `closeCorner` tuning or density token): the cell then
+    /// takes the plate's corner from the inset it draws, after the pixel snap, so the curves share a center to the pixel.
+    public var closeCornerIsConcentric: Bool
+    /// The side of the x's hover plate on a ``tabHeight`` pill: the pill less half its corner above and below, around the
+    /// x's slot (``closeButtonSize``, which keeps the title's and the minimum width's room), at most a point short of the
+    /// gap before the slot on each side.
     public var closePlateSide: CGFloat
 
     /// The side of the x's ink box (``closeGlyphSize``): the stroke's round caps reach to it, so the path's ends sit
@@ -239,9 +244,13 @@ public struct TabStripMetrics: Equatable, Sendable {
         // `appearance.tabShape` rounded: a capsule, half the tab's height (block keeps the tab's corner).
         cornerRadius = DesignSettings.shared.tabShape.fillCornerRadius(Metrics.tabCornerRadius, height: Metrics.tabHeight,
                                                                        tabHeight: Metrics.tabHeight)
-        // Helium's plate around the x's square; a tuned or set square larger than it is its own plate.
-        closePlateSide = max(closeButtonSize, BrowserChromeTuning.HeliumClose.plateSide(row: tabHeight))
-        closeCornerRadius = BrowserChromeTuning.value(.closeCorner)
+        // The plate reaches at most a point short of the gap before the slot, so it never meets the favicon or a badge.
+        let plate = BrowserChromeTuning.closePlate(pillHeight: tabHeight, pillRadius: cornerRadius, slot: closeButtonSize,
+                                                   maximumSide: closeButtonSize + 2 * max(0, titleCloseSpacing - 1))
+        closePlateSide = plate.side
+        let setCorner = BrowserChromeTuning.override(.closeCorner) ?? Metrics.densityToken("tabCloseCornerRadius")
+        closeCornerRadius = setCorner ?? plate.corner
+        closeCornerIsConcentric = setCorner == nil
         groupChipOuterInset = Metrics.space1
         groupChipPadding = TabTunables.groupChipPadding.value
         groupChipHeight = max(Metrics.space6, Metrics.tabHeight - 2 * Metrics.space2)

@@ -84,7 +84,7 @@ export const validateSamlResponse = async (base64Response: string, ex: SamlExpec
   try {
     const bytes = Uint8Array.from(atob(base64Response.replace(/\s+/g, "")), (c) => c.charCodeAt(0))
     if (bytes.length > MAX_BYTES) return fail("saml.invalid", "the SAML response is too large")
-    xml = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes)
+    xml = new TextDecoder("utf-8", { fatal: true }).decode(bytes)
   } catch {
     return fail("saml.invalid", "the SAML response is not base64-encoded UTF-8")
   }

@@ -59,38 +59,10 @@ export const handleSsoCallback = async (request: Request, env: Env, connection: 
   if (await limited(env, request)) return json({ error: "rate limited" }, 429)
   const r = await env.TEAM_DO.get(env.TEAM_DO.idFromName(team)).ssoCallback(team, state, code, connection, url.searchParams.get("iss"))
   if (!r.ok) return json({ error: r.message, code: r.code }, 400)
-  return finished(r)
-}
-
-const finished = (r: { ok: true; returnTo: string; redeem: string }) => {
   const target = new URL(r.returnTo)
   // In the fragment, so it reaches neither server logs nor Referer headers.
   target.hash = `sso_code=${encodeURIComponent(r.redeem)}`
   return new Response(null, { status: 302, headers: { location: target.toString(), "cache-control": "no-store", "referrer-policy": "no-referrer" } })
-}
-
-/** POST /v1/sso/saml/acs/<connection> (form: SAMLResponse, RelayState) -> 302 to return_to with a one-time code. */
-export const handleSsoSamlAcs = async (request: Request, env: Env, connection: string): Promise<Response> => {
-  if (request.method !== "POST") return json({ error: "method not allowed" }, 405)
-  const form = await request.formData().catch(() => undefined)
-  const relayState = form?.get("RelayState")
-  const samlResponse = form?.get("SAMLResponse")
-  const team = typeof relayState === "string" ? teamOf(relayState) : undefined
-  // IdP-initiated sign-in (no RelayState of ours) is refused: there is no request to answer.
-  if (!team || typeof relayState !== "string" || typeof samlResponse !== "string" || !samlResponse || !SSOC.test(connection)) return json({ error: "the sign-in did not complete" }, 400)
-  if (await limited(env, request)) return json({ error: "rate limited" }, 429)
-  const r = await env.TEAM_DO.get(env.TEAM_DO.idFromName(team)).ssoSamlAcs(team, relayState, samlResponse, connection, new URL(request.url).origin)
-  if (!r.ok) return json({ error: r.message, code: r.code }, 400)
-  return finished(r)
-}
-
-/** GET /v1/sso/saml/metadata/<team>/<connection> -> SP metadata XML (public: entity id and ACS URL only). */
-export const handleSsoSamlMetadata = async (request: Request, env: Env, team: string, connection: string): Promise<Response> => {
-  if (request.method !== "GET") return json({ error: "method not allowed" }, 405)
-  if (!TEAM.test(team) || !SSOC.test(connection)) return json({ error: "not found" }, 404)
-  const xml = await env.TEAM_DO.get(env.TEAM_DO.idFromName(team)).ssoSamlMetadata(team, connection, new URL(request.url).origin)
-  if (!xml) return json({ error: "not found" }, 404)
-  return new Response(xml, { headers: { "content-type": "application/samlmetadata+xml; charset=utf-8", "cache-control": "no-store" } })
 }
 
 /** POST /v1/sso/redeem {code} -> {access_token, refresh_token} (Stack session), once. */

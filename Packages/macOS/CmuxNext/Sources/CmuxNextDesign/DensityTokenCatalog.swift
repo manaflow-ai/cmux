@@ -255,12 +255,12 @@ public nonisolated struct DensityTokenCatalog: Sendable {
               fallback: { Typography.tabTitleSize(Metrics.tokens) }),
         Entry("tabTitleDrop", .horizontalTabs, tab, "Title baseline shift", help: "Moves the title down from optical center.", range: 0...4, step: 0.25,
               fallback: { 0 }),
-        Entry("tabCloseSize", .horizontalTabs, tab, "Close button", help: "The x's square and icon.", range: 4...28,
+        Entry("tabCloseSize", .horizontalTabs, tab, "Close button", help: "The x's slot; its hover plate is at least this.", range: 4...28,
               fallback: { BrowserChromeTuning.value(.closeSize) }),
         Entry("tabCloseGlyphSize", .horizontalTabs, tab, "Close glyph", help: "The x's ink.", range: 4...28, fallback: { BrowserChromeTuning.value(.closeInk) }),
-        Entry("tabCloseCornerRadius", .horizontalTabs, tab, "Close corner", help: "The x's hover plate corner.", range: 0...14,
+        Entry("tabCloseCornerRadius", .horizontalTabs, tab, "Close corner", help: "The x's hover plate corner. Default: the tab's corner less the plate's inset.", range: 0...14,
               fallback: { BrowserChromeTuning.value(.closeCorner) }),
-        Entry("tabTrailingInset", .horizontalTabs, tab, "Trailing padding", help: "From the x's square to the pill's trailing edge.", range: 0...16,
+        Entry("tabTrailingInset", .horizontalTabs, tab, "Trailing padding", help: "From the x's slot to the pill's trailing edge.", range: 0...16,
               fallback: { BrowserChromeTuning.value(.closeTrailing) }),
         // Other: the three axes every derived size follows.
         // A built-in and its copies scale Default's sizes by `densityScale`; their `level` only picks the family.

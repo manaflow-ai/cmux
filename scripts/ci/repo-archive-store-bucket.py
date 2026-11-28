@@ -21,10 +21,6 @@ import sys
 import tempfile
 import urllib.error
 import urllib.request
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import deadline_http  # noqa: E402  (scripts/ci: every call ends by its deadline)
 
 BUCKET = "cmux-repo-archive"
 PREFIX = "repo-archive/"
@@ -59,8 +55,8 @@ def api(path, method="GET", value=None):
         headers={"Authorization": f"Bearer {os.environ['CLOUDFLARE_API_TOKEN']}", "Content-Type": "application/json"},
         method=method)
     try:
-        _, raw, _ = deadline_http.request(request, 30, raise_errors=True)
-        body = json.loads(raw)
+        with urllib.request.urlopen(request, timeout=30) as response:
+            body = json.load(response)
     except urllib.error.HTTPError as error:
         try:
             codes = [e.get("code") for e in json.load(error).get("errors", [])]

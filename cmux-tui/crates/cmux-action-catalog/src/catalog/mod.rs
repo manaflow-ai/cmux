@@ -36,7 +36,6 @@ mod computer_use_approval;
 mod density;
 mod divider;
 mod extension;
-mod feed;
 mod file_page;
 mod files_pane;
 mod forum;
@@ -174,7 +173,6 @@ pub static GROUPS: &[&[Action]] = &[
     joined_machine::ACTIONS,
     app_store::ACTIONS,
     automations::ACTIONS,
-    feed::ACTIONS,
     forum::ACTIONS,
     tasks::ACTIONS,
     phone::ACTIONS,

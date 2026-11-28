@@ -109,21 +109,6 @@ try:
         rpc("action.run", {"action": "newWindow", "origin": "script"})
     wait(lambda: (rpc("debug.focus") or {}).get("windows"), 60)
     time.sleep(2)
-    # A scratch HOME is a first run: "Make cmux Yours" opens as its own window over the main one, and the CG window
-    # list put it first, so 7b32f9af (2026-11-28) walked the onboarding window's coordinates and every step
-    # read pointer_inside=False in both arms. Close it, and find the main window by its number below.
-    rpc("debug.onboarding", {"action": "close"})
-
-    def shown_windows():
-        listing = rpc("debug.window_list") or {}
-        return [w for w in listing.get("windows") or [] if w.get("visible", True)]
-
-    wait(lambda: all(w.get("kind") == "main" for w in shown_windows()), 10)
-    shown = shown_windows()
-    print(f"TRH-WINDOWS {o.arm} " + " ".join(f"{w.get('id')}:{w.get('kind')}" for w in shown), flush=True)
-    main = next((w for w in shown if w.get("kind") == "main"), None)
-    if main is None:
-        raise SystemExit(f"TRH-FAIL {o.arm} no main window in debug.window_list")
     # The open band's place: with the sidebar shown it is fully present, where the hover opens it over a hidden one.
     controls, _ = chrome()
     if controls.get("sidebar_hidden"):
@@ -134,23 +119,20 @@ try:
     rpc("action.run", {"action": "toggleSidebar", "origin": "script"})
     if not wait(lambda: chrome()[0].get("sidebar_hidden") and chrome()[0].get("band_presence", 1) == 0, 10):
         raise SystemExit("titlebar-hover-reveal: the sidebar did not hide")
-    # The main window where it really is (the test frame is a request: a fleet Mac put a 1100x760 ask at 410,93, 1100x720).
-    # The probe lists window number, top-left x, y, width, height; debug.window_list's id is that number.
-    wx = wy = ww = wh = None
-    for line in probe("windows", app.pid).splitlines():
-        fields = line.split()
-        if len(fields) >= 5 and fields[0].isdigit() and int(fields[0]) == int(main.get("id") or -1):
-            wx, wy, ww, wh = (float(v) for v in fields[1:5])
-    if wx is None:
-        raise SystemExit(f"TRH-FAIL {o.arm} main window {main.get('id')} is not in the on-screen window list")
-    row_y = wh - (by + bh / 2)  # window-local, from the top
-    print(f"TRH-BAND {o.arm} open_band_frame={[bx, by, bw, bh]} row_y={row_y} window={[wx, wy, ww, wh]}", flush=True)
+    height = FRAME[3]
+    row_y = height - (by + bh / 2)  # window-local, from the top
+    print(f"TRH-BAND {o.arm} open_band_frame={[bx, by, bw, bh]} row_y={row_y}", flush=True)
     toggle, back, forward = bx + bw / 6, bx + bw / 2, bx + bw * 5 / 6
-    content_x, content_y = ww / 2, min(320, wh / 2)
-    path = [("content", content_x, content_y), ("lights_gap", bx - 4, row_y), ("toggle", toggle, row_y),
-            ("back", back, row_y), ("forward", forward, row_y), ("tab_mid", ww / 2, row_y),
-            ("tab_right", ww - 40, row_y), ("content_below", ww - 40, content_y),
+    content_y = 320
+    path = [("content", 560, content_y), ("lights_gap", bx - 4, row_y), ("toggle", toggle, row_y),
+            ("back", back, row_y), ("forward", forward, row_y), ("tab_mid", FRAME[2] / 2, row_y),
+            ("tab_right", FRAME[2] - 40, row_y), ("content_below", FRAME[2] - 40, content_y),
             ("below_back", back, content_y), ("back_from_below", back, row_y), ("toggle_again", toggle, row_y)]
+
+    windows = probe("windows", app.pid).splitlines()
+    import re
+    nums = [float(v) for v in re.findall(r"-?\d+(?:\.\d+)?", windows[0])] if windows else []
+    wx, wy = (nums[1], nums[2]) if len(nums) >= 3 else (FRAME[0], FRAME[1])
 
     def screen(x, y):
         return wx + x, wy + y
@@ -176,7 +158,7 @@ try:
                                      "x": round(tx * scale), "y": round(ty * scale)})
 
     # Real moves when posting works: the cursor arrives where the event put it. Else the CuaDriver warp, read back.
-    start = screen(content_x, content_y)
+    start = screen(560, content_y)
     probe("move", *start)
     time.sleep(0.2)
     real, at = landed(start)
@@ -207,7 +189,7 @@ try:
             if not real:
                 raise SystemExit(f"TRH-FAIL {o.arm} the CuaDriver session closed ({error})")
     time.sleep(0.5)
-    last = (content_x, content_y)
+    last = (560, content_y)
     rows = []
     misses = []
     for name, x, y in path:
@@ -240,10 +222,6 @@ try:
             print(f"TRH-VIDEO {o.arm} none ({error})", flush=True)
     if misses:
         raise SystemExit(f"TRH-FAIL {o.arm} the cursor missed {len(misses)} stop(s): {' '.join(misses)}")
-    # Every build reveals with the pointer on the toggle (the old one and the new one alike): a walk where it never did
-    # was not over the title bar, so it proves nothing (7b32f9af read flat in both arms and still exited 0).
-    if not any(r["pointer_inside"] for r in rows if r["step"] in ("toggle", "toggle_again")):
-        raise SystemExit(f"TRH-FAIL {o.arm} pointer_inside never went true on the toggle: the walk missed the title bar")
 finally:
     if session is not None:
         session.close()

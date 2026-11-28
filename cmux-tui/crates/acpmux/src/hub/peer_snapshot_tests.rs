@@ -161,52 +161,6 @@ fn a_write_with_the_same_content_touches_nothing_and_a_changed_one_rewrites_the_
     assert_eq!(seqs(&mut again, "m1"), (1..=11).collect::<Vec<_>>());
 }
 
-/// Many chats streaming at once, each written on its timer: what the store writes stays within
-/// `WRITE_BYTES_PER_SEC` (plus one copy's burst), however many events come, and the last write
-/// still puts every record on disk. Before, each chat's whole copy was rewritten every
-/// `FLUSH_AFTER`: 14-23 MB/s on the owner's Mac, and it panicked (2026-11-24).
-#[test]
-fn timed_writes_stay_within_the_store_write_rate_and_lose_nothing() {
-    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
-    let mut store = store_at(dir.path());
-    // Within the test bounds: each copy at SESSION_EVENTS, all of them within MEMORY_BYTES.
-    let chats = ["a", "b", "c", "d"];
-    let kept = SESSION_EVENTS as u64;
-    for mux in chats {
-        keep(&mut store, mux, 1..=kept);
-    }
-    store.write_due(None, When::Last);
-    let (start, from) = (Instant::now(), store.bytes_written);
-    let largest = chats.iter().map(|m| std::fs::metadata(file(dir.path(), m)).unwrap().len());
-    let largest = largest.max().unwrap();
-    let mut events = 0u64;
-    let mut seq = kept;
-    while start.elapsed() < Duration::from_millis(400) {
-        seq += 1;
-        for mux in chats {
-            keep(&mut store, mux, seq..=seq);
-            events += 1;
-        }
-        std::thread::sleep(Duration::from_millis(2));
-        store.write_due(None, When::Due);
-    }
-    let (bytes, secs) = (store.bytes_written - from, start.elapsed().as_secs_f64());
-    let bound = (WRITE_BYTES_PER_SEC as f64 * secs) as u64 + largest;
-    assert!(bytes <= bound, "{bytes} bytes in {secs:.2}s for {events} events; bound {bound}");
-    // Per event: the rate over the events, never a whole copy each.
-    assert!(
-        bytes / events <= largest / 8,
-        "{} bytes an event, a copy is {largest}",
-        bytes / events
-    );
-    store.write_due(None, When::Last);
-    let mut again = store_at(dir.path());
-    for mux in chats {
-        let newest = (seq + 1 - kept..=seq).collect::<Vec<_>>();
-        assert_eq!(seqs(&mut again, mux), newest, "{mux}: the last write kept its newest records");
-    }
-}
-
 #[test]
 fn a_record_past_the_session_bound_alone_goes_and_the_copy_covers_what_follows() {
     let dir = cmux_unix_socket::short_test_dir("acpmux-ps");

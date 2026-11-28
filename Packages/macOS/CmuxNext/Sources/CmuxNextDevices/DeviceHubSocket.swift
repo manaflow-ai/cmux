@@ -21,25 +21,9 @@ public struct URLSessionDeviceHubConnector: DeviceHubSocketConnector {
     public let client: DeviceHubClient
     let session: URLSession
 
-    /// The socket's own session. URLSession fails a WebSocket receive that sees no frame within
-    /// `timeoutIntervalForRequest` ("The request timed out"), and between pings the only frame is the
-    /// hub's pong, so this bound must outlast the ping interval with room for a slow pong. The REST
-    /// transport's 30 s did not once the ping went to 60 s (#54449): each socket timed out between pings.
-    public static let idleTimeout: Duration = DeviceHubSocket.defaultPingInterval * 2
-
-    /// A session for one connector's sockets (built per connector, not a shared static).
-    public static func makeTransport() -> URLSession {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.urlCache = nil
-        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        configuration.httpCookieStorage = nil
-        configuration.timeoutIntervalForRequest = TimeInterval(idleTimeout.components.seconds)
-        return CmuxEgress.session(site: "CmuxNextDevices.DeviceHubSocket", configuration: configuration)
-    }
-
-    public init(client: DeviceHubClient, session: URLSession? = nil) {
+    public init(client: DeviceHubClient, session: URLSession = DeviceHubClient.transport) {
         self.client = client
-        self.session = session ?? Self.makeTransport()
+        self.session = session
     }
 
     public func connect() async throws -> any DeviceHubSocketConnection {
@@ -116,11 +100,6 @@ public final class DeviceHubSocket: Sendable {
     /// completes the request. Bound each attempt so a device listing can retry instead of
     /// remaining in ``DeviceHub/devicesListed``'s finding state forever.
     public static let connectTimeout: Duration = .seconds(15)
-    /// How long a socket must stay up before its drop retries from the backoff's start. A
-    /// socket the Worker accepts and then closes or stalls at once keeps backing off, so a
-    /// struggling service is not redialed every second by every Mac (Leo, 2026-11-27: "That's a
-    /// loop that keeps going once it starts, which fits 'worked, then broke super suddenly'").
-    public static let stableAfter: Duration = .seconds(30)
 
     public enum State: Sendable, Equatable {
         case disconnected
@@ -147,36 +126,21 @@ public final class DeviceHubSocket: Sendable {
         case push(DeviceHubPush)
     }
 
-    /// PROTOCOL.md's keepalive; ``URLSessionDeviceHubConnector/idleTimeout`` is derived from it.
-    public static let defaultPingInterval: Duration = .seconds(60)
-
     let connector: any DeviceHubSocketConnector
     let pingInterval: Duration
     let backoff: Backoff
     let clock: any Clock<Duration>
     let connectTimeout: Duration
-    let stableAfter: Duration
 
-    public init(connector: any DeviceHubSocketConnector, pingInterval: Duration = DeviceHubSocket.defaultPingInterval,
+    public init(connector: any DeviceHubSocketConnector, pingInterval: Duration = .seconds(60),
                 backoff: Backoff = Backoff(initial: .seconds(1), maximum: .seconds(60)),
                 connectTimeout: Duration = DeviceHubSocket.connectTimeout,
-                stableAfter: Duration = DeviceHubSocket.stableAfter,
                 clock: any Clock<Duration> = ContinuousClock()) {
         self.connector = connector
         self.pingInterval = pingInterval
         self.backoff = backoff
         self.connectTimeout = connectTimeout
-        self.stableAfter = stableAfter
         self.clock = clock
-    }
-
-    /// A stopwatch on `clock`: the returned closure says how long since it was made.
-    private static func stopwatch(_ clock: any Clock<Duration>) -> @Sendable () -> Duration {
-        func open<C: Clock<Duration>>(_ clock: C) -> @Sendable () -> Duration {
-            let start = clock.now
-            return { start.duration(to: clock.now) }
-        }
-        return open(clock)
     }
 
     /// Connects and keeps connecting until the calling task is cancelled.
@@ -191,15 +155,12 @@ public final class DeviceHubSocket: Sendable {
             do {
                 let connection = try await connect()
                 await handler(.state(.connected))
-                let upFor = Self.stopwatch(clock)
+                backoff.reset()
                 do { try await serve(connection, handler) } catch {
                     failure = "\(error)"
                     closeCode = (error as? Closed)?.code
                 }
                 connection.close()
-                // Only a socket that stayed up starts the next failure from the backoff's start:
-                // one that drops right after connecting keeps the backoff growing.
-                if upFor() >= stableAfter { backoff.reset() }
             } catch {
                 failure = "\(error)"
             }

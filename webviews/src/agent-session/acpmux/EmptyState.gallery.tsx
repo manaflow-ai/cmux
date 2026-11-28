@@ -1,4 +1,3 @@
-// l10n-allow-file: gallery entries for the empty state, not shipped UI.
 import { componentEntry } from "../../gallery/format";
 import type { NewChatEntrance } from "./newChatEntrance";
 import type { TourOfferActions } from "./repoTour/TourOffer";

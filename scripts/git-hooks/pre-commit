@@ -752,13 +752,12 @@ tool_env() { # tool args...
     shift
     "$TOOL_ENV" -u BUN_OPTIONS "$tool" "$@"
 }
-# The bun the install runs, by absolute path: a bun at the pinned version or a
-# newer patch/minor of the same major from mise, asdf, PATH or ~/.bun. There is
-# no other fallback: with no compatible bun it says how to install one and
-# fails. Each candidate path is built only from the validated pin and passes
-# resolve_tool before even its --version runs.
+# The bun the install runs, by absolute path: a bun at exactly the pinned
+# version from mise, asdf, PATH or ~/.bun. There is no other fallback: with none
+# at the pin it says how to install one and fails. Each candidate path is built
+# only from the validated pin and passes resolve_tool before even its --version runs.
 resolve_bun() { # pin (validated)
-    local want="$1" entry root candidate path_bun mise_root asdf_root bun_root have
+    local want="$1" entry root candidate path_bun mise_root asdf_root bun_root
     path_bun="$(resolve_tool bun || true)"
     if [[ -n "$want" ]]; then
         mise_root="${MISE_DATA_DIR:-${XDG_DATA_HOME:-${HOME:-/nonexistent}/.local/share}/mise}/installs/bun"
@@ -770,17 +769,13 @@ resolve_bun() { # pin (validated)
             candidate="${entry#*|}"
             [[ -n "$candidate" ]] || continue
             candidate="$(resolve_tool "$candidate" "$root")" || continue
-            have="$(tool_env "$candidate" --version 2>/dev/null || true)"
-            if "$PYTHON3_BIN" -I "$BUN_VERSION_READER" --compatible "$have" "$want"; then
-                if [[ "$have" != "$want" && "$have" != "$want"+* ]]; then
-                    echo "pre-commit: using bun $have; webviews/package.json pins bun $want, and this newer same-major release is compatible." >&2
-                fi
+            if [[ "$(tool_env "$candidate" --version 2>/dev/null || true)" == "$want" ]]; then
                 printf '%s\n' "$candidate"
                 return 0
             fi
         done
     fi
-    echo "pre-commit: no bun ${want:-(no pin)} or newer compatible same-major Bun in mise, asdf, PATH or ~/.bun outside this checkout; install it: curl -fsSL https://bun.sh/install | bash -s bun-v${want:-<version>}" >&2
+    echo "pre-commit: no bun ${want:-(no pin)} in mise, asdf, PATH or ~/.bun outside this checkout; install it: curl -fsSL https://bun.sh/install | bash -s bun-v${want:-<version>}" >&2
     return 1
 }
 # Never installs packages with a bun it cannot vouch for; the lines before say

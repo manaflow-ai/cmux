@@ -19,7 +19,7 @@ pub(super) struct Side {
     pub(super) folder: PathBuf,
 }
 
-pub(super) async fn pair(tag: &str, logs: &Path) -> [Side; 2] {
+async fn pair(tag: &str, logs: &Path) -> [Side; 2] {
     let (a, b) = (format!("{tag}a"), format!("{tag}b"));
     let env = json!({
         // The continuation a move leaves is the turn going on: it works in steps again.

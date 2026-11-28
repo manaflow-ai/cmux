@@ -80,9 +80,6 @@ SCOPED: dict[str, str] = {
     "backend.yml": "backend/** and libs/**",
     "chat-open-perf-report.yml": "webviews/src/agent-session/**",
     "cloud-chief-machine.yml": "Native/OptChat/optchat-chief/**",
-    "pool-build-path.yml": "cmux-tui/crates/** (the app FFI compile; a crate's Markdown may be include_str!'d, so the "
-                           "whole tree starts it, as for the other Rust crate gates)",
-    "shotdiff.yml": "cmux-tui/crates/cmux-shotdiff/** (its own README and fixtures, the gate's self-check)",
     "cloud-journey-pr.yml": "cmux-tui/crates/cmux-cloud-client/**",
     "classic-frozen-guard.yml": ".github/classic-frozen.txt's globs, Markdown in frozen classic paths included "
                                 "(scripts/ci/pr_trigger_paths.py classic_frozen)",

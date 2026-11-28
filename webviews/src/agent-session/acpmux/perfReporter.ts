@@ -129,17 +129,12 @@ export function newChatSpan(marks: Partial<Record<AgentMark, number>>): PerfSpan
   const sendToToken = Math.max(0, firstToken - promptSent);
   if (!before.length) {
     // No ready marks: the span runs from the handshake to the first token as it came.
-    // l10n-allow: perf-report span names, a developer metric
     parts.push({ name: "prompt sent", startMs: 0, ms: round(Math.max(0, promptSent - handshakeStart)) });
-    // l10n-allow: perf-report span names, a developer metric
     parts.push({ name: "first token", startMs: round(promptSent - handshakeStart), ms: round(sendToToken) });
-    // l10n-allow: perf-report span names, a developer metric
     return { name: "new chat", budget: "chat.first_token", ms: round(firstToken - handshakeStart), parts };
   }
-  // l10n-allow: perf-report span names, a developer metric
   parts.push({ name: "first token", startMs: round(readyMs), ms: round(sendToToken) });
   return {
-    // l10n-allow: perf-report span names, a developer metric
     name: "new chat",
     budget: "chat.first_token",
     ms: round(readyMs + sendToToken),
@@ -172,7 +167,6 @@ export function pageLoadSpan(timeline: Record<string, number>): PerfSpan | undef
     return at === undefined ? [] : [[name, at] as const];
   }).sort((left, right) => left[1] - right[1]);
   return {
-    // l10n-allow: perf-report span names, a developer metric
     name: "page load",
     budget: "page.load",
     ms: round(Math.max(0, painted - origin)),
@@ -193,7 +187,6 @@ export function workspaceSwitchSpan(
   isSettled: boolean,
 ): PerfSpan {
   const span: PerfSpan = {
-    // l10n-allow: perf-report span names, a developer metric
     name: "workspace switch",
     budget: "workspace.switch",
     ms: round(Math.max(0, settled - visible)),
@@ -234,7 +227,6 @@ export function keyPaintSpan(
   stages.push(["frame", slowest.frame], ["paint", slowest.paint]);
   const sorted = samples.map((sample) => sample.paint).sort((a, b) => a - b);
   return {
-    // l10n-allow: perf-report span names, a developer metric
     name: "key to paint",
     budget: "composer.key_paint",
     ms: round(slowest.paint),
@@ -334,7 +326,6 @@ export function chatSwitchSpan(state: ChatSwitchTiming, end: number): PerfSpan {
   const marks: [string, number][] = [["rows painted", painted]];
   if (state.settledAt !== undefined) marks.push(["settled", Math.max(painted, state.settledAt)]);
   return {
-    // l10n-allow: perf-report span names, a developer metric
     name: "chat switch",
     budget: "chat.switch_paint",
     ms: round(Math.max(0, painted - state.start)),

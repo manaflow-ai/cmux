@@ -107,13 +107,6 @@ class SelectTests(unittest.TestCase):
         self.assertIn("pairing-mac-identity", r["flows"])
         self.assertEqual(r["swift"], [{"package": "Packages/macOS/CmuxNext", "filter": "MobileHostMacIdentityKeychainTests"}])
 
-    def test_a_flow_added_or_edited_in_flows_json_runs_in_that_pr(self):
-        r = fs.select(MANIFEST, [fs.MANIFEST_PATH], edited=["read-first-kept-chat-first-frame"])
-        self.assertIn("read-first-kept-chat-first-frame", r["flows"])
-        self.assertIn("CmuxMobileLiveTests/KeptChatFirstFrameReadBackTests", r["kit"])
-        self.assertNotIn("new-chat-starts-from-phone", r["flows"])
-        self.assertEqual(r["reason"]["read-first-kept-chat-first-frame"], [fs.MANIFEST_PATH])
-
     def test_sim_args_shards_split_suites(self):
         r = self.sel("cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/KeyRow.swift")
         lines = fs.sim_args(r, 2)

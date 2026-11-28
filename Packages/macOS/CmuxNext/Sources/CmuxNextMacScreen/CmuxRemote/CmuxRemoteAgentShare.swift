@@ -125,4 +125,10 @@ nonisolated enum CmuxRemoteAgentStrings {
                defaultValue: "Your agents share without asking, with a notice each time.",
                table: "CmuxRemote", bundle: .module)
     }
+    static var historyAllowed: String {
+        String(localized: "remote.agents.history.allowed", defaultValue: "Agents allowed to share", table: "CmuxRemote", bundle: .module)
+    }
+    static var historyDisallowed: String {
+        String(localized: "remote.agents.history.disallowed", defaultValue: "Agents ask before sharing", table: "CmuxRemote", bundle: .module)
+    }
 }

@@ -8,5 +8,4 @@ path: libs/cmux-cua/swift/CmuxAgentCursor
 upstream-tree: d9f93028738209a3d1d8b7277630bd6fa3fd06a0
 patch: scripts/cmux-agent-cursor-linux.patch c215554f8936bc86a0afd3404eafb7e650eed50fe1ee71f1441d5a9a0026ea3e
 patch: scripts/cmux-agent-cursor-vendored-edits.patch cd4961e6a0bf1fdc3934645eddacc4eb5915782866fc6a88b2ce93a234acd76a
-patch: scripts/cmux-agent-cursor-kite-cursor.patch f36ea38c464ab4df6304f35481b6c6277e7fc28ae588041d3267141a85bbac1f
-tree: d459097a0918dc830e41ffd1c019b85e1e148775
+tree: c06858b75e8eb79350e28613b19008cf32e4d065

@@ -592,14 +592,8 @@
 .acpmux-project-inline .acpmux-project-button svg{flex:none;color:var(--acpmux-composer-placeholder)}
 .acpmux-empty-choose .acpmux-project-button{font-size:var(--text-body);line-height:var(--text-body--line-height);color:var(--agent-muted);letter-spacing:var(--text-body--letter-spacing)}
 .acpmux-empty-choose .acpmux-project-button>span{text-decoration:none}
-/* Each machine heads its own folders once (Leo 2026-10-20: "we can have them be delineated rather than
-   just this is a computer symbol. This is a computer symbol"): its symbol in its own color and its name,
-   a quiet caption in the first folder's top margin; a second machine's opens with a hairline. */
-.acpmux-project-menu .acpmux-menu-item:has(> .acpmux-project-machine){position:relative;margin-top:24px}
-.acpmux-project-menu .acpmux-menu-item:has(> .acpmux-project-machine[data-divider]){margin-top:32px}
-.acpmux-project-menu .acpmux-menu-item:has(> .acpmux-project-machine[data-divider])::before{content:"";position:absolute;inset-inline:0;top:-24px;border-top:var(--cmux-hairline,0.5px) solid color-mix(in srgb,var(--agent-text) 14%,transparent);pointer-events:none}
-.acpmux-project-machine{position:absolute;bottom:100%;margin-bottom:4px;left:var(--acpmux-project-menu-edge);right:var(--acpmux-project-menu-edge);display:flex;align-items:center;gap:4px;color:var(--agent-muted);font-size:var(--text-caption);font-weight:600;letter-spacing:var(--text-caption--letter-spacing);pointer-events:none}
-.acpmux-project-machine>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acpmux-project-host{display:inline-flex;align-items:center;gap:3px;flex:none;max-width:110px;color:var(--acpmux-composer-dim);font-size:var(--text-caption);letter-spacing:var(--text-caption--letter-spacing)}
+.acpmux-project-host>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* One leading column for every row of the project menu (Leo, ":( alignemnt"): Do not work in a
    project, New project, a typed path and each project put their mark in one 16px box with no tile,
    as the environment, model and mode pickers do, so every title starts on one text inset

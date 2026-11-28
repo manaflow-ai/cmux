@@ -14,27 +14,6 @@
 # that staged it, so every nightly failed with "cmux-remote-dev.pin.json unavailable: no CMUX_CEF_R2_* read
 # credentials" (2026-11-16, runs 43836933442 and 43846986617). This fetch puts it in the same cache
 # (cef-cache-root.sh/cua-helper-v2) the build reads first; a failure here still fails the build there.
-#
-# The cache root is this job's own folder (RUNNER_TEMP/cef-cache), not the host's: glaeda-disk --pressure
-# reclaims ~/Library/Caches/cmux/cef/<version> on a full mini, and on 2026-11-28 it did so between this
-# fetch (12:04) and the Release build's embed phase (12:09) of run 46142021653. That phase has no R2 key
-# or token, so it built without the engine and "Verify third-party notices" failed the nightly (WebRTC
-# needs CEF's CREDITS.html.gz). The host cache seeds the job's folder as APFS clones (no extra disk), so
-# nothing is fetched twice; GITHUB_ENV hands the root to every later step (app-build-release.sh keeps a
-# set CMUX_CEF_CACHE_DIR) and the folder goes with the job.
-host_root="$(env -u CMUX_CEF_CACHE_DIR scripts/cmux-next/cef-cache-root.sh)"
-job_root="${RUNNER_TEMP:?}/cef-cache"
-mkdir -p "$job_root"
-if [[ -d "$host_root" ]]; then
-  for entry in "$host_root"/*; do
-    [[ -e "$entry" && ! -e "$job_root/${entry##*/}" ]] || continue
-    cp -cRp "$entry" "$job_root/" 2>/dev/null || cp -Rp "$entry" "$job_root/" ||
-      { rm -rf "${job_root:?}/${entry##*/}"; echo "warning: could not seed $entry; fetching it again" >&2; }
-  done
-fi
-export CMUX_CEF_CACHE_DIR="$job_root"
-echo "CMUX_CEF_CACHE_DIR=$job_root" >> "${GITHUB_ENV:?}"
-echo "CEF cache for this job: $job_root (seeded from $host_root)"
 python3 scripts/ci/background_build.py start --state "$RUNNER_TEMP/nightly-helper-builds" chromium-engine -- \
   bash -c 'set -e
     scripts/cmux-next/ensure-cef.sh --optional

@@ -246,7 +246,7 @@ import Testing
             "main.warmup_started": 42, "main.environment": 43, "main.state_folder": 44, "main.reads_started": 45,
             "main.crash_handlers": 46, "main.nsapp_made": 47.5, "main.launch_shell_made": 47.6, "main.delegate.fields": 47.7, "main.control.fields": 47.8,
             "main.delegate.first_frame_gate": 47.9, "main.delegate.main_work": 48, "main.delegate.control": 48.1, "main.delegate_made": 48.25, "main.nsapp": 50, "main.run": 55, "app.did_finish_launching_entry": 56,
-            "app.launch_snapshot_awaited": 57, "cloud_env.start": 58, "cloud_env.cli_exited": 59, "cloud_env.awaited": 59.5, "app.cloud_env_awaited": 59.6, "app.cloud_env_failed": 59.7, "app.settings_awaited": 59.8, "app.daemon_prestarted": 59.9,
+            "app.launch_snapshot_awaited": 57, "cloud_env.start": 58, "cloud_env.cli_exited": 59, "cloud_env.awaited": 59.5,
             "dfl.theme": 75, "dfl.settings": 125, "daemon.binary_resolved": 150, "dfl.daemon_cloud_updater": 325,
             "dfl.first_window_hooks": 335, "dfl.home_history": 345, "daemon_snapshot_loaded": 365,
             "connecting_view_shown": 366, "connecting_view_left": 367, "workspace_content_shown": 368,

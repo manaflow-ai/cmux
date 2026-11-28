@@ -47,7 +47,6 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             scripts/ci/machine_channel_cargo_seed_due.py
-            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Read both legs' newest workspace delta and this push's changed paths

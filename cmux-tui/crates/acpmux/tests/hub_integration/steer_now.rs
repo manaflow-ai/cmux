@@ -72,7 +72,7 @@ async fn ended_and_carried(c: &mut TestClient, turn: i64, prompt_ids: Value) -> 
         .map(str::to_owned)
         .collect();
     assert!(reads.len() <= 1, "one input, not one per message: {reads:#?}");
-    let read = match reads.into_iter().next() {
+    match reads.into_iter().next() {
         Some(read) => read,
         None => {
             let is_read = |p: &Value| {
@@ -81,30 +81,8 @@ async fn ended_and_carried(c: &mut TestClient, turn: i64, prompt_ids: Value) -> 
             let p = c.wait_for(method::SESSION_UPDATE, is_read).await;
             p["update"]["content"]["text"].as_str().unwrap().to_owned()
         }
-    };
-    // A send-now steer that stopped the step ends with acpmux's note that no one stopped it (#63480), so
-    // the model reads the interrupt as a delivery, not a person's "STOP and wait for the user". The
-    // reading is what comes before it; `sent_now_read` checks the note is there.
-    match read.split_once(STEP_STOPPED_NOTE_START) {
-        Some((read, note)) => {
-            assert!(note.contains("not anyone stopping you"), "{note}");
-            format!("{read}{STEP_STOPPED_NOTE_START}")
-        }
-        None => read,
     }
 }
-
-/// The reading a send-now steer gave, which ends with the step-stopped note; panics when it has none.
-fn sent_now_read(read: String) -> String {
-    read.strip_suffix(STEP_STOPPED_NOTE_START)
-        .unwrap_or_else(|| {
-            panic!("a send-now steer that stopped the step carries no step-stopped note: {read}")
-        })
-        .to_owned()
-}
-
-/// The start of the note a steer that stopped the step ends with (`claude_stdio::steer_batch::STEP_STOPPED_NOTE`).
-const STEP_STOPPED_NOTE_START: &str = "[acpmux] The interruption just before this message";
 
 /// Starts the long step from the session's own connection; returns the turn prompt's request id.
 async fn long_step(c: &mut TestClient, id: &str) -> i64 {
@@ -186,7 +164,7 @@ async fn send_now_for_a_queued_prompt_steers_it_in_at_once() {
 
     let sent = send_now(&hub, &id, "p-queued").await;
     assert_eq!(sent["sent"], "steer", "{sent}");
-    let read = sent_now_read(ended_and_carried(&mut c, turn, json!(["p-queued"])).await);
+    let read = ended_and_carried(&mut c, turn, json!(["p-queued"])).await;
     assert_eq!(read, "read: MANGO");
 }
 
@@ -361,7 +339,7 @@ async fn a_steer_sent_with_steer_now_stops_the_step_at_once() {
     let carried = ended_and_carried(&mut c, turn, json!(["p-now"]));
     let ended = tokio::time::timeout(std::time::Duration::from_secs(20), carried).await;
     let read = ended.expect("steerNow did not stop the step: the turn still runs");
-    assert_eq!(sent_now_read(read), "read: PINEAPPLE");
+    assert_eq!(read, "read: PINEAPPLE");
 }
 
 /// Ten other sessions' messages sent while the step runs go in as one (Leo, 2026-10-27: "i also

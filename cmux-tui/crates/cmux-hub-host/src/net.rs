@@ -159,12 +159,6 @@ impl Drop for Conn {
     }
 }
 
-/// [`tls_config`] for a `wss` connect through tokio-tungstenite, which given no connector reads
-/// the platform's roots again at every connect (cmux-remote's `websocket::native_tls`).
-pub fn native_tls_config() -> Option<Arc<rustls::ClientConfig>> {
-    tls_config().ok()
-}
-
 fn tls_config() -> Res<Arc<rustls::ClientConfig>> {
     static CONFIG: std::sync::OnceLock<Result<Arc<rustls::ClientConfig>, String>> =
         std::sync::OnceLock::new();

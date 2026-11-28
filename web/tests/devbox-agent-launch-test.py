@@ -41,22 +41,6 @@ class AgentLaunchTests(unittest.TestCase):
         self.assertIn("agent-launch-ok", result.stdout)
         self.assert_reaped(result.stdout)
 
-    def test_ready_marker_spaced_by_cursor_moves(self):
-        # Claude Code 2.1.299's status line: words placed by column, no spaces.
-        result = self.run_probe(
-            "import signal; print('bypass\\x1b[13Gpermissions\\x1b[25Gon',flush=True); signal.pause()",
-            "--ready", "bypass permissions on",
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("agent-launch-ok", result.stdout)
-
-    def test_forbidden_gate_spaced_by_cursor_moves_fails(self):
-        result = self.run_probe(
-            "print('Do\\x1b[4Cyou\\x1b[2Ctrust READY')", "--forbidden", "do you trust",
-        )
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("first-run gate still up", result.stderr)
-
     def test_forbidden_gate_fails_even_when_ready_is_present(self):
         result = self.run_probe("print('Trust this folder? READY')", "--forbidden", "trust this folder")
         self.assertEqual(result.returncode, 1)

@@ -1005,9 +1005,8 @@ impl TurnCarrier {
     /// data) within `bound` of the first: the allocation is dead (its watch
     /// says so, the session takes a new one) and the server goes behind the
     /// others ([`turn_servers`]). The caller derives `bound` from the path's
-    /// smoothed RTT, with a floor (`Paths::turn_server_bound`). Only for
-    /// UDP: a stream reports its own failure, and a quiet path whose server
-    /// answers is the peer's or the link's matter.
+    /// smoothed RTT. Only for UDP: a stream reports its own failure, and a
+    /// quiet path whose server answers is the peer's or the link's matter.
     pub fn check_server(&self, bound: Duration) {
         let Some(server) = self.server else { return };
         if self.transport.is_stream() || self.is_dead() || self.checking.swap(true, Ordering::AcqRel) {

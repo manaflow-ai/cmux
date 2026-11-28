@@ -30,8 +30,6 @@ public struct WorkspaceAutoNameReader {
     /// The title an unnamed workspace whose shell idles at its home reads (a Cloud machine's "Terminal",
     /// `SidebarMapping.homeShellName`); nil for a machine whose home folder names its rows.
     let homeShellTitle: @MainActor (WorkspaceModel) -> String?
-    /// Whether a workspace is on this Mac, where only this account's home is a home (`SidebarMapping.namesHome`).
-    let onThisMac: @MainActor (WorkspaceModel) -> Bool
     /// The title a Cloud chat start lends the New Tab page that sent it, and the chat it opened (`AgentCloudStartTitles`).
     let cloudStarts: AgentCloudStartTitles
     /// The Cloud tab a Mac tab shows in place (the app's `CloudFrontedChats`), nil for any other tab: the row of a
@@ -48,7 +46,6 @@ public struct WorkspaceAutoNameReader {
     ///   - hold: the names rows keep while their front tab's is unknown; the
     ///     app's one (`AppServices.autoNameHold`), since it builds a reader per row it maps.
     ///   - homeShellTitle: what an unnamed workspace whose shell idles at its home reads, by its machine.
-    ///   - onThisMac: whether a workspace is on this Mac (its home is this account's, not any `/Users/<name>`).
     ///   - cloudStarts: the titles of Cloud chat starts (the app's `AppServices.cloudStartTitles`).
     ///   - shown: the Cloud tab a Mac tab shows in place, if it shows one.
     public init(enabled: @escaping @MainActor () -> Bool, isNewTabPage: @escaping @MainActor (TabModel) -> Bool,
@@ -56,7 +53,6 @@ public struct WorkspaceAutoNameReader {
                 terminal: @escaping @MainActor (TabModel) -> NewWorkspaceName.Tab, turns: AgentTurnStateStore = .shared,
                 hold: WorkspaceAutoNameHold, allowsLegacyDefaults: @escaping @MainActor (WorkspaceModel) -> Bool = { _ in true },
                 homeShellTitle: @escaping @MainActor (WorkspaceModel) -> String? = { _ in nil },
-                onThisMac: @escaping @MainActor (WorkspaceModel) -> Bool = { _ in false },
                 cloudStarts: AgentCloudStartTitles = AgentCloudStartTitles(),
                 shown: @escaping @MainActor (TabModel) -> TabModel? = { _ in nil }) {
         self.enabled = enabled
@@ -68,7 +64,6 @@ public struct WorkspaceAutoNameReader {
         self.hold = hold
         self.allowsLegacyDefaults = allowsLegacyDefaults
         self.homeShellTitle = homeShellTitle
-        self.onThisMac = onThisMac
         self.cloudStarts = cloudStarts
         self.shown = shown
     }
@@ -206,8 +201,7 @@ public struct WorkspaceAutoNameReader {
         let newTabPages = Set(tabs.filter { isNewTabPage($0) }.map(\.id))
         let face = SidebarMapping.shared.faceTabs(workspace, selectedTab: selectedTab, newTabPages: newTabPages).face
         let name = displayName(workspace, front: face)
-        return SidebarMapping.homeShellName(homeShellTitle(workspace), workspace: workspace, label: name, face: face,
-                                            home: onThisMac(workspace) ? SidebarMapping.shared.home : nil) ?? name
+        return SidebarMapping.homeShellName(homeShellTitle(workspace), workspace: workspace, label: name, face: face) ?? name
     }
 
     /// A browser tab's title as a workspace name: the tab's user name, else

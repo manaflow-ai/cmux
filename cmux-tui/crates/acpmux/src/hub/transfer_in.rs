@@ -6,10 +6,9 @@
 //! - `_acpmux/transfer_preflight {manifest}`: the same question with nothing begun, for a dry
 //!   run and for a move before it freezes the chat. Answers `{takes: true}` or that refusal.
 //! - `_acpmux/transfer_write {receiveId, path, offset, data}`: one page (base64), in order.
-//! - `_acpmux/transfer_finish {receiveId, cwd?, sameFolder?, name?, from?}`: the chat is imported
-//!   (its history, draft and agent store), in `cwd` when its folder has another path here, and its
-//!   queue runs here at once, held prompts still held. `sameFolder`: the move made `cwd` the
-//!   chat's own folder, so its namespace manifest rebinds to it. Answers the session summary.
+//! - `_acpmux/transfer_finish {receiveId, cwd?, name?, from?}`: the chat is imported (its history,
+//!   draft and agent store), in `cwd` when its folder has another path here, and its queue runs
+//!   here at once, held prompts still held. Answers the session summary.
 //! - `_acpmux/transfer_forget {transferId, sessionId}`: the source's question about a move whose
 //!   client went away (`transfer_watch.rs`): any receive of the move is dropped and a later
 //!   one refused (`transfers/forgot-<transferId>`, swept like the rest), so a late
@@ -787,26 +786,16 @@ impl Hub {
                 return Err(transfer_error("schema", "session.json names another chat"));
             }
         }
-        // Its folder may have another path here (a remote machine's checkout). Its namespace
-        // manifest rebinds to it only when the move's folder plan says it is the chat's own
-        // folder (`sameFolder`, `cli/session_move_plan.rs` `same_folder`); a guarded receive's
-        // only for the person's own move. Any other keeps the old folder, which a start here
-        // reads as no record, so it records anew (`session_manifest.rs`).
-        let same_folder = params.get("sameFolder") == Some(&Value::Bool(true))
-            && guard.as_ref().is_none_or(|g| g.owner);
-        if guard.is_none() || same_folder {
+        // Its folder may have another path here (a remote machine's checkout).
+        if guard.is_none()
+            && let Some(cwd) = text("cwd")
+        {
             let path = bundle.join("session.json");
             let edited = std::fs::read(&path).map_err(anyhow::Error::from).and_then(|raw| {
                 let mut meta: Value = serde_json::from_slice(&raw)?;
-                // A guarded receive set its folder already (`guard_session`).
-                if guard.is_none()
-                    && let Some(cwd) = text("cwd")
-                {
-                    meta.set("cwd", json!(cwd));
-                }
-                if same_folder && let Some(cwd) = meta["cwd"].as_str().map(str::to_owned) {
-                    crate::session_manifest::rebind(&mut meta, &cwd);
-                }
+                meta.set("cwd", json!(cwd));
+                // The same branch checked out here: the same namespace (`session_manifest.rs`).
+                crate::session_manifest::rebind(&mut meta, cwd);
                 Ok(crate::home_fs::write(&path, serde_json::to_vec_pretty(&meta)?)?)
             });
             edited.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
@@ -972,13 +961,8 @@ impl Hub {
         steps.step("queues");
         let _ = crate::home_fs::remove_dir_all(&dir);
         steps.step("cleanup");
-        let mut summary = self.session_summary(&session);
+        let summary = self.session_summary(&session);
         steps.step("summary");
-        let mut split = steps.split();
-        if let Some(import) = super::transfer_out::transfer_live::take_import_steps(&session.id) {
-            split.set("importSteps", import);
-        }
-        summary.set("finishSteps", split);
         Ok(summary)
     }
 

@@ -70,32 +70,6 @@ mkdir -p "$target_dir" "$repo_root/cmux-tui/target"
 stage="$(mktemp -d "$repo_root/cmux-tui/target/.client-local.XXXXXX")"
 trap 'rm -rf "$stage"' EXIT
 
-# One target folder serves every checkout on a fleet host (warm slots and step
-# checkouts at different paths), and Cargo calls a workspace crate fresh when
-# its sources are older than the last build of the same (path-independent)
-# fingerprint. A tree checked out before another tree's build would get that
-# tree's artifacts, build scripts included: step 76c434d3 (cmux25, ref 744a93ed)
-# ran a cmux-wallpaper build script compiled for a deleted step checkout and
-# failed with "wallpapers/scene-engine/engine.wgsl: missing". So when the
-# target last built another checkout, this tree's Rust sources are touched:
-# Cargo rebuilds its own crates (what a new checkout path costs anyway) and
-# keeps the registry crates. A lock keeps two checkouts from interleaving.
-# The roots are the Rust sources this script builds: cmux-tui, the cmux-cloud
-# workspace, and the path dependencies they reach outside it.
-rust_roots=(cmux-tui first-party-apps/cloud/server workers/cmux-vm/cli)
-exec 9>>"$target_dir/.cmux-build-lock"
-python3 -c 'import fcntl; fcntl.flock(9, fcntl.LOCK_EX)' \
-  || { echo "error: could not lock $target_dir" >&2; exit 1; }
-root_mark="$target_dir/.cmux-last-root"
-if [[ "$(cat "$root_mark" 2>/dev/null || true)" != "$repo_root" ]]; then
-  # No mark but a used target: a build before this rule, from any checkout.
-  if [[ -f "$root_mark" || -d "$target_dir/release" ]]; then
-    say "==> $target_dir last built $(cat "$root_mark" 2>/dev/null || echo 'an unmarked checkout'): rebuilding this checkout's crates"
-    (cd "$repo_root" && git ls-files -z -- "${rust_roots[@]}" | xargs -0 -r touch -c --)
-  fi
-  printf '%s\n' "$repo_root" > "$root_mark"
-fi
-
 say "==> building cmux-tui for tree $key ($commit)"
 (cd "$repo_root/cmux-tui" && CMUX_TUI_BUILD_COMMIT="$commit" CMUX_TUI_GHOSTTY_COMMIT="$ghostty_commit" \
   CARGO_TARGET_DIR="$target_dir" cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-host --release --locked >&2)

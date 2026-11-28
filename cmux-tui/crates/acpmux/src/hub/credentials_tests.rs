@@ -132,7 +132,7 @@ async fn a_cloud_gemini_fork_refuses_to_replay_on_the_machine_account() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn automatic_restart_refresh_keeps_work_then_uses_the_new_credential() {
+async fn an_update_restarts_the_agent_on_the_new_credential_in_the_same_chat() {
     let hub = hub();
     let req = NewRequest {
         cwd: Some(std::env::temp_dir()),
@@ -141,99 +141,17 @@ async fn automatic_restart_refresh_keeps_work_then_uses_the_new_credential() {
     };
     let session = hub.new_session(req).await.unwrap();
     let before = hub.child_for(&session).await.unwrap().generation;
-    *session.work_below_since.lock().unwrap() = 1;
-    let reply = hub.update_credential(&session.id, credential(SECOND), false).await.unwrap_err();
-    assert_eq!(reply.data.as_ref().unwrap()["reason"], "credentials.pending");
-    assert_eq!(hub.session_summary(&session)["credentialOnlyHere"], true);
-    let again = hub.update_credential(&session.id, credential(SECOND), false).await.unwrap_err();
-    assert_eq!(again.data.unwrap()["reason"], "credentials.pending");
-    assert_eq!(hub.child_for(&session).await.unwrap().generation, before);
-    assert!(session.respawn_when_quiet.load(std::sync::atomic::Ordering::SeqCst));
-    assert!(!hub.idle_eligible(&session), "background work holds the refresh");
-    *session.work_below_since.lock().unwrap() = 0;
-    // Exercise the shared quiet exit without waiting thirty wall-clock seconds.
-    assert!(hub.end_quiet_stale(&session, "credential-test", None).await);
+    let reply = hub.update_credential(&session.id, credential(SECOND), false).await.unwrap();
+    assert_eq!(reply["restart"], "now");
     let after = hub.child_for(&session).await.unwrap().generation;
     assert_ne!(before, after, "a new agent process");
     assert_eq!(launched(&session).get(CLAUDE_OAUTH).map(String::as_str), Some(SECOND));
     assert_eq!(hub.resolve(&session.id).unwrap().id, session.id, "the same chat");
-    let text = format!("{reply:?}{}", written(&hub, &session.id));
+    let text = format!("{reply}{}", written(&hub, &session.id));
     assert!(!text.contains(FIRST) && !text.contains(SECOND));
     // The same credential again restarts nothing.
     let again = hub.update_credential(&session.id, credential(SECOND), false).await.unwrap();
     assert_eq!(again["restart"], "none");
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn automatic_restart_refresh_is_redelivered_after_daemon_handoff() {
-    use std::sync::atomic::Ordering;
-
-    let hub = hub();
-    let session = hub
-        .new_session(NewRequest {
-            cwd: Some(std::env::temp_dir()),
-            credential: Some(credential(FIRST)),
-            ..NewRequest::default()
-        })
-        .await
-        .unwrap();
-    let before = hub.child_for(&session).await.unwrap().generation;
-    let carried: Vec<_> = launched(&session).into_iter().collect();
-    let carried = crate::agent_credentials::launched_with(&carried);
-    *session.work_below_since.lock().unwrap() = 1;
-    let refresh = hub.update_credential(&session.id, credential(SECOND), false).await.unwrap_err();
-    assert_eq!(refresh.data.unwrap()["reason"], "credentials.pending");
-
-    // A daemon handoff preserves the busy host but none of the daemon's credential memory
-    // or restart marks. Adoption reads the first token from that host, not the newer token.
-    *session.credential.lock().unwrap() = None;
-    *session.launch_env.lock().unwrap() = None;
-    session.respawn_when_quiet.store(false, Ordering::SeqCst);
-    session.respawn_required.store(false, Ordering::SeqCst);
-    assert!(hub.hold_launch_credential(&session, &carried));
-    assert_eq!(*session.credential.lock().unwrap(), Some(credential(FIRST)));
-
-    // The failed delivery remains due on the Mac; neither the first resend nor an identical
-    // resend is acknowledged while only the daemon holds the second token.
-    for _ in 0..2 {
-        let refresh =
-            hub.update_credential(&session.id, credential(SECOND), false).await.unwrap_err();
-        assert_eq!(refresh.data.unwrap()["reason"], "credentials.pending");
-        assert_eq!(hub.child_for(&session).await.unwrap().generation, before);
-        assert_eq!(hub.session_summary(&session)["credentialOnlyHere"], true);
-    }
-    *session.work_below_since.lock().unwrap() = 0;
-    let delivered = hub.update_credential(&session.id, credential(SECOND), false).await.unwrap();
-    assert_eq!(delivered["restart"], "now");
-    assert_ne!(hub.child_for(&session).await.unwrap().generation, before);
-    assert_eq!(launched(&session).get(CLAUDE_OAUTH).map(String::as_str), Some(SECOND));
-    assert_ne!(hub.session_summary(&session)["credentialOnlyHere"], true);
-    assert_eq!(
-        hub.update_credential(&session.id, credential(SECOND), false).await.unwrap()["restart"],
-        "none"
-    );
-    let text = written(&hub, &session.id);
-    assert!(!text.contains(FIRST) && !text.contains(SECOND));
-    hub.shutdown_all().await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_idle_credential_refresh_restarts_immediately() {
-    let hub = hub();
-    let req = NewRequest {
-        cwd: Some(std::env::temp_dir()),
-        credential: Some(credential(FIRST)),
-        ..NewRequest::default()
-    };
-    let session = hub.new_session(req).await.unwrap();
-    let before = hub.child_for(&session).await.unwrap().generation;
-
-    let reply = hub.update_credential(&session.id, credential(SECOND), false).await.unwrap();
-    assert_eq!(reply["restart"], "now");
-    let after = hub.child_for(&session).await.unwrap().generation;
-    assert_ne!(before, after, "the quiet agent restarted immediately");
-    assert_eq!(launched(&session).get(CLAUDE_OAUTH).map(String::as_str), Some(SECOND));
-    hub.shutdown_all().await;
 }
 
 /// cmux#45776: a daemon restart forgets the credential (memory only), while the agent it adopts

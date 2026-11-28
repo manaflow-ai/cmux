@@ -413,39 +413,6 @@ class PublishWithoutTheKey(Base):
         self.assertIn("::warning::scripts/ci/cmux-archive-keyring.asc is not committed", result.stdout)
 
 
-class AppImagePublishChannels(Base):
-    """linux-appimage-publish.sh: feat-cmux-next builds this run's binaries; nightly and stable build the
-    release file of the commit their channel names (BUILT_DIR "-"); anything else is a usage error."""
-    PUBLISH = os.path.join(ROOT, "scripts", "ci", "linux-appimage-publish.sh")
-
-    def publish(self, *args):
-        return run(["bash", self.PUBLISH, *args], env={"PATH": os.environ["PATH"]})
-
-    def test_an_unknown_channel_is_a_usage_error(self):
-        result = self.publish("-", self.path("work"), "beta")
-        self.assertEqual(result.returncode, 2, result.stderr)
-        self.assertFalse(os.path.exists(self.path("work")))
-
-    def test_a_channel_build_takes_no_built_dir(self):
-        for channel in ("nightly", "stable"):
-            result = self.publish(self.path("built"), self.path("work"), channel)
-            self.assertEqual(result.returncode, 2, result.stderr)
-            self.assertIn("usage: ", result.stderr)
-
-    def test_feat_cmux_next_needs_this_runs_built_dir(self):
-        result = self.publish("-", self.path("work"))
-        self.assertEqual(result.returncode, 2, result.stderr)
-
-    def test_the_workflow_publishes_a_nightly_and_a_stable_appimage_after_their_follow(self):
-        with open(os.path.join(ROOT, ".github", "workflows", "cmux-tui-artifacts.yml")) as f:
-            text = f.read()
-        for channel in ("nightly", "stable"):
-            run_line = f'scripts/ci/linux-appimage-publish.sh - "$RUNNER_TEMP/linux-appimage-{channel}" {channel}'
-            self.assertIn(run_line, text)
-            follow = text.index(f'cmux-linux-nightly-follow.sh "$RUNNER_TEMP/linux-{channel}"')
-            self.assertLess(follow, text.index(run_line))
-
-
 UPDATE_INFO = "zsync|https://files.cmux.com/linux/appimage/feat-cmux-next/cmux-x86_64.AppImage.zsync"
 PNG = b"\x89PNG\r\n\x1a\n" + b"\0" * 32
 

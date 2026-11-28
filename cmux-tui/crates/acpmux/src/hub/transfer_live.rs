@@ -41,21 +41,6 @@ const LIVE_CLIENT: std::time::Duration = std::time::Duration::from_secs(30);
 static PROGRESS: LazyLock<Mutex<HashMap<String, (std::time::Instant, Value)>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// Each chat's last import split ([`MoveSteps::split`]), kept by `import_placing` for the
-/// finish that called it to put under `finishSteps.importSteps` (taken once, so it never grows).
-static IMPORT_STEPS: LazyLock<Mutex<HashMap<String, Value>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-
-/// Keeps chat `id`'s import split for its finish.
-pub(in crate::hub) fn keep_import_steps(id: &str, split: Value) {
-    IMPORT_STEPS.lock().unwrap_or_else(|e| e.into_inner()).insert(id.to_owned(), split);
-}
-
-/// Chat `id`'s import split, once.
-pub(in crate::hub) fn take_import_steps(id: &str) -> Option<Value> {
-    IMPORT_STEPS.lock().unwrap_or_else(|e| e.into_inner()).remove(id)
-}
-
 /// The steps of one move request (a finish, a stage's finish, a prepare), timed: one
 /// `acpmux::move_steps` line when it ends, at info once it took a second, else at debug. A slow
 /// move then says which step grew with the history (cmux#54461: a 250 MB move's target finish
@@ -78,20 +63,6 @@ impl MoveSteps {
         let now = std::time::Instant::now();
         self.steps.push((name, now - self.last));
         self.last = now;
-    }
-
-    /// Each step so far and the whole, in ms (`{"lock": 0, ..., "totalMs": 12}`): the finish
-    /// puts it in its answer, so a move's record names which step a slow freeze spent its time
-    /// in, not only the daemon log of a move past 1 s.
-    pub(in crate::hub) fn split(&self) -> Value {
-        let mut out = serde_json::Map::new();
-        for (name, took) in &self.steps {
-            let ms = took.as_millis() as u64;
-            let had = out.get(*name).and_then(Value::as_u64).unwrap_or(0);
-            out.insert((*name).to_owned(), Value::from(had + ms));
-        }
-        out.insert("totalMs".to_owned(), Value::from(self.started.elapsed().as_millis() as u64));
-        Value::Object(out)
     }
 }
 

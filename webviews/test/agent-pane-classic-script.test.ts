@@ -6,7 +6,6 @@
 // macOS build (feat-cmux-next 0e481bff), while Linux, with no such link, built.
 import { afterAll, expect, test } from "bun:test";
 import {
-  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -77,62 +76,4 @@ test("the classic pass builds through a symlinked folder (macOS mktemp, /tmp)", 
   const lazy = await buildPane(path.join(root, "link", "pane"));
   expect(lazy.length).toBe(1);
   expect(lazy[0]).not.toContain("./chunk-");
-});
-
-// shiki's grammars are lazy chunks a lazy chunk (the highlighter) loads with import(). The pass wrote every import()
-// as `./chunks/<name>`, right from pane.js but resolved from chunks/ itself to chunks/chunks/<name>: the agent pane
-// logged "Failed to fetch dynamically imported module: cmux-page://cmux.agent/chunks/chunks/typescript-….js" and
-// highlighted no code block (found by the hot-verify look's page log, cmux#64758).
-test("a lazy chunk's import() of another lazy chunk resolves from that chunk's folder", async () => {
-  const src = path.join(root, "nested-src");
-  mkdirSync(src, { recursive: true });
-  writeFileSync(path.join(src, "shared.js"), "export const shared = () => 1;\n");
-  writeFileSync(path.join(src, "grammar.js"), "export default { name: 'typescript' };\n");
-  writeFileSync(
-    path.join(src, "highlighter.js"),
-    'import { shared } from "./shared.js";\nexport const grammar = () => (shared(), import("./grammar.js"));\n',
-  );
-  writeFileSync(
-    path.join(src, "main.js"),
-    'import { shared } from "./shared.js";\nshared();\nglobalThis.load = () => import("./highlighter.js");\n',
-  );
-  const outdir = path.join(root, "nested", "pane");
-  const result = await build({
-    entryPoints: [path.join(src, "main.js")],
-    bundle: true,
-    format: "esm",
-    splitting: true,
-    outdir,
-    entryNames: "pane",
-    chunkNames: "chunks/[name]-[hash]",
-    metafile: true,
-    logLevel: "silent",
-  });
-  const outputs = result.metafile.outputs;
-  const entryOut = Object.keys(outputs).find((output) => path.resolve(output) === path.join(outdir, "pane.js"));
-  if (!entryOut) throw new Error("no entry output");
-  const staticOut = (outputs[entryOut].imports ?? [])
-    .filter((item) => item.kind === "import-statement" && !item.external)
-    .map((item) => item.path);
-  await classicScript({ outdir, outputs, staticOut, entryOut, maps: false });
-
-  const scripts = [
-    path.join(outdir, "pane.js"),
-    ...readdirSync(path.join(outdir, "chunks")).map((name) => path.join(outdir, "chunks", name)),
-  ];
-  const imports = scripts.flatMap((file) =>
-    [...readFileSync(file, "utf8").matchAll(/import\(\s*["']([^"']+)["']\s*\)/g)].map((found) => ({
-      file,
-      target: path.resolve(path.dirname(file), found[1]),
-    })),
-  );
-  // pane.js imports the highlighter, and the highlighter imports the grammar.
-  expect(imports.length).toBe(2);
-  for (const { file, target } of imports) {
-    expect({ file: path.relative(outdir, file), exists: existsSync(target) }).toEqual({
-      file: path.relative(outdir, file),
-      exists: true,
-    });
-  }
-  expect(imports.some(({ target }) => target.includes(`${path.sep}chunks${path.sep}chunks${path.sep}`))).toBe(false);
 });

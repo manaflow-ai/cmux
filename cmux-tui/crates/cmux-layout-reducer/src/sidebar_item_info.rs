@@ -52,7 +52,7 @@ const fn built_in(
 /// Every built-in in `SidebarBuiltIn`'s order. The Chief draws the sparkles
 /// symbol, not the icon pack's crown (Lawrence 2026-11-23); Home keeps its
 /// house (Lucas 2026-11-23).
-pub const BUILT_INS: [BuiltIn; 16] = [
+pub const BUILT_INS: [BuiltIn; 15] = [
     built_in("home", "house", Some("home"), false),
     built_in("settings", "gearshape", Some("settings"), false),
     built_in("account", "person.crop.circle", Some("account"), false),
@@ -68,7 +68,6 @@ pub const BUILT_INS: [BuiltIn; 16] = [
     built_in("chief", "sparkles", None, false),
     built_in("automations", "clock.badge.checkmark", Some("automation"), false),
     built_in("forum", "text.bubble", Some("agent.chat.list"), false),
-    built_in("feed", "list.bullet.rectangle", None, false),
 ];
 
 /// The built-in named `name` (a stored raw value), or none (a built-in from
@@ -123,21 +122,14 @@ pub struct BuiltInLook {
     pub is_hidden: bool,
 }
 
-/// `defaultInfo(showsStore:showsForum:showsFeed:)`: the App Store hides until Labs
-/// shows it, the Forum while `experiments.forum` is off, the Feed while `experiments.feed` is.
-pub fn built_in_look(
-    b: BuiltIn,
-    shows_store: bool,
-    shows_forum: bool,
-    shows_feed: bool,
-) -> BuiltInLook {
+/// `defaultInfo(showsStore:showsForum:)`: the App Store hides until Labs
+/// shows it, the Forum while `experiments.forum` is off.
+pub fn built_in_look(b: BuiltIn, shows_store: bool, shows_forum: bool) -> BuiltInLook {
     BuiltInLook {
         symbol: b.symbol.into(),
         icon: b.icon.map(Into::into),
         has_caption: b.has_caption,
-        is_hidden: (b.name == "app_store" && !shows_store)
-            || (b.name == "forum" && !shows_forum)
-            || (b.name == "feed" && !shows_feed),
+        is_hidden: (b.name == "app_store" && !shows_store) || (b.name == "forum" && !shows_forum),
     }
 }
 
@@ -259,8 +251,6 @@ pub enum Request {
         shows_store: bool,
         #[serde(default)]
         shows_forum: bool,
-        #[serde(default)]
-        shows_feed: bool,
     },
     Fallback {
         #[serde(rename = "ref")]
@@ -300,9 +290,8 @@ pub enum Reply {
 
 pub fn respond(request: &Request) -> Reply {
     match request {
-        Request::BuiltIn { built_in, shows_store, shows_forum, shows_feed } => Reply::BuiltIn {
-            look: built_in_named(built_in)
-                .map(|b| built_in_look(b, *shows_store, *shows_forum, *shows_feed)),
+        Request::BuiltIn { built_in, shows_store, shows_forum } => Reply::BuiltIn {
+            look: built_in_named(built_in).map(|b| built_in_look(b, *shows_store, *shows_forum)),
         },
         Request::Fallback { reference, item } => Reply::Face {
             face: fallback(

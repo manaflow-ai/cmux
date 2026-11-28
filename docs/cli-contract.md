@@ -99,21 +99,6 @@ max}` over the last 60 round trips and 120 frames. It is read-only: it never
 connects, disconnects or sends input, and carries no credential or screen
 content.
 
-`app mac-screen-replay --path <movie> [--tab <tab>] [--frames <1-120>]
-[--loops <1-1000>] [--timeout <1-600>]` works with every build: the app's
-`mac_screen.replay` plays the movie (an MP4 the Screen Sharing toolbar's Record
-wrote, or any H.264 or HEVC movie; a relative path is the caller's) `--loops`
-times (default 20) through a Screen Sharing tab's own decoder and presenter,
-with no host peer: the tab `--tab` names, else one showing its home page (`tab
-new-mac-screen --json` opens one). That tab then lists in `app mac-screens`
-with `decode_ms`, `glass_ms` and `decode_present_ms`. The CLI reads
-`mac_screen.state` until the pane has presented `--frames` frames (default
-120, the whole window) and prints `{ok, tab, store_tab, frames_presented,
-decode_present_ms, decode_ms, glass_ms, present_ms, unpresented_frames, ...}`
-(exit 0); past `--timeout` seconds (default 60) it prints what it has with `ok:
-false` (exit 1). A tab off screen presents nothing. Home or closing the tab
-ends the replay; it never connects or sends input.
-
 `app chat memory [--empty-tab <tab>] [--empty-bytes <n>]` works with every build
 and reads on request only (no timer, no sampler, no cache between runs). The
 app's `agent.chat.memory` hands over pids only (the app, its local daemons, and

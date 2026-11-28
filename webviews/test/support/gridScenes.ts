@@ -548,8 +548,7 @@ const absentBySurface: Record<string, Record<string, string>> = {
     ".acpmux-trust-ask-icon": "TrustAsk renders text and buttons without a leading mark.",
   },
   "stack.queued": {
-    ".acpmux-queued-kind":
-      "Ordinary queued prompts have no leading mark; a subagent retry is the only row that renders a kind.",
+    ".acpmux-queued-kind": "Ordinary queued prompts have no leading mark; only steering entries render kind.",
   },
   "menu.context": {
     ".ui-menu-icon": "The context-menu open fixture has text-only actions.",

@@ -43,13 +43,6 @@ for name in "${names[@]}"; do
   chmod 755 "$CARGO_TARGET_DIR/release/$name"
 done
 echo "${names[0]} $PWD" >> "$FAKE_CARGO_LOG"
-# Cargo's freshness: a workspace crate recompiles only when a source file is
-# newer than its last build in this target, whichever checkout that was from.
-stamp="$CARGO_TARGET_DIR/.fake-stamp-${names[0]}"
-if [[ ! -e "$stamp" || -n "$(find "$PWD" -path "$PWD/target" -prune -o -type f -newer "$stamp" -print | head -1)" ]]; then
-  echo "$PWD" > "$CARGO_TARGET_DIR/release/${names[0]}.compiled-from"
-  touch "$stamp"
-fi
 EOF
 chmod 755 "$TMP/bin/cargo"
 run() { (cd "$src" && env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$TMP" TMPDIR="$TMP" FAKE_CARGO_LOG="$TMP/cargo.log" "$@"); }
@@ -103,38 +96,4 @@ path=$(run NX_JOB_ID=job CI_SHARED_CACHE_DIR="$TMP/shared" bash scripts/cmux-nex
   || fail "missing reader source failed: $(cat "$TMP/err")"
 [[ -f "$TMP/shared/cmux-tui-client-target/release/cmux-launch-preread" ]] || fail "stale fixture missing"
 [[ ! -e "$(dirname "$path")/cmux-launch-preread" ]] || fail "stale target reader bundled without source"
-# Two checkouts share one target (fleet warm slots and step checkouts do). Tree
-# A was checked out before tree B built: A's sources are older than B's build,
-# so Cargo would hand A B's artifacts, build scripts included (step 76c434d3:
-# cmux-wallpaper's build script from a deleted checkout, "engine.wgsl: missing").
-# The script makes Cargo rebuild A's own crates.
-git_q clone -q "$src" "$TMP/treeA"
-git_q clone -q "$src" "$TMP/treeB"
-(cd "$TMP/treeA" && git ls-files -z | xargs -0 touch -t 202001010000)
-both() { (cd "$1" && env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$TMP" TMPDIR="$TMP" FAKE_CARGO_LOG="$TMP/cargo.log" \
-  CMUX_CI_PHASE_FILE="$TMP/phases.jsonl" CI_SHARED_CACHE_DIR="$TMP/shared2" bash scripts/cmux-next/build-cmux-tui-client.sh >/dev/null 2>"$TMP/err") \
-  || fail "$1 did not build: $(cat "$TMP/err")"; }
-both "$TMP/treeB"
-from="$TMP/shared2/cmux-tui-client-target/release/cmux-tui.compiled-from"
-[[ "$(cat "$from")" == "$TMP/treeB/cmux-tui" ]] || fail "tree B did not compile: $(cat "$from")"
-sleep 1
-both "$TMP/treeA"
-[[ "$(cat "$from")" == "$TMP/treeA/cmux-tui" ]] || fail "tree A got tree B's artifacts from the shared target: compiled from $(cat "$from")"
-[[ "$(cat "$TMP/shared2/cmux-tui-client-target/.cmux-last-root")" == "$TMP/treeA" ]] || fail "the target does not record tree A as its last checkout"
-# The same checkout again keeps Cargo's incremental reuse: nothing touched.
-sleep 1
-both "$TMP/treeA"
-[[ "$TMP/treeA/cmux-tui/a" -ot "$TMP/shared2/cmux-tui-client-target/.fake-stamp-cmux-tui" ]] || fail "a rebuild from the same checkout touched its sources"
-# Every path dependency the built crates reach outside their roots is under a
-# root the script touches: a crate outside them would stay stale.
-roots=$(sed -n 's/^rust_roots=(\(.*\))$/\1/p' "$ROOT/scripts/cmux-next/build-cmux-tui-client.sh")
-[[ -n "$roots" ]] || fail "no rust_roots in build-cmux-tui-client.sh"
-while IFS= read -r manifest; do
-  while IFS= read -r rel; do
-    dep=$(cd "$(dirname "$ROOT/$manifest")" && cd "$rel" 2>/dev/null && pwd) || continue
-    inside=0
-    for r in $roots; do [[ "$dep" == "$ROOT/$r" || "$dep" == "$ROOT/$r/"* ]] && inside=1; done
-    [[ "$inside" == 1 ]] || fail "$manifest depends on $rel, outside rust_roots ($roots)"
-  done < <(grep -oE 'path *= *"[^"]+"' "$ROOT/$manifest" | sed 's/.*"\(.*\)"/\1/')
-done < <(cd "$ROOT" && for r in $roots; do git ls-files -- ":(glob)$r/**/Cargo.toml"; done)
 echo "build-cmux-tui-client: ok"

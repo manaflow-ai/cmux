@@ -1180,7 +1180,6 @@ fn closes_chat(params: &Value) -> bool {
 /// What the chat's change from `before` reads and posts; then the watch knows `next`.
 fn apply(mux: &Arc<Mux>, before: Option<&Chat>, mut next: Chat, chats: &mut HashMap<String, Chat>) {
     next.notified_turn = before.and_then(|chat| chat.notified_turn.clone());
-    next.notified_lost = before.is_some_and(|chat| chat.notified_lost);
     next.keep_asks(before);
     let waited = before.is_some_and(|chat| chat.indicator == "input");
     let read = before.is_some_and(|chat| chat.unread) && !next.unread;
@@ -1230,10 +1229,6 @@ struct Chat {
     last_seq: u64,
     /// The asks of its current wait, by group (asks grouped on one card) or permission id.
     asks: HashSet<String>,
-    /// A lost transition already posted its one notice. Keep it pending through intermediate
-    /// summaries until the same dead turn is classified, so that classification cannot post a
-    /// second notice.
-    notified_lost: bool,
     /// The list position this row came with ([`ListCursor`]): a push of a lower one is older
     /// than it. 0 when acpmux names none.
     list_seq: u64,
@@ -1302,7 +1297,6 @@ impl Chat {
             last_error,
             works_below: summary["subagentsWorkingSince"].is_u64(),
             notified_turn: None,
-            notified_lost: false,
             last_message: summary["lastMessage"]["text"].as_str().unwrap_or_default().to_owned(),
             last_seq: summary["lastSeq"].as_u64().unwrap_or(0),
             asks: HashSet::new(),
@@ -1379,12 +1373,6 @@ impl Chat {
         };
         // Work it started past its turn ended in this change.
         let below_ended = before.is_some_and(|chat| chat.works_below) && !self.works_below;
-        let lost_was_notified = before.is_some_and(|chat| chat.notified_lost);
-        let failed_turn_was_notified = self.last_turn.as_ref().is_some_and(|(turn, status)| {
-            status == "failed"
-                && before.is_some_and(|chat| chat.notified_turn.as_ref() == Some(turn))
-        });
-        let mut failed_turn_notice_posted = false;
         if let Some((turn, status)) = &self.last_turn
             && !self.works_below
             && (self.unread || below_ended || ended_now(turn))
@@ -1405,26 +1393,20 @@ impl Chat {
                 "failed" => {
                     let text = self.last_error.as_ref().unwrap_or(&self.last_message);
                     let code = failure_code(text);
-                    if !lost_was_notified {
-                        failed_turn_notice_posted = true;
-                        notices.push(Notice {
-                            event: None,
-                            key: format!("failed-{turn}"),
-                            title: format!("{name} {}", code.headline()),
-                            subtitle: (code != FailureCode::Other).then(|| code.code().to_owned()),
-                            body: short(text, MAX_BODY_CHARS),
-                            level: NotificationLevel::Error,
-                            restated: false,
-                            failure: Some(code),
-                        });
-                    }
+                    notices.push(Notice {
+                        event: None,
+                        key: format!("failed-{turn}"),
+                        title: format!("{name} {}", code.headline()),
+                        subtitle: (code != FailureCode::Other).then(|| code.code().to_owned()),
+                        body: short(text, MAX_BODY_CHARS),
+                        level: NotificationLevel::Error,
+                        restated: false,
+                        failure: Some(code),
+                    });
                 }
                 _ => {}
             }
         }
-        // A dead agent can report both a failed turn and a lost indicator in one
-        // summary. The failed-turn notice is the durable event for that turn, so
-        // keep the secondary lost transition from posting a duplicate.
         let was = before.map_or("", |chat| chat.indicator.as_str());
         if self.indicator == "input" && was != "input" {
             notices.push(Notice {
@@ -1440,25 +1422,6 @@ impl Chat {
             });
         }
         if self.indicator == "lost" && was != "lost" {
-            self.notified_lost = true;
-        } else if self.indicator == "working" && was != "working" {
-            // A new turn starts after the dead turn's pending classification.
-            self.notified_lost = false;
-        } else if lost_was_notified
-            && self
-                .last_turn
-                .as_ref()
-                .is_some_and(|(_, status)| matches!(status.as_str(), "completed" | "failed"))
-        {
-            // The dead turn has now been classified, so a later lost transition belongs to a
-            // new turn and must be allowed to post again.
-            self.notified_lost = false;
-        }
-        if self.indicator == "lost"
-            && was != "lost"
-            && !failed_turn_notice_posted
-            && !failed_turn_was_notified
-        {
             notices.push(Notice {
                 event: None,
                 key: format!("lost-{}", self.last_seq),

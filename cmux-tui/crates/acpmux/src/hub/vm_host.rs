@@ -147,16 +147,24 @@ impl Hub {
                 return false;
             }
         }
-        self.respawn_when_quiet_required(session);
+        self.schedule_gateway_restart(session);
         true
     }
 
-    /// Restarts `session`'s agent once both its turn and background work are quiet, so its next
-    /// spawn reads a Cloud machine's model route that resolved after the last spawn
-    /// (`turns/finish.rs`). This automatic change takes the same process census as the gateway
-    /// fallback above; an explicit route switch would miss unreported descendants.
+    fn schedule_gateway_restart(self: &Arc<Self>, session: &Arc<Session>) {
+        self.restart_agent_after_turn(session);
+    }
+
+    /// Restarts `session`'s agent, after the turn under way when there is one, so its next spawn
+    /// reads its environment again (the gateway fallback above; a Cloud machine's model route
+    /// that resolved after the spawn, `hub/turns.rs`).
     pub(crate) fn restart_agent_after_turn(self: &Arc<Self>, session: &Arc<Session>) {
-        self.respawn_when_quiet_required(session);
+        let hub = Arc::clone(self);
+        let ids = std::collections::BTreeSet::from([session.id.clone()]);
+        // task-owner: one restart of one chat's agent; it ends with the restart.
+        drop(tokio::spawn(async move {
+            let _ = hub.restart_harnesses(None, Some(&ids)).await;
+        }));
     }
 
     /// Whether the creation marker says cmux created this machine as one

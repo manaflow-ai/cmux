@@ -144,18 +144,10 @@ fn method_heads(function: &str) -> Vec<String> {
 fn method_constants() -> BTreeMap<String, String> {
     let module = block(RPC, "pub mod method {");
     let mut constants = BTreeMap::new();
-    let mut lines = module.lines();
-    while let Some(line) = lines.next() {
+    for line in module.lines() {
         let Some(rest) = line.trim().strip_prefix("pub const ") else { continue };
-        // rustfmt wraps a long constant: the value then sits on the next line.
-        let Some((name, value)) = rest.split_once(": &str =") else { continue };
-        let value = match value.trim() {
-            "" => lines.next().unwrap_or_default().trim().to_owned(),
-            value => value.to_owned(),
-        };
-        let Some(value) = value.strip_prefix('"').and_then(|v| v.strip_suffix("\";")) else {
-            continue;
-        };
+        let Some((name, value)) = rest.split_once(": &str = \"") else { continue };
+        let Some(value) = value.strip_suffix("\";") else { continue };
         constants.insert(name.to_owned(), value.to_owned());
     }
     assert!(constants.len() > 100, "read only {} method constants", constants.len());

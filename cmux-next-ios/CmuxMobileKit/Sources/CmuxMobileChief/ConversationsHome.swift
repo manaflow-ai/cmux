@@ -375,8 +375,6 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                     let model = rowModel(row, stamp: stamp, chiefs: chiefs)
                     HomeListRow(model: model, open: open, feed: feed, delete: askToDelete)
                         .equatable()
-                        // R1/R2: a row this phone kept, until the Mac's own rows replace them.
-                        .firstContentMark("home", hasContent: true, cached: feed.isShowingKeptRows)
                         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
                         .listRowBackground(CmuxMobileBackdrop.listRow)
                         // Trailing only, as Workspaces' rows: a rightward swipe belongs to the

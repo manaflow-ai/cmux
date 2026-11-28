@@ -137,8 +137,6 @@ struct CmuxMobileApp: App {
                 ShellScreenSharingDemo()
             } else if ShellScreenSharingLink.isRequested {
                 ShellScreenSharingLink()
-            } else if ShellScreenSharingRdLink.isRequested {
-                ShellScreenSharingRdLink()
             } else if TerminalFloodBenchRoot.isRequested {
                 TerminalFloodBenchRoot()
             } else if TerminalHistoryWindowDemoRoot.isRequested {

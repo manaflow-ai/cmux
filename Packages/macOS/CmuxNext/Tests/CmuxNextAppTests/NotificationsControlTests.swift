@@ -191,20 +191,7 @@ import Testing
         }
         #expect(error.code == "not_found", "\(error)")
         #expect(opened == 0, "an undelivered banner's open ran a click")
-        // No system center here: nothing was looked up, so the miss names no Notification Center contents.
-        #expect(error.data == ["id": .string("cmux-notification-earlier-launch")], "\(error)")
         withExtendedLifetime(services) {}
-    }
-
-    /// A miss that looked in Notification Center names the tab banners it does hold, so a relaunch-click
-    /// not_found reads "never delivered" (none held) apart from a wrong lookup (the banner's neighbours held).
-    @Test func aNotificationCenterMissNamesTheTabBannersItHolds() {
-        let miss = ControlMethod.bannerNotFound("cmux-notification-19", held: ["cmux-notification-23", "cmux-notification-30"])
-        #expect(miss.code == "not_found")
-        #expect(miss.data == ["id": .string("cmux-notification-19"),
-                              "delivered": .array([.string("cmux-notification-23"), .string("cmux-notification-30")])])
-        #expect(ControlMethod.bannerNotFound("cmux-notification-19", held: [])
-            .data == ["id": .string("cmux-notification-19"), "delivered": .array([])])
     }
 
     /// A passkey banner's click starts a WebAuthn ceremony, which runs only on the person's own click

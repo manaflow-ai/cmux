@@ -19,11 +19,7 @@
 //! - Lifecycle: `session/attach` holds its connection open for the agent's
 //!   life (the bridge's); when the last one of a session closes (the agent's
 //!   process exited or crashed), the session ends as with `session/end`, so
-//!   its cursor never lingers. A session that calls with no attach (the
-//!   `cmux computer-use call` CLI, one process per call; a relayed remote
-//!   call) keeps its state between its calls, so the element ids one call
-//!   showed act in the next, and ends once idle or crowded out
-//!   ([`detached`]). `session/idle {session, prefix?}` ends the
+//!   its cursor never lingers. `session/idle {session, prefix?}` ends the
 //!   Computer Use of a session whose agent turn ended (the daemon and
 //!   acpmux send it), keeping its approvals.
 //! - Hot upgrade (the worker's, [`serve_replaceable`]): once the worker's executable was
@@ -45,7 +41,6 @@ use crate::engine::{CallContext, Engine, ToolOutput, set_key};
 use crate::policy::OriginKind;
 use crate::wire;
 
-pub mod detached;
 pub mod lanes;
 #[cfg(unix)]
 #[path = "server/unix.rs"]
@@ -87,8 +82,6 @@ struct Shared {
     connections: Mutex<Vec<Weak<dyn Stream>>>,
     /// Open `session/attach` connections per session.
     attached: Mutex<std::collections::HashMap<String, usize>>,
-    /// Sessions that call with no open attach, ended once idle ([`detached`]).
-    detached: Mutex<detached::Detached>,
     /// The worker's watch on its own executable (hot upgrade); None in cmux Remote.
     swap: Option<Arc<crate::replaced::Swap>>,
 }
@@ -140,7 +133,6 @@ fn serve_on(
         lanes: lanes::Lanes::new(),
         connections: Mutex::new(Vec::new()),
         attached: Mutex::new(std::collections::HashMap::new()),
-        detached: Mutex::new(detached::Detached::default()),
         swap,
     });
     let accept = {
@@ -390,30 +382,6 @@ impl Outbox {
     }
 }
 
-/// Admit a call and its detached-session expiries together. Lifecycle locks
-/// always precede lane admission, so an expiry cannot overtake the call that
-/// refreshed its session. A queued expiry rechecks its ticket and attachment
-/// while holding those same locks through cleanup.
-fn submit_call(shared: &Arc<Shared>, session: &str, run: impl FnOnce() + Send + 'static) {
-    let attached = lock(&shared.attached);
-    let mut detached = lock(&shared.detached);
-    let ended = detached
-        .touch(session, std::time::Instant::now(), |s| attached.get(s).is_some_and(|n| *n > 0));
-    for (session, ticket) in ended {
-        let expiry = Arc::clone(shared);
-        let ended = session.clone();
-        shared.lanes.submit(&session, move || {
-            let attached = lock(&expiry.attached);
-            let mut detached = lock(&expiry.detached);
-            if detached.take_expiry(&ended, ticket) && !attached.get(&ended).is_some_and(|n| *n > 0)
-            {
-                expiry.engine.end_session(&ended);
-            }
-        });
-    }
-    shared.lanes.submit(session, run);
-}
-
 /// A call's context from its request. `origin` is the bridge's (the only
 /// client that holds the secret); a remote origin only ever narrows what the
 /// policy allows, and a missing one is a local agent.
@@ -470,7 +438,7 @@ fn handle(
             let (engine, stream, writer) =
                 (Arc::clone(&shared.engine), Arc::clone(stream), Arc::clone(writer));
             let session = ctx.session.clone();
-            submit_call(shared, &session, move || {
+            shared.lanes.submit(&session, move || {
                 let _ticket = ticket;
                 let out = engine.call(&ctx, &name, &arguments);
                 send(&stream, &writer, &json!({"id": id, "ok": true, "result": out.to_json()}));
@@ -480,7 +448,6 @@ fn handle(
             let (engine, stream, writer) =
                 (Arc::clone(&shared.engine), Arc::clone(stream), Arc::clone(writer));
             let session = ctx.session.clone();
-            lock(&shared.detached).forget(&session);
             shared.lanes.submit(&session, move || {
                 let _ticket = ticket;
                 engine.end_session(&ctx.session);
@@ -489,9 +456,7 @@ fn handle(
         }
         "session/attach" => {
             if !conn.attached.contains(&ctx.session) {
-                let mut attached = lock(&shared.attached);
-                *attached.entry(ctx.session.clone()).or_insert(0) += 1;
-                lock(&shared.detached).forget(&ctx.session);
+                *lock(&shared.attached).entry(ctx.session.clone()).or_insert(0) += 1;
                 conn.attached.push(ctx.session);
             }
             send(stream, writer, &json!({"id": id, "ok": true, "result": {}}));

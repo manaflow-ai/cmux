@@ -30,7 +30,7 @@ import {
 } from "./chatDetail";
 import { configureSenderIconLook } from "./subagents/senderIconLook";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, type HarnessPlacement } from "../../ui/harnessPlacement";
-import { isArm, experimentArm } from "../../experiments/experiment";
+import { experimentArm, isArm } from "../../experiments/experiment";
 import { readingLook, readingLookValues } from "./readingLook.experiment";
 import {
   HIGH_CONTRAST_CHAT_VARIABLES,
@@ -610,7 +610,6 @@ const quoteFamily = (name: string) => (/[,\s]/.test(name) && !name.includes(",")
 let current = DEFAULT_CHAT_DISPLAY;
 let raw: Values = {};
 let minimapOn = false;
-let renderPipelineOn = false;
 let statusPillsOn = false;
 let headerBreadcrumbOn = false;
 let subagentOfOn = false;
@@ -696,7 +695,6 @@ export function setChatDisplay(value: unknown): void {
   const nextHighContrastArm = experimentArm(highContrastLook);
   const next = resolveChatDisplay(highContrastLookValues(readingValues, nextHighContrastArm));
   const minimap = raw[CHAT_MINIMAP_KEY] === true;
-  const renderPipeline = raw["experiments.chat_render_pipeline"] === true;
   const statusPills = raw[CHAT_LIST_STATUS_PILLS_KEY] === true;
   const headerBreadcrumb = raw[HEADER_BREADCRUMB_KEY] === true;
   const subagentOf = raw[SUBAGENT_OF_KEY] === true;
@@ -760,7 +758,6 @@ export function setChatDisplay(value: unknown): void {
     sameLook &&
     !facesChanged &&
     minimap === minimapOn &&
-    renderPipeline === renderPipelineOn &&
     statusPills === statusPillsOn &&
     headerBreadcrumb === headerBreadcrumbOn &&
     subagentOf === subagentOfOn &&
@@ -793,7 +790,6 @@ export function setChatDisplay(value: unknown): void {
   modelPickerStyle = pickerStyle;
   ownHarnessUpdatesOnly = ownUpdates;
   minimapOn = minimap;
-  renderPipelineOn = renderPipeline;
   statusPillsOn = statusPills;
   headerBreadcrumbOn = headerBreadcrumb;
   subagentOfOn = subagentOf;
@@ -960,9 +956,6 @@ export const promptCoachEnabled = (): boolean => promptCoachOn;
 const promptCoachSnapshot = () => promptCoachOn;
 export const usePromptCoachOn = (): boolean =>
   useSyncExternalStore(subscribe, promptCoachSnapshot, promptCoachSnapshot);
-const renderPipelineSnapshot = () => renderPipelineOn;
-export const useChatRenderPipeline = (): boolean =>
-  useSyncExternalStore(subscribe, renderPipelineSnapshot, renderPipelineSnapshot);
 const sessionInfoHiddenSnapshot = () => sessionInfoHidden;
 /// The Session Info sections the person turned off (`agentPane.display.sessionInfo.sections.<id>`
 /// false): SessionInfo.tsx draws none of them. Not part of ChatDisplay: no transcript row moves.

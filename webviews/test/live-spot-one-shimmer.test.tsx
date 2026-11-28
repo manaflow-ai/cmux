@@ -53,6 +53,7 @@ const statuses: [string, ReactNode, RegExp][] = [
     <Thinking key="k45" since={0} now={() => NOW} liveState="writing" quietKey="reply:1" quietAt={NOW} />,
     /^Writing/,
   ],
+  ["waiting on subagents", <Thinking key="k46" since={0} now={() => NOW} liveState="subagents" liveAgents={2} />, /2/],
   [
     "waiting (silent)",
     <Thinking key="k49" since={0} now={() => NOW} phaseAt={0} heardAt={0} heardKey="k" turnTotal />,
@@ -62,6 +63,42 @@ const statuses: [string, ReactNode, RegExp][] = [
     "compacting",
     <Thinking key="k52" since={0} now={() => NOW} liveState="compacting" doingAt={1_000} turnTotal />,
     /ompact/,
+  ],
+  [
+    "waiting on one named subagent",
+    <Thinking
+      key="k55"
+      since={0}
+      now={() => NOW}
+      liveState="subagents"
+      liveAgents={1}
+      liveAgentNames={["Explore auth"]}
+    />,
+    /^Waiting on subagent Explore auth/,
+  ],
+  [
+    "waiting on two named subagents",
+    <Thinking
+      key="k60"
+      since={0}
+      now={() => NOW}
+      liveState="subagents"
+      liveAgents={2}
+      liveAgentNames={["lint", "tests"]}
+    />,
+    /^Waiting on subagents lint and tests/,
+  ],
+  [
+    "waiting on many subagents",
+    <Thinking
+      key="k65"
+      since={0}
+      now={() => NOW}
+      liveState="subagents"
+      liveAgents={4}
+      liveAgentNames={["lint", "tests"]}
+    />,
+    /^Waiting on subagent lint and 3 more/,
   ],
   ...(
     [
@@ -87,61 +124,6 @@ const statuses: [string, ReactNode, RegExp][] = [
     label,
   ]),
 ];
-
-// A wait on subagents is the turn running: the line draws the subagents' mark and count, no words
-// (Leo, 2026-11-23: ""running" doesn't need text. it can usually just be. you can put symbols for
-// state."). Its words stay its hover and its spoken name, so the names (Leo, 2026-11-22) are kept.
-const subagentWaits: [string, ReactNode, string][] = [
-  [
-    "waiting on subagents",
-    <Thinking key="k46" since={0} now={() => NOW} liveState="subagents" liveAgents={2} />,
-    "Waiting on 2 subagents",
-  ],
-  [
-    "waiting on one named subagent",
-    <Thinking
-      key="k55"
-      since={0}
-      now={() => NOW}
-      liveState="subagents"
-      liveAgents={1}
-      liveAgentNames={["Explore auth"]}
-    />,
-    "Waiting on subagent Explore auth",
-  ],
-  [
-    "waiting on two named subagents",
-    <Thinking
-      key="k60"
-      since={0}
-      now={() => NOW}
-      liveState="subagents"
-      liveAgents={2}
-      liveAgentNames={["lint", "tests"]}
-    />,
-    "Waiting on subagents lint and tests",
-  ],
-  [
-    "waiting on many subagents",
-    <Thinking
-      key="k65"
-      since={0}
-      now={() => NOW}
-      liveState="subagents"
-      liveAgents={4}
-      liveAgentNames={["lint", "tests"]}
-    />,
-    "Waiting on subagent lint and 3 more",
-  ],
-];
-for (const [name, node, said] of subagentWaits)
-  test(`the live line's "${name}" status is the subagents' mark and count, its words only spoken`, () => {
-    const html = renderToStaticMarkup(node);
-    expect(words(html)).not.toMatch(/Waiting/);
-    expect(html).toContain("acpmux-live-count");
-    expect(html).toContain(`aria-label="${said}"`);
-    expect(shimmers(html)).toBe(true);
-  });
 
 // Never a bare "Waiting": every silent line names what it waits on (Leo, 2026-11-22: "everything that
 // goes in there write more detailed things than just waiting").

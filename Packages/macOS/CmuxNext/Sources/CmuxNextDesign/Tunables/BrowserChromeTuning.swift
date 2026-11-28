@@ -66,16 +66,19 @@ public nonisolated struct BrowserChromeTuning {
     static func defaultValue(_ metric: BrowserChromeMetric, tokens: DensityTokens, row: CGFloat?) -> CGFloat {
         let row = row ?? tokens.tokens["browserRowHeight"].map { CGFloat($0) } ?? 28
         let chromeColumn = (tokens.tokens["omnibarChromeColumn"] ?? 0) > 0
+        let factor = tokens.uniformScale ?? 1
+        let sizeRow = tokens.uniformScale == nil ? row : CGFloat(DensityPreset.referenceTokens.tokens["browserRowHeight"] ?? 28)
         // A density's own value (the Density Playground's tab close button tokens) wins over Helium's share.
         if let key = metric.densityKey, let exact = tokens.tokens[key] { return CGFloat(exact) }
         switch metric {
         case .rowHeight, .rowGap: return metric.token.flatMap { tokens.tokens[$0] }.map { CGFloat($0) } ?? 0
-        // Helium's x in points, not a share of the row (Lawrence 2026-11-28: "size and icon size etc must perfectly match
-        // helium"): its Default density's on a tab under 32 pt, its Spacious density's from 32 pt (``HeliumClose``).
-        case .closeSize: return HeliumClose.slot
-        case .closeCorner: return HeliumClose.corner
-        case .closeInk: return HeliumClose.ink
-        case .closeTrailing: return HeliumClose.trailing(row: row)
+        case .closeSize: return half(share(14, of: sizeRow) * factor)
+        // The density's own tab corner; `TabStripMetrics` draws the corner of the pill it lays out (a capsule tab's too).
+        case .closeCorner:
+            let radius = tokens.tokens["tabCornerRadius"].map { CGFloat($0) } ?? (row * 8 / 28).rounded()
+            return closePlate(pillHeight: row, pillRadius: radius, slot: half(share(14, of: sizeRow) * factor), maximumSide: row).corner
+        case .closeInk: return half(share(8, of: sizeRow) * factor)
+        case .closeTrailing: return concentricTrailing(row: row, closeSize: half(share(14, of: sizeRow) * factor))
         case .closeHoverOpacity: return 16 // tab_close_button.cc's highlight opacity, at every density
         // The omnibar's own tokens where the density sets them (its bar can differ from the tab row: 28 on 29 at Default).
         case .chipLeading:
@@ -109,31 +112,24 @@ public nonisolated struct BrowserChromeTuning {
         return chip + (bar - 4) + max(5, (bar * 42 / 30 - chip - (bar - 4)).rounded()) + 3
     }
 
-    /// Helium's tab x (imputnet/helium: tabs.patch's tab_close_button.cc and tab_style.cc, layout-constants.patch, with
-    /// Chromium's rounded icons, which Helium turns on). Its icon and visible square are `kTabCloseButtonSize`, 14 pt; the
-    /// icon is close_weight500_custom, 13.42 of its 24 units of ink with a 2.25 unit stroke (7.83 pt of ink, 1.31 pt
-    /// stroke). The hover plate is a `RoundRectHighlightPathGenerator` with a 4 pt corner: at Helium's Default density
-    /// (a 28 pt tab) the 14 pt square itself (the button's contents, `Insets::VH(1, 0)` off its 14 x 16), its end 6 pt
-    /// inside the tab's end (the tab's 8 pt bottom extension and 2 pt of padding, less its 4 pt shape inset); at its
-    /// Spacious density (a 32 pt tab) the whole 26 pt button less `Insets(1)`, 24 pt around the same 14 pt square, which
-    /// sits 8 pt inside the tab's end (`kTabHorizontalPadding`), so the plate's end is 3 pt in. Highlight 16%, pressed
-    /// 14%, of black or white (the tab's max contrast), with no fade.
-    public enum HeliumClose {
-        /// The x's icon and visible square: `kTabCloseButtonSize` with rounded icons.
-        public static let slot: CGFloat = 14
-        /// The plate's corner: `kCornerRadius` in tab_close_button.cc.
-        public static let corner: CGFloat = 4
-        /// The icon's ink: close_weight500_custom spans 13.42 of its 24 units, drawn at 14 pt.
-        public static let ink: CGFloat = 14 * 13.42 / 24
-        /// The tab height from which cmux draws Helium's Spacious x: Spacious's tab is 32 pt, Default's 28.
-        public static let spaciousRow: CGFloat = 32
-        /// Whether a `row` tall tab draws Helium's Spacious x.
-        public static func isSpacious(row: CGFloat) -> Bool { row >= spaciousRow }
-        /// The plate's side: the 14 pt square at Default, the 24 pt button at Spacious.
-        public static func plateSide(row: CGFloat) -> CGFloat { isSpacious(row: row) ? slot + 10 : slot }
-        /// The visible square's inset from the tab's end: 6 at Default, 8 at Spacious.
-        public static func trailing(row: CGFloat) -> CGFloat { isSpacious(row: row) ? 8 : 6 }
+    /// The tab x's hover plate in a pill `height` tall with corner `radius` (Lawrence msg 48706: "match helium in terms of
+    /// shape + hover ... and be concentric with the tab roundness itself"). Helium's 14 pt square with a 4 pt corner at its
+    /// Default density cannot nest in its 8 pt tab corner; its Spacious one can and does (tab_close_button.cc on a 32 pt
+    /// tab: `Insets(1)` gives a 24 pt plate 4 pt inside the pill, rounded 4 = 8 - 4). That plate at every density: set
+    /// half the pill's corner in from its top, bottom and end (2 pt at least), between the x's `slot` and `maximumSide`,
+    /// rounded with what is left of the pill's corner (``ConcentricCorners``). A capsule tab gets a circle.
+    public static func closePlate(pillHeight height: CGFloat, pillRadius radius: CGFloat, slot: CGFloat,
+                                  maximumSide: CGFloat) -> (side: CGFloat, corner: CGFloat) {
+        let outer = max(0, min(radius, height / 2))
+        let side = min(max(slot, height - 2 * max(2, outer / 2)), max(slot, min(maximumSide, height)))
+        let corners = ConcentricCorners(outer: outer, padding: 0)
+        let corner = corners.radius(fitting: CGSize(width: side, height: side), radius: corners.nested(in: outer, inset: (height - side) / 2))
+        return (side, corner)
     }
+
+    /// The x's slot inset from the pill's end that puts its center half a `row` in, so its plate (``closePlate``) is as
+    /// far from the pill's end as from its top and bottom; in half points.
+    public static func concentricTrailing(row: CGFloat, closeSize: CGFloat) -> CGFloat { max(0, half((row - closeSize) / 2)) }
 
     /// `points` of Helium's 28 pt row as the same share of `row`, in half points.
     public static func share(_ points: CGFloat, of row: CGFloat) -> CGFloat { half(row * points / 28) }

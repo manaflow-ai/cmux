@@ -649,9 +649,7 @@ class Workflow(unittest.TestCase):
         block = self.job_block("publish")
         self.assertIn("inputs.look_result != ''", "\n".join(block))
         step = block.index("      - name: Dispatch one more look")
-        # The step's own if: (an id: line may sit between it and the name; the summary reads steps.again).
-        condition = next(line for line in block[step + 1:step + 4] if line.strip().startswith("if:"))
-        self.assertEqual(condition.strip(), "if: ${{ steps.check.outputs.ok == 'true' && "
+        self.assertEqual(block[step + 1].strip(), "if: ${{ steps.check.outputs.ok == 'true' && "
                                                   "(steps.result.outputs.tar == 'false' || steps.stage.outputs.again == 'true') && "
                                                   "inputs.attempt != '1' }}")
         self.assertIn("attempt:", WORKFLOW.read_text().split("jobs:", 1)[0])

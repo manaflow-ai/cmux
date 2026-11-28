@@ -64,7 +64,6 @@ import {
   type ReplayLog,
 } from "./replayLogs";
 import { cpuSession } from "./stability";
-import { newestPage } from "./daemonPage";
 import { sharedPaneDir } from "./support/sharedBuilds";
 
 const argv = process.argv.slice(2);
@@ -114,16 +113,6 @@ const FIXTURE = benchFixture();
 const perfRow = scaledPerfRow(printRow, FIXTURE);
 /// The log whose bursts make the per-update rows: the long log, or at god scale the god session.
 const BURST_LOG = FIXTURE === "god" ? "god" : "long";
-/// `GOD_TURNS=N` sizes the god session (bench/godFixture.ts, 7,000 turns by default), for the length curve
-/// (bench/god-length-curve.sh: the same per-update and heap rows at 1k, 10k and 100k turns, which must stay flat).
-const GOD_TURNS = process.env.GOD_TURNS === undefined ? undefined : Number(process.env.GOD_TURNS);
-if (GOD_TURNS !== undefined && (!Number.isInteger(GOD_TURNS) || GOD_TURNS < 10)) {
-  console.error("transcript-replay: GOD_TURNS is a whole number of turns, 10 or more");
-  process.exit(2);
-}
-/// `TAIL=1` opens the live page at the last checkpoint (`tailStart`) and plays only its records live.
-const TAIL = process.env.TAIL === "1";
-const godOf = () => godLog("god", GOD_TURNS === undefined ? {} : { turns: GOD_TURNS });
 if (!Number.isInteger(TURNS) || TURNS < 8 || ONLY.some((name) => !["long", "recorded", "mock"].includes(name))) {
   console.error("usage: bun bench/transcript-replay.bench.ts [--turns 600] [--only long,recorded,mock] [--strict]");
   process.exit(2);
@@ -164,54 +153,16 @@ const summary = (p: Play) => ({
   turnCount: p.log.events.filter((event) => event.kind === "user_message").length,
   updatedAt: p.log.events.at(-1)?.at ?? Date.now(),
 });
-/// `OPEN=whole` hands the page the whole log at attach, as this bench did before god-chat-snapshot-tail: a full
-/// replay acpmux never does. By default the stand-in pages as acpmux does (hub/paging.rs via `newestPage`):
-/// attach the newest page under the pane's `limit`/`maxBytes`, older pages by `beforeSeq`, the prompt index
-/// whole, so the pane's open costs what is on screen, not the chat's length.
-const OPEN_WHOLE = process.env.OPEN === "whole";
-function answer(p: Play, method: string, params: Record<string, any> = {}): unknown {
-  const served = () => p.log.events.slice(0, p.served);
+function answer(p: Play, method: string): unknown {
   switch (method) {
     case "initialize":
       return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
     case "_acpmux/watch":
       return { sessions: [summary(p)] };
-    case "_acpmux/attach": {
-      if (OPEN_WHOLE) return { session: summary(p), lastSeq: p.served, events: served() };
-      const records = served();
-      if (params.afterSeq !== undefined) {
-        const after = Number(params.afterSeq);
-        return { session: summary(p), lastSeq: p.served, events: records.filter((event) => event.seq > after) };
-      }
-      const { page, hasMore } = newestPage(records, { limit: Number(params.limit ?? 400), maxBytes: params.maxBytes });
-      return { session: summary(p), lastSeq: p.served, events: page, hasMore };
-    }
-    case "_acpmux/events": {
-      if (OPEN_WHOLE) return { events: [], hasMore: false, lastSeq: p.served };
-      const records = served();
-      const before = params.beforeSeq === undefined ? Infinity : Number(params.beforeSeq);
-      if (params.promptIndex === true)
-        return {
-          events: records.filter((event) => event.kind === "user_message" && event.seq < before),
-          hasMore: false,
-          lastSeq: p.served,
-        };
-      if (params.beforeSeq !== undefined) {
-        const { page, hasMore } = newestPage(records, {
-          limit: Number(params.limit ?? 400),
-          beforeSeq: before,
-          maxBytes: params.maxBytes,
-        });
-        return { events: page, hasMore, lastSeq: p.served };
-      }
-      if (params.afterSeq !== undefined) {
-        const after = Number(params.afterSeq);
-        const limit = Number(params.limit ?? 400);
-        const page = records.filter((event) => event.seq > after).slice(0, limit);
-        return { events: page, hasMore: page.length === limit && page.at(-1)!.seq < p.served, lastSeq: p.served };
-      }
+    case "_acpmux/attach":
+      return { session: summary(p), lastSeq: p.served, events: p.log.events.slice(0, p.served) };
+    case "_acpmux/events":
       return { events: [], hasMore: false, lastSeq: p.served };
-    }
     default:
       return null;
   }
@@ -839,35 +790,10 @@ type LiveReplay = {
   finish(measureIdle: boolean): Promise<Live>;
   close(): Promise<void>;
 };
-/// TAIL=1: the index of the first record of the log's last checkpoint, the latest burst from which on every burst
-/// kind the log has plays (pure; exported for the test).
-export function tailStart(log: Pick<ReplayLog, "events" | "bursts">): number {
-  const kinds = new Set(log.bursts.map((burst) => burst.kind));
-  const seen = new Set<string>();
-  let from = log.bursts.length;
-  while (from > 0 && seen.size < kinds.size) seen.add(log.bursts[--from]!.kind);
-  const seq = log.bursts[from]?.fromSeq;
-  if (seq === undefined) return 0;
-  // From the record after the last one not in a burst before it: the checkpoint turn's prompt plays live too.
-  let at = log.events.findIndex((event) => event.seq === seq);
-  while (at > 0 && log.events[at - 1]!.kind !== "turn_result") at--;
-  return Math.max(0, at);
-}
-
 /// The live phase: an empty session, then every record as a live event at the page's top speed.
 async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<LiveReplay> {
-  // TAIL=1: open the chat at its last checkpoint, as a pane opens a long chat (the newest page, older pages on
-  // scroll), and play live only that checkpoint's records, instead of the whole transcript from an empty pane.
-  const tailFrom = TAIL ? tailStart(log) : 0;
-  const first = (tailFrom ? log.events[tailFrom - 1]?.at : log.events[0]?.at) ?? Date.now();
-  const { page, cdp, play } = await openPage(
-    ctx,
-    daemon,
-    log,
-    tailFrom ? log.events[tailFrom - 1]!.seq : 0,
-    "running",
-    first,
-  );
+  const first = log.events[0]?.at ?? Date.now();
+  const { page, cdp, play } = await openPage(ctx, daemon, log, 0, "running", first);
   const started = performance.now();
   try {
     await page.goto(ctx.url(log, daemon));
@@ -888,7 +814,7 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
   const inBurst = new Map<number, Burst>();
   for (const burst of log.bursts) inBurst.set(burst.fromSeq, burst);
   const burstWindows: [number, number][] = [];
-  let index = tailFrom;
+  let index = 0;
   return {
     async next() {
       while (index < log.events.length) {
@@ -1337,7 +1263,7 @@ if (import.meta.main) {
   try {
     const now = Date.now();
     const logs: ReplayLog[] = [];
-    if (FIXTURE === "god") logs.push(godOf());
+    if (FIXTURE === "god") logs.push(godLog("god"));
     else if (ONLY.includes("long"))
       logs.push(
         longLog({
@@ -1362,17 +1288,11 @@ if (import.meta.main) {
         },
         websocket: {
           message(ws, raw) {
-            const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
+            const message = JSON.parse(String(raw)) as { id?: number; method: string };
             const p = daemon.play;
             if (message.method === "_acpmux/attach" && p) p.socket = ws;
             if (message.id !== undefined)
-              ws.send(
-                JSON.stringify({
-                  jsonrpc: "2.0",
-                  id: message.id,
-                  result: p ? answer(p, message.method, message.params) : null,
-                }),
-              );
+              ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: p ? answer(p, message.method) : null }));
           },
         },
       });
@@ -1428,7 +1348,7 @@ if (import.meta.main) {
     if (PAIRED) {
       const small = logs.find((log) => log.name === "long");
       if (!small) throw new Error("PAIRED=1 plays the long log beside the god session: run it with --only long");
-      const god = godOf();
+      const god = godLog("god");
       checkSeq(god);
       logs.length = 0;
       const [godLive, smallLive] = await pairedLiveRound(ctx, god, small);

@@ -1,9 +1,5 @@
 public import Foundation
-// Linux's action exporter (LinuxActionExports/sources.txt) builds this file without os; its Logger is
-// LinuxExportStandIns.swift's stand-in there.
-#if canImport(os)
 import os
-#endif
 
 extension DeepLink {
     /// The scheme the Chief and its documents write, whatever the build.

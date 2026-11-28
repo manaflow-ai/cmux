@@ -269,8 +269,7 @@ function pullRequestBinding(
   t: Translate,
   key: NativeMenuKey,
 ): RowToolBinding {
-  const { ops } = extra;
-  const value = ops.displayed ?? extra.value;
+  const { value, ops } = extra;
   const identity = key(ops.identity || "pullRequest");
   const revision = key(JSON.stringify(value.checkList));
   const menu: NativeRowMenuItem[] = [],
@@ -286,9 +285,6 @@ function pullRequestBinding(
   addAction(menu, runs, `pullRequest.merge:${identity}`, ops.start);
   addAction(menu, runs, `pullRequest.confirm:${identity}`, ops.confirm);
   addAction(menu, runs, `pullRequest.cancel:${identity}`, ops.cancel);
-  ops.actions?.forEach((action) => addAction(menu, runs, `pullRequest.action:${identity}:${action.id}`, action));
-  if (ops.headSha) addMessages(menu, "pullRequest.head", [ops.headSha]);
-  addMessages(menu, "pullRequest.action", ops.actionMessages ?? []);
   addMessages(menu, "pullRequest", ops.question ? [ops.question, ...ops.messages] : ops.messages);
   const variableMenu = value.checkList.map((check, index) => {
     const id = `pullRequest.check:${identity}:${revision}:${index}`;

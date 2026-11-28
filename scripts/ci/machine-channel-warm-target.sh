@@ -17,8 +17,7 @@
 # previous build's whole target dir, mounted in seconds and never evicted.
 #
 # restore (before the build): when DISK is mounted, link cmux-tui/target and
-# the cargo registry to it (on a pool runner only the target: HOME keeps the
-# registry, and a link there outlived the job), then give every source file whose content equals
+# the cargo registry to it, then give every source file whose content equals
 # the one the snapshot was built from its recorded mtime back
 # (scripts/blacksmith-testbox-source-mtimes.py), so Cargo rebuilds only what
 # changed. A changed file keeps its fresh mtime: correctness never depends on
@@ -164,8 +163,7 @@ restore() {
     echo "warm target: miss ($link already exists); cold build"
     return 0
   fi
-  mkdir -p "$target"
-  pool_disk || mkdir -p "$disk/cargo-registry"
+  mkdir -p "$target" "$disk/cargo-registry"
   if [[ -n "$toolchain" && -n "$(ls -A "$target")" ]]; then
     local recorded=""
     [[ -f "$toolchain_record" && ! -L "$toolchain_record" ]] && recorded="$(head -c 4096 "$toolchain_record")"
@@ -179,27 +177,6 @@ restore() {
     echo "warm target: hit, built from $(head -c 40 "$source_record" | tr -cd '0-9a-f')"
   else
     echo "warm target: miss (empty sticky disk); cold build"
-  fi
-  # A pool runner keeps HOME, so its registry is warm where it is: linking it into the slot's tree
-  # left ~/.cargo/registry a link for every later job on the slot, whatever its workflow, and
-  # rust-cache saved that link (entry v0-rust-cmux-tui-acpmux-tests-ad0a7f2f..., saved on
-  # cmux-runner-pool-w4a-0079-2). On a fresh runner the restore made a link to a path that host
-  # lacks, and cargo's first call failed: "failed to create directory
-  # ~/.cargo/registry/cache/index.crates.io-...: File exists (os error 17)" (acpmux tests, jobs
-  # 140850174447 and 140851740236, 2026-11-28). A link an earlier job left goes back to a directory.
-  if pool_disk; then
-    if [[ -L "$registry" ]]; then
-      local kept="$disk/cargo-registry"
-      rm -f "$registry"
-      mkdir -p "$registry"
-      [[ ! -d "$kept" ]] || cp -a --update=none "$kept/." "$registry/"
-      rm -rf "$kept"
-      echo "warm target: $registry was a link into the pool tree; made a directory again"
-    fi
-    ln -s "$target" "$link"
-    python3 -I "$repo/scripts/blacksmith-testbox-source-mtimes.py" restore "$repo" "$manifest"
-    echo "warm target: $(du -sxh "$target" | cut -f1) of build output; crates stay in $registry"
-    return 0
   fi
   # Crates fetched before this step (cargo install) join the disk's registry.
   if [[ -d "$registry" && ! -L "$registry" ]]; then

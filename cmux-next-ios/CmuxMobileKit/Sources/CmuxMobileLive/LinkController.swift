@@ -254,19 +254,11 @@ public final class LinkController {
         let clock = clock
         networkTask = Task { [weak self] in
             do { try await clock.sleep(for: Self.networkSettle) } catch { return }
-            // A settle whose sleep already ended still waits for the main actor; a newer change that
-            // cancelled it meanwhile owns the roam (kit runs 11-28: four roams, two at once, when the
-            // main actor was busy past the settle).
-            guard !Task.isCancelled else { return }
             await self?.roam(baseURL: baseURL, teamID: teamID, deviceID: deviceID)
         }
     }
 
     private func roam(baseURL: URL, teamID: String, deviceID: String) async {
-        if roaming {
-            roamAgain = (baseURL, teamID, deviceID)
-            return
-        }
         roaming = true
         let dialer = dialer
         let accessToken = accessToken

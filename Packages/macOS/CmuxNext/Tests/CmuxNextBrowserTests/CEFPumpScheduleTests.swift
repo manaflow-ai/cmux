@@ -25,20 +25,6 @@ import Testing
         #expect(abs(wake.tolerance - 0.0016) < 1e-9)
     }
 
-    /// Chromium's housekeeping timers ask for a second or more (cmux20-bench, 2026-11-28, one idle
-    /// minute of the browser process: the disk-space check every 5 s, CpuHealthTracker every 15 s,
-    /// each tab strip's scrubbing metrics every 30 s, the CPU probe, the idle poll). Each came at
-    /// its own time with 8 ms of leeway, so each was a wake of its own. A long delay gets a tenth
-    /// of itself, at most 1 s (Apple's timer guidance), so macOS can run it on a nearby wake.
-    @Test(arguments: [(1_000, 0.1), (5_000, 0.5), (15_000, 1.0), (30_000, 1.0)])
-    func aLongDelayGetsATenthOfItselfUpToOneSecond(milliseconds: Int64, tolerance: TimeInterval) throws {
-        var schedule = CEFPumpSchedule(safetyNet: .none)
-        schedule.request(milliseconds: milliseconds, now: 0)
-        let wake = try #require(schedule.nextWake)
-        #expect(abs(wake.deadline - TimeInterval(milliseconds) / 1_000) < 1e-9, "never early")
-        #expect(abs(wake.tolerance - tolerance) < 1e-9)
-    }
-
     @Test func aRequestForNowIsExact() throws {
         var schedule = CEFPumpSchedule(safetyNet: .none)
         schedule.request(milliseconds: 0, now: 0)

@@ -77,7 +77,6 @@ pub(super) const fn handles(operation: ResourceOperation) -> bool {
             | Op::CloudPreviewsRefresh
             | Op::CloudPreviewsCreateLink
             | Op::CloudPreviewsRevokeLink
-            | Op::CloudArtifactsRead
             | Op::CloudMachineIo
             | Op::CloudMachineChatAccess
             | Op::CloudMachineShareChat

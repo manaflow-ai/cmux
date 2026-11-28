@@ -1728,37 +1728,3 @@ img.onb-make-tile-image {
     transition: none;
   }
 }
-
-/* [taste] Label fit, gallery variants only (data-onb-labels is set by the gallery fixture, never by the shipped
-   page): the segment and chip names that the nowrap + ellipsis above cut short. */
-[data-onb-labels="wrap"] :is(.onb-make-segment, .onb-make-chip) {
-  height: auto;
-  min-height: var(--ds-control-compact);
-  padding-block: var(--grid-half-step);
-  white-space: normal;
-  text-align: center;
-}
-[data-onb-labels="wrap"] :is(.onb-make-segment, .onb-make-chip) > span {
-  overflow: visible;
-  text-overflow: clip;
-  overflow-wrap: anywhere;
-}
-[data-onb-labels="tight"] :is(.onb-make-segment, .onb-make-chip) {
-  padding-inline: var(--grid-half-step);
-  font-size: calc(var(--text-caption) * 0.9);
-}
-[data-onb-labels="tight"] :is(.onb-make-segments, .onb-make-chips) {
-  padding: var(--grid-half-step);
-}
-[data-onb-labels="fit"] :is(.onb-make-segment, .onb-make-chip) {
-  height: auto;
-  min-height: var(--ds-control-compact);
-  padding-inline: var(--grid-half-step);
-  font-size: calc(var(--text-caption) * 0.9);
-  white-space: normal;
-  text-align: center;
-}
-[data-onb-labels="fit"] :is(.onb-make-segment, .onb-make-chip) > span {
-  overflow: visible;
-  text-overflow: clip;
-}

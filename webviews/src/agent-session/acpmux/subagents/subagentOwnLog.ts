@@ -14,9 +14,8 @@ export type OwnLogRecord = { seq: number; at: number; dir: string; kind: string;
 /// What the fold needs of the chat to attribute the records as the chat's own fold does
 /// (direct.ts `reduceEvent`): its acpmux session, its harness and its agent's own thread.
 export type OwnLogChat = { session?: string; harness?: string; thread?: string };
-/// Reads subagent `id`'s records of the chat the pane shows, oldest first. A long log hands its
-/// newest page to `onNewest` first, for the pane to draw while the rest is read.
-export type ReadOwnLog = (id: string, onNewest?: (records: OwnLogRecord[]) => void) => Promise<OwnLogRecord[]>;
+/// Reads subagent `id`'s records of the chat the pane shows, oldest first.
+export type ReadOwnLog = (id: string) => Promise<OwnLogRecord[]>;
 
 /// The rows and views a fold of only subagent `id`'s records draws, in the shape `childView` reads
 /// from the chat's snapshot (its groups, and each subagent's own view).
@@ -135,13 +134,9 @@ export function useOwnLog(
     if (!key || !id || !connected || settled) return;
     let live = true;
     setState((now) => (now?.key === key ? now : { key, done: false }));
-    // Its newest page draws while the older ones are read; still loading until the whole read ends.
-    const onNewest = (records: OwnLogRecord[]) =>
-      live && setState({ key, done: false, log: foldOwnLog(id, records, chat) });
-    read(id, onNewest).then(
+    read(id).then(
       (records) => live && setState({ key, done: true, log: foldOwnLog(id, records, chat) }),
-      () =>
-        live && setState((now) => ({ key, done: false, failed: true, log: now?.key === key ? now.log : undefined })),
+      () => live && setState({ key, done: false, failed: true }),
     );
     return () => {
       live = false;

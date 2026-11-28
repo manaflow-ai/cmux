@@ -42,19 +42,14 @@ public nonisolated struct HomeChiefNames: Hashable, Sendable {
     /// The name `conversation`'s Chief shows, given its record's name; nil when neither names it.
     /// Rust's `chief_settings.namesOf`.
     public func name(of conversation: ConversationID, record: String?) -> String? {
-        let request = OfRequest(state: state, conversation: conversation.rawValue, record: record)
-        return Self.names.value(request) {
-            do {
-                let name: String? = try HomeRules.call("chief_settings.namesOf", request)
-                return name
-            } catch {
-                return record.flatMap(Self.trimmed)
-            }
+        do {
+            let name: String? = try HomeRules.call("chief_settings.namesOf",
+                                                   OfRequest(state: state, conversation: conversation.rawValue, record: record))
+            return name
+        } catch {
+            return record.flatMap(Self.trimmed)
         }
     }
-
-    /// `name(of:record:)` by its whole request (renames, id, record): every Chief row asks per draw.
-    private static let names = HomeRuleMemo<OfRequest, String?>()
 
     /// Every named Chief conversation's name (the Home list's tiles), given each Chief's record name.
     /// Rust's `chief_settings.namesAll`.
@@ -101,7 +96,7 @@ public nonisolated struct HomeChiefNames: Hashable, Sendable {
         var event: Event
     }
 
-    private nonisolated struct OfRequest: Encodable, Hashable, Sendable {
+    private nonisolated struct OfRequest: Encodable {
         var state: State
         var conversation: String
         var record: String?

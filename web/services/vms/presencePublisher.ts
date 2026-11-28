@@ -289,7 +289,7 @@ export function withVmSyncPublication(
   repository: VmRepositoryShape,
   deps: VmSyncPublisherDeps = liveVmSyncPublisherDeps,
 ): VmRepositoryShape {
-  const { markCreateAbandoned, resolveCreateCleanup, mergeProviderMetadata, writeAddressRelease } = repository;
+  const { markCreateAbandoned, resolveCreateCleanup, mergeProviderMetadata } = repository;
   return {
     ...repository,
     markCreateRunning: (input) => tapRow(repository.markCreateRunning(input), input.id, deps),
@@ -308,9 +308,6 @@ export function withVmSyncPublication(
       : {}),
     ...(mergeProviderMetadata
       ? { mergeProviderMetadata: (input) => tapRow(mergeProviderMetadata(input), input.id, deps) }
-      : {}),
-    ...(writeAddressRelease
-      ? { writeAddressRelease: (input) => tapRow(writeAddressRelease(input), input.id, deps) }
       : {}),
   };
 }

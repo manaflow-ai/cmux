@@ -209,7 +209,6 @@ pub(crate) const PROBE_ACCOUNTS: &[&str] = &[
     "cmux-cloud-capture-guest@manaflow.dev",
     "cmux-cloud-capture-prod@manaflow.dev",
     "cmux-cloud-capture-prod-control@manaflow.dev",
-    "cmux-cloud-capture-prod-provider@manaflow.dev",
     "cmux-cloud-capture-journey-prod@manaflow.dev",
     "cmux-cloud-capture-platform@manaflow.dev",
     "cmux-cloud-capture-platform-prod@manaflow.dev",

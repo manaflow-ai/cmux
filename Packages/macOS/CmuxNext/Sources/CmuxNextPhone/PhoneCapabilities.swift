@@ -1,5 +1,3 @@
-import Foundation
-
 /// What a phone tab can do with one device. The UI hides what is missing
 /// instead of offering a control that fails.
 public struct PhoneCapabilities: OptionSet, Sendable, Hashable {
@@ -34,15 +32,14 @@ public struct PhoneCapabilities: OptionSet, Sendable, Hashable {
     /// Reading the screen's accessibility tree.
     public static let accessibility = PhoneCapabilities(rawValue: 1 << 15)
 
-    /// What a phone of `mode` can do (`cmux-phone-core`'s `capabilities`): `liveInput`, SimulatorKit's HID
-    /// loaded; `android`, the Android backend serves it. Empty when Rust does not answer.
-    init(for mode: PhoneMode, liveInput: Bool = false, android: Bool = false) {
-        let bits = PhoneRules.ask("capabilities", ["mode": mode.rawValue, "live_input": liveInput, "android": android])?["bits"] as? Int
-        self.init(rawValue: bits ?? 0)
-    }
-
-    /// The capability names the CLI and MCP report, in a stable order (`cmux-phone-core`'s `capability_names`).
+    /// The capability names the CLI and MCP report, in a stable order.
     public var names: [String] {
-        (try? PhoneRules.decode([String].self, "names", "capability_names", ["bits": rawValue], what: "the capability names")) ?? []
+        let all: [(PhoneCapabilities, String)] = [
+            (.boot, "boot"), (.screenshot, "screenshot"), (.recordVideo, "record"), (.deviceLog, "log"),
+            (.openURL, "open-url"), (.pasteboard, "pasteboard"), (.touch, "touch"), (.keyboard, "keyboard"),
+            (.liveScreen, "live"), (.buttons, "buttons"), (.appearance, "appearance"), (.location, "location"),
+            (.locale, "locale"), (.apps, "apps"), (.rotate, "rotate"), (.accessibility, "ui"),
+        ]
+        return all.filter { contains($0.0) }.map(\.1)
     }
 }

@@ -22,34 +22,11 @@
 declare -F live_code_module_pattern >/dev/null || source "$(dirname "${BASH_SOURCE[0]}")/xcodebuild-args.sh"
 live_code_ours() { grep -oE '_\$s[^ ]*' | grep -E "$(live_code_module_pattern)" | sort -u; }
 
-# A live code build links CmuxNextApp into the executable, the one image a patch repoints:
-# Package.swift's appLinksStatically, read from CMUX_LIVE_CODE_BUILD through Context.environment.
-# From 2026-11-27 (Xcode 26.6 -> 27.2, kept DerivedData) the NIGHTLY live code variant's build
-# exported 0 CmuxNext symbols: its manifest evaluation did not take the variable. A build that owns
-# its checkout (swap-binary.sh's clone, the nightly's job workspace) writes the switch into the
-# manifest instead; the changed manifest is also evaluated again past any cached evaluation.
-# Older commits (no switch) are left as they are.
-live_code_pin_static_link() { # PACKAGE_SWIFT
-  local manifest="$1" line='let appLinksStatically = Context.environment["CMUX_LIVE_CODE_BUILD"] == "1"'
-  [[ -f "$manifest" ]] && grep -qxF "$line" "$manifest" || return 0
-  python3 -I -c 'import sys; p, l = sys.argv[1], sys.argv[2]; s = open(p).read(); open(p, "w").write(s.replace(l, "let appLinksStatically = true // a live code build (live_code_pin_static_link)", 1))' "$manifest" "$line"
-  echo "live-code build: $manifest links CmuxNextApp statically (written, not read from the environment)" >&2
-}
-
 live_code_list() { # BIN OUT
   local bin="$1" out="$2"
   xcrun dyld_info -exports "$bin" | live_code_ours > "$out/interposable.txt" || true
   echo "live-code build: $(wc -l < "$out/interposable.txt" | tr -d ' ') ${LIVE_CODE_MODULE_PREFIX:-CmuxNext} Swift symbols in the export trie" >&2
-  [[ -s "$out/interposable.txt" ]] && return 0
-  echo "live-code build: the app exports no ${LIVE_CODE_MODULE_PREFIX:-CmuxNext} symbol (LD_EXPORT_SYMBOLS?)" >&2
-  # Why, in the log itself: an app module linked as its own image (Package.swift's appLinksStatically
-  # not taken), or a dyld_info whose export lines live_code_ours does not read.
-  local dylibs
-  dylibs="$(otool -L "$bin" 2>/dev/null | grep -E "${LIVE_CODE_MODULE_PREFIX:-CmuxNext}" || true)"
-  [[ -z "$dylibs" ]] || echo "live-code build: the executable loads its modules from another image (a dynamic product, not linked in):"$'\n'"$dylibs" >&2
-  echo "live-code build: dyld_info -exports, its first lines:" >&2
-  xcrun dyld_info -exports "$bin" 2>&1 | sed -n 1,6p >&2 || true
-  return 1
+  [[ -s "$out/interposable.txt" ]] || { echo "live-code build: the app exports no ${LIVE_CODE_MODULE_PREFIX:-CmuxNext} symbol (LD_EXPORT_SYMBOLS?)" >&2; return 1; }
 }
 
 # dyld_info -fixups prints a bind's target as "<this-image>/NAME" in 4096 bytes, so a name longer

@@ -117,9 +117,8 @@ pane's) are AppKit's `NSMenu`, which these do not reach.
 ## Overlays
 
 `Popover`, `Tooltip`, `Dialog`, and `Sheet` all portal into the `UiProvider` container, return focus
-to their trigger, close on Escape, and use Ghostty theme tokens. Tooltips wait 250 ms on the first
-hover (`HOVER_INTENT.tooltipDelay` in `ui/hoverIntent.ts`, the same as native
-`HoverIntentTiming.standard`) and move immediately to a neighbor. Menus and popovers (Menu, Popover, Select, Combobox,
+to their trigger, close on Escape, and use Ghostty theme tokens. Tooltips wait 500 ms on the first
+hover and move immediately to a neighbor. Menus and popovers (Menu, Popover, Select, Combobox,
 ContextMenu, and every `.ui-popup`) open in one frame with no fade, scale or slide, and fade only as
 they close (Leo 2026-10-24: "When you open it up, no animation. When you close it, animation for
 closing... No fade in ever for any of these."). `test/popover-instant-open.test.ts` holds this.
@@ -157,10 +156,6 @@ Rules:
   A popup never inherits the tint of the surface it opens from (`.ui-popup.ui-glass`, glass.css). Tooltips keep the tooltip surface (`--tooltip-*`). Any other translucent
   surface that carries text keeps at least `--surface-text-min` of its fill:
   `color-mix(in srgb, <fill> var(--surface-text-min), transparent)`.
-- Host glass (`data-host-glass="<level>"`, `ui/glass/hostGlass.ts`: the App draws a marked surface's
-  glass under the page) is pane-only. Only the agent pane speaks `pane.glass`
-  (`AgentPaneRequest+Decoding.swift`). Settings, Feed, onboarding, changelog and the other pages have
-  no host glass, so a marked surface there keeps the page's own glass.
 - A blur uses `backdrop-filter: var(--surface-blur)`, or the file has its own
   `@media (prefers-reduced-transparency: reduce)` rule that makes the surface opaque. Both tokens turn
   opaque under Reduce Transparency (`prefers-reduced-transparency`, or `data-reduce-transparency` on

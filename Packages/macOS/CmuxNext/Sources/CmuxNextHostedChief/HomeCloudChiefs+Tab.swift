@@ -23,7 +23,7 @@ extension HomeCloudChiefs {
     /// for the Chief owner and looks the conversation up in that case, so the tab arrives.
     public func chiefTab(local: String?, localHasHistory: Bool, choice: HomeChiefChoice, prefersLocal: Bool = false) -> String? {
         let tab = ChiefRules.Tab(chiefs: self, local: local, localHasHistory: localHasHistory, choice: choice, prefersLocal: prefersLocal)
-        return ChiefRules.rule(.chiefsTab, tab, else: ChiefRules.Conversation()).conversation
+        return ChiefRules.rule("chiefs_tab", tab, else: ChiefRules.Conversation()).conversation
     }
 
     /// The Chief moved to `chief` (a cloud Chief) from one of `from` (the
@@ -33,7 +33,7 @@ extension HomeCloudChiefs {
     /// local or it already has its tab.
     public static func move(from: [String], chief: String, in workspaces: [WorkspaceModel]) -> (close: [SurfaceID], pane: PaneID?) {
         let tabs = TabPanes(workspaces)
-        let move = ChiefRules.rule(.chiefsMove, ChiefRules.MoveRequest(from: from, chief: chief, panes: tabs.panes), else: ChiefRules.Move())
+        let move = ChiefRules.rule("chiefs_move", ChiefRules.MoveRequest(from: from, chief: chief, panes: tabs.panes), else: ChiefRules.Move())
         return (move.close.compactMap(tabs.surface), move.pane.flatMap(tabs.pane))
     }
 
@@ -42,7 +42,7 @@ extension HomeCloudChiefs {
     public static func staleChiefTabs(stale: [String], chief: String, in workspaces: [WorkspaceModel]) -> [SurfaceID] {
         let tabs = TabPanes(workspaces)
         let request = ChiefRules.StaleRequest(stale: stale, chief: chief, panes: tabs.panes)
-        return ChiefRules.rule(.chiefsStaleTabs, request, else: ChiefRules.Close()).close.compactMap(tabs.surface)
+        return ChiefRules.rule("chiefs_stale_tabs", request, else: ChiefRules.Close()).close.compactMap(tabs.surface)
     }
 
     /// Home's panes as the tab rules read them, each pane and tab named by its index, and the
@@ -74,7 +74,7 @@ extension HomeCloudChiefs {
     /// placed). A failure is logged by the caller, never shown.
     public static func read(call: Call, hostedBrains: Bool) async throws -> HomeCloudChiefs {
         if hostedBrains { return try await ensureHosted(call: call) }
-        return try ChiefRules.call(.chiefsPlacedOnly, ChiefRules.Chiefs(chiefs: try await list(call: call)))
+        return try ChiefRules.call("chiefs_placed_only", ChiefRules.Chiefs(chiefs: try await list(call: call)))
     }
 
     /// The active chiefs (`chief.list`; archived ones are never listed by default).
@@ -98,7 +98,7 @@ extension HomeCloudChiefs {
             try okValue(try await call("v1/ops", ["op": name, "origin": "user", "idempotency_key": key, "params": params]))
         }
         func ensure(_ chiefs: [CloudChief]) throws -> ChiefRules.Ensure {
-            try ChiefRules.call(.chiefsEnsure, ChiefRules.EnsureRequest(chiefs: chiefs, chiefName: HomeStrings.chiefName, placedName: placedName))
+            try ChiefRules.call("chiefs_ensure", ChiefRules.EnsureRequest(chiefs: chiefs, chiefName: HomeStrings.chiefName, placedName: placedName))
         }
         for attempt in 0..<2 {
             var chiefs = try await list(call: call)
@@ -115,7 +115,7 @@ extension HomeCloudChiefs {
                                                           "params": ["display_name": HomeStrings.chiefName, "is_default": true]])
                     guard let created = CloudChief.parse(try okValue(reply)) else { throw HostedChiefError.badReply }
                     let replayed = ChiefRules.CreatedRequest(replayed: reply["replayed"] as? Bool == true, sentBefore: sentBefore)
-                    let here: ChiefRules.Created = try ChiefRules.call(.chiefsCreatedHere, replayed)
+                    let here: ChiefRules.Created = try ChiefRules.call("chiefs_created_here", replayed)
                     if here.createdHere {
                         createdHere(created.id, true)
                     }
@@ -158,7 +158,7 @@ extension HomeCloudChiefs {
     static func okValue(_ reply: [String: Any]) throws -> Any? {
         let fields = ChiefRules.OkValueRequest.Reply(tag: reply["_tag"] == nil ? nil : true, code: reply["code"] as? String,
                                                      message: reply["message"] as? String)
-        let envelope: ChiefRules.OkValue = try ChiefRules.call(.chiefsOkValue, ChiefRules.OkValueRequest(reply: fields))
+        let envelope: ChiefRules.OkValue = try ChiefRules.call("chiefs_ok_value", ChiefRules.OkValueRequest(reply: fields))
         if let refused = envelope.refused { throw HostedChiefError.owner(code: refused.code, message: refused.message) }
         return reply["value"]
     }

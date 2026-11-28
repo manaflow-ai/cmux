@@ -94,7 +94,6 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "chunkDeltas",
     "class",
     "cliHost",
-    "cloudRegistryId",
     "compression",
     "context",
     "createKey",
@@ -224,7 +223,6 @@ keyed! {
     AgentHomeResolveParams: ["sessionId", "accept", "drop"];
     /// `_acpmux/prompt_coach`.
     PromptCoachParams: ["sessionId", "coachId"];
-    PullRequestActionParams: ["sessionId", "url", "headSha", "action"];
     /// `_acpmux/btw`.
     BtwParams: ["sessionId", "question", "model", "inline", "targetHarness"];
     /// `_acpmux/chat/route.set`.

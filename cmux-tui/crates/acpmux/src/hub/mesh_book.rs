@@ -364,11 +364,7 @@ impl Hub {
     /// stops.
     #[cfg(feature = "hub-carrier")]
     pub fn set_mesh_book_machines(&self, machines: BTreeMap<String, String>) {
-        let mut book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
-        book.machines = machines;
-        // A set book is a read one: a move that resolves a name must not wait for a heartbeat.
-        book.machines_read = true;
-        book.machines_changed.notify_waiters();
+        self.mesh_book.lock().unwrap_or_else(|e| e.into_inner()).machines = machines;
     }
 
     /// The host of the machine whose hub `daemonId` is `key`, when the book lists it as one of

@@ -248,18 +248,8 @@ impl Drop for FakeDaemon {
     }
 }
 
-/// The phone's first window's row cap (CmuxMobileLive `ListFirstWindow.limit`).
-const FIRST_WINDOW: usize = 40;
-/// The bytes of rows one `limit` page carries at most (cmux-tui `LIST_WORKSPACES_PAGE_BYTES`).
-const PAGE_BYTES: usize = 64 * 1024;
-
-/// `list-workspaces` as cmux-tui answers it: the whole tree, or with `limit`
-/// (`list-workspaces-page-v1`) the rows from `after`, at most `limit` of them and
-/// [`PAGE_BYTES`] of rows (at least one), with `total` and, unless it is the last page, `next`.
-fn workspace_page(count: usize, after: usize, limit: Option<usize>) -> Value {
-    let end = limit.map_or(count, |limit| count.min(after.saturating_add(limit)));
-    let mut bytes = 0;
-    let workspaces: Vec<Value> = (after.min(end)..end)
+fn workspace_tree(count: usize) -> Value {
+    let workspaces: Vec<Value> = (0..count)
         .map(|i| {
             let base = 10 + i as u64 * 10;
             json!({
@@ -270,22 +260,8 @@ fn workspace_page(count: usize, after: usize, limit: Option<usize>) -> Value {
                 ]}]}]
             })
         })
-        .take_while(|row| {
-            if limit.is_none() {
-                return true;
-            }
-            let first = bytes == 0;
-            bytes += row.to_string().len();
-            first || bytes <= PAGE_BYTES
-        })
         .collect();
-    let Some(_) = limit else { return json!({"registry_id": "matrix-registry", "workspaces": workspaces}) };
-    let next = after + workspaces.len();
-    let mut page = json!({"registry_id": "matrix-registry", "workspaces": workspaces, "total": count});
-    if next < count {
-        page["next"] = json!(next);
-    }
-    page
+    json!({"registry_id": "matrix-registry", "workspaces": workspaces})
 }
 
 /// One daemon connection. `send` with text `FLOOD:<lines>:<bytes>:<delay ms>`
@@ -300,10 +276,7 @@ async fn daemon_client(stream: tokio::net::UnixStream, state: Arc<DaemonState>) 
         let mut answer = json!({"id": request["id"], "ok": true, "data": request});
         match request["cmd"].as_str() {
             Some("list-workspaces") => {
-                let count = state.workspaces.load(Ordering::Relaxed);
-                let limit = request["limit"].as_u64().map(|limit| limit as usize);
-                let after = request["after"].as_u64().unwrap_or(0) as usize;
-                answer["data"] = workspace_page(count, after, limit);
+                answer["data"] = workspace_tree(state.workspaces.load(Ordering::Relaxed));
             }
             Some("list-personal") => answer["data"] = json!({"groups": [], "workspaces": []}),
             Some("send") => {
@@ -417,26 +390,20 @@ impl Rig {
 /// Lines from a channel, with the bytes left over between reads.
 struct Lines {
     buffered: Vec<u8>,
-    /// How far `buffered` is known to hold no newline: each chunk is scanned once, so a
-    /// 1 MB line read in 16 KB chunks costs one pass, not one per chunk (was quadratic).
-    scanned: usize,
 }
 
 impl Lines {
     fn new() -> Self {
-        Self { buffered: Vec::new(), scanned: 0 }
+        Self { buffered: Vec::new() }
     }
 
     /// The next whole line, or the close (as `Err`).
     async fn next(&mut self, channel: &mut Channel) -> Result<Value, String> {
         loop {
-            if let Some(at) = self.buffered[self.scanned..].iter().position(|b| *b == b'\n') {
-                let end = self.scanned + at;
-                self.scanned = 0;
+            if let Some(end) = self.buffered.iter().position(|b| *b == b'\n') {
                 let line: Vec<u8> = self.buffered.drain(..=end).collect();
                 return serde_json::from_slice(&line).map_err(|e| format!("bad line: {e}"));
             }
-            self.scanned = self.buffered.len();
             match channel.recv().await {
                 Some(ChannelEvent::Data(data)) => self.buffered.extend_from_slice(&data),
                 Some(ChannelEvent::Closed(info)) => {
@@ -466,27 +433,16 @@ async fn send_line(channel: &Channel, value: &Value) {
 
 /// Opens a daemon channel and times one `list-workspaces` to its last byte.
 async fn time_list(rig: &Rig, expect: usize) -> Duration {
-    time_list_page(rig, expect, None).await
-}
-
-/// [`time_list`] for the whole tree, or with `limit` for the phone's first window
-/// (`ListFirstWindow`: the rows it draws first), which holds `min(expect, limit)` rows.
-async fn time_list_page(rig: &Rig, expect: usize, limit: Option<usize>) -> Duration {
     let began = Instant::now();
     let mut channel = rig.daemon_channel(Lane::Bulk).await;
     let mut lines = Lines::new();
-    let mut request = json!({"id": "list", "cmd": "list-workspaces"});
-    if let Some(limit) = limit {
-        request["limit"] = json!(limit);
-    }
-    send_line(&channel, &request).await;
+    send_line(&channel, &json!({"id": "list", "cmd": "list-workspaces"})).await;
     let (reply, _) = tokio::time::timeout(Duration::from_secs(30), lines.until_reply(&mut channel, "list"))
         .await
         .expect("list-workspaces answered within 30 s")
         .expect("list-workspaces reply");
     let elapsed = began.elapsed();
     let got = reply["data"]["workspaces"].as_array().map(Vec::len).unwrap_or_default();
-    let expect = limit.map_or(expect, |limit| expect.min(limit));
     assert_eq!(got, expect, "list-workspaces returned {got} workspaces, expected {expect}");
     channel.close("eof", "matrix").await;
     elapsed
@@ -499,15 +455,10 @@ fn median(mut samples: Vec<f64>) -> f64 {
 
 /// Median of `rounds` timed lists (the first warms the host's cache).
 async fn list_median(rig: &Rig, expect: usize, rounds: usize) -> f64 {
-    page_median(rig, expect, None, rounds).await
-}
-
-/// [`list_median`] of the whole tree, or with `limit` of the first window.
-async fn page_median(rig: &Rig, expect: usize, limit: Option<usize>, rounds: usize) -> f64 {
-    let _ = time_list_page(rig, expect, limit).await;
+    let _ = time_list(rig, expect).await;
     let mut samples = Vec::new();
     for _ in 0..rounds {
-        samples.push(ms(time_list_page(rig, expect, limit).await));
+        samples.push(ms(time_list(rig, expect).await));
     }
     median(samples)
 }
@@ -517,12 +468,8 @@ async fn page_median(rig: &Rig, expect: usize, limit: Option<usize>, rounds: usi
 // ---------------------------------------------------------------------------
 
 /// Scale: the session list with 1, 100, 1,000 and 5,000 (god) workspaces,
-/// on a clean link. The list reaches the phone whole and correct each time.
-/// What the phone draws first, its first window (`ListFirstWindow`, 40 rows,
-/// `list-workspaces-page-v1`), is within 1.2x of 1 at every size. The whole
-/// list is reported, not held to 1.2x: 5,000 rows are ~1.3 MB of JSON, and the
-/// 1.2x slack over a ~3 ms small list (~0.6 ms) is less than one parse of
-/// 1.3 MB at 1 GB/s (1.3 ms), so no whole-list path can meet it.
+/// on a clean link. The list reaches the phone whole and correct each time,
+/// and 1,000+ is within 1.2x of 1.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "iOS reliability matrix cell: timed, run alone in release by ios-reliability-matrix.yml (--ignored)"]
 async fn cell_scale_session_list() {
@@ -530,20 +477,15 @@ async fn cell_scale_session_list() {
     for (variant, count) in [("1", 1usize), ("100", 100), ("1000", 1000), ("god-5000", 5000)] {
         let rig = Rig::start(count, Toxics::default()).await;
         let median_ms = list_median(&rig, count, 5).await;
-        let window_ms = page_median(&rig, count, Some(FIRST_WINDOW), 5).await;
-        report(
-            "scale_session_list",
-            variant,
-            json!({"workspaces": count, "list_ms": median_ms, "first_window_ms": window_ms}),
-        );
-        results.push((variant, window_ms));
+        report("scale_session_list", variant, json!({"workspaces": count, "list_ms": median_ms}));
+        results.push((variant, median_ms));
         rig.finish().await;
     }
     let small = results[0].1;
     for (variant, value) in &results[1..] {
         assert!(
             within_god_bound(small, *value),
-            "first window of {variant}: {value:.1} ms vs {small:.1} ms for 1 (bound {GOD_RATIO}x)"
+            "session list of {variant}: {value:.1} ms vs {small:.1} ms for 1 (bound {GOD_RATIO}x)"
         );
     }
 }
@@ -747,8 +689,7 @@ async fn backlog_after_outage(cell: &str, per_delta: Duration) {
 /// The daemon restarts under a live phone (cmux-tui crash or update). The
 /// open channel ends with a clear close, not a hang; a request while it is
 /// down gets a clear refusal; once it is back a new channel answers within
-/// 1 s. Small: 1 workspace; god: 5,000. Back, the phone's first window (what
-/// it draws first) is within 1.2x of small; the whole list after it within 1 s.
+/// 1 s. Small: 1 workspace; god: 5,000.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "iOS reliability matrix cell: timed, run alone in release by ios-reliability-matrix.yml (--ignored)"]
 async fn cell_host_daemon_restart() {
@@ -775,31 +716,19 @@ async fn cell_host_daemon_restart() {
             .expect("a request to a dead daemon was answered or refused within 3 s");
         assert!(refusal.is_err(), "a dead daemon answered: {refusal:?}");
         rig.daemon.restart();
-        // In the phone's order: the first window, then the whole tree. The gate is the median of
-        // the first three windows back (the first included): one sample shares the CPU with the
-        // host cache's own whole-tree fetch on the fresh daemon and swings 3-40 ms run to run.
-        let back_first = time_list_page(&rig, count, Some(FIRST_WINDOW)).await;
-        let mut windows = vec![ms(back_first)];
-        for _ in 0..2 {
-            windows.push(ms(time_list_page(&rig, count, Some(FIRST_WINDOW)).await));
-        }
-        let back_window = median(windows);
         let back = time_list(&rig, count).await;
         report(
             "host_daemon_restart",
             variant,
-            json!({
-                "workspaces": count, "close": close, "refusal": refusal.err(), "back_list_ms": ms(back),
-                "back_first_window_ms": back_window, "back_first_window_first_ms": ms(back_first),
-            }),
+            json!({"workspaces": count, "close": close, "refusal": refusal.err(), "back_list_ms": ms(back)}),
         );
-        assert!(back < Duration::from_secs(1), "the whole list after the restart took {back:?}");
-        results.push(back_window);
+        assert!(back < Duration::from_secs(1), "first list after the restart took {back:?}");
+        results.push(ms(back));
         rig.finish().await;
     }
     assert!(
         within_god_bound(results[0], results[1]),
-        "after a daemon restart the first window of 5,000 workspaces took {:.1} ms vs {:.1} ms for 1",
+        "after a daemon restart 5,000 workspaces took {:.0} ms vs {:.0} ms for 1",
         results[1],
         results[0]
     );

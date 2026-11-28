@@ -63,7 +63,6 @@ extension TopPageRoute {
         case .bookmarks: return .page(.bookmarks)
         case .automations: return .page(.automations)
         case .forum: return .page(.forum)
-        case .feed: return .page(.feed)
         default: return nil
         }
     }

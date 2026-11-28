@@ -1,7 +1,7 @@
 import CmuxNextIcons
 import Foundation
 
-nonisolated extension AppFeature {
+extension AppFeature {
     /// Every feature the Features tab can list, in store order. A feature whose key the
     /// schema does not know yet (its PR has not landed) is hidden by
     /// ``AppFeatureSettings/isAvailable(_:)``, so an entry can be added with its key.

@@ -97,19 +97,4 @@ d="$(run_as "$shared" actions-runner-glaeda "CARGO_HOME=$shared/.cargo/")"
 w="$(run_as "$shared" actions-runner-glaeda RUNNER_OS=Windows)"
 [ ! -s "$w/env" ] || fail "a Windows runner got a CARGO_HOME"
 
-# A pool runner keeps HOME: a registry link an earlier job left (the darwin warm-target leg) is a
-# directory again before rust-cache restores, and a missing registry is made, so a saved link
-# cannot land there and dangle (jobs 140850174447, 140851740236, 2026-11-28: os error 17).
-pool="$TMP/pool"
-mkdir -p "$pool/runner" "$pool/.cargo" "$TMP/elsewhere"; echo '{}' > "$pool/runner/.runner"
-ln -s "$TMP/elsewhere/gone" "$pool/.cargo/registry"
-p="$(run_as "$pool" runner)"
-[ -d "$pool/.cargo/registry" ] && [ ! -L "$pool/.cargo/registry" ] || fail "a registry link was kept"
-grep -q "was a link" "$p/log" || fail "the replaced link was not reported: $(cat "$p/log")"
-[ ! -s "$p/env" ] || fail "a single-runner host got a CARGO_HOME"
-fresh="$TMP/fresh"
-mkdir -p "$fresh/runner"; echo '{}' > "$fresh/runner/.runner"
-run_as "$fresh" runner > /dev/null
-[ -d "$fresh/.cargo/registry" ] && [ ! -L "$fresh/.cargo/registry" ] || fail "a fresh runner got no registry directory"
-
 echo "PASS: setup-cmux-tui-rust gives each shared-HOME runner its own CARGO_HOME"

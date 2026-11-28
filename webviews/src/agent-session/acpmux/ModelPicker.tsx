@@ -2543,7 +2543,7 @@ export function ModelPicker(props: ModelPickerProps) {
     <>
       {modelPicker}
       <EffortPicker
-        label={t("picker.reasoning")}
+        label="Reasoning"
         efforts={layoutEffort.levels}
         current={layoutEffort.current}
         onPick={layoutEffort.onPick}

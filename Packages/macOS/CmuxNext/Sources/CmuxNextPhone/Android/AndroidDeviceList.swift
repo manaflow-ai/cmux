@@ -1,8 +1,8 @@
 import Foundation
 
-/// Parses `adb devices -l` (`cmux-phone-core`'s op `adb_devices`).
+/// Parses `adb devices -l`.
 struct AndroidDeviceList {
-    struct Entry: Sendable, Hashable, Decodable {
+    struct Entry: Sendable, Hashable {
         var serial: String
         /// "device", "offline", "unauthorized".
         var state: String
@@ -13,7 +13,11 @@ struct AndroidDeviceList {
     }
 
     func parse(_ output: Data) -> [Entry] {
-        (try? PhoneRules.decode([Entry].self, "devices", "adb_devices", ["output": PhoneRules.text(output)],
-                                what: "the adb device list")) ?? []
+        String(decoding: output, as: UTF8.self).split(whereSeparator: \.isNewline).compactMap { line in
+            let fields = line.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
+            guard fields.count >= 2, !line.hasPrefix("List of devices"), !line.hasPrefix("*") else { return nil }
+            let model = fields.dropFirst(2).first { $0.hasPrefix("model:") }.map { String($0.dropFirst(6)) }
+            return Entry(serial: fields[0], state: fields[1], model: model)
+        }
     }
 }

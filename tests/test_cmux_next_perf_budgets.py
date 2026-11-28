@@ -70,21 +70,6 @@ class BenchAppTests(unittest.TestCase):
         self.assertIn("no app at", done.stderr + done.stdout)
 
 
-class RunBenchTests(unittest.TestCase):
-    def test_a_failed_bench_carries_its_fail_rows_and_tail_off_the_mac(self):
-        script = ("import sys\nprint('setup ok')\nprint('FAIL | terminal x10: setup | a focused terminal | null')\n"
-                  "for i in range(50): print(f'line {i}')\nsys.exit(1)\n")
-        with tempfile.TemporaryDirectory() as out:
-            run = pb.run_bench("tab_close", [sys.executable, "-c", script], out, 30)
-            self.assertEqual(run["exit"], 1)
-            self.assertEqual(run["tail"][0], "FAIL | terminal x10: setup | a focused terminal | null")
-            self.assertEqual(run["tail"][-1], "line 49")
-            self.assertNotIn("line 19", run["tail"])
-            self.assertEqual(len(run["tail"]), 31)
-            ok = pb.run_bench("tab_close", [sys.executable, "-c", "print('FAIL | old')"], out, 30)
-            self.assertNotIn("tail", ok)
-
-
 class GateTests(unittest.TestCase):
     def test_regression_needs_ten_percent_and_the_floor(self):
         rows = [{"name": "a", "p95": 11.5, "floor": 1.0},   # +15 %, +1.5 ms: regressed

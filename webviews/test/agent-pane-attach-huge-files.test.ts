@@ -71,7 +71,7 @@ type BigFile = {
   jpeg?: { width: number; height: number; app: number };
 };
 /// A case with steps of its own (the three ways a file still went wrong), instead of the usual ones.
-type Scenario = "held-wait" | "held-x" | "staged-x" | "jpeg-app" | "drop-timing";
+type Scenario = "held-wait" | "held-x" | "staged-x" | "jpeg-app";
 type Case = {
   id: string;
   file?: BigFile;
@@ -85,8 +85,6 @@ type Case = {
   chunkMs?: number;
   /// How long the host takes to answer `chat.attach.dropped`.
   droppedMs?: number;
-  /// The host pushes the drop's paths with the drop (`cmux-files-dropped`, composer/dropPush.ts).
-  push?: boolean;
   noCwd?: boolean;
 };
 type Block = { type: string; name?: string; uri?: string; mimeType?: string; text?: number; data?: number };
@@ -113,9 +111,6 @@ type Row = {
   /// Upload stages the host still held open at the case's end.
   stagesLeft?: string[];
   note?: string;
-  /// Drop timing (case 8), each from the drop: the settled chip (a send goes at once with it), and
-  /// for a remote chat, the file on its machine; and how many chunks crossed the page bridge.
-  timing?: { tileMs?: number; sendableMs?: number; deliveredMs?: number; bridgeChunks: number };
   problems: string[];
 };
 type BigState = {
@@ -140,8 +135,6 @@ type BigState = {
   heapPeak: number;
   tileAt: number;
   gestureAt: number;
-  /// How many drops the host pushed (case 8).
-  pushes?: number;
   clickAt: number;
   chosenType?: string;
   sendReady: boolean;
@@ -161,9 +154,6 @@ await requireBrowserLane("agent-pane-attach-huge-files.test.ts", async () => {
   const MB = 1024 * 1024;
   /// How long the stand-in host takes over each 512 KiB chunk: a 300 MB upload takes about 15 s.
   const CHUNK_MS = Number(process.env.CMUX_BIGTEST_CHUNK_MS) || 25;
-  /// The stand-in host's time per 512 KiB to the chat's machine in the drop timing cases (8): a 300 MB
-  /// file takes about 3 s, through the bridge or put from its path alike.
-  const DROP_CHUNK_MS = 5;
   /// Any one step (a gesture, the typing, a click) not done in this long: the composer froze.
   const STEP_MS = 30_000;
   /// A typed key is in the prompt, and its work done, within a frame (p95) and never far past one. The
@@ -321,23 +311,6 @@ await requireBrowserLane("agent-pane-attach-huge-files.test.ts", async () => {
       heapBudget: 300 * MB,
       scenario: "jpeg-app",
     },
-    // 8. Drop timing (Leo, 2026-11-18: "you can just send it instantly. Like, stop blocking."): the
-    // same 300 MB drop, without the host's push (`ask`: the page asks `chat.attach.dropped`, and a
-    // remote chat streams the bytes through the bridge) and with it (`push`: the paths come with the
-    // drop; a remote chat has the host put the file from its path). The stand-in host takes the same
-    // time per 512 KiB either way (DROP_CHUNK_MS), so only the page's own work differs.
-    ...(["local", "remote"] as const).flatMap((mode) =>
-      (["ask", "push"] as const).map((how): Case => ({
-        id: `8 drop timing .mov 300 MB ${mode} ${how}`,
-        file: MOV,
-        way: "drop",
-        mode,
-        heapBudget: 300 * MB,
-        scenario: "drop-timing",
-        push: how === "push",
-        chunkMs: DROP_CHUNK_MS,
-      })),
-    ),
   ];
 
   /// A sparse file of `size` bytes starting with `header`; kept from an earlier run when its size matches.
@@ -506,8 +479,6 @@ os.replace(path + ".part", path)
     choose: string;
     workerSpy: string;
   }) {
-    /// Pushed puts the test cancelled (`chat.upload.cancel` naming a put's token).
-    const stopped = new Set<string>();
     const page = window as unknown as BigWindow;
     const big: BigState = {
       chunkMs: config.chunkMs,
@@ -584,27 +555,6 @@ os.replace(path + ".part", path)
         case "chat.attach.choose":
           return ok({ items: [{ path: config.choose, folder: false }] });
         case "chat.upload.begin": {
-          if (typeof params.batchToken === "string" && params.batchToken.startsWith("drop-")) {
-            // A pushed drop's file put on the chat's machine from its path: the host streams it, the
-            // same time per 512 KiB as a chunk the page sends, and no byte crosses the bridge.
-            const put = params.batchToken;
-            const name = String(params.name);
-            big.begins.push({ at: performance.now(), name, size: Number(params.size), token: put });
-            big.stages[put] = name;
-            for (let sent = 0; sent < Number(params.size); sent += 512 * 1024) {
-              if (stopped.has(put)) {
-                delete big.stages[put];
-                return { ok: false, error: { code: "cancelled", message: "cancelled" } };
-              }
-              if (big.chunkMs > 0)
-                // fixed-wait: the stand-in host's per-512 KiB latency to the machine, as for a chunk.
-                await new Promise((resolve) => setTimeout(resolve, big.chunkMs));
-            }
-            big.finishes += 1;
-            big.finishedAt[put] = performance.now();
-            delete big.stages[put];
-            return ok({ path: `/srv/session/uploads/${name}` });
-          }
           const token = `t${big.begins.length + 1}`;
           big.begins.push({ at: performance.now(), name: String(params.name), size: Number(params.size), token });
           names.set(token, String(params.name));
@@ -628,7 +578,6 @@ os.replace(path + ".part", path)
           delete big.stages[String(params.token)];
           return ok({ path: `/srv/session/uploads/${names.get(String(params.token))}` });
         case "chat.upload.cancel":
-          stopped.add(String(params.token));
           big.cancels.push({ at: performance.now(), token: String(params.token) });
           delete big.stages[String(params.token)];
           return ok(null);
@@ -888,7 +837,7 @@ os.replace(path + ".part", path)
     }
     await prepareTransfer(page, c);
     return page.evaluate(
-      ({ way, prompt, text, push, mode, name }) => {
+      ({ way, prompt, text }) => {
         const state = window as unknown as BigWindow;
         const data = state.__bigTransfer!;
         delete state.__bigTransfer;
@@ -908,30 +857,11 @@ os.replace(path + ".part", path)
             clientX: box.left + Math.min(40, box.width / 2),
             clientY: box.top + box.height / 2,
           };
-          // The host's push of the drop's paths (AgentPaneView+ContextMenu.swift), queued ahead of
-          // the drop as WebKit gets it; a remote chat's item carries its put token.
-          if (push && name) {
-            state.__big.pushes = (state.__big.pushes ?? 0) + 1;
-            window.dispatchEvent(
-              new CustomEvent("cmux-files-dropped", {
-                detail: {
-                  local: mode === "local",
-                  items: [
-                    {
-                      path: `/Users/dev/Desktop/${name}`,
-                      folder: false,
-                      ...(mode === "local" ? {} : { token: `drop-${state.__big.pushes}` }),
-                    },
-                  ],
-                },
-              }),
-            );
-          }
           for (const type of ["dragenter", "dragover", "drop"]) target.dispatchEvent(new DragEvent(type, init));
         }
         return at;
       },
-      { way: c.way, prompt: PROMPT, text: Boolean(c.text), push: Boolean(c.push), mode: c.mode, name: c.file?.name },
+      { way: c.way, prompt: PROMPT, text: Boolean(c.text) },
     );
   }
 
@@ -1128,50 +1058,6 @@ os.replace(path + ".part", path)
         }
       }
       await uploadStopped(page, row, problem, begin?.token);
-      return;
-    }
-    if (c.scenario === "drop-timing") {
-      // 8. From the drop: the tile, the settled chip (a send goes at once with it) and, for a remote
-      // chat, the file on its machine; then the prompt carries it.
-      const name = c.file!.name;
-      await page.evaluate(() => (window as unknown as BigWindow).__big.watchTile());
-      const at = await step("the drop", gesture(page, c));
-      await tile();
-      const shown = await probes(page);
-      const settled = await page
-        .waitForFunction((pending) => (document.querySelector(pending) ? false : performance.now()), PENDING, {
-          polling: "raf",
-          timeout: 240_000,
-        })
-        .then(
-          (handle) => handle.jsonValue() as Promise<number>,
-          () => undefined,
-        );
-      const probe = await probes(page);
-      const begin = probe.begun.find((entry) => entry.name === name);
-      const finished = begin ? probe.finishedAt[begin.token] : undefined;
-      row.timing = {
-        tileMs: shown.tileAt - at,
-        ...(settled !== undefined ? { sendableMs: settled - at } : {}),
-        ...(c.mode === "remote" && finished !== undefined ? { deliveredMs: finished - at } : {}),
-        bridgeChunks: probe.chunks.length,
-      };
-      row.note = `tile ${ms(row.timing.tileMs)} ms; sendable ${ms(row.timing.sendableMs)} ms; delivered ${
-        c.mode === "remote" ? `${ms(row.timing.deliveredMs)} ms` : "at once (its path)"
-      }; ${row.timing.bridgeChunks} chunks over the bridge`;
-      if (settled === undefined) problem("it never settled into a chip");
-      if (c.mode === "remote" && finished === undefined) problem("it never reached the chat's machine");
-      if (c.push && row.timing.bridgeChunks)
-        problem(`a pushed drop sent ${row.timing.bridgeChunks} chunks over the bridge`);
-      await step("the prompt for the send", prompt.click());
-      await page.keyboard.type("what is in this recording");
-      const before = await sentPrompts(page);
-      await step("pressing Enter", page.keyboard.press("Enter"));
-      const went = await promptAfter(page, before, SEND_MS);
-      row.sentBlocks = went === undefined ? [] : await promptBlocks(page, before);
-      if (went === undefined) problem("its prompt never went");
-      else if (!row.sentBlocks.some((block) => names(block, name)))
-        problem(`its prompt carried no link to it: ${blocksText(row.sentBlocks)}`);
       return;
     }
     if (c.scenario === "staged-x") {

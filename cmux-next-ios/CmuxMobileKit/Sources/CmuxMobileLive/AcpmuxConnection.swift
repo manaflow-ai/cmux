@@ -24,9 +24,6 @@ public actor AcpmuxConnection {
         /// real refusal by them and `reason`; Swift only carries them.
         public var origin: String? = nil
         public var dataCode: String? = nil
-        /// `error.data.details`: a refusal's own facts (a Cloud start's `seed.needs_github`:
-        /// `repo`, `githubLogin`, `githubUser`).
-        public var details: JSONValue? = nil
     }
 
     public struct Notification: Sendable {
@@ -412,8 +409,7 @@ public actor AcpmuxConnection {
                     reason: error["data"]?["reason"]?.stringValue,
                     retryAfterMs: error["data"]?["retryAfterMs"]?.numberValue.map { Int(min(max($0, 0), 60_000)) },
                     origin: error["data"]?["origin"]?.stringValue,
-                    dataCode: error["data"]?["code"]?.stringValue,
-                    details: error["data"]?["details"]
+                    dataCode: error["data"]?["code"]?.stringValue
                 ))
             } else {
                 outcome = .success(value["result"] ?? .null)

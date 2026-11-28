@@ -34,20 +34,6 @@ class Decide(unittest.TestCase):
         a, rid, _ = heal.decide(120, [run(3, conclusion="failure"), run(2)], NOW)
         self.assertEqual((a, rid), ("rerun", 3))
 
-    def test_compile_red_holds_instead_of_rerun_or_dispatch(self):
-        # 11-27 14Z..11-28 11Z: this job's reruns of red builds were 2,942 re-run runner-min; a compile error fails
-        # the same way on a rerun (same source) and on a dispatch (same tip), so the heal holds and the alarm speaks.
-        a, rid, _ = heal.decide(120, [run(3, conclusion="failure"), run(2)], NOW, compile_red=lambda i: i == 3)
-        self.assertEqual((a, rid), ("hold", 3))
-        a, _, _ = heal.decide(120, [run(3, conclusion="failure", attempt=3)], NOW, compile_red=lambda i: True)
-        self.assertEqual(a, "hold")
-
-    def test_compile_red_is_read_only_for_a_failed_newest_run(self):
-        seen = []
-        a, _, _ = heal.decide(120, [run(4), run(3, conclusion="failure")], NOW,
-                              compile_red=lambda i: seen.append(i) or True)
-        self.assertEqual((a, seen), ("dispatch", []))
-
     def test_spent_attempts_dispatch_instead(self):
         self.assertEqual(heal.decide(120, [run(3, conclusion="failure", attempt=3)], NOW)[0], "dispatch")
 
@@ -82,51 +68,6 @@ class Alarm(unittest.TestCase):
     def test_unknown_lag_or_alarm_off_is_quiet(self):
         self.assertIsNone(heal.alarm(None, [], 180))
         self.assertIsNone(heal.alarm(24 * 60, [], 0))
-
-
-def built(i, conclusion="failure", attempt=1, minutes=14.0, status="completed", age_h=1.0):
-    return heal.Run(i, status, conclusion, attempt, NOW - age_h * 3600, minutes)
-
-
-class CloudMachine(unittest.TestCase):
-    """2026-11-28: the acpmux rustc was OOM-killed on both legs of runs 46151055654 and 46154021183, and the Cloud
-    machine channel held f3ac175f for about 3 h with nothing rerunning the failed build."""
-
-    def test_fresh_channel_does_nothing(self):
-        self.assertEqual(heal.cloud_candidate(10, [built(1)], NOW)[0], "fresh")
-
-    def test_newest_built_failure_is_a_candidate_even_with_pushes_in_flight(self):
-        runs = [built(5, status="in_progress", conclusion=None, minutes=1), built(4, "cancelled", minutes=0.2),
-                built(3, "cancelled"), built(2, "success")]
-        self.assertEqual(heal.cloud_candidate(40, runs, NOW)[:2], ("candidate", 3))
-
-    def test_a_rerun_in_flight_waits(self):
-        runs = [built(3, status="in_progress", conclusion=None, attempt=2), built(2)]
-        self.assertEqual(heal.cloud_candidate(40, runs, NOW)[:2], ("waiting", 3))
-
-    def test_a_rerun_once_is_enough(self):
-        self.assertEqual(heal.cloud_candidate(40, [built(3, attempt=2)], NOW)[0], "none")
-
-    def test_newest_built_green_does_nothing(self):
-        self.assertEqual(heal.cloud_candidate(40, [built(3, "success"), built(2)], NOW)[0], "none")
-
-    def test_old_runs_are_not_rerun(self):
-        self.assertEqual(heal.cloud_candidate(400, [built(3, age_h=8)], NOW)[0], "none")
-
-    def test_only_a_failed_build_job_is_rerun(self):
-        jobs = {"jobs": [
-            {"name": "build-machine-channel x86_64 lane 0 / build x86_64-unknown-linux-musl", "conclusion": "failure"},
-            {"name": "build-machine-channel aarch64 lane 0 / build aarch64-unknown-linux-musl", "conclusion": "success"},
-            {"name": "request the Cloud VM image roll for this machine build", "conclusion": "failure"}]}
-        self.assertEqual(len(heal.build_failed(jobs)), 1)
-        self.assertEqual(heal.build_failed({"jobs": [{"name": "twin-x86_64", "conclusion": "failure"}]}), [])
-
-    def test_parse_runs_reads_the_attempt_length(self):
-        runs = heal.parse_runs({"workflow_runs": [{"id": 9, "status": "completed", "conclusion": "cancelled",
-                                                   "run_attempt": 1, "created_at": "2027-01-15T08:00:00Z",
-                                                   "run_started_at": "2027-01-15T08:00:00Z",
-                                                   "updated_at": "2027-01-15T08:15:00Z"}]})
-        self.assertEqual(runs[0].minutes, 15.0)
 
 
 class Gh(unittest.TestCase):

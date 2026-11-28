@@ -365,7 +365,6 @@ public struct WorkspacesList: View {
     /// (`AppStore.openingTab`). Clears its "Done".
     func openWorkspace(_ ws: Workspace, status: WorkspaceStatus, tab: WorkspaceTab? = nil) {
         LaunchMarks.shared.mark("workspace_row_tap")
-        LaunchMarks.shared.rearm(tap: "workspace_row")
         #if DEBUG
         OpenMarks.shared?.begin("workspace_row_tap")
         #endif
@@ -476,10 +475,7 @@ public struct WorkspacesList: View {
             .animation(theme.motion.smooth.animation.unlessReduceMotion, value: inbox.scope)
             // verify/fast-connect.md: a Mac's rows turn live (one check for the list, not one per row).
             .onChange(of: liveRowMacs(inbox)) { old, new in
-                if !new.subtracting(old).isEmpty {
-                    ConnectTimeline.shared.mark("workspace_row_live")
-                    LaunchMarks.shared.firstContent("workspaces", cached: false)
-                }
+                if !new.subtracting(old).isEmpty { ConnectTimeline.shared.mark("workspace_row_live") }
             }
             // Reveal Workspace in List (a workspace's page menu): once the list shows again, its row
             // scrolls into view and flashes.
@@ -1298,8 +1294,6 @@ struct WorkspaceListRow: View, Equatable {
             let countsForLaunch = true
             #endif
             if countsForLaunch { LaunchMarks.shared.markNextFrame("workspaces_list_frame") }
-            // R1/R2: a row drawn from the phone's last-known rows (stale) or from the Mac's reply.
-            LaunchMarks.shared.firstContent("workspaces", cached: model.isStale)
             // verify/fast-connect.md: when a row is first on screen, cached or live.
             if model.tracksMacData {
                 ConnectTimeline.shared.mark(model.isStale ? "workspace_row_cached" : "workspace_row_live")

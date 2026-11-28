@@ -268,7 +268,7 @@ fn frame_capture_keeps_the_url_from_the_same_browser_reply() {
     let socket = dir.path().join("bh.sock");
     let host = fake_host(&socket, Some(png(1)));
     let out = dir.path().join("look.png");
-    let page = capture_in(&socket, dir.path(), "ws_ab", None, &out, "look", "Look", false).unwrap();
+    let page = capture_in(&socket, dir.path(), "ws_ab", None, &out, "look", "Look").unwrap();
     assert_eq!(page.id, "preview");
     assert_eq!(page.url.as_deref(), Some("http://127.0.0.1:5173/"));
     host.join().unwrap();

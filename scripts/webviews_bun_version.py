@@ -11,12 +11,10 @@ Every script that needs the pin calls this instead of parsing package.json
 itself, so none can read another version: the pre-commit hook (from its trusted
 copy, before any bun exists), check-webviews-bun-version.sh, private-bun.sh,
 build-web-bundles.sh, ensure-web-bundles.sh, web-bundle-key.py and the CI steps.
-It needs only Python's standard library, never bun. Its --compatible mode is
-the pre-commit hook's shared minimum-version check.
+It needs only Python's standard library, never bun.
 
 Usage: webviews_bun_version.py [PACKAGE_JSON]   (default: webviews/package.json
 next to this script's scripts/ folder)
-       webviews_bun_version.py --compatible HAVE WANT
 """
 import json
 import os
@@ -24,7 +22,6 @@ import re
 import sys
 
 EXACT = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
-RELEASE = re.compile(r"^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$")
 
 
 def _shown(value):
@@ -57,32 +54,7 @@ def bun_version(package_json):
     return pin
 
 
-def compatible_version(have, want):
-    """Whether HAVE satisfies the minimum WANT within the same major release.
-
-    The webview checks deliberately allow a newer patch or minor of the pinned
-    major, while prereleases of the pin remain below the release. Build metadata
-    does not affect ordering.
-    """
-    expected = RELEASE.fullmatch(want)
-    actual = RELEASE.fullmatch(have)
-    if expected is None or actual is None:
-        return False
-    expected_parts = tuple(int(part) for part in expected.groups()[:3])
-    actual_parts = tuple(int(part) for part in actual.groups()[:3])
-    if actual_parts[0] != expected_parts[0]:
-        return False
-    if actual_parts[1:] > expected_parts[1:]:
-        return True
-    if actual_parts[1:] < expected_parts[1:]:
-        return False
-    # A prerelease of the exact pin is below that release; build metadata is not.
-    return "-" not in have.split("+", 1)[0]
-
-
 def main(argv):
-    if len(argv) == 4 and argv[1] == "--compatible":
-        return 0 if compatible_version(argv[2], argv[3]) else 1
     if len(argv) > 2 or (len(argv) == 2 and argv[1] in ("-h", "--help")):
         sys.stderr.write(__doc__.split("Usage: ", 1)[1])
         return 2

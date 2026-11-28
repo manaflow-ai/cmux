@@ -296,13 +296,7 @@ case "exec":
         resumed = now()
     }
     let start = processStart(child)
-    // A child that exits before main (dyld refusing a library, AMFI killing it) ends the wait at once; its status
-    // and the tail of its output go into the row as exit_status/exit_signal/exec_log.
-    var earlyStatus: Int32 = 0, exitedEarly = false
-    spin {
-        if mainAt == nil, waitpid(child, &earlyStatus, WNOHANG) == child { exitedEarly = true }
-        return mainAt != nil || exitedEarly || now() - requested > 30_000
-    }
+    spin { mainAt != nil || now() - requested > 30_000 }
     let sysPageins = systemPageins() - sysBefore
     var execWindow: Double?
     if let settleFor, mainAt != nil {
@@ -316,11 +310,10 @@ case "exec":
         var reaped: Int32 = 0
         spin { waitpid(child, &reaped, WNOHANG) == child || now() - sent > 10_000 }
         if kill(child, 0) == 0 { kill(child, SIGKILL) }
-    } else if !exitedEarly {
+    } else {
         kill(child, SIGKILL); kill(child, SIGCONT)
     }
-    var status: Int32 = earlyStatus
-    if !exitedEarly { waitpid(child, &status, 0) }
+    var status: Int32 = 0; waitpid(child, &status, 0)
     let fields: [String: Any] = ["label": label, "mode": "exec", "pid": Int(child), "main_start": json(mainAt), "system_pageins": sysPageins,
                                  "resident_before": fraction(before), "held": hold != nil,
                                  "request_to_start": json(start.map { round1($0 - requested) }),
@@ -334,13 +327,7 @@ case "exec":
         row["window_on_screen"] = json(windowMs)
         row["stopped_at_main_ms"] = json(stoppedMs)
     }
-    if mainAt == nil {
-        row["error"] = exitedEarly ? "exited before main_start" : "no main_start in 30 s"
-        if exitedEarly {
-            if status & 0x7f == 0 { row["exit_status"] = Int((status >> 8) & 0xff) } else { row["exit_signal"] = Int(status & 0x7f) }
-        }
-        if let text = try? String(contentsOfFile: appLog, encoding: .utf8) { row["exec_log"] = String(text.suffix(600)) }
-    }
+    if mainAt == nil { row["error"] = "no main_start in 30 s" }
     emit(row)
     exit(mainAt == nil ? 1 : 0)
 

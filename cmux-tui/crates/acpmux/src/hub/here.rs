@@ -17,10 +17,10 @@ use cmux_sync::{Activity, Beat, DeviceKind, Kind, Member, Presence, Status};
 use serde_json::Value;
 
 use super::Hub;
-use super::presence::{OWNER_ID, Who};
+use super::presence::Who;
 use crate::protocol::here::{
     HereActivity, HereBeatDone, HereBeatParams, HereDevice, HereDeviceKind, HereKind, HereMember,
-    HereParams, HereResult, HereStatus, HereSummary,
+    HereParams, HereResult, HereStatus,
 };
 use crate::rpc::RpcError;
 
@@ -145,7 +145,7 @@ impl HereTable {
                 .then((a.kind == HereKind::Agent).cmp(&(b.kind == HereKind::Agent)))
                 .then_with(|| a.name.cmp(&b.name))
         });
-        HereResult { here, sync: None, summary: None }
+        HereResult { here, sync: None }
     }
 }
 
@@ -227,12 +227,10 @@ impl Hub {
             .collect();
         let mut result = self.here.here(p.scope.as_deref(), agents, wall_ms());
         if p.include_sync {
-            let sync = self.synced().peer_status(|name| {
+            result.sync = Some(self.synced().peer_status(|name| {
                 self.peer(name)
                     .is_some_and(|peer| peer.connected.load(std::sync::atomic::Ordering::Acquire))
-            });
-            result.summary = Some(HereSummary::of(&result.here, &sync, OWNER_ID));
-            result.sync = Some(sync);
+            }));
         }
         Ok(result)
     }

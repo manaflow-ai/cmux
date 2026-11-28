@@ -1532,7 +1532,3 @@ fn a_press_on_a_changed_target_is_never_sent() {
     assert_eq!(check["world"], "agent");
     assert_eq!(check["args"], json!(["h1", {"x": 10, "y": 20}, "button-link", null]));
 }
-
-/// Browser grants (RFD 0125 D7.2).
-#[path = "gate_leases_tests.rs"]
-mod leases;

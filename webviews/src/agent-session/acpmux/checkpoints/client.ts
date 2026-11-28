@@ -151,12 +151,7 @@ export class CheckpointClient {
   }
   select(target?: CheckpointTarget): void {
     this.generation += 1;
-    // An unsupported client's error says why (the capability read, or an `operation.unsupported`
-    // reply): no target has one of its own, so it stays. Dropped on every select, it was a new review
-    // state each chat switch, and the pane drew again for it inside the switch's frame
-    // (test/checkpoint-select-keeps-review.test.ts).
-    const error = this.state.supported ? undefined : this.state.error;
-    this.state = { supported: this.state.supported, capabilities: this.state.capabilities, target, error };
+    this.state = { supported: this.state.supported, capabilities: this.state.capabilities, target };
     this.changed();
   }
   beginReview(): boolean {

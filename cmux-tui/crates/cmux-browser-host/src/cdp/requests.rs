@@ -156,7 +156,6 @@ impl Inner {
                     RequestKind::Document
                 }
                 Some("Document") => RequestKind::SubframeDocument,
-                Some("Image" | "Font" | "Stylesheet" | "Script" | "Media") => RequestKind::Asset,
                 _ => RequestKind::Subresource,
             },
             response_status: params.get("responseStatusCode").cloned().unwrap_or(json!(200)),

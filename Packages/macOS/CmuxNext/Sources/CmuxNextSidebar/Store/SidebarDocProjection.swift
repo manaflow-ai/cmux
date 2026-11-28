@@ -280,13 +280,11 @@ extension SidebarDocStore {
 
     /// The target that puts moved items where `index` (counted without
     /// them) falls among `siblings` (item ids in shown order): before the
-    /// sibling there, after the last one, or first (`sidebar_doc_target` op `target`). With `nested` (a top-level
-    /// position), its anchor moves off a nested group. When the op does not answer, `index` itself.
-    public static func target(section: String, parent: String? = nil, index: Int, siblings: [String], moving: Set<String>,
-                              nested: Set<String>? = nil) -> SidebarDocTarget {
-        let request = RustSidebarDocTarget.TargetRequest(section: section, parent: parent, index: index, siblings: siblings,
-                                                         moving: moving.sorted(), nested: nested?.sorted())
-        return RustSidebarClient.call(RustSidebarDocTarget.op, request, as: RustSidebarDocTarget.TargetReply.self)?.target
-            ?? SidebarDocTarget(section: section, parent: parent, index: max(0, index))
+    /// sibling there, after the last one, or first.
+    public static func target(section: String, parent: String? = nil, index: Int, siblings: [String], moving: Set<String>) -> SidebarDocTarget {
+        let staying = siblings.filter { !moving.contains($0) }
+        if index < staying.count, index >= 0 { return SidebarDocTarget(section: section, parent: parent, before: staying[index]) }
+        if let last = staying.last { return SidebarDocTarget(section: section, parent: parent, after: last) }
+        return SidebarDocTarget(section: section, parent: parent, index: 0)
     }
 }

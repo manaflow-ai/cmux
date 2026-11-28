@@ -16,14 +16,7 @@ describe("strandedGatewayMode", () => {
 });
 
 describe("gatewayModeAction", () => {
-  test("a model stub run sets gateway mode off, online or not (runs 46144617765, 46134801449)", () => {
-    expect(gatewayModeAction({ gateway: { mode: "gateway", online: true } }, false, true)).toBe("off");
-    expect(gatewayModeAction({ gateway: { mode: "gateway", online: false } }, false, true)).toBe("off");
-    expect(gatewayModeAction({ gateway: { mode: "off", online: true } }, false, true)).toBe("keep");
-    expect(gatewayModeAction({ gateway: { mode: "joined", online: true } }, false, true)).toBe("keep");
-    expect(gatewayModeAction(null, false, true)).toBe("keep");
-  });
-  test("a run with a login sets only a stranded team back to off", () => {
+  test("a run with a login or a stub sets only a stranded team back to off", () => {
     expect(gatewayModeAction({ gateway: { mode: "gateway", online: false } }, false)).toBe("off");
     expect(gatewayModeAction({ gateway: { mode: "gateway", online: true } }, false)).toBe("keep");
     expect(gatewayModeAction({ gateway: { mode: "off", online: false } }, false)).toBe("keep");

@@ -16,7 +16,7 @@ check() {
   printf '%s\n' "$2" > "$tmp/repo/$1"
   printf '%b' "${3:-}" > "$tmp/repo/scripts/cmux-next/state-roots-baseline.tsv"
   local code=0
-  bash "$CHECK" "$tmp/repo" ${STRICT:+--strict-rows} >/dev/null 2>"$tmp/err" || code=$?
+  bash "$CHECK" "$tmp/repo" >/dev/null 2>"$tmp/err" || code=$?
   # 0 = clean; 1 = a finding that names the file; anything else is a crash.
   if [[ $code -eq 1 ]] && ! grep -q "$1" "$tmp/err"; then code=3; fi
   return "$code"
@@ -51,14 +51,8 @@ pass "$SW" "a resolver call" '        let root = build.acpmuxHome(userHome: home
 pass "$RS" "a baselined site" '    home.join(".acpmux")' "$RS\t1\tkeep\tresolver\n"
 fail "$RS" "a second site past the baseline" '    home.join(".acpmux")
     home.join(".cmux/chief")' "$RS\t1\tkeep\tresolver\n"
-# A row above the tree's count is a note (the pre-push gate never refuses a push that removed a site) and a
-# finding under --strict-rows (CI's step), so a PR still lowers it before it merges.
-pass "$RS" "a removed site with a stale baseline (a note)" '    let x = 1;' "$RS\t1\tmove\tcx-test\n"
-pass "$RS" "fewer sites than the baseline (a note)" '    home.join(".acpmux")' "$RS\t2\tkeep\tresolver\n"
-grep -q "note: .*lower or delete" "$tmp/err" || { echo "FAIL: a stale row must print a note" >&2; cat "$tmp/err" >&2; exit 1; }
-STRICT=1 fail "$RS" "a removed site with a stale baseline, --strict-rows" '    let x = 1;' "$RS\t1\tmove\tcx-test\n"
-STRICT=1 fail "$RS" "fewer sites than the baseline, --strict-rows" '    home.join(".acpmux")' "$RS\t2\tkeep\tresolver\n"
-fail "$RS" "a new site in an unlisted file still fails beside a stale row" '    home.join(".cmux/chief")' "cmux-tui/crates/fixture/src/gone.rs\t1\tkeep\tresolver\n"
+fail "$RS" "a removed site with a stale baseline" '    let x = 1;' "$RS\t1\tmove\tcx-test\n"
+fail "$RS" "fewer sites than the baseline" '    home.join(".acpmux")' "$RS\t2\tkeep\tresolver\n"
 fail "$RS" "a tags folder without a slash" '    support.join("cmux/tags")'
 fail "$RS" "a dereference is code, not a comment" '    *path = home.join(".acpmux");'
 fail "cmux-tui/crates/fix ture/src/lib.rs" "a path with a space" '    home.join(".acpmux")'
@@ -81,7 +75,7 @@ idcheck() {
   : > "$tmp/repo/scripts/cmux-next/state-roots-baseline.tsv"
   printf '%b' "${3:-}" > "$tmp/repo/scripts/cmux-next/classic-ids-baseline.tsv"
   local code=0
-  bash "$CHECK" "$tmp/repo" ${STRICT:+--strict-rows} >/dev/null 2>"$tmp/err" || code=$?
+  bash "$CHECK" "$tmp/repo" >/dev/null 2>"$tmp/err" || code=$?
   if [[ $code -eq 1 ]] && ! grep -q "$1" "$tmp/err"; then code=3; fi
   return "$code"
 }
@@ -147,11 +141,8 @@ idfail "$SW" "a new Classic text beside a baselined one" '    let a = "/tmp/cmux
     let b = "/.config/cmux/x"' "$SW\t/tmp/cmux.sock\t1\tkeep\treviewed\n"
 idfail "$SW" "a second use of a baselined text" '    let a = "/tmp/cmux.sock"
     let b = "/tmp/cmux.sock"' "$SW\t/tmp/cmux.sock\t1\tkeep\treviewed\n"
-idpass "$SW" "a stale row whose text is gone (a note)" '    let a = 1' "$SW\t/tmp/cmux.sock\t1\tmove\tlane A: socket root\n"
-idpass "$SW" "a row with a lower use count (a note)" '    let a = "/tmp/cmux.sock"' "$SW\t/tmp/cmux.sock\t2\tkeep\treviewed\n"
-STRICT=1 idfail "$SW" "a stale row whose text is gone, --strict-rows" '    let a = 1' "$SW\t/tmp/cmux.sock\t1\tmove\tlane A: socket root\n"
-STRICT=1 idfail "$SW" "a row with a lower use count, --strict-rows" '    let a = "/tmp/cmux.sock"' "$SW\t/tmp/cmux.sock\t2\tkeep\treviewed\n"
-idfail "$SW" "a new Classic text still fails beside a stale row" '    let b = "/.config/cmux/x"' "$SW\t/tmp/cmux.sock\t1\tkeep\treviewed\n"
+idfail "$SW" "a stale row whose text is gone" '    let a = 1' "$SW\t/tmp/cmux.sock\t1\tmove\tlane A: socket root\n"
+idfail "$SW" "a row with a lower use count" '    let a = "/tmp/cmux.sock"' "$SW\t/tmp/cmux.sock\t2\tkeep\treviewed\n"
 idfail "$SW" "a row for another file" '    let a = "/tmp/cmux.sock"' "Packages/macOS/CmuxNext/Sources/Other/O.swift\t/tmp/cmux.sock\t1\tkeep\treviewed\n"
 idcode "$SW" '    let a = "/tmp/cmux.sock"' "$SW\t/tmp/cmux.sock\t1\tmove\tneeds a lane\n" 2 "a move row must name lane A or B"
 idcode "$SW" '    let a = "/tmp/cmux.sock"' "$SW\t/tmp/cmux.sock\t1\tmaybe\tlane A\n" 2 "a bad class must exit 2"

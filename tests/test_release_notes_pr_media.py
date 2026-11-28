@@ -690,29 +690,6 @@ class GalleryRenderPlanTests(unittest.TestCase):
         self.assertIn("h before: a.b/x is new in its commit, not in src/a.gallery.tsx at pppppppppppp", missing[0])
         self.assertIn('"Before:"', missing[0])
 
-    def test_an_overlaid_gallery_file_brings_the_changed_fixtures_it_imports(self):
-        # models-and-cloud-connections (#54956, run 46142019889): models.gallery.ts came alone, its import of
-        # chatgptDeviceError from the mockModels.ts that commit changed failed at the parent, so no before.
-        g = "webviews/src/pages/settings/models.gallery.ts"
-        files = {
-            ("c", g): 'import { a } from "../../gallery/format";\nimport { b } from "./mockModels";\n'
-                      'import { c } from "./ops";\nimport { d } from "../shared/galleryFixtures";\n',
-            ("c", "webviews/src/gallery/format.ts"): "same\n", ("p", "webviews/src/gallery/format.ts"): "same\n",
-            ("c", "webviews/src/pages/settings/mockModels.ts"): 'import { e } from "./mockProvider";\nnew\n',
-            ("p", "webviews/src/pages/settings/mockModels.ts"): "old\n",
-            ("c", "webviews/src/pages/settings/mockProvider.ts"): "new\n",
-            ("c", "webviews/src/pages/settings/ops.ts"): "product new\n", ("p", "webviews/src/pages/settings/ops.ts"): "old\n",
-            ("c", "webviews/src/pages/shared/galleryFixtures.ts"): "x\n", ("p", "webviews/src/pages/shared/galleryFixtures.ts"): "x\n",
-        }
-        text_at = lambda rev, path: files.get((rev, path))
-        # The changed mocks, transitively (mockProvider is new); never product code (ops.ts) or an unchanged fixture.
-        self.assertEqual(self.tool.fixture_overlays("c", "p", g, text_at),
-                         ["webviews/src/pages/settings/mockModels.ts", "webviews/src/pages/settings/mockProvider.ts"])
-        rows = [{"id": "m", "role": "before", "parent": "p", "commit": "c", "overlay": g}, {"id": "k", "parent": "q"}]
-        self.assertEqual(self.tool.overlay_lines(rows, "p", text_at),
-                         [f"c {g}", "c webviews/src/pages/settings/mockModels.ts", "c webviews/src/pages/settings/mockProvider.ts"])
-        self.assertEqual(self.tool.overlay_lines(rows, "q", text_at), [])
-
     def test_a_variant_its_commit_added_to_a_file_already_there_renders_at_the_parent_with_that_file(self):
         # new-tab-run-command (2026-11-17) added typed-command to NewTabScreen.gallery.ts and shipped with no before.
         import contextlib, io, json

@@ -12,7 +12,7 @@ public struct SidebarMapping {
     /// This Mac's home folder as a native string, read once: `NSHomeDirectory()` hands back a bridged
     /// NSString, and comparing or appending to it on every call copied it through `getBytes` (a 2.7 s
     /// NIGHTLY hang in a row flush, 2026-10-29).
-    public let home: String
+    let home: String
     /// `home` followed by "/".
     private let homeFolderPrefix: String
 
@@ -39,31 +39,20 @@ public struct SidebarMapping {
     /// another computer's home gives its workspace, the account's name, not the work. Only a shell's: a tab the person
     /// named, a chat, a terminal running an agent, or one whose shell or program set its own title (OSC 0/2) keeps a
     /// label that happens to be that word. A title that is only the folder's path or the shell's name (`zsh`) is the
-    /// shell saying where it is. The rule is the machine's (`homeNamesAccount`), not the folder's: a Cloud Mac's
-    /// `/Users/admin` names its account as this Mac's own home does. `home`, when given (this Mac's), is the one home
-    /// that counts: another account's `/Users/someone` on this Mac is a folder like any other.
-    static func namesHome(_ label: String?, tab: TabModel?, home: String? = nil) -> Bool {
-        guard let label, let tab, let cwd = tab.cwd.map(Self.trimmingSlash),
-              home.map { cwd == Self.trimmingSlash($0) } ?? (abbreviateRemote(cwd) == "~"),
+    /// shell saying where it is.
+    static func namesHome(_ label: String?, tab: TabModel?) -> Bool {
+        guard let label, let tab, let cwd = tab.cwd.map(Self.trimmingSlash), abbreviateRemote(cwd) == "~",
               tab.kind == .pty || tab.kind == .remoteTerminal, tab.name?.isEmpty ?? true,
               tab.titleText.isEmpty || TerminalTitle.isBareShell(tab.titleText) || Self.trimmingSlash(tab.titleText) == cwd,
               tab.agent == nil, tab.agentSession == nil else { return false }
         return label == (cwd as NSString).lastPathComponent || Self.trimmingSlash(label) == cwd
     }
 
-    /// Whether an idle shell at a machine's home names its account there, not the work: this Mac (a new Mac's first
-    /// terminal read "admin", its login name; first-run findings row 19) and a Cloud machine ("cmux", #36283). Such a
-    /// workspace reads `terminalTitle` ("Terminal"). An SSH computer or a paired server keeps its folder: the account
-    /// there names which computer it is.
-    public static func homeNamesAccount(_ kind: SidebarMachine.Kind) -> Bool { kind == .local || kind == .cloud }
-
     /// `title` when `workspace` is unnamed and `label`, the name its face tab `face` gives it, is only its shell's home
     /// (`namesHome`), else nil: the one rule the sidebar row and the titlebar, palette and rename prompt
     /// (`WorkspaceAutoNameReader.titlebarName`) both read, so a Cloud home shell reads "Terminal" on all of them.
-    /// `home`: this Mac's home folder when the workspace is on this Mac (`namesHome`), nil on another machine.
-    public static func homeShellName(_ title: String?, workspace: WorkspaceModel, label: String?, face: TabModel?,
-                                     home: String? = nil) -> String? {
-        title.flatMap { workspace.isUnnamed && namesHome(label, tab: face, home: home) ? $0 : nil }
+    public static func homeShellName(_ title: String?, workspace: WorkspaceModel, label: String?, face: TabModel?) -> String? {
+        title.flatMap { workspace.isUnnamed && namesHome(label, tab: face) ? $0 : nil }
     }
     /// Supplies a row in place of mapping it now: the workspace, its machine, and the mapping to run later (a row of
     /// the pass's face batch: the feed maps every row it remaps in a turn in one call).
@@ -115,8 +104,7 @@ public struct SidebarMapping {
     /// (for example, an acpmux session that was purged while its tab lingers).
     /// `listing`, when given, answers whether each workspace lists (the Home rule and `workspaceFilter`) from its own
     /// observation, so the pass reads no workspace's tabs (`SidebarRowFeed`).
-    /// `terminalTitle` (localized by the App) names an unnamed workspace whose shell idles at its home on this Mac or a
-    /// Cloud machine (`homeNamesAccount`).
+    /// `terminalTitle` (localized by the App) names a Cloud machine's unnamed workspace whose shell idles at its home.
     public func sections(_ daemonSections: [DaemonSidebarSection], machine: SidebarMachine,
                                 collapsedGroups: Set<String> = [],
                                 hidesHomeWorkspace: Bool = true,
@@ -141,7 +129,7 @@ public struct SidebarMapping {
             machine: machine.id, showsUnread: showsUnread, selectedTab: selectedTab, focusedPane: focusedPane,
             newTabTitle: newTabTitle, pageFace: pageFace,
             tabTitle: tabTitle, notificationText: notificationText, iconAsset: iconAsset, harnessIcons: harnessIcons,
-            homeShellTitle: Self.homeNamesAccount(machine.kind) ? terminalTitle : nil, faces: faces))
+            homeShellTitle: machine.kind == .cloud ? terminalTitle : nil, faces: faces))
         // The home workspace (`kind` "home") and a window's own Home (cmux#27880) are what
         // the Home item in the top section shows; neither is also a workspace row (nxdog28)
         // while that item is in the layout (`hidesHomeWorkspace`).

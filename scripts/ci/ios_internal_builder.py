@@ -518,13 +518,12 @@ def _dispatch_once(args: list[str], runner, sleep):
 
 
 def cmd_dispatch(sha: str, base: str, runner=subprocess.run, sleep=time.sleep, clock=time.time,
-                 api_wait: dt.timedelta = DISPATCH_API_WAIT, submittable: bool = False) -> int:
+                 api_wait: dt.timedelta = DISPATCH_API_WAIT) -> int:
     """Dispatch BUILD_WORKFLOW on BUILDER_REF for `sha`, waiting out a spent or failing API like the plan does
-    (a bare `gh workflow run` meets the same limit and loses the head the plan just picked). `submittable`: the
-    build App Review may take, gated as an internal-submission (the builder's own input; nightlies leave it off)."""
+    (a bare `gh workflow run` meets the same limit and loses the head the plan just picked)."""
     args = ["-X", "POST", f"repos/{REPO}/actions/workflows/{Path(BUILD_WORKFLOW).name}/dispatches",
             "-f", f"ref={BUILDER_REF.removeprefix('refs/heads/')}", "-f", f"inputs[sha]={sha}",
-            "-f", f"inputs[base]={base}"] + (["-f", "inputs[submittable]=true"] if submittable else [])
+            "-f", f"inputs[base]={base}"]
     try:
         with_api_wait(lambda: _dispatch_once(args, runner, sleep), api_wait, f"the dispatch of {sha[:12]}",
                       runner=runner, sleep=sleep, clock=clock)
@@ -532,7 +531,7 @@ def cmd_dispatch(sha: str, base: str, runner=subprocess.run, sleep=time.sleep, c
         print(f"::error title=cmux INTERNAL dispatch lost::{sha[:12]}: GitHub API unavailable for {api_wait}: "
               f"{str(error)[:200]}; the next push plans again")
         return 1
-    line = f"dispatched cmux-next-ios INTERNAL {sha} (base {base or 'none'}){' (submittable)' if submittable else ''}"
+    line = f"dispatched cmux-next-ios INTERNAL {sha} (base {base or 'none'})"
     print(line)
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
@@ -746,7 +745,6 @@ def main(argv: list[str]) -> int:
     d = sub.add_parser("dispatch")
     d.add_argument("--sha", required=True)
     d.add_argument("--base", default="")
-    d.add_argument("--submittable", action="store_true", help="the App Review candidate build (gated internal-submission)")
     s = sub.add_parser("stamp")
     s.add_argument("--project-yml", type=Path, default=Path(PROJECT_YML))
     s.add_argument("--last", default=None)
@@ -760,7 +758,7 @@ def main(argv: list[str]) -> int:
     if args.cmd == "plan":
         return cmd_plan(args.head, args.repo, force=args.force)
     if args.cmd == "dispatch":
-        return cmd_dispatch(args.sha, args.base, submittable=args.submittable)
+        return cmd_dispatch(args.sha, args.base)
     if args.cmd == "stamp":
         return cmd_stamp(args.project_yml, args.last)
     if args.cmd == "admit":

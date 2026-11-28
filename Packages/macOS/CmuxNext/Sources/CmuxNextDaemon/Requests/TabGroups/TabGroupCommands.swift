@@ -54,8 +54,3 @@ public struct TabGroupResult: Decodable, Sendable, Equatable {
         groups = try c.decodeIfPresent([TabGroupID].self, forKey: .groups) ?? []
     }
 }
-
-extension CloseTabGroupRequest {
-    @available(*, deprecated, message: "close-tab-group takes no transaction; use init(group:)")
-    public init(group: TabGroupID, transaction: ClientTransactionID?) { self.init(group: group) }
-}

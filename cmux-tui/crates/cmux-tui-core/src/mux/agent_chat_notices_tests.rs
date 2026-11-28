@@ -625,7 +625,6 @@ fn posted(changes: &[Value]) -> Vec<Notice> {
     for change in changes.iter().flat_map(|change| [change, change]) {
         let mut next = Chat::of(change).expect("a local chat");
         next.notified_turn = before.as_ref().and_then(|chat| chat.notified_turn.clone());
-        next.notified_lost = before.as_ref().is_some_and(|chat| chat.notified_lost);
         next.keep_asks(before.as_ref());
         notices.extend(next.notices(before.as_ref()));
         before = Some(next);
@@ -731,64 +730,6 @@ fn a_failed_turn_says_why_it_failed() {
     assert_eq!(notices[0].title, "Review hit a rate limit");
     assert_eq!(notices[0].subtitle.as_deref(), Some("rate_limit"));
     assert_eq!(notices[0].body, "You've hit your usage limit");
-}
-
-#[test]
-fn a_lost_notice_suppresses_the_later_failed_summary() {
-    let lost = summary("lost", 10, false, None, false);
-    let failed = summary("done", 12, false, Some(("t1", "failed")), false);
-    let notices = posted(&[lost, failed]);
-    assert_eq!(notices.len(), 1);
-    assert_eq!(notices[0].key, "lost-10");
-    assert!(notices[0].title.ends_with("stopped responding"));
-}
-
-#[test]
-fn a_lost_notice_survives_an_intermediate_summary_until_failed() {
-    let lost = summary("lost", 10, false, None, false);
-    let intermediate = summary("idle", 11, false, None, false);
-    let failed = summary("done", 12, false, Some(("t1", "failed")), false);
-    let notices = posted(&[lost, intermediate, failed]);
-    assert_eq!(notices.len(), 1);
-    assert_eq!(notices[0].key, "lost-10");
-}
-
-#[test]
-fn a_new_lost_transition_after_a_new_turn_still_notifies() {
-    let first_lost = summary("lost", 10, false, None, false);
-    let new_turn = summary("working", 11, false, None, false);
-    let second_lost = summary("lost", 12, false, None, false);
-    let notices = posted(&[first_lost, new_turn, second_lost]);
-    assert_eq!(notices.len(), 2);
-    assert_eq!(notices[0].key, "lost-10");
-    assert_eq!(notices[1].key, "lost-12");
-}
-
-#[test]
-fn a_lost_active_turn_is_not_suppressed_by_a_previous_completed_turn() {
-    let mut before = Chat::of(&summary("working", 10, false, Some(("t1", "completed")), false))
-        .expect("a working chat");
-    before.notified_turn = Some("t1".into());
-    let mut lost = Chat::of(&summary("lost", 12, false, Some(("t1", "completed")), false))
-        .expect("a lost chat");
-    lost.notified_turn = before.notified_turn.clone();
-    let notices = lost.notices(Some(&before));
-    assert_eq!(notices.len(), 1);
-    assert!(notices[0].title.ends_with("stopped responding"));
-}
-
-#[test]
-fn a_later_lost_transition_is_not_suppressed_by_an_older_failed_turn() {
-    let mut before = Chat::of(&summary("done", 10, false, Some(("t1", "failed")), false))
-        .expect("a failed chat");
-    assert_eq!(before.notices(None).len(), 1);
-    let mut lost =
-        Chat::of(&summary("lost", 12, false, Some(("t1", "failed")), false)).expect("a lost chat");
-    lost.notified_turn = before.notified_turn.clone();
-    lost.notified_lost = before.notified_lost;
-    let notices = lost.notices(Some(&before));
-    assert_eq!(notices.len(), 1);
-    assert!(notices[0].title.ends_with("stopped responding"));
 }
 
 #[test]

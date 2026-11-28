@@ -45,7 +45,7 @@ extension ControlMethod {
                     guard id.hasPrefix(DesktopNotifier.tabBannerPrefix) else { throw bannerNotFound(id) }
                     return .followUp {
                         let delivered = await notifier.deliveredSurface(id)
-                        guard delivered.found else { throw bannerNotFound(id, held: delivered.held) }
+                        guard delivered.found else { throw bannerNotFound(id) }
                         await notifier.openTab(id: id, surface: delivered.surface)
                         return [
                             "opened": .string(id),
@@ -68,15 +68,11 @@ extension ControlMethod {
         ]
     }
 
-    /// `held`: the tab banners Notification Center holds for this app when the id was looked up there
-    /// (nil: not looked up), so a caller reads whether the banner was never delivered or was removed.
-    nonisolated static func bannerNotFound(_ id: String, held: [String]? = nil) -> ControlError {
+    nonisolated private static func bannerNotFound(_ id: String) -> ControlError {
         let message = String(format: String(localized: "notifications.control.bannerNotFound",
             defaultValue: "No banner %@: notifications.banners lists the banners this app asked for",
             table: "NotificationsPanel", bundle: .localizedModule), id)
-        var data: [String: JSONValue] = ["id": .string(id)]
-        if let held { data["delivered"] = .array(held.map(JSONValue.string)) }
-        return ControlError(code: "not_found", message: message, data: .object(data))
+        return ControlError(code: "not_found", message: message, data: ["id": .string(id)])
     }
 }
 

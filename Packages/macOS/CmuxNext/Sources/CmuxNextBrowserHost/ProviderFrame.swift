@@ -20,10 +20,6 @@ public nonisolated enum ProviderFrame: Hashable, Sendable {
     case cdp(targetID: String, message: String)
     case lease(targetID: String, lease: ProviderLease?)
     case userInput(targetID: String)
-    /// A person's lease action from the app's shared lease UI (app -> host, origin `user`):
-    /// `take_over`, `hand_back` or `stop` on `targetID` (plans/cmux-next/automation-lease.md).
-    /// The host owns the lease state machine; the app only asks.
-    case leaseUser(op: String, targetID: String?, actor: String?)
     /// One agent input (host -> app): an `automation.input` v1 event
     /// (schemas/automation-input), as the host's driver emitted it.
     case input(event: DriverJSON)
@@ -45,7 +41,6 @@ public nonisolated enum ProviderFrame: Hashable, Sendable {
         case .cdp: "cdp"
         case .lease: "lease"
         case .userInput: "user.input"
-        case .leaseUser: "lease.user"
         case .input: "input"
         case .tabAccess: "tab.access"
         case .unknown(let tag): tag
@@ -69,7 +64,6 @@ extension ProviderFrame: CustomStringConvertible, CustomDebugStringConvertible, 
         case .cdp(let target, let message): "cdp(\(target), \(message.utf8.count) bytes)"
         case .lease(let target, let lease): "lease(\(target), \(lease.map(\.session) ?? "none"))"
         case .userInput(let target): "user.input(\(target))"
-        case .leaseUser(let op, let target, _): "lease.user(\(op), \(target ?? "-"))"
         case .input(let event): "input(\(Self.inputLabel(event)))"
         case .tabAccess(let target, let access, let override, _): "tab.access(\(target), \(access), override: \(override))"
         case .unknown(let tag): "unknown(\(tag))"

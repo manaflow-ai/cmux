@@ -138,17 +138,17 @@ pub(super) fn join(dir: &Path, join: &machine::Join, unit: &dyn Unit) -> Res<Dev
         if (joined.is(home, credential) || unmarked) && account.hub == hub_url {
             let renewal = machine_renewal(credential.clone());
             let checked = Hub::with_renewal(hub_url, device.clone(), None, renewal)
-                .and_then(|hub| hub.session().map(|_| hub));
+                .and_then(|hub| hub.session().map(|_| hub.user_id()));
             match checked {
                 // The hub signs the join in as the recorded account: the host serves the join's.
-                Ok(hub) if hub.user_id().as_deref() == Some(account.user_id.as_str()) => {
+                Ok(Some(user)) if user == account.user_id => {
                     let marked = if unmarked {
                         machine::Joined::signed_in(Some(joined), home, credential).save(dir)
                     } else {
                         Ok(())
                     };
                     match marked {
-                        Ok(()) => return Ok(keep_join_name(dir, device, credential, hub_url)),
+                        Ok(()) => return Ok(device.clone()),
                         Err(e) => {
                             tear_down(dir, previous, unit)?;
                             return Err(e);
@@ -172,38 +172,6 @@ pub(super) fn join(dir: &Path, join: &machine::Join, unit: &dyn Unit) -> Res<Dev
         Err(e) => {
             tear_down(dir, Previous::load(dir)?, unit)?;
             Err(e)
-        }
-    }
-}
-
-/// The kept `device` under the name the join gave this machine (`credential.name`): a machine
-/// restored from a snapshot keeps the device its image was shared as, so a join under another
-/// name renames it, saves it and registers it again at `hub`, or the viewer's list shows the
-/// image's name and opening the joined name finds no device (hq#37008, run 46137496866: a
-/// machine joined as `probe-desktop-…-hub` listed as `lease-lease_…`). A join with no name, or
-/// the device's own, changes nothing. The host serves the join either way: a rename the hub
-/// refused keeps the device as it was (logged), and the next enable tries it again.
-pub(super) fn keep_join_name(
-    dir: &Path,
-    device: &Device,
-    credential: &machine::MachineCredential,
-    hub_url: &str,
-) -> Device {
-    let name = credential.name.trim();
-    if name.is_empty() || name == device.name {
-        return device.clone();
-    }
-    let mut renamed = device.clone();
-    renamed.name = name.to_owned();
-    let registered =
-        Hub::with_renewal(hub_url, renamed.clone(), None, machine_renewal(credential.clone()))
-            .and_then(|hub| hub.register("linux"))
-            .and_then(|_| renamed.save(dir));
-    match registered {
-        Ok(()) => renamed,
-        Err(e) => {
-            eprintln!("cmux-rd: the join's name {name:?} was not taken: {e}");
-            device.clone()
         }
     }
 }
