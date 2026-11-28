@@ -357,6 +357,36 @@ def thread_delta(before, after):
     return [{"name": n, "tid": t, "delta": d, **m} for n, t, d, m in rows[:10]]
 
 
+def wakers(tids, seconds=5):
+    """Who wakes `tids` (sudo bpftrace where the machine has it, else {}): per woken thread, the waking task's
+    name and kernel stack at sched_wakeup, and the signals made for them. A wake that never returns to userspace
+    (a futex sleep the kernel restarts) shows here and nowhere else."""
+    if not tids or not shutil.which("bpftrace"):
+        return {}
+    cond = " || ".join(f"args->pid == {int(t)}" for t in tids)
+    scond = " || ".join(f"args->pid == {int(t)}" for t in tids)
+    prog = ("tracepoint:sched:sched_wakeup /" + cond + "/ { @w[args->pid, comm, kstack(6)] = count(); } "
+            "tracepoint:signal:signal_generate /" + scond + "/ { @s[args->pid, args->sig, comm] = count(); } "
+            f"interval:s:{int(seconds)} {{ exit(); }}")
+    try:
+        ran = subprocess.run(["sudo", "-n", "bpftrace", "-e", prog], capture_output=True, text=True,
+                             timeout=seconds + 60)
+        out = ran.stdout
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"error": str(exc)[:200]}
+    found = {}
+    for block in out.split("@")[1:]:
+        head, _, count = block.rpartition("]:")
+        key = " ".join(x.strip() for x in head.split("\n") if x.strip()).replace("  ", " ")
+        try:
+            found[key[:400]] = int(count.strip().split()[0])
+        except (ValueError, IndexError):
+            pass
+    if not found:
+        found["none " + (ran.stderr.strip().replace("\n", " | ")[-300:] or "no wakes")] = 0
+    return found
+
+
 def idle_window(top, seconds, disks):
     """Per-role totals: memory at the end, CPU and wakeups over `seconds` of nothing."""
     tui_threads, pid_at = thread_detail(top.get("tui")), last_pid()
@@ -371,6 +401,7 @@ def idle_window(top, seconds, disks):
                                 futexes=True)
     after = snapshot(top)
     threads = thread_delta(tui_threads, thread_detail(top.get("tui")))
+    woken_by = wakers([row["tid"] for row in threads[:3]])
     pids_made = last_pid() - pid_at
     commits, wakes, asked = {}, {}, set()
     if log_at is not None:
@@ -443,7 +474,7 @@ def idle_window(top, seconds, disks):
     return {"total": total, "roles": roles, "disk": disk, "files": file_groups(disks), "commits": commits,
             "syncer": syncer, "window": seconds,
             "wakes": wakes, "wake_terminals": len(asked),
-            "threads": threads, "pids_made": pids_made, "timers": tui_timers}
+            "threads": threads, "pids_made": pids_made, "timers": tui_timers, "wakers": woken_by}
 
 
 def busy_thread_states(pid, name, seconds, every=0.2, futexes=False):
@@ -1174,6 +1205,8 @@ def report(results):
                 print(f"INFINITE-THREAD {n} day={s['day']} {row['name']}/{row['tid']} {json.dumps(row['delta'])} "
                       f"blk={row.get('SigBlk')} cgt={row.get('SigCgt')} pnd={row.get('SigPnd')}/{row.get('ShdPnd')}",
                       flush=True)
+            for key, count in sorted(s.get("wakers", {}).items(), key=lambda kv: -kv[1] if isinstance(kv[1], int) else 0)[:12]:
+                print(f"INFINITE-WAKER {n} day={s['day']} {count} {key}", flush=True)
             # The woken threads' futex states first, then the rest of the words more than one thread sleeps on.
             fx = s.get("syncer", {})
             for key, count in sorted(fx.items(), key=lambda kv: -kv[1]):
