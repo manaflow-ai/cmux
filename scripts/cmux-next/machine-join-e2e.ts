@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Machine join end to end on the DEVELOPMENT platform, for .github/workflows/machine-join-e2e.yml.
+ * Machine join end to end on the DEVELOPMENT platform, for .github/workflows/machine-vault-e2e.yml suite=machine-join.
  *
  *   bun scripts/cmux-next/machine-join-e2e.ts --origin https://cmux-platform-development.debussy.workers.dev \
  *     --acpmux PATH --user USER --home DIR --name NAME --evidence FILE --run ID --sha SHA [--bench SCRIPT]
