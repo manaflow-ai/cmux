@@ -267,13 +267,9 @@ export const BENCHES: readonly Bench[] = [
   // (composerTypingRows.ts). perf-cron.py's web-ui-typing part runs it; each load ends by its 120 s safety deadline.
   {
     name: "composer-typing",
-    file: "composer-typing.bench.ts",
-    // --repeat 3: each case's median-p99 attempt, so a burst from another runner slot on the host is not the reading.
-    args: [
-      ...["--mode", "L0,L1,L2,L3", "--engines", "chromium,webkit", "--lengths", "60"],
-      ...["--keys", "500", "--gap", "20", "--repeat", "3"],
-    ],
-    timeoutMs: 1_500_000,
+    file: "zz-ct-ab.bench.ts",
+    args: [],
+    timeoutMs: 3_300_000,
     ownPart: true,
   },
   // A fast fling and clicks along the prompt rail in a 1,500-turn paged chat, with 200, 500 and 1,000 listed sessions

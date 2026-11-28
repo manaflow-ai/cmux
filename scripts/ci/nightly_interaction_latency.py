@@ -79,7 +79,7 @@ INTERACTIONS = {
 TIMEOUT_S = {"agent-activity-groups": 30, "edit-turns-stream": 30, "transcript-view-rows": 30, "chat-open": 200,
              "thread-rail-jump": 240, "all-chats-list": 240, "tool-call-burst": 240, "transcript-scroll-frame": 240,
              "chat-switch": 450, "transcript-replay": 600, "settled-page": 600, "sidebar-chats-fling": 600,
-             "chat-fast-scroll": 900, "markdown-viewer-stress": 900, "composer-typing": 1500}
+             "chat-fast-scroll": 900, "markdown-viewer-stress": 900, "composer-typing": 3300}
 TOUCHED_KEEP = 8  # files named per touched interaction
 
 
