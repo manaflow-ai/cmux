@@ -202,6 +202,11 @@ typedef enum {
   // s1 = the host (host:port when not the default port), s2 = the realm.
   // Chromium waits for cmux_shim_auth_continue.
   CMUX_SHIM_AUTH_PROMPT = 52,
+  // A main-frame navigation to a page the app answers itself: GitHub's return
+  // to a cmux console after a save on an installation's settings page
+  // (CEFShim/src/auth_callback_policy.h IsGitHubSavedReturn). The shim
+  // cancelled it before it loaded; s1 = url, a = 1 for a redirect.
+  CMUX_SHIM_APP_RETURN_PAGE = 53,
 } cmux_shim_event_kind_t;
 
 typedef enum {

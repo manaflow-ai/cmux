@@ -58,6 +58,9 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case localFileHandoff(browser: Int32, url: String)
     /// A link to another app (EXTERNAL_URL); `userGesture`: the user's click started it.
     case externalURL(browser: Int32, url: String, userGesture: Bool)
+    /// The shim cancelled a main-frame navigation to a page the app answers itself (APP_RETURN_PAGE): GitHub's return
+    /// to a cmux console after a save on an installation's settings page (#57470).
+    case appReturnPage(browser: Int32, url: String)
     /// A permission request the host decides (PERMISSION_PROMPT; `permissions`
     /// are `cef_permission_request_types_t` bits), answered with
     /// `cmux_shim_permission_continue(token, …)`; Chromium may end it first
@@ -196,6 +199,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 50: self = .evaluateResult(token: request, status: Int(a), value: s1)
         case 51: self = .statusMessage(browser: browser, text: s1)
         case 52: self = .authPrompt(browser: browser, token: request, host: s1, realm: s2, isSecure: a != 0)
+        case 53: self = .appReturnPage(browser: browser, url: s1)
         default: self = .unknown(kind: kind)
         }
     }
