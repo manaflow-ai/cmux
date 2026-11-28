@@ -12,11 +12,12 @@
 // (`redraw`), and once that commits the entries made before it go (`settle`).
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import type { AcpmuxActivity, AcpmuxRow, AcpmuxSnapshot } from "./model";
-import { isQuietThought, isThought } from "./conversation/thoughts";
+import { isThought, isQuietThought } from "./conversation/thoughts";
+import { settledRead, whenSettled } from "./paneSettle";
 import { oneRowChangeFrom } from "./rowChanges";
 import { rowsWithLiveOutput, sameButRows } from "./liveToolOutput";
 import { rowsWithStreamingRow } from "./streamingRow";
-import { drewEmptyFold, drewRunningTurn, hiddenUnderFold } from "./drawnRows";
+import { drewRunningTurn, hiddenUnderFold, drewEmptyFold } from "./drawnRows";
 import { lineCalledNow } from "./liveCallLine";
 
 /// A row's thought now (`to`), and the thought item the pane's rows drew (`from`): a drawn row whose
@@ -52,10 +53,14 @@ export const liveThought = {
       seq: (seq += 1),
       epoch,
     });
-    const set = listeners.get(id);
-    if (set) for (const listener of set) listener();
     heard += 1;
-    for (const listener of lineListeners) listener();
+    whenSettled(`thought:${id}`, () => {
+      const set = listeners.get(id);
+      if (set) for (const listener of set) listener();
+    });
+    whenSettled("thought-line", () => {
+      for (const listener of lineListeners) listener();
+    });
   },
   get: (id: string): Entry | undefined => entries.get(id),
   /// The pane is drawing a newer snapshot: a later chunk is told from that snapshot's rows.
@@ -121,9 +126,18 @@ function sameExcept(previous: object, next: object, except: ReadonlySet<string>)
 /// now, else undefined. The client tells which row changed (rowChanges.ts), so this reads that row
 /// alone: O(its items). Only a thought the transcript draws as the client holds it (`drewThoughts`)
 /// and that already draws (not quiet: a thought's text and time only grow, so it stays drawn).
+///
+/// `pending`: the rows of the pane's draw still pending (paneSnapshotLane.ts `PendingPaneDraw`). The
+/// transcript on screen is older than them, so its thought's text is not `before`'s; the chunk still
+/// goes to the row when the row already draws the thought and the pending draw draws the thought
+/// this chunk's run started from (`withLiveThought` reads the entry over that very item, once the
+/// draw commits). Before, every chunk while a draw was pending drew the whole pane, and each such
+/// draw restarted the pending one, which under load kept it pending: 347 of 969 pane renders a replay
+/// window under load (bench replay-under-load RENDERS=1, `miss:…thought…|pending`; goal renderer-main-busy).
 export function thoughtOnly(
   previous: AcpmuxSnapshot,
   next: AcpmuxSnapshot,
+  pending?: readonly AcpmuxRow[],
 ): { id: string; before: AcpmuxActivity; after: AcpmuxActivity } | undefined {
   const index = oneRowChangeFrom(next.rows, previous.rows);
   if (index === undefined || !sameButRows(previous, next)) return undefined;
@@ -150,8 +164,51 @@ export function thoughtOnly(
     if (drewEmptyFold() && !isQuietThought(after)) return undefined;
     return { id: now.id, before, after };
   }
+  if (pending) {
+    if (drawnNow === undefined) return undefined;
+    const kept = entries.get(now.id);
+    const from = kept && kept.epoch === epoch && kept.to === before ? kept.from : before;
+    const drawsFrom = pending.find((pendingRow) => pendingRow.id === now.id);
+    if (drawsFrom?.kind !== "activity" || drawsFrom.items?.at(-1) !== from) return undefined;
+    return { id: now.id, before, after };
+  }
   if (!sameThought(drawnNow, before)) return undefined;
   return { id: now.id, before, after };
+}
+
+/// Debug (replay bench RENDERS=1): the check `thoughtOnly` failed on, for a record that moved a thought.
+export function thoughtMiss(previous: AcpmuxSnapshot, next: AcpmuxSnapshot): string {
+  const index = oneRowChangeFrom(next.rows, previous.rows);
+  if (index === undefined) return "multi";
+  if (!sameButRows(previous, next)) return "notrows";
+  const row = previous.rows[index];
+  const now = next.rows[index];
+  if (!row || !now || row.id !== now.id || now.kind !== "activity") return "row";
+  if (now.streaming !== true) return `streaming=${String(now.streaming)}`;
+  if (!sameExcept(row, now, ROW_KEYS)) {
+    const keys = Object.keys(now).filter((k) => !ROW_KEYS.has(k) && !Object.is((row as any)[k], (now as any)[k]));
+    return `rowkeys=${keys.join("+")}`;
+  }
+  const was = row.items ?? [];
+  const items = now.items ?? [];
+  if (was.length !== items.length) return `len${was.length}->${items.length}`;
+  const last = items.length - 1;
+  for (let at = 0; at < last; at += 1) if (was[at] !== items[at]) return `notlast(${at}/${last})`;
+  const before = was[last]!;
+  const after = items[last]!;
+  if (!isThought(before) || !isThought(after) || before.tool || after.tool) return "lastnotthought";
+  if (!sameExcept(before, after, ITEM_KEYS)) {
+    const keys = Object.keys(after).filter(
+      (k) => !ITEM_KEYS.has(k) && !Object.is((before as any)[k], (after as any)[k]),
+    );
+    return `itemkeys=${keys.join("+")}`;
+  }
+  if (!after.text.startsWith(before.text)) return "notprefix";
+  const drawnNow = drawnThought(now.id);
+  if (drawnNow === undefined) return hiddenUnderFold(next.rows, index) ? "hit-hidden" : "notdrawn";
+  if (drawnNow.text !== before.text) return `drawntext(${drawnNow.text.length}/${before.text.length})`;
+  if (drawnNow.endedAt !== before.endedAt) return "drawnend";
+  return sameThought(drawnNow, before) ? "hit" : "drawnkeys";
 }
 
 /// The thought the transcript drew for row `id`: the one in its rows, or the newer one this store
@@ -194,10 +251,14 @@ export function useLiveThoughtRow(row: AcpmuxRow, active: boolean): AcpmuxRow {
     (listener: () => void) => (listens ? subscribe(id, listener) : noSubscribe()),
     [listens, id],
   );
-  const read = useCallback(() => {
-    const entry = listens ? entries.get(id) : undefined;
-    return entry && entry.from === last ? entry.seq : 0;
-  }, [listens, id, last]);
+  const read = useMemo(
+    () =>
+      settledRead(() => {
+        const entry = listens ? entries.get(id) : undefined;
+        return entry && entry.from === last ? entry.seq : 0;
+      }),
+    [listens, id, last],
+  );
   const version = useSyncExternalStore(listens ? listen : noSubscribe, listens ? read : zero, zero);
   return useMemo(() => (version === 0 ? row : withLiveThought(row)), [row, version]);
 }

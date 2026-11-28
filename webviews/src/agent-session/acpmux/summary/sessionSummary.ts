@@ -459,7 +459,7 @@ function background(rows: readonly AcpmuxRow[]): BackgroundFound {
 
 type BackgroundFound = { tasks: SummaryBackgroundTask[]; wakeups: SummaryWakeup[] };
 
-type TranscriptBackground = { tasks: SummaryBackgroundTask[]; scheduled: number };
+export type TranscriptBackground = { tasks: SummaryBackgroundTask[]; scheduled: number };
 
 /// What one row gives `transcriptBackground`, in its order: its background shells, its scheduling
 /// and CronDelete calls, and how a background shell ended.
