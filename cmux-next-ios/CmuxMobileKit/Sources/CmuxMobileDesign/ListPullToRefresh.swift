@@ -106,9 +106,12 @@ public final class ListPullToRefresh {
     }
 
     /// VoiceOver's three-finger scroll down at the top of the list, as `UIRefreshControl` answers it.
+    /// A second one while a refresh runs is taken and does nothing: passed on, the list's own
+    /// accessibility scroll bounces it at its top, and the slot would wait on a rest that UIKit
+    /// reports to no delegate call this control hears.
     public func accessibilityRefresh() -> Bool {
-        guard let scrollView, !isRefreshing, !scrollView.isDragging, distance(scrollView) >= -1 else { return false }
-        begin()
+        guard let scrollView, !scrollView.isDragging, distance(scrollView) >= -1 else { return false }
+        if !isRefreshing { begin() }
         return true
     }
 
@@ -138,7 +141,8 @@ public final class ListPullToRefresh {
         move(scrollView, inset: 0)
     }
 
-    /// Call from `scrollViewDidEndDecelerating`: the list came to rest, so a slot left
+    /// Call from `scrollViewDidEndDecelerating` and `scrollViewDidEndScrollingAnimation` (a scroll the
+    /// code or VoiceOver animated): the list came to rest, so a slot left
     /// open by a refresh that ended while it moved closes now.
     public func endedDecelerating() {
         guard let scrollView, !isRefreshing, held != 0, slide == nil,

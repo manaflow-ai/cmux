@@ -23,6 +23,9 @@ import CmuxMobileAgentChat
         store.macConnection[mac] = .connected
         let clock = GridTestClock()
         let source = WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", sessions: AgentSessionDirectory(), clock: clock)
+        // These tests predate the overview's pane filter (#56982), whose default hides browsers
+        // (t-docs). They test the held tab, not the filter: list every pane.
+        everyPane(source)
         source.opened()
         source.activate("t-zsh")
         return Rig(store: store, source: source, clock: clock)
