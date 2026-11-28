@@ -70,17 +70,22 @@ test("a reveal superseded by another hide and show settles on the newer one's fr
 });
 
 test("hiding and showing finish finite animations and leave infinite ones running", () => {
-  const { doc, add, set } = page();
+  const { doc, add, set, frame } = page();
   installRevealSettle(doc);
   const entrance = add(180);
   const spinner = add(Number.POSITIVE_INFINITY);
   set("hidden");
   expect(entrance.finished).toBe(1);
   expect(spinner.finished).toBe(0);
-  // Started while hidden (a row that streamed in): finished as the page shows, before it plays.
+  // Started while hidden (or by the show's own commit): finished in the first frame back, before it
+  // paints, not in the event, so the show's style pass is not paid twice.
   const late = add(180);
   set("visible");
+  expect(late.finished).toBe(0);
+  const mounted = add(180);
+  frame();
   expect(late.finished).toBe(1);
+  expect(mounted.finished).toBe(1);
   expect(spinner.playState).toBe("running");
 });
 

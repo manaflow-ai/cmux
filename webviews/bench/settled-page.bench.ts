@@ -802,6 +802,12 @@ try {
         });
         newTurn(target, arm === "stream");
         await settleIdle(page);
+        if (PROFILE) {
+          profiler = await context.newCDPSession(page);
+          await profiler.send("Profiler.enable");
+          await profiler.send("Profiler.setSamplingInterval", { interval: 100 });
+          await profiler.send("Profiler.start");
+        }
         if (arm === "stream") startStream();
         await page.evaluate(() => {
           (window as unknown as { __hidden: boolean }).__hidden = false;

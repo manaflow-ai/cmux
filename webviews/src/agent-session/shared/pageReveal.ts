@@ -9,7 +9,8 @@
 // This module is the one owner of "may an entrance run now": no while hidden, no until the first
 // frame after the page shows has passed. Views decide an entrance from their data diff and also
 // ask `entranceAllowed`. `installRevealSettle` finishes the page's finite animations when it hides
-// and when it shows, so nothing started while hidden plays on return.
+// and in the first frame after it shows (before that frame paints), so nothing started while hidden
+// plays on return.
 
 type RevealState = {
   /// Set from the page showing again until its first frame has passed.
@@ -60,20 +61,29 @@ function watch(doc: Document): RevealState {
   states.set(doc, created);
   doc.addEventListener("visibilitychange", () => {
     created.generation += 1;
-    finishPageAnimations(doc);
     if (doc.visibilityState === "hidden") {
+      finishPageAnimations(doc);
       created.settling = false;
       return;
     }
     // Shown again: changes that land before its first frame has painted were made while the user
     // was away. Two frames: the first runs before that paint, the second after it.
+    // The finish on show runs in that first frame, before its paint, not in the `visibilitychange`
+    // itself: `getAnimations()` brings the whole document's style up to date, and in the event that
+    // was a full style pass over the hidden page's DOM ahead of the rows the show mounts (their own
+    // listeners, VirtualTranscript.tsx HIDDEN RELEASE), whose measure then styled the page again:
+    // 11.6 to 15 ms of a 57 ms workspace switch (settled-page bench PROFILE=1, workspace_switch;
+    // Leo, 2026-11-21: "Time to settled page at its ceiling, with no visible oddity"). In the frame,
+    // style is already clean from that measure, and the animations the show's own commit started
+    // (rows entering while `settling`) finish with the rest. No frame paints before it.
     created.settling = true;
     const generation = created.generation;
-    nextFrame(doc, () =>
+    nextFrame(doc, () => {
+      if (created.generation === generation) finishPageAnimations(doc);
       nextFrame(doc, () => {
         if (created.generation === generation) created.settling = false;
-      }),
-    );
+      });
+    });
   });
   return created;
 }
