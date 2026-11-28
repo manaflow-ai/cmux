@@ -14,7 +14,11 @@ public struct ResourceFormat {
         return formatter.string(from: NSNumber(value: max(share, 0))) ?? "\(max(share, 0) * 100)%"
     }
 
+    /// Memory text; the dash for zero bytes. A live process always has a footprint, so zero is a read
+    /// that measured nothing (a remote daemon that could not read it, a sample of no processes), never
+    /// "Zero KB" (ask-3729c9c563, Leo 2026-11-27: "the memory line... it should be the ram usage").
     public static func memory(_ bytes: UInt64) -> String {
+        guard bytes > 0 else { return Strings.pending }
         let formatter = ByteCountFormatter()
         formatter.countStyle = .memory
         formatter.allowedUnits = [.useKB, .useMB, .useGB, .useTB]
@@ -23,14 +27,20 @@ public struct ResourceFormat {
     }
 
     /// "CPU 2.3% · Memory 145.2 MB"; the CPU value is a dash until the
-    /// second sample.
+    /// second sample, and both are dashes for a sample that measured nothing (not "0.0% · Zero KB").
     public static func line(_ usage: ResourceUsage) -> String {
-        Strings.cpuMemory(cpu: usage.cpu.map { cpu($0) } ?? Strings.pending, memory: memory(usage.memoryBytes))
+        Strings.cpuMemory(cpu: cpuText(usage), memory: memory(usage.memoryBytes))
     }
 
     /// "2.3% · 145.2 MB" for list rows.
     public static func compact(_ usage: ResourceUsage) -> String {
-        Strings.compact(cpu: usage.cpu.map { cpu($0) } ?? Strings.pending, memory: memory(usage.memoryBytes))
+        Strings.compact(cpu: cpuText(usage), memory: memory(usage.memoryBytes))
+    }
+
+    /// The CPU of `usage`; the dash before a second sample and when nothing was measured (no memory).
+    static func cpuText(_ usage: ResourceUsage) -> String {
+        guard usage.memoryBytes > 0, let share = usage.cpu else { return Strings.pending }
+        return cpu(share)
     }
 
     /// "Shared (cmux, GPU, Network): CPU 1.0% · Memory 400 MB".
