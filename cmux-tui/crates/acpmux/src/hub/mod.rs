@@ -28,6 +28,9 @@ mod agent_pairs;
 pub(crate) mod agent_timer;
 pub(crate) mod agent_vm;
 mod app_exit;
+pub(crate) mod approval_review;
+#[cfg(test)]
+mod approval_review_tests;
 pub mod approvers;
 mod aside;
 pub(crate) mod ask_choices;
