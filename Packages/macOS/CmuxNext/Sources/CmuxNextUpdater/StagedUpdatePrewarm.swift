@@ -155,11 +155,13 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
     /// and three passed a 20 s cap, the first helper among them, which pays the CEF framework's cold load for the
     /// others (desktop-leo's third read-back). A helper started with no `--type` loads the framework, then
     /// `CefExecuteProcess` returns -1 (CEFShim/src/helper_main.mm): exit 255 is a helper that ran to its end.
-    /// Each run starts at `urgency`'s priority: best effort until an install click waits for the pre-warm.
+    /// Each run starts at `urgency`'s priority: best effort until an install click waits for the pre-warm. `launched`
+    /// gets each run's pid, the leader of its process group, so a stop can kill and wait for the group
+    /// (``PrewarmProcessGroups``).
     public func perform(work: BackgroundWork, processes: AsyncProcess = AsyncProcess(),
                         timeout: Duration = Self.runTimeout, total: Duration = Self.totalTimeout,
                         clock: any Clock<Duration> = ContinuousClock(), marker: URL? = nil, urgency: Urgency = Urgency(),
-                        progress: (@Sendable (String) -> Void)? = nil) async -> String {
+                        launched: (@Sendable (Int32) -> Void)? = nil, progress: (@Sendable (String) -> Void)? = nil) async -> String {
         let asked = ContinuousClock.now
         let scanned = try? await work.run(.userVisible, mayBlock: .files) { [self] () -> (URL, [Run])? in
             stagedBundle().map { ($0, runs(bundle: $0)) }
@@ -195,7 +197,8 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
                             // A stop reaches the run's whole process group: the Chromium start's renderer and GPU
                             // helpers would outlive a stop of the app alone.
                             let outcome = try await processes.run(ProcessRequest(run.executable, run.arguments, timeout: timeout,
-                                                                                 terminationScope: .processGroup))
+                                                                                 terminationScope: .processGroup,
+                                                                                 onLaunch: launched))
                             // A crash reads as its signal, not as an exit status ("cmux exit 11" was a SIGSEGV).
                             status = !outcome.exited ? "signal \(outcome.status)" : Self.describe(exit: outcome.status, of: run)
                         } catch {
