@@ -21,7 +21,7 @@ sleep 5
 
 field() {
   # The composer's field, or the collapsed capsule (both are labelled
-  # "Reply to Claude"): a real touch at the lowest such element.
+  # "Reply to <chat>"): a real touch at the lowest such element.
   local y
   y=$(composer_y)
   axe tap -x 150 -y "${y:-800}" --tap-style physical --udid "$udid" >/dev/null
@@ -31,7 +31,7 @@ composer_y() {
 import json, sys
 found = []
 def walk(n):
-    if n.get("AXLabel") == "Reply to Claude":
+    if (n.get("AXLabel") or "").startswith("Reply"):
         f = n["frame"]; found.append(int(f["y"] + f["height"] / 2))
     for c in n.get("children", []): walk(c)
 for n in json.load(sys.stdin): walk(n)

@@ -26,74 +26,17 @@ name: cmux-next-ios kit tests
 # narrow and before the ones they re-include. Same rule as ios-review-gate.yml
 # (#43476).
 # A feat-cmux-next pull request runs these tests as the `ios-kit` step of ci/steps.toml (pr-pipeline.yml's ios
-# job, CI v2 step 11); this workflow keeps the push to feat-cmux-next (with the advisory Instant list bench) and the
-# dispatch main's nightly cron sends.
+# job, CI v2 step 11), and a merge runs them in the post-merge batch (cmux-next-post-merge.yml, suite pr-pipeline-ios,
+# cmux-next-pr-pipeline-ios-batch.yml), whose judge bisects a red to its commit. This workflow keeps only the dispatch
+# main's nightly cron sends (and a run by hand). Which packages the kit links: the step's `inputs` in ci/steps.toml
+# (scripts/ci/ios_app_package_paths.py --check keeps them exact).
 on:
+  # Only this file: a push that changes it registers the workflow, so a dispatch of it does not answer 404
+  # (tests/test_ci_workflows_registered.py), and runs the kit once on the new file.
   push:
     branches: [feat-cmux-next]
     paths:
-      - "cmux-next-ios/**"
-      # The local packages CmuxMobileKit depends on, transitively (scripts/ci/ios_app_package_paths.py --check keeps this list exact).
-      - "Packages/Shared/CMUXAuthCore/**"
-      - "Packages/Shared/CMUXMobileCore/**"
-      - "Packages/Shared/CmuxAgentBrands/**"
-      - "Packages/Shared/CmuxAgentQuestion/**"
-      - "Packages/Shared/CmuxAuthRuntime/**"
-      - "Packages/Shared/CmuxChiefList/**"
-      - "Packages/Shared/CmuxChiefVoiceCore/**"
-      - "Packages/Shared/CmuxConnectivityTelemetry/**"
-      - "Packages/Shared/CmuxDeviceHub/**"
-      - "Packages/Shared/CmuxEgress/**"
-      - "Packages/Shared/CmuxGhosttyKit/**"
-      - "Packages/Shared/CmuxHomeCore/**"
-      - "Packages/Shared/CmuxLiveCode/**"
-      - "Packages/Shared/CmuxScreenKit/**"
-      - "Packages/Shared/CmuxSpinner/**"
-      - "Packages/Shared/CmuxTheme/**"
-      - "Packages/Shared/CmuxVNC/**"
-      - "Packages/Shared/CmuxVNCWebRTC/**"
-      - "Packages/iOS/CmuxConversation/**"
-      - "Packages/iOS/CmuxMobileBilling/**"
-      - "Packages/iOS/CmuxMobileSupport/**"
-      - "Packages/iOS/CmuxTabsKit/**"
-      - "vendor/stack-auth-swift-sdk-prerelease/**"
-      # The toolchains it uses.
-      - ".github/actions/setup-cmux-tui-rust/**"
-      - ".github/actions/runner-cargo-home/**"
-      - "cmux-tui/rust-toolchain.toml"
-      - "scripts/select-ci-xcode.sh"
-      - "scripts/ci/xcode-pins.txt"
-      - ".xcode-version"
       - ".github/workflows/cmux-next-ios-kit.yml"
-      - "scripts/ci/ios_app_package_paths.py"
-      - "scripts/ci/ios_link_ffi_key.py"
-      # The steps' own scripts: a change to one ran no kit run until an unrelated iOS push (the simulator bound
-      # and the connection-notices lint both gate this run).
-      - "scripts/ci/ios-kit-sim-mac-test.sh"
-      - "scripts/ci/ios_sim_bundles.py"
-      - "scripts/ci/ios-sim-mac-bundles.txt"
-      - "scripts/cmux-next/check-connection-notices.py"
-      - "scripts/cmux-next/connection-notices-allowlist.tsv"
-      # The pool phone's runner for the kit's simulator tests (the sim-linux steps run it at this commit).
-      - "scripts/ci/ios-sim-linux-test.sh"
-      - "scripts/ci/ios_sim_logic_xctestrun.py"
-      - "!**/*.md"
-      - "!cmux-next-ios/verify/**"
-      # Except the fixtures the kit's own tests read (AgentCLIHybridProofSupport, AgentCLIHybridFrameTests):
-      # #51565 regenerated them with no kit run, and feat-cmux-next went red on AgentCLIHybridProofTests.
-      - "cmux-next-ios/verify/agent-cli-hybrid/**"
-      # Agent tools beside the app (review.sh, try.sh, the hand-off host) and the mobile Worker (its own deploy
-      # workflows) build nothing in the iPhone app: no kit run and no iPhone try build-ahead for them
-      # (scripts/cmux-next/build_select.py reads this filter). The scripts the kit or the app build reads stay in.
-      - "!cmux-next-ios/scripts/**"
-      - "!cmux-next-ios/backend/**"
-      - "cmux-next-ios/scripts/instant_perf_table.py"
-      - "cmux-next-ios/scripts/generate-launch-mark.swift"
-      - "cmux-next-ios/scripts/check-notification-extension.sh"
-      - "cmux-next-ios/scripts/check-production-binary.sh"
-      - "cmux-next-ios/CmuxMobileKit/**/Resources/**"
-      - "Packages/Shared/**/Resources/**"
-      - "Packages/iOS/**/Resources/**"
   workflow_dispatch:
 
 permissions:
@@ -117,9 +60,9 @@ jobs:
   # on retries. Keeping this picker ahead of the test job lets the rescue
   # sweeper re-admit a job that stalls on a dead owned label.
   runner:
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
     environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-fleet-linux-x64' }} # frozen-label: credentialed job, frozen to today's label
     timeout-minutes: 5
     permissions:
       contents: read
@@ -272,7 +215,7 @@ jobs:
       lint_result: ${{ steps.scan.outcome }}
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -375,7 +318,7 @@ jobs:
   kit-sim-fleet:
     name: CmuxMobileKit iOS simulator test build (build fleet)
     needs: runner
-    if: ${{ !cancelled() && needs.runner.result == 'success' && github.repository == 'manaflow-ai/cmux' && contains(fromJSON('["shadow","on"]'), vars.CMUX_IOS_KIT_SIM_FLEET || 'shadow') && contains(fromJSON('["shadow","on"]'), vars.CMUX_IOS_SIM_LINUX || 'shadow') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0'))) && !fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].reuse }}
+    if: ${{ !cancelled() && needs.runner.result == 'success' && github.repository == 'manaflow-ai/cmux' && contains(fromJSON('["shadow","on"]'), vars.CMUX_IOS_KIT_SIM_FLEET || 'shadow') && contains(fromJSON('["shadow","on"]'), vars.CMUX_IOS_SIM_LINUX || 'shadow') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.draft != true || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0'))) && !fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].reuse }}
     runs-on: cmux-linux
     timeout-minutes: 90  # the build waits up to 600 s queued plus 1500 s running; the shadow pool run up to 2400 s
     permissions:
@@ -446,6 +389,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           PRODUCTS: ${{ github.run_id }}/kit-sim-fleet-products-${{ github.run_id }}-${{ github.run_attempt }}
           LABEL: fleet pool on the build fleet's build (shadow)
+          CMUX_IOS_SIM_LINUX: shadow
         run: bash scripts/ci/kit_sim_fleet.sh pool
 
   kit-tests:
@@ -455,8 +399,8 @@ jobs:
     # no full-ci label: as a Tier B skip, iOS PRs merged untested and were fixed forward over days (Leo, 2026-11-22:
     # "if 80% of code doesn't have a way of having a proper pr in the hour, then our fucking codebase is not good enough").
     # Also skipped before it takes a Mac when it already passed on this tree (the runner job's same-tree decision).
-    if: ${{ !cancelled() && needs.runner.result == 'success' && (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && !fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].reuse }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
+    if: ${{ !cancelled() && needs.runner.result == 'success' && (github.event_name != 'pull_request' || github.event.pull_request.draft != true || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && !fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].reuse }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
     timeout-minutes: 60
     permissions:
       contents: read
@@ -541,9 +485,24 @@ jobs:
           enableCrossOsArchive: true
           key: ${{ steps.xcf-key.outputs.fleet_key }}
 
+      # The same entry in R2 (ios-link-ffi-cache-seed.yml's r2 job): a Blacksmith Mac's actions/cache reads a store of its
+      # own, which the seed's cmux-linux save never reaches, so the GitHub-store restore above misses there.
+      - name: Restore the fleet-built CmuxMobileLinkFFI.xcframework from R2
+        id: xcf-r2-restore
+        if: ${{ !cancelled() && steps.xcf-key.outputs.fleet_key != '' && steps.xcf-restore.outputs.cache-hit != 'true' && steps.xcf-fleet-restore.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          CI_CACHE_R2_NAMESPACE: any
+        with:
+          backend: r2
+          path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+          key: ${{ steps.xcf-key.outputs.fleet_key }}
+
       - name: Wait for the fleet-built CmuxMobileLinkFFI.xcframework
         id: xcf-fleet
-        if: ${{ !cancelled() && steps.xcf-restore.outputs.cache-hit != 'true' && steps.xcf-fleet-restore.outputs.cache-hit != 'true' && github.repository_owner == 'manaflow-ai' && (vars.CI_IOS_FFI_FLEET || '1') != '0' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: ${{ !cancelled() && steps.xcf-restore.outputs.cache-hit != 'true' && steps.xcf-fleet-restore.outputs.cache-hit != 'true' && steps.xcf-r2-restore.outputs.cache-hit != 'true' && github.repository_owner == 'manaflow-ai' && (vars.CI_IOS_FFI_FLEET || '1') != '0' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         continue-on-error: true
         timeout-minutes: 6
         env:
@@ -587,7 +546,7 @@ jobs:
           done
 
       - name: Build CmuxMobileLinkFFI.xcframework
-        if: ${{ !cancelled() && steps.xcf-restore.outputs.cache-hit != 'true' && steps.xcf-fleet-restore.outputs.cache-hit != 'true' && steps.xcf-fleet.outputs.hit != 'true' }}
+        if: ${{ !cancelled() && steps.xcf-restore.outputs.cache-hit != 'true' && steps.xcf-fleet-restore.outputs.cache-hit != 'true' && steps.xcf-r2-restore.outputs.cache-hit != 'true' && steps.xcf-fleet.outputs.hit != 'true' }}
         env:
           JOBS: "8"
         run: bash cmux-next-ios/rust/scripts/build-xcframework.sh
@@ -603,7 +562,7 @@ jobs:
           fi
 
       - name: Save CmuxMobileLinkFFI.xcframework
-        if: ${{ success() && github.ref == 'refs/heads/feat-cmux-next' && steps.xcf-key.outputs.key != '' && steps.xcf-restore.outputs.cache-hit != 'true' && steps.xcf-fleet-restore.outputs.cache-hit != 'true' && steps.xcf-fleet.outputs.hit != 'true' }}
+        if: ${{ success() && github.ref == 'refs/heads/feat-cmux-next' && steps.xcf-key.outputs.key != '' && steps.xcf-restore.outputs.cache-hit != 'true' && steps.xcf-fleet-restore.outputs.cache-hit != 'true' && steps.xcf-r2-restore.outputs.cache-hit != 'true' && steps.xcf-fleet.outputs.hit != 'true' }}
         continue-on-error: true
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -636,9 +595,22 @@ jobs:
           ARTIFACT: kit-sim-fleet-products-${{ github.run_id }}-${{ github.run_attempt }}
         run: bash scripts/ci/kit_sim_fleet.sh wait
 
+      # Is there a pool to run them? With no runner on the Linux simsdk pool the controller says simsdk false and
+      # refuses the step, so the pack and its 813 MB upload (437 s before the Mac's swift test, run 45996304968) buy
+      # nothing: both are skipped and the simulator step below runs the tests here, as it always does in shadow.
+      # Fails open (no answer: pack as before). A Blacksmith Mac reaches no controller, so it packs as before.
+      - name: Does the simsdk pool have runners
+        id: sim-supply
+        if: ${{ !cancelled() && contains(fromJSON('["shadow","on"]'), vars.CMUX_IOS_SIM_LINUX || 'shadow') && github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'pull_request' && startsWith(runner.name, 'blacksmith')) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && steps.sim-fleet.outputs.hit != 'true' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+        run: bash scripts/ci/kit_sim_fleet.sh supply
+
       - name: Build the iOS simulator tests for the pool
         id: sim-pack
-        if: ${{ !cancelled() && contains(fromJSON('["shadow","on"]'), vars.CMUX_IOS_SIM_LINUX || 'shadow') && github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'pull_request' && startsWith(runner.name, 'blacksmith')) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && steps.sim-fleet.outputs.hit != 'true' }}
+        if: ${{ !cancelled() && contains(fromJSON('["shadow","on"]'), vars.CMUX_IOS_SIM_LINUX || 'shadow') && github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'pull_request' && startsWith(runner.name, 'blacksmith')) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && steps.sim-fleet.outputs.hit != 'true' && steps.sim-supply.outputs.live != 'no' }}
         continue-on-error: true
         timeout-minutes: 20
         working-directory: cmux-next-ios/CmuxMobileKit
@@ -676,12 +648,15 @@ jobs:
           FLEET: ${{ steps.sim-fleet.outputs.products }}
           PACKED: ${{ steps.sim-pack.outcome }}
           UPLOADED: ${{ steps.sim-upload.outcome }}
+          SUPPLY: ${{ steps.sim-supply.outputs.live }}
           MAC: kit-sim-products-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           if [[ "$HIT" == true && -n "$FLEET" ]]; then
             { echo "ready=true"; echo "name=$FLEET"; } >> "$GITHUB_OUTPUT"; echo "the pool runs the build fleet's $FLEET"
           elif [[ "$UPLOADED" == success ]]; then
             { echo "ready=true"; echo "name=$MAC"; } >> "$GITHUB_OUTPUT"; echo "the pool runs this Mac's $MAC"
+          elif [[ "$SUPPLY" == no ]]; then
+            { echo "ready=false"; echo "reason=the Linux simsdk pool has no runners (controller capabilities simsdk=false); no pack, no upload"; } >> "$GITHUB_OUTPUT"
           elif [[ "$PACKED" != success ]]; then
             { echo "ready=false"; echo "reason=the simulator test build for the pool did not finish ($PACKED)"; } >> "$GITHUB_OUTPUT"
           else
@@ -868,14 +843,12 @@ jobs:
       # the same runner class), plus chat_reconnect_catch_up and terminal_chat_swap_to_terminal swinging 2-5x on
       # some runners. The numbers stay in the report below, the job summary and the instant-perf-* artifact,
       # and the report step names each bench step that missed as a warning.
-      # On a pull request, a red step before the bench is already the verdict: the bench there is advisory, so it is
-      # skipped rather than holding the red PR check longer (2026-11-24: all 7 readable kit jobs of Aziz's newest iOS
-      # heads were red before the bench, at Connection notices or swift test, and then ran it for 3.3-10.3 min more;
-      # goal ios-ci-under-5min in cmuxterm-hq). Base pushes and dispatches still bench after a red step, so base's numbers
-      # never go missing (tests/test_ios_kit_bench_runs_after_red_step.py).
+      # Pull requests do not need this advisory measurement: it adds 3-10 minutes after the required kit verdict while
+      # the same bench still runs on feat-cmux-next pushes and dispatch/nightly runs. Keeping measurements on those
+      # lanes preserves the base trend without charging every PR (goal ios-ci-under-5min in cmuxterm-hq).
       - name: Instant list bench (macOS swift test)
         id: bench-macos
-        if: ${{ !cancelled() && (github.event_name != 'pull_request' || success()) }}
+        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
         continue-on-error: true
         env:
           CMUX_INSTANT_PERF_OUT: ${{ runner.temp }}/instant-perf/macos.jsonl
@@ -885,7 +858,7 @@ jobs:
       # variable through to the test process).
       - name: Instant list bench (iOS simulator)
         id: bench-ios
-        if: ${{ !cancelled() && (github.event_name != 'pull_request' || success()) && !(github.event_name == 'pull_request' && startsWith(runner.name, 'blacksmith')) }}
+        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
         # Advisory, as the macOS bench above.
         continue-on-error: true
         # The same bound as the test step above: a hung simulator ends the step.
@@ -1007,7 +980,7 @@ jobs:
   kit-sim-pool:
     needs: [runner, kit-tests]
     name: CmuxMobileKit iOS simulator tests (fleet pool)
-    if: ${{ !cancelled() && needs.runner.result == 'success' && github.repository == 'manaflow-ai/cmux' && github.event_name != 'pull_request' && contains(fromJSON('["shadow","on"]'), vars.CMUX_IOS_SIM_LINUX || 'shadow') && contains(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on, 'blacksmith') }}
+    if: ${{ !cancelled() && needs.runner.result == 'success' && github.repository == 'manaflow-ai/cmux' && github.event_name != 'pull_request' && contains(fromJSON('["shadow","on"]'), vars.CMUX_IOS_SIM_LINUX || 'shadow') && contains(github.run_attempt > 1 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on, 'blacksmith') }}
     runs-on: cmux-linux
     timeout-minutes: 90
     permissions:
@@ -1096,6 +1069,7 @@ jobs:
           HEAD_SHA: ${{ github.sha }}
           PRODUCTS: ${{ needs.kit-sim-pool.outputs.products }}
           LABEL: fleet pool (owned Mac submit)
+          CMUX_IOS_SIM_LINUX: ${{ vars.CMUX_IOS_SIM_LINUX || 'shadow' }}
         run: bash scripts/ci/kit_sim_fleet.sh pool
 
       - name: Upload the fleet pool result

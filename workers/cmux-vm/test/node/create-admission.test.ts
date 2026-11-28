@@ -14,11 +14,14 @@ import {
   DEFAULT_CREATE_CONCURRENCY,
   DEFAULT_CREATE_QUEUE_WAIT_MS,
   INITIAL_HOLD_MS,
+  PROVIDER_CREATE_BUDGET_MS,
   parseCreateAdmission,
   type CreateAdmission,
   type CreateAdmissionSettings,
 } from "../../src/limits/create-admission.ts";
 import { memoryLedgerStorage } from "../../src/limits/ledger.ts";
+import { upstreamConfigOf } from "../../src/upstream/live.ts";
+import { Redacted } from "effect";
 
 const PROVIDER_TIMEOUT_MS = 120_000;
 const HOLD_MS = 14_000;
@@ -169,6 +172,20 @@ describe("CreateAdmissionQueue", () => {
     expect(await waiting).toMatchObject({ admitted: true, waitedMs: 10_000 });
   });
 
+  it("keeps a slot whose create is still polled as a background request (cmux#61044, up to its whole budget): no fourth create in", async () => {
+    expect(CREATE_SLOT_LEASE_MS).toBeGreaterThan(PROVIDER_CREATE_BUDGET_MS);
+    const queue = new CreateAdmissionQueue(memoryLedgerStorage());
+    for (const holder of ["a", "b", "c"]) expect(await queue.admit(holder, SETTINGS)).toMatchObject({ admitted: true });
+    // Every slot is still inside its provider call for the whole of the next create's wait; the old 130 s lease had
+    // freed all three long before.
+    await vi.advanceTimersByTimeAsync(PROVIDER_CREATE_BUDGET_MS - DEFAULT_CREATE_QUEUE_WAIT_MS - 1_000);
+    const waiting = queue.admit("d", SETTINGS);
+    await settle();
+    expect(queue.state.inFlight).toBe(3);
+    await vi.advanceTimersByTimeAsync(DEFAULT_CREATE_QUEUE_WAIT_MS);
+    expect(await waiting).toMatchObject({ admitted: false });
+  });
+
   it("keeps the slots it handed out across a restart of its object", async () => {
     const storage = memoryLedgerStorage();
     const first = new CreateAdmissionQueue(storage);
@@ -203,6 +220,114 @@ describe("CreateAdmissionQueue", () => {
   });
 });
 
+describe("background creates (spares) behind people's creates", () => {
+  const settle = () => vi.advanceTimersByTimeAsync(0);
+
+  it("leaves one slot of the cap for a person: background creates hold at most cap - 1", async () => {
+    const queue = new CreateAdmissionQueue(memoryLedgerStorage());
+    expect(await queue.admit("spare_0", SETTINGS, true)).toMatchObject({ admitted: true });
+    expect(await queue.admit("spare_1", SETTINGS, true)).toMatchObject({ admitted: true });
+    let third: CreateAdmission | null = null;
+    void queue.admit("spare_2", SETTINGS, true).then((answer) => { third = answer; });
+    await settle();
+    expect(third).toBeNull();
+    expect(queue.state).toMatchObject({ inFlight: 2, queued: 1 });
+    // The person's create takes the slot the spares left, at once, past the waiting spare.
+    expect(await queue.admit("person", SETTINGS)).toMatchObject({ admitted: true, waitedMs: 0, inFlight: 3 });
+    // A background slot coming back goes to the waiting spare.
+    await queue.release("spare_0");
+    await settle();
+    expect(third).toMatchObject({ admitted: true });
+  });
+
+  it("serves a person's create queued after background creates first", async () => {
+    const queue = new CreateAdmissionQueue(memoryLedgerStorage());
+    for (const holder of ["a", "b", "c"]) await queue.admit(holder, SETTINGS);
+    const order: Array<string> = [];
+    const spare = queue.admit("spare", SETTINGS, true).then((answer) => { if (answer.admitted) order.push("spare"); });
+    await settle();
+    const person = queue.admit("person", SETTINGS).then((answer) => { if (answer.admitted) order.push("person"); });
+    await settle();
+    await queue.release("a");
+    await settle();
+    expect(order).toEqual(["person"]);
+    await queue.release("b");
+    await settle();
+    expect(order).toEqual(["person", "spare"]);
+    await Promise.all([spare, person]);
+  });
+
+  it("estimates a person's wait from the people ahead only, so spares queued ahead never get it refused", async () => {
+    const queue = new CreateAdmissionQueue(memoryLedgerStorage());
+    for (const holder of ["a", "b", "c"]) await queue.admit(holder, SETTINGS);
+    for (let index = 0; index < 3; index++) void queue.admit(`spare_${index}`, SETTINGS, true);
+    await settle();
+    // Three more spares would wait two holds (past the budget): refused at once.
+    expect(await queue.admit("spare_late", SETTINGS, true)).toMatchObject({ admitted: false, reason: "queue_full" });
+    let person: CreateAdmission | null = null;
+    void queue.admit("person", SETTINGS).then((answer) => { person = answer; });
+    await settle();
+    expect(person).toBeNull();
+    expect(queue.state.queued).toBe(4);
+  });
+
+  /**
+   * Staging's mix, 2026-11-27 14:00-15:00Z, in the provider and client models above: spare fills (the platform's
+   * refills, retried like any create) keep the queue full, and people's creates arrive among them. Both arms run
+   * the same arrivals; the only difference is whether the spares say `background`.
+   */
+  const mixed = async (prioritized: boolean) => {
+    vi.setSystemTime(0);
+    const queue = new CreateAdmissionQueue(memoryLedgerStorage());
+    const provider = makeProvider();
+    const people: Array<{ madeMs: number; refusals: number }> = [];
+    const one = async (holder: string, background: boolean, arriveMs: number) => {
+      await sleep(arriveMs);
+      const started = Date.now();
+      let refusals = 0;
+      for (let attempt = 0; Date.now() < started + RETRY_WINDOW_MS; attempt++) {
+        const admission = await queue.admit(holder, SETTINGS, prioritized && background);
+        if (admission.admitted) {
+          const ok = await provider.create();
+          await queue.release(holder);
+          if (ok) {
+            if (!background) people.push({ madeMs: Date.now() - started, refusals });
+            return;
+          }
+        } else refusals++;
+        await sleep(Math.min(30_000, 1000 * 2 ** attempt));
+      }
+      if (!background) people.push({ madeMs: Infinity, refusals });
+    };
+    const runs = [
+      ...Array.from({ length: 24 }, (_, index) => one(`spare_${index}`, true, index * 2_500)),
+      ...Array.from({ length: 6 }, (_, index) => one(`person_${index}`, false, 5_000 + index * 9_000)),
+    ];
+    await vi.advanceTimersByTimeAsync(RETRY_WINDOW_MS * 2 + PROVIDER_TIMEOUT_MS);
+    await Promise.all(runs);
+    const made = people.map((p) => p.madeMs).sort((a, b) => a - b);
+    return {
+      people: people.length,
+      peopleRefusals: people.reduce((sum, p) => sum + p.refusals, 0),
+      personMedianMs: made[Math.floor(made.length / 2)] ?? Infinity,
+      personWorstMs: made[made.length - 1] ?? Infinity,
+      hung: provider.hung,
+      peakInFlight: provider.peak,
+    };
+  };
+
+  it("a person's create among spare fills: fewer refusals and made sooner when spares say background", async () => {
+    const after = await mixed(true);
+    const before = await mixed(false);
+    process.stdout.write(`create-admission mixed ${JSON.stringify({ before, after })}\n`);
+    expect(after.people).toBe(6);
+    expect(after.hung).toBe(0);
+    expect(after.peakInFlight).toBeLessThanOrEqual(HANGS_PAST);
+    expect(after.peopleRefusals).toBeLessThan(before.peopleRefusals);
+    expect(after.personWorstMs).toBeLessThan(before.personWorstMs);
+  });
+});
+
 describe("parseCreateAdmission", () => {
   it("defaults to the measured cap and the derived wait, turns off only on none or 0, and ignores a value that does not parse", () => {
     expect(parseCreateAdmission(undefined, undefined)).toEqual(SETTINGS);
@@ -211,5 +336,16 @@ describe("parseCreateAdmission", () => {
     expect(parseCreateAdmission("8", "5000")).toEqual({ ...SETTINGS, cap: 8, queueWaitMs: 5000 });
     expect(parseCreateAdmission("three", "-1")).toEqual(SETTINGS);
     expect(parseCreateAdmission("100000", "999999")).toEqual(SETTINGS);
+  });
+});
+
+describe("the Worker's upstream config", () => {
+  it("hands the provider create queue to the client, with every other field (staging 2026-11-27: the layer dropped it)", () => {
+    const createAdmission = { admit: async () => ({ admitted: true as const, waitedMs: 0, inFlight: 1, queued: 0 }), release: async () => {} };
+    const fetch = async () => new Response(null);
+    const config = upstreamConfigOf({ baseUrl: "https://provider.test/", apiKey: "k", environment: "staging", createAdmission, fetch, timeoutMs: 5, backgroundPollMs: 2, startPollMs: 3 });
+    expect(config.createAdmission).toBe(createAdmission);
+    expect(config.fetch).toBe(fetch);
+    expect({ ...config, apiKey: Redacted.value(config.apiKey) }).toEqual({ baseUrl: "https://provider.test/", apiKey: "k", environment: "staging", createAdmission, fetch, timeoutMs: 5, backgroundPollMs: 2, startPollMs: 3 });
   });
 });

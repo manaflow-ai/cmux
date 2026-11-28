@@ -62,10 +62,12 @@ pub mod relay_publish;
 pub mod seal;
 pub mod sealed_notify;
 pub mod services;
+pub mod site_data;
 pub mod size_release;
 pub mod surface;
 pub mod tab_snapshots;
 pub mod traffic;
+pub mod try_pr;
 pub mod viewport_link;
 pub mod viewport_sync;
 

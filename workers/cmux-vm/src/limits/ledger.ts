@@ -14,7 +14,7 @@ import { GeneratedCreation, GeneratedCreationPage } from "../domain/generated-cr
 import { VmCreationReceipt } from "../api/creations.ts";
 import { SnapshotId, VmId } from "../lib/ids.ts";
 import { RetainedVmCreation } from "../domain/vm-creation.ts";
-import { Reservation, type LedgerStorage } from "./storage.ts";
+import { deleteMany, getMany, Reservation, type LedgerStorage } from "./storage.ts";
 import { meshCreation, type MeshCreationCommand, type MeshCreationResult } from "./mesh-creation.ts";
 import { admitAgentSlot, bindAgentCreation, forgetAgentVm, settleAgentSlot, type AgentSlotOutcome } from "./agent-slots.ts";
 export type { LedgerStorage } from "./storage.ts";
@@ -124,6 +124,17 @@ const isGeneratedRecord = Schema.is(GeneratedRecord);
 const readRecord = (value: unknown): IdempotencyRecord | undefined => isGeneratedRecord(value)
   ? { ...value, progress: value.progress.value }
   : checked(isRecord, value);
+/**
+ * Whether the creation under `key` provably sent nothing to the provider: its intent is still `creating` with a
+ * dispatch that never left `ready` (only beginCreateSend moves it to `sent`) or that the provider rejected. A legacy
+ * intent with no dispatch receipt, a send whose outcome is unknown, and a missing record all answer false.
+ */
+export const creationNeverSent = async (storage: LedgerStorage, key: string): Promise<boolean> => {
+  const p = readRecord(await storage.get(`idem:${key}`))?.progress;
+  return p?.phase === "creating" && (p.dispatch?.state === "ready" || p.dispatch?.state === "rejected");
+};
+/** Decodes a stored idempotency record (plain or generated); exported for the scan oracle in test/support. */
+export const readIdempotencyRecord = readRecord;
 const putRecord = (storage: LedgerStorage, key: string, record: IdempotencyRecord) => storage.put(key,
   record.generated === undefined ? record : { ...record, progress: { phase: "generated", value: record.progress } },
 );
@@ -154,11 +165,14 @@ const checked = <T>(guard: (value: unknown) => value is T, value: unknown): T | 
 /** Idempotency records live for a day, as clients retry within minutes to hours. */
 export const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 /**
- * A pending claim whose request died is released after this long. It exceeds
- * the longest create or fork (snapshot, create and grow, 120 s upstream timeout
- * each), so a live request never loses its claim to a retry.
+ * A pending claim whose request died (isolate recycled, connection cut, deploy)
+ * is released this long after its last heartbeat, so a same-key resend can take
+ * it over instead of getting "still running" for the old 10 minutes. A live
+ * request renews it every IDEMPOTENCY_HEARTBEAT_MS (and on each `advance`), so
+ * it never loses its claim however long the create or fork runs.
  */
-export const IDEMPOTENCY_LEASE_MS = 10 * 60 * 1000;
+export const IDEMPOTENCY_LEASE_MS = 90 * 1000;
+export const IDEMPOTENCY_HEARTBEAT_MS = 20 * 1000;
 /** An ordinary reservation expires after this long; an uncertain allocation retains its slot. */
 export const RESERVATION_TTL_MS = 5 * 60 * 1000;
 /**
@@ -201,7 +215,7 @@ export class TenantLedger {
   constructor(private readonly storage: LedgerStorage) {}
 
   meshCreation(command: MeshCreationCommand, nowMs: number): Promise<MeshCreationResult> { return meshCreation(this.storage, command, nowMs); }
-  admitAgentSlot(agent: string, limit: number, ownedVmIds: ReadonlyArray<string>, nowMs: number, slotId: string): Promise<boolean> { return admitAgentSlot(this.storage, agent, limit, ownedVmIds, nowMs, slotId); }
+  admitAgentSlot(agent: string, limit: number, ownedVmIds: ReadonlyArray<string>, nowMs: number, slotId: string): Promise<boolean> { return admitAgentSlot(this.storage, agent, limit, ownedVmIds, nowMs, slotId, creationNeverSent); }
   settleAgentSlot(agent: string, slotId: string, outcome: AgentSlotOutcome, nowMs: number): Promise<void> { return settleAgentSlot(this.storage, agent, slotId, outcome, nowMs); }
   bindAgentCreation(agent: string, creationKey: string, vmId: string, nowMs: number): Promise<void> { return bindAgentCreation(this.storage, agent, creationKey, vmId, nowMs); }
   forgetAgentVm(vmId: string, creationKey: string | null): Promise<void> { return forgetAgentVm(this.storage, vmId, creationKey); }
@@ -362,11 +376,13 @@ export class TenantLedger {
   private async admit(storage: LedgerStorage, kind: string, limit: number, liveCount: number, nowMs: number, reservationId: string, retained: boolean): Promise<boolean> {
     const live = await storage.list({ prefix: "reserve:" });
     let inFlight = 0;
+    const expired: string[] = [];
     for (const [key, value] of live) {
       const reservation = checked(isReservation, value);
-      if (reservation === undefined || (reservation.retained !== true && reservation.expiresMs <= nowMs)) await storage.delete(key);
+      if (reservation === undefined || (reservation.retained !== true && reservation.expiresMs <= nowMs)) expired.push(key);
       else if (reservation.kind === kind && key !== `reserve:${reservationId}`) inFlight += 1;
     }
+    await deleteMany(storage, expired);
     if (liveCount + inFlight >= limit) return false;
     await storage.put(`reserve:${reservationId}`, { kind, expiresMs: nowMs + RESERVATION_TTL_MS, ...(retained ? { retained: true } : {}) });
     return true;
@@ -461,6 +477,17 @@ export class TenantLedger {
         expiresMs: progress.phase === "done" || progress.phase === "snapshotDone" ? Math.max(record.expiresMs, nowMs + IDEMPOTENCY_TTL_MS) : record.expiresMs,
         leaseUntilMs: progress.phase === "done" || progress.phase === "snapshotDone" ? nowMs : nowMs + IDEMPOTENCY_LEASE_MS,
       });
+    });
+  }
+
+  /** Heartbeat of the request holding `key`: extends a live, unfinished claim. A lapsed claim is not revived. */
+  async renew(key: string, nowMs: number): Promise<void> {
+    await this.storage.transaction(async (storage) => {
+      const storageKey = `idem:${key}`;
+      const record = readRecord(await storage.get(storageKey));
+      if (record === undefined || record.leaseUntilMs <= nowMs) return;
+      if (record.progress.phase === "done" || record.progress.phase === "snapshotDone" || record.progress.phase === "cancelled") return;
+      await putRecord(storage, storageKey, { ...record, leaseUntilMs: nowMs + IDEMPOTENCY_LEASE_MS });
     });
   }
 
@@ -561,9 +588,11 @@ export class TenantLedger {
         if (p?.phase === "creating" && slots.has(p.reservationId)) keys.add(key.slice("idem:".length));
       }
     }
+    // One storage call per 128 intents, not one per slot: a CI principal's sweep reads every retained slot's intent.
+    const records = await getMany(this.storage, [...keys].map((key) => `idem:${key}`));
     const found: RetainedCreationSlot[] = [];
     for (const key of keys) {
-      const p = readRecord(await this.storage.get(`idem:${key}`))?.progress;
+      const p = readRecord(records.get(`idem:${key}`))?.progress;
       if (p?.phase !== "creating" || !slots.has(p.reservationId) || p.createdBy !== createdBy || p.intent === undefined || p.dispatch === undefined) continue;
       const startedMs = p.dispatch.at ?? Date.parse(p.intent.createdAt);
       if (!Number.isFinite(startedMs)) continue;
@@ -610,6 +639,12 @@ export function memoryLedgerStorage(): LedgerStorage {
   const view = (read: (key: string) => unknown, write: (key: string, value: unknown) => void, remove: (key: string) => boolean, entries: () => Map<string, unknown>, atomic: LedgerStorage["transaction"]): LedgerStorage => ({
     transaction: atomic,
     get: async (key) => structuredClone(read(key)),
+    getMany: async (keys) => {
+      const out = new Map<string, unknown>();
+      for (const key of keys) { const value = read(key); if (value !== undefined) out.set(key, structuredClone(value)); }
+      return out;
+    },
+    deleteMany: async (keys) => keys.filter((key) => remove(key)).length,
     put: async (key, value) => {
       write(key, structuredClone(value));
     },

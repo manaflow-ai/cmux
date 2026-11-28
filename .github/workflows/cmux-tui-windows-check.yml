@@ -146,8 +146,11 @@ on:
       - "schemas/motion-scale/motion-scale.json"
       - "schemas/type-scale/type-scale.json"
       - "schemas/design-scale/scene-scale.json"
+      - "schemas/sidebar-hover-card-rules/vectors.json"
       - "schemas/sidebar-item-info/vectors.json"
       - "schemas/sidebar-drag-geometry/vectors.json"
+      - "schemas/sidebar-region-layout/vectors.json"
+      - "schemas/settings/source/notifications.json"
       - ".github/workflows/nightly.yml"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneCloudFolder.swift"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/**"
@@ -176,12 +179,23 @@ on:
       - "webviews/bench/link-profiles.json"
       - "webviews/src/apps/scene/extTemplateScenes.json"
       - "webviews/test/fixtures/adopted-codex-turn.events.json"
+      - "schemas/settings/source/page-layout.json"
+      - "docs/mdm/cmux-example.mobileconfig"
+      - "docs/mdm/com.manaflow.cmux.intune.plist"
+      - "docs/mdm/com.manaflow.cmux.json"
+      - "docs/mdm/com.manaflow.cmux.plist"
+      - "docs/mdm/managed-preferences.md"
+      - "schemas/settings/source/row-facts.json"
+      - "schemas/settings/source/samples.json"
+      - "schemas/window-registry/vectors.json"
   workflow_dispatch:
 
 concurrency:
   # A pull request's newer push supersedes its run. A batch run and its bisect probes (one commit, one job
   # each) never cancel one another.
-  group: cmux-tui-windows-check-${{ github.ref }}${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || '' }}
+  # A post-merge call (inputs.sha set) is keyed by its caller's run too: same-commit calls (a confirm round's red-1/red-2,
+  # back-to-back probes) evicted or cancelled each other, and each lost call was dispatched again (cmux runs 45988834788, 45997396504).
+  group: cmux-tui-windows-check-${{ github.ref }}${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || '' }}${{ inputs.sha && format('-call-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -201,7 +215,7 @@ jobs:
     name: route (crate graph)
     # Off pull requests (CI 10x, 2026-11-21: 1.33% of PR runner-minutes, 1.36% of heads it alone caught): it runs
     # after merge on feat-cmux-next pushes, and on a same-repository pull request only with the full-ci label.
-    if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'full-ci'))
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')))
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     outputs:
@@ -242,7 +256,7 @@ jobs:
     # for this repository's own branches. It runs by the crate graph (the route job); a failed
     # router never skips it.
     needs: route
-    if: ${{ ((inputs.only == '' || inputs.only == 'windows-gnu-check') && (!cancelled() && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'full-ci'))) && (needs.route.result != 'success' || needs.route.outputs.windows_gnu_check != 'false'))) && (github.event_name != 'pull_request' || needs.route.result == 'success' || needs.route.result == 'skipped') }}
+    if: ${{ ((inputs.only == '' || inputs.only == 'windows-gnu-check') && (!cancelled() && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')))) && (needs.route.result != 'success' || needs.route.outputs.windows_gnu_check != 'false'))) && (github.event_name != 'pull_request' || needs.route.result == 'success' || needs.route.result == 'skipped') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 45
     steps:

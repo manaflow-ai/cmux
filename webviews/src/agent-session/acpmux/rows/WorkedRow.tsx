@@ -30,6 +30,7 @@ export const WorkedRow = memo(
     a.row.version === b.row.version &&
     a.row.turnPhase === b.row.turnPhase &&
     a.row.foldOpen === b.row.foldOpen &&
+    a.row.foldEmpty === b.row.foldEmpty &&
     // Running, its clock reads `at` and `durationMs`, which the version does not cover.
     a.row.at === b.row.at &&
     a.row.durationMs === b.row.durationMs &&

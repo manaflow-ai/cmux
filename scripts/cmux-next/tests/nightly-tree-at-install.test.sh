@@ -377,8 +377,9 @@ check '[[ $status == 0 ]] && grep -qx "fallback=" "$TMP/gh-output"' "past the wi
 # With it, base's client lacks language-packs-v1, which the tip's app lists: run 44975559258
 # (2026-11-22) failed 20 min in on exactly that. The fallback is dropped at resolve time instead.
 cp "$ROOT/scripts/ci/nightly_fallback_covers.py" "$TMP/src/scripts/ci/"
+# check-daemon-capabilities-fresh.py loads gen-daemon-capabilities.py since #57018 (base run 46008833629).
 cp "$ROOT/scripts/cmux-next/check-app-capability-references.py" "$ROOT/scripts/cmux-next/check-daemon-capabilities-fresh.py" \
-  "$TMP/src/scripts/cmux-next/"
+  "$ROOT/scripts/cmux-next/gen-daemon-capabilities.py" "$TMP/src/scripts/cmux-next/"
 pending
 check '[[ $status == 0 ]] && grep -qx "tree_pending=true" "$TMP/gh-output" && grep -qx "fallback=" "$TMP/gh-output" && grep -q "lacks .language-packs-v1." "$TMP/summary"' \
   "a fallback whose client lacks a capability the tip's app lists is dropped at resolve time"

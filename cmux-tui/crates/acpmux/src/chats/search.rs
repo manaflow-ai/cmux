@@ -49,6 +49,10 @@ impl Needle {
     /// The character index in `text` where the first of the words starts, when `text` holds
     /// them all; None otherwise.
     pub(crate) fn find(&self, text: &str) -> Option<usize> {
+        // The character map is built only for a text that holds every word.
+        if !self.holds_all(text, false) {
+            return None;
+        }
         let folded = Folded::new(text);
         let mut first: Option<usize> = None;
         for word in &self.words {
@@ -56,6 +60,37 @@ impl Needle {
             first = Some(first.map_or(at, |f| f.min(at)));
         }
         first
+    }
+
+    /// False when `flatten(text)` cannot hold every word, read without the copies [`Needle::find`]
+    /// makes (the flattened text, its folding and a character index per byte, about 10 bytes
+    /// written per byte read). A search over many messages calls it first and pays for those
+    /// copies only on a message that may match. A host-wide search of 114 chats here (2026-11-27)
+    /// spent its 1.5 s building them for messages that matched nothing.
+    ///
+    /// Exact for a word with no whitespace, which is every word [`Needle::parse`] makes: folding
+    /// is per character and never turns whitespace into a non-space or back, and `flatten` only
+    /// joins whitespace runs, so such a word is in the folded flattened text iff it is in the
+    /// folded text. A word holding whitespace (a quoted phrase, `terms.rs`) is left to `find`.
+    pub(crate) fn may_match(&self, text: &str) -> bool {
+        self.holds_all(text, true)
+    }
+
+    /// Whether the folded `text` holds every word; a word holding whitespace passes when
+    /// `spaced_pass`.
+    fn holds_all(&self, text: &str, spaced_pass: bool) -> bool {
+        let folded: std::borrow::Cow<'_, str> = if text.is_ascii() {
+            if text.bytes().any(|b| b.is_ascii_uppercase()) {
+                text.to_ascii_lowercase().into()
+            } else {
+                text.into()
+            }
+        } else {
+            text.chars().flat_map(fold_char).collect::<String>().into()
+        };
+        self.words.iter().all(|word| {
+            (spaced_pass && word.contains(char::is_whitespace)) || folded.contains(word.as_str())
+        })
     }
 
     /// The query's words, lowercased.
@@ -146,6 +181,9 @@ pub fn find(needle: &Needle, turns: &[Turn]) -> Option<Hit> {
     let mut matches = 0_usize;
     for (turn, t) in turns.iter().enumerate() {
         for (role, text) in [("prompt", &t.prompt), ("answer", &t.answer)] {
+            if !needle.may_match(text) {
+                continue;
+            }
             let flat = flatten(text);
             let Some(at) = needle.find(&flat) else { continue };
             matches = matches.saturating_add(1);
