@@ -10,6 +10,11 @@ FILE holds TEXT, a color expression whose fill covers the screenshot pixel (X, Y
 Nth color of COLORS in its place and times from the write to the first screenshot whose pixel is
 nearest that color. Prints one JSON line per edit and a summary with the p50. Restores FILE at the
 end. IOS_SIM_SET names the simctl device set; JOBS bounds the rebuild's xcodebuild jobs.
+
+CMUX_LIVE_CODE_DISTINCT_BENCH=SECONDS (live, with --out): once SECONDS have passed since the first run on
+that --out, every edit writes code no earlier edit wrote (the same color, with a counter in the literal's
+trailing digits that the pixel cannot see), so a session of distinct saves runs on the same app after a
+session of repeated ones. The clock and the counter live in OUT/distinct-bench.json.
 """
 import argparse
 import json
@@ -52,9 +57,39 @@ def nearest(rgb):
     return min(range(len(COLORS)), key=lambda i: sum((a - b) ** 2 for a, b in zip(rgb, COLORS[i])))
 
 
-def color_expr(rgb):
+def color_expr(rgb, serial=None):
     r, g, b = (round(c / 255, 3) for c in rgb)
-    return f"Color(red: {r}, green: {g}, blue: {b})"
+    # A serial lands past the 9th decimal: a different literal, the same pixel.
+    red = f"{r:.3f}{serial:08d}" if serial is not None else r
+    return f"Color(red: {red}, green: {g}, blue: {b})"
+
+
+class Distinct:
+    """CMUX_LIVE_CODE_DISTINCT_BENCH: the serial for the next edit, or None while saves still repeat."""
+
+    def __init__(self, opts):
+        after = os.environ.get("CMUX_LIVE_CODE_DISTINCT_BENCH")
+        self.path = os.path.join(opts.out, "distinct-bench.json") if after and opts.mode == "live" and opts.out else None
+        if not self.path:
+            return
+        try:
+            with open(self.path) as f:
+                self.state = json.load(f)
+        except (OSError, ValueError):
+            self.state = {"since": time.time(), "after_s": float(after), "serial": 0}
+            self.save()
+
+    def save(self):
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        with open(self.path, "w") as f:
+            json.dump(self.state, f)
+
+    def next(self):
+        if not self.path or time.time() - self.state["since"] < self.state["after_s"]:
+            return None
+        self.state["serial"] += 1
+        self.save()
+        return self.state["serial"]
 
 
 def wait_visible(udid, x, y, want, started, deadline, failed=lambda: False):
@@ -117,11 +152,13 @@ def main():
     if original.count(within) != 1 or within.count(opts.old) != 1:
         sys.exit(f"ios-live-code.py: {within!r} is in {path} {original.count(within)} times, not once (or holds no {opts.old!r})")
     results = []
+    distinct = Distinct(opts)
     try:
         for edit in range(opts.edits):
             want = edit % len(COLORS)
+            serial = distinct.next()
             with open(path, "w") as f:
-                f.write(original.replace(within, within.replace(opts.old, color_expr(COLORS[want]))))
+                f.write(original.replace(within, within.replace(opts.old, color_expr(COLORS[want], serial))))
             started = time.time()
             apply_rebuild.started = started
             outcome = {}
@@ -135,7 +172,7 @@ def main():
             seconds, rgb = wait_visible(opts.udid, opts.x, opts.y, want, started, started + opts.timeout, lambda: outcome.get("ok") is False)
             worker.join()
             row = {"mode": opts.mode, "edit": edit + 1, "color": COLORS[want], "visible_s": None if seconds is None else round(seconds, 3),
-                   "pixel": rgb, "apply_s": round(outcome.get("applied_s", 0), 3), "ok": outcome.get("ok"), "log": outcome.get("lines", [])[-3:]}
+                   "distinct": serial, "pixel": rgb, "apply_s": round(outcome.get("applied_s", 0), 3), "ok": outcome.get("ok"), "log": outcome.get("lines", [])[-3:]}
             print(json.dumps(row), flush=True)
             if seconds is None or not outcome.get("ok"):
                 sys.exit(f"ios-live-code.py: edit {edit + 1} did not show")
