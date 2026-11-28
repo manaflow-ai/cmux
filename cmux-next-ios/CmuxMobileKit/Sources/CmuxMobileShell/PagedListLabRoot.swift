@@ -104,6 +104,7 @@ public struct PagedListLabRoot: View {
             }
             .safeAreaInset(edge: .top, spacing: 0) {
                 if banner {
+                    // placeholder-ok: the DEBUG lab's banner, a bar over the list that the tests toggle; nothing loads.
                     Text("Updating…")
                         .font(theme.type.meta)
                         .frame(maxWidth: .infinity)

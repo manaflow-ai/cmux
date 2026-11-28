@@ -28,6 +28,7 @@ public struct PagedList<Item: Identifiable & Equatable, Row: View, Empty: View>:
     let empty: () -> Empty
     var swipeActions: ((Item) -> [PagedListAction])?
     var endLabel: LocalizedStringKey?
+    // placeholder-ok: the first page of a list with nothing kept to draw (a screen with kept rows passes `.loaded`).
     var loadingLabel: LocalizedStringKey = "Loading…"
     var failureTitle: LocalizedStringKey = "Couldn't load"
     var identifier = "pagedList"
@@ -100,6 +101,7 @@ public struct PagedList<Item: Identifiable & Equatable, Row: View, Empty: View>:
     }
 
     private var loadingState: some View {
+        // placeholder-ok: the first page of a list with nothing kept to draw (a screen with kept rows passes `.loaded`).
         CmuxSpinner(label: Text(loadingLabel))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .accessibilityElement(children: .contain)
@@ -317,6 +319,7 @@ struct PagedListEdgeView: View {
                 // element, so it is read ("Loading more") and found by its identifier.
                 framed
                     .accessibilityElement(children: .ignore)
+                    // placeholder-ok: the rows past the ones held are on their way; nothing is kept for them.
                     .accessibilityLabel(Text("Loading more"))
             } else {
                 framed.accessibilityElement(children: .contain)
@@ -336,6 +339,7 @@ struct PagedListEdgeView: View {
         Group {
             switch edge {
             case .more, .loading:
+                // placeholder-ok: the rows past the ones held are on their way; nothing is kept for them.
                 CmuxSpinner()
                     .controlSize(.small)
             case .failed(let message):

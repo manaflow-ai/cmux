@@ -524,6 +524,7 @@ struct AgentChatRow: View {
     @ViewBuilder
     private var trailing: some View {
         if busy {
+            // placeholder-ok: the chat the person tapped is opening or archiving; its row shows that work, not a load.
             CmuxSpinner()
         } else if let updated = chat.updatedAt {
             Text(Self.ages.localizedString(for: updated, relativeTo: Date()))
