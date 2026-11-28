@@ -110,6 +110,12 @@ restore() {
   else
     rm -f -- "$manifest"
     echo "pool warm target: miss (no recorded build in $target); the third-party crates it holds stay, workspace crates rebuild"
+    # An empty tree holds no third-party crates either: linking it skips the R2 cargo restore and
+    # the job builds all ~600 crates cold (20 min, run 45953923217). Not linking lets R2 restore.
+    if [[ "${CMUX_POOL_WARM_TARGET_MISS_R2:-}" == 1 ]] && pool_runner && [[ -z "$(ls -A "$target")" ]]; then
+      echo "pool warm target: the tree is empty; not linked, the R2 cargo build restores instead"
+      return 0
+    fi
   fi
   python3 -I "$mtimes" restore "$repo" "$consumed"
   rm -f -- "$consumed"
