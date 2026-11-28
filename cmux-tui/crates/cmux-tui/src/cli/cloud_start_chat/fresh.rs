@@ -36,7 +36,31 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use super::internal::bounded::PAST_DEADLINE;
-use super::{Deadline, Outcome, Ran, Request, Runner, at, failed, run_once, step_result, words};
+use super::{
+    Deadline, Machine, Outcome, Ran, Request, Runner, at, failed, lists_name, run_once,
+    step_result, words,
+};
+
+/// The machine this run makes for itself: a fresh name's, or a `--name` no listed machine or create has yet (a
+/// product Cloud lane's `lane-NAME` on its first start). Either is bounded and, stuck, deleted and made again.
+/// AutoCloud, 2026-11-27 after 21:00Z: `start-chat --name lane-X` answered the app's "Machine `lane-X` didn't
+/// connect, so no agent started" with no retry, because only an unnamed start's machine was bounded, though the
+/// named one was just as new. A listed or still-creating name is the caller's and is never deleted.
+pub(super) fn own(
+    fresh: Option<&String>,
+    request: &Request,
+    machine: &Machine,
+    listed: &Value,
+) -> Option<String> {
+    fresh.cloned().or_else(|| match (&request.environment, machine) {
+        (None, Machine::Named(name))
+            if at(listed, "loaded").as_bool() != Some(false) && !lists_name(listed, name) =>
+        {
+            Some(name.clone())
+        }
+        _ => None,
+    })
+}
 
 /// The longest a `cloud start-session` on a machine this run made may take before the machine is given up, when the
 /// machine is running by then (a claimed spare); one still booting then is waited on ([`Boot`], [`COLD_BOUND`]).
