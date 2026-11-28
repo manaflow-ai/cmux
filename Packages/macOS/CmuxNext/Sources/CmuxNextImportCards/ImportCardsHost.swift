@@ -1,4 +1,5 @@
 public import CmuxNextBrowserImport
+public import CmuxNextDaemon
 public import CmuxNextImportSuggestions
 public import Foundation
 
@@ -25,6 +26,9 @@ public struct ImportCardsHost {
     /// recorded in the import's ledger (so nothing comes over twice). Reports progress and
     /// returns as `importClassic` does.
     public var importConductor: (@escaping @MainActor (Double) -> Void) async throws -> Int?
+    /// Performs the daemon's read-only source probe for the live Import Suggestions scan.
+    /// Errors are handled by the scan caller and never hide the other source findings.
+    public var detectConductor: (() async -> ConductorImportDetection?)?
     /// What Classic file metadata and the accepted-import ledger say is available.
     public var classicAvailability: () async -> ClassicImportAvailability
     /// Move this Mac to AutoCloud (RFD 0173); nil where the host offers none.
@@ -36,12 +40,14 @@ public struct ImportCardsHost {
                 importClassic: @escaping (@escaping @MainActor (Double) -> Void) async throws -> Int?,
                 importConductor: @escaping (@escaping @MainActor (Double) -> Void) async throws -> Int?,
                 classicAvailability: @escaping () async -> ClassicImportAvailability,
+                detectConductor: (() async -> ConductorImportDetection?)? = nil,
                 autoCloud: AutoCloudMove? = nil) {
         self.runImport = runImport
         self.importedProfiles = importedProfiles
         self.openSettings = openSettings
         self.importClassic = importClassic
         self.importConductor = importConductor
+        self.detectConductor = detectConductor
         self.classicAvailability = classicAvailability
         self.autoCloud = autoCloud
     }

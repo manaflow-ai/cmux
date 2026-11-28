@@ -1990,6 +1990,7 @@ dependencies = [
 name = "cmux-conductor-import"
 version = "0.1.0"
 dependencies = [
+ "cmux-chat-index",
  "cmux-git",
  "rusqlite",
  "serde",

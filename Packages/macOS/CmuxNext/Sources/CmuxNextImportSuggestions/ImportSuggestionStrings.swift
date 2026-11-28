@@ -21,6 +21,12 @@ public nonisolated struct ImportSuggestionStrings: Sendable {
     static func workspaces(_ count: Int) -> String {
         String(localized: "importSuggestions.facts.workspaces", defaultValue: "\(count) saved workspaces", table: "ImportSuggestions", bundle: .localizedModule)
     }
+    public static var agentWorktreesTitle: String {
+        String(localized: "importSuggestions.agentWorktrees.title", defaultValue: "Agent worktrees", table: "ImportSuggestions", bundle: .localizedModule)
+    }
+    static var agentWorktrees: String {
+        String(localized: "importSuggestions.facts.agentWorktrees", defaultValue: "Agent worktrees found", table: "ImportSuggestions", bundle: .localizedModule)
+    }
     static func checkouts(_ count: Int) -> String {
         String(localized: "importSuggestions.facts.checkouts", defaultValue: "\(count) projects", table: "ImportSuggestions", bundle: .localizedModule)
     }
@@ -74,6 +80,11 @@ public nonisolated struct ImportSuggestionStrings: Sendable {
     static var conductor: String {
         String(localized: "importSuggestions.benefit.conductor",
                defaultValue: "Your workspaces open here in place, on their branches, with their chats.",
+               table: "ImportSuggestions", bundle: .localizedModule)
+    }
+    static var agentWorktreesBenefit: String {
+        String(localized: "importSuggestions.benefit.agentWorktrees",
+               defaultValue: "Open existing agent worktrees in cmux, on their branches.",
                table: "ImportSuggestions", bundle: .localizedModule)
     }
     /// The Move this Mac to AutoCloud card's title.

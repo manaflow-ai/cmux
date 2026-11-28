@@ -113,7 +113,7 @@ enum OnboardingHandlers {
                 guard let reply = try? await AppOnboardingServices(owner: services.onboarding).classicImportClient().probe(.manual),
                       reply.available else { return .unavailable }
                 return reply.alreadyImported ? .alreadyImported : .available
-            }, autoCloud: AutoCloudMove(cli: services.bundledCLI, settings: { services.settings }))
+            }, detectConductor: { await ConductorImportClient.detect(on: services.daemon.connection) }, autoCloud: AutoCloudMove(cli: services.bundledCLI, settings: { services.settings }))
     }
 
     /// Import Workspaces from Classic cmux as every entrypoint runs it (the action, the cmux

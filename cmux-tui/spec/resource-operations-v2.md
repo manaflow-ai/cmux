@@ -4,6 +4,28 @@
 This page is a compact index; it does not replace the catalog's exact
 selectors, fields, results, errors, constraints, or stream types.
 
+## Agent worktree import
+
+`conductor_import.plan` retains its existing operation name and accepts the
+optional boolean `detect_only`. Omitted or false builds the full dry run using
+Conductor data and candidate folders already supplied by the agent chat index.
+Git verifies linked worktrees; matching paths share one adoption and preserve
+existing Conductor IDs. The same import ledger prevents duplicate imports.
+
+With `detect_only: true`, the response keeps `found` and sets `plan` to null.
+It adds `candidate_folders` (counts by tool ID), `has_conductor`, and `card`
+(an onboarding offer or null). This path checks presence and existing project
+rows without running Git, reading the ledger, or scanning transcripts. Folder
+counts are hints; the card's count is null until a full plan verifies worktrees.
+
+Full responses may add `tool_sources` (tool IDs by import workspace ID),
+`unreadable_folders` (paths only), and `has_conductor`. The full plan also carries
+`has_conductor`; Conductor cloud dates and archive warnings apply only when it
+is true. A recipe's `project_path` names its destination project. A failed agent
+scan preserves an available Conductor plan with an `agent-source-scan-failed`
+warning; otherwise scan limits return a named error and null plan. Transcripts
+stay at their sources, and environment variables contribute names only.
+
 ## Transported operations
 
 `cmux.protocol/2` transports the operations in `resource-operations-v2.json` for one local mux

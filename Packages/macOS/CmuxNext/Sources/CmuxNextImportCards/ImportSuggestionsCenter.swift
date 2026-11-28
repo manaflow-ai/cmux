@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxNextActions
 public import CmuxNextBrowserImport
 import CmuxNextCompat
+import struct CmuxNextDaemon.ConductorImportDetection
 import CmuxNextDesign
 public import CmuxNextImportSuggestions
 import CmuxNextOnboarding
@@ -41,6 +42,7 @@ public final class ImportSuggestionsCenter {
     @ObservationIgnored private var lastScan: Date?
     /// The scan in flight, cancelled when `browser.import.enabled` turns off.
     @ObservationIgnored private var scanning: Task<Void, Never>?
+    @ObservationIgnored private var refreshAfterRelay = false
     /// Bumped when a scan in flight is dropped, so its late answer changes nothing.
     @ObservationIgnored private var scanGeneration = 0
     @ObservationIgnored var running: [String: Task<Void, Never>] = [:]
@@ -75,6 +77,7 @@ public final class ImportSuggestionsCenter {
             if !importEnabled, isScanning {
                 scanning?.cancel()
                 scanning = nil
+                refreshAfterRelay = false
                 scanGeneration += 1
                 isScanning = false
             }
@@ -122,6 +125,13 @@ public final class ImportSuggestionsCenter {
         if now().timeIntervalSince(lastScan) >= Self.rescanInterval { scan() }
     }
 
+    /// The one-shot project relay may complete while the initial scan is in flight. Queue exactly
+    /// one refresh after that scan so its older detection cannot hide the new candidate card.
+    public func initialProjectRelayFinished() {
+        guard isEnabled else { return }
+        if isScanning { refreshAfterRelay = true } else { scan() }
+    }
+
     /// Scans this Mac off the main thread; `then` runs on the main actor after the findings land.
     public func scan(then: (@MainActor () -> Void)? = nil) {
         guard isEnabled, !isScanning, let host else { then?(); return }
@@ -143,6 +153,10 @@ public final class ImportSuggestionsCenter {
             findings = found
             icons.load(deck.list().cards.compactMap(\.app))
             then?()
+            if refreshAfterRelay {
+                refreshAfterRelay = false
+                self.scan()
+            }
         }
     }
 
@@ -158,7 +172,7 @@ public final class ImportSuggestionsCenter {
         // runs detached, so the cancel reaches it through `stop`, checked before each source.
         guard !Task.isCancelled else { return [] }
         let stop = ImportScanStop()
-        return await withTaskCancellationHandler {
+        let findings = await withTaskCancellationHandler {
             await Task.detached(priority: .utility) {
                 ImportScanner(home: environment.homeDirectory, environment: environment, variables: variables,
                               importedProfiles: imported, classicAvailability: classic, shouldStop: { stop.isSet },
@@ -167,6 +181,23 @@ public final class ImportSuggestionsCenter {
         } onCancel: {
             stop.set()
         }
+        guard !Task.isCancelled else { return [] }
+        // The daemon owns the cross-tool project index and returns one card for any candidate
+        // worktree. Keep the existing local Conductor detector as a compatibility fallback for
+        // older daemons, then replace its card when the typed probe has newer source metadata.
+        return mergingAgentDetection(await host.detectConductor?(), into: findings)
+    }
+
+    /// The daemon supplies source metadata; local detection supplies a known workspace count.
+    static func mergingAgentDetection(_ detection: ConductorImportDetection?, into findings: [ImportFinding]) -> [ImportFinding] {
+        guard let detection, let card = detection.card,
+              card.id == "agents.conductor", card.kind == "conductor" else { return findings }
+        let local = findings.first { $0.id == card.id }
+        var merged = findings.filter { $0.id != card.id }
+        merged.append(ImportFinding(id: card.id, kind: .conductor,
+                                    name: detection.hasConductor ? (local?.name ?? card.name) : ImportSuggestionStrings.agentWorktreesTitle,
+                                    count: card.count ?? local?.count ?? 0, hasConductor: detection.hasConductor))
+        return merged
     }
 
     // MARK: Cards

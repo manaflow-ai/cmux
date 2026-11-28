@@ -39,6 +39,7 @@ struct ConductorImportWireTests {
         let plan = try #require(reply.plan)
         #expect(reply.error == nil)
         #expect(plan.cloudShutdown == "2026-11-20")
+        #expect(plan.hasConductor)
         #expect(plan.cleanup == ["ws-half"])
         #expect(plan.projects.first?.envNames == ["API_KEY"])
         #expect(plan.warnings.map(\.code) == ["archive-deletes-folder"])
@@ -61,4 +62,21 @@ struct ConductorImportWireTests {
                                                from: Data(#"{"found": {}, "plan": null, "error": "ledger from a newer cmux"}"#.utf8))
         #expect(refused.error == "ledger from a newer cmux")
     }
+    @Test func genericDetectionCarriesCountsWithoutInventingAWorkspaceCount() throws {
+        let json = #"{"candidate_folders":{"codex":2,"opencode":1},"has_conductor":false,"card":{"id":"agents.conductor","kind":"conductor","name":"Agent worktrees","count":null}}"#
+        let detection = try JSONDecoder().decode(ConductorImportDetection.self, from: Data(json.utf8))
+        #expect(detection.candidateFolders == ["codex": 2, "opencode": 1])
+        #expect(!detection.hasConductor)
+        #expect(detection.card?.count == nil)
+        #expect(detection.card?.id == "agents.conductor")
+    }
+
+    @Test func oldDetectionAndGenericPlansKeepTheirSourceMeaning() throws {
+        let old = try JSONDecoder().decode(ConductorImportDetection.self, from: Data(#"{"found":{}}"#.utf8))
+        #expect(old.hasConductor && old.card == nil && old.candidateFolders.isEmpty)
+        let json = #"{"plan":{"cloud_shutdown":"","has_conductor":false,"projects":[],"cleanup":[],"warnings":[]}}"#
+        let reply = try JSONDecoder().decode(ConductorImportReply.self, from: Data(json.utf8))
+        #expect(reply.plan?.hasConductor == false)
+    }
+
 }

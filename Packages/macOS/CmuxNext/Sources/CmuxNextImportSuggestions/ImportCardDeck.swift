@@ -46,6 +46,7 @@ public nonisolated struct ImportCardDeck: Sendable {
     // MARK: Cards
 
     func app(_ finding: ImportFinding) -> String? {
+        if finding.kind == .conductor, !finding.hasConductor { return nil }
         if let browser = finding.browser { return apps[finding.id] ?? browser.bundleIDs.first }
         return apps[finding.id]
     }
@@ -63,7 +64,9 @@ public nonisolated struct ImportCardDeck: Sendable {
         case .cmuxClassic:
             guard let count = finding.count else { return "" }
             return finding.offersNothingNew ? ImportSuggestionStrings.classicAllHere : ImportSuggestionStrings.workspaces(count)
-        case .conductor: return ImportSuggestionStrings.workspaces(finding.count ?? 0)
+        case .conductor:
+            let count = finding.count ?? 0
+            return finding.hasConductor && count > 0 ? ImportSuggestionStrings.workspaces(count) : ImportSuggestionStrings.agentWorktrees
         case .autoCloud: return ImportSuggestionStrings.checkouts(finding.count ?? 0)
         case .iterm2: return ImportSuggestionStrings.profiles(finding.count ?? 0)
         case .ghostty: return ImportSuggestionStrings.inUse
@@ -79,7 +82,7 @@ public nonisolated struct ImportCardDeck: Sendable {
         case .claudeCode: return ImportSuggestionStrings.claudeCode
         case .codex: return ImportSuggestionStrings.codex
         case .cmuxClassic: return finding.offersNothingNew ? ImportSuggestionStrings.classicAgain : ImportSuggestionStrings.classic
-        case .conductor: return ImportSuggestionStrings.conductor
+        case .conductor: return finding.hasConductor ? ImportSuggestionStrings.conductor : ImportSuggestionStrings.agentWorktreesBenefit
         case .autoCloud: return ImportSuggestionStrings.autoCloud
         case .iterm2: return ImportSuggestionStrings.iterm2
         case .ghostty: return ImportSuggestionStrings.ghostty
