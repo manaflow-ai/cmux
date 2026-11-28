@@ -564,6 +564,7 @@ enum ChatRowCost {
 /// only the rows whose content changed (the streaming block, a finished tool call).
 @MainActor
 final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollectionViewDataSourcePrefetching {
+    private static let launchLog = Logger(subsystem: "dev.cmux.mobile", category: "timing")
     let collectionView: ChatTranscriptCollectionView
     let layout: ChatTranscriptLayout
     private(set) var store: AgentChatStore
@@ -1181,6 +1182,14 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             collectionView.contentOffset.y += top - anchor.top
         }
         loaded = true
+        // Launch to the chat's latest output on screen (LaunchMarks `chat_latest_output_frame`): the
+        // first frame that presents transcript rows while the list follows its end, so the newest
+        // line is the one shown. Once per process; the open-live sim mode reads it, with the line
+        // before it saying which chat that frame shows and whether its last turn was still running.
+        if !ids.isEmpty, surface.following, !LaunchMarks.shared.has("chat_latest_output_frame") {
+            Self.launchLog.info("open-live chat \(self.store.summary.id, privacy: .public) running \(self.store.turns.last?.status == .running, privacy: .public) pid \(getpid(), privacy: .public)")
+            LaunchMarks.shared.markNextFrame("chat_latest_output_frame")
+        }
         if !heldMissing.isEmpty { prepare(heldMissing, urgent: true) }
         if !missing.isEmpty { prepare(missing, urgent: false) }
         queueWarmUp(weighed)
@@ -1713,7 +1722,7 @@ extension ChatRow {
     }
 
     static let hostedReuseKeys = ["prompt", "chiefContext", "incoming", "block", "thought", "tool", "toolGroup", "edit", "plan", "permission", "question",
-                                  "subagents", "working", "editedFiles", "stopped", "failed", "actions", "nextStep", "whoElse", "worked", "other"]
+                                  "subagents", "working", "editedFiles", "stopped", "failed", "actions", "nextStep", "whoElse", "githubSignIn", "worked", "other"]
 
     /// The SwiftUI reuse pool: one per kind, so a reused cell keeps its view structure.
     var hostedReuseKey: String {
@@ -1739,6 +1748,7 @@ extension ChatRow {
         case .actions: "actions"
         case .nextStep: "nextStep"
         case .whoElse: "whoElse"
+        case .githubSignIn: "githubSignIn"
         case .worked: "worked"
         }
     }
@@ -1816,6 +1826,7 @@ extension ChatRow {
         case .whoElse(_, let call):
             let rows = min(call.answer?.sessions.count ?? 0, WhoElseCall.rowsShown)
             return 32 + CGFloat(rows) * 48 + (call.hiddenCount(shown: rows) > 0 ? 32 : 0) + (call.unreachedNote == nil ? 0 : 20)
+        case .githubSignIn: return 110
         }
     }
 }

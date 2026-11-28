@@ -437,10 +437,8 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-          # History (trees, no file contents) for git log over base..sha; the
-          # work tree is the script only.
-          fetch-depth: 0
-          filter: blob:none
+          # The work tree is the script only; the next step fetches the
+          # history git log reads over base..sha.
           sparse-checkout: scripts/ci
 
       # A failed note never stops the upload: the signer then sends the first line only.
@@ -452,6 +450,9 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "sha must be 40 lowercase hex" >&2; exit 1; }
+          # feat-cmux-next's history without blobs, not fetch-depth 0's every
+          # branch and tag (205 s of this job, job 141000547805); then the build's commit.
+          scripts/ci/fetch_branch_history.sh feat-cmux-next
           git fetch -q --no-tags --filter=blob:none origin "$SHA"
           mkdir -p "$RUNNER_TEMP/notes"
           python3 -I scripts/ci/ios_internal_notes.py notes --sha "$SHA" --base "$BASE" --asc-ref "$ASC_REF" \
