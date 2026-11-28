@@ -18755,6 +18755,8 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "cmux-next-react-doctor.yml",
             # The tab switch check: a display Mac measures the pull request head's tab switches (advisory).
             "cmux-next-tab-switch.yml",
+            # The scale fixture gate (#63279): a display Mac times main-thread blocks at 1,100 workspaces (advisory).
+            "cmux-next-scale-fixture.yml",
             # iPhone DEV built ahead (#51721): an advisory fleet build per PR head; never a required check.
             "cmux-next-ios-try-ahead.yml",
             # Split latency measurements (#61185) and acpmux's transfer_cli product tests (#58314).

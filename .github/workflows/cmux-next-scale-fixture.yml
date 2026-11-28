@@ -96,7 +96,7 @@ jobs:
             --artifact artifacts/split-spring/report.json \
             --arg=--suite=scale-fixture --arg="--workspaces=$WORKSPACES" 2>&1 | tee "$out/run.log"
           rc="${PIPESTATUS[0]}"
-          step="$(grep -o -E '\b[0-9a-f]{24}\b' "$out/run.log" | head -1)"
+          step="$(grep -o -E '\b[0-9a-f]{24}\b' "$out/run.log" | head -1 || true)"
           [[ -n "$step" ]] || warn "no fleet step started (no free GUI Mac or controller error)"
           if [[ "$rc" == 75 ]]; then
             "$client" cancel "$step" --reason "scale fixture gate: queued past 30 min, check passed open" || true
