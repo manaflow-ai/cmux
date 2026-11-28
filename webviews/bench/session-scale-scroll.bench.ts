@@ -333,9 +333,12 @@ async function openPage(
       const mock = globalThis as {
         cmuxAcpmuxMockListSize?: number;
         cmuxAcpmuxMockListShape?: string;
+        cmuxAcpmuxMockPaged?: boolean;
         __cmuxNewTabContext?: unknown;
       };
       mock.cmuxAcpmuxMockListSize = count;
+      // The list in pages of the client's `limit`, as acpmux sends it (mock.ts `listPage`).
+      mock.cmuxAcpmuxMockPaged = true;
       mock.cmuxAcpmuxMockListShape = shape;
       // A New Tab page as the app opens one: the host injects its context before the first render.
       if (newTab) mock.__cmuxNewTabContext = {};

@@ -19,13 +19,17 @@ public protocol HistoryPageEditing: AnyObject {
 }
 
 extension HistoryPageEditing {
-    /// The read of `cmux.history.entries.list {kinds?, text?, range?, limit?}`. Closed when no owner answered.
+    /// The read of `cmux.history.entries.list {kinds?, text?, range?, limit?, actor?}`. Closed when no owner answered.
     func list(_ params: CmuxNextSettings.JSONValue) async throws -> HistoryRead {
         var query = HistoryQuery(text: params["text"]?.stringValue ?? "", kinds: try Self.kinds(params),
                                  limit: max(1, min(params["limit"]?.intValue ?? 1_000, 5_000)))
         if let range = params["range"]?.stringValue {
             guard let parsed = HistoryRange(rawValue: range) else { throw PageError.invalidParams("range must be hour, today, week, month or all") }
             query.range = parsed
+        }
+        if let actor = params["actor"]?.stringValue {
+            guard let parsed = HistoryActorFilter(rawValue: actor) else { throw PageError.invalidParams("actor must be mine, agents or all") }
+            query.actor = parsed
         }
         let read = await read(query)
         // No owner answered: the page shows its disconnected state, as for a closed relay.

@@ -268,6 +268,25 @@ pub static ACTIONS: &[Action] = &[
         cli_name: "agent show-background-tasks",
         ..Action::DEFAULT
     },
+    // The last turn that edited files, its diff in a tab beside the chat, as the edited-files card's
+    // View changes opens it, from the keyboard: Command-J G (G as Show Diff Viewer's Control-Shift-
+    // Command-G; the leader look's D is its Show Diff Viewer). The page offers it while a turn
+    // edited something (`pane.commandAvailability`).
+    Action {
+        id: "agentPane.openLastTurnChanges",
+        group: GROUP,
+        title: t("ActionCatalog", "action.agentPane.openLastTurnChanges", "Open Last Turn's Changes"),
+        keywords: &["agent", "chat", "diff", "changes", "turn", "edits", "view changes", "review"],
+        default_chord: Some(Chord { first: Shortcut { key: "j", modifiers: CMD }, second: Shortcut { key: "g", modifiers: 0 } }),
+        category: "agents",
+        symbol: "plusminus",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        requires: &["agentPaneFocused"],
+        targets: &["pane"],
+        cli_name: "action agent-pane-open-last-turn-changes",
+        ..Action::DEFAULT
+    },
     Action {
         id: "agentPane.toggleInspector",
         group: GROUP,

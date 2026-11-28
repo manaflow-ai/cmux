@@ -258,16 +258,20 @@ final class TerminalDemoDriver {
         // `-CmuxMobileTerminalDemoWideType`: Wide on, then a 120-column paste
         // at the prompt: its echo carries the cursor far right of the page,
         // and the page pans after it (TerminalWideOutputUITests).
+        // The step label says "wide typed" once the paste is in: `mark` writes
+        // only the timeline file, and the label is what the UI test reads.
+        var step = "wide ready "
         if CommandLine.arguments.contains("-CmuxMobileTerminalDemoWideType") {
             model.setWide(true)
             await wait(2)
             model.controller?.surface.sendText(String(repeating: "x", count: 120), pressReturn: false)
             await wait(1.5)
             mark("wide typed " + (model.controller?.wideProbe ?? "-"))
+            step = "wide typed "
         }
         let deadline = Date().addingTimeInterval(120)
         while Date() < deadline {
-            model.demoNote = "wide ready " + (model.controller?.wideProbe ?? "-")
+            model.demoNote = step + (model.controller?.wideProbe ?? "-")
             await wait(0.25)
         }
     }

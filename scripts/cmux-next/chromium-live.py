@@ -365,7 +365,9 @@ class Builder:
             shutil.copy2(previous[-1] / BINARY_NAME, dest)  # rsync sends only the delta
         rsh = shlex.join(self.ssh()[:-1])
         # -L: the build's link to the framework (its own path has spaces) comes back as the file.
-        run(["rsync", "-a", "-L", "-z", "--inplace", "-e", rsh,
+        # No -z: the delta is a few hundred KB, but compression still runs over every matched byte. A
+        # client that falls back to zlib (macOS rsync 2.6.9, openrsync) spent 21.8 s on 460 MB, against 0.77 s.
+        run(["rsync", "-a", "-L", "--inplace", "-e", rsh,
              self.rsync_remote(self.keep + "/framework"), str(dest)])
         if sha256(dest) != report["sha256"]:
             raise LiveError("the fetched framework does not match the build host's sha256")

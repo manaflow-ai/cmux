@@ -85,3 +85,33 @@ async fn owner_return_not_enrolled_moves_nothing() {
     r.tick(&hub, false, Some(0.0), &target).await;
     assert!(target.0.lock().unwrap().is_empty());
 }
+
+/// One authority (RFD 0172): a busy placed Auto chat held here is not paused (its move is the
+/// store's give, which stops the turn itself) and never reaches `session move`; an Auto chat
+/// another machine holds is not in the plan at all.
+#[tokio::test]
+async fn owner_return_never_session_moves_or_pauses_an_auto_chat() {
+    let (hub, clock) = fixture();
+    let busy = hub.resolve("placed-busy").unwrap();
+    hub.update_auto_record(&busy, |_| {
+        Some(crate::auto_session::record::AutoRecord {
+            here: true,
+            ..crate::auto_session::record::AutoRecord::on()
+        })
+    });
+    let idle = hub.resolve("placed-idle").unwrap();
+    hub.update_auto_record(&idle, |_| {
+        Some(crate::auto_session::record::AutoRecord {
+            here: false,
+            ..crate::auto_session::record::AutoRecord::on()
+        })
+    });
+    let target = FakeTarget::default();
+    let mut r = Returner::default();
+    r.tick(&hub, true, Some(900.0), &target).await;
+    clock.advance(TICK);
+    let plan = r.tick(&hub, true, Some(1.0), &target).await;
+    assert!(plan.returned);
+    assert!(!plan.actions.contains(&Action::Pause { id: "placed-busy".into() }), "{plan:?}");
+    assert!(target.0.lock().unwrap().is_empty());
+}

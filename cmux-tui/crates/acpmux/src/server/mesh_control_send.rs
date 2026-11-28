@@ -93,6 +93,17 @@ pub(super) async fn handle(
             // peer carries it (`hub/full_access_children.rs`): the machine serves the relay as a
             // peer daemon, so without it every such chat started asking there (hq#11835 row 4).
             let mut start = Value::Object(start);
+            // A nested start has the same authority as session/new. The outer mesh method
+            // must not let an asking agent name a wider policy on another machine.
+            hub.person_check(
+                conn.is_person(),
+                false,
+                conn.caller(),
+                true,
+                method::SESSION_NEW,
+                &start,
+            )
+            .await?;
             let person = super::requests::person_start(conn, &start);
             hub.forward_start_policy(person, conn.caller(), &mut start).await;
             let Value::Object(params) = start else {
@@ -134,6 +145,18 @@ const START_WAIT: Duration = Duration::from_secs(120);
 /// Before, a placed `new` there was refused as no peer (a lane VM, 2026-11-24: every
 /// fleet host was hub-only). Its prompts then go through the hub (`mesh_read.rs` `prompt`).
 pub(super) async fn start_through_hub(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    params: &Value,
+    host: &str,
+) -> Result<Value, RpcError> {
+    let started = start_through(hub, conn, params, host).await;
+    // A host that refuses starts leaves `machine pick` for a while (`placement/reach.rs`).
+    crate::placement::reach::note_start_outcome(host, started.as_ref().err());
+    started
+}
+
+async fn start_through(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
     params: &Value,

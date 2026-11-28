@@ -479,7 +479,7 @@ fn stripe(upload: &str) -> usize {
 fn declared(session: &str, upload: &str) -> Result<(String, u64), RpcError> {
     let meta = meta_path(session, upload).ok_or_else(|| unknown(upload))?;
     let file = crate::config::private_state_file(&meta).map_err(|_| unknown(upload))?;
-    let declared: Value = serde_json::from_reader(file)
+    let declared: Value = serde_json::from_reader(std::io::BufReader::new(file))
         .map_err(|e| RpcError::invalid_params(format!("invalid upload metadata: {e}")))?;
     let name = declared.get("fileName").and_then(Value::as_str).map(str::to_owned);
     let size = declared.get("size").and_then(Value::as_u64);

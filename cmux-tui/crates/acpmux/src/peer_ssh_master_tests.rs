@@ -59,9 +59,10 @@ printf '{{"websocket":{{"token":"dash"}}}}\0{PEER_TOKEN}'
     }
 
     fn peer(&self, name: &str, host: &str, mux: SshMux) -> Arc<Peer> {
-        override_for_tests(name, mux);
         let (tx, _notices) = mpsc::channel(64);
-        Peer::new(name, &format!("ssh://{host}"), None, None, tx)
+        let peer = Peer::new(name, &format!("ssh://{host}"), None, None, tx);
+        peer.ssh_mux_override.set(mux).unwrap();
+        peer
     }
 
     /// The ssh spawns so far: (logins, all).
@@ -196,4 +197,36 @@ async fn an_exited_tunnel_releases_its_login_immediately() {
         .expect("a failed login should not take the SSH connect timeout")
         .unwrap();
     peer.end_tunnel().await;
+}
+
+/// A replacement peer with the same name must not change the transport of a live instance.
+#[tokio::test]
+async fn same_named_peers_keep_their_own_ssh_transport() {
+    let first = Fake::new();
+    let second = Fake::new();
+    let a = first.peer("same-name", "box", first.mux());
+    let b = second.peer("same-name", "box", second.mux());
+    assert_eq!(a.ssh_mux(), first.mux());
+    assert_eq!(b.ssh_mux(), second.mux());
+    drop(b);
+    assert_eq!(a.ssh_mux(), first.mux());
+}
+
+/// Directory creation must stay in the held home after its pathname is replaced.
+#[cfg(unix)]
+#[test]
+fn ssh_master_directory_stays_in_the_held_home() {
+    crate::lost_home_race_tests::isolated(
+        module_path!(),
+        "ssh_master_directory_stays_in_the_held_home",
+        |home| {
+            crate::config::hold_home();
+            crate::lost_home_race_tests::replace(home);
+            let path = home.join("run/ssh/socket");
+            assert!(options(&path).is_some());
+            assert!(!home.join("run").exists(), "the replacement home stays untouched");
+            assert!(home.with_extension("old").join("run/ssh").is_dir());
+        },
+        |_, _| {},
+    );
 }

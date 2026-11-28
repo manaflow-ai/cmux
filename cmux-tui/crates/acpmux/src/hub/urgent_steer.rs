@@ -10,7 +10,8 @@
 //! into, stops the agent's step as Send now does (`queue_edit.rs` `step_now`): the agent reads
 //! it at once and the turn runs on. It looks again every [`UNREAD_AFTER`], [`MAX_STEPS`] times
 //! at most. Stop condition: the steer was read or answered, the turn ended or changed, or the
-//! agent went. Cleanup: the task holds only the session, which the hub holds anyway.
+//! agent went. Cleanup: the hub's scope owns the task, so it ends with the hub; it holds only
+//! the session, which the hub holds anyway.
 
 use super::*;
 use std::time::Duration;

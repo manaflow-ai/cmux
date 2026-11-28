@@ -49,9 +49,10 @@ SCRIPTS: dict[str, tuple[int, str]] = {
     "scripts/select-ci-xcode.sh": (
         3, "safe: `sudo -n xcode-select` only after DEVELOPER_DIR is set and plain xcode-select failed; warns and goes on"),
     "scripts/install-zig-ci.sh": (
-        10, "safe: installs system-wide only when `sudo -n true` passes, else under the job's own directory"),
+        15, "safe: move/copy fallback and ownership calls stay inside install_zig_with_sudo, reached only after `sudo -n true`; otherwise installs job-locally"),
     "scripts/cmux-next/cloud-journey.ts": (
-        11, "safe: `sudo -n` runs on the cloud VM it drives, each with a non-root fallback"),
+        11, "safe: `sudo -n` runs on the cloud VM it drives, each with a non-root fallback (#64195's provider-key probe "
+        "added four; 41f770da folded them into the clean-room key probe, so the count went back to 11)"),
     "scripts/cmux-next/auto-journey.ts": (1, "safe: `sudo -n journalctl` on the guest VM, falling back to log files"),
     "scripts/cmux-next/cloud-github-main-path.py": (3, "safe: names GitHub's sudo page, runs no sudo"),
     "scripts/e2e/backend-env.sh": (

@@ -1,0 +1,12 @@
+{
+  "schema": "acpmux.session.v1",
+  "id": "plain",
+  "name": "plain",
+  "harness": "claude",
+  "family": "claude",
+  "cwd": "/fixture",
+  "status": "idle",
+  "createdAt": 1700000000000,
+  "updatedAt": 1700002795947,
+  "lastSeq": 710
+}

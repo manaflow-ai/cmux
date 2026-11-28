@@ -11,6 +11,7 @@
 //   bun bench/preview-size-reports.bench.ts [--runs 5]
 /// <reference types="bun" />
 import path from "node:path";
+import { runInNewContext } from "node:vm";
 
 const runsArg = process.argv.indexOf("--runs");
 const runCount = runsArg > 0 ? Number(process.argv[runsArg + 1]) : 5;
@@ -46,7 +47,8 @@ function run(): number {
     addEventListener: (type: string, callback: () => void) => void (listeners[type] ??= []).push(callback),
     Element: class {},
   };
-  new Function(...Object.keys(scope), script)(...Object.values(scope));
+  // The frame script's free names (parent, document, ResizeObserver, ...) resolve to the stub scope.
+  runInNewContext(script, scope);
   observers.forEach((callback) => callback());
   listeners.load?.forEach((callback) => callback());
   for (let frame = 0; frame < 120; frame++) {

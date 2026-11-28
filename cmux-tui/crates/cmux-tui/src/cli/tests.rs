@@ -6,6 +6,8 @@ mod action_argument_contract;
 #[cfg(unix)]
 mod action_surface_parity;
 #[cfg(unix)]
+mod cli_invoked_actions;
+#[cfg(unix)]
 mod cli_name_hints;
 
 fn strings(values: &[&str]) -> Vec<String> {
@@ -115,7 +117,7 @@ mod remote_cli_docs {
             include_str!("../../../../../docs/remote-agents-and-cloud.md"),
         ),
         ("acpmux README", include_str!("../../../acpmux/README.md")),
-        ("acpmux skill", include_str!("../../../acpmux/skills/acpmux/SKILL.md")),
+        ("agents skill", include_str!("../../../acpmux/skills/agents/SKILL.md")),
     ];
 
     fn command_lines(text: &str, binary: &str) -> Vec<Vec<String>> {

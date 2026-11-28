@@ -495,7 +495,7 @@ async fn run_selected(profile: &str, load: &Load, every: Duration) -> SelectedRo
             let writer = tokio::spawn(async move {
                 while let Some(out) = stream_in.recv().await {
                     match out {
-                        StreamOut::Output { batch, bytes } => {
+                        StreamOut::Output { batch, bytes, .. } => {
                             let (line, mark) = paint_latency::stamp_line(output_line(&bytes));
                             let pseq = paint_latency::trailing_seq(&line).expect("a stamped line");
                             stamped.lock().unwrap().push((pseq, batch));

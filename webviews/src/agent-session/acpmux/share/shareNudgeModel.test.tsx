@@ -13,6 +13,7 @@ import {
   firstReplyCompleted,
   ownChats,
   shareNudgeBlocked,
+  shareRefused,
   useShareNudge,
   type ShareNudgeChat,
   type ShareNudgeContext,
@@ -80,8 +81,10 @@ test("only the first reply, and only one that completed", () => {
 });
 
 test("never for a chat this Mac cannot share, a read-only chat, or a page without sharing", () => {
-  expect(shareNudgeBlocked(chat({ origin: "remote" }), context)).toBe("not-local");
-  expect(shareNudgeBlocked(chat({ origin: "peer" }), context)).toBe("not-local");
+  expect(shareNudgeBlocked(chat({ origin: "remote" }), context)).toBe("not-this-mac");
+  expect(shareNudgeBlocked(chat({ origin: "peer" }), context)).toBe("not-this-mac");
+  // The person's own Cloud chat may be shared (the menu offers it), but the nudge is this Mac's.
+  expect(shareNudgeBlocked(chat({ origin: "remote", ownerCloud: true }), context)).toBe("not-local");
   expect(shareNudgeBlocked(chat({ summary: { watching: "claude" } }), context)).toBe("read-only");
   expect(shareNudgeBlocked(chat({ sessions: [session("s1", { peer: "box" })] }), context)).toBe("peer");
   expect(shareNudgeBlocked(chat({ sessions: [session("s1", { hostKind: "cloud" })] }), context)).toBe("peer");
@@ -89,6 +92,25 @@ test("never for a chat this Mac cannot share, a read-only chat, or a page withou
   expect(shareNudgeBlocked(chat(), { ...context, quick: true })).toBe("quick");
   expect(shareNudgeBlocked(chat(), { ...context, subagentPane: true })).toBe("subagent");
   expect(shareNudgeBlocked(chat(), { ...context, tipsOn: false })).toBe("tips-off");
+});
+
+test("Share… is offered where the app shares the chat: this Mac's, or the person's own Cloud chat", () => {
+  expect(shareRefused({ sessionId: "s1", origin: "local" })).toBeUndefined();
+  // A fixture or an older acpmux names no origin: the app decides, so the menu still offers it.
+  expect(shareRefused({ sessionId: "s1" })).toBeUndefined();
+  expect(shareRefused({ sessionId: "s1", origin: "unknown" })).toBeUndefined();
+  expect(shareRefused({ sessionId: "s1", origin: "remote", ownerCloud: true })).toBeUndefined();
+  expect(shareRefused({ sessionId: "s1", origin: "peer", ownerCloud: true })).toBeUndefined();
+  // A chat this Mac's daemon runs is shared even when another app runs its conversation.
+  expect(shareRefused(chat({ summary: { watching: "claude" } }))).toBeUndefined();
+});
+
+test("Share… is not offered where the app refuses it: a teammate's Cloud chat, a peer's, no chat", () => {
+  expect(shareRefused({})).toBe("no-chat");
+  expect(shareRefused({ sessionId: "s1", origin: "remote" })).toBe("not-this-mac");
+  expect(shareRefused({ sessionId: "s1", origin: "remote", ownerCloud: false })).toBe("not-this-mac");
+  expect(shareRefused({ sessionId: "s1", origin: "peer" })).toBe("not-this-mac");
+  expect(shareRefused({ sessionId: "s1", origin: "local", peerCopy: { peer: "box" } })).toBe("peer");
 });
 
 // The hook, driven through a turn's start and end.
