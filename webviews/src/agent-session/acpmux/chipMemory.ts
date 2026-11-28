@@ -40,3 +40,21 @@ export function rememberLastChips(harness: string, chips: LastChips, place: Chip
     // Storage unavailable: the next new chat leaves those places empty until it reports.
   }
 }
+
+/// The level the person last picked per harness and place on this page (a chip, a menu row): the only
+/// level `rememberLastChips` keeps (ComposerPickers.tsx). A level a session reports without one (a
+/// backend option list, a model's own default) leaves the kept one as it was.
+const pickedLevels = new Map<string, string>();
+
+export function noteLevelPicked(harness: string, place: ChipPlace, value: string): void {
+  pickedLevels.set(lastChipsKey(harness, place), value);
+}
+
+export function levelPicked(harness: string, place: ChipPlace): string | undefined {
+  return pickedLevels.get(lastChipsKey(harness, place));
+}
+
+/** Tests only: a new launch, with no level picked. */
+export function forgetLevelPicksForTests(): void {
+  pickedLevels.clear();
+}
