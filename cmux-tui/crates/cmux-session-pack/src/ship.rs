@@ -181,7 +181,10 @@ pub(crate) fn read_bounded(
     let mut buffer = [0u8; 64 << 10];
     while bytes.len() < len {
         let n = len.saturating_sub(bytes.len()).min(buffer.len());
-        let n = match input.read(&mut buffer[..n]) {
+        let chunk = buffer.get_mut(..n).ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "bundle read exceeds buffer")
+        })?;
+        let n = match input.read(chunk) {
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
             result => result?,
         };
@@ -192,12 +195,18 @@ pub(crate) fn read_bounded(
             )
             .into());
         }
+        let chunk = chunk.get(..n).ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "bundle reader exceeded its buffer",
+            )
+        })?;
         let wanted = bytes.len().saturating_add(n);
         if wanted > bytes.capacity() {
             let capacity = wanted.max(bytes.capacity().saturating_mul(2)).min(len);
             bytes.try_reserve_exact(capacity.saturating_sub(bytes.len()))?;
         }
-        bytes.extend_from_slice(&buffer[..n]);
+        bytes.extend_from_slice(chunk);
     }
     Ok(bytes)
 }
