@@ -1137,16 +1137,24 @@ def tui_switches(tui):
     return sum(d.get("volu", 0) + d.get("nonv", 0) for d in threads.values()) if threads else None
 
 
+# The product's deferred durability: the output store syncs every tail file written since the last sync together,
+# TAIL_SYNC_INTERVAL (cmux-tui-core output_store.rs, 30 s) after the first such write; the registry's WAL syncer
+# runs its checkpoint with it. Quiet that short of it says nothing: the sync is a timer still waiting.
+TAIL_SYNC_SECONDS = 30.0
+
+
 def settle_io(args, top):
-    """Then the durability work that parking or closing started: a pass that fsyncs the parked snapshots and the
-    registry WAL wakes its thread once per I/O completion (jbd2 commit, page write-back; the I/O counters do not
-    move for an fsync), so a window opened while it drains counts a one-off burst as idle wakeups. Wait until the
-    tui switches at most 3 times in 3 s, bounded by 180 s. INFINITE-SETTLE logs the drain and the switches it
-    waited out, so the burst stays visible; bounded=yes means it never went quiet, and the window then counts it."""
+    """Then the durability work that parking or closing started: ~30 s after the park's tail writes, one pass
+    fsyncs every tail written (one per parked terminal) and the registry's WAL syncer checkpoints, and their
+    threads wake once per I/O completion (jbd2 commit, page write-back). A window opened before that counts a
+    one-off burst as idle wakeups (the parked arm's 63-87/s at n=1000). Wait until the tui has switched at most
+    3 times in 3 s for TAIL_SYNC_SECONDS + 3 s, from here and from its last busy span, bounded by 180 s.
+    INFINITE-SETTLE (and INFINITE-DAY settle=) logs the drain and the switches it waited out, so the burst stays
+    visible; bounded=yes means the tui never went quiet, and the window then counts it."""
     tui = top.get("tui")
     start = time.monotonic()
     first = tui_switches(tui)
-    marks = [(start, first)]
+    marks, busy_at, hold = [(start, first)], start, TAIL_SYNC_SECONDS + 3.0
     while True:
         time.sleep(0.25)  # the poll interval of the tui's switch counts
         now, n = time.monotonic(), tui_switches(tui)
@@ -1157,7 +1165,9 @@ def settle_io(args, top):
         marks.append((now, n))
         while len(marks) > 1 and now - marks[1][0] >= 3.0:
             marks.pop(0)
-        if now - marks[0][0] >= 3.0 and n - marks[0][1] <= 3:
+        if now - marks[0][0] >= 3.0 and n - marks[0][1] > 3:
+            busy_at = now
+        if now - busy_at >= hold:
             SETTLED.append(f"drain_s={now - start:.1f} switches={n - first} bounded=no")
             log("INFINITE-SETTLE " + SETTLED[-1])
             return
