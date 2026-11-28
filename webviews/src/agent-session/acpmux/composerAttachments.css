@@ -1372,6 +1372,12 @@ button.acpmux-attachment-pasted-open:hover {
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-paste-loading:not([data-instant]) {
     animation: acpmux-paste-arrive calc(var(--agent-motion-in, 120ms) * 8) var(--agent-ease-out, ease-out) both;
   }
+  /* A video's loading look goes on from its pending chip to the tile that waits for its poster
+     (composer/VideoAttachmentTile.tsx), a new element: it stays at its dim, never coming up twice
+     (Leo, 2026-11-08: "it is bad that there are 2+ loading states"). */
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-paste-loading[data-video-shape]:not([data-instant]) {
+    animation: none;
+  }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-paste-late[data-late] {
     animation: acpmux-paste-late-in var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out) both;
   }
