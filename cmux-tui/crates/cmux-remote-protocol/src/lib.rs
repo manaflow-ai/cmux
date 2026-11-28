@@ -27,7 +27,7 @@ mod rpc;
 
 pub use frame::{
     FrameDecodeError, FrameFlags, Lane, LanePolicy, MAX_FRAME_PAYLOAD, MAX_WIRE_FRAME_BYTES,
-    REMOTE_PROTOCOL_VERSION, SessionId, WireFrame,
+    REMOTE_PROTOCOL_MIN_VERSION, REMOTE_PROTOCOL_VERSION, SessionId, WireFrame,
 };
 pub use relay::{
     CircuitId, LaneToken, MAX_RELAY_BATCH_BYTES, RelayControl, RelayPermission, RelayRole,

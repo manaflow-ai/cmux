@@ -3,7 +3,14 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
+/// The frame version this build writes.
 pub const REMOTE_PROTOCOL_VERSION: u8 = 5;
+/// The oldest frame version this build still reads. v4 shares the header
+/// but not the session crypto, so the floor is 5; a later framing break
+/// keeps the previous version readable for one release
+/// (docs/cloud-cmux-tui-daemon.md).
+pub const REMOTE_PROTOCOL_MIN_VERSION: u8 = 5;
+const _: () = assert!(REMOTE_PROTOCOL_MIN_VERSION <= REMOTE_PROTOCOL_VERSION);
 pub const MAX_FRAME_PAYLOAD: usize = 48 * 1024;
 const MAGIC: [u8; 4] = *b"CMXR";
 const HEADER_BYTES: usize = 60;
@@ -267,7 +274,7 @@ impl WireFrame {
             return Err(FrameDecodeError::BadMagic);
         }
         let [version]: [u8; 1] = fields.take();
-        if version != REMOTE_PROTOCOL_VERSION {
+        if !(REMOTE_PROTOCOL_MIN_VERSION..=REMOTE_PROTOCOL_VERSION).contains(&version) {
             return Err(FrameDecodeError::UnsupportedVersion(version));
         }
 

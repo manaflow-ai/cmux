@@ -41,6 +41,20 @@ The cmux-tui stack already solves each of these on `main`:
   lane (`.github/workflows/cmux-tui-build-package.yml`) already produces the
   needed artifact: a static `x86_64-unknown-linux-musl` build.
 
+## Protocol versions: ranges, not bumps
+
+Peers one release apart must still connect, so:
+
+- Do not bump a protocol for new behavior. Put it behind a capability
+  string in `identify` (`*-v1`) and gate the feature on that capability.
+- Change a protocol number (`CMXR` frame version, daemon `identify`
+  `protocol`) only for incompatible framing. The old number stays accepted
+  for one release: `REMOTE_PROTOCOL_MIN_VERSION..=REMOTE_PROTOCOL_VERSION`
+  (cmux-remote-protocol) and `MIN_PROTOCOL_VERSION..=PROTOCOL_VERSION`
+  (cmux-daemon-conn-core). A daemon that goes past the app's range advertises
+  `min_protocol` in `identify`, the oldest app protocol it still serves.
+- A refusal names both ranges, the peer's and ours.
+
 ## What the spike proved (2026-08-26)
 
 Historical record. The spike ran against a live Blaxel sandbox; Blaxel has

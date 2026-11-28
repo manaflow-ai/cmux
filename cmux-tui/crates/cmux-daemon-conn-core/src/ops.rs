@@ -65,8 +65,11 @@ fn verdict_json(verdict: &Verdict) -> Value {
     match verdict {
         Verdict::Accept => json!({"verdict": "accept"}),
         Verdict::WrongApp(app) => json!({"verdict": "wrong_app", "app": app}),
-        Verdict::UnsupportedProtocol(protocol) => {
+        Verdict::UnsupportedProtocol(protocol, None) => {
             json!({"verdict": "unsupported_protocol", "protocol": protocol})
+        }
+        Verdict::UnsupportedProtocol(protocol, Some(floor)) => {
+            json!({"verdict": "unsupported_protocol", "protocol": protocol, "min_protocol": floor})
         }
         Verdict::MissingCapabilities(names) => {
             json!({"verdict": "missing_capabilities", "names": names})
@@ -159,6 +162,7 @@ pub fn call(op: &str, request: &Value) -> OpResult {
                         .get("protocol")
                         .and_then(Value::as_i64)
                         .ok_or_else(|| invalid("protocol"))?,
+                    request.get("min_protocol").and_then(Value::as_i64),
                 ),
                 "wrongApp" => Refusal::WrongApp(text(request, "app")?.to_string()),
                 _ => return Ok(json!({"compatibility": null})),
