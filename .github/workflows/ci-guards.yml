@@ -235,6 +235,7 @@ jobs:
           python3 tests/test_ci_step_table.py
           python3 tests/test_ci_ios_fast_verdict.py
           python3 tests/test_ci_ios_fast_dispatch.py
+          python3 tests/test_ci_mobile_old_phones.py
           python3 tests/test_indexnow_notification.py
 
       - name: Validate the green receipts that skip unchanged checks
@@ -397,9 +398,69 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_apt_skips_baked_packages.py
 
-      - name: Validate iroh Apple suite coverage
+      - name: Validate the App Store shelf cargo cache
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_iroh_apple_suites_have_mac_home.py
+        run: python3 tests/test_ci_app_store_shelf_cargo_cache.py
+
+      - name: Validate the warm Bun cache wiring
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_bun_cache_warm.py
+
+      - name: Validate hot-verify checkout stays bounded
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_hot_verify_checkout_bounded.py
+
+      - name: Validate hot-verify posts its proof record
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_hot_verify_posts_proof_record.py
+
+      - name: Validate iOS launch TTI intent
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_ios_launch_tti_intent.py
+
+      - name: Validate jobs keep their own HOME
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_job_own_home.py
+
+      - name: Validate kit simulator fleet routing
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_kit_sim_fleet.py
+
+      - name: Validate post-merge batch gallery states
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_post_merge_batch_gallery_states.py
+
+      - name: Validate PR diffs read the first parent
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pr_diff_first_parent.py
+
+      - name: Validate private names stay local
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_private_names_local.py
+
+      - name: Validate exact web routing
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_router_web_exact.py
+
+      - name: Validate rust-workspaces disk headroom
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_rust_workspaces_disk.py
+
+      - name: Validate the cmux machine channel lane
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_machine_channel_lane.py
+
+      - name: Validate the journey key migration wiring
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_migrate_journey_key.py
+
+      - name: Validate the web bundle matrix
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_web_bundle_matrix.py
+
+      - name: Validate the What's New gallery heal
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_whats_new_gallery_heal.py
 
       - name: Validate commands on owned Mac runners
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -968,6 +1029,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_hashfiles_in_workspace.py
 
+      - name: Check that no workflow reads a fleet step id with a grep that ends the step on no match
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workflow_step_id_grep_guarded.py
+
       - name: Check that no workflow submits a build-fleet job with a lapsing --pool
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflows_pin_no_fleet_pool.py
@@ -1211,6 +1276,10 @@ jobs:
       - name: Validate the gallery advisory's state ranking and receipt
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_gallery_select.py
+
+      - name: Validate the gallery's visual baseline check
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_visual_baseline.py
 
       - name: Validate that gallery health renders a pull request merged with its base
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -2229,6 +2298,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_link_ffi_cache_seed.py
 
+      - name: Validate the iOS fast verdict seed saves the DerivedData a hosted verdict restores
+        if: ${{ !cancelled() && matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_fast_verdict_seed.py
+
       - name: Validate a Mac-built CmuxMobileLinkFFI.xcframework is reused by the job's next step
         if: ${{ !cancelled() && matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_link_ffi_sh.py
@@ -2775,6 +2848,7 @@ jobs:
           python3 tests/test_ci_warm_sources.py
           python3 tests/test_ci_cloud_journey_prod_preclaim_login.py
           python3 tests/test_ci_checkout_lean.py
+          python3 tests/test_ci_nightly_source.py
           python3 tests/test_ci_sparse_checkout_imports.py
           python3 tests/test_ci_sparse_cargo_path_deps.py
           python3 tests/test_web_cas_upload_rerun.py
@@ -3053,6 +3127,14 @@ jobs:
         run: |
           python3 tests/test_lint_errno_in_test_assertions.py
           python3 scripts/lint-errno-in-test-assertions.py
+
+      # Leo, 2026-11-27: "Hidden-error changes keep Retry tested." The terminal page's hidden-words states
+      # keep a test that a long outage shows Retry (skills/cmux-ios/SKILL.md, "Quiet-state rules keep the way out").
+      - name: Validate hidden connection words keep a Retry test
+        if: ${{ !cancelled() && matrix.group == 'quality-determinism' }}
+        run: |
+          python3 scripts/lint-hidden-words-keep-retry.py --self-test
+          python3 scripts/lint-hidden-words-keep-retry.py
 
       - name: Validate no short fixed gates on Cloud and daemon slow paths
         if: ${{ !cancelled() && matrix.group == 'quality-determinism' }}

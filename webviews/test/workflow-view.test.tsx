@@ -11,12 +11,21 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
-import { backgroundCommands } from "../src/agent-session/acpmux/session-info/processes";
-import { WorkflowTasks } from "../src/agent-session/acpmux/session-info/WorkflowTasks";
-import { createWorkflowAdapter } from "../src/agent-session/acpmux/summary/foldWorkflows";
-import { WorkflowCard } from "../src/agent-session/acpmux/summary/WorkflowCard";
-import { parallelWorkflowProcesses, workflowFixture } from "../src/agent-session/acpmux/summary/workflowFixture";
-import {
+import type { WorkflowAgent } from "../src/agent-session/acpmux/summary/workflow";
+import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
+import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { importWithDom } from "./support/importWithDom";
+
+const { backgroundCommands } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/processes"));
+const { WorkflowTasks } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/WorkflowTasks"));
+const { createWorkflowAdapter } = await importWithDom(
+  () => import("../src/agent-session/acpmux/summary/foldWorkflows"),
+);
+const { WorkflowCard } = await importWithDom(() => import("../src/agent-session/acpmux/summary/WorkflowCard"));
+const { parallelWorkflowProcesses, workflowFixture } = await importWithDom(
+  () => import("../src/agent-session/acpmux/summary/workflowFixture"),
+);
+const {
   agentLine,
   agentModel,
   attributeCommands,
@@ -29,12 +38,14 @@ import {
   runningPhases,
   splitAgents,
   workflowModel,
-} from "../src/agent-session/acpmux/summary/workflowView";
-import type { WorkflowAgent } from "../src/agent-session/acpmux/summary/workflow";
-import { backgroundGroups } from "../src/agent-session/acpmux/backgroundTasks/backgroundTasks";
-import { BackgroundTasksPanel } from "../src/agent-session/acpmux/backgroundTasks/BackgroundTasksPanel";
-import { SUBAGENTS, type Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
-import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+} = await importWithDom(() => import("../src/agent-session/acpmux/summary/workflowView"));
+const { backgroundGroups } = await importWithDom(
+  () => import("../src/agent-session/acpmux/backgroundTasks/backgroundTasks"),
+);
+const { BackgroundTasksPanel } = await importWithDom(
+  () => import("../src/agent-session/acpmux/backgroundTasks/BackgroundTasksPanel"),
+);
+const { SUBAGENTS } = await importWithDom(() => import("../src/agent-session/acpmux/subagents/subagentFold"));
 
 const NOW = 1_800_000_000_000;
 const parallel = () => createWorkflowAdapter()(workflowFixture("parallel", NOW), "s1")[0]!;

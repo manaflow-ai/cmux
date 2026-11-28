@@ -1733,3 +1733,80 @@ fn a_write_waiting_for_a_reconnect_fails_when_the_daemon_shuts_down() {
     written.expect_err("a write to a terminal the daemon detached answered ok");
     assert!(took < Duration::from_secs(2), "the write waited {took:?} after the daemon's detach");
 }
+
+/// A legacy host answers every viewer size without a request id with its
+/// authoritative replay, even when the size did not change (the daemon
+/// releases its viewer size when the last sized client detaches and sends the
+/// same size again on reattach). That replay replaced the mirror's parser,
+/// which starts at the live bottom: a reader scrolled back was snapped down
+/// with no input of theirs (prod Cloud journey run 46097985091, the scroll
+/// probe's daemon view, top 664 -> 1535). A same-grid replay keeps the
+/// viewport's line.
+#[cfg(unix)]
+#[test]
+fn a_same_size_host_replay_keeps_a_scrolled_back_viewport() {
+    let (_mux, surface, mut host) = hosted_typing_surface("hosted-same-size-replay", false);
+    let mut output = Vec::new();
+    for line in 0..300 {
+        output.extend_from_slice(format!("line {line:04}\r\n").as_bytes());
+    }
+    crate::terminal_host_protocol::write_frame(&mut host, &live_output(1, &output)).unwrap();
+    let applied = |surface: &Arc<Surface>| {
+        surface
+            .try_with_terminal(|term| {
+                term.viewport_text().unwrap_or_default().contains("line 0299")
+            })
+            .unwrap()
+    };
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !applied(&surface) {
+        assert!(Instant::now() < deadline, "the host's output never reached the mirror");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let top_before = surface
+        .try_with_terminal(|term| {
+            term.scroll_delta(-100);
+            term.scrollbar().unwrap().offset
+        })
+        .unwrap();
+    let text_before = surface.try_with_terminal(|term| term.viewport_text().unwrap()).unwrap();
+    assert!(!text_before.contains("line 0299"), "the fixture did not scroll back");
+
+    let mut reference = Terminal::new(80, 24, 10_000, Callbacks::default()).unwrap();
+    reference.vt_write(&output);
+    let replay = reference.vt_replay_bounded_theme_portable(VT_REPLAY_MAX_BYTES).unwrap();
+    let mut payload = Vec::from([80, 0, 24, 0]);
+    payload.extend_from_slice(&(replay.len() as u32).to_le_bytes());
+    payload.extend_from_slice(&replay);
+    payload.extend_from_slice(&0u16.to_le_bytes());
+    payload.extend_from_slice(&8u16.to_le_bytes());
+    payload.extend_from_slice(&16u16.to_le_bytes());
+    append_disabled_kitty_replay_state(&mut payload);
+    let mut resize = Frame::new(MessageKind::Resized, payload);
+    resize.flags = FLAG_COLORS_FOLLOW;
+    resize.sequence = 2;
+    crate::terminal_host_protocol::write_frame(&mut host, &resize).unwrap();
+    let mut colors = Frame::new(
+        MessageKind::Colors,
+        crate::terminal_host_runtime::encode_terminal_color_overrides(
+            &TerminalColorOverrides::default(),
+        ),
+    );
+    colors.sequence = 3;
+    crate::terminal_host_protocol::write_frame(&mut host, &colors).unwrap();
+    // A line after the replay: once the mirror holds it, the replay was
+    // applied. Output keeps a scrolled-back viewport where it is.
+    let total_before = surface.try_with_terminal(|term| term.scrollbar().unwrap().total).unwrap();
+    crate::terminal_host_protocol::write_frame(&mut host, &live_output(4, b"tail\r\n")).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while surface.try_with_terminal(|term| term.scrollbar().unwrap().total).unwrap() <= total_before
+    {
+        assert!(Instant::now() < deadline, "the replay and the line after it were never applied");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let (top_after, text_after) = surface
+        .try_with_terminal(|term| (term.scrollbar().unwrap().offset, term.viewport_text().unwrap()))
+        .unwrap();
+    assert_eq!(top_after, top_before, "a same-size replay moved the scrolled-back viewport");
+    assert_eq!(text_after, text_before);
+}

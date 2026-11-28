@@ -7,7 +7,7 @@
     "plans/cmux-next/swift-logic-classes.tsv": {"count": 4, "reason": "safe: plan table rows that name SecItemCopyMatching in prose; it reads no keychain item"},
     "tests/test_check_main_actor_work.py": {"count": 1, "reason": "safe: a test fixture string naming SecItemCopyMatching for the main-actor ratchet; it reads no keychain item"},
     "Native/OptChat/optchat-chief/src/toolpacks.rs": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): a tool pack's own keychain service"},
-    "scripts/measure/screen-stream-eval/stage-table.sh": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): the VNC login item manaflow-fleet-login, only when the step has no --vnc-login file, into a 0600 file removed at exit (never argv, env or logs)"},
+    "scripts/measure/screen-stream-eval/stage-table.sh": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): the fleet login manaflow-fleet-login for Apple's vnc viewer leg, into a 0600 file the step removes"},
     "cmux-next-ios/scripts/testflight-build.sh": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): the App Store Connect credential (service asc)"},
     "workers/cmux-vm/cli/crates/cmux-vm/src/token.rs": {"count": 2, "reason": "safe: reads its own named item (not the fleet sudo item): the cmux VM agent token (service com.cmux.vm.agent-token)"},
     "cmux-tui/crates/acpmux/src/config/profile_env.rs": {"count": 2, "reason": "safe: reads its own named item (not the fleet sudo item): the service an acpmux profile names for its own key"},
@@ -23,13 +23,17 @@
     "scripts/measure/chief-import.sh": {"count": 1, "reason": "safe: checks whether the Claude Code-credentials item exists (no -w; the password is not read)"},
     "cmux-tui/crates/cmux-tui/src/cli/inference_gateway_mac.rs": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): Claude Code's credential (service Claude Code-credentials), borrowed read-only by the person's own gateway"},
     "scripts/measure/gui-user-per-job.sh": {"count": 2, "reason": "safe: reads its own named item (not the fleet sudo item): the probe's test item dev.cmux.gup-probe, to see which account's keychain it landed in"},
-    "scripts/measure/screen-stream-eval/stage-table.sh": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): the fleet login manaflow-fleet-login for Apple's vnc viewer leg, into a 0600 file the step removes"},
     "scripts/measure/gui-user-isolation.sh": {"count": 2, "reason": "safe: reads its own named item (not the fleet sudo item): the isolation test's items dev.cmux.gupiso, to assert each pool account sees only its own"},
     "cmux-tui/crates/acpmux/src/cli/host_vault.rs": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): Claude Code's credential (service Claude Code-credentials)"},
     "cmux-tui/crates/acpmux/src/vault/store.rs": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): the acpmux vault's own service"},
     "cmux-tui/crates/acpmux/src/vault/tests.rs": {"count": 1, "reason": "safe: a test comment describing what the vault's own read prints; reads nothing"},
     "cmux-tui/crates/cmux-mcp-connect/src/screen.rs": {"count": 1, "reason": "safe: a deny-list entry the screen refuses in an agent's command; reads nothing"},
-    "plans/cmux-next/mcp-connect-DESIGN.md": {"count": 1, "reason": "safe: a threat-model row naming the command the design refuses; reads nothing"}
+    "plans/cmux-next/mcp-connect-DESIGN.md": {"count": 1, "reason": "safe: a threat-model row naming the command the design refuses; reads nothing"},
+    "cmux-tui/crates/acpmux/src/agent_login/cursor_keychain.rs": {"count": 1, "reason": "safe: attributes-only probe (no -w/-g) of the Cursor CLI's own login item cursor-access-token in the user's login keychain, to show whether Cursor is signed in; reads no password and never the fleet sudo item"},
+    "cmux-tui/crates/acpmux/src/claude_token/store/macos.rs": {"count": 1, "reason": "safe: doc comment describing how the user's own cmux-model-key item is read; the line runs nothing and names no fleet item"},
+    "cmux-tui/crates/cmux-browser-rules/src/page_events.rs": {"count": 1, "reason": "safe: doc comment naming the Keychain API the browser rules key uses for its own item; the line runs nothing"},
+    "cmux-tui/docs/model-connections.md": {"count": 1, "reason": "safe: prose explaining the Keychain prompt for the user's own model-key item; it runs nothing"},
+    "tests/test_ci_macos_stubs.py": {"count": 2, "reason": "safe: test fixture strings for the macOS extern-stub check naming SecItemCopyMatching; it reads no keychain item"}
   },
   "pkill": {
     "evals/computer-use/public/guest/provision.sh": {"count": 2, "reason": "safe: quits every app on the fresh guest desktop and restarts NotificationCenter so each attempt starts the same; runs only inside the disposable computer-use eval guest VM (provisioned from the golden image as its auto-login user admin), where every process belongs to the eval; it never runs on a fleet Mac or a person's desktop"},
@@ -122,11 +126,12 @@
     "scripts/measure/persona-walk.sh": {"count": 1, "reason": "safe: reap kills only processes whose command line is under this run's own mktemp dir ($work/), never a name or another run's copy; launch finds the pid of its own scratch copy ($work/Applications/...); probe only lists running cmux processes, killing none"},
     "webviews/src/agent-session/acpmux/permissions/holdToApprove.ts": {"count": 2, "reason": "safe: a regex that recognizes kill/pkill/killall in a command an agent asks to run, to hold it for approval; it signals nothing"},
     "cmux-tui/crates/cmux-tailnet-join/src/handoff.rs": {"count": 1, "reason": "safe: this code only signals processes owned by the current handoff/test or documents the rule; it cannot target another run"},
-    "cmux-tui/crates/cmux-tailnet-join/src/handoff_tests.rs": {"count": 2, "reason": "safe: this code only signals processes owned by the current handoff/test or documents the rule; it cannot target another run"},
-    "cmux-tui/crates/cmux-tui/src/cli/vm_tailnet/tests.rs": {"count": 1, "reason": "safe: this code only signals processes owned by the current handoff/test or documents the rule; it cannot target another run"},
+    "cmux-tui/crates/cmux-tailnet-join/src/handoff_tests.rs": {"count": 4, "reason": "safe: this code only signals processes owned by the current handoff/test or documents the rule; it cannot target another run"},
+    "cmux-tui/crates/cmux-tui/src/cli/vm_tailnet/tests.rs": {"count": 3, "reason": "safe: this code only signals processes owned by the current handoff/test or documents the rule; it cannot target another run"},
     "scripts/cmux-next/cloud-scenarios.ts": {"count": 1, "reason": "safe: this code only signals processes owned by the current handoff/test or documents the rule; it cannot target another run"},
     "scripts/measure/ext-rows-nightly.sh": {"count": 1, "reason": "safe: this code only signals processes owned by the current handoff/test or documents the rule; it cannot target another run"},
-    "web/services/vms/workUser.ts": {"count": 1, "reason": "safe: this code only signals processes owned by the current handoff/test or documents the rule; it cannot target another run"}
+    "web/services/vms/workUser.ts": {"count": 1, "reason": "safe: this code only signals processes owned by the current handoff/test or documents the rule; it cannot target another run"},
+    "scripts/cmux-vmd/autocloud-template.sh": {"count": 1, "reason": "safe: runs only inside the throwaway autocloud template guest this script just booted (guest \"$id\"), parking its daemon the way web/scripts/cmux-vm-image/bake.ts parkCommand does; every terminal host there belongs to the bake; it never runs on a fleet Mac or a person's machine"}
   },
   "big-red": {
     "Packages/macOS/CmuxNext/Sources/CmuxNextActions/DeepLink/DeepLink.swift": {"count": 1, "reason": "debt: sample host name in a doc comment, example or inline test; nothing depends on it. Use a neutral name (my-vm) when the file is next touched"},
@@ -173,6 +178,8 @@
     "cmux-tui/crates/acpmux/src/opaque_agent_id_tests.rs": {"count": 1, "reason": "safe: sample link text in an inline unit test of the opaque-id rewrite; nothing depends on the host"},
     "cmux-tui/crates/acpmux/src/hub/admission_scale_up.rs": {"count": 4, "reason": "safe: sample machine name in the file's inline unit test of a placement reply; nothing depends on the host"},
     "cmux-tui/crates/acpmux/src/hub_carrier_key_lock_tests.rs": {"count": 2, "reason": "safe: sample machine name in a unit test fixture; nothing connects to it or depends on the host (a case-folded machine-name lookup)"},
-    "Native/OptChat/optchat-chief/tests/agent_memory.rs": {"count": 1, "reason": "safe: sample memory text in a test assertion; nothing depends on the host"}
+    "Native/OptChat/optchat-chief/tests/agent_memory.rs": {"count": 1, "reason": "safe: sample memory text in a test assertion; nothing depends on the host"},
+    "scripts/cmux-next/agent-conn-chaos/suite.py": {"count": 3, "reason": "safe: refuses to run when the host is big-red (or one of Leo's Macs) by name; nothing depends on that machine, the names are the refusal list"},
+    "scripts/measure/agent-conn-chaos.sh": {"count": 3, "reason": "safe: refuses to run when the host is big-red (or one of Leo's Macs) by name before building; nothing depends on that machine, the names are the refusal list"}
   }
 }

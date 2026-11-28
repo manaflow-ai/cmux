@@ -9,7 +9,7 @@ import CCmuxLayoutCacheFFI
 
 /// `Rect` (cmux-layout-cache src/model.rs): AppKit global points for window frames, top-left
 /// origin content points inside a window.
-public struct LayoutCacheRect: Codable, Hashable, Sendable {
+public nonisolated struct LayoutCacheRect: Codable, Hashable, Sendable {
     public var x: Double
     public var y: Double
     public var width: Double
@@ -26,7 +26,7 @@ public struct LayoutCacheRect: Codable, Hashable, Sendable {
     public var cgRect: CGRect { CGRect(x: x, y: y, width: width, height: height) }
 }
 
-public struct LayoutCacheDisplay: Codable, Hashable, Sendable {
+public nonisolated struct LayoutCacheDisplay: Codable, Hashable, Sendable {
     public var id: UInt32
     public var frame: LayoutCacheRect
     public var backingScale: Double
@@ -49,11 +49,11 @@ public struct LayoutCacheDisplay: Codable, Hashable, Sendable {
     }
 }
 
-public enum LayoutCacheAppearance: String, Codable, Sendable {
+public nonisolated enum LayoutCacheAppearance: String, Codable, Sendable {
     case light, dark
 }
 
-public struct LayoutCacheTheme: Codable, Hashable, Sendable {
+public nonisolated struct LayoutCacheTheme: Codable, Hashable, Sendable {
     /// The window backdrop's colour; its alpha is the backdrop opacity.
     public var backgroundRgba: [UInt8]
     public var barRgba: [UInt8]
@@ -73,14 +73,14 @@ public struct LayoutCacheTheme: Codable, Hashable, Sendable {
     public var backdropOpacity: Double? { backgroundRgba.count == 4 ? Double(backgroundRgba[3]) / 255 : nil }
 }
 
-public struct LayoutCacheRowHeight: Codable, Hashable, Sendable {
+public nonisolated struct LayoutCacheRowHeight: Codable, Hashable, Sendable {
     public var id: String
     public var height: Double
 
     public init(id: String, height: Double) { self.id = id; self.height = height }
 }
 
-public struct LayoutCacheSidebar: Codable, Hashable, Sendable {
+public nonisolated struct LayoutCacheSidebar: Codable, Hashable, Sendable {
     public var width: Double
     public var collapsed: Bool
     public var scrollY: Double
@@ -91,7 +91,7 @@ public struct LayoutCacheSidebar: Codable, Hashable, Sendable {
     }
 }
 
-public struct LayoutCacheTabSlot: Codable, Hashable, Sendable {
+public nonisolated struct LayoutCacheTabSlot: Codable, Hashable, Sendable {
     public var id: String
     public var x: Double
     public var width: Double
@@ -99,7 +99,7 @@ public struct LayoutCacheTabSlot: Codable, Hashable, Sendable {
     public init(id: String, x: Double, width: Double) { self.id = id; self.x = x; self.width = width }
 }
 
-public struct LayoutCacheScroll: Codable, Hashable, Sendable {
+public nonisolated struct LayoutCacheScroll: Codable, Hashable, Sendable {
     public var offsetY: Double
     public var contentHeight: Double
 
@@ -107,7 +107,7 @@ public struct LayoutCacheScroll: Codable, Hashable, Sendable {
 }
 
 /// `PaneKind`; a kind this app does not know reads as `other` (as in Rust).
-public enum LayoutCachePaneKind: String, Codable, Sendable {
+public nonisolated enum LayoutCachePaneKind: String, Codable, Sendable {
     case terminal, chat, browser, home, other
 
     public init(from decoder: any Decoder) throws {
@@ -115,7 +115,7 @@ public enum LayoutCachePaneKind: String, Codable, Sendable {
     }
 }
 
-public struct LayoutCacheLeaf: Codable, Hashable, Sendable {
+public nonisolated struct LayoutCacheLeaf: Codable, Hashable, Sendable {
     public var paneId: String
     public var kind: LayoutCachePaneKind
     /// Content points, top-left origin, in the window's content view.
@@ -128,7 +128,7 @@ public struct LayoutCacheLeaf: Codable, Hashable, Sendable {
 }
 
 /// `PaneNode`: `{"type": "split", axis, fractions, children}` or `{"type": "leaf", pane_id, ...}`.
-public indirect enum LayoutCachePaneNode: Codable, Hashable, Sendable {
+public nonisolated indirect enum LayoutCachePaneNode: Codable, Hashable, Sendable {
     /// `horizontal`: children side by side ("h"); else stacked ("v"). `fractions` sum to 1.
     case split(horizontal: Bool, fractions: [Double], children: [LayoutCachePaneNode])
     case leaf(LayoutCacheLeaf)
@@ -170,7 +170,7 @@ public indirect enum LayoutCachePaneNode: Codable, Hashable, Sendable {
     }
 }
 
-public struct LayoutCacheWindow: Codable, Hashable, Sendable {
+public nonisolated struct LayoutCacheWindow: Codable, Hashable, Sendable {
     public var id: String
     /// AppKit global points.
     public var frame: LayoutCacheRect
@@ -229,7 +229,7 @@ extension LayoutCacheWindow {
     }
 }
 
-public struct LayoutCacheDocument: Codable, Hashable, Sendable {
+public nonisolated struct LayoutCacheDocument: Codable, Hashable, Sendable {
     /// cmux-layout-cache `FORMAT_VERSION`; Rust drops any other.
     public static let formatVersion: UInt32 = 1
     public var version: UInt32
@@ -252,7 +252,7 @@ public struct LayoutCacheDocument: Codable, Hashable, Sendable {
 }
 
 /// `Usable`: which windows' geometry applies this launch, and where each goes.
-public struct LayoutCacheUsable: Codable, Sendable {
+public nonisolated struct LayoutCacheUsable: Codable, Sendable {
     public struct Placement: Codable, Sendable {
         public var id: String
         public var frame: LayoutCacheRect
@@ -272,7 +272,7 @@ public struct LayoutCacheUsable: Codable, Sendable {
 }
 
 /// `Applied` (reconcile): the cached tree fitted to the live one.
-public struct LayoutCacheApplied: Codable, Sendable {
+public nonisolated struct LayoutCacheApplied: Codable, Sendable {
     public struct Transition: Codable, Sendable {
         public var kind: String
         public var panes: [String]
@@ -312,7 +312,7 @@ public indirect enum LayoutCacheLiveNode: Encodable, Sendable {
     }
 }
 
-public struct LayoutCacheLiveTree: Encodable, Sendable {
+public nonisolated struct LayoutCacheLiveTree: Encodable, Sendable {
     public var panes: [String]
     public var root: LayoutCacheLiveNode?
     public var bounds: LayoutCacheRect?
@@ -324,7 +324,7 @@ public struct LayoutCacheLiveTree: Encodable, Sendable {
 }
 
 /// `StripApplied` (reconcile_strip).
-public struct LayoutCacheStripApplied: Codable, Sendable {
+public nonisolated struct LayoutCacheStripApplied: Codable, Sendable {
     public var tabs: [LayoutCacheTabSlot]
 }
 

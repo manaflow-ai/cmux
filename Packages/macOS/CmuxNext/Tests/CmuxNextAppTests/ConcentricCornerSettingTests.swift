@@ -66,10 +66,10 @@ import Testing
         #expect(Metrics.paneSeparation == separation, "a radius alone keeps the window style's separation")
     }
 
-    /// Fills inside a pill (the close button's hover) are concentric with the pill: its radius less
-    /// the fill's inset from the pill's edge.
+    /// The close button's hover is Helium's at any corner radius (Lawrence 2026-11-28: "size and icon size etc must
+    /// perfectly match helium"): its 4 pt rounded square, centered on the x and inside the pill.
     @Test(arguments: [(10.0, 2.0), (14.0, 2.0), (6.0, 2.0)])
-    func theCloseButtonIsConcentricWithItsTab(radius: Double, padding: Double) throws {
+    func theCloseButtonKeepsHeliumsHoverAtAnyRadius(radius: Double, padding: Double) throws {
         defer { reset() }
         load(radius: radius, padding: padding, style: .floating)
         let scene = TabConcentricCornerTests.scene()
@@ -77,11 +77,10 @@ import Testing
         let cell = try #require(scene.strip.cells[TabID("tab0")])
         cell.isHovered = true // lays the cell out (`stateChanged`)
         let close = try #require(cell.closeBackgroundLayer, "the selected, hovered tab shows its x")
+        let glyph = try #require(cell.closeGlyphLayer)
         let pill = cell.backgroundLayer.frame
-        let inset = min(close.frame.minY - pill.minY, pill.maxY - close.frame.maxY)
-        // The x takes Helium's own corner, 4 on its 14 pt square, at its own size, whatever corner the pill has
-        // (Lawrence 2026-11-13; the same 0.29 share as the chrome's buttons, Lucas 2026-11-15).
-        let expected = ((close.frame.height * 4 / 14) * 2).rounded() / 2
-        #expect(abs(close.cornerRadius - expected) <= 0.01, "the x's fill is \(close.cornerRadius) pt \(inset) pt inside a \(cell.backgroundLayer.cornerRadius) pt tab")
+        #expect(close.cornerRadius == 4, "the x's fill is rounded \(close.cornerRadius) pt in a \(cell.backgroundLayer.cornerRadius) pt tab")
+        #expect(abs(close.frame.midX - glyph.frame.midX) <= 0.5 && abs(close.frame.midY - glyph.frame.midY) <= 0.5)
+        #expect(pill.insetBy(dx: -0.5, dy: -0.5).contains(close.frame), "the fill \(close.frame) stays inside the pill \(pill)")
     }
 }

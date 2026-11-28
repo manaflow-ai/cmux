@@ -104,6 +104,31 @@ pub unsafe extern "C" fn cmux_layout_cache_write_keyed(
     })
 }
 
+/// `cmux_layout_cache_write`, also giving the content's key (`key_out`, when non-null and the
+/// write succeeded) for `cmux_layout_cache_coalescer_wrote_key`: the app writes off its main
+/// thread, and the key lets the main thread clear the coalescer without parsing the cache again.
+///
+/// # Safety
+/// `path` and `json` are null or NUL-terminated strings; `key_out` is null or points to a `u64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_layout_cache_write_keyed(
+    path: *const c_char,
+    json: *const c_char,
+    key_out: *mut u64,
+) -> i32 {
+    let (path, json) = (unsafe { c_str(path) }, unsafe { c_str(json) });
+    guard(BAD_INPUT, || {
+        let (Some(path), Some(cache)) = (path, parse_cache(json)) else { return BAD_INPUT };
+        if write(Path::new(path), &cache).is_err() {
+            return IO_FAILED;
+        }
+        if !key_out.is_null() {
+            unsafe { *key_out = cache.content_key() };
+        }
+        0
+    })
+}
+
 /// Which parts of `cache_json` this launch may apply (`Usable` as JSON) given `now_json`
 /// (`NowState`: `build_key`, `displays`, `now_ms`). Null for bad input.
 ///
@@ -302,6 +327,23 @@ pub unsafe extern "C" fn cmux_layout_cache_coalescer_flush_now(
 
 /// Records that the content `cmux_layout_cache_write_keyed` gave `key` for reached disk: the
 /// pending change clears and the same content later skips its write; no parse on the coalescer's thread. False for a null coalescer.
+///
+/// # Safety
+/// `c` is null or a live coalescer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_layout_cache_coalescer_wrote_key(
+    c: *mut CmuxLayoutCacheCoalescer,
+    key: u64,
+) -> bool {
+    let Some(c) = (unsafe { coalescer(c) }) else { return false };
+    guard(false, || {
+        c.wrote_key(key);
+        true
+    })
+}
+
+/// `cmux_layout_cache_coalescer_wrote` from the key `cmux_layout_cache_write_keyed` gave: no
+/// parse on the coalescer's thread. False for a null coalescer.
 ///
 /// # Safety
 /// `c` is null or a live coalescer.

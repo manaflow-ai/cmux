@@ -304,6 +304,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-app-workspace-creation"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-background-ready"
 version = "0.1.0"
 
@@ -388,6 +396,7 @@ dependencies = [
  "cmux-lifeline",
  "serde",
  "serde_json",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -610,6 +619,7 @@ dependencies = [
 name = "cmux-layout-reducer-ffi"
 version = "0.1.0"
 dependencies = [
+ "cmux-app-workspace-creation",
  "cmux-bookmarks-core",
  "cmux-browser-rules",
  "cmux-cloud-config",
@@ -622,6 +632,7 @@ dependencies = [
  "cmux-imessage",
  "cmux-layout-reducer",
  "cmux-mobile-host-core",
+ "cmux-phone-core",
  "cmux-rd-core",
  "cmux-rd-screen",
  "cmux-tab-discard",
@@ -680,6 +691,15 @@ dependencies = [
 [[package]]
 name = "cmux-pane-pictures"
 version = "0.1.0"
+
+[[package]]
+name = "cmux-phone-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "unicode-segmentation",
+]
 
 [[package]]
 name = "cmux-process"
