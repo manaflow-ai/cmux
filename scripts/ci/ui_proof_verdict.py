@@ -75,6 +75,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+import gh_http  # noqa: E402
 import proof_record  # noqa: E402
 
 STATUS_CONTEXT = "cmux/ui-proof"
@@ -383,8 +384,9 @@ def api(path: str, token: str, method: str = "GET", body: dict | None = None):
                                  data=json.dumps(body).encode() if body is not None else None,
                                  headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
                                           "X-GitHub-Api-Version": "2022-11-28"})
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        return json.loads(resp.read() or b"null")
+    # gh_http asks a read again after a refusal that can change; a write is sent once (its rule).
+    _, raw, _ = gh_http.request(req, 20, raise_errors=True)
+    return json.loads(raw or b"null")
 
 
 def post_status(state: str, description: str, repo: str, sha: str, tokens: list[str], target_url: str = "") -> bool:
