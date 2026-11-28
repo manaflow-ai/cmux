@@ -162,6 +162,9 @@ jobs:
           # feat-cmux-next's push run instead of re-running it on the base, as pr-pipeline.yml's linux job (cmux#65119).
           CI_GUARDS_REACHED_BASE_VERDICTS: ${{ vars.CI_GUARDS_REACHED_BASE_VERDICTS || '0' }}
           GH_TOKEN: ${{ vars.CI_GUARDS_REACHED_BASE_VERDICTS == '1' && github.token || '' }}
+          # As pr-pipeline.yml's linux job (#65521): a pull request's job stops after a blocking red; the batch is no
+          # pull request, so it is 0 here and every step runs.
+          CI_RUN_FAIL_FAST: ${{ github.event_name == 'pull_request' && format('{0}', vars.CI_PR_PIPELINE_LINUX_FAIL_FAST) != '0' && steps.tooling-tests-base-red.outputs.base_red != 'true' && '1' || '0' }}
         run: |
           scope=()
           [ "${CI_PR_PIPELINE_LINUX_PR_SCOPE:-0}" = 1 ] && scope=(--pr-scope)
