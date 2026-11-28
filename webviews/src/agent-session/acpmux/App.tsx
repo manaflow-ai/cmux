@@ -102,6 +102,7 @@ import {
 } from "./newtab/draftFolder";
 import { cloudModePickFor as cloudModeFor, useCloudModePick } from "./cloudModePick";
 import { cloudAgentPick, holdCloudAgentPick } from "./cloudAgentPick";
+import { cloudLastPick } from "./cloudLastPick";
 import {
   askAppCloudPick,
   cloudPickChoices,
@@ -628,7 +629,7 @@ import { ShellRuns } from "./shell/shellRuns";
 import { answerBlock, restartOwner, restartReaches } from "./subagents/restart";
 import { bridgedWatch } from "./watchBannerModel";
 import { type SubagentRows, runningGroups, subagentsIn } from "./subagents/subagentRows";
-import { foldOwnLog, subagentPaneView, useOwnLog, needsOwnLog } from "./subagents/subagentOwnLog";
+import { foldOwnLog, subagentPaneView, useOwnLog, needsOwnLog, type OwnLogRecord } from "./subagents/subagentOwnLog";
 import { lastReply as lastSubagentReply, SubagentReplyContext } from "./subagents/wholeReport";
 import { knownMark } from "../shared/AgentMark";
 import { useSenderIconLook } from "./subagents/senderIconLook";
@@ -1756,6 +1757,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const showSaid = useRef<(said: SaidReveal) => string | undefined>(() => undefined);
   /// Starts this chat's Ask about this side chat (Needs you's `sideSession`), set where Needs you is.
   const askAboutChat = useRef<(sessionId: string, question: string) => Promise<unknown>>(async () => {
+    // l10n-allow: a bug message for a caller, never shown
     throw new Error("not ready");
   });
   const reveal = (value: string) => {
@@ -5083,7 +5085,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         const client = directClient.current;
         const { intent, model } = harnessSwitch.view();
         const summary = snapshotRef.current?.summary;
-        const cloudPick = cloudAgentPick();
+        const cloudPick = cloudAgentPick() ?? cloudLastPick();
         return {
           harness: cloudPick?.harness ?? intent?.harness ?? summary?.harness,
           revision: [
@@ -6433,6 +6435,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (!signatureSessionId) return;
     return setAgentSignatureSource({
       sessionId: signatureSessionId,
+      // l10n-allow: a bug message for a caller, never shown
       fetch: (ids) => directClient.current?.signatures(ids) ?? Promise.reject(new Error("no client")),
     });
   }, [signatureSessionId]);
