@@ -1,134 +1,133 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "backgroundTasks.noOutputYet" : {
-      "comment" : "Agent pane: a background command's card while it has printed nothing yet",
+    "settings.choice.effortLow" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No output yet"
+            "value" : "Low"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "لا توجد مخرجات بعد"
+            "value" : "منخفض"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Još nema izlaza"
+            "value" : "Nizak"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Intet output endnu"
+            "value" : "Lav"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Noch keine Ausgabe"
+            "value" : "Niedrig"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Aún no hay salida"
+            "value" : "Bajo"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Pas encore de sortie"
+            "value" : "Faible"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ancora nessun output"
+            "value" : "Basso"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "まだ出力はありません"
+            "value" : "低"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "មិនទាន់មានលទ្ធផលនៅឡើយ"
+            "value" : "ទាប"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "아직 출력 없음"
+            "value" : "낮음"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ingen utdata ennå"
+            "value" : "Lav"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Brak danych wyjściowych"
+            "value" : "Niski"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ainda sem saída"
+            "value" : "Baixo"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Вывода пока нет"
+            "value" : "Низкое"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ยังไม่มีเอาต์พุต"
+            "value" : "ต่ำ"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Henüz çıktı yok"
+            "value" : "Düşük"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Виводу ще немає"
+            "value" : "Низьке"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chưa có đầu ra"
+            "value" : "Thấp"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "暂无输出"
+            "value" : "低"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "尚無輸出"
+            "value" : "低"
           }
         }
       }
