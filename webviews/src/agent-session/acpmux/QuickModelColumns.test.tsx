@@ -1054,6 +1054,47 @@ test("the menu grows by the open card's height, so the lists keep theirs, and go
   expect(frame.style.height).not.toContain(`${fixed + 120}px`);
 });
 
+test("the menu follows the open card as its content grows, through the card body's observer (#63167)", async () => {
+  let body = 120;
+  const observers: (() => void)[] = [];
+  fakeLayout = (window) => {
+    installFakeLayout(window);
+    Object.defineProperty(window.HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.classList.contains("acpmux-cols-card-body") ? body : 0;
+      },
+    });
+    (globalThis as Record<string, unknown>).ResizeObserver = class {
+      private readonly run: () => void;
+      constructor(callback: () => void) {
+        this.run = callback;
+      }
+      observe(node: Element) {
+        if (node.classList.contains("acpmux-cols-card-body")) observers.push(this.run);
+      }
+      unobserve() {}
+      disconnect() {}
+    };
+  };
+  const saved = (globalThis as Record<string, unknown>).ResizeObserver;
+  try {
+    await openMenu();
+    const frame = popup().querySelector<HTMLElement>(".acpmux-cols-frame")!;
+    const fixed = Number(frame.dataset.fitHeight);
+    await click(popup().querySelector<HTMLElement>(".acpmux-cols-profile")!);
+    expect(frame.style.height).toContain(`${fixed + 120}px`);
+    expect(observers.length).toBeGreaterThan(0);
+    // The accounts load and the card's content grows: the menu grows with it.
+    body = 200;
+    await act(async () => observers.forEach((run) => run()));
+    expect(frame.style.height).toContain(`${fixed + 200}px`);
+  } finally {
+    if (saved === undefined) delete (globalThis as Record<string, unknown>).ResizeObserver;
+    else (globalThis as Record<string, unknown>).ResizeObserver = saved;
+  }
+});
+
 test("the account card's style keeps it in the flow, scrolling as one block over lists that keep two rows (#63167)", async () => {
   const { readFileSync } = await import("node:fs");
   const css = readFileSync(new URL("./quickModelColumns.css", import.meta.url), "utf8");
