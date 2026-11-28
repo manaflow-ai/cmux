@@ -90,6 +90,21 @@ CONNECTION_WORDS = re.compile(
     r"|link (?:is )?down|waiting for (?:the )?(?:agent service|daemon|service|connection|network|host|machine|mac|server)"
     r")"
 )
+# A piece of every CONNECTION_WORDS match, lowercased: a cheap test that skips text that cannot match.
+WORD_STEMS = ("connect", "attaching", "retrying", "restoring", "handshak", "getting access", "offline", "reach",
+              "link ", "waiting for ")
+KEY_TOKEN = re.compile(r"[A-Za-z0-9_.\-]+")
+
+
+def may_say_words(text: str) -> bool:
+    """False only when CONNECTION_WORDS cannot match: ASCII text (where its case-blind read is `lower()`) holding
+    none of WORD_STEMS."""
+    if not text.isascii():
+        return True
+    low = text.lower()
+    return any(stem in low for stem in WORD_STEMS)
+
+
 # A string literal that is UI copy, not a state tag, an identifier or a log reason: it starts with a capital (or an
 # opening quote or a format) and is either one word ("Offline", "Reconnecting…") or has a space.
 TEXT_SHAPE = re.compile(r"^[“\"'(%\\]*[A-Z](?:[a-z’'\-]*[a-z](?:…|\.\.\.|\.)?$|.*\s)")
@@ -155,6 +170,9 @@ PERSON_ACTIONS = re.compile(
     # and not a type (`timeout(run: () => void, ms)`, a timer or frame scheduler's signature).
     r"|\brun:\s*(?:\(\s*\)\s*=>(?!\s*(?:void|Promise\b|unknown\b))|\w+(?:\.\w+)*\.on[A-Z]\w*\b))"
 )
+# A literal piece of every PERSON_ACTIONS match: text with none of them skips its (slow, unanchored) search.
+PERSON_ACTION_STEMS = ("onClick", "onPress", "Button", "button", "Action", "action", "#selector(", ".onTapGesture",
+                       "activate", "run:")
 # Lines that are not UI text: logs, errors, assertions.
 NOT_UI_LINE = re.compile(
     r"\b(log(?:ger)?\.\w+|Logger|os_log|NSLog|print|debugPrint|console\.\w+|fatalError|precondition\w*|assert\w*"
@@ -189,6 +207,7 @@ class Hit:
     index: int = 0  # the hit's line within its unit's lines
     hops: int = 0  # how many providers it came through
     origin: str = ""  # the file the words are in (the provider's, for a hit passed on)
+    table: bool = False  # passed on by a label table or strings member, which keeps its two-hop budget
 
 
 @dataclass
@@ -393,12 +412,17 @@ def scan(tree: Tree) -> list[Unit]:
     presenter_imports: dict[str, list[tuple[str, str, str]]] = {}
     opaque_modules: set[str] = set()
     unresolved_exports: set[str] = set()
+    # A hit is a literal that is a key in `keys` or says CONNECTION_WORDS. A key literal is a whole KEY_TOKEN of its
+    # line (it sits between quotes, `>` or spaces) and CONNECTION_WORDS needs one of WORD_STEMS, so a file or line with
+    # neither can say nothing and skips the per-literal reads below.
     for path in files:
         surface = surface_of(path)
         if surface is None or not path.endswith(SOURCE_SUFFIXES) or SKIP.search(path):
             continue
         source = strip_comments(tree.read(path))
         lines = source.split("\n")
+        file_words = may_say_words(source)
+        file_keys = bool(keys) and not keys.isdisjoint(KEY_TOKEN.findall(source))
         if path.endswith((".ts", ".tsx")):
             imports[path] = []
             for match in TS_IMPORT.finditer(source):
@@ -431,7 +455,10 @@ def scan(tree: Tree) -> list[Unit]:
             base = len(unit.lines)
             unit.lines.extend(body)
             unit.numbers.extend(range(first + 1, last + 2))
-            for offset, line in enumerate(body):
+            for offset, line in enumerate(body if file_words or file_keys else ()):
+                if not ((file_words and may_say_words(line) and CONNECTION_WORDS.search(line))
+                        or (file_keys and not keys.isdisjoint(KEY_TOKEN.findall(line)))):
+                    continue
                 if NOT_UI_LINE.search(line):
                     continue
                 said = [g for m in STRING_LITERAL.finditer(line) for g in m.groups() if g is not None]
@@ -445,11 +472,16 @@ def scan(tree: Tree) -> list[Unit]:
     for unit in units.values():
         text = "\n".join(unit.lines)
         unit.gated = bool(TIME_GATES.search(text))
-        unit.acted = bool(PERSON_ACTIONS.search(text))
+        unit.acted = any(stem in text for stem in PERSON_ACTION_STEMS) and bool(PERSON_ACTIONS.search(text))
         unit.literal_grace = [m.group(0) for m in LITERAL_GRACE.finditer(text)
                               if int(m.group(2).replace("_", "")) < bound]
         unit.literal_grace += [m.group(0) + ")" for m in SWIFT_LITERAL_GRACE.finditer(text)
                                if int(m.group(2).replace("_", "")) * (1000 if m.group(1) == "seconds" else 1) < bound]
+    for unit in units.values():
+        if outcome_unit(unit):
+            # An error type's or failure helper's copy is the outcome of a request wherever it is drawn
+            # (`deviceFailure` drawn by `ChatGPTDeviceForm`): it shows no connection state to pass on.
+            unit.hits = []
     drawn_actions(units, imports)
     swift_drawn_actions(units)
     propagate(units, imports)
@@ -458,7 +490,11 @@ def scan(tree: Tree) -> list[Unit]:
     for unit in units.values():
         unit.lines = []
         unit.numbers = []
-    return [u for u in units.values() if u.hits and not ERROR_TYPE.search(u.name) and not OUTCOME_UNIT.search(u.name)]
+    return [u for u in units.values() if u.hits and not outcome_unit(u)]
+
+
+def outcome_unit(unit: Unit) -> bool:
+    return bool(ERROR_TYPE.search(unit.name) or OUTCOME_UNIT.search(unit.name))
 
 
 # A component named for the action it draws (`ConnectButton`, `RetryAction`, `CardActions`); a component that only
@@ -548,6 +584,14 @@ def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]])
     for unit in units.values():
         by_file.setdefault(unit.path, []).append(unit)
     swift_units = [u for u in units.values() if u.path.endswith(".swift")]
+    texts: dict[int, str] = {}  # a unit's joined lines; propagate only adds hits, so they hold for every round
+
+    def text_of(u: Unit) -> str:
+        t = texts.get(id(u))
+        if t is None:
+            t = texts[id(u)] = "\n".join(u.lines)
+        return t
+
     for _round in range(4):
         moved = False
         for unit in list(units.values()):
@@ -555,8 +599,10 @@ def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]])
                 continue
             members = {member_at(unit, h.index) for h in unit.hits}
             # A label table or strings type passes its words on through two hops; a helper function through one,
-            # so a call chain (a host bridge's error key) does not spread to every caller.
-            if min(h.hops for h in unit.hits) >= (1 if None in members else 2):
+            # so a call chain (a host bridge's error key) does not spread to every caller. A helper that only relays
+            # a table's words (`cloudPickerReason` reading `reasonLabels`) spends the table's budget, not its own.
+            helper = None in members and not all(h.table for h in unit.hits)
+            if min(h.hops for h in unit.hits) >= (1 if helper else 2):
                 continue
             name = re.escape(unit.name)
             if None in members:
@@ -573,7 +619,7 @@ def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]])
             if unit.path.endswith(".swift"):
                 module = module_of(unit.path)
                 pool = [u for u in swift_units if u is not unit and u.path.startswith(module)]
-                if not any(use.search("\n".join(u.lines)) for u in pool):
+                if not any(unit.name in text_of(u) and use.search(text_of(u)) for u in pool):
                     pool = [u for u in swift_units if u is not unit]
             else:
                 stem = re.sub(r"\.(tsx?)$", "", unit.path)
@@ -590,7 +636,9 @@ def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]])
             for other in pool:
                 if other.name == "<file>":
                     continue  # its imports, not a drawing
-                by_value = instance is not None and bool(named.search("\n".join(other.lines)))
+                if unit.name not in text_of(other):
+                    continue  # `use`, `drop` and the by-value read all need the provider's name in the text
+                by_value = instance is not None and bool(named.search(text_of(other)))
                 for i, line in enumerate(other.lines):
                     m = use.search(line) or (instance.search(line) if by_value else None)
                     if m and drop.search(line) and not use.search(drop.sub("", line)):
@@ -610,7 +658,8 @@ def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]])
                 continue
             for other, i, said in consumers:
                 hops = min(h.hops for h in unit.hits) + 1
-                other.hits.append(Hit(other.numbers[i], f"{unit.name}: {said.text}", i, hops, said.origin))
+                other.hits.append(Hit(other.numbers[i], f"{unit.name}: {said.text}", i, hops, said.origin,
+                                      None not in members))
             unit.hits = []
             moved = True
         if not moved:
@@ -636,6 +685,21 @@ def inline_presenter(unit: Unit) -> bool:
     return tags <= INLINE_TAGS | children
 
 
+# A row that draws its caller's controls (`{children}`) beside a state its caller sets by prop (`ModelRow`'s spinner
+# label while `loading`) holds no state of its own: each mount composing those controls owns the state. A live region,
+# an alert or a component with its own hooks keeps its finding.
+CHILDREN_SLOT = re.compile(r"\{\s*children\s*\}")
+LIVE_ROLE = re.compile(r"""\baria-live\s*=|\brole\s*=\s*\{?\s*["'](?:status|alert|log)["']""")
+
+
+def slot_presenter(unit: Unit) -> bool:
+    if not unit.path.endswith(".tsx") or not unit.name[:1].isupper() or unit.literal_grace:
+        return False
+    body = "\n".join(unit.lines)
+    return bool(RETURN_TAG.search(body) and CHILDREN_SLOT.search(body) and not LIVE_ROLE.search(body)
+                and not re.search(r"\buse(?!\w*Strings\b|T\b)\w+\(", body))
+
+
 def attribute_presenters(units: dict[str, Unit], imports: dict[str, list[tuple[str, str, str]]],
                          opaque_modules: set[str], unresolved_exports: set[str]) -> None:
     """Follow known JSX mounts of passive inline copy to each drawing. A value use, orphan,
@@ -647,7 +711,7 @@ def attribute_presenters(units: dict[str, Unit], imports: dict[str, list[tuple[s
     for _ in range(4):  # same bounded depth as copy propagation; longer chains retain a finding
         moved = False
         for unit in units.values():
-            if unit.ok or not inline_presenter(unit) or max(h.hops for h in unit.hits) >= 4:
+            if unit.ok or not (inline_presenter(unit) or slot_presenter(unit)) or max(h.hops for h in unit.hits) >= 4:
                 continue
             stem = unit.path[:-len(".tsx")]
             targets = {stem, stem.removesuffix("/index")}
