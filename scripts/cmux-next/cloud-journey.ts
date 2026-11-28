@@ -3885,6 +3885,49 @@ export const hopSpans = (out: string): Record<string, number> | null => {
   };
 };
 
+/**
+ * A provider's own credential in the form its vendor issues it: an Anthropic API, OAuth (`claude setup-token`) or admin
+ * key, an OpenAI key (every form carries `T3BlbkFJ`, base64 of "OpenAI"), a Google, xAI, OpenRouter or Groq key, or an
+ * OAuth refresh token as a JSON field (a Codex ChatGPT sign-in's auth.json). Lengths are the issued ones, so the short
+ * examples in a harness's docs do not match. A cmux-issued token (the model plane's, a machine's) is none of these.
+ */
+export const PROVIDER_KEY_PATTERN =
+  'sk-ant-(api|oat|admin)[0-9]{2}-[A-Za-z0-9_-]{80,}|sk-[A-Za-z0-9_-]*T3BlbkFJ[A-Za-z0-9_-]{16,}|AIza[0-9A-Za-z_-]{35}|xai-[A-Za-z0-9]{70,}|sk-or-v1-[0-9a-f]{64}|gsk_[A-Za-z0-9]{52}|"refresh_token" *: *"[^"]{20,}';
+
+/**
+ * Plan "API keys no longer ever land in the VM" (cmuxterm-hq plans/feat-regatta-cloud-agents/regatta-prototype.md, M2):
+ * whether a provider credential is anywhere on the machine while its agent runs. Every process's environment and command
+ * line, and every text file under 4 MiB in the folders a login or an env file could be in, are matched against
+ * PROVIDER_KEY_PATTERN on the guest; only the place and the kind come back (`@@hit`), never a value, and no value is
+ * sent to the guest to look for. As root when `sudo -n` works (`@@root yes`), else only what the work user can read.
+ */
+/** The folders the scan reads: a login, an env file or a harness's settings is in one of them. */
+export const PROVIDER_KEY_FOLDERS = ["/home", "/root", "/etc", "/tmp", "/var/tmp", "/opt", "/srv", "/run", "/var/lib"];
+export const providerKeysProgram = (folders: readonly string[] = PROVIDER_KEY_FOLDERS) => [
+  `P='${PROVIDER_KEY_PATTERN.replace(/'/g, `'\\''`)}'`,
+  "R=; sudo -n true 2>/dev/null && R='sudo -n'; echo \"@@root ${R:+yes}${R:-no}\"",
+  "kind() { sed -E 's/^sk-ant-(api|oat|admin).*/anthropic-\\1/; s/^sk-.*T3BlbkFJ.*/openai/; s/^AIza.*/google/; s/^xai-.*/xai/; s/^sk-or-v1-.*/openrouter/; s/^gsk_.*/groq/; s/^\"refresh_token\".*/oauth-refresh-token/' | sort -u | tr '\\n' ' '; }",
+  // One grep over every process's env and command line (NUL-separated, so a match never spans two variables).
+  "echo \"@@procs $(ls -d /proc/[0-9]* | wc -l)\"",
+  "$R grep -aoE \"$P\" /proc/[0-9]*/environ /proc/[0-9]*/cmdline 2>/dev/null | while IFS= read -r l; do p=${l#/proc/}; p=${p%%/*}; echo \"$p $(printf '%s\\n' \"${l#*:}\" | kind)\"; done" +
+    " | sort -u | while read -r p k; do echo \"@@hit env pid $p ($($R cat /proc/$p/comm 2>/dev/null)): $k\"; done",
+  `$R timeout 80 find ${folders.join(" ")} -xdev` + " \\( -name node_modules -o -name site-packages -o -name dist-packages -o -name .git \\) -prune -o -type f -size -4M -print0 2>/dev/null" +
+    " | $R xargs -0 -r grep -IlsE \"$P\" 2>/dev/null | while IFS= read -r f; do echo \"@@hit file $f: $($R grep -ohIsE \"$P\" \"$f\" | kind)\"; done",
+  "echo @@done",
+].join("\n");
+export const PROVIDER_KEYS_ON_MACHINE_PROGRAM = providerKeysProgram();
+
+/** The verdict on PROVIDER_KEYS_ON_MACHINE_PROGRAM's output: the places a provider credential is, or a clean read. */
+export function providerKeysVerdict(stdout: string): { hits: string[]; root: boolean; procs: number; done: boolean } {
+  const lines = stdout.split("\n");
+  return {
+    hits: lines.filter((l) => l.startsWith("@@hit ")).map((l) => l.slice(6).trim()),
+    root: lines.includes("@@root yes"),
+    procs: Number(/^@@procs (\d+)$/m.exec(stdout)?.[1] ?? 0),
+    done: lines.includes("@@done"),
+  };
+}
+
 /** The model plane every Cloud machine's agents read (web/services/coderouter/vmGuestEnv.ts). */
 const VM_MODEL_PLANE_ENV = "/etc/cmux/model-plane.env";
 /** Calls timed each way by the gateway hop cost. */
@@ -7365,6 +7408,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           });
         }
       }
+      // While the agent's session is live: no provider credential anywhere on the machine (plan M2, "API keys no
+      // longer ever land in the VM"). A login the journey passed (a subscription row, Codex's auth.json) is one.
+      await J.step("no provider key on the machine", async () => {
+        const r = await exec(PROVIDER_KEYS_ON_MACHINE_PROGRAM, 120_000);
+        const v = providerKeysVerdict(r.stdout);
+        if (!v.done) throw new Error(`the scan did not finish: exit ${r.code} ${r.stderr.slice(-200)}`);
+        if (v.hits.length) throw new Error(`${v.hits.length} provider credential place(s) on the machine: ${v.hits.slice(0, 12).join("; ")}`);
+        return { value: v.hits.length, detail: `0 provider keys in ${v.procs} processes' env and the disk${v.root ? "" : " (as the work user only: no sudo)"}` };
+      });
       if (!lifecycle) {
         J.skip("turn 2 (same session)", only.has("lifecycle") ? "--skip lifecycle" : `agent ${agent}`);
         J.skip("daemon restart keeps the session", only.has("lifecycle") ? "--skip lifecycle" : `agent ${agent}`);
