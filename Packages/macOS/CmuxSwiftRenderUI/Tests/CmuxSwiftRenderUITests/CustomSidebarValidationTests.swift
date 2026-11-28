@@ -101,7 +101,11 @@ struct CustomSidebarValidationTests {
         // manifest.json is the built-in template catalog's index, not a sidebar.
         let sidebars = report.entries.filter { $0.name != "manifest" }
 
-        #expect(sidebars.map(\.name).sorted() == ["activity", "agents-board", "agents-cards", "agents-dense", "agents-focus", "agents-timeline", "btop-agents", "clock", "compact", "finder", "focus", "kitchen-sink", "panel-info", "panel-sessions", "panel-subagents", "panel-todo", "ports", "status-board", "workspaces"])
+        #expect(sidebars.map(\.name).sorted() == [
+            "activity", "agents-board", "agents-cards", "agents-dense", "agents-focus", "agents-timeline",
+            "btop-agents", "clock", "compact", "finder", "focus", "kitchen-sink", "panel-info",
+            "panel-sessions", "panel-subagents", "panel-todo", "ports", "status-board", "workspaces",
+        ])
         #expect(sidebars.filter(\.isValid).count == 19)
         #expect(sidebars.filter { !$0.isValid }.map(\.name) == [])
     }
@@ -351,4 +355,128 @@ struct CustomSidebarValidationTests {
             ]),
         ]),
     ]
+}
+
+@Suite("Custom sidebar sample data context")
+struct CustomSidebarSampleContextTests {
+    /// The workspaces the validator samples, as field dictionaries.
+    private func sampleWorkspace(titled title: String) throws -> [String: SwiftValue] {
+        let context = CustomSidebarValidator.defaultDataContext
+        let workspaces = try #require(SwiftValue.arrayElements(context["workspaces"]))
+        let match = workspaces.lazy.compactMap { SwiftValue.objectFields($0) }.first { $0["title"] == .string(title) }
+        return try #require(match, "The sample context has no workspace titled \(title)")
+    }
+
+    @Test("the sample data context carries the render builder's shapes and optionality")
+    func sampleContextMatchesRenderBuilderShapes() throws {
+        // The populated sample: its workspace-level optionals are present with
+        // the type CustomSidebarDataContextBuilder emits, never a placeholder string.
+        let populated = try sampleWorkspace(titled: "Sample Workspace")
+        let pr = try #require(SwiftValue.objectFields(populated["pr"]),
+                              "pr must be an object like the builder's pullRequestValues, not a placeholder string (#7944)")
+        #expect(pr["number"] == .int(5812))
+        #expect(pr["label"] == .string("PR 5812"))
+        let progress = try #require(SwiftValue.objectFields(populated["progress"]),
+                                    "progress must be an object with a numeric value, not a placeholder string (#7944)")
+        #expect(progress["value"] == .double(0.42))
+        let remote = try #require(SwiftValue.objectFields(populated["remote"]),
+                                   "remote must be an object, not a placeholder string (#7944)")
+        #expect(remote["target"] == .string("aws-m4pro-1"))
+        #expect(remote["connected"] == .bool(true))
+        #expect(populated["latestAt"] == .int(1_779_999_400))
+        #expect(pr["branch"] == .string("main"))
+        #expect(populated["prs"] == .array([.object(pr)]))
+        #expect(populated["status"] == .string("working"))
+
+        // clock is the builder's object, its fields read from one instant.
+        let clock = try #require(SwiftValue.objectFields(CustomSidebarValidator.defaultDataContext["clock"]))
+        let epoch = 1_780_000_000
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = try #require(TimeZone(identifier: "UTC"))
+        let parts = utc.dateComponents([.hour, .minute, .second, .weekday],
+                                       from: Date(timeIntervalSince1970: TimeInterval(epoch)))
+        let hour = try #require(parts.hour), minute = try #require(parts.minute)
+        let second = try #require(parts.second), weekday = try #require(parts.weekday)
+        #expect(clock == [
+            "time": .string(String(format: "%02d:%02d:%02d", hour, minute, second)),
+            "hour": .int(hour),
+            "minute": .int(minute),
+            "second": .int(second),
+            "weekday": .int(weekday),
+            "epoch": .int(epoch),
+        ])
+
+        // The quiet sample: optionals the builder omits when absent are absent
+        // here too, so the omitted-optional path is reachable in validation.
+        let quiet = try sampleWorkspace(titled: "Quiet Workspace")
+        for absent in ["branch", "dirty", "description", "color", "pr", "prs", "progress",
+                       "latestMessage", "latestPrompt", "latestAt", "remote"] {
+            #expect(quiet[absent] == nil, "\(absent) should be omitted like the builder omits it (#7944)")
+        }
+
+        // The linked sample: the builder adds branch only when a pull request has
+        // one, so its pr (also prs[0]) has none.
+        let linked = try sampleWorkspace(titled: "Linked Workspace")
+        let linkedPR = try #require(SwiftValue.objectFields(linked["pr"]))
+        #expect(linkedPR["number"] == .int(5790))
+        #expect(linkedPR["branch"] == nil, "a pull request without a branch omits it like the builder (#7944)")
+        #expect(linked["prs"] == .array([.object(linkedPR)]))
+    }
+
+    @Test("a sidebar reading pr, pr.branch and progress draws its data rows against the sample context")
+    func dataRowsDrawAgainstTheSampleContext() throws {
+        let node = try #require(SwiftViewInterpreter().evaluate(
+            """
+            VStack {
+              ForEach(workspaces) { w in
+                if w.pr != nil {
+                  Text(w.pr.label)
+                }
+                if w.progress != nil {
+                  Text(w.progress.label)
+                }
+                if w.pr == nil {
+                  Text("no pr")
+                }
+                if w.pr.branch != nil {
+                  Text(w.pr.branch)
+                }
+                if w.pr != nil {
+                  if w.pr.branch == nil {
+                    Text("no branch")
+                  }
+                }
+              }
+            }
+            """,
+            state: CustomSidebarValidator.defaultDataContext
+        ))
+        let drawn = Self.texts(in: node)
+        #expect(drawn.contains("PR 5812"))
+        #expect(drawn.contains("Running tests"))
+        #expect(drawn.contains("no pr"))
+        #expect(drawn.contains("main"))
+        #expect(drawn.filter { $0 == "no branch" }.count == 1)
+    }
+
+    /// Every string drawn under `node`, in draw order.
+    private static func texts(in node: RenderNode) -> [String] {
+        var out: [String] = []
+        if let text = node.text { out.append(text) }
+        out += node.children.flatMap(texts(in:))
+        return out
+    }
+}
+
+/// Test-only projections over ``SwiftValue`` payloads.
+private extension SwiftValue {
+    static func arrayElements(_ value: SwiftValue?) -> [SwiftValue]? {
+        if case .array(let items)? = value { return items }
+        return nil
+    }
+
+    static func objectFields(_ value: SwiftValue?) -> [String: SwiftValue]? {
+        if case .object(let fields)? = value { return fields }
+        return nil
+    }
 }
