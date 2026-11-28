@@ -189,6 +189,111 @@ import UIKit
         #expect(abs(after - before) <= 0.5, "the row alone on screen moved \(after - before) pt")
     }
 
+    // MARK: The row being read stays still (SH-11)
+
+    /// One update inserts a row far above the reader and removes the row right under it (the stress
+    /// bench's inserts and flood loads do both in one update): the row being read stays where it is.
+    /// Keeping the in-place row that moved least on screen instead kept the row under the removed one
+    /// and moved the row being read by the removed row's height (step 0b7d601b: down-fast-flood
+    /// `U-74.3 ... r'+86.3`, 146 pt; 26 of 30 stress cases red).
+    @Test func anInsertAboveAndARemovalUnderTheReaderKeepTheReaderStill() throws {
+        let host = Host()
+        defer { host.close() }
+        host.scroll(toTopOf: 10)
+        let before = try #require(host.top(of: 10))
+        let count = host.list.numberOfItems(inSection: 0)
+        host.apply { rows in
+            rows.insert(Row(id: 1000, height: 90), at: 5)
+            rows.removeAll { $0.id == 11 }
+        }
+        #expect(host.list.numberOfItems(inSection: 0) == count, "the insert and the removal did not land")
+        let now = try #require(host.item(of: 10))
+        try #require(now == 11, "row 10 is at item \(now), not under the inserted row")
+        let after = try #require(host.top(of: now))
+        #expect(abs(after - before) <= 0.5, "the row being read moved \(after - before) pt")
+    }
+
+    /// A fling carries the row being read a few points past the top edge between the frame that drew
+    /// it and an update landing (the scroll moves the offset; no layout pass runs before the update).
+    /// It is still the row the reader was looking at: a row inserted right under it does not move it.
+    /// Passing it over as a row cut by the top edge kept the row under it still, so the inserted row
+    /// pushed the row being read up by its own height (one-row shifts of 126-146 pt in the insert and
+    /// flood cases, steps bd734f10 and 0b7d601b).
+    @Test func theRowBeingReadCarriedPastTheTopEdgeBeforeAnUpdateStaysStill() throws {
+        let host = Host()
+        defer { host.close() }
+        host.scroll(toTopOf: 10)
+        let before = try #require(host.top(of: 10))
+        // The scroll's step, with no layout pass before the update; the scroll ends where it is (the
+        // app's code scroll does the same), so the list's place is taken there.
+        host.list.contentOffset.y += 8
+        host.controller.scrollEndedByCode()
+        let count = host.list.numberOfItems(inSection: 0)
+        host.apply { $0.insert(Row(id: 1000, height: 90), at: 11) }
+        #expect(host.list.numberOfItems(inSection: 0) == count + 1, "the insert did not land")
+        #expect(abs(host.height(of: 11) - 90) < 0.5, "the inserted row measured \(host.height(of: 11)) pt")
+        let after = try #require(host.top(of: 10))
+        #expect(abs(after - (before - 8)) <= 0.5, "the row being read moved \(after - (before - 8)) pt beyond the scroll")
+    }
+
+    // MARK: The list's own follow never jumps
+
+    /// Every move of the list's offset as it is set (a slide's frame, a correction), in order.
+    final class OffsetMoves: @unchecked Sendable {
+        var all: [CGFloat] = []
+    }
+
+    /// Turns the run loop for as long as the list's offset moves (at most `limit` frames, ended by ten
+    /// still ones): each turn's offset move.
+    private func run(_ host: Host, limit: Int = 300) -> [CGFloat] {
+        var turns: [CGFloat] = []
+        var still = 0
+        var last = host.list.contentOffset.y
+        while turns.count < limit, still < 10 {
+            host.turn()
+            let y = host.list.contentOffset.y
+            turns.append(y - last)
+            still = abs(y - last) < 0.01 ? still + 1 : 0
+            last = y
+        }
+        return turns
+    }
+
+    /// A batch of rows arriving at the newest end of a list that follows it on its own (not after the
+    /// person's jump): the slide to them never jumps. Held within a quarter screen of its goal, its
+    /// first frame jumped most of the batch at once (step 0b7d601b: `o+253`, `o+164`, `o+317`, and
+    /// `o-152` on a `.down` list; pushes of 146-270 pt in the flood, busy and insert cases). No move of
+    /// the offset may exceed the slide's top speed over the longest frame it counts (1/20 s).
+    @Test(arguments: [PagedListDirection.down, .up])
+    func anAutomaticFollowSlidesToABatchOfArrivalsWithoutAJump(direction: PagedListDirection) throws {
+        let host = Host(direction: direction, animatesNewest: true)
+        defer { host.close() }
+        if direction == .up { host.scrollToNewest() }
+        try #require(host.controller.followsNewest, "the list does not follow its newest row")
+        let count = host.list.numberOfItems(inSection: 0)
+        let batch = (0 ..< 10).map { Row(id: 30_000 + $0) }
+        if direction == .down { host.rows.insert(contentsOf: batch, at: 0) } else { host.rows.append(contentsOf: batch) }
+        // The update keeps the rows on screen where they are (a `.down` list's offset moves by the
+        // batch with them); the slide after it is what is judged.
+        host.controller.update(items: host.rows, edge: .end)
+        try #require(host.list.numberOfItems(inSection: 0) == count + 10, "the batch did not land")
+        let moves = OffsetMoves()
+        let watch = host.list.observe(\.contentOffset, options: [.old, .new]) { _, change in
+            guard let old = change.oldValue?.y, let new = change.newValue?.y, abs(new - old) > 0.01 else { return }
+            moves.all.append(new - old)
+        }
+        defer { watch.invalidate() }
+        let turns = run(host)
+        try #require(turns.filter { abs($0) > 0.5 }.count >= 3, "the list did not slide to the batch: \(turns)")
+        let limit = PagedListScrollSpring.maxSpeed / 20 + 1
+        #expect(moves.all.allSatisfy { abs($0) <= limit }, "the follow jumped: \(moves.all.filter { abs($0) > limit }.map { Int($0) }) pt in one move")
+        let newest = direction == .down ? -host.list.adjustedContentInset.top
+            : max(-host.list.adjustedContentInset.top,
+                  host.list.contentSize.height + host.list.adjustedContentInset.bottom - host.list.bounds.height)
+        #expect(abs(host.list.contentOffset.y - newest) < 1, "the slide ended \(host.list.contentOffset.y - newest) pt from the newest row")
+        #expect(host.controller.followsNewest, "the list stopped following its newest row")
+    }
+
     // MARK: The follow path (the open defect)
 
     /// An `.up` list following its newest row: rows arrive at the newest end every frame, so the
