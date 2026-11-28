@@ -44,6 +44,8 @@ ALLOWED_LISTENERS = {
     "chips' retry loops (autoRetry.ts) as the page shows; no failing chip, no read",
     (f"{ACPMUX}/subagents/retryState.ts", "visibilitychange"): "wakes a subagent retry that was "
     "answered busy (`retry.busy`, untilNotBusy) as the page shows; it lives only while that ask waits",
+    (f"{ACPMUX}/hiddenRebuild.ts", "visibilitychange"): "starts or stops the hidden-rebuild timer as the "
+    "page hides or shows; a page shown again reads nothing (goal chats-flat-at-any-length)",
     (f"{ACPMUX}/launchSettle.ts", "visibilitychange"): "ends the launch settle watch when the page hides "
     "(no report: a hidden page draws no frames); it reads nothing",
     (f"{ACPMUX}/session-list/receiver.ts", "visibilitychange"): "one document-level signal paces the shared session-list driver; it posts shown state without rereading a view",

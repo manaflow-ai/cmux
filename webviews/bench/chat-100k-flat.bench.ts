@@ -328,7 +328,11 @@ try {
       const session = sessions.find((s) => s.sessionId === id) ?? sessions[0]!;
       return { ...session, lastSeq: lastSeqOf(id) };
     };
+    // Methods the stand-in answered null, named when a chat never loads (a client that now waits on one it lacks).
+    const asked = new Map<string, number>();
+    const unanswered = new Set<string>();
     const answer = (ws: ServerWebSocket<undefined>, method: string, params: Record<string, unknown>): unknown => {
+      asked.set(method, (asked.get(method) ?? 0) + 1);
       const id = String(params.sessionId ?? PAPERCUT_CHAT);
       switch (method) {
         case "initialize":
@@ -376,6 +380,7 @@ try {
           return { events: [], hasMore: false, lastSeq: lastSeqOf(id) };
         }
         default:
+          unanswered.add(method);
           return null;
       }
     };
@@ -444,6 +449,18 @@ try {
     const context = await browser.newContext({
       viewport: { width: 1200, height: 800 },
     });
+    // A hidden chat stays hidden across a reload of its document (CEF keeps a hidden browser's state; the page's
+    // own rebuild, hiddenRebuild.ts, reloads it hidden): the hide below marks the tab, and its next document starts
+    // hidden before any page script runs.
+    await context.addInitScript(() => {
+      try {
+        if (sessionStorage.getItem("bench.hidden") !== "1") return;
+      } catch {
+        return;
+      }
+      Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+      Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
+    });
     if (WAKES)
       await context.addInitScript(() => {
         const wakes = { timers: 0, raf: 0, posts: 0, mutations: 0 };
@@ -498,13 +515,46 @@ try {
         `${origin}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${sessionId(index)}`;
       const firstText = `Answer ${chat.turns}:`;
       const pages: { page: Page; cdp: CDPSession }[] = [];
+      // Hidden pages that rebuilt their document (hiddenRebuild.ts), printed with the launch's numbers.
+      let rebuilds = 0;
       for (let index = 0; index < count; index++) {
         const page = await context.newPage();
-        await page.goto(urlFor(index));
-        await page.waitForFunction((text) => document.body.textContent?.includes(text), firstText, {
-          timeout: 180_000,
-          polling: "raf",
+        const said: string[] = [];
+        page.on("console", (message) => {
+          if (message.text().startsWith("cmux.hiddenRebuild")) rebuilds++;
+          said.push(`${message.type()}: ${message.text().slice(0, 300)}`);
+          if (said.length > 40) said.shift();
         });
+        page.on("pageerror", (error) => said.push(`pageerror: ${String(error).slice(0, 300)}`));
+        // A resource or socket that failed names its URL (a console 404 line does not).
+        page.on("response", (response) => {
+          if (response.status() >= 400) said.push(`http ${response.status()}: ${response.url().slice(0, 200)}`);
+        });
+        page.on("websocket", (socket) => {
+          said.push(`ws open: ${socket.url().slice(0, 80)}`);
+          socket.on("socketerror", (error) => said.push(`ws error: ${String(error).slice(0, 200)}`));
+          socket.on("close", () => said.push("ws closed"));
+        });
+        await page.goto(urlFor(index));
+        try {
+          await page.waitForFunction((text) => document.body.textContent?.includes(text), firstText, {
+            timeout: 180_000,
+            polling: "raf",
+          });
+        } catch (error) {
+          // A chat that never showed its newest answer: say what the page saw before failing.
+          const seen = await page
+            .evaluate(() => ({
+              visibility: document.visibilityState,
+              textLength: document.body.textContent?.length ?? 0,
+              tail: (document.body.textContent ?? "").slice(-200),
+            }))
+            .catch((e) => ({ evaluate: String(e) }));
+          // One line: the suite keeps only a failure's last few lines.
+          throw new Error(
+            `chat ${index} never loaded (${String(error).split("\n")[0]}): ${JSON.stringify({ seen, said: said.slice(-15), asked: Object.fromEntries(asked), unanswered: [...unanswered] })}`,
+          );
+        }
         pages.push({ page, cdp: await context.newCDPSession(page) });
       }
       if (runGrow > 0) {
@@ -745,6 +795,7 @@ try {
               configurable: true,
               get: () => true,
             });
+            sessionStorage.setItem("bench.hidden", "1");
             document.dispatchEvent(new Event("visibilitychange"));
             if (blur) (document.activeElement as HTMLElement | null)?.blur?.();
           }, !HIDDEN_FOCUS);
@@ -1341,6 +1392,7 @@ try {
             `resize cpu ms ${resizeCpuMs.map((v) => v.toFixed(0)).join(", ")} (median ${median(resizeCpuMs).toFixed(0)})`,
         );
       }
+      if (rebuilds) console.log(`  ${name}: ${rebuilds} hidden page(s) rebuilt their document`);
       const row: Launch = {
         name,
         idlePct,

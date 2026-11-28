@@ -64,6 +64,7 @@ mod local_actor;
 mod machine_identity;
 #[cfg(unix)]
 mod machine_secrets;
+mod measure_clock;
 #[cfg(unix)]
 mod own_build_helpers;
 mod page_listener;
@@ -71,6 +72,8 @@ mod private_mode;
 mod screen_detection_status;
 #[cfg(unix)]
 mod scroll_probe;
+#[cfg(unix)]
+mod seed_deps_warm;
 #[cfg(unix)]
 mod share_room;
 #[cfg(unix)]
@@ -689,6 +692,9 @@ struct Args {
     terminal_reap_grace: Option<std::time::Duration>,
     /// `--freeing-idle-seconds`: the idle freeing timer on with this idle time (the bench).
     freeing_idle: Option<std::time::Duration>,
+    /// `--measure-freeing-clock-fifo`: a FIFO the bench writes seconds to, each line letting that
+    /// long pass for the freeing timer (`idle_freeing.rs`, the measure clock).
+    measure_freeing_clock_fifo: Option<std::path::PathBuf>,
     exit_with_pid: Option<local_owner::ExitWith>,
 }
 
@@ -803,6 +809,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         owner_install_key_fd: None,
         terminal_reap_grace: None,
         freeing_idle: None,
+        measure_freeing_clock_fifo: None,
         exit_with_pid: None,
     };
     let mut args = args.into_iter().peekable();
@@ -922,6 +929,14 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                     })?;
                 if out.freeing_idle.replace(std::time::Duration::from_secs(seconds)).is_some() {
                     return Err("--freeing-idle-seconds may be supplied only once".into());
+                }
+            }
+            "--measure-freeing-clock-fifo" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--measure-freeing-clock-fifo needs a path".to_string())?;
+                if out.measure_freeing_clock_fifo.replace(value.into()).is_some() {
+                    return Err("--measure-freeing-clock-fifo may be supplied only once".into());
                 }
             }
             "--terminal-reap-grace-seconds" => {
@@ -1644,6 +1659,7 @@ pub(crate) const STARTUP_VALUE_OPTIONS: &[&str] = &[
     "--remote-local-socket",
     "--terminal-reap-grace-seconds",
     "--freeing-idle-seconds",
+    "--measure-freeing-clock-fifo",
     "--relay",
     "--relay-slot",
     "--relay-ticket",
@@ -1849,62 +1865,6 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
     Ok(())
 }
 
-/// After a seed checks out a folder on this machine: restore its dependencies
-/// from the cache in the background, never running its install
-/// (`acpmux machine deps warm --if-joined --no-install`, which does nothing on
-/// a machine that is not joined). `CMUX_DEPS_WARM=0` turns it off. Seeds and `acp` are
-/// unix-only.
-#[cfg(unix)]
-fn warm_seeded_deps(folder: &Path) {
-    if std::env::var_os("CMUX_DEPS_WARM").is_some_and(|v| v == "0") {
-        return;
-    }
-    let Ok(exe) = std::env::current_exe() else { return };
-    // After a self-update replaced the binary, Linux names the running one "<path> (deleted)".
-    let exe = exe
-        .to_str()
-        .and_then(|path| path.strip_suffix(" (deleted)"))
-        .map_or(exe.clone(), PathBuf::from);
-    // The warm's stderr can hold private output: an owner-only log in this
-    // build's acpmux state folder, never a shared temp folder, never through a link.
-    let out = {
-        use std::os::unix::fs::OpenOptionsExt;
-        let dir = acpmux::config::home();
-        std::fs::create_dir_all(&dir).ok().and_then(|()| {
-            std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .mode(0o600)
-                .custom_flags(libc::O_NOFOLLOW)
-                .open(dir.join("deps-warm.log"))
-                .ok()
-        })
-    };
-    let err = out.as_ref().and_then(|f| f.try_clone().ok());
-    // A binary named `acpmux` (a symlink or a copy) runs acpmux directly; the
-    // `cmux` binary takes it under `acp`.
-    let standalone = exe.file_name().is_some_and(|name| name == "acpmux");
-    let mut command = cmux_process::Command::new(&exe);
-    if !standalone {
-        command.arg("acp");
-    }
-    command
-        // Restore only: a seed never runs a project's install, whose lifecycle
-        // scripts would execute repository code without the owner's consent.
-        .args(["machine", "deps", "warm", "--if-joined", "--if-missing", "--no-install", "--json"])
-        .arg(folder)
-        .current_dir(folder)
-        .stdin(cmux_process::Stdio::null())
-        .stdout(out.map_or_else(cmux_process::Stdio::null, Into::into))
-        .stderr(err.map_or_else(cmux_process::Stdio::null, Into::into));
-    // Reaped by a thread so it never lingers as a zombie of the daemon.
-    if let Ok(mut child) = command.spawn() {
-        let _ = std::thread::Builder::new().name("cmux-deps-warm".into()).spawn(move || {
-            let _ = child.wait();
-        });
-    }
-}
-
 /// The whole cmux-tui program: the `cmux-tui` binary calls this, and on
 /// Windows with the `windows-thin-exe` feature the thin `cmux-tui.exe` calls
 /// it through [`cmux_tui_dll_main`] in `cmux_tui.dll`.
@@ -1942,7 +1902,7 @@ pub fn main() -> std::process::ExitCode {
     // acpmux is headless; its interactive commands open the terminal UI this binary links.
     acpmux_tui::install();
     #[cfg(unix)]
-    cmux_tui_core::git_seed::on_seeded(warm_seeded_deps);
+    cmux_tui_core::git_seed::on_seeded(seed_deps_warm::warm_seeded_deps);
     // The daemon's `device-setup` (the app's set-up buttons) runs `cmux device setup|start`'s code.
     cmux_tui_core::device_setup::on_device_setup(devices::setup::daemon_run);
     // `cmux` (CLI and mux) and `acpmux` (a symlink) are one binary, one version.
@@ -2902,6 +2862,9 @@ fn run_server(
     // `identify` answers from the attach below: announce the reaper first.
     if let Some(idle) = args.freeing_idle {
         mux.set_freeing_idle_override(idle);
+    }
+    if let Some(fifo) = &args.measure_freeing_clock_fifo {
+        measure_clock::start_measure_freeing_clock(&mux, fifo)?;
     }
     if let Some(grace) = args.terminal_reap_grace {
         mux.set_terminal_reap_grace(grace)?;

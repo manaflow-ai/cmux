@@ -481,6 +481,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.rail.show` | string | `"prompts"` | `prompts`, `mine`, `received`, `replies`, `everything`, `errors`, `edits`, `tools`, `subagents` | Prompt Rail Shows. Right-click the rail to change it. |
 | `agentPane.display.rail.control` | boolean | `false` |  | Prompt Rail Button. Shows what the rail lists above it while you point at it. |
 | `agentPane.display.commandLabels` | string | `[]` |  | Command Labels. The names the chat shows for background commands. |
+| `experiments.chat_render_pipeline` | boolean | `false` |  | Chat Render Pipeline. Skip rendering offscreen rows from completed turns while keeping their place in the chat. |
 | `agentPane.display.layout.messages` | string | `"bubbles"` | `bubbles`, `flat`, `card` | Message Layout. How your messages sit in the chat: a bubble on the right, a flat row on the left with an accent rule, or a card on the left. |
 | `agentPane.display.layout.composer` | string | `"rounded"` | `rounded`, `pill`, `square` | Message Box Shape. The message box's outline: rounded, a pill, or square and docked. |
 | `agentPane.display.layout.header` | string | `"full"` | `full`, `quiet` | Chat Header. Full shows the chat's header tools at all times; Quiet shows them only while the pointer is over the header. |
@@ -720,6 +721,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `browser.import.cookieBanner` | boolean | `true` |  | Offer to Import Cookies. Browser tabs offer to import cookies from your other browsers. |
 | `browser.import.cookieSync` | boolean | `true` |  | Keep Imported Cookies in Sync. Brings over changed cookies from the browser you imported from. Stays on this Mac. |
 | `browser.showAgentCursor` | boolean | `true` |  | Show Agent Cursor. Shows an agent's cursor, clicks and typing in browser tabs. Passwords show dots. |
+| `browser.agents.openSignedOut` | boolean | `false` |  | Open Agent Tabs Signed Out. Agent tabs open in the Agents profile, signed in nowhere, until you lend a site. Off, they use the workspace's profile. |
 | `browser.agentMouse.motion` | string | `"human"` | `human`, `instant` | Agent Pointer Motion. Human moves along a curve and pauses before clicks; Instant jumps. |
 | `browser.agentMouse.maxMoveMs` | real | `350` | 60 to 1000 | Longest Agent Pointer Move. The longest time one agent pointer move takes with human motion. Short moves take less. |
 | `browser.builtInAdBlocker` | boolean | `true` |  | Built-in uBlock Origin. Blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts. |

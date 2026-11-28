@@ -1812,7 +1812,7 @@ fn steps(
     {
         return outcome;
     }
-    // The fresh name a new machine gets (no listed machine or create has it): a start-session machine of that name is this run's.
+    // The fresh name a new machine gets (no listed machine or create has it).
     let mut fresh = None;
     let machine = match &wanted {
         Machine::New => {
@@ -1825,6 +1825,7 @@ fn steps(
         }
         other => other.clone(),
     };
+    let own = fresh::own(fresh.as_ref(), request, &machine, &listed);
     progress.machine = Some(machine.clone());
     // A turn to wait on and no time left for it: nothing starts, and a machine made so far
     // is there for the same ask again.
@@ -1854,10 +1855,10 @@ fn steps(
         start.push("--no-focus".to_owned());
     }
     start.push("--json".to_owned());
-    // On a machine this run makes for itself, the start is bounded and a stuck machine is given up (fresh.rs); a
+    // On `own`, the start is bounded and a stuck machine is given up (fresh.rs); a
     // `--from-folder` start's copy runs inside the step, so only the app's own stuck answer counts there.
     // A machine still booting at the bound (a cold create: no spare) is waited on while it boots (fresh::Boot).
-    let mut boot = fresh
+    let mut boot = own
         .as_ref()
         .filter(|_| request.from_folder.is_none())
         .map(|name| fresh::Boot::new(runner, name, deadline));
@@ -1868,7 +1869,7 @@ fn steps(
         }
         None => runner.cmux(&start),
     };
-    if let Some(name) = &fresh
+    if let Some(name) = &own
         && let Some(stuck) = fresh::stuck(runner, &ran, boot.as_ref(), name, deadline)
     {
         return stuck;
@@ -3330,7 +3331,7 @@ fn unused_name(runner: &mut dyn Runner, listed: &Value) -> Result<String, Outcom
 }
 
 /// Whether `listed` (`cloud list-machines`) has a machine titled `name` or a create of that name on its way.
-fn lists_name(listed: &Value, name: &str) -> bool {
+pub(super) fn lists_name(listed: &Value, name: &str) -> bool {
     let has = |key: &str, field: &str| {
         at(listed, key)
             .as_array()
