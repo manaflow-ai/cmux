@@ -32,7 +32,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Handeln in deinem Namen, nur mit den Bereichen, die du auswählst."
+            "value" : "Handeln in deinem Namen, nur mit den gewählten Bereichen."
           }
         },
         "es" : {
@@ -44,7 +44,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Agissent en votre nom, avec uniquement les portées que vous choisissez."
+            "value" : "Agissent en votre nom, avec les seules portées choisies."
           }
         },
         "it" : {
