@@ -531,7 +531,9 @@ export function ComposerBox({
             onBeforeInput={stableHandlers.onBeforeInput}
             onKeyDown={stableHandlers.onKeyDown}
           />
-          {inline.chips}
+          {/* The strip view hides the text's nodes (markdownField.css): a chip drawn in one would be a
+              second, unseen copy of each attachment, its image and badge, as New Tab never draws. */}
+          {!strip && inline.chips}
           {fieldOverlay}
           {/* The theme slot `composer.caret` (slots/composerCaret): its default draws nothing, the
               field's own caret as before. */}

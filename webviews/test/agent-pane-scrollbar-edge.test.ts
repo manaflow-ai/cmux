@@ -46,15 +46,17 @@ await requireBrowserLane("agent-pane-scrollbar-edge.test.ts", async () => {
             const rect = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
             const pane = rect(".acpmux-main");
             const scroll = rect(".acpmux-scroll");
-            const row = rect(".acpmux-row");
+            const row = rect(".acpmux-row:not(.acpmux-user)");
             // The composer's card: its wrapper keeps the chat's whole width and pads the column's
-            // insets, which differ left and right while Session Info moves the column aside.
+            // insets, which differ left and right while Session Info moves the column aside. Rows
+            // start on its + glyph and keep its right edge (#50920).
             const composer = rect(".acpmux-composer-box");
+            const plus = rect(".acpmux-composer-box .acpmux-picker-button svg");
             const scrollNode = document.querySelector<HTMLElement>(".acpmux-scroll")!;
             const thumb = getComputedStyle(scrollNode, "::-webkit-scrollbar-thumb");
             return {
               rightInset: pane.right - scroll.right,
-              columnOffset: Math.abs((row.left + row.right - composer.left - composer.right) / 2),
+              columnOffset: Math.max(Math.abs(row.left - plus.left), Math.abs(row.right - composer.right)),
               overflow: scrollNode.scrollHeight - scrollNode.clientHeight,
               scrollbarWidth: parseFloat(getComputedStyle(scrollNode, "::-webkit-scrollbar").width),
               thumbInk: thumb.backgroundColor,

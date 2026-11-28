@@ -21,6 +21,7 @@ await requireBrowserLane("agent-pane-running-layout.test.ts", async () => {
     width: number;
     running: number;
     composer: number;
+    plus: number;
     transition: string[];
     animations: number;
   };
@@ -91,6 +92,8 @@ await requireBrowserLane("agent-pane-running-layout.test.ts", async () => {
                 width: shell.clientWidth,
                 running: running.getBoundingClientRect().left,
                 composer: composer.getBoundingClientRect().left,
+                // Rows start on the composer's + glyph (#50920).
+                plus: composer.querySelector(".acpmux-picker-button svg")!.getBoundingClientRect().left,
                 transition: moved.map((node) => getComputedStyle(node).transitionDuration),
                 animations: moved
                   .flatMap((node) => node.getAnimations())
@@ -135,7 +138,7 @@ await requireBrowserLane("agent-pane-running-layout.test.ts", async () => {
           expect(result.painted.every((sample) => sample.animations === 0)).toBe(true);
           expect(Math.abs(first.running - last.running)).toBeLessThanOrEqual(1);
           expect(Math.abs(first.composer - last.composer)).toBeLessThanOrEqual(1);
-          expect(result.painted.every((sample) => Math.abs(sample.running - sample.composer) <= 1)).toBe(true);
+          expect(result.painted.every((sample) => Math.abs(sample.running - sample.plus) <= 1)).toBe(true);
         }
       } finally {
         const video = page.video();

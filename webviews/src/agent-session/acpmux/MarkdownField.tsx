@@ -1835,7 +1835,12 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           if (known.current || known.current !== madeFrom) setDocument(known.current, false);
           showPlaceholder(known.current);
           // In the task the editor's lines went in, so no frame draws both or neither.
-          if (standIn.current) standIn.current.hidden = true;
+          // It never shows again, so it keeps no copy of the draft: a hidden second copy of the
+          // prompt's text is one more node for the page's own text search and find to match.
+          if (standIn.current) {
+            standIn.current.hidden = true;
+            standIn.current.textContent = "";
+          }
           everMade.current = true;
           setMade(true);
           applyAttributes();
