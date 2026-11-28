@@ -67,7 +67,7 @@ fn a_resumed_climb_starts_at_what_the_last_copy_learned() {
     assert_eq!(next.resumed(), Some(learned.level));
     assert_eq!(Climb::new(EVENT_LOG, 3).resumed(), None);
     // Small writes say nothing new: it holds the learned level.
-    let mut held = next.clone();
+    let mut held = next;
     held.observe(4 << 20, 1000, 0.05, 0.05);
     assert_eq!(held.level(), learned.level);
 }
