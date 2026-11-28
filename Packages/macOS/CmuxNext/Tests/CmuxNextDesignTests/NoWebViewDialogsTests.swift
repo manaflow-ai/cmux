@@ -18,7 +18,6 @@ struct NoWebViewDialogsTests {
         "CmuxNextPages/PageHostPool+Windows.swift": "the page host pool's windows, no dialog",
         "CmuxNextOnboarding/Views/OnboardingWindowController.swift": "the onboarding tool window, a window with pages, no dialog",
         "CmuxNextApp/Settings/DebugSettingsService.swift": "Settings UI",
-        "CmuxNextApp/ChiefMemoryImport/ChiefMemoryImportHandlers.swift": "the Chief's memory import (chat UI)",
         "CmuxNextSidebar/Views/GroupEditor/GroupEditorService.swift": "the sidebar's group editor, an editor popover, no dialog",
         "CmuxNextApp/IconPicker/IconPickerService.swift": "the icon picker, a picker popover, no dialog",
         "CmuxNextServer/ServerPage/ServerPanelPopover.swift": "the menu bar item's server panel, a status popover, no dialog",

@@ -1,6 +1,6 @@
 // `chat.thinkingIndicator` / `default`: the live line's look before slots, so the default draws the
 // same markup (Thinking.slot.test.tsx compares it to the pre-slot JSX). A light band in the theme
-// accent sweeps across the dim word and the time (ShimmerText.tsx): two transform loops on
+// accent sweeps across the dim word, inside the word's own box (ShimmerText.tsx): two transform loops on
 // `--cmux-shimmer-period` the compositor runs (conversation.css `.cv-shimmer__*`, shared with running
 // rows, so the rules stay there). Reduce Motion and static status indicators hide the band.
 //
@@ -11,6 +11,6 @@
 import { LiveShimmer } from "../../agent-session/acpmux/conversation/LiveShimmer";
 import type { ThinkingIndicatorProps } from "./slot";
 
-export function DefaultThinkingIndicator({ label, verbs, elapsed }: ThinkingIndicatorProps) {
-  return <LiveShimmer label={label} verbs={verbs} elapsed={elapsed} />;
+export function DefaultThinkingIndicator({ label, verbs }: ThinkingIndicatorProps) {
+  return <LiveShimmer label={label} verbs={verbs} />;
 }

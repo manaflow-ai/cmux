@@ -3,23 +3,39 @@ public import Foundation
 
 /// The channels view's data (Settings > Updates): every ring's recent builds with their canary
 /// verdicts and pulls, which one this Mac runs, and which it kept for rollback. Read on demand,
-/// from the files the feed already publishes next to its appcast; nothing polls.
+/// from the appcast the updater installs from (which builds exist) and the files the feed
+/// publishes next to it (notes, verdicts, pulls); nothing polls.
 extension UpdaterService {
     /// The tracks, one per ring, slowest first. Offline, the verified notes cache answers and
     /// verdicts and pulls read as unknown.
-    public func channelTracks(limit: Int = 10) async -> [ChannelTrack] {
+    public func channelTracks(limit: Int = 10, before: String? = nil) async -> [ChannelTrack] {
         let store = changelogNotes
-        let index = await store?.index() ?? []
+        let index = Self.older(await store?.index() ?? [], than: before)
         let folder = store.map { Self.channelFolder(notesBase: $0.notesBase) }
         let limit = max(0, limit)
         let recent = Array(index.prefix(limit))
-        let kept = await Task.detached { [keptVersions] in Set(keptVersions.list().map(\.build)) }.value
+        let kept = await Task.detached { [keptVersions] in Set(keptVersions.list(teams: false).map(\.build)) }.value
         async let verdicts = Self.verdicts(for: recent.map(\.build), in: folder)
         async let pulled = Self.pulled(in: folder)
         async let feed = feedItems()
-        return ChannelTrack.tracks(index: recent, verdicts: await verdicts, pulled: await pulled,
+        // The appcast decides which builds exist; the index (and each build's notes) only adds
+        // titles and commits. A build the appcast offers before its notes land still needs its
+        // verdict, read once the feed says which builds those are.
+        let items = await feed.filter { item in before.map { KeptVersionStore.isNewer($0, than: item.version) } ?? true }
+        let tip = identity.isTipBuild
+        let ahead = tip ? [] : ChannelTrack.nightlyFeedOnly(items, index: index, followed: ring).prefix(limit).map(\.version)
+        async let aheadVerdicts = Self.verdicts(for: Array(ahead), in: folder)
+        let allVerdicts = (await verdicts).merging(await aheadVerdicts) { first, _ in first }
+        return ChannelTrack.tracks(index: recent, verdicts: allVerdicts, pulled: await pulled,
                                    installedBuild: identity.build, keptBuilds: kept, followed: ring, limit: limit,
-                                   feedItems: await feed)
+                                   feedItems: items, tipFeed: tip)
+    }
+
+    /// `index`'s entries older than `build` (all of them with no build): Go back's window, which
+    /// starts below the running build however many newer builds the feed lists.
+    nonisolated static func older(_ index: [ReleaseNotesIndexEntry], than build: String?) -> [ReleaseNotesIndexEntry] {
+        guard let build else { return index }
+        return index.filter { KeptVersionStore.isNewer(build, than: $0.build) }
     }
 
     /// Every item of this app's feed the fastest ring sees; none offline or for a build that

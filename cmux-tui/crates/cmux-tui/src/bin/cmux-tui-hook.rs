@@ -55,7 +55,22 @@ fn main() -> ExitCode {
 /// Runs the helper with `arguments` (argv without the program name).
 /// `exe_prefix` is the argv that re-enters this mode through `current_exe`:
 /// empty for the standalone helper, `["__agent-hook"]` inside cmux-tui.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 pub(crate) fn run_cli(arguments: Vec<String>, exe_prefix: &[&str]) -> ExitCode {
+    if let [mode] = arguments.as_slice()
+        && let Some(source) = mode.strip_prefix("--plugin-stream=")
+    {
+        return match plugin_stream::serve(source) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("cmux-tui-hook: {error:#}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     if arguments.len() == 1 && arguments[0] == DETACHED_MODE_ARG {
         return match detached_child_from_stdin() {
             Ok(()) => ExitCode::SUCCESS,
@@ -112,6 +127,12 @@ fn run_reading(
     exe_prefix: &[&str],
     payload: impl FnOnce() -> anyhow::Result<Value>,
 ) -> anyhow::Result<()> {
+    // Before anything that can wait: the agent has its answer inside the
+    // timeout it was installed with, whatever runs long below.
+    answer_deadline::arm(
+        cmux_tui_hooks::installed_hook_wait(&args.source, &args.native_event),
+        answers_with_an_object(&args.source, &args.native_event),
+    );
     let native = payload()?;
     let session = native.get("session_id").and_then(Value::as_str).map(str::to_owned);
     let session = session.as_deref();
@@ -127,6 +148,16 @@ fn run_reading(
         return Ok(());
     }
     #[cfg(unix)]
+    let barrier =
+        args.native_event == "PreToolUse" && matches!(args.source.as_str(), "claude" | "codex");
+    #[cfg(unix)]
+    if barrier {
+        answer_deadline::hold_barrier(
+            &cmux_git::native_hook::denial("it did not finish inside the hook's timeout")
+                .to_string(),
+        );
+    }
+    #[cfg(unix)]
     if let Err(error) = cmux_git::native_hook::wait(
         &args.source,
         &args.native_event,
@@ -135,9 +166,12 @@ fn run_reading(
     ) {
         // Output a provider decision, not a journal failure that the shell
         // wrapper may discard. No ready lease survives this pre-tool hook.
-        println!("{}", cmux_git::native_hook::denial(&error.to_string()));
+        let denial = cmux_git::native_hook::denial(&error.to_string());
+        answer_deadline::answer(|| println!("{denial}"));
         return Ok(());
     }
+    #[cfg(unix)]
+    answer_deadline::barrier_cleared();
     if nested {
         inbox::print_nothing(inbox::Delivery::for_event(&args.source, &args.native_event));
         return Ok(());
@@ -152,10 +186,20 @@ fn run_reading(
     {
         // Repository readiness is the only blocking part of this hook. Once
         // it passed, journal delivery is telemetry and must not deny a tool.
-        println!("{{}}");
+        answer_deadline::answer(|| println!("{{}}"));
         return Ok(());
     }
     result
+}
+
+/// Whether the agent reads one JSON object from this hook (its command
+/// prints `{}` itself only when the helper fails): the events that deliver
+/// messages, the session context, and the pre-tool gate. The rest print
+/// nothing; their command echoes the object.
+fn answers_with_an_object(source: &str, native_event: &str) -> bool {
+    inbox::Delivery::for_event(source, native_event).is_some()
+        || session_context::applies(source, native_event, |name| env::var_os(name))
+        || (native_event == "PreToolUse" && matches!(source, "claude" | "codex"))
 }
 
 fn run_after_ready(args: &Args, exe_prefix: &[&str], native: Value) -> anyhow::Result<()> {
@@ -179,18 +223,18 @@ fn run_after_ready(args: &Args, exe_prefix: &[&str], native: Value) -> anyhow::R
         }
     };
     let start_source = native.get("source").and_then(Value::as_str).unwrap_or("").to_owned();
-    // Read before the journal event redacts it; it travels beside the event, never inside it.
-    let live = cmux_tui_core::agent_hook_live_fields(&args.source, &args.native_event, &native);
-    let mut ingress = cmux_tui_core::agent_hook_journal_ingress(
-        &args.source,
-        &args.native_event,
-        terminal.as_deref(),
-        native,
-    )?;
-    cmux_tui_core::stamp_agent_hook_observed_now(&mut ingress);
-    let event = serde_json::to_value(ingress)?;
-    let (request_id, encoded) = encode_request(event, live)?;
-    let handoff = handoff_wait(&args.source, &args.native_event);
+    // A Claude Code chat in this terminal takes an acpmux name (acpmux_register.rs); it runs
+    // beside the journal handoff and the inbox delivery below.
+    let session_id = native.get("session_id").and_then(Value::as_str).map(str::to_owned);
+    let registering =
+        acpmux_register::start(&args.source, &args.native_event, session_id.as_deref());
+    let delivery = plugin_stream::one_shot_identity(&args.source);
+    let (request_id, encoded) =
+        encode_native(&args.source, &args.native_event, terminal.as_deref(), native, delivery)?;
+    // The handoff takes no more than the time left: past it the agent has
+    // its answer, and the child delivers the event anyway.
+    let handoff = handoff_wait(&args.source, &args.native_event)
+        .min(answer_deadline::within(HANDOFF_WAIT).saturating_duration_since(Instant::now()));
     match detach::append_detached(&socket, &request_id, &encoded, handoff, exe_prefix)? {
         Handoff::Sent => {}
         Handoff::ChildExited => bail!("hook child gave up before writing the journal request"),
@@ -211,6 +255,7 @@ fn run_after_ready(args: &Args, exe_prefix: &[&str], native: Value) -> anyhow::R
         Some(inbox) => inbox::deliver(inbox, &socket, terminal.as_deref()),
         None => {}
     }
+    registering.finish();
     Ok(())
 }
 
@@ -233,6 +278,10 @@ fn inherited_route_is_untrusted(
         && getenv(HOOK_ROUTE_ENV).is_none_or(|value| value != "launch")
         && cmux_tui_core::platform::descends_from_codex_app_server_daemon()
 }
+
+/// The hook's answer inside the agent's timeout for it.
+#[path = "cmux-tui-hook/answer_deadline.rs"]
+mod answer_deadline;
 
 /// One agent's queue of hook events on disk.
 #[path = "cmux-tui-hook/hook_spool.rs"]
@@ -264,6 +313,10 @@ use journal_append::{
 /// Agent messages handed over as the hook's output.
 #[path = "cmux-tui-hook/inbox.rs"]
 mod inbox;
+
+/// A Claude Code chat in a cmux terminal takes an acpmux name.
+#[path = "cmux-tui-hook/acpmux_register.rs"]
+mod acpmux_register;
 
 /// The Claude Code plugin's copy of the hooks, beside an installed copy.
 #[path = "cmux-tui-hook/plugin_copy.rs"]
@@ -496,6 +549,32 @@ fn read_native_payload(reader: impl Read) -> anyhow::Result<Value> {
     Ok(json!({"encoding":"base64","data":BASE64.encode(bytes)}))
 }
 
+#[path = "cmux-tui-hook/plugin_stream.rs"]
+mod plugin_stream;
+
+fn encode_native(
+    source: &str,
+    native_event: &str,
+    terminal: Option<&str>,
+    native: Value,
+    delivery: Option<(u64, String)>,
+) -> anyhow::Result<(String, Vec<u8>)> {
+    let live = cmux_tui_core::agent_hook_live_fields(source, native_event, &native);
+    let mut ingress =
+        cmux_tui_core::agent_hook_journal_ingress(source, native_event, terminal, native)?;
+    if let Some((time, key)) = delivery {
+        cmux_tui_core::stamp_agent_hook_observed_at(&mut ingress, time);
+        encode_identified_request(
+            serde_json::to_value(ingress)?,
+            live,
+            (format!("request_{key}"), format!("mutation_{key}")),
+        )
+    } else {
+        cmux_tui_core::stamp_agent_hook_observed_now(&mut ingress);
+        encode_request(serde_json::to_value(ingress)?, live)
+    }
+}
+
 /// `live` holds a turn-start hook's prompt for the hover card and a finished turn's last
 /// message for its banner (`agent_hook_live_fields`): the daemon keeps them in memory only
 /// (`session.journal.append` `live_prompt`, `live_reply`), never in the journal.
@@ -503,7 +582,14 @@ fn encode_request(
     event: Value,
     live: serde_json::Map<String, Value>,
 ) -> anyhow::Result<(String, Vec<u8>)> {
-    let (request_id, idempotency_key) = random_identifiers()?;
+    encode_identified_request(event, live, random_identifiers()?)
+}
+
+fn encode_identified_request(
+    event: Value,
+    live: serde_json::Map<String, Value>,
+    (request_id, idempotency_key): (String, String),
+) -> anyhow::Result<(String, Vec<u8>)> {
     let mut params = json!({"machine":"current","session":"current","event":event});
     if let Some(object) = params.as_object_mut() {
         object.extend(live);
@@ -804,166 +890,5 @@ fn random_identifiers() -> anyhow::Result<(String, String)> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A server may answer and close before the hook child reads. macOS then
-    /// refuses `setsockopt(SO_RCVTIMEO)` with EINVAL although the receipt is
-    /// still readable; treating that as a failed attempt re-sent the event,
-    /// so the journal received it twice and out of order.
-    #[cfg(unix)]
-    #[test]
-    fn codex_hook_receipt_from_a_server_that_already_closed_is_still_read() {
-        let (client, mut server) = std::os::unix::net::UnixStream::pair().unwrap();
-        server.write_all(b"{\"type\":\"response\"}\n").unwrap();
-        drop(server);
-        let deadline = Instant::now() + Duration::from_secs(2);
-        let mut reader: BufReader<Box<dyn transport::Stream>> = BufReader::new(Box::new(client));
-        match read_before(&mut reader, deadline) {
-            Ok(response) => assert_eq!(response, b"{\"type\":\"response\"}\n"),
-            Err(AppendAttemptError::Retryable(error) | AppendAttemptError::Fatal(error)) => {
-                panic!("the written receipt was not read: {error:#}")
-            }
-        }
-    }
-
-    fn cmux_environ(pid: u32) -> Option<std::collections::HashMap<String, String>> {
-        let environment = |terminal: &str| {
-            Some(
-                [("CMUX_TUI_SOCKET", "/run/cmux.sock"), ("CMUX_TUI_TERMINAL_ID", terminal)]
-                    .map(|(key, value)| (key.to_owned(), value.to_owned()))
-                    .into(),
-            )
-        };
-        match pid {
-            10 => environment("term_other_window"),
-            11 => environment("term_shows_pane"),
-            12 => environment("term_recent"),
-            // A plain SSH client: no cmux-tui terminal.
-            13 => Some([("SSH_TTY".to_owned(), "/dev/pts/3".to_owned())].into()),
-            _ => None,
-        }
-    }
-
-    #[test]
-    fn tmux_route_prefers_the_client_showing_the_pane() {
-        let clients = "10\t500\t$1\t\t@2\n11\t100\t$1\t\t@1\n12\t900\t$7\t\t@9\n";
-        let route = tmux_route::select("$1\t\t@1\n", clients, cmux_environ).unwrap();
-        assert_eq!(route.terminal, "term_shows_pane");
-        assert_eq!(route.socket, PathBuf::from("/run/cmux.sock"));
-    }
-
-    #[test]
-    fn tmux_route_falls_back_to_the_most_recent_client_of_the_session_group() {
-        // Client 13 shows the pane but is a plain SSH client; 12 attaches a
-        // grouped session and is newer than 10.
-        let clients = "13\t999\t$1\tgrp\t@1\n10\t500\t$1\tgrp\t@2\n12\t900\t$7\tgrp\t@9\n";
-        let route = tmux_route::select("$1\tgrp\t@1", clients, cmux_environ).unwrap();
-        assert_eq!(route.terminal, "term_recent");
-    }
-
-    #[test]
-    fn tmux_route_ignores_other_sessions_and_non_cmux_clients() {
-        let clients = "12\t900\t$7\t\t@9\n13\t999\t$1\t\t@1\n";
-        assert_eq!(tmux_route::select("$1\t\t@1", clients, cmux_environ), None);
-        assert_eq!(tmux_route::select("", clients, cmux_environ), None);
-        assert_eq!(tmux_route::select("$1\t\t@1", "garbage\n1\t0\t$1\t\t@1\n", cmux_environ), None);
-    }
-
-    /// claude `SessionStart` carries cmux's startup line as `systemMessage`
-    /// (shown to the person, never added to the model's context); with no
-    /// line it is the empty object the installed command expects.
-    #[test]
-    fn claude_session_start_writes_the_startup_line_as_a_system_message() {
-        let delivery = inbox::Delivery::for_event("claude", "SessionStart")
-            .expect("claude SessionStart writes cmux's startup line");
-        assert_eq!(delivery.output(None), json!({}));
-        assert_eq!(delivery.output(Some("line")), json!({"systemMessage": "line"}));
-        assert_eq!(inbox::Delivery::for_event("codex", "SessionStart"), None);
-    }
-
-    #[test]
-    fn codex_session_end_handoff_stays_below_the_codex_hook_cap() {
-        assert!(handoff_wait("codex", "SessionEnd") < Duration::from_secs(3));
-        // The session context read (session_context.rs) still fits in 5 s.
-        assert!(handoff_wait("codex", "SessionStart") < Duration::from_secs(3));
-        assert_eq!(handoff_wait("codex", "Stop"), HANDOFF_WAIT);
-        assert_eq!(handoff_wait("claude", "SessionEnd"), HANDOFF_WAIT);
-    }
-
-    #[test]
-    fn parses_short_positional_source_and_event() {
-        assert_eq!(
-            parse_args(["codex", "Stop"].map(str::to_owned)).unwrap(),
-            Args { source: "codex".into(), native_event: "Stop".into() }
-        );
-    }
-
-    #[test]
-    fn grok_compatibility_events_are_deduplicated_inside_the_helper() {
-        use std::ffi::OsStr;
-
-        assert!(shadowed_by_grok("claude", Some(OsStr::new("Stop"))));
-        assert!(shadowed_by_grok("cursor", Some(OsStr::new("stop"))));
-        assert!(!shadowed_by_grok("codex", Some(OsStr::new("Stop"))));
-        assert!(!shadowed_by_grok("claude", None));
-    }
-
-    #[test]
-    fn invalid_utf8_is_retained_as_base64() {
-        let native = read_native_payload(&[0xff, 0x00][..]).unwrap();
-        assert_eq!(native, json!({"encoding":"base64","data":"/wA="}));
-    }
-
-    #[test]
-    fn bounded_detached_request_id_preserves_uuid_and_payload() {
-        use std::io::Cursor;
-
-        let request_id = "550e8400-e29b-41d4-a716-446655440000";
-        let mut reader =
-            BufReader::new(Cursor::new(format!("{request_id}\n{{\"event\":\"Stop\"}}")));
-        assert_eq!(read_detached_request_id(&mut reader).unwrap(), request_id);
-
-        let mut payload = Vec::new();
-        reader.read_to_end(&mut payload).unwrap();
-        assert_eq!(payload, br#"{"event":"Stop"}"#);
-    }
-
-    #[test]
-    fn bounded_detached_request_id_accepts_maximum_length_with_crlf() {
-        use std::io::Cursor;
-
-        let request_id = "x".repeat(MAX_REQUEST_ID_BYTES);
-        let mut input = request_id.as_bytes().to_vec();
-        input.extend_from_slice(b"\r\n{}");
-        let mut reader = BufReader::new(Cursor::new(input));
-        assert_eq!(read_detached_request_id(&mut reader).unwrap(), request_id);
-
-        let mut payload = Vec::new();
-        reader.read_to_end(&mut payload).unwrap();
-        assert_eq!(payload, b"{}");
-    }
-
-    #[test]
-    fn bounded_detached_request_id_rejects_an_unterminated_line() {
-        use std::io::Cursor;
-
-        let mut reader = BufReader::new(Cursor::new(b"550e8400-e29b-41d4-a716-446655440000"));
-        let error = read_detached_request_id(&mut reader).unwrap_err();
-        assert_eq!(error.to_string(), "detached request id is missing newline delimiter");
-    }
-
-    #[test]
-    fn bounded_detached_request_id_rejects_an_oversized_line() {
-        use std::io::Cursor;
-
-        let mut input = vec![b'x'; MAX_REQUEST_ID_BYTES + 1];
-        input.push(b'\n');
-        let mut reader = BufReader::new(Cursor::new(input));
-        let error = read_detached_request_id(&mut reader).unwrap_err();
-        assert_eq!(
-            error.to_string(),
-            format!("detached request id exceeds {MAX_REQUEST_ID_BYTES} bytes")
-        );
-    }
-}
+#[path = "cmux-tui-hook/tests.rs"]
+mod tests;

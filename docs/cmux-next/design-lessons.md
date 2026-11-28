@@ -92,6 +92,14 @@ answer).
 **Guards:** in webviews, the dev-server `dom-breadth`, `live-intervals` and `long-frame` budgets (pages the dev server serves; built bundles
 carry none) and the `layout-thrash-in-loop` lint ([modding-kit.md](modding-kit.md)); in cmux-tui, clippy's `await_holding_lock`.
 
+**Segmented histories:** paging the records is insufficient if each page enumerates or clones the
+whole segment table. Share immutable metadata and seek the requested range; preserve conservative
+discovery after directory changes. The detectors are
+`repeated_pages_share_the_segment_table_at_every_log_size` (1, 64, and 512 segments) and
+`an_old_reverse_page_does_not_open_every_newer_segment`, with separate rotation and replacement
+tests. Report cold discovery and warm-page costs separately; a warm cache does not prove bounded
+daemon startup or bounded recovery snapshots.
+
 ## 6. A visible change is one state transition
 
 **Class:** flicker, a jump, pop-in, a blink, or a layout that moved after the animation finished.
@@ -106,7 +114,9 @@ live resize), [#24902](https://github.com/manaflow-ai/cmux/pull/24902) (reply fa
 **Cost:** 597 fixes, the largest product class. The sidebar and the browser have the most.
 
 **Guards:** in webviews, the dev-server `layout-shift` and `react-commit` budgets ([modding-kit.md](modding-kit.md));
-the no-flicker browser tests. Native UI has none yet beyond tests.
+the no-flicker browser tests. Native UI has none yet beyond tests. In recordings of either, `flicker-check.py` finds
+jumps, blinks, staggered settles and flashes (CI step `recording-shifts`); the spurious-UI classes and what designs
+each out: [spurious-ui.md](spurious-ui.md).
 
 ## 7. Lifecycle edges are the normal case
 

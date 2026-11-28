@@ -39,6 +39,8 @@ fn repo() -> PathBuf {
 /// - `tier/<list>/<id>`: an id the crate added to the palette tier list `daily` or `niche`.
 /// - `removal/<id>`: an action this crate removed that the exports still have; both leave its
 ///   row out of the exports' side.
+/// - `bindings/<list>`: binding fields of `key_binding_defaults.<list>` this crate changed, one JSON
+///   pointer into the list per line (`/2/when_text`); the dump keeps the old value of each.
 ///
 /// Text after a `#` is a note (which pull request, why). Only `fields/` reads its lines; the
 /// other files may be empty. Each marker fails once the export has what it waits for, naming the
@@ -235,6 +237,33 @@ fn awaiting_field_repin(rust: &mut Value, swift: &Value) {
     }
 }
 
+/// Binding fields of a `key_binding_defaults` list that this crate changed and the pinned app FFI
+/// does not have yet, as JSON pointers into the list, one per line of
+/// `awaiting-repin/bindings/<list>` (`/2/when_text`). Until the re-pin the dump keeps the old value
+/// of each; a listed field the dump already shows as this crate has it fails: the re-pin landed,
+/// so delete the marker.
+fn awaiting_bindings_repin(rust: &mut Value, swift: &Value) {
+    for (list, fields) in marker_files("bindings") {
+        let path = marker("bindings", &list);
+        assert!(
+            !fields.is_empty(),
+            "{path} lists no field: put one JSON pointer per line, or delete it"
+        );
+        for field in fields {
+            let pointer = format!("/key_binding_defaults/{list}{field}");
+            let old = swift.pointer(&pointer).cloned().unwrap_or(Value::Null);
+            let new = rust
+                .pointer_mut(&pointer)
+                .unwrap_or_else(|| panic!("{pointer}: no such field (line {field} of {path})"));
+            assert_ne!(
+                *new, old,
+                "action-catalog.json has {pointer} as the crate does: the re-pin landed, so take {field} out of {path} (delete the file when it is the last)"
+            );
+            *new = old;
+        }
+    }
+}
+
 /// Whether `id`'s exported arguments may still be the pinned app's (see
 /// [`FIELDS_AWAITING_REPIN`]).
 fn arguments_await_repin(id: &str) -> bool {
@@ -378,11 +407,24 @@ fn english_catalog_equals_the_swift_dump() {
         actions
             .retain(|action| !action["id"].as_str().is_some_and(|id| listed(&AWAITING_REPIN, id)));
     }
+    // An action the dump does not have yet has no palette aliases or tier entry there either:
+    // they wait with its `actions/<id>` marker (#49740 and #49757 each added such rows).
+    if let Some(aliases) = rust["palette"]["aliases"].as_object_mut() {
+        aliases.retain(|id, _| !listed(&AWAITING_REPIN, id));
+    }
+    for tier in ["daily", "niche"] {
+        if let Some(list) = rust["palette"][tier].as_array_mut() {
+            list.retain(|id| !id.as_str().is_some_and(|id| listed(&AWAITING_REPIN, id)));
+        }
+    }
     awaiting_family_repin(&mut rust, &swift);
     awaiting_tier_repin(&mut rust, &swift);
     awaiting_field_repin(&mut rust, &swift);
+    awaiting_bindings_repin(&mut rust, &swift);
     for action in rust["actions"].as_array_mut().into_iter().flatten() {
-        let Some(id) = action["id"].as_str().map(str::to_owned) else { continue };
+        let Some(id) = action["id"].as_str().map(str::to_owned) else {
+            continue;
+        };
         let dumped = swift["actions"].as_array().into_iter().flatten().find(|a| a["id"] == *id);
         if dumped.is_some_and(|d| shortcut_awaits_repin(&id, &d["defaultShortcut"])) {
             action["defaultShortcut"] = Value::Null;
@@ -394,7 +436,8 @@ fn english_catalog_equals_the_swift_dump() {
              FFI does not have yet (step A, docs/ci/app-ffi-release.md) waits for the re-pin in a \
              marker under {MARKERS}/: an action's changed field is a JSON pointer line in \
              fields/<id>, a new shortcut is shortcut/<id>, a dropped one shortcut-removal/<id>, a \
-             new palette family member family/<family>/<id>"
+             new palette family member family/<family>/<id>, a changed binding field in \
+             bindings/<list>"
         );
     }
 }
@@ -459,7 +502,9 @@ fn awaiting_family_repin(rust: &mut Value, swift: &Value) {
         };
         let actions = rust["actions"].as_array_mut().into_iter().flatten();
         for action in actions.filter(|a| a["id"].as_str().is_some_and(|id| listed(ids, id))) {
-            let Some(dumped) = action["id"].as_str().and_then(dump) else { continue };
+            let Some(dumped) = action["id"].as_str().and_then(dump) else {
+                continue;
+            };
             for field in ["palette_family", "palette_tier"] {
                 action["computed"][field] = dumped["computed"][field].clone();
             }
@@ -501,7 +546,9 @@ fn awaiting_tier_repin(rust: &mut Value, swift: &Value) {
         };
         let actions = rust["actions"].as_array_mut().into_iter().flatten();
         for action in actions.filter(|a| a["id"].as_str().is_some_and(|id| listed(ids, id))) {
-            let Some(dumped) = action["id"].as_str().and_then(dump) else { continue };
+            let Some(dumped) = action["id"].as_str().and_then(dump) else {
+                continue;
+            };
             action["computed"]["palette_tier"] = dumped["computed"]["palette_tier"].clone();
         }
     }
@@ -520,7 +567,10 @@ fn action_list_export_matches() {
     for (row, action) in rows.iter().zip(&rust) {
         let id = action.id;
         assert_eq!(row["id"], id);
-        assert_eq!(row["cli_name"], action.cli_name, "{id}");
+        // A CLI name awaiting the re-pin keeps the pinned app's name in this export too.
+        if !field_awaits_repin(id, "/cliName") {
+            assert_eq!(row["cli_name"], action.cli_name, "{id}");
+        }
         if field_awaits_repin(id, "/surfacePlan/palette") {
             assert_ne!(
                 row["palette"],
@@ -531,21 +581,37 @@ fn action_list_export_matches() {
         } else {
             assert_eq!(row["palette"], action.surface_plan.palette.wire(), "{id}");
         }
-        assert_eq!(row["cli"], action.surface_plan.cli.map_or("undeclared", |d| d.wire()), "{id}");
+        // A CLI decision awaiting the re-pin keeps the pinned app's decision in this export too.
+        let cli = action.surface_plan.cli.map_or("undeclared", |d| d.wire());
+        if field_awaits_repin(id, "/surfacePlan/cli") {
+            assert_ne!(
+                row["cli"],
+                cli,
+                "action-surfaces.json has {id}'s CLI decision: the re-pin landed, so take /surfacePlan/cli out of {} (delete the file when it is the last)",
+                marker("fields", id)
+            );
+        } else {
+            assert_eq!(row["cli"], cli, "{id}");
+        }
         // A context-menu change awaiting the re-pin keeps the pinned app's decision in this
-        // export too.
-        if !field_awaits_repin(id, "/surfacePlan/contextMenus") {
+        // export too; the decision follows the exemption as well as the menus.
+        if !field_awaits_repin(id, "/surfacePlan/contextMenus")
+            && !field_awaits_repin(id, "/surfacePlan/contextMenuExemption")
+        {
             assert_eq!(
                 row["context_menu"],
                 action.surface_plan.context_menu().map_or("undeclared", |d| d.wire()),
                 "{id}"
             );
         }
-        assert_eq!(
-            row["mcp"],
-            action.surface_plan.mcp().map_or("undeclared", |d| d.wire()),
-            "{id}"
-        );
+        // MCP follows the CLI decision, so a CLI decision awaiting the re-pin holds it back too.
+        if !field_awaits_repin(id, "/surfacePlan/cli") {
+            assert_eq!(
+                row["mcp"],
+                action.surface_plan.mcp().map_or("undeclared", |d| d.wire()),
+                "{id}"
+            );
+        }
         // A main menu placement awaiting the re-pin keeps the pinned app's menu here too; once
         // the export has the crate's menu, the marker's /mainMenu line is stale.
         if field_awaits_repin(id, "/mainMenu") {
@@ -558,7 +624,17 @@ fn action_list_export_matches() {
         } else {
             assert_eq!(row["main_menu"], serde_json::json!(action.main_menu), "{id}");
         }
-        assert_eq!(row["title"], action.title.en, "{id}");
+        // A retitle awaiting the re-pin keeps the pinned app's title in this export.
+        if field_awaits_repin(id, "/title") {
+            assert_ne!(
+                row["title"],
+                action.title.en,
+                "action-surfaces.json has {id}'s new title: the re-pin landed, so take /title out of {}",
+                marker("fields", id)
+            );
+        } else {
+            assert_eq!(row["title"], action.title.en, "{id}");
+        }
         // `title_key` is not compared: the export guesses it from the English
         // (`ActionTitleCatalog`), and two keys can share one (Recently Closed is
         // `action.history.closed`, not `action.recentlyClosed`). The catalog keeps the key the
@@ -587,7 +663,18 @@ fn action_list_export_matches() {
                 cmux_action_catalog::json::shortcut(&c.second)
             ])
         });
-        assert_eq!(row["default_chord"], chord, "{id}");
+        // A chord added to an action the pinned app already has waits for the re-pin like a
+        // shortcut does; once the export has it, the marker's /defaultChord line is stale.
+        if field_awaits_repin(id, "/defaultChord") {
+            assert_ne!(
+                row["default_chord"],
+                chord,
+                "action-surfaces.json has {id}'s chord: the re-pin landed, so take /defaultChord out of {}",
+                marker("fields", id)
+            );
+        } else {
+            assert_eq!(row["default_chord"], chord, "{id}");
+        }
         assert_eq!(
             row["palette_suggested"],
             serde_json::json!(action.palette_suggestion_rank()),
@@ -668,7 +755,9 @@ fn mcp_exemptions_have_a_cli_verb() {
     use cmux_action_catalog::Decision;
     for action in cmux_action_catalog::actions() {
         let plan = action.surface_plan;
-        let Some(mcp) = plan.mcp_exemption else { continue };
+        let Some(mcp) = plan.mcp_exemption else {
+            continue;
+        };
         assert!(
             !matches!(plan.cli, Some(Decision::Exempt(_))),
             "{}: an MCP exemption without a CLI verb (the CLI exemption already covers MCP)",
@@ -744,9 +833,8 @@ fn swift_files(dir: &Path, out: &mut Vec<PathBuf>) {
 #[test]
 fn new_rows_in_handler_coverage_categories_have_an_app_binding() {
     let sources = repo().join("Packages/macOS/CmuxNext/Sources");
-    let coverage =
-        std::fs::read_to_string(sources.join("CmuxNextApp/Handlers/HandlerCoverage.swift"))
-            .expect("HandlerCoverage.swift");
+    let coverage = std::fs::read_to_string(sources.join("CmuxNextActions/HandlerCoverage.swift"))
+        .expect("HandlerCoverage.swift");
     let line = coverage
         .lines()
         .find(|l| l.contains("static let categories"))

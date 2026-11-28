@@ -116,7 +116,16 @@ export async function deleteLiveVms(): Promise<string[]> {
 /** Network idleness after which Freestyle pauses a harness VM (at most 300 s). */
 export const HARNESS_IDLE_TIMEOUT_SECONDS = 300;
 
-export async function createVm(fs: Freestyle, ledger: Ledger, options: { name: string; snapshotId: string; allowUnprefixed?: boolean }): Promise<{ vm: Vm; vmId: string; createMs: number; t0: number }> {
+/** One inline edge rule at create, as a product create carries it (web/services/vms/drivers/freestyle.ts freestyleEdgeRules). */
+export type CreateTlsRule = {
+  action: "allow";
+  domain: string;
+  source: Record<string, never>;
+  destination: { host: string; port: number };
+  transform: Array<{ headers: Record<string, string> }>;
+};
+
+export async function createVm(fs: Freestyle, ledger: Ledger, options: { name: string; snapshotId: string; allowUnprefixed?: boolean; tlsRules?: CreateTlsRule[] }): Promise<{ vm: Vm; vmId: string; createMs: number; t0: number }> {
   assertResourceName(options.name, options.allowUnprefixed);
   const t0 = Date.now();
   const { vm, vmId } = await fs.vms.create({
@@ -128,6 +137,7 @@ export async function createVm(fs: Freestyle, ledger: Ledger, options: { name: s
     // leave a VM running: Freestyle pauses it after this much network idleness
     // (Lawrence, 2026-10-07). Product machines are created by CloudDO with -1.
     idleTimeoutSeconds: HARNESS_IDLE_TIMEOUT_SECONDS,
+    ...(options.tlsRules?.length ? { tls: { rules: options.tlsRules } } : {}),
   });
   const createMs = Date.now() - t0;
   ledger.record(vmId, "vm", options.name);
@@ -135,12 +145,14 @@ export async function createVm(fs: Freestyle, ledger: Ledger, options: { name: s
   return { vm, vmId, createMs, t0 };
 }
 
-/** Waits before each retry of a delete the provider answered 5xx: 4 tries over 35 s. */
+/** Waits before each retry of a delete the provider answered 5xx, or that timed out: 4 tries over 35 s. */
 export const DELETE_RETRY_DELAYS_MS: readonly number[] = [5_000, 10_000, 20_000];
 
 // A provider 5xx on delete (run 44112930938: 503 INTERNAL_ERROR after a smoke whose checks all passed) is
 // retried: a delete is idempotent, and 404 below already reads a lost success as gone. Any other error, and a
-// 5xx that outlasts the delays, goes to the caller with the VM still tracked, as before.
+// 5xx that outlasts the delays, goes to the caller with the VM still tracked, as before. A delete the client gave
+// up on (TimeoutError, no status: run 45829777164's smoke failed in its cleanup after its checks passed) is retried
+// the same way: the provider may have done it, and the next try reads that as 404.
 export async function deleteVm(
   vm: Vm, vmId: string, name: string, ledger: Ledger,
   deps: { sleep?: (ms: number) => Promise<unknown>; delaysMs?: readonly number[] } = {},
@@ -154,7 +166,8 @@ export async function deleteVm(
       const status = (error as { status?: unknown } | null)?.status;
       // A prior delete may have succeeded before its response was lost.
       if (status === 404) break;
-      if (typeof status === "number" && status >= 500 && attempt < delays.length) {
+      const timedOut = (error as { name?: unknown } | null)?.name === "TimeoutError";
+      if (((typeof status === "number" && status >= 500) || timedOut) && attempt < delays.length) {
         await (deps.sleep ?? sleep)(delays[attempt]);
         continue;
       }
@@ -220,7 +233,118 @@ export class StepLog {
     this.log(`ok [${label}] ${secs.toFixed(1)}s :: ${r.stdout.trim().split("\n").slice(-3).join(" | ")}`);
     return r.stdout;
   }
+
+  /**
+   * A step that may outlast one exec call: the guest runs it detached under `timeout`, writing its output and status
+   * into `dir`, and short execs poll for the status. One exec-await held open for minutes fails two ways (rolls
+   * 45779971043: status 124 at the 300 s exec cap; 45829777164 and 45883186922: the client's TimeoutError after its
+   * background-request poll went unanswered), so a poll that errors or times out is tried again until the budget is
+   * spent. The guest's own `timeout` ends the command at budgetMs (status 124, "step X failed"); a step that took more
+   * than half its budget logs SLOW_STEP so the workflow can warn before the bound is reached.
+   */
+  async detachedStep(
+    vm: Vm, label: string, command: string,
+    options: { dir: string; budgetMs: number; pollMs?: number; sleep?: (ms: number) => Promise<unknown>; now?: () => number; wake?: () => Promise<unknown> },
+  ): Promise<string> {
+    const shellCheck = guestShellProblems(command);
+    for (const s of shellCheck.suspect) this.log(`WARN [${label}] ${s}`);
+    if (shellCheck.refused.length > 0) {
+      this.log(`STEP FAILED [${label}] before it ran: the guest's /bin/sh refuses it:\n${shellCheck.refused.join("\n")}`);
+      throw new Error(`step ${label} failed: not /bin/sh`);
+    }
+    const now = options.now ?? Date.now;
+    const wait = options.sleep ?? sleep;
+    const pollMs = options.pollMs ?? DETACHED_POLL_MS;
+    const { dir } = options;
+    const budgetSecs = Math.ceil(options.budgetMs / 1000);
+    const script = Buffer.from(command).toString("base64");
+    const t0 = now();
+    const start = await run(vm, [
+      `mkdir -p ${dir}`,
+      `rm -f ${dir}/status ${dir}/out ${dir}/err`,
+      `printf %s ${script} | base64 -d > ${dir}/cmd.sh`,
+      `{ nohup setsid sh -c 'timeout -k 10 ${budgetSecs} sh ${dir}/cmd.sh > ${dir}/out 2> ${dir}/err; echo $? > ${dir}/status' > /dev/null 2>&1 < /dev/null & }`,
+      "echo started",
+    ].join(" && "), DETACHED_CALL_MS);
+    if (start.code !== 0 || !start.stdout.includes("started")) {
+      this.log(`STEP FAILED [${label}] did not start: status=${start.code} ${start.stderr.slice(-3000)}`);
+      throw new Error(`step ${label} failed: did not start`);
+    }
+    // The guest ends the command at the budget; the grace covers its kill, the status write and a slow poll.
+    const deadline = t0 + options.budgetMs + DETACHED_GRACE_MS;
+    let pollError: unknown;
+    let failedPolls = 0;
+    for (;;) {
+      await wait(pollMs);
+      let status = "";
+      try {
+        status = (await run(vm, `cat ${dir}/status 2>/dev/null || true`, DETACHED_CALL_MS)).stdout.trim();
+        pollError = undefined;
+        failedPolls = 0;
+      } catch (error) {
+        pollError = error;
+        // A run of failed polls may be a paused or stopped VM rather than a blip (roll 46078031124: every poll of the
+        // sbom step failed for its whole budget, then each retry's first exec): ask the provider and start it.
+        if (++failedPolls % DETACHED_WAKE_AFTER_FAILED_POLLS === 0 && options.wake) {
+          try {
+            await options.wake();
+          } catch (wakeError) {
+            this.log(`WARN [${label}] wake after ${failedPolls} failed polls: ${String(wakeError)}`);
+          }
+        }
+      }
+      if (status !== "") {
+        const r = await run(vm, `cat ${dir}/out; echo ${DETACHED_STDERR_MARK}; tail -c 3000 ${dir}/err`, DETACHED_CALL_MS);
+        const [stdout, stderr = ""] = r.stdout.split(`${DETACHED_STDERR_MARK}\n`);
+        const code = Number(status);
+        const secs = (now() - t0) / 1000;
+        this.steps.push({ label, secs });
+        appendFileSync(this.logFile, `--- [${label}] status=${code} ${secs.toFixed(1)}s (detached, budget ${budgetSecs}s)\n${stdout}\n--- stderr\n${stderr}\n`);
+        if (code !== 0) {
+          const why = code === 124 || code === 137 ? ` (its ${budgetSecs} s budget ran out)` : "";
+          this.log(`STEP FAILED [${label}] status=${code}${why} (${secs.toFixed(1)}s)\nstdout: ${stdout.slice(-3000)}\nstderr: ${stderr.slice(-3000)}`);
+          throw new Error(`step ${label} failed`);
+        }
+        if (secs * 1000 > options.budgetMs / 2) this.log(`SLOW_STEP [${label}] ${secs.toFixed(1)}s of its ${budgetSecs}s budget`);
+        this.log(`ok [${label}] ${secs.toFixed(1)}s :: ${stdout.trim().split("\n").slice(-3).join(" | ")}`);
+        return stdout;
+      }
+      if (now() > deadline) {
+        // Polls that answered without a status mean the guest lost the command; polls that kept failing are the
+        // provider's, and go to the caller as that error (inventory.ts retries a cut or timed-out connection).
+        if (pollError !== undefined) throw pollError;
+        this.log(`STEP FAILED [${label}] no status after ${((now() - t0) / 1000).toFixed(1)}s (budget ${budgetSecs}s)`);
+        throw new Error(`step ${label} failed: no status`);
+      }
+    }
+  }
 }
+
+/** One poll or start call of a detached step: short, so a provider blip costs one poll, not the step. */
+export const DETACHED_CALL_MS = 30_000;
+export const DETACHED_POLL_MS = 10_000;
+export const DETACHED_GRACE_MS = 60_000;
+/** Failed polls in a row (DETACHED_POLL_MS + DETACHED_CALL_MS each, about a minute for 2) before detachedStep's wake. */
+export const DETACHED_WAKE_AFTER_FAILED_POLLS = 2;
+
+/**
+ * Reads the VM's provider state and starts it when it is not running: createVm gives every harness VM a
+ * HARNESS_IDLE_TIMEOUT_SECONDS network-idle pause, and a builder kept for the inventory runs a long detached scan
+ * with nothing on the network. Logs the state either way, so an unreachable guest names its cause in the log.
+ * Returns the state it found.
+ */
+export async function wakeVm(vm: Pick<Vm, "data" | "start">, log: (line: string) => void, label: string): Promise<string> {
+  const state = String((await vm.data()).state);
+  if (state === "running" || state === "starting") {
+    log(`VM_STATE [${label}] ${state}`);
+    return state;
+  }
+  log(`VM_STATE [${label}] ${state}: starting it`);
+  const after = await vm.start();
+  log(`VM_STATE [${label}] after start: ${String(after?.state ?? "unknown")}`);
+  return state;
+}
+const DETACHED_STDERR_MARK = "--cmux-detached-stderr--";
 
 export function argValue(name: string, argv = process.argv): string | undefined {
   const index = argv.indexOf(name);

@@ -1,4 +1,5 @@
 import CMUXAuthCore
+import CmuxEgress
 import Foundation
 import struct CmuxMobileModel.ServiceFailureMessage
 import struct CmuxMobileModel.TeamAppearance
@@ -9,16 +10,25 @@ public struct LiveAPI: Sendable {
     public let baseURL: URL
     /// A Stack access token; `true` forces a refresh after a 401.
     let accessToken: @Sendable (_ forceRefresh: Bool) async throws -> String
-    let session: URLSession
+    /// The session it sends on, replaced after a stale-connection failure (``APISessions``).
+    let sessions: APISessions
     /// A dev build's cloud data space (`X-Cmux-Build-Space`), on every request and the signaling
     /// upgrade; `.nightly` (nightly, TestFlight, App Store, Demo) sends no header, and a misconfigured
     /// dev build's requests throw ``CMUXBuildSpaceError``.
     public let buildSpace: CMUXBuildSpaceState
 
-    public init(baseURL: URL, session: URLSession = .shared, buildSpace: CMUXBuildSpaceState = .nightly,
+    public init(baseURL: URL, session: URLSession? = nil, buildSpace: CMUXBuildSpaceState = .nightly,
                 accessToken: @escaping @Sendable (_ forceRefresh: Bool) async throws -> String) {
         self.baseURL = baseURL
-        self.session = session
+        self.init(baseURL: baseURL, sessions: session.map { first in
+            APISessions(first, make: { CmuxEgress.session(site: "CmuxMobileLive.LiveAPI", configuration: first.configuration) })
+        } ?? .shared, buildSpace: buildSpace, accessToken: accessToken)
+    }
+
+    init(baseURL: URL, sessions: APISessions, buildSpace: CMUXBuildSpaceState = .nightly,
+         accessToken: @escaping @Sendable (_ forceRefresh: Bool) async throws -> String) {
+        self.baseURL = baseURL
+        self.sessions = sessions
         self.buildSpace = buildSpace
         self.accessToken = accessToken
     }
@@ -34,11 +44,15 @@ public struct LiveAPI: Sendable {
         public var teamId: String?
         /// A `presence` frame for a Mac its owner deleted (0.7.0): drop it.
         public var removed: Bool?
-        /// The computer the Mac runs on (added 2026-10-21): one per computer, shared by its cmux builds.
+        /// The computer the Mac runs on (added 2026-10-21): shared by its cmux builds of one account; lists do not group by it.
         public var machineId: String?
+        /// Milliseconds since the service last heard the Mac's heartbeat; only for an online Mac
+        /// (PROTOCOL.md "Mac freshness"). An older Worker sends none.
+        public var quietMs: Int?
 
         public init(deviceId: String, name: String, online: Bool, lastSeenAt: String? = nil, ownerUserId: String? = nil, teamId: String? = nil, removed: Bool? = nil,
-                    machineId: String? = nil) {
+                    machineId: String? = nil, quietMs: Int? = nil) {
+            self.quietMs = quietMs
             self.deviceId = deviceId
             self.name = name
             self.online = online
@@ -259,7 +273,7 @@ public struct LiveAPI: Sendable {
     func pinningToken() async throws -> LiveAPI {
         let token = try await accessToken(false)
         let provider = accessToken
-        return LiveAPI(baseURL: baseURL, session: session, buildSpace: buildSpace, accessToken: { forceRefresh in
+        return LiveAPI(baseURL: baseURL, sessions: sessions, buildSpace: buildSpace, accessToken: { forceRefresh in
             if forceRefresh { return try await provider(true) }
             return token
         })
@@ -313,6 +327,32 @@ public struct LiveAPI: Sendable {
         return request
     }
 
+    /// `POST` `pathAndQuery` (from Rust's `PhoneCatchUp.relayRequest`: `/v1/relay-cache/...?deviceId=`)
+    /// with a JSON body already encoded, bearer refreshed once on a 401 like ``call(_:_:body:)``.
+    func relayCache(pathAndQuery: String, json: String) async throws -> Data {
+        let parts = pathAndQuery.split(separator: "?", maxSplits: 1)
+        var components = URLComponents(url: baseURL.appending(path: String(parts.first ?? "")), resolvingAgainstBaseURL: false)
+        if parts.count == 2 { components?.percentEncodedQuery = String(parts[1]) }
+        guard let url = components?.url else { throw Failure(status: 0, code: "bad_request", message: "relay cache path") }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 15
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data(json.utf8)
+        try buildSpace.apply(to: &request)
+        for forceRefresh in [false, true] {
+            request.setValue("Bearer \(try await accessToken(forceRefresh))", forHTTPHeaderField: "Authorization")
+            let (data, response) = try await send(request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            if status == 401, !forceRefresh { continue }
+            guard (200..<300).contains(status) else {
+                throw Self.failure(status: status, data: data, requestID: Self.requestID(response as? HTTPURLResponse))
+            }
+            return data
+        }
+        throw Failure(status: 401, code: "unauthorized", message: "token refresh failed")
+    }
+
     /// The request ``call(_:_:body:)`` sends, before its bearer.
     func makeRequest(_ method: String, _ path: String, body: [String: Any]? = nil) throws -> URLRequest {
         var request = URLRequest(url: baseURL.appending(path: path))
@@ -331,7 +371,7 @@ public struct LiveAPI: Sendable {
         // A rejected token (expired while the app slept) is refreshed once.
         for forceRefresh in [false, true] {
             request.setValue("Bearer \(try await accessToken(forceRefresh))", forHTTPHeaderField: "Authorization")
-            let (data, response) = try await session.data(for: request)
+            let (data, response) = try await send(request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             if status == 401, !forceRefresh { continue }
             guard (200..<300).contains(status) else {
@@ -340,6 +380,34 @@ public struct LiveAPI: Sendable {
             return data
         }
         throw Failure(status: 401, code: "unauthorized", message: "token refresh failed")
+    }
+
+    /// How long the first try of an idempotent request waits for bytes before it is sent again on a fresh session
+    /// (``APISessions``): a stale pooled connection answers nothing, so its full 15 s was 15 s of a blank list.
+    static let firstTryTimeout: TimeInterval = 8
+
+    static func isIdempotent(_ request: URLRequest) -> Bool {
+        ["GET", "HEAD", "PUT", "DELETE", "OPTIONS"].contains((request.httpMethod ?? "GET").uppercased())
+    }
+
+    static func firstTry(_ request: URLRequest) -> URLRequest {
+        guard isIdempotent(request) else { return request }
+        var first = request
+        first.timeoutInterval = min(request.timeoutInterval, firstTryTimeout)
+        return first
+    }
+
+    /// `request` on the current session. After a stale-connection failure (``APISessions``) later requests use a
+    /// fresh session, and an idempotent request, or one that never left, is sent once more there at its full timeout.
+    func send(_ request: URLRequest) async throws -> (Data, URLResponse) {
+        let session = sessions.session
+        do {
+            return try await session.data(for: Self.firstTry(request))
+        } catch let error where APISessions.isStale(error) {
+            let fresh = sessions.renew(after: session)
+            guard Self.isIdempotent(request) || APISessions.wasNotSent(error) else { throw error }
+            return try await fresh.data(for: request)
+        }
     }
 
     static func failure(status: Int, data: Data, requestID: String? = nil) -> Failure {
@@ -402,6 +470,8 @@ public enum SignalFrame: Equatable, Sendable {
 extension LiveAPI {
     /// What a failed device removal tells the user. Never names the
     /// service's vendors; quotes the Request ID when the service sent one.
+    /// Removing a device is the person's own action with a side effect on the service, so its
+    /// copy may name a retry: whether to remove it again is theirs to decide.
     public static func removalMessage(for error: any Error) -> ServiceFailureMessage {
         if let failure = error as? Failure {
             let text: String
@@ -409,12 +479,16 @@ extension LiveAPI {
             case (403, "not_owner"):
                 text = "This device belongs to another account. Only the account it's signed in to can remove it."
             case (401, _):
+                // retry-prompt-ok: a real step first (sign in); the removal is the person's to repeat.
                 text = "Your session expired. Sign in again, then try again."
             case (429, _):
+                // retry-prompt-ok: the service enforces the wait; the removal is the person's to repeat.
                 text = "Too many requests. Wait a moment and try again."
             case (500..., _), (0, _):
+                // retry-prompt-ok: the person's own removal, refused by the service.
                 text = "The Cloud service couldn't remove it. Try again in a moment."
             default:
+                // retry-prompt-ok: the person's own removal, refused by the service.
                 text = UserFacingError.isProse(failure.message)
                     ? "The Cloud service refused: \(failure.message)"
                     : "The Cloud service couldn't remove it. Try again in a moment."
@@ -424,32 +498,38 @@ extension LiveAPI {
         if let urlError = error as? URLError {
             switch urlError.code {
             case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed:
+                // retry-prompt-ok: the person's own removal never reached the service.
                 return ServiceFailureMessage(text: "You're offline. Connect to the internet and try again.")
             case .timedOut:
-                return ServiceFailureMessage(text: "The Cloud service didn't answer in time. Try again.")
+                // retry-prompt-ok: the person's own removal; the service may not have seen it.
+                return ServiceFailureMessage(text: "Can't reach the cmux Cloud service right now. Try again in a moment.")
             default:
+                // retry-prompt-ok: the person's own removal never reached the service.
                 return ServiceFailureMessage(text: "Couldn't reach the Cloud service. Try again in a moment.")
             }
         }
+        // retry-prompt-ok: the person's own removal failed.
         return ServiceFailureMessage(text: UserFacingError.message(error, fallback: "Couldn't remove it. Try again."))
     }
 }
 
 /// What a person reads for a failed service call: never the HTTP status, the code
-/// or the type. The service's own message shows when it reads as a sentence.
-extension LiveAPI.Failure: LocalizedError {
+/// or the type. The service's own message shows when it reads as a sentence. Shown for loads
+/// (retried on their own) and actions alike, so only a server-enforced wait names a retry.
+extension LiveAPI.Failure: LocalizedError, LinkServiceFailure {
     public var errorDescription: String? {
         switch status {
         case 401: return "Your session expired. Sign in again."
+        // retry-prompt-ok: the service enforces the wait (rate limit).
         case 429: return "Too many requests. Wait a moment and try again."
-        case 500...: return "The Cloud service isn't available right now. Try again in a moment."
+        case 500...: return "The Cloud service isn't available right now."
         default: break
         }
         if UserFacingError.isProse(message) { return message.trimmingCharacters(in: .whitespacesAndNewlines) }
         switch status {
         case 403: return "You don't have access to that."
         case 404: return "That isn't available anymore."
-        default: return "The Cloud service couldn't do that. Try again in a moment."
+        default: return "The Cloud service couldn't do that."
         }
     }
 }

@@ -13,7 +13,10 @@ name: What's New gallery pictures
 # .github/actions/pr-media-publish and its privacy check.
 on:
   push:
-    branches: [feat-cmux-next]
+    # nightly-next too: a promote that carries a highlight plans again what an earlier run left
+    # unrendered. Run 45963430187 failed on a broken gallery file and nothing ran it again, so
+    # theme-flourishes, ios-new-task-cloud-machine and diff-pickers-draw-what-shows shipped with no picture.
+    branches: [feat-cmux-next, nightly-next]
     paths:
       - "release-notes/next/highlights/**"
       # A planner change plans again what is still missing (it only renders pictures not on pr-media).
@@ -34,15 +37,19 @@ concurrency:
   group: whats-new-gallery
   cancel-in-progress: false
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   render:
     if: ${{ github.repository_owner == 'manaflow-ai' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 60
     outputs:
       count: ${{ steps.plan.outputs.count }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           # The plan reads each highlight's first commit (its age).
@@ -65,12 +72,24 @@ jobs:
           echo "entries=${entries// /,}" >> "$GITHUB_OUTPUT"
           jq -r '.[] | "- \(.id) \(.role): \(.state // "picked from \(.sources | join(", "))")\(if .parent then " at \(.parent[:12])" else "" end)"' "$RUNNER_TEMP/plan.json" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: ${{ steps.plan.outputs.count != '0' }}
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         if: ${{ steps.plan.outputs.count != '0' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        if: ${{ steps.plan.outputs.count != '0' }}
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
 
       - name: Setup Node
         if: ${{ steps.plan.outputs.count != '0' }}
@@ -85,6 +104,18 @@ jobs:
         with:
           engines: chromium
 
+      - name: Set up pinned Rust for desktop input keys
+        if: ${{ steps.plan.outputs.count != '0' }}
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Build cmux-shotdiff for desktop input keys
+        if: ${{ steps.plan.outputs.count != '0' }}
+        working-directory: cmux-tui
+        run: |
+          set -euo pipefail
+          timeout 900 cargo build --locked --release -p cmux-shotdiff --bin cmux-shotdiff
+          echo "CMUX_SHOTDIFF=$PWD/target/release/cmux-shotdiff" >> "$GITHUB_ENV"
+
       - name: Render the gallery states
         if: ${{ steps.plan.outputs.count != '0' }}
         env:
@@ -95,50 +126,103 @@ jobs:
           out="$RUNNER_TEMP/pictures"
           mkdir -p "$out"
           cp "$RUNNER_TEMP/plan.json" "$out/plan.json"
+          write_input_keys() {
+            local rev="$1" dest="$2"
+            local chromium webkit
+            chromium="$("$CMUX_SHOTDIFF" key --inputs "$GITHUB_WORKSPACE/.github/golden-inputs.json" \
+              --family desktop-gallery --variant chromium --rev "$rev" --repo "$GITHUB_WORKSPACE")"
+            webkit="$("$CMUX_SHOTDIFF" key --inputs "$GITHUB_WORKSPACE/.github/golden-inputs.json" \
+              --family desktop-gallery --variant webkit --rev "$rev" --repo "$GITHUB_WORKSPACE")"
+            jq -n --arg rev "$rev" --arg runtime linux-gallery \
+              --argjson chromium "$chromium" --argjson webkit "$webkit" \
+              '{schema:"cmux.desktop-input-key/v1", family:"desktop-gallery", runtime:$runtime,
+                revision:$rev, variants:{chromium:$chromium, webkit:$webkit}}' > "$dest"
+          }
+          write_input_keys "$GITHUB_SHA" "$out/input-keys.json"
           cd webviews
           bun install --frozen-lockfile
-          # No ENTRIES: a state is still to be picked, from every entry's cases.
-          bun scripts/gallery/manifest.ts ${ENTRIES:+--entries "$ENTRIES"} --themes pair --widths normal \
+          # No ENTRIES: a state is still to be picked, from every entry's cases. --skip-broken: a gallery file
+          # that fails to load is left out, named in the log, so it costs only its own pictures. On 2026-11-27
+          # one duplicate `const` in ClaudeConnectRow.gallery.tsx failed 10 runs from 05:14Z to 08:18Z, and four
+          # Improved highlights shipped in nightly 4598742452601 with none (Leo, 2026-10-20: "we want things to
+          # be PRETTY!!!!").
+          bun scripts/gallery/manifest.ts ${ENTRIES:+--entries "$ENTRIES"} --skip-broken --themes pair --widths normal \
             --frame component --out "$RUNNER_TEMP/cases.json"
           # Each variant's note: a "Selected" one is the after a file picked, a "Before:" one its old look.
           # And the source files each entry covers: a highlight whose commit changed no gallery file.
-          bun scripts/gallery/notes.ts --out "$RUNNER_TEMP/notes.json" --covers "$RUNNER_TEMP/covers.json"
+          bun scripts/gallery/notes.ts ${ENTRIES:+--entries "$ENTRIES"} --skip-broken --out "$RUNNER_TEMP/notes.json" --covers "$RUNNER_TEMP/covers.json"
           # Picks the states no line names and writes them into the plan publish reads.
           python3 ../scripts/cmux-next/media/whats-new-gallery.py manifest --plan "$out/plan.json" \
             --cases "$RUNNER_TEMP/cases.json" --notes "$RUNNER_TEMP/notes.json" \
             --covers "$RUNNER_TEMP/covers.json" --out "$RUNNER_TEMP/manifest.json"
-          CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery" bun run gallery:build
+          # Only the entries the manifest renders (galleryEntrySubset): the whole gallery would compile the broken
+          # file left out above and fail the build. None to render: nothing is built or rendered.
+          built=$(jq -r '[.[].params.entry] | unique | join(",")' "$RUNNER_TEMP/manifest.json")
+          [ -n "$built" ] && CMUX_GALLERY_ENTRIES="$built" CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery" bun run gallery:build
           (cd ../scripts/gallery-matrix && bun install --frozen-lockfile)
           "$GITHUB_WORKSPACE/scripts/ci/ensure-system-chrome.sh"
           render() {
+            local key_file="${3:-$out/input-keys.json}"
             # A failed play check still writes its picture; publish skips a state with none.
-            (cd "$GITHUB_WORKSPACE/scripts/gallery-matrix" && bun runner.ts --manifest "$1" --gallery-dir "$2" \
+            (cd "$GITHUB_WORKSPACE/scripts/gallery-matrix" && CMUX_GALLERY_INPUT_KEYS="$key_file" bun runner.ts --manifest "$1" --gallery-dir "$2" \
               --output-dir "$out" --engines chromium --shard-count 1 --shard-index 0) \
               || echo "::warning::the render exited $?; publish takes the states that rendered"
           }
-          render "$RUNNER_TEMP/manifest.json" "$RUNNER_TEMP/gallery"
+          render "$RUNNER_TEMP/manifest.json" "$RUNNER_TEMP/gallery" "$out/input-keys.json"
+          # A parent inside a base red (a source file that does not parse there) builds with that file as the
+          # base's fix-forward left it, at most 2 rounds: on 2026-11-27 (run 46069736799) parent b2f1339a had
+          # VirtualTranscript.tsx declaring layoutGeometry twice (#51044, fixed by #61071), so its highlight had
+          # no before. Only the files the build names (whats-new-gallery.py heal), never a planned overlay.
+          build_parent() {
+            local parent="$1" at="$2" entries="$3" round
+            for round in 0 1 2; do
+              (cd "$at/webviews" && CMUX_GALLERY_ENTRIES="$entries" CMUX_STRINGS_BEST_EFFORT=1 \
+                CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-$parent" bun run gallery:build 2>&1 \
+                | tee "$RUNNER_TEMP/build-$parent.log"; exit "${PIPESTATUS[0]}") && return 0
+              [ "$round" -lt 2 ] || return 1
+              python3 "$GITHUB_WORKSPACE/scripts/cmux-next/media/whats-new-gallery.py" heal --at "$at" \
+                --parent "$parent" --head "$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)" \
+                --log "$RUNNER_TEMP/build-$parent.log" --plan "$out/plan.json" > "$RUNNER_TEMP/heal-$parent.txt" || return 1
+              [ -s "$RUNNER_TEMP/heal-$parent.txt" ] || return 1
+              while read -r commit path; do
+                echo "::notice title=What's New picture::before at ${parent:0:12} takes $path from its fix-forward ${commit:0:12}"
+                git -C "$at" checkout -q "$commit" -- "$path" || return 1
+              done < "$RUNNER_TEMP/heal-$parent.txt"
+            done
+          }
           # An improvement's before with no `before:` line: the same state at the commit before the
           # highlight's, from a checkout there. At most 4 commits a run; the next push plans the rest.
           for parent in $(python3 ../scripts/cmux-next/media/whats-new-gallery.py parents --plan "$out/plan.json" --limit 4); do
             at="$RUNNER_TEMP/at-$parent"
             {
               # The same sparse tree as this checkout (.github/checkout-lean.json).
-              git -C "$GITHUB_WORKSPACE" worktree add --no-checkout --detach "$at" "$parent" &&
+              git -C "$GITHUB_WORKSPACE" worktree add -f -f --no-checkout --detach "$at" "$parent" &&
               git -C "$at" sparse-checkout set --no-cone '/*' '!/cmux-next-ios/verify/' &&
               git -C "$at" reset -q --hard &&
+              # Use the current loader in the historical source tree. The parent predates source-scoped loading,
+              # and its old manifest would import every gallery file before applying --entries.
+              cp "$GITHUB_WORKSPACE/webviews/scripts/gallery/entries.ts" "$at/webviews/scripts/gallery/entries.ts" &&
+              cp "$GITHUB_WORKSPACE/webviews/scripts/gallery/manifest.ts" "$at/webviews/scripts/gallery/manifest.ts" &&
               # A variant the highlight's commit added to a gallery file already there: that file as the commit
               # left it, so the old code draws the new state.
               python3 "$GITHUB_WORKSPACE/scripts/cmux-next/media/whats-new-gallery.py" overlays --plan "$out/plan.json" \
                 --parent "$parent" > "$RUNNER_TEMP/overlays-$parent.txt" &&
               (while read -r commit path; do git -C "$at" checkout -q "$commit" -- "$path" || exit 1; done \
                 < "$RUNNER_TEMP/overlays-$parent.txt") &&
+              # Only build the entries this parent actually renders. An unrelated broken gallery file must not
+              # suppress every authentic before image for the planned highlights.
+              entries_at=$(jq -r --arg parent "$parent" '[.[] | select(.parent == $parent) | .entry] | unique | join(",")' "$out/plan.json") &&
+              # --skip-broken only where that commit's manifest.ts knows it: a parent from before #62376 stops at
+              # "Unknown option '--skip-broken'", which on 2026-11-27 (run 46048895481) cost all 4 parents their befores.
               (cd "$at/webviews" && bun install --frozen-lockfile &&
-                bun scripts/gallery/manifest.ts --themes pair --widths normal --frame component \
+                skip=$(grep -q -- "--skip-broken" scripts/gallery/manifest.ts && echo --skip-broken || true) &&
+                bun scripts/gallery/manifest.ts --entries "$entries_at" $skip --themes pair --widths normal --frame component \
                   --out "$RUNNER_TEMP/cases-$parent.json") &&
               python3 "$GITHUB_WORKSPACE/scripts/cmux-next/media/whats-new-gallery.py" manifest --plan "$out/plan.json" \
                 --cases "$RUNNER_TEMP/cases-$parent.json" --parent "$parent" --out "$RUNNER_TEMP/manifest-$parent.json" &&
-              (cd "$at/webviews" && CMUX_STRINGS_BEST_EFFORT=1 CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-$parent" bun run gallery:build) &&
-              render "$RUNNER_TEMP/manifest-$parent.json" "$RUNNER_TEMP/gallery-$parent"
+              build_parent "$parent" "$at" "$entries_at" &&
+              write_input_keys "$parent" "$out/input-keys-$parent.json" &&
+              render "$RUNNER_TEMP/manifest-$parent.json" "$RUNNER_TEMP/gallery-$parent" "$out/input-keys-$parent.json"
             } || echo "::warning title=What's New picture::no gallery at $parent; its befores wait"
           done
 
@@ -153,7 +237,7 @@ jobs:
   publish:
     needs: render
     if: ${{ needs.render.outputs.count != '0' && needs.render.result == 'success' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
     # The private-terms secret lives only in this environment, which admits only
     # the protected branches (main, feat-cmux-next, nightly-next).
@@ -161,7 +245,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -174,6 +258,7 @@ jobs:
             scripts/ci/pr_media_ocr.swift
             scripts/cmux-next/release-notes.py
             scripts/cmux-next/media/whats-new-gallery.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0

@@ -13,6 +13,7 @@ build script's cache key and the Xcode phase against it.
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -42,6 +43,33 @@ def crate_closure(root: Path, start: str) -> set[str]:
     return seen
 
 
+# A `[target.'cfg(...)'.dependencies]` table the macOS helper never builds (Linux or Windows only).
+NOT_MACOS_TABLE = re.compile(r"^\[target\.'cfg\((?:target_os\s*=\s*\"(?:linux|windows)\"|windows|unix,\s*not\(target_os\s*=\s*\"macos\"\))\)'\.[a-z-]*dependencies\]")
+
+
+def macos_crate_closure(root: Path, start: str) -> set[str]:
+    """The crates the macOS helper build compiles: `crate_closure` without the path dependencies of a
+    Linux- or Windows-only target table or of a dev-dependencies table."""
+    seen: set[str] = set()
+    pending = [start]
+    while pending:
+        crate = pending.pop()
+        manifest = root / crate / "Cargo.toml"
+        if crate in seen or not manifest.is_file():
+            continue
+        seen.add(crate)
+        built = True
+        for line in manifest.read_text(encoding="utf-8").splitlines():
+            if line.startswith("["):
+                built = not NOT_MACOS_TABLE.match(line) and "dev-dependencies" not in line
+            elif built:
+                for dep in CARGO_PATH.findall(line):
+                    resolved = (root / crate / dep).resolve()
+                    if (resolved / "Cargo.toml").is_file():
+                        pending.append(resolved.relative_to(root.resolve()).as_posix())
+    return seen
+
+
 def script_inputs(text: str) -> set[str]:
     match = re.search(r"^inputs=\(([^)]*)\)", text, re.M)
     assert match, "build-screen-sharing-helper.sh has no inputs=( ... ) line"
@@ -54,9 +82,19 @@ def phase_inputs(text: str) -> set[str]:
     return set(re.findall(r'"\$\(SRCROOT\)/(cmux-tui/[^"]+)"', match.group(1)))
 
 
+CRATES = "cmux-tui/crates/"
+# A vendored crate (cmux-rd-host's `[patch.crates-io]` smoltcp) is covered by the whole `cmux-tui/vendor` input.
+VENDOR = "cmux-tui/vendor"
+
+
+def crates_only(closure: set[str]) -> set[str]:
+    return {c for c in closure if c.startswith(CRATES)}
+
+
 class ScreenSharingHelperInputs(unittest.TestCase):
     def setUp(self):
-        self.closure = crate_closure(ROOT, HOST)
+        self.full_closure = crate_closure(ROOT, HOST)
+        self.closure = crates_only(self.full_closure)
         self.script = {p for p in script_inputs(SCRIPT.read_text(encoding="utf-8")) if p.startswith("cmux-tui/crates")}
         self.phase = {p for p in phase_inputs(PROJECT.read_text(encoding="utf-8")) if p.startswith("cmux-tui/crates")}
 
@@ -67,13 +105,56 @@ class ScreenSharingHelperInputs(unittest.TestCase):
     def test_the_cache_key_names_exactly_the_closure(self):
         self.assertEqual(self.script, self.closure)
 
-    def test_the_xcode_phase_names_exactly_the_closure(self):
-        self.assertEqual(self.phase, self.closure)
+    def test_the_xcode_phase_names_every_crate_the_macos_build_compiles_and_none_outside_the_closure(self):
+        # The cache key above decides when a cached helper is stale. The phase only tells Xcode (and the router)
+        # when the app's helper can change: a crate only a Linux or Windows table names (cmux-file-lock, through
+        # cmux-rd-host's Linux and Windows host) never changes the macOS helper.
+        self.assertEqual(crates_only(macos_crate_closure(ROOT, HOST)) - self.phase, set(),
+                         "a crate the macOS helper compiles is missing from the Xcode phase")
+        self.assertEqual(self.phase - self.closure, set(), "the Xcode phase names a crate the helper never reaches")
+
+    def test_the_macos_closure_drops_only_other_platform_crates(self):
+        macos = macos_crate_closure(ROOT, HOST)
+        self.assertIn("cmux-tui/crates/cmux-rd-proto", macos)
+        self.assertNotIn("cmux-tui/crates/cmux-file-lock", macos)
+        self.assertLessEqual(macos, self.full_closure)
+
+    def test_both_name_the_vendor_folder_for_a_vendored_crate_of_the_closure(self):
+        vendored = {c for c in self.full_closure if c.startswith(VENDOR + "/")}
+        self.assertEqual(self.full_closure - self.closure - vendored, set(), "a crate outside crates/ and vendor/")
+        if vendored:
+            self.assertIn(VENDOR, script_inputs(SCRIPT.read_text(encoding="utf-8")))
+            self.assertIn(VENDOR, phase_inputs(PROJECT.read_text(encoding="utf-8")))
 
     def test_neither_names_the_whole_crates_folder(self):
         for found in (self.script, self.phase):
             self.assertNotIn("cmux-tui/crates", found)
             self.assertNotIn("cmux-tui/crates/acpmux", found)
+
+
+    def test_the_stub_apps_code_and_icon_key_the_published_helper(self):
+        """cmux-tui-team-signed.yml publishes one helper per key, bundled into the stub app (and its icon) that
+        screen_sharing_helper_release.py stub-app makes: a stub or icon change must publish a new helper, so the
+        blank-icon helper published before cmux#63540 is rebuilt. They key it but are not crates."""
+        match = re.search(r"^stub_inputs=\(([^)]*)\)", SCRIPT.read_text(encoding="utf-8"), re.M)
+        self.assertIsNotNone(match, "build-screen-sharing-helper.sh has no stub_inputs=( ... ) line")
+        self.assertEqual(set(match.group(1).split()),
+                         {"scripts/ci/screen_sharing_helper_release.py", "Assets.xcassets/AppIcon-Nightly.appiconset"})
+        for path in match.group(1).split():
+            self.assertTrue((ROOT / path).exists(), path)
+
+        def key():
+            return subprocess.run([str(SCRIPT), "--print-key"], cwd=ROOT, capture_output=True, text=True,
+                                  check=True).stdout.strip()
+
+        before = key()
+        probe = ROOT / "Assets.xcassets/AppIcon-Nightly.appiconset/zz-key-probe.png"
+        probe.write_bytes(b"not an icon")
+        try:
+            self.assertNotEqual(key(), before, "an icon set change does not change the helper key")
+        finally:
+            probe.unlink()
+        self.assertEqual(key(), before)
 
 
 if __name__ == "__main__":

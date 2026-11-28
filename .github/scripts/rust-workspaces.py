@@ -3,7 +3,7 @@
 
 Usage:
   rust-workspaces.py check [--repo ROOT]
-  rust-workspaces.py plan [--repo ROOT] [--base SHA]
+  rust-workspaces.py plan [--repo ROOT] [--base SHA] [--own-only | --reads-only]
   rust-workspaces.py run ROOT [--repo ROOT]
 
 Only cmux-tui's own workspace had PR clippy (cmux-tui-spec.yml), and the
@@ -14,14 +14,24 @@ lists every workspace and says how it is checked.
 
 `check` fails when that list and the tree disagree: a workspace with no entry,
 an entry for something that is not a workspace, or a `covered_by` workflow that
-does not name its root. `plan` prints, as JSON for a job matrix, the `run = true`
+does not name its root. Every command first fails on a tracked Cargo.toml that does
+not parse (a key a merge left twice), one `::error file=…,line=…` per manifest. `plan` prints, as JSON for a job matrix, the `run = true`
 workspaces a change between --base and HEAD reaches: a file under the workspace,
 or under a package it uses by path (any dependency kind of its own members; normal
 and build dependencies further down), the manifest such a package inherits from, a
 file those packages' sources read from elsewhere in the tree (an `include_str!`,
 `include_bytes!` or `CARGO_MANIFEST_DIR` join of a literal path, or any "../..."
 literal naming a tracked path), or a path in the entry's `inputs`. With no usable base, or when the list or
-this check changes, it plans every one. `run` lints and tests one workspace:
+this check changes, it plans every one. With --own-only (pull requests since 2026-11-21) it plans a
+workspace only when the change touches its own packages, a file those read from elsewhere or its `inputs`,
+not a path dependency: a feat-cmux-next push still plans the whole reach, so a red a dependency causes
+shows on the tip (CI 10x: 1.9% of pull request runner-minutes went to the cmux-tui crate and sample
+workspaces with no red only they caught in a week, 1.11% to optchat-chief for 0.26%). With --reads-only (a pull
+request into feat-cmux-next, which skips this workflow's jobs: affected-jobs.json pull_request_skip) it plans a
+workspace only when the change touches a file its own packages read by literal path from outside their tree (an
+include_str! target): a Swift author never thinks of the Rust test that compares their file, and the post-merge
+batch found it only after the merge (#53827 changed DaemonLanePolicy.swift, which cmux-mobile-host's
+mirrors_the_swift_allowlist reads; base went red until #53860). `run` lints and tests one workspace:
 `cargo clippy --workspace --all-targets -- -D warnings`, then `cargo test --workspace`,
 with --locked when it tracks a Cargo.lock; both run, and either failing fails it.
 """
@@ -29,14 +39,17 @@ with --locked when it tracks a Cargo.lock; both run, and either failing fails it
 from __future__ import annotations
 
 import argparse
+import contextlib
 from fnmatch import fnmatch
 import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import tomllib
 
 
@@ -68,6 +81,27 @@ def git(repo: Path, *args: str) -> str:
     return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True).stdout
 
 
+class BadManifest:
+    """A tracked Cargo.toml tomllib (and so cargo) cannot read, e.g. a key a merge left twice."""
+
+    def __init__(self, path: str, error: tomllib.TOMLDecodeError):
+        self.path = path
+        # Python 3.14 has error.lineno; older ones put "(at line N, column M)" in the message.
+        found = re.search(r"\(at line (\d+), column \d+\)", str(error))
+        self.line = getattr(error, "lineno", None) or (int(found.group(1)) if found else 0)
+        self.message = getattr(error, "msg", None) or str(error)
+
+    def annotation(self) -> str:
+        where = f"file={self.path},line={self.line}" if self.line else f"file={self.path}"
+        return f"::error {where},title=Cargo.toml does not parse::{self.path}:{self.line}: {self.message}"
+
+
+class ManifestsUnreadable(Exception):
+    def __init__(self, manifests: list[BadManifest]):
+        super().__init__(", ".join(f"{m.path}:{m.line}" for m in manifests))
+        self.manifests = manifests
+
+
 class Tree:
     """The tracked Cargo manifests of a checkout."""
 
@@ -77,9 +111,15 @@ class Tree:
         self.sources = [path for path in tracked if path.endswith(".rs")]
         self.tracked = set(tracked) | {str(parent) for path in tracked for parent in PurePosixPath(path).parents}
         self.manifests: dict[str, dict] = {}
+        unreadable = []
         for path in git(repo, "ls-files", "-z", "--", "*Cargo.toml", "Cargo.toml").split("\0"):
             if PurePosixPath(path).name == "Cargo.toml" and (repo / path).is_file():
-                self.manifests[str(PurePosixPath(path).parent)] = tomllib.loads((repo / path).read_text(encoding="utf-8"))
+                try:
+                    self.manifests[str(PurePosixPath(path).parent)] = tomllib.loads((repo / path).read_text(encoding="utf-8"))
+                except tomllib.TOMLDecodeError as error:
+                    unreadable.append(BadManifest(path, error))
+        if unreadable:
+            raise ManifestsUnreadable(unreadable)
 
     def workspace_above(self, directory: str) -> str | None:
         """The nearest directory above `directory` whose manifest has a [workspace] table."""
@@ -287,15 +327,19 @@ def under(path: str, directory: str) -> bool:
     return directory == "." or path == directory or path.startswith(directory + "/")
 
 
-def plan(repo: Path, base: str) -> list[dict]:
-    return plan_paths(repo, changed(repo, base))
+def plan(repo: Path, base: str, own_only: bool = False, reads_only: bool = False) -> list[dict]:
+    return plan_paths(repo, changed(repo, base), own_only=own_only, reads_only=reads_only)
 
 
-def plan_paths(repo: Path, paths: list[str] | None) -> list[dict]:
+def plan_paths(repo: Path, paths: list[str] | None, own_only: bool = False, reads_only: bool = False) -> list[dict]:
     """The `run = true` workspaces these changed paths reach (None: every one). scripts/ci/affected_tests.py
-    plans the same workspaces for a change, so `cmux-ci test --affected` runs what this workflow would."""
+    plans the same workspaces for a change, so `cmux-ci test --affected` runs what this workflow would.
+    OWN_ONLY: a workspace counts only when a path is its own (its packages, what they read, its `inputs`), not a
+    path dependency's; the build still uses the whole reach.
+    READS_ONLY: a workspace counts only when a path is a file its own packages read from outside their tree (not its
+    own files, its `inputs` or the planner's own files): the workspaces a pull request into feat-cmux-next tests."""
     tree = Tree(repo)
-    if paths is not None and any(path in EVERYTHING for path in paths):
+    if paths is not None and not reads_only and any(path in EVERYTHING for path in paths):
         paths = None
     jobs = []
     for entry in load_list(repo):
@@ -304,21 +348,32 @@ def plan_paths(repo: Path, paths: list[str] | None) -> list[dict]:
         root = entry["root"]
         reach = tree.reach(root)
         if paths is not None:
+            own = tree.members(root) | {root}
+            if reads_only:
+                if not any(under(path, read) for path in paths for read in tree.read_paths(own)):
+                    continue
+                jobs.append(job(tree, entry, reach))
+                continue
+            scope = own if own_only else reach
             # A dependency outside the workspace may inherit from its own workspace's manifest.
-            watched = reach | {f"{above}/Cargo.toml" for above in map(tree.workspace_above, reach) if above}
+            watched = scope | {f"{above}/Cargo.toml" for above in map(tree.workspace_above, scope) if above}
             # Files named explicitly (read by literal path, or listed as inputs) count wherever they are, inside a
             # nested workspace too: no workspace boundary stops a file a source reads (cmux#41767 review F2).
-            explicit = tree.read_paths(reach, built_only=reach - tree.members(root) - {root}) \
+            explicit = tree.read_paths(scope, built_only=scope - own) \
                 | set(entry.get("inputs", []))
             if not any(tree.owns(directory, path) for path in paths for directory in watched) \
                     and not any(under(path, named) for path in paths for named in explicit):
                 continue
-        jobs.append({
-            "root": root,
-            "ghostty": tree.uses_package(reach, "ghostty-vt-sys"),
-            "apt": " ".join(entry.get("apt", [])),
-        })
+        jobs.append(job(tree, entry, reach))
     return jobs
+
+
+def job(tree: Tree, entry: dict, reach: set[str]) -> dict:
+    return {
+        "root": entry["root"],
+        "ghostty": tree.uses_package(reach, "ghostty-vt-sys"),
+        "apt": " ".join(entry.get("apt", [])),
+    }
 
 
 # The words every spelling of cargo's stale-lock refusal ends with (scripts/cmux-next/cargo-locks.py knows them all).
@@ -338,6 +393,15 @@ def run_cargo(command: list[str], cwd: Path, env: dict[str, str]) -> tuple[int, 
         return proc.wait(), refusals
 
 
+def warnings_soft(command: list[str], repo: Path) -> list[str]:
+    """COMMAND through scripts/ci/warnings_policy.py when CI_WARNINGS=soft (pull requests: warnings never fail
+    their compile; Leo, 2026-11-19), else as written."""
+    policy = repo / "scripts/ci/warnings_policy.py"
+    if os.environ.get("CI_WARNINGS", "").strip().lower() == "soft" and policy.is_file():
+        return [sys.executable, str(policy), "run", "--", *command]
+    return command
+
+
 def stale_lock_explained(repo: Path, refusals: list[str]) -> bool:
     """True when REFUSALS hold cargo's stale-lock refusal: cargo-locks.py explain has then printed its cause and fix."""
     if not refusals:
@@ -346,6 +410,29 @@ def stale_lock_explained(repo: Path, refusals: list[str]) -> bool:
                "explain", "-", "--repo", str(repo.resolve())]
     sys.stdout.flush()
     return subprocess.run(explain, input="".join(refusals), text=True).returncode == 0
+
+
+@contextlib.contextmanager
+def short_tmpdir():
+    """A scratch directory with a path short enough for a Unix socket (SUN_LEN). /tmp on a shared pool VM can vanish
+    for a moment under a neighbour runner's cleanup (FileNotFoundError from mkdtemp, the false reds of 11-26/27):
+    recreate it, retry, and fall back to /dev/shm; never fail the job on its own scratch space."""
+    last: OSError | None = None
+    for attempt in range(6):
+        for parent in ("/tmp", "/dev/shm"):
+            try:
+                os.makedirs(parent, mode=0o1777, exist_ok=True)
+                path = tempfile.mkdtemp(prefix="rw.", dir=parent)
+            except OSError as error:
+                last = error
+                continue
+            try:
+                yield path
+            finally:
+                shutil.rmtree(path, ignore_errors=True)
+            return
+        time.sleep(0.5 * (attempt + 1))
+    raise last if last else RuntimeError("no scratch directory")
 
 
 def run(repo: Path, root: str) -> int:
@@ -361,12 +448,12 @@ def run(repo: Path, root: str) -> int:
     ]
     red = []
     # Tests that bind Unix sockets under TMPDIR need a path shorter than SUN_LEN.
-    with tempfile.TemporaryDirectory(prefix="rw.", dir="/tmp") as short_tmp:
+    with short_tmpdir() as short_tmp:
         env = {**os.environ, "TMPDIR": short_tmp}
         for name, command in commands:
             print(f"::group::{root}: {' '.join(command)}", flush=True)
             # From the workspace so rustup uses the nearest rust-toolchain.toml.
-            rc, refusals = run_cargo(command, repo / root, env)
+            rc, refusals = run_cargo(warnings_soft(command, repo) if name == "clippy" else command, repo / root, env)
             print("::endgroup::", flush=True)
             if rc:
                 red.append(name)
@@ -385,8 +472,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("root", nargs="?")
     parser.add_argument("--repo", type=Path)
     parser.add_argument("--base", default="")
+    parser.add_argument("--own-only", action="store_true",
+                        help="plan: a workspace only for a change to its own paths, not a path dependency's")
+    parser.add_argument("--reads-only", action="store_true",
+                        help="plan: a workspace only for a change to a file its own packages read from elsewhere")
     args = parser.parse_args(argv)
     repo = (args.repo or Path(git(Path.cwd(), "rev-parse", "--show-toplevel").strip())).resolve()
+    try:
+        return dispatch(parser, args, repo)
+    except ManifestsUnreadable as unreadable:
+        # One line per manifest, file and line, instead of a traceback on the first (cmux#58656:
+        # a merge left `url.workspace = true` twice and three jobs died in Python before cargo).
+        for manifest in unreadable.manifests:
+            print(manifest.annotation())
+        return 1
+
+
+def dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace, repo: Path) -> int:
     if args.command == "check":
         problems = check(repo)
         for problem in problems:
@@ -395,7 +497,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"rust-workspaces: {LIST} lists every Cargo workspace")
         return 1 if problems else 0
     if args.command == "plan":
-        print(json.dumps(plan(repo, args.base.strip())))
+        print(json.dumps(plan(repo, args.base.strip(), own_only=args.own_only, reads_only=args.reads_only)))
         return 0
     if not args.root:
         parser.error("run needs a workspace root")

@@ -12,12 +12,26 @@ impl Translator {
                 let p = params.clone().unwrap_or(Value::Null);
                 match m.as_str() {
                     method::INITIALIZE => {
-                        self.pending.lock().await.insert(id.to_string(), Pending::Initialize);
-                        let suggestions = prompt_suggestions::enabled_in_settings();
+                        // None for a process no person started (`hub/host_level.rs`).
+                        let for_agent = p
+                            .pointer(&format!(
+                                "/_meta/acpmux/{}",
+                                prompt_suggestions::NO_SUGGESTIONS
+                            ))
+                            .and_then(Value::as_bool)
+                            == Some(true);
+                        let suggestions = prompt_suggestions::enabled_in_settings() && !for_agent;
+                        let mut request = initialize_request(suggestions);
+                        if self.stop_condition.load(std::sync::atomic::Ordering::Relaxed) {
+                            request.set_path(&["hooks", "Stop"], json!([{"hookCallbackIds": [super::hook_callback::STOP_CALLBACK], "timeout": super::hook_callback::STOP_TIMEOUT_S}]));
+                        }
+                        if self.plugin_hook_home.get().is_some() {
+                            super::hook_callback::add_tool_hooks(&mut request);
+                        }
                         let mut lines = vec![json!({
                             "type": "control_request",
                             "request_id": format!("init-{}", id),
-                            "request": initialize_request(suggestions)
+                            "request": request
                         })];
                         lines.extend(self.suggestion_init(id, suggestions));
                         // Ultracode and fast mode survive a respawn on the live channel
@@ -26,7 +40,17 @@ impl Translator {
                         if let Some(settings) = startup_settings(&effort, *self.fast.lock().await) {
                             lines.push(json!({"type": "control_request", "request_id": format!("boot-{}", id), "request": {"subtype": "apply_flag_settings", "settings": settings}}));
                         }
-                        Outbound::Lines(lines)
+                        // Answered now, not when Claude Code answers its `init-*`: that answer
+                        // comes only once Claude Code booted (0.7 to 6.5 s, its own startup and
+                        // network calls), and every start waited it out in `session/new` (a
+                        // production Cloud start's session_new was always a cold boot: 533 ms at
+                        // best, 4 to 6.5 s in its tail). The answer is the same for every Claude
+                        // Code; its slash commands follow as an update when it boots, and the
+                        // prompt the start sends next waits in its stdin until then.
+                        Outbound::LinesThenReply(
+                            lines,
+                            Message::ok(id.clone(), initialize_answer()),
+                        )
                     }
                     method::SESSION_NEW | method::SESSION_LOAD => {
                         // The claude process already carries the session.
@@ -63,6 +87,15 @@ impl Translator {
                                 RpcError::invalid_params(super::STEER_NO_TURN),
                             ));
                         }
+                        // `/clear` empties the context: nothing read before it is in it (dedupe.rs).
+                        if p.pointer("/prompt/0/text")
+                            .and_then(Value::as_str)
+                            .is_some_and(|t| t.trim_start().starts_with("/clear"))
+                        {
+                            self.dedupe.reset();
+                            self.path_rules.reset();
+                            self.dir_rules.reset();
+                        }
                         // The hub's prompt for the turn Claude Code runs on steers it read after
                         // its turn ended: nothing to write (`carry.rs`).
                         if p.pointer("/_meta/carried").and_then(Value::as_bool) == Some(true) {
@@ -70,6 +103,9 @@ impl Translator {
                         }
                         let blocks =
                             p.get("prompt").and_then(Value::as_array).cloned().unwrap_or_default();
+                        // The files the hub's prefetch attached are in the context from now
+                        // on: a later Read of them is stubbed (dedupe.rs, RFD 0160).
+                        self.dedupe_prefetch(&blocks).await;
                         let content: Vec<Value> = blocks
                             .iter()
                             .map(|b| match b.get("type").and_then(Value::as_str) {
@@ -123,6 +159,8 @@ impl Translator {
                         // A new prompt of the hub's: no carried turn waits for one any more.
                         self.clear_carry().await;
                         self.in_turn.store(true, Ordering::SeqCst);
+                        // The turn's first request goes out with this line (`model_calls.rs`).
+                        self.model_clock.requested(super::prompt_cache::now_ms());
                         // A new prompt starts a fresh logical turn. A cancelled compaction may
                         // never emit its boundary/result, so clear its live compaction state here
                         // while retaining the separate late-result attribution marker.
@@ -402,8 +440,8 @@ impl Translator {
                     method::MUX_SUBAGENT_STOP => self.subagent_stop(id, &p).await,
                     method::MUX_STEER_WITHDRAW => self.withdraw_steer(id, &p).await,
                     // Send now on a steer Claude Code has not read: its step stops, so it
-                    // reads the steer; with none waiting, or while a subagent or a background
-                    // shell runs (`interrupt_ends_work`), nothing stops.
+                    // reads the steer; with none waiting, or while a foreground subagent runs
+                    // (`interrupt_ends_work`), nothing stops.
                     method::MUX_STEP_NOW => {
                         if !self.in_turn.load(Ordering::SeqCst)
                             || self.steers.lock().await.is_empty()
@@ -516,13 +554,18 @@ impl Translator {
         }
     }
 
-    /// Whether Claude Code's `interrupt` would end more than the current step: it kills every
-    /// running subagent (background ones too) and every background shell, so Send now never
-    /// writes it while one runs (cosmic-gray, 2026-10-21: a Send now killed two background
-    /// subagents). The steer is then read at the next tool boundary instead.
+    /// Whether Claude Code's `interrupt` would end more than the current step: a foreground
+    /// subagent (an Agent call the step waits on) dies with it, so Send now never writes it while
+    /// one runs, and the steer is read at the next tool boundary instead. Background subagents
+    /// and background shells do not count: `initialize` declares `perTaskStopAffordance`
+    /// (`initialize_request`), with which Claude Code's interrupt "spares running background
+    /// agents/workflows (Stop only aborts the turn)". Counting them (cosmic-gray, 2026-10-21, before
+    /// that declaration) made Send now stop nothing in a coordinator whose helpers always run, and
+    /// the person's message sat unread behind its tool steps (Leo, 2026-11-21: "They have tons of
+    /// helpers and they're not really responding to my messages").
     pub(super) async fn interrupt_ends_work(&self) -> bool {
-        !self.subagents.lock().await.is_empty()
-            || self.background_shells.lock().await.values().any(|shell| shell.background)
+        let background: HashSet<String> = self.background_subagents.lock().await.clone();
+        self.subagents.lock().await.keys().any(|tool| !background.contains(tool))
     }
 
     /// The interrupt that stops Claude Code's current step for a steer sent now: unlike a Stop
@@ -569,6 +612,19 @@ fn resource_text(b: &Value) -> String {
 /// "WELL THAT STOP BUTTON STOPPED LITERALLY EVERYTHING").
 ///
 /// `promptSuggestions` asks for a predicted next prompt after each turn (`prompt_suggestions.rs`).
+/// The ACP `initialize` answer, the same for every Claude Code and given before
+/// it boots: its version is unknown then (nothing reads it), and its commands
+/// come as an update once it answers `init-*`.
+pub(super) fn initialize_answer() -> Value {
+    json!({
+        "protocolVersion": 1,
+        "agentInfo": {"name": AGENT_NAME, "title": "Claude Code", "version": null, "_meta": {"acpmux": {"toolGate": cfg!(unix)}}},
+        "agentCapabilities": {"loadSession": true, "promptCapabilities": {"image": true, "embeddedContext": true}, "sessionCapabilities": {"fork": {}, "list": {}, "close": {}}},
+        "authMethods": [],
+        "_meta": {"steering": {"supported": true}}
+    })
+}
+
 pub(super) fn initialize_request(suggestions: bool) -> Value {
     let mut request = json!({
         "subtype": "initialize",
@@ -582,12 +638,52 @@ pub(super) fn initialize_request(suggestions: bool) -> Value {
     request.set(
         "hooks",
         json!({"PreToolUse": [{
-            "matcher": "*", "hookCallbackIds": [super::hook_callback::SYNC_CALLBACK], "timeout": 90
+            "matcher": "*", "hookCallbackIds": [super::hook_callback::SYNC_CALLBACK],
+            "timeout": super::hook_callback::SYNC_TIMEOUT_S
         }, {
             "matcher": "*", "hookCallbackIds": [super::policy_gate::GATE_CALLBACK],
             "timeout": super::policy_gate::GATE_TIMEOUT_S, "onFailure": "block"
         }]}),
     );
+    // Harness magic `dedupe` (`dedupe.rs`): no `onFailure`, so a callback that fails lets the call
+    // run.
+    #[cfg(unix)]
+    if super::dedupe::enabled()
+        && let Some(hooks) = request.pointer_mut("/hooks/PreToolUse").and_then(Value::as_array_mut)
+    {
+        hooks.push(json!({
+            "matcher": super::dedupe::DEDUPE_MATCHER,
+            "hookCallbackIds": [super::dedupe::DEDUPE_CALLBACK],
+            "timeout": super::dedupe::DEDUPE_TIMEOUT_S,
+        }));
+    }
+    // Harness magic `pathRules` (`path_rules.rs`): after the call, so it never holds one up.
+    if super::path_rules::enabled() {
+        let entry = json!({
+            "matcher": super::path_rules::PATH_RULES_MATCHER,
+            "hookCallbackIds": [super::path_rules::PATH_RULES_CALLBACK],
+            "timeout": super::path_rules::PATH_RULES_TIMEOUT_S,
+        });
+        match request.pointer_mut("/hooks/PostToolUse").and_then(Value::as_array_mut) {
+            Some(hooks) => hooks.push(entry),
+            None => request.set_path(&["hooks", "PostToolUse"], json!([entry])),
+        }
+    }
+    // Harness magic `dirRules` (`dir_rules.rs`): a directory's rules after the first call that
+    // touches it.
+    if super::dir_rules::enabled() {
+        let entry = json!({
+            "matcher": super::dir_rules::DIR_RULES_MATCHER,
+            "hookCallbackIds": [super::dir_rules::DIR_RULES_CALLBACK],
+            "timeout": super::dir_rules::DIR_RULES_TIMEOUT_S,
+        });
+        if let Some(hooks) = request.pointer_mut("/hooks/PostToolUse").and_then(Value::as_array_mut)
+        {
+            hooks.push(entry);
+        } else {
+            request.set_path(&["hooks", "PostToolUse"], json!([entry]));
+        }
+    }
     if suggestions {
         request.set("promptSuggestions", json!(true));
     }

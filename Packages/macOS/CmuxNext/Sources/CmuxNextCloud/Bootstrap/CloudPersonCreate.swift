@@ -1,3 +1,4 @@
+import CmuxEgress
 public import CmuxNextDaemon
 public import Foundation
 import os
@@ -80,13 +81,13 @@ public nonisolated struct CloudPersonCreate {
     public static let createTimeout: TimeInterval = 40
 
     /// The session a person's calls go on, each waiting `timeout` for its answer: no cache, no cookies, and
-    /// redirects refused, so the person's bearer never follows one (as `InstallHTTPTransport`).
+    /// redirects refused, so the person's bearer never follows one.
     public static func session(timeout: TimeInterval = callTimeout) -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.urlCache = nil
         configuration.httpShouldSetCookies = false
         configuration.timeoutIntervalForRequest = timeout
-        return URLSession(configuration: configuration, delegate: CloudRefuseRedirects(), delegateQueue: nil)
+        return CmuxEgress.session(site: "CmuxNextCloud.CloudPersonCreate", configuration: configuration, delegate: CloudRefuseRedirects(), delegateQueue: nil)
     }
 
     /// The session's POST for `url`: the person's bearer and, when given, the cmux team (`x-cmux-team`); it waits

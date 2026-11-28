@@ -1,5 +1,7 @@
 @testable import CmuxNextApp
 import CmuxNextFiles
+import CmuxNextFilesUI
+import CmuxNextPages
 import Foundation
 import Testing
 
@@ -53,6 +55,57 @@ struct FileExplorerProtectedFolderTests {
         await model.setRoot(plain)
         #expect(!model.held)
         #expect(lister.listed.contains(plain))
+    }
+
+    static func git(_ folder: URL, _ arguments: String...) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = ["-C", folder.path, "-c", "user.name=t", "-c", "user.email=t@e.test", "-c", "commit.gpgsign=false",
+                             "-c", "core.hooksPath=/dev/null"] + arguments
+        process.environment = ProcessInfo.processInfo.environment.merging(
+            ["GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"]) { _, ours in ours }
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        #expect(process.terminationStatus == 0, "git \(arguments) in \(folder.path)")
+    }
+
+    /// A home folder kept in git (a dotfiles `~/.git`): every file the repository does not track
+    /// is one of its untracked files, the Photos library and Desktop included, so listing them
+    /// reads every folder of the home folder in cmux's name. The Files tree's status read of that
+    /// repository (``FileGitState/statusArguments(top:home:)``, run by real git) shows its tracked
+    /// change and no untracked file; a repository of its own below the home folder still lists its
+    /// untracked files.
+    @Test func theHomeFoldersRepositoryListsNoUntrackedFiles() async throws {
+        let home = try Self.folder()
+        try Self.git(home, "init", "--quiet")
+        try Self.git(home, "add", "a.txt")
+        try Self.git(home, "commit", "--quiet", "-m", "dotfiles")
+        try Data("changed".utf8).write(to: home.appendingPathComponent("a.txt"))
+        let photos = home.appendingPathComponent("Pictures/Photos Library.photoslibrary", isDirectory: true)
+        try FileManager.default.createDirectory(at: photos, withIntermediateDirectories: true)
+        try Data("p".utf8).write(to: photos.appendingPathComponent("Photos.sqlite"))
+        let app = home.appendingPathComponent("code/app", isDirectory: true)
+        try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
+        try Self.git(app, "init", "--quiet")
+        try Data("new".utf8).write(to: app.appendingPathComponent("new.rs"))
+        defer { try? FileManager.default.removeItem(at: home) }
+        let git = ProcessMarkdownGitRunner()
+        let states = { (top: URL) async -> [String: FileGitState] in
+            let arguments = FileGitState.statusArguments(top: top.path, home: home.path)
+            let output = await git.run(arguments, in: top.path)
+            #expect(output?.status == 0, "git \(arguments)")
+            return FileGitState.parse(output?.output ?? "")
+        }
+
+        #expect(FileGitState.statusArguments(top: home.path, home: home.path).last == "--untracked-files=no")
+        #expect(await states(home) == ["a.txt": .modified], "the tracked change only")
+        #expect(FileGitState.statusArguments(top: app.path, home: home.path).last == "--untracked-files=all")
+        #expect(await states(app) == ["new.rs": .untracked], "a repository of its own lists its new file")
+        // Another home folder: the repository lists its untracked files as before.
+        let listed = await git.run(FileGitState.statusArguments(top: home.path, home: app.path), in: home.path)
+        #expect(FileGitState.parse(listed?.output ?? "").keys.contains { $0.hasPrefix("Pictures/") })
     }
 
     @Test func theDefaultCheckKnowsDownloadsByItsSpelling() {

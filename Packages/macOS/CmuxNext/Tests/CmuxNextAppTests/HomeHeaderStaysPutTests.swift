@@ -28,6 +28,7 @@ import Testing
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 800))
         let chat = NSView(frame: NSRect(x: 0, y: 0, width: 880, height: 800))
         let split = HomeSidebarSplitView(sidebar: home, content: chat, widths: HomeSidebarWidth(defaults: defaults))
+        split.showsList = true // the person showed the list (folded by default: ChiefReplacesHomeTests)
         split.windowKey = { "w" }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -74,6 +75,48 @@ import Testing
             }
         }
         print("HOME_DRIFT|\(density.rawValue)|max|\(drift)")
+    }
+
+    /// A new window title and a layout of Home with no frame between them (a stray `CFRunLoopStop` from another test
+    /// cut `nextFrame()` short so, in the full Home run where `homesHeaderNeverMovesFromFrameToFrame` failed by 4 pt at
+    /// Spacious). AppKit re-tiles the miniaturize and zoom buttons after a new title and the owner puts them back only
+    /// at the next run loop pass, so for that moment the three buttons' frames are neither place: their union was
+    /// 51 x 23 pt, not 60 x 14, its middle 4.5 pt higher. Home laid its header out on that box and kept it until its
+    /// next layout. Home's header follows the line the lights are kept on, not the buttons' frames of the moment.
+    @Test(arguments: [DensityPreset.compact, .spacious])
+    func aNewTitleWithNoFrameBetweenLeavesTheHeaderWhereItWas(density: DensityPreset) throws {
+        _ = NSApplication.shared
+        let design = DesignSettings.shared
+        let saved = (design.densityTokens, design.titlebar, design.tabBarPosition)
+        defer { (design.densityTokens, design.titlebar, design.tabBarPosition) = saved }
+        design.densityTokens = density.tokens
+        design.titlebar = .minimal
+        design.tabBarPosition = .top
+        let suite = "cmux.tests.homeHeaderNoFrame.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 800))
+        let split = HomeSidebarSplitView(sidebar: home, content: NSView(frame: NSRect(x: 0, y: 0, width: 880, height: 800)),
+                                         widths: HomeSidebarWidth(defaults: defaults))
+        split.windowKey = { "w" }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800),
+                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.titlebarAppearsTransparent = true
+        defer { window.close() }
+        window.contentView = split
+        split.setWidth(320)
+        TrafficLightsLine.apply(in: window)
+        settle(home, split)
+        let rest = home.header
+        for title in ["cmux perf lead", "Home", "a much longer workspace title than the others"] {
+            window.title = title
+            // No frame: Home lays out in the same run loop pass as the new title.
+            settle(home, split)
+            print("HOME_NO_FRAME|\(density.rawValue)|\(title)|filter=\(home.header.filter)|listTop=\(home.header.listTop)|rest=\(rest.filter)")
+            #expect(home.header == rest, "\(density): a new title (\(title)) moved Home's header: filter \(rest.filter) -> \(home.header.filter), list top \(rest.listTop) -> \(home.header.listTop)")
+        }
     }
 
     private func settle(_ home: HomeSidebarView, _ split: NSView) {

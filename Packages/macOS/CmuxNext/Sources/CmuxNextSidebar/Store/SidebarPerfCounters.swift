@@ -15,12 +15,16 @@ import Foundation
 /// - `scroll_realizes`: realize passes after a scroll.
 /// - `ffi_calls`: calls into the Rust sidebar reducer (drag resolve, drop plan).
 /// - `band_updates`: top/footer band content recomputes.
+/// - `block_patches`: list blocks drawn again in place with every height kept (a pinned workspace's status or progress).
 /// - `main_ns`: main-thread time spent in the measured paths, nanoseconds.
 /// - `order_builds`: `SidebarModel.workspaceOrder` builds (one per structural change at most, never per query).
 /// - `mirror_ns`: main-thread time in `SidebarMirror` calls (request encode, the Rust call, reading the reply), nanoseconds.
 /// - `row_invalidations`: listed rows whose observed content changed (`SidebarRowFeed`): one change in one workspace
 ///   marks that workspace's row only, never every row (TYPING UNDER LOAD F6).
 /// - `row_maps`: row mappings `SidebarRowFeed` ran (a new row, a dirty row, every row after an inputs change).
+/// - `row_maps_unchanged`: rows a flush mapped that came out unchanged (no patch).
+/// - `row_flushes`: flushes of the row feed that mapped rows; `row_maps` over the ticks of one ticking workspace stays at
+///   or under 1 at any sidebar length (sidebar-stress-bench.py ticks `per_tick`, perf-gate.py status).
 /// - `row_views_made`: row views a list made while it applied rows (none for a new workspace row while the list's spare
 ///   waits: `SidebarListView.makeSpareRow`).
 /// - `spare_row_views`: spare workspace row views made after a frame committed.
@@ -28,6 +32,8 @@ import Foundation
 ///   (realized, in the realization rect, or reopened), never every listed row (m23, sidebar row insert and remove).
 /// - `layout_rows`: rows `SidebarLayout.make` laid out (every listed row per full layout): a change that touches one row
 ///   lays out none, at 50 rows as at 200 (SIDEBAR INSERT: a create's row becoming its workspace's row).
+/// - `row_cache_rows`: nodes the list's row caches took again in full (`rebuildRowCaches`, every listed node per full
+///   reload): a change the list splices (an insert, a close, a move, a batch of them, a row's new height) takes none.
 /// - `stuck_header_updates`: finds of the stuck project header (`SidebarListView.followStuckHeader`): one per scroll
 ///   frame, at 30 rows as at 3,000 (SIDEBAR-STICKY).
 /// - `rows_walked`: listed rows a structural stage read to show a change: the nodes handed to `SidebarModel.setSections`
@@ -48,6 +54,9 @@ nonisolated enum SidebarPerfCounters {
         case listReloads = "list_reloads"
         /// A group's fold drawn by splicing its rows (`SidebarListView.foldGroup`), no list reload.
         case groupFolds = "group_folds"
+        /// Blocks drawn again in place, every height kept (`SidebarListView.patchBlocks`: a pinned workspace's status or
+        /// progress), no list reload.
+        case blockPatches = "block_patches"
         case rowPatches = "row_patches"
         case rowConfigures = "row_configures"
         case selectionPatches = "selection_patches"
@@ -59,10 +68,16 @@ nonisolated enum SidebarPerfCounters {
         case orderBuilds = "order_builds"
         case rowInvalidations = "row_invalidations"
         case rowMaps = "row_maps"
+        /// Rows a flush mapped again that came out as they were: work a change no row shows paid for.
+        case rowMapsUnchanged = "row_maps_unchanged"
+        /// Flushes of the row feed that mapped rows (at most one per display frame).
+        case rowFlushes = "row_flushes"
         case rowViewsMade = "row_views_made"
         case spareRowViews = "spare_row_views"
         case rowFrames = "row_frames"
         case layoutRows = "layout_rows"
+        /// Nodes the list's row caches took again in full (`rebuildRowCaches`): none for a change the list splices.
+        case rowCacheRows = "row_cache_rows"
         /// A scroll frame or pass that found the stuck project header (`SidebarListView.followStuckHeader`): one per
         /// frame, whatever the group's size.
         case stuckHeaderUpdates = "stuck_header_updates"

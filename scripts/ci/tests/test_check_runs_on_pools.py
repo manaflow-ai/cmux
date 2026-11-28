@@ -29,10 +29,12 @@ class LiteralLabelsTests(unittest.TestCase):
         text = f"${{{{ {FORK_REPO} || {FORK_PR} || fromJSON(vars.RUNNER_POOLS).linux }}}}"
         self.assertEqual(module.literal_labels(text), [])
 
-    def test_trusted_fallback_is_a_hit(self):
+    def test_trusted_fallback_is_not_a_hit(self):
+        # The selector's one-job Blacksmith fallback is ephemeral by design (f1effe9077c); a trusted job never reads
+        # RUNNER_POOLS, whose x64 pools lead with the persistent pool.
         text = (f"${{{{ {FORK_REPO} || contains(fromJSON('[\"blacksmith-2vcpu-ubuntu-2404\"]'), "
                 "vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}")
-        self.assertEqual(module.literal_labels(text), ["blacksmith-4vcpu-ubuntu-2404"])
+        self.assertEqual(module.literal_labels(text), [])
 
     def test_both_sides_of_a_conditional_are_hits(self):
         text = (f"${{{{ {FORK_REPO} || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' "
@@ -83,6 +85,26 @@ class WorkflowTests(unittest.TestCase):
             """)
         self.assertEqual(found, [("w.yml", "a", ["ubuntu-22.04"]),
                                  ("w.yml", "b", ["blacksmith-4vcpu-ubuntu-2404-arm"])])
+
+    def test_a_frozen_exception_line_keeps_its_literal_and_only_its_kind(self):
+        found = self.run_on(f"""
+            on: push
+            jobs:
+              deploy:
+                runs-on: ${{{{ {FORK_REPO} || 'blacksmith-4vcpu-ubuntu-2404' }}}} # frozen-label: credentialed job
+                steps: []
+              publish:
+                runs-on: ubuntu-latest # github-hosted-required: npm provenance
+                steps: []
+              plain:
+                runs-on: ${{{{ {FORK_REPO} || 'blacksmith-4vcpu-ubuntu-2404' }}}} # a note, not a reason
+                steps: []
+              wrong-kind:
+                runs-on: ubuntu-latest # ephemeral-required: an ephemeral reason does not admit hosted
+                steps: []
+            """)
+        self.assertEqual(found, [("w.yml", "plain", ["blacksmith-4vcpu-ubuntu-2404"]),
+                                 ("w.yml", "wrong-kind", ["ubuntu-latest"])])
 
     def test_exceptions_are_skipped(self):
         found = self.run_on("""

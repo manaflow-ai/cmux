@@ -18,6 +18,32 @@ pub(crate) fn open_registry_database(path: &Path) -> anyhow::Result<Connection> 
     open_registry_database_with_flags(path, OpenFlags::default()).map(registry_connection::hooked)
 }
 
+/// Resets the WAL of `connection`'s database to zero bytes after a delete
+/// a person asked for. With `secure_delete` on, the database file zeroes
+/// what a delete frees, but the WAL keeps every committed page version,
+/// the deleted text included, until the WAL is reset: an ordinary
+/// (passive) checkpoint copies pages back and leaves the old frames in the
+/// file. Never waits for another connection: false when one blocked it, and
+/// the caller tries again later. `busy_timeout` is restored to `restore`.
+pub(crate) fn truncate_wal_after_delete(
+    connection: &Connection,
+    restore: std::time::Duration,
+) -> anyhow::Result<bool> {
+    connection.busy_timeout(std::time::Duration::ZERO)?;
+    let result =
+        connection.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| row.get::<_, i64>(0));
+    connection.busy_timeout(restore)?;
+    match result {
+        Ok(busy) => Ok(busy == 0),
+        Err(rusqlite::Error::SqliteFailure(error, _))
+            if error.code == rusqlite::ErrorCode::DatabaseBusy =>
+        {
+            Ok(false)
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
 pub(crate) fn open_registry_database_read_only(path: &Path) -> anyhow::Result<Connection> {
     open_registry_database_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
 }
@@ -90,6 +116,7 @@ impl WorkspaceRegistry {
     /// cleanup failed before any full start on it; the previous registry is
     /// put back under this open's locks before the open.
     fn open_inner(root: &Path, session_name: &str, roll_back_first: bool) -> anyhow::Result<Self> {
+        crate::restore_progress::enter(crate::restore_progress::RestorePhase::RegistryOpen);
         let mut timings = crate::startup_timings::StartupTimings::start();
         let root = platform::normalize_filesystem_path(root.to_path_buf());
         // Keep short roots in their existing spelling while giving all
@@ -284,6 +311,7 @@ impl WorkspaceRegistry {
         database_path: Option<PathBuf>,
         mut timings: crate::startup_timings::StartupTimings,
     ) -> anyhow::Result<Self> {
+        crate::restore_progress::enter(crate::restore_progress::RestorePhase::Schema);
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         // Before the first write, so every commit of this connection uses it.
         connection.execute_batch(REGISTRY_FULLFSYNC_PRAGMA)?;
@@ -563,6 +591,7 @@ impl WorkspaceRegistry {
             tx.commit()?;
         }
         timings.lap("registry.schema");
+        crate::restore_progress::enter(crate::restore_progress::RestorePhase::Migrations);
         {
             let tx = connection.unchecked_transaction()?;
             resource_store::migrate_tab_name_authority(&tx)?;
@@ -675,6 +704,7 @@ impl WorkspaceRegistry {
             eprintln!("cmux-tui: sidebar document migration skipped ({error:#})");
         }
         timings.lap("registry.migrations");
+        crate::restore_progress::enter(crate::restore_progress::RestorePhase::Integrity);
         check_registry_integrity(&connection)?;
         timings.lap("registry.integrity_check");
         {
@@ -704,6 +734,7 @@ impl WorkspaceRegistry {
             session_guard: session_guard.take(),
             lease: lease.take(),
             output_cleanup_swapped: false,
+            idle_stop_fence: None,
         })
     }
 

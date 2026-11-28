@@ -8,13 +8,18 @@
 //!
 //! No verb needs the app or the daemon except an ask, which starts an agent
 //! chat: status, apply, discard and rollback are file operations, so they
-//! work with cmux quit and in safe mode.
+//! work with cmux quit and in safe mode. With a daemon running, a verb asks
+//! it to load the customization folder before it returns ([`load_views`]),
+//! so the views it wrote are there for the next thing the person opens.
 
 mod ask;
 mod dir;
+mod docs;
+mod doctor;
 mod expire;
 mod library;
-mod pr;
+pub(super) mod pr;
+mod rebuild;
 mod render;
 mod source;
 #[cfg(test)]
@@ -38,7 +43,9 @@ cmux customize: change cmux by asking, watch it change, keep it or put it back.
   cmux customize generations                  Every generation, newest first (`ls`)
   cmux customize show N                       What generation N changed
   cmux customize save NAME [NOTE]             Save what is live as a profile: one file to keep or share
-  cmux customize use NAME|FILE                Preview a profile, then apply or discard it
+  cmux customize pack NAME --css FILE         A chat stylesheet or default-off settings as a pack, not applied; then
+  cmux customize pack NAME --set KEY=VALUE    `try NAME` (the yolo path: docs/design/yolo-path.md)
+  cmux customize use NAME|FILE                Preview a profile (or a recipe, by name), then apply or discard it
   cmux customize try [NAME|FILE] [--minutes N] Try it on: applied now, back by itself in N minutes (10)
   cmux customize keep                         Keep what you are trying on
   cmux customize revert                       Stop trying it on: put back what was there before
@@ -50,12 +57,21 @@ cmux customize: change cmux by asking, watch it change, keep it or put it back.
     OWNER/REPO@REF                            a fork's branch, from the layer the fork's own CI published
                                               (cmux-web-layer-fork.yml): it runs that fork's code in your cmux
                                               (`library off NAME` puts back what was under any of them)
+  cmux customize try CODE [--minutes N]       Try code on: as `use`, then off by itself in N minutes (10);
+                                              `library on NAME` keeps it, `library off NAME` ends it now
   cmux customize profiles                     The saved profiles
   cmux customize recipes [--open]             Ready-made changes to try with `use` (--open: the guide, in cmux)
   cmux customize library [VERB]               Everything you applied, kept as layers: list|status|on|off|order|export|import|remove
+  cmux customize checklist [--has NAME]...    The customizations checklist: each step, done or not, and n of m
+                                              (--has models|mcp|github|phone: a connection the caller knows of)
+  cmux customize doctor                       What changes your customization unexpectedly: stale layers, broken,
+                                              shadowed, leftover or misplaced files, unknown keys, values off their default; `fix ID ...`, `recover`
+  cmux customize library refresh             Every code layer against what is published and this app; with
+                                              --if-app-changed only when the app's commit changed (cmux runs it at start)
 
 If a layer broke cmux (no app needed, with cmux quit too):
   cmux customize library status               Which layers are on, in one line (also in `cmux version`)
+  cmux customize library standup              Every PR, repo and recipe as one line for standup
   cmux customize library expire               Turn off layers past their bound: a merged or closed PR,
                                               a code layer on over 24 h, a hand overlay as old
   cmux customize library on web-dev-overlay   Turn an expired hand-installed overlay back on
@@ -69,6 +85,12 @@ For an agent (the customize_* MCP tools are these verbs):
   cmux customize brief 'WISH'                 Open the draft and print what to edit and how; starts no chat
   cmux customize check                        Validate what is live, and mark your turn done
   cmux customize schema [PART]                Every key you can change (settings, theme, views, extensions); --typescript, --rust
+  cmux customize docs [SURFACE]               The reference for each surface (sidebar, theme, section, pane, ...),
+                                              written from this build, each with a working example
+  cmux customize prompts [NAME]               Copy-paste prompts for common goals: paste one into an agent, it
+                                              ends with `cmux ext dev --once --json` exit 0
+  cmux customize tokens [list|show|test]      The design tokens and scales: list [GROUP], show NAME, test 14 [--as spacing]
+  cmux customize components [list|show|test] The web kit's components: list [TIER], show NAME, test NAME '{\"prop\":1}'
 
 Ask options:
   --harness HARNESS   The agent that does it: claude (default), codex, ...
@@ -96,6 +118,7 @@ const VERBS: &[&str] = &[
     "generations",
     "show",
     "save",
+    "pack",
     "use",
     "profiles",
     "recipes",
@@ -103,11 +126,17 @@ const VERBS: &[&str] = &[
     "keep",
     "revert",
     "library",
+    "checklist",
+    "doctor",
     "paths",
     "brief",
     "check",
     "ask",
     "schema",
+    "docs",
+    "prompts",
+    "tokens",
+    "components",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -147,12 +176,21 @@ pub(super) enum Request {
         name: String,
         note: String,
     },
+    /// A pack made from a stylesheet and settings, written as a profile and not applied.
+    Pack {
+        name: String,
+        css: Option<String>,
+        sets: Vec<(String, String)>,
+        note: String,
+    },
     Use {
         /// `--watch` (a `dir:` source only): build and apply again on a save.
         watch: bool,
         source: String,
     },
-    /// A try-on of a profile, or with `None` of what is live now.
+    /// A try-on of a profile, or with `None` of what is live now; with a
+    /// code source (`pr:N`, `dir:PATH`, ...), that code's library entry, on
+    /// until its time is up.
     Try {
         source: Option<String>,
         duration_ms: u64,
@@ -164,16 +202,37 @@ pub(super) enum Request {
     Settle {
         wait: bool,
     },
+    /// Waits for every code try (`try pr:N`) and turns each off at its time
+    /// (the child a code `try` leaves running).
+    SettleCode,
     Profiles,
     Recipes {
         open: bool,
     },
     Library(library::Request),
+    /// The customizations checklist, with the connections the caller
+    /// reports (`--has NAME`).
+    Checklist {
+        connected: Vec<String>,
+    },
+    Doctor(doctor::Request),
     Paths,
     Schema {
         section: Option<Section>,
         format: SchemaFormat,
     },
+    /// `docs [SURFACE]`: one surface's reference, or the list.
+    Docs {
+        surface: Option<String>,
+    },
+    /// `prompts [NAME]`: one copy-paste prompt, or the list.
+    Prompts {
+        name: Option<String>,
+    },
+    /// `tokens …`: the design tokens and scales (cmux_customize::kit).
+    Tokens(cmux_customize::kit::Request),
+    /// `components …`: the web kit's components, from its manifest.
+    Components(cmux_customize::kit::Request),
 }
 
 /// How `customize schema` answers: the schema, or the SDK types written from it.
@@ -221,10 +280,17 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
         "settle" => match rest {
             [] => Ok(Request::Settle { wait: false }),
             [flag] if flag == "--wait" => Ok(Request::Settle { wait: true }),
-            _ => Err("customize settle takes only --wait".to_owned()),
+            [a, b] if a == "--wait" && b == "--code" => Ok(Request::SettleCode),
+            _ => Err("customize settle takes only --wait (and --code)".to_owned()),
         },
         "try" | "try-on" => try_of(rest),
         "library" | "lib" => library::parse(rest).map(Request::Library),
+        "tokens" | "token" => cmux_customize::kit::parse("tokens", rest).map(Request::Tokens),
+        "components" | "component" => {
+            cmux_customize::kit::parse("components", rest).map(Request::Components)
+        }
+        "checklist" => checklist_of(rest),
+        "doctor" | "dr" => doctor::parse(rest).map(Request::Doctor),
         "paths" => none(Request::Paths),
         "apply" => Ok(Request::Apply { note: (!rest.is_empty()).then(|| rest.join(" ")) }),
         "rollback" | "undo" | "switch" => match rest {
@@ -245,6 +311,7 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                     .to_owned()),
             }
         }
+        "pack" => pack_of(rest),
         "use" => {
             let watch = rest.iter().any(|word| word == "--watch");
             let words: Vec<&String> = rest.iter().filter(|word| *word != "--watch").collect();
@@ -264,6 +331,28 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
         },
         "ask" => wish_of(rest).map(|(wish, options)| Request::Ask { wish, options }),
         "schema" => schema_of(rest),
+        "docs" | "doc" | "reference" => match rest {
+            [] => Ok(Request::Docs { surface: None }),
+            [name] if docs::surface_names().contains(&name.as_str()) => {
+                Ok(Request::Docs { surface: Some(name.clone()) })
+            }
+            [name] => Err(format!(
+                "{name:?} is not a surface; the surfaces are {}",
+                docs::surface_names().join(", ")
+            )),
+            [_, extra, ..] => Err(format!("customize docs takes one surface, got {extra:?} too")),
+        },
+        "prompts" | "prompt" => match rest {
+            [] => Ok(Request::Prompts { name: None }),
+            [name] if docs::prompt_names().contains(&name.as_str()) => {
+                Ok(Request::Prompts { name: Some(name.clone()) })
+            }
+            [name] => Err(format!(
+                "{name:?} is not a prompt; the prompts are {}",
+                docs::prompt_names().join(", ")
+            )),
+            [_, extra, ..] => Err(format!("customize prompts takes one name, got {extra:?} too")),
+        },
         // A wish is said in words: one quoted argument with a space in it, or
         // several words. One bare word is a verb, so a typo gets a suggestion
         // instead of an agent.
@@ -288,6 +377,38 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
 }
 
 /// `try [NAME|FILE] [--minutes N]`.
+/// `pack NAME [--css FILE] [--set KEY=VALUE]... [NOTE...]`.
+fn pack_of(words: &[String]) -> Result<Request, String> {
+    let usage = "customize pack needs a NAME and --css FILE or --set KEY=VALUE, like `cmux customize pack calmer-composer --css /tmp/calmer.css`";
+    let (name, rest) = match words.split_first() {
+        Some((name, rest)) if !name.starts_with('-') => (name.clone(), rest),
+        _ => return Err(usage.to_owned()),
+    };
+    let (mut css, mut sets, mut note) = (None, Vec::new(), Vec::new());
+    let mut iter = rest.iter();
+    while let Some(word) = iter.next() {
+        match word.as_str() {
+            "--css" => css = Some(value_of(&mut iter, word)?),
+            "--set" => {
+                let pair = value_of(&mut iter, word)?;
+                let (key, value) = pair
+                    .split_once('=')
+                    .filter(|(key, _)| !key.is_empty())
+                    .ok_or_else(|| format!("--set takes KEY=VALUE, got {pair:?}"))?;
+                sets.push((key.to_owned(), value.to_owned()));
+            }
+            flag if flag.starts_with('-') => {
+                return Err(format!("customize pack does not take {flag:?}"));
+            }
+            _ => note.push(word.clone()),
+        }
+    }
+    if css.is_none() && sets.is_empty() {
+        return Err(usage.to_owned());
+    }
+    Ok(Request::Pack { name, css, sets, note: note.join(" ") })
+}
+
 fn try_of(words: &[String]) -> Result<Request, String> {
     let mut source = None;
     let mut minutes = f64::from(cmux_customize::DEFAULT_TRY_ON_MINUTES);
@@ -306,10 +427,30 @@ fn try_of(words: &[String]) -> Result<Request, String> {
                 return Err(format!("customize try does not take {flag:?}"));
             }
             _ if source.is_none() => source = Some(word.clone()),
-            _ => return Err("customize try takes one profile NAME or FILE".to_owned()),
+            _ => return Err("customize try takes one profile NAME or FILE, or code: pr:N, branch:NAME, sha:SHA, dir:PATH or OWNER/REPO@REF".to_owned()),
         }
     }
     Ok(Request::Try { source, duration_ms: (minutes * 60_000.0).round() as u64 })
+}
+
+/// `checklist [--has NAME]...`: each NAME one of the checklist's connections.
+fn checklist_of(words: &[String]) -> Result<Request, String> {
+    let mut connected = Vec::new();
+    let mut iter = words.iter();
+    while let Some(word) = iter.next() {
+        if word != "--has" {
+            return Err(format!("customize checklist takes only --has NAME, got {word:?}"));
+        }
+        let name = value_of(&mut iter, word)?;
+        if !cmux_customize::checklist::facts().any(|known| known == name) {
+            let known: Vec<&str> = cmux_customize::checklist::facts().collect();
+            return Err(format!("--has takes one of {}, got {name:?}", known.join(", ")));
+        }
+        if !connected.contains(&name) {
+            connected.push(name);
+        }
+    }
+    Ok(Request::Checklist { connected })
 }
 
 /// `schema [PART] [--typescript|--rust]`.
@@ -468,15 +609,45 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         }
         return Some(0);
     }
-    let chat = ask::Child { globals: child_globals(&global) };
-    let result = Customize::from_env()
-        .map_err(Failure::from)
-        .and_then(|customize| execute(&customize, request, "cli", now_ms(), &chat));
-    Some(match result {
-        Ok(answer) => {
-            if matches!(answer, render::Answer::TriedOn(_)) {
-                spawn_try_on_waiter();
+    // The references and prompts are this build's embedded pages: no store either.
+    if let Some((text, answer)) = docs::answer(&request) {
+        if json_out {
+            println!("{answer}");
+        } else if global.output != OutputMode::Quiet {
+            print!("{}", text.trim_end());
+            println!();
+        }
+        return Some(0);
+    }
+    // The kit reads built-in tables and the kit's manifest: no store either.
+    if let Some(answer) = kit_answer(&request) {
+        return Some(match answer {
+            Ok(answer) => {
+                if json_out {
+                    println!("{}", answer.json());
+                } else if global.output != OutputMode::Quiet {
+                    print!("{}", answer.human(now_ms()));
+                }
+                0
             }
+            Err(failure) => {
+                super::scope_usage_failure(global.output, "customize", &failure.message, HELP)
+            }
+        });
+    }
+    let chat = ask::Child { globals: child_globals(&global) };
+    let result = Customize::from_env().map_err(Failure::from).and_then(|customize| {
+        let answer = execute(&customize, request, "cli", now_ms(), &chat)?;
+        Ok((answer, load_views(&global, &customize)))
+    });
+    Some(match result {
+        Ok((answer, loaded)) => {
+            if let super::ext::FolderLoad::Refused(issue) = &loaded
+                && global.output != OutputMode::Quiet
+            {
+                eprintln!("cmux: the customization's views did not load: {issue}");
+            }
+            spawn_waiter_for(&answer);
             if json_out {
                 println!("{}", answer.json());
             } else if global.output != OutputMode::Quiet {
@@ -503,7 +674,11 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
 /// `cmux customize WORDS…` in this process with its JSON answer returned:
 /// what the `customize_*` MCP tools call. An ask from MCP is the calling
 /// agent's own work, so no verb here starts a chat.
-pub(super) fn run_json(words: &[String], origin: &str) -> Result<Value, Value> {
+pub(super) fn run_json(
+    global: &super::GlobalArgs,
+    words: &[String],
+    origin: &str,
+) -> Result<Value, Value> {
     let request = parse(words).map_err(|what| Failure::usage(what).envelope())?;
     if matches!(request, Request::Ask { .. } | Request::Help) {
         return Err(Failure::usage(
@@ -514,24 +689,61 @@ pub(super) fn run_json(words: &[String], origin: &str) -> Result<Value, Value> {
     if let Request::Schema { section, format } = request {
         return Ok(render::Answer::Schema(Schema::current(), section, format).json());
     }
+    if let Some((_, answer)) = docs::answer(&request) {
+        return Ok(answer);
+    }
+    if let Some(answer) = kit_answer(&request) {
+        return answer.map(|answer| answer.json()).map_err(|failure| failure.envelope());
+    }
     let customize = Customize::from_env().map_err(|error| Failure::from(error).envelope())?;
     let answer = execute(&customize, request, origin, now_ms(), &ask::NoChat)
         .map_err(|failure| failure.envelope())?;
-    if matches!(answer, render::Answer::TriedOn(_)) {
-        spawn_try_on_waiter();
-    }
+    load_views(global, &customize);
+    spawn_waiter_for(&answer);
     Ok(answer.json())
 }
 
-/// Leaves `cmux customize settle --wait` running on its own, so a try-on
-/// reverts at its time with this process gone. It is not the only guard:
-/// the app's start and every verb settle a try-on whose time is up, so a
-/// waiter lost to a reboot changes nothing but when the revert lands.
-fn spawn_try_on_waiter() {
+/// Asks the running daemon to load the customization folder now, after a
+/// verb that may have rewritten it (`use`, `discard`, `rollback`, a try-on, a
+/// library change, or any verb that settled a try-on whose time was up), and
+/// waits for its answer. Without it the verb returned before the daemon's
+/// folder watch, seconds late on a loaded Mac, had loaded the look's app: a
+/// New Tab page opened at once found no app to show and kept cmux's own
+/// page. A folder that did not change costs the daemon one fingerprint read;
+/// with no daemon, or one too old to ask, nothing waits.
+pub(super) fn load_views(
+    global: &super::GlobalArgs,
+    customize: &Customize,
+) -> super::ext::FolderLoad {
+    super::ext::load_customize_folder(global, &customize.roots().customize_dir)
+}
+
+/// The JSON key a code try's answer carries its end time under; its
+/// presence is what leaves the code waiter running.
+const TRY_UNTIL: &str = "try_until_ms";
+
+/// Leaves the waiter a try needs running: `settle --wait` for a profile's
+/// try-on, `settle --wait --code` for a code try.
+fn spawn_waiter_for(answer: &render::Answer) {
+    match answer {
+        render::Answer::TriedOn(_) => spawn_waiter(&["customize", "settle", "--wait"]),
+        render::Answer::Library { json, .. } if json.get(TRY_UNTIL).is_some() => {
+            spawn_waiter(&["customize", "settle", "--wait", "--code"]);
+        }
+        _ => {}
+    }
+}
+
+/// Leaves `cmux customize settle --wait [--code]` running on its own, so a
+/// try reverts at its time with this process gone. It is not the only guard:
+/// the app's start and every verb settle a try-on whose time is up (and
+/// `library status`/`list` expire a code try), so a waiter lost to a reboot
+/// changes nothing but when the revert lands.
+fn spawn_waiter(args: &[&str]) {
     let Ok(exe) = std::env::current_exe() else { return };
     let mut command = cmux_process::Command::new(exe);
     command
-        .args(["customize", "settle", "--wait"])
+        .args(args)
         .stdin(cmux_process::Stdio::null())
         .stdout(cmux_process::Stdio::null())
         .stderr(cmux_process::Stdio::null())
@@ -541,6 +753,50 @@ fn spawn_try_on_waiter() {
         // It returns once no try-on is left (kept, reverted or replaced), and init reaps it.
         child.detach("a try-on reverts at its time after the command that started it exits");
     }
+}
+
+/// `cmux customize try CODE [--minutes N]`: `use CODE`, then the entry goes
+/// off by itself when its time is up (cmuxterm-hq
+/// `docs/design/experiments-shelf.md`: "`cmux customize try pr:N --minutes
+/// 5` should take a PR the same way"). A folder is built once (no watch).
+fn try_code(
+    customize: &Customize,
+    source: &str,
+    duration_ms: u64,
+    origin: &str,
+    now_ms: u64,
+) -> Result<render::Answer, Failure> {
+    let max_ms = u64::from(cmux_customize::MAX_TRY_ON_MINUTES) * 60_000;
+    // Said before any fetch or build, so a bad time costs nothing.
+    if !(1_000..=max_ms).contains(&duration_ms) {
+        return Err(Error::TryOnTime.into());
+    }
+    let answer = match source::parse(source) {
+        Some(source::Source::Dir(path)) => dir::use_dir(customize, &path, false, origin, now_ms)?,
+        Some(code) => pr::use_code(customize, code, origin, now_ms)?,
+        None => return Err(Failure::usage(format!("{source:?} is not code to try"))),
+    };
+    let render::Answer::Library { mut json, mut human } = answer else { return Ok(answer) };
+    let Some(name) = json.get("name").and_then(Value::as_str).map(str::to_owned) else {
+        return Ok(render::Answer::Library { json, human });
+    };
+    let on = customize.library()?.entries.iter().any(|entry| entry.name == name && entry.on);
+    if !on {
+        // Nothing a running cmux can take: it is in the library, off, and
+        // there is nothing to time.
+        return Ok(render::Answer::Library { json, human });
+    }
+    // From when it is on, not when the fetch or build began.
+    let until_ms = self::now_ms().max(now_ms).saturating_add(duration_ms);
+    customize.library_try_until(&name, until_ms, origin, now_ms)?;
+    if let Some(object) = json.as_object_mut() {
+        object.insert(TRY_UNTIL.to_owned(), json!(until_ms));
+    }
+    human.push_str(&format!(
+        "  trying it on: off by itself in {}\n  cmux customize library on {name}    keep it\n",
+        cmux_customize::library::expire::minutes(duration_ms)
+    ));
+    Ok(render::Answer::Library { json, human })
 }
 
 /// One verb against one customization.
@@ -587,20 +843,46 @@ pub(super) fn execute(
         Request::Save { name, note } => {
             Answer::Saved(customize.save_profile(&name, &note, now_ms)?)
         }
+        Request::Pack { name, css, sets, note } => {
+            let mut files = std::collections::BTreeMap::new();
+            if let Some(path) = css {
+                let text = std::fs::read_to_string(&path)
+                    .map_err(|error| Error::Profile(format!("{path}: {error}")))?;
+                files.insert("agent-pane/theme.css".to_owned(), text);
+            }
+            let settings = sets
+                .into_iter()
+                .map(|(key, value)| {
+                    let value = serde_json::from_str(&value).unwrap_or(Value::String(value));
+                    (key, value)
+                })
+                .collect();
+            Answer::Saved(customize.write_pack(&name, &note, settings, files, now_ms)?)
+        }
         Request::Use { source, watch } => match source::parse(&source) {
             Some(source::Source::Dir(path)) => {
                 dir::use_dir(customize, &path, watch, origin, now_ms)?
             }
             Some(code) => pr::use_code(customize, code, origin, now_ms)?,
             None => {
-                let profile = customize.load_profile(&source)?;
+                let profile = load_profile_or_recipe(customize, &source)?;
                 let begun = customize.preview_profile(&profile, origin, now_ms)?;
                 Answer::Using { name: profile.name, begun, status: customize.status()? }
             }
         },
+        Request::Try { source: Some(source), duration_ms } if source::parse(&source).is_some() => {
+            try_code(customize, &source, duration_ms, origin, now_ms)?
+        }
+        Request::SettleCode => {
+            let expired = customize.run_code_try_timer(app_web_abi(None), origin);
+            let human = library::expired_lines(&expired, None);
+            Answer::Library { json: json!({ "expired": expired }), human }
+        }
         Request::Try { source, duration_ms } => {
-            let profile =
-                source.as_deref().map(|source| customize.load_profile(source)).transpose()?;
+            let profile = source
+                .as_deref()
+                .map(|source| load_profile_or_recipe(customize, source))
+                .transpose()?;
             Answer::TriedOn(customize.try_on(profile.as_ref(), duration_ms, origin, now_ms)?)
         }
         Request::Keep => Answer::Settled(customize.keep()?.into_iter().collect(), "keep"),
@@ -612,9 +894,39 @@ pub(super) fn execute(
         Request::Profiles => Answer::Profiles(customize.profiles()?),
         Request::Recipes { open } => recipes(customize, open, chat)?,
         Request::Library(request) => library::execute(customize, request, origin, now_ms)?,
+        Request::Checklist { connected } => Answer::Checklist(cmux_customize::checklist::read(
+            customize,
+            &connected.into_iter().collect(),
+        )?),
+        Request::Doctor(request) => doctor::execute(customize, request, origin, now_ms)?,
         Request::Paths => Answer::Paths(customize.roots().clone()),
         Request::Schema { section, format } => Answer::Schema(Schema::current(), section, format),
+        Request::Docs { .. } | Request::Prompts { .. } => {
+            return Err(Failure::usage(
+                "docs and prompts are answered before the store".to_owned(),
+            ));
+        }
+        request @ (Request::Tokens(_) | Request::Components(_)) => kit_answer(&request)
+            .unwrap_or_else(|| Err(Failure::usage("not a kit verb".to_owned())))?,
     })
+}
+
+/// `tokens` and `components`, answered with no store (None: another verb).
+fn kit_answer(request: &Request) -> Option<Result<render::Answer, Failure>> {
+    use cmux_customize::kit;
+    let answer = match request {
+        Request::Tokens(request) => kit::tokens(request),
+        Request::Components(request) => {
+            let start = std::env::current_dir().unwrap_or_default();
+            kit::components(request, kit::manifest_path(&start).as_deref())
+        }
+        _ => return None,
+    };
+    Some(
+        answer
+            .map(|kit::Answer { json, human }| render::Answer::Library { json, human })
+            .map_err(Failure::usage),
+    )
 }
 
 /// Writes the recipes (cmux-customize-recipes) where `use` reads them, and
@@ -637,4 +949,23 @@ fn recipes(
         }
     });
     Ok(render::Answer::Recipes { written, opened })
+}
+
+/// A saved profile called `source`, else the profile at that path; when
+/// neither exists and `source` is a recipe's name, that recipe (so
+/// `cmux customize use ukiyo-e` works without `recipes` first). A saved
+/// profile of the same name wins over the recipe.
+fn load_profile_or_recipe(
+    customize: &Customize,
+    source: &str,
+) -> Result<cmux_customize::profile::Profile, Error> {
+    match customize.load_profile(source) {
+        Ok(profile) => Ok(profile),
+        Err(error) => match cmux_customize_recipes::find(source) {
+            Some(recipe) if !std::path::Path::new(source).exists() => {
+                recipe.profile().map_err(Error::Profile)
+            }
+            _ => Err(error),
+        },
+    }
 }

@@ -9,8 +9,10 @@
 //! Every gauge here is a few atomics or a short lock that no request holds, so `daemon status`
 //! reads them even while startup runs.
 
+pub mod carrier;
+
 use serde_json::{Value, json};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -94,7 +96,131 @@ impl Gauges {
             "uptimeMs": millis(self.born.elapsed()),
             "startup": phases,
             "memory": memory(),
+            "coldRehydrates": cold_rehydrates().status(),
             "peerLists": peer_lists().status(),
+            "peerNotices": peer_notices().status(),
+            "recordWrites": record_writes().status(),
+            "attach": attach_latency().status(),
+            "fanout": fanout_status(),
+            "links": links().status(),
+            "workerLag": worker_lag().status(),
+            "carrier": carrier::global().status(),
+            "hookAnswers": hook_answers().status(),
+        })
+    }
+}
+
+/// The time chats' records take to be written (`Hub::write_record_locked`): the store's append
+/// alone, and the whole write from its sequence number to its event on the hub's channel. Totals
+/// only, so a reader takes the difference across a window (the turn bench,
+/// `benches/turn_overhead.rs`, reads it around each turn).
+pub fn record_writes() -> &'static RecordWrites {
+    static WRITES: OnceLock<RecordWrites> = OnceLock::new();
+    WRITES.get_or_init(RecordWrites::default)
+}
+
+#[derive(Default)]
+pub struct RecordWrites {
+    records: AtomicU64,
+    store_ns: AtomicU64,
+    write_ns: AtomicU64,
+}
+
+impl RecordWrites {
+    /// One record written: `store` in the store's append, `write` in all.
+    pub fn note(&self, store: Duration, write: Duration) {
+        let nanos = |d: Duration| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX);
+        self.records.fetch_add(1, Ordering::Relaxed);
+        self.store_ns.fetch_add(nanos(store), Ordering::Relaxed);
+        self.write_ns.fetch_add(nanos(write), Ordering::Relaxed);
+    }
+
+    fn status(&self) -> Value {
+        json!({
+            "records": self.records.load(Ordering::Relaxed),
+            "storeNs": self.store_ns.load(Ordering::Relaxed),
+            "writeNs": self.write_ns.load(Ordering::Relaxed),
+        })
+    }
+}
+
+/// The hub's one notice loop (`hub/peer_grace.rs`): how many notices it applied, the time it
+/// spent applying them, the longest one, and the deepest its queue was when it took one. A link
+/// holds its notices back on a full queue (`peer_notice_outbox.rs`), so a loop slower than the
+/// notices coming in holds back every peer's chat updates behind them.
+pub fn peer_notices() -> &'static PeerNotices {
+    static NOTICES: OnceLock<PeerNotices> = OnceLock::new();
+    NOTICES.get_or_init(PeerNotices::default)
+}
+
+#[derive(Default)]
+pub struct PeerNotices {
+    applied: AtomicU64,
+    busy_us: AtomicU64,
+    max_us: AtomicU64,
+    peak_queued: AtomicU64,
+    /// Links' own backlogs while the hub's queue was full (`peer_notice_outbox.rs`): the deepest
+    /// one, the changed rows a later change of the same row replaced there, and the times a link
+    /// waited because its backlog was full.
+    link_peak: AtomicU64,
+    link_merged: AtomicU64,
+    link_waits: AtomicU64,
+    /// Notices by `PeerNotice::label`, at most `KINDS_KEPT` labels: how many, and the µs they took.
+    kinds: Mutex<std::collections::BTreeMap<String, (u64, u64)>>,
+    /// Peer snapshot copies read back from disk (`peer_snapshot::Store::read_in`).
+    pub snapshot_reads: AtomicU64,
+    /// Loaded copies unloaded to keep the store's memory bound (`Store::trim_memory`).
+    pub snapshot_unloads: AtomicU64,
+}
+
+const KINDS_KEPT: usize = 64;
+
+impl PeerNotices {
+    /// One notice of `label` took `us` to apply, with `queued` more behind it.
+    pub fn applied(&self, label: String, us: u64, queued: u64) {
+        let mut kinds = self.kinds.lock().unwrap_or_else(PoisonError::into_inner);
+        let full = kinds.len() >= KINDS_KEPT;
+        let kind = if kinds.contains_key(&label) || !full {
+            kinds.entry(label).or_default()
+        } else {
+            kinds.entry("other".into()).or_default()
+        };
+        kind.0 += 1;
+        kind.1 += us;
+        drop(kinds);
+        self.applied.fetch_add(1, Ordering::Relaxed);
+        self.busy_us.fetch_add(us, Ordering::Relaxed);
+        self.max_us.fetch_max(us, Ordering::Relaxed);
+        self.peak_queued.fetch_max(queued, Ordering::Relaxed);
+    }
+
+    /// A link held a notice back, `depth` deep, `merged` when it replaced an earlier change.
+    pub fn link_held(&self, depth: u64, merged: bool) {
+        self.link_peak.fetch_max(depth, Ordering::Relaxed);
+        if merged {
+            self.link_merged.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    /// A link waited for room in its full backlog.
+    pub fn link_waited(&self) {
+        self.link_waits.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn status(&self) -> Value {
+        let kinds = self.kinds.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        json!({
+            "applied": self.applied.load(Ordering::Relaxed),
+            "busyMs": self.busy_us.load(Ordering::Relaxed) / 1000,
+            "maxUs": self.max_us.load(Ordering::Relaxed),
+            "peakQueued": self.peak_queued.load(Ordering::Relaxed),
+            "linkPeak": self.link_peak.load(Ordering::Relaxed),
+            "linkMerged": self.link_merged.load(Ordering::Relaxed),
+            "linkWaits": self.link_waits.load(Ordering::Relaxed),
+            "kinds": kinds.iter().map(|(k, (n, _))| (k.clone(), *n)).collect::<std::collections::BTreeMap<_, _>>(),
+            "kindsMs": kinds.iter().map(|(k, (_, us))| (k.clone(), us / 1000)).collect::<std::collections::BTreeMap<_, _>>(),
+            "snapshotReads": self.snapshot_reads.load(Ordering::Relaxed),
+            "snapshotUnloads": self.snapshot_unloads.load(Ordering::Relaxed),
         })
     }
 }
@@ -114,6 +240,9 @@ pub struct PeerLists {
     bytes: AtomicU64,
     peak_lists: AtomicU64,
     peak_bytes: AtomicU64,
+    /// Whole lists a newer list of the same peer replaced before the hub applied them
+    /// (`peer_notice_outbox.rs`), since the daemon started.
+    superseded: AtomicU64,
 }
 
 impl PeerLists {
@@ -132,14 +261,630 @@ impl PeerLists {
         let _ = self.bytes.fetch_update(Ordering::Relaxed, Ordering::Relaxed, less(bytes));
     }
 
+    /// A waiting list of `bytes` was replaced by a newer one of its peer: it is no longer
+    /// waiting, and is never applied.
+    pub fn superseded(&self, bytes: u64) {
+        self.taken(bytes);
+        self.superseded.fetch_add(1, Ordering::Relaxed);
+    }
+
     fn status(&self) -> Value {
         json!({
+            "superseded": self.superseded.load(Ordering::Relaxed),
             "lists": self.lists.load(Ordering::Relaxed),
             "bytes": self.bytes.load(Ordering::Relaxed),
             "peakLists": self.peak_lists.load(Ordering::Relaxed),
             "peakBytes": self.peak_bytes.load(Ordering::Relaxed),
         })
     }
+}
+
+/// `gauges.links`: the network connections this daemon holds for its peers, and the dials it
+/// started, since its start. Totals count up; the `open` fields count what is held now, each by
+/// a [`Held`] that the thing it counts owns, so a link, probe or circuit that ends any way at all
+/// gives its count back.
+///
+/// Leo's Mac at load 89 to 154 held about 40 peer links that went quiet together, dropped and
+/// redialed (2026-11-23), and nothing the daemon answered said how many connections or dials
+/// that was. These say it, per peer count, for the duress harness (`tests/duress_daemon.rs`).
+pub fn links() -> &'static Links {
+    static LINKS: OnceLock<Links> = OnceLock::new();
+    LINKS.get_or_init(Links::default)
+}
+
+#[derive(Default)]
+pub struct Links {
+    /// Peer links with a connection open (`Peer::connect_once` past its dial).
+    pub links_open: AtomicU64,
+    /// Path probes with a connection of their own open (`Peer::probe_link`).
+    pub probes_open: AtomicU64,
+    /// Plain relay circuits (one stream each) carried now, dialed or accepted.
+    pub hub_plain_open: AtomicU64,
+    /// Kept, multiplexed relay circuits open now (either end), and the streams riding them.
+    pub hub_kept_open: AtomicU64,
+    pub kept_streams_open: AtomicU64,
+    /// Every peer link connect attempt; of those, the ones started at once after a ready link
+    /// dropped (no backoff).
+    pub link_dials: AtomicU64,
+    pub link_redials: AtomicU64,
+    /// Every probe dial of a path.
+    pub probe_dials: AtomicU64,
+    /// Relay circuits this daemon dialed: plain ones, kept ones, and streams opened on a kept one.
+    pub hub_plain_dials: AtomicU64,
+    pub hub_kept_dials: AtomicU64,
+    pub kept_stream_opens: AtomicU64,
+}
+
+/// One held thing in a `Links` count: counted up when made, down when dropped.
+#[derive(Debug)]
+pub struct Held(&'static AtomicU64);
+
+impl Held {
+    pub fn on(count: &'static AtomicU64) -> Self {
+        count.fetch_add(1, Ordering::Relaxed);
+        Self(count)
+    }
+}
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        let less = |v: u64| Some(v.saturating_sub(1));
+        let _ = self.0.fetch_update(Ordering::Relaxed, Ordering::Relaxed, less);
+    }
+}
+
+/// Count one more of `count`.
+pub fn bump(count: &AtomicU64) {
+    count.fetch_add(1, Ordering::Relaxed);
+}
+
+impl Links {
+    pub fn status(&self) -> Value {
+        let n = |c: &AtomicU64| c.load(Ordering::Relaxed);
+        json!({
+            "linksOpen": n(&self.links_open),
+            "probesOpen": n(&self.probes_open),
+            "hubPlainOpen": n(&self.hub_plain_open),
+            "hubKeptOpen": n(&self.hub_kept_open),
+            "keptStreamsOpen": n(&self.kept_streams_open),
+            "linkDials": n(&self.link_dials),
+            "linkRedials": n(&self.link_redials),
+            "probeDials": n(&self.probe_dials),
+            "hubPlainDials": n(&self.hub_plain_dials),
+            "hubKeptDials": n(&self.hub_kept_dials),
+            "keptStreamOpens": n(&self.kept_stream_opens),
+            "dialGateInFlight": crate::peer_dial_gate::global().in_flight(),
+            "dialGateWaited": crate::peer_dial_gate::global().waited(),
+        })
+    }
+}
+
+/// How many recent samples a [`Latencies`] ring keeps.
+pub const LATENCY_RING: usize = 1024;
+
+/// The last [`LATENCY_RING`] latencies of one kind, in microseconds: a fixed ring of atomics, so
+/// a sample is one `fetch_add` and one store (no lock, no allocation) and `daemon status` reads
+/// it while samples land. A read racing a store may see that one slot's old or new value.
+///
+/// Leo, 2026-11-19: "a couple thousand f***ing sessions across VMs talking to [the hub machine]": these
+/// rings say whether opening a chat and fanning a chat's change out stay flat as sessions and
+/// connections grow (`gauges.attach`, `gauges.fanout`).
+pub struct Latencies {
+    samples: [AtomicU32; LATENCY_RING],
+    /// Every sample taken; the next slot is this modulo the ring.
+    taken: AtomicU64,
+}
+
+impl Default for Latencies {
+    fn default() -> Self {
+        Self { samples: std::array::from_fn(|_| AtomicU32::new(0)), taken: AtomicU64::new(0) }
+    }
+}
+
+impl Latencies {
+    pub fn record(&self, took: Duration) {
+        let micros = u32::try_from(took.as_micros()).unwrap_or(u32::MAX);
+        let slot = self.taken.fetch_add(1, Ordering::Relaxed) % LATENCY_RING as u64;
+        if let Some(sample) = self.samples.get(slot as usize) {
+            sample.store(micros, Ordering::Relaxed);
+        }
+    }
+
+    /// `{count, window, p50Ms, p95Ms, p99Ms, maxMs}`: `count` is every sample taken, `window` how many
+    /// of the latest the quantiles cover (at most [`LATENCY_RING`]); the quantiles are
+    /// nearest-rank over that window, null before the first sample.
+    pub fn status(&self) -> Value {
+        let taken = self.taken.load(Ordering::Relaxed);
+        let window = usize::try_from(taken).unwrap_or(usize::MAX).min(LATENCY_RING);
+        let mut sorted = [0u32; LATENCY_RING];
+        for (to, from) in sorted.iter_mut().zip(&self.samples).take(window) {
+            *to = from.load(Ordering::Relaxed);
+        }
+        let sorted = sorted.get_mut(..window).unwrap_or_default();
+        sorted.sort_unstable();
+        let ms = |micros: u32| f64::from(micros) / 1000.0;
+        let rank = |q: f64| -> Option<f64> {
+            let n = sorted.len();
+            let at = ((q * n as f64).ceil() as usize).clamp(1, n.max(1)) - 1;
+            sorted.get(at).map(|&m| ms(m))
+        };
+        json!({
+            "count": taken,
+            "window": window,
+            "p50Ms": rank(0.50),
+            "p95Ms": rank(0.95),
+            "p99Ms": rank(0.99),
+            "maxMs": sorted.last().map(|&m| ms(m)),
+        })
+    }
+}
+
+/// `gauges.hookAnswers`: the hook callbacks Claude Code asks acpmux itself to answer
+/// (`claude_stdio/hook_callback.rs`): each answer's wall time, and `misses`, the answers that hit
+/// their deadline and went out as the hook's safe default instead. A miss is a "hook didn't
+/// answer in time" notice acpmux kept from the person.
+pub fn hook_answers() -> &'static HookAnswers {
+    static ANSWERS: OnceLock<HookAnswers> = OnceLock::new();
+    ANSWERS.get_or_init(HookAnswers::default)
+}
+
+#[derive(Default)]
+pub struct HookAnswers {
+    latency: Latencies,
+    misses: AtomicU64,
+}
+
+impl HookAnswers {
+    pub fn answered(&self, took: Duration) {
+        self.latency.record(took);
+    }
+
+    pub fn missed(&self) {
+        self.misses.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn misses(&self) -> u64 {
+        self.misses.load(Ordering::Relaxed)
+    }
+
+    fn status(&self) -> Value {
+        let mut status = self.latency.status();
+        if let Some(fields) = status.as_object_mut() {
+            fields.insert("misses".into(), json!(self.misses()));
+        }
+        status
+    }
+}
+
+/// `gauges.attach`: a client opening a chat (`_acpmux/attach`, `session/load`, this daemon's or
+/// a peer's chat through its link), from its request read to its reply queued on the connection
+/// (`server::serve_connection_from`).
+pub fn attach_latency() -> &'static Latencies {
+    static RING: OnceLock<Latencies> = OnceLock::new();
+    RING.get_or_init(Latencies::default)
+}
+
+/// A request that opens a chat's view, timed in [`attach_latency`].
+pub fn opens_a_chat(method: &str) -> bool {
+    matches!(method, crate::rpc::method::MUX_ATTACH | crate::rpc::method::SESSION_LOAD)
+}
+
+/// `gauges.fanout`: one hub event (a chat's update, a row change), from its send to the last
+/// connection's fan-out task queuing what it owes for it ([`FanoutClock`]).
+pub fn fanout_latency() -> &'static Latencies {
+    static RING: OnceLock<Latencies> = OnceLock::new();
+    RING.get_or_init(Latencies::default)
+}
+
+/// Hub events a connection's fan-out task lagged past (the broadcast channel dropped them for
+/// it) and how many times one lagged, each followed by a resync: what the latency leaves out.
+static FANOUT_DROPPED: AtomicU64 = AtomicU64::new(0);
+static FANOUT_RESYNCS: AtomicU64 = AtomicU64::new(0);
+
+/// A connection's fan-out task lagged past `events` hub events: it never queues them, so none
+/// of them is a latency sample; each counts in `gauges.fanout.dropped`.
+pub fn fanout_lagged(events: u64) {
+    FANOUT_DROPPED.fetch_add(events, Ordering::Relaxed);
+    FANOUT_RESYNCS.fetch_add(1, Ordering::Relaxed);
+}
+
+/// `gauges.fanout`: the latency ring's fields, with `dropped` (events a connection lagged past,
+/// summed over connections) and `resyncs` (times a connection lagged).
+fn fanout_status() -> Value {
+    let mut status = fanout_latency().status();
+    if let Some(fields) = status.as_object_mut() {
+        fields.insert("dropped".into(), json!(FANOUT_DROPPED.load(Ordering::Relaxed)));
+        fields.insert("resyncs".into(), json!(FANOUT_RESYNCS.load(Ordering::Relaxed)));
+    }
+    status
+}
+
+/// One hub event's fan-out: when it was sent and how many connections' fan-out tasks have yet to
+/// take it. It lives in the event's shared cells (`HubEvent::row`), so it costs no allocation of
+/// its own. The last task to take it records the time since the send in [`fanout_latency`]. An
+/// event a task lagged past, or whose connection closed before taking it, is no sample.
+#[derive(Debug, Default)]
+pub struct FanoutClock {
+    /// Nanoseconds from the gauges' birth to the send, at least 1; 0 until sent.
+    sent_ns: AtomicU64,
+    left: AtomicUsize,
+}
+
+impl FanoutClock {
+    /// The event goes to `connections` fan-out tasks now.
+    pub fn arm(&self, connections: usize) {
+        let since = u64::try_from(global().born.elapsed().as_nanos()).unwrap_or(u64::MAX);
+        self.sent_ns.store(since.max(1), Ordering::Relaxed);
+        self.left.store(connections, Ordering::Release);
+    }
+
+    /// One connection's fan-out task queued the event; the last one records the sample.
+    pub fn taken(&self) {
+        self.taken_into(fanout_latency());
+    }
+
+    /// Connections' fan-out tasks yet to take the event.
+    #[cfg(test)]
+    pub fn owed(&self) -> usize {
+        self.left.load(Ordering::Acquire)
+    }
+
+    #[cfg(test)]
+    pub fn sent(&self) -> bool {
+        self.sent_ns.load(Ordering::Relaxed) > 0
+    }
+
+    fn taken_into(&self, ring: &Latencies) {
+        let less = |left: usize| left.checked_sub(1);
+        if self.left.fetch_update(Ordering::AcqRel, Ordering::Acquire, less) == Ok(1) {
+            let sent = Duration::from_nanos(self.sent_ns.load(Ordering::Relaxed));
+            if !sent.is_zero() {
+                ring.record(global().born.elapsed().saturating_sub(sent));
+            }
+        }
+    }
+}
+
+/// How often the worker-lag canary wakes while the runtime works ([`worker_lag_canary`]).
+pub const CANARY_PERIOD: Duration = Duration::from_millis(10);
+
+/// The longest the canary sleeps while the runtime is quiet: an idle daemon pays 0.25 wakes a
+/// second for it, not the 100 a fixed 10 ms period cost (ask-66b237e9ad, "brilliant fucking idle
+/// resource usage"). A block that starts while it sleeps this long still shows: the wake comes
+/// late by the block's length, and the next one is back at [`CANARY_PERIOD`].
+pub const CANARY_IDLE_PERIOD: Duration = Duration::from_secs(4);
+
+/// How late a wake may come with no work before the canary reads it as a block: macOS wakes a tokio
+/// sleep of 10-160 ms up to 6.7 ms late on an idle runtime (3.7 ms p50 at 10 ms; cmux-lawrence,
+/// 2026-11-24), where Linux is within a millisecond. With 2 ms here every macOS wake was a "block",
+/// the canary never backed off, and each acpmux daemon woke about 150 times a second at idle
+/// (cmux20-bench, step 7289b85b). `gauges.workerLag` still records every wake's real lateness.
+pub const CANARY_TIMER_SLACK: Duration = Duration::from_millis(10);
+
+/// How long the runtime stays quiet before the canary starts to back off.
+pub const CANARY_QUIET_BEFORE_BACKOFF: Duration = Duration::from_secs(1);
+
+/// The canary's next sleep after a wake that slept `slept` and came `late`, while the runtime's
+/// workers were busy for `busy` of it, and the runtime has been quiet for `quiet` before it. Work
+/// (workers busy over 1% of the time slept) or a late wake (over [`CANARY_TIMER_SLACK`] plus 2% of
+/// the sleep, so the system's timer slack and a coalesced idle timer are not read as a block) puts it back at [`CANARY_PERIOD`]; a second of
+/// quiet starts doubling it to [`CANARY_IDLE_PERIOD`]. Returns the sleep and the new quiet span.
+pub fn canary_next(
+    slept: Duration,
+    late: Duration,
+    busy: Duration,
+    quiet: Duration,
+) -> (Duration, Duration) {
+    let worked = busy > slept / 100;
+    let held = late > CANARY_TIMER_SLACK + slept / 50;
+    if worked || held {
+        return (CANARY_PERIOD, Duration::ZERO);
+    }
+    let quiet = quiet.saturating_add(slept);
+    if quiet < CANARY_QUIET_BEFORE_BACKOFF {
+        return (CANARY_PERIOD, quiet);
+    }
+    ((slept.max(CANARY_PERIOD) * 2).min(CANARY_IDLE_PERIOD), quiet)
+}
+
+/// The lateness [`canary_next`] judges a wake by: none on an overloaded host, where every timer
+/// wakes late and the late wake is the host's, not this daemon's (a block of this daemon's own
+/// workers still shows in their busy time). `gauges.workerLag` records the real lateness.
+pub fn canary_late(late: Duration, host_overloaded: bool) -> Duration {
+    if host_overloaded { Duration::ZERO } else { late }
+}
+
+/// Whether a 1-minute load average of `load` is at or over `cores`: more runnable threads than
+/// cores, so timers wake late for everyone. An unreadable load is no overload.
+pub fn overloaded(load: Option<f64>, cores: usize) -> bool {
+    load.is_some_and(|load| load >= cores as f64)
+}
+
+/// This host now: its 1-minute load average against its cores (`getloadavg`, one sysctl).
+#[cfg(not(unix))]
+fn host_overloaded() -> bool {
+    false
+}
+
+/// This host now: its 1-minute load average against its cores (`getloadavg`, one sysctl).
+#[cfg(unix)]
+fn host_overloaded() -> bool {
+    let mut load = [0f64; 1];
+    // SAFETY: `load` holds the one sample asked for.
+    let got = unsafe { libc::getloadavg(load.as_mut_ptr(), 1) } == 1;
+    let cores = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
+    overloaded(got.then_some(load[0]), cores)
+}
+
+/// The span `gauges.workerLag` summarizes, in seconds.
+pub const WORKER_LAG_WINDOW_S: u64 = 60;
+
+/// Slots in the worker-lag ring: a minute of 10 ms wakes (6000) with room to spare, so the window
+/// is whole while the canary keeps time. A canary held back or backed off on a quiet runtime
+/// ([`canary_next`]) wakes less often, so then the ring holds more than a minute and the window
+/// still reads only its last minute.
+pub const WORKER_LAG_RING: usize = 8192;
+
+/// How late the daemon's runtime wakes a task that asked to wake: what a request queued behind a
+/// busy worker waits before its first poll (a `std` lock or a blocking read held on a worker,
+/// hq `docs/handbook/request-read-holds-a-runtime-worker.md`). A fixed ring of atomics, each slot
+/// the second it was taken (from this ring's birth, plus 1 so 0 is empty) over its lateness in
+/// microseconds, so a sample is one `fetch_add` and one store and the memory never grows.
+///
+/// hq `docs/reading/2026-11-21-tokio-coop-budget.md`, row 2: "a canary task that sleeps 10 ms in a
+/// loop and records how late it wakes (scheduling delay p50/p99, max in last minute), published
+/// in `acpmux daemon status`".
+pub struct WorkerLag {
+    born: Instant,
+    samples: Box<[AtomicU64]>,
+    /// Every sample taken; the next slot is this modulo the ring.
+    taken: AtomicU64,
+    /// The canary's sleep before its last wake, in ms (`periodMs`).
+    period_ms: AtomicU64,
+}
+
+impl Default for WorkerLag {
+    fn default() -> Self {
+        Self {
+            born: Instant::now(),
+            samples: (0..WORKER_LAG_RING).map(|_| AtomicU64::new(0)).collect(),
+            taken: AtomicU64::new(0),
+            period_ms: AtomicU64::new(CANARY_PERIOD.as_millis() as u64),
+        }
+    }
+}
+
+impl WorkerLag {
+    /// A wake `late` past its deadline, now.
+    pub fn record(&self, late: Duration) {
+        self.record_at(self.born.elapsed().as_secs(), late);
+    }
+
+    fn record_at(&self, at_s: u64, late: Duration) {
+        let micros = u32::try_from(late.as_micros()).unwrap_or(u32::MAX);
+        let at = u32::try_from(at_s.saturating_add(1)).unwrap_or(u32::MAX);
+        let slot = self.taken.fetch_add(1, Ordering::Relaxed) % self.samples.len() as u64;
+        if let Some(sample) = self.samples.get(slot as usize) {
+            sample.store((u64::from(at) << 32) | u64::from(micros), Ordering::Relaxed);
+        }
+    }
+
+    /// `gauges.workerLag`: [`Self::summary_at`] now.
+    pub fn status(&self) -> Value {
+        self.summary_at(self.born.elapsed().as_secs())
+    }
+
+    /// `{periodMs, windowS, samples, p50Ms, p99Ms, maxMs}` over the samples taken in the last
+    /// [`WORKER_LAG_WINDOW_S`] seconds before `now_s`: nearest-rank quantiles of how late the
+    /// canary woke, null when no sample is that recent (no canary runs, or it has not woken in a
+    /// minute: a runtime held that long says so in `status` not answering at all).
+    fn summary_at(&self, now_s: u64) -> Value {
+        let since = now_s.saturating_sub(WORKER_LAG_WINDOW_S - 1).saturating_add(1);
+        let mut recent = [0u32; WORKER_LAG_RING];
+        let mut count = 0;
+        for sample in self.samples.iter().map(|sample| sample.load(Ordering::Relaxed)) {
+            if sample >> 32 < since {
+                continue;
+            }
+            if let Some(to) = recent.get_mut(count) {
+                *to = (sample & u64::from(u32::MAX)) as u32;
+                count += 1;
+            }
+        }
+        let recent = recent.get_mut(..count).unwrap_or_default();
+        recent.sort_unstable();
+        let ms = |micros: u32| f64::from(micros) / 1000.0;
+        let rank = |q: f64| -> Option<f64> {
+            let at = ((q * count as f64).ceil() as usize).clamp(1, count.max(1)) - 1;
+            recent.get(at).map(|&m| ms(m))
+        };
+        json!({
+            "periodMs": self.period_ms.load(Ordering::Relaxed),
+            "windowS": WORKER_LAG_WINDOW_S,
+            "samples": count,
+            "p50Ms": rank(0.50),
+            "p99Ms": rank(0.99),
+            "maxMs": recent.last().map(|&m| ms(m)),
+        })
+    }
+}
+
+/// `gauges.workerLag`: the daemon's canary ([`worker_lag_canary`]).
+pub fn worker_lag() -> &'static WorkerLag {
+    static RING: OnceLock<WorkerLag> = OnceLock::new();
+    RING.get_or_init(WorkerLag::default)
+}
+
+/// The name of the canary's idle watch thread ([`IdleWatch`]); the idle test allows it, and only
+/// it, to wake (`tests/daemon_idle.rs`). Under 16 bytes: linux thread names stop at 15.
+pub const CANARY_THREAD: &str = "lag-canary";
+
+/// Sleeps on the runtime it is spawned on, forever, and records in `ring` how far past its sleep
+/// each wake came: [`CANARY_PERIOD`] while the runtime works, backing off while it is quiet
+/// ([`canary_next`]). Its cost is one timer, one atomic store and one read of the workers' busy
+/// time per wake. Backed off to [`CANARY_IDLE_PERIOD`], it hands the quiet runtime to an
+/// [`IdleWatch`] and wakes no runtime worker until the watch sees one run.
+pub async fn worker_lag_canary(ring: &'static WorkerLag) {
+    canary_from(ring, (CANARY_PERIOD, Duration::ZERO), CANARY_IDLE_PERIOD).await;
+}
+
+/// [`worker_lag_canary`] from a given sleep and quiet span, its idle watch looking every
+/// `watch_every` (tests look more often than 4 s).
+async fn canary_from(
+    ring: &'static WorkerLag,
+    (mut period, mut quiet): (Duration, Duration),
+    watch_every: Duration,
+) {
+    let metrics = tokio::runtime::Handle::current().metrics();
+    let busy = || -> Duration {
+        (0..metrics.num_workers()).map(|w| metrics.worker_total_busy_duration(w)).sum()
+    };
+    // Started at the first quiet stretch; no thread (an unspawnable one) keeps the 4 s sleep.
+    let mut watch: Option<IdleWatchGuard> = None;
+    loop {
+        let (asked, mut busy_before) = (Instant::now(), busy());
+        let late = if period >= CANARY_IDLE_PERIOD {
+            if watch.is_none() {
+                watch = IdleWatch::start(ring, metrics.clone(), watch_every).ok();
+            }
+            match &watch {
+                // How long the runtime took to run this task after the watch woke it, and the
+                // busy time since the watch's last look before (not since this task slept:
+                // minutes of tiny tasks would add up to a block).
+                Some(watch) => {
+                    let (woke_at, busy_at_look) = watch.0.quiet().await;
+                    busy_before = busy_at_look;
+                    woke_at.elapsed()
+                }
+                None => {
+                    tokio::time::sleep(period).await;
+                    asked.elapsed().saturating_sub(period)
+                }
+            }
+        } else {
+            tokio::time::sleep(period).await;
+            asked.elapsed().saturating_sub(period)
+        };
+        ring.record(late);
+        ring.period_ms
+            .store(u64::try_from(period.as_millis()).unwrap_or(u64::MAX), Ordering::Relaxed);
+        // The load is read only for a wake late enough to count (a sysctl, not every wake).
+        let judged =
+            if late > CANARY_TIMER_SLACK { canary_late(late, host_overloaded()) } else { late };
+        (period, quiet) = canary_next(period, judged, busy().saturating_sub(busy_before), quiet);
+    }
+}
+
+/// The backed-off canary's look at a quiet runtime, from a thread of its own ([`CANARY_THREAD`])
+/// so the runtime's workers all sleep: every few seconds it reads the workers' metrics, no task
+/// polled. Every worker parked (tokio counts each park and unpark: an odd count is a parked
+/// worker) and no busy time since its last look is a lag of zero, recorded in the ring as the
+/// 4 s canary wake did. A worker that runs (a task blocking it shows here) or busy time over 1%
+/// of the look's span wakes the canary task, which records how long the runtime took to poll it.
+///
+/// Why not a wake with no timer at all, from tokio's `on_thread_unpark` hook: that wake is put in
+/// the waking worker's own LIFO slot, which no other worker takes, so a task that blocks that
+/// worker also holds the canary and its lag is never seen; and every other wake would cost the
+/// canary one more. The 4 s look stays, off the runtime: 0.25 thread wakes a second, no worker.
+struct IdleWatch {
+    state: Mutex<WatchState>,
+    changed: std::sync::Condvar,
+    woke: tokio::sync::Notify,
+}
+
+#[derive(Default)]
+struct WatchState {
+    /// The canary waits on [`IdleWatch::woke`]: the thread looks.
+    armed: bool,
+    /// The canary is gone (its scope cancelled): the thread ends.
+    stopped: bool,
+    /// When the thread woke the canary, and the workers' busy time at its look before.
+    woke_at: Option<(Instant, Duration)>,
+}
+
+/// The canary's handle: dropping it ends the watch thread.
+struct IdleWatchGuard(std::sync::Arc<IdleWatch>);
+
+impl Drop for IdleWatchGuard {
+    fn drop(&mut self) {
+        self.0.state.lock().unwrap_or_else(PoisonError::into_inner).stopped = true;
+        self.0.changed.notify_all();
+    }
+}
+
+impl IdleWatch {
+    fn start(
+        ring: &'static WorkerLag,
+        metrics: tokio::runtime::RuntimeMetrics,
+        every: Duration,
+    ) -> std::io::Result<IdleWatchGuard> {
+        let watch = std::sync::Arc::new(Self {
+            state: Mutex::default(),
+            changed: std::sync::Condvar::new(),
+            woke: tokio::sync::Notify::new(),
+        });
+        let looks = watch.clone();
+        std::thread::Builder::new()
+            .name(CANARY_THREAD.into())
+            .stack_size(64 * 1024)
+            .spawn(move || looks.run(ring, &metrics, every))?;
+        Ok(IdleWatchGuard(watch))
+    }
+
+    /// Waits until the thread sees the runtime work; returns when it woke this task and the
+    /// workers' busy time at its look before.
+    async fn quiet(&self) -> (Instant, Duration) {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).armed = true;
+        self.changed.notify_all();
+        // A wake before this await is kept as a permit: none is lost.
+        self.woke.notified().await;
+        let woke_at = self.state.lock().unwrap_or_else(PoisonError::into_inner).woke_at.take();
+        woke_at.unwrap_or_else(|| (Instant::now(), Duration::ZERO))
+    }
+
+    fn run(&self, ring: &WorkerLag, metrics: &tokio::runtime::RuntimeMetrics, every: Duration) {
+        let busy = || -> Duration {
+            (0..metrics.num_workers()).map(|w| metrics.worker_total_busy_duration(w)).sum()
+        };
+        let mut last_busy = busy();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        loop {
+            if state.stopped {
+                return;
+            }
+            if !state.armed {
+                state = self.changed.wait(state).unwrap_or_else(PoisonError::into_inner);
+                last_busy = busy();
+                continue;
+            }
+            let (next, waited) =
+                self.changed.wait_timeout(state, every).unwrap_or_else(PoisonError::into_inner);
+            state = next;
+            if state.stopped || !state.armed || !waited.timed_out() {
+                continue;
+            }
+            let (looked_busy, now_busy) = (last_busy, busy());
+            let worked = now_busy.saturating_sub(looked_busy) > every / 100;
+            last_busy = now_busy;
+            if worked || workers_running(metrics) {
+                state.armed = false;
+                state.woke_at = Some((Instant::now(), looked_busy));
+                self.woke.notify_one();
+            } else {
+                ring.record(Duration::ZERO);
+                ring.period_ms.store(
+                    u64::try_from(CANARY_IDLE_PERIOD.as_millis()).unwrap_or(u64::MAX),
+                    Ordering::Relaxed,
+                );
+            }
+        }
+    }
+}
+
+/// Whether any worker of the runtime is unparked now: tokio counts each park and each unpark of a
+/// worker, from 0 for a worker that starts awake, so an even count is a worker awake.
+fn workers_running(metrics: &tokio::runtime::RuntimeMetrics) -> bool {
+    (0..metrics.num_workers()).any(|w| metrics.worker_park_unpark_count(w).is_multiple_of(2))
 }
 
 /// `gauges` in `_acpmux/status`: [`Gauges::status`] with each connection's queue.
@@ -151,9 +896,93 @@ pub fn daemon_status() -> Value {
     status
 }
 
-/// This process's resident bytes now and at its peak; null where unknown.
+/// This process's resident bytes now and at its peak, null where unknown, and what the
+/// structures that grow with the chats it holds keep of them.
 pub fn memory() -> Value {
-    json!({"rssBytes": rss_bytes(), "peakRssBytes": peak_rss_bytes()})
+    json!({
+        "rssBytes": rss_bytes(),
+        "peakRssBytes": peak_rss_bytes(),
+        "closedRows": closed_rows().status(),
+    })
+}
+
+/// The cold archive's churn (`hub/cold_archive.rs` `Recent`): chats brought back from their
+/// archive, how many the hub remembers as brought back lately and its bound, the ones it let go
+/// to stay under it, and the archives the automatic passes held back for a chat brought back
+/// lately, since the daemon started.
+pub fn cold_rehydrates() -> &'static ColdRehydratesGauge {
+    static COLD: OnceLock<ColdRehydratesGauge> = OnceLock::new();
+    COLD.get_or_init(ColdRehydratesGauge::default)
+}
+
+#[derive(Default)]
+pub struct ColdRehydratesGauge {
+    rehydrates: AtomicU64,
+    recent: AtomicU64,
+    cap: AtomicU64,
+    evicted: AtomicU64,
+    held_back: AtomicU64,
+}
+
+impl ColdRehydratesGauge {
+    pub fn rehydrated(&self, recent: usize, cap: usize, evicted: u64) {
+        let n = |v: usize| u64::try_from(v).unwrap_or(u64::MAX);
+        self.rehydrates.fetch_add(1, Ordering::Relaxed);
+        self.recent.store(n(recent), Ordering::Relaxed);
+        self.cap.store(n(cap), Ordering::Relaxed);
+        self.evicted.fetch_add(evicted, Ordering::Relaxed);
+    }
+
+    pub fn held_back(&self, chats: u64) {
+        self.held_back.fetch_add(chats, Ordering::Relaxed);
+    }
+
+    fn status(&self) -> Value {
+        json!({
+            "rehydrates": self.rehydrates.load(Ordering::Relaxed),
+            "recent": self.recent.load(Ordering::Relaxed),
+            "cap": self.cap.load(Ordering::Relaxed),
+            "evicted": self.evicted.load(Ordering::Relaxed),
+            "heldBack": self.held_back.load(Ordering::Relaxed),
+        })
+    }
+}
+
+/// The closed rows' cached bytes (`hub/closed_rows.rs`): the forms kept, their bytes, their
+/// bound, and the forms let go to stay under it, since the daemon started.
+pub fn closed_rows() -> &'static ClosedRowsGauge {
+    static ROWS: OnceLock<ClosedRowsGauge> = OnceLock::new();
+    ROWS.get_or_init(ClosedRowsGauge::default)
+}
+
+#[derive(Default)]
+pub struct ClosedRowsGauge {
+    forms: AtomicU64,
+    bytes: AtomicU64,
+    cap_bytes: AtomicU64,
+    evicted: AtomicU64,
+}
+
+impl ClosedRowsGauge {
+    pub fn set(&self, forms: usize, bytes: usize, cap: usize) {
+        let n = |v: usize| u64::try_from(v).unwrap_or(u64::MAX);
+        self.forms.store(n(forms), Ordering::Relaxed);
+        self.bytes.store(n(bytes), Ordering::Relaxed);
+        self.cap_bytes.store(n(cap), Ordering::Relaxed);
+    }
+
+    pub fn evicted(&self, forms: u64) {
+        self.evicted.fetch_add(forms, Ordering::Relaxed);
+    }
+
+    fn status(&self) -> Value {
+        json!({
+            "forms": self.forms.load(Ordering::Relaxed),
+            "bytes": self.bytes.load(Ordering::Relaxed),
+            "capBytes": self.cap_bytes.load(Ordering::Relaxed),
+            "evicted": self.evicted.load(Ordering::Relaxed),
+        })
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -206,26 +1035,5 @@ fn peak_rss_bytes() -> Option<u64> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_phase_reports_its_length_and_a_mark_only_its_first_time() {
-        let gauges: &'static Gauges = Box::leak(Box::new(Gauges::new()));
-        {
-            let _phase = gauges.phase("store load");
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        gauges.mark("socket ready");
-        gauges.mark("socket ready");
-        let status = gauges.status();
-        let phases = status["startup"].as_array().unwrap();
-        assert_eq!(phases.len(), 2, "{status}");
-        assert_eq!(phases[0]["name"], "store load");
-        assert!(phases[0]["ms"].as_u64().unwrap() >= 5, "{status}");
-        assert_eq!(phases[1]["name"], "socket ready");
-        assert_eq!(phases[1]["ms"], 0);
-        #[cfg(any(target_os = "linux", target_os = "macos"))]
-        assert!(status["memory"]["rssBytes"].as_u64().unwrap() > 0, "{status}");
-    }
-}
+#[path = "gauges_tests.rs"]
+mod tests;

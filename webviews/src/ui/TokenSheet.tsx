@@ -148,6 +148,7 @@ export function TokenSheet({ only = "all" }: TokenSheetProps) {
               className="ui-token-glass"
               style={{
                 background: `color-mix(in srgb, var(--glass-surface, Canvas) var(${level.tint}), transparent)`,
+                // one-material-allow: the token sheet's swatch of each glass level's own numbers, a specimen, not a surface
                 backdropFilter: `var(${level.blur})`,
               }}
             >

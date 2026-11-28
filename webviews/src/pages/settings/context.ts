@@ -32,6 +32,13 @@ export function useSettingsState(): SettingsState {
   return useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
 }
 
+/** `key`'s value while a preview of it shows (a slider mid-drag), else undefined (store.liveValue). */
+export function useLiveValue(key: string | null): unknown {
+  const store = useStore();
+  const read = () => (key === null ? undefined : store.liveValue(key));
+  return useSyncExternalStore(store.subscribeLive, read, read);
+}
+
 /**
  * The part of the page's state `select` picks; the component renders only when `equal` says that
  * part changed (a write to one key renders that key's row, not every row on the page).
@@ -83,7 +90,7 @@ export function useRowState(key: string): RowState {
   );
 }
 
-function shallowEqual<T extends object>(a: T, b: T): boolean {
+export function shallowEqual<T extends object>(a: T, b: T): boolean {
   for (const key in a) if (!Object.is(a[key], b[key])) return false;
   return true;
 }

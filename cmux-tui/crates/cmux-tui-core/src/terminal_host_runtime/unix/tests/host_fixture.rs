@@ -43,6 +43,7 @@ pub(super) fn test_host_shared_with_budget(
         master: Mutex::new(Box::new(TestHostMaster {
             size: Mutex::new(pty_size(80, 24, DEFAULT_CELL_PIXELS)),
         })),
+        paste_pacer: Mutex::default(),
         killer: Mutex::new(Box::new(TestHostKiller)),
         pid: None,
         command: vec!["/bin/cat".into()],
@@ -76,6 +77,7 @@ pub(super) fn test_host_shared_with_budget(
             RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         )),
         exit_publish_requests,
+        exit_publisher: Mutex::new(None),
         force_pty_drain: AtomicBool::new(false),
         pty_drain_waker: Mutex::new(pty_drain_waker),
         termination_started: AtomicBool::new(false),

@@ -199,7 +199,7 @@ pub fn from_config() -> Option<Arc<Artifacts>> {
     }
     let relay = relay?;
     let hub = crate::mesh_http::HttpHub::new(&relay).ok()?;
-    let env = std::env::var(API_ENV).ok();
+    let env = crate::tool_env::var(API_ENV);
     let base = base_url(env.as_deref(), &config, Some(&relay));
     Artifacts::new(base, Bearer::Hub(Box::new(hub))).ok().map(Arc::new)
 }
@@ -242,7 +242,7 @@ pub struct File {
 impl Artifacts {
     pub fn new(base: String, bearer: Bearer) -> Result<Self> {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let http = reqwest::Client::builder()
+        let http = crate::happy_dial::http_client()
             .default_headers(cmux_build_space::headers()?)
             .redirect(reqwest::redirect::Policy::none())
             .read_timeout(CALL_TIMEOUT)
@@ -456,7 +456,15 @@ impl Artifacts {
         }
         let mut created = None;
         let mut legacy = false;
-        let mut conflict_retried = false;
+        // Another save moved the head first: saved again on the new head while saves keep
+        // landing, for a few seconds (no save applied, so another try never saves twice).
+        let mut conflicts = cmux_tui_util::retry::Patience::new(
+            "the artifact repository to settle",
+            std::time::Duration::from_secs(10),
+        )
+        .quiet()
+        .spaced(std::time::Duration::from_millis(50), std::time::Duration::from_secs(1));
+        let mut first_conflict = true;
         loop {
             let body = json!({"title": title, "kind": kind, "files": body_files, "trailers": trailers, "expectedHeadSha": head});
             match self.json("artifact save", |http| http.post(create_url.clone()).json(&body)).await
@@ -475,16 +483,21 @@ impl Artifacts {
                     legacy = true;
                 }
                 Err(e) => match e.downcast_ref::<Conflict>() {
-                    Some(Conflict(current)) if !conflict_retried => {
+                    Some(Conflict(current)) => {
                         head = current.clone();
-                        conflict_retried = true;
+                        // The first goes again at once, with the head the conflict named.
+                        if !std::mem::take(&mut first_conflict) {
+                            let Some(wait) = conflicts.next_wait(None) else { break };
+                            tokio::time::sleep(wait).await;
+                        }
                     }
-                    Some(_) => break,
                     None => return Err(e),
                 },
             }
         }
-        let created = created.context("artifact save: the repository kept changing; try again")?;
+        let created = created.context(
+            "artifact save: the repository kept changing (other saves kept landing first)",
+        )?;
         let id = created
             .get("id")
             .and_then(Value::as_str)
@@ -905,8 +918,8 @@ async fn execute(client: &Artifacts, name: &str, args: &Value) -> Result<Value> 
             }
             let files = files(args, kind)?;
             let mut trailers = json!({});
-            if let (Ok(session), Some(map)) =
-                (std::env::var(super::SESSION_ENV), trailers.as_object_mut())
+            if let (Some(session), Some(map)) =
+                (crate::tool_env::var(super::SESSION_ENV), trailers.as_object_mut())
                 && !session.is_empty()
                 && session.len() <= 256
                 && !session.chars().any(char::is_control)

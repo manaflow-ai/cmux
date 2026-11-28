@@ -136,6 +136,25 @@ await requireBrowserLane("new-chat-composer.test.ts", async () => {
       expect(fresh.top - fresh.strip!.bottom).toBeLessThanOrEqual(10);
     });
 
+  test("the reported remote chat shows its folder and machine on the first composer strip", async () => {
+    const page = await browser!.newPage({ viewport: { width: 720, height: 640 } });
+    await page.addInitScript(() => {
+      const observer = new MutationObserver(() => {
+        const strip = document.querySelector(".acpmux-composer-strip");
+        if (!strip?.querySelector(".acpmux-location-button")) return;
+        document.documentElement.dataset.firstComposerPlace = strip.textContent ?? "";
+        observer.disconnect();
+      });
+      observer.observe(document, { childList: true, subtree: true });
+    });
+    await page.goto(stageURL("remote"));
+    await page.waitForFunction(() => document.documentElement.dataset.firstComposerPlace !== undefined);
+    const place = await page.evaluate(() => document.documentElement.dataset.firstComposerPlace);
+    await page.close();
+    expect(place).toContain("relay");
+    expect(place).toContain("studio-mac");
+  });
+
   // Codex's look keeps its tray (composerLook.css); the card over it is the started Codex chat's.
   test("codex: the card keeps its four corners and its rim over the tray", async () => {
     const started = await card("started-codex");
@@ -148,6 +167,46 @@ await requireBrowserLane("new-chat-composer.test.ts", async () => {
     expect(fresh.radii).toEqual(started.radii);
     expect(fresh.ring).toBe(started.ring);
   });
+
+  /** Runs in the page: where the composer stands in the pane, and any builder question over it. */
+  function placement() {
+    const main = document.querySelector<HTMLElement>(".acpmux-main")!;
+    const pane = main.getBoundingClientRect();
+    const form = document.querySelector(".acpmux-composer-box")!.closest("form")!.getBoundingClientRect();
+    const hero = document.querySelector(".acpmux-empty-title")?.getBoundingClientRect();
+    const stage = main.querySelector(":scope > .acpmux-stage")!.getBoundingClientRect();
+    return {
+      position: main.getAttribute("data-empty-chat-composer"),
+      /// The composer's middle, from the pane's middle, as a share of the pane's height.
+      offset: (form.top + form.height / 2 - (pane.top + pane.height / 2)) / pane.height,
+      below: pane.bottom - form.bottom,
+      /// The builder question's distance from the stage's foot; null on the plain new chat.
+      heroAbove: hero ? stage.bottom - hero.bottom : null,
+    };
+  }
+
+  // Settings' Empty Chat Message Box (agentPane.emptyChatComposerPosition): Bottom, the default,
+  // docks the composer as before; Center sits it in the pane's middle.
+  test("an empty chat's composer docks at the bottom by default", async () => {
+    const page = await open("claude");
+    const at = await page.evaluate(placement);
+    await page.close();
+    expect(at.position).toBeNull();
+    expect(at.below).toBeLessThan(40);
+    expect(at.offset).toBeGreaterThan(0.25);
+  });
+
+  for (const variant of ["centered", "centered-codex"])
+    test(`${variant}: Center sits the empty chat's composer in the pane's middle`, async () => {
+      const page = await open(variant);
+      const at = await page.evaluate(placement);
+      await page.close();
+      expect(at.position).toBe("center");
+      expect(Math.abs(at.offset)).toBeLessThan(0.12);
+      expect(at.below).toBeGreaterThan(120);
+      // The plain new chat: no "What should we build" question over the composer (EmptyState.tsx).
+      expect(at.heroAbove).toBeNull();
+    });
 
   /** Runs in the page: the strip's chips (folder, computer) and where they stand over `card`. */
   function chips(card: string) {
@@ -205,16 +264,16 @@ await requireBrowserLane("new-chat-composer.test.ts", async () => {
     const menu = await page.evaluate(() => {
       const popup = document.querySelector(".acpmux-location-menu");
       return {
-        choose: popup?.querySelector('[data-choose=""]')?.textContent?.trim() ?? null,
+        actions: [...(popup?.querySelectorAll(".acpmux-location-action") ?? [])].map((row) => row.textContent?.trim()),
         privateFolder: popup?.textContent?.includes("private folder") ?? false,
         sentence: document.querySelector(".acpmux-folder-choice") !== null,
       };
     });
     await page.close();
-    expect(menu).toEqual({ choose: "Add folder…", privateFolder: false, sentence: false });
+    expect(menu).toEqual({ actions: ["Add project…"], privateFolder: false, sentence: false });
   });
 
-  test("the folder chip's Add folder… asks the host's workspace folder sheet", async () => {
+  test("Folder on this Mac asks the host's workspace folder sheet", async () => {
     const page = await open("choose-folder");
     await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay));
     const result = await page.evaluate(() => ({
@@ -227,9 +286,10 @@ await requireBrowserLane("new-chat-composer.test.ts", async () => {
     expect(result.calls).not.toContain("project.browse");
   });
 
-  test("a real pointer click on Choose folder asks the workspace sheet once", async () => {
+  test("a real pointer click on Folder on this Mac asks the workspace sheet once", async () => {
     const page = await open("folder-menu");
-    await page.locator('.acpmux-location-menu [data-choose=""]').click();
+    await page.getByRole("option", { name: "Add project…", exact: true }).click();
+    await page.getByRole("option", { name: /^Folder on this Mac/ }).click();
     await page.waitForFunction(() =>
       (window as unknown as { cmuxGalleryLog: { method: string }[] }).cmuxGalleryLog.some(
         ({ method }) => method === "workspace.chooseFolder",

@@ -3,7 +3,7 @@
 // 2026-11-03 a menu with a harness rail is columns (QuickModelColumns): the rail (Starred, then each
 // harness), the tab's models, then the shown model's settings (Effort levels, Fast as a switch). The
 // account is an avatar in the search row whose card lists the acpmux routes that serve the chat and
-// switches the chat's route. A started chat or a machine profile has no rail and keeps the list menu.
+// switches the chat's route. A machine profile has no rail and keeps the list menu; a started chat has the rail (cmux#55750).
 // The real composer, catalog and menu, in JSDOM.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -96,6 +96,8 @@ async function mount(
   listed: unknown,
   options: {
     fast?: boolean;
+    /** The agent starts a new model on its own level and Fast off, as Codex does on a switch. */
+    modelResets?: boolean;
     refuse?: boolean;
     turnCount?: number;
     model?: string;
@@ -216,7 +218,9 @@ async function mount(
         pickerCatalog={picker.catalog}
         onModel={(model) => {
           sent.push({ method: "model", value: model });
-          setState((current) => ({ ...current, model }));
+          setState((current) =>
+            options.modelResets ? { ...current, model, effort: "medium", fast: "off" } : { ...current, model },
+          );
         }}
         onMode={() => undefined}
         onEffort={(id, value) => {
@@ -356,9 +360,8 @@ test("Effort lists the model's levels and a pick sends it", async () => {
   expect(levels().map(nameOf)).toEqual(["Low", "Medium", "High"]);
   await click(levels().find((level) => nameOf(level) === "High")!);
   expect(sent).toEqual([{ method: "effort", value: "high" }]);
-  // A click applies at once and closes the menu (David Beyer 2026-11-20); opened again, it checks High.
-  expect(cols()).toBeNull();
-  await open();
+  // A click applies at once and the menu stays open on the new level.
+  expect(cols()).not.toBeNull();
   expect(levels().find((level) => level.getAttribute("aria-checked") === "true")?.textContent).toContain("High");
 });
 
@@ -643,15 +646,15 @@ test("the rail tab and the typed filter survive the composer re-rendering", asyn
 
 // A row never takes the keyboard (the slash menu's pattern): the search field keeps it while a
 // click picks a model and while a filter replaces the rows. The pick has landed once the menu closes.
-test("a click picks a model and closes the menu; the search field keeps the keyboard as typing replaces the rows", async () => {
+test("the search field keeps the keyboard as a click picks a model and typing replaces the rows", async () => {
   const { sent } = await mount({ routes: [] });
   await open();
   const row = modelRows(cols()!)[1]!;
   const name = nameOf(row);
   await click(row);
-  // A click lands the model and closes the menu (David Beyer 2026-11-20).
-  expect(cols()).toBeNull();
-  await open();
+  // A click keeps the menu open and checks the picked row.
+  expect(cols()).not.toBeNull();
+  expect(row.getAttribute("aria-selected")).toBe("true");
   expect(doc().activeElement).toBe(field());
   await typeIn("ha");
   await settle();
@@ -717,14 +720,16 @@ test("the search reads an effort word as the full picker does, and Enter lands t
   expect(sent).toContainEqual({ method: "effort", value: "high" });
 });
 
-// Review of #27303: a started chat's menu has no harness rail, so its empty search never says to
-// browse by harness.
+// Review of #27303: an empty search never says to browse by harness. A started chat's menu is the
+// shared columns picker now (cmux#55750), whose no-match note names no harness list.
 test("a started chat's empty search says what to do without naming a harness list", async () => {
   await mount({ routes: [] }, { turnCount: 1 });
   await open();
   await typeIn("zzzz");
   await settle();
-  expect(menu()!.querySelector(".acpmux-quick-note")?.textContent).toBe("No models match “zzzz”. Try part of a name.");
+  const note = cols()!.querySelector('[role="listbox"] .acpmux-cols-note')?.textContent;
+  expect(note).toBe("No matching models");
+  expect(cols()!.textContent).not.toContain("browse by harness");
 });
 
 test("a started chat's search field filters its own models in place, without opening the full picker", async () => {
@@ -879,25 +884,47 @@ test("Cmd-Ctrl-M over the compact menu opens the full picker in its place", asyn
   expect(cols()).toBeNull();
 });
 
-// Leo 2026-10-19: a started chat's menu drew a rail of its one harness, then offered Add harness….
-// Once a chat has a message its harness is fixed, as in Claude Code: the compact menu lists its
-// models with no rail, and More models opens the full picker, which has no rail either.
-test("a started chat's compact menu has no harness rail and no Add harness…", async () => {
+// #48444: model, reasoning and Fast are independent. A plain model pick in the full picker keeps the
+// chat's level and Fast, also on an agent that resets both on a switch (Codex).
+test("a model picked in the full picker keeps the chat's level and Fast", async () => {
+  const { sent } = await mount({ routes: [] }, { effort: "high", fast: true, modelResets: true });
+  await open();
+  await click(fastSwitch()!);
+  expect(sent).toEqual([{ method: "effort", value: "on" }]);
+  sent.length = 0;
+  await act(async () => {
+    dom.window.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true, bubbles: true }),
+    );
+  });
+  await settle();
+  const row = [...doc().querySelectorAll<HTMLElement>('.acpmux-mp-models [role="option"]')].find((item) =>
+    item.textContent?.includes("Fable 5.2"),
+  );
+  expect(row, "the Fable 5.2 row").toBeDefined();
+  await click(row!);
+  await settle();
+  expect(sent[0]).toEqual({ method: "model", value: "claude-fable-5-2" });
+  expect(sent.slice(1)).toContainEqual({ method: "effort", value: "high" });
+  expect(sent.slice(1)).toContainEqual({ method: "effort", value: "on" });
+});
+
+// cmux#55750: "it should be the same picker here so i can fork to a different agent as well". A
+// started chat's model button opens the same columns picker as a New Tab's (it replaced the compact
+// list menu with no rail, Leo 2026-10-19): the harness rail, every harness's tab, and Add harness….
+test("a started chat's menu is the shared picker, with the harness rail and Add harness…", async () => {
   const { added } = await mount({ routes: [] }, { turnCount: 1 });
   await open();
-  expect(cols()).toBeNull();
-  expect(menu()!.querySelector(".acpmux-quick-rail")).toBeNull();
-  expect(modelNames(menu()!).length).toBeGreaterThan(0);
-  const more = [...menu()!.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
-    item.textContent?.startsWith("More models"),
-  )!;
-  await act(async () => more.click());
-  await settle();
-  const full = doc().querySelector<HTMLElement>(".acpmux-mp")!;
-  expect(full).not.toBeNull();
-  expect(full.querySelector(".acpmux-mp-rail-scroll")).toBeNull();
-  expect(full.querySelector(".acpmux-mp-add-harness")).toBeNull();
-  expect(added).toEqual([]);
+  expect(cols()).not.toBeNull();
+  expect(doc().querySelector(".acpmux-quick-menu")).toBeNull();
+  const names = railTabs().map((tab) => tab.getAttribute("aria-label"));
+  expect(names).toContain("Claude Code");
+  expect(names.filter((name) => name !== "Starred" && name !== "Claude Code").length).toBeGreaterThan(0);
+  expect(modelNames(cols()!).length).toBeGreaterThan(0);
+  const add = cols()!.querySelector<HTMLElement>(".acpmux-cols-rail .acpmux-cols-tab-add")!;
+  expect(add.getAttribute("aria-label")).toBe("Add harness…");
+  await click(add);
+  expect(added).toEqual(["add"]);
 });
 
 // Tabs replace their visible rows while the rail itself stays in place.
@@ -957,7 +984,7 @@ test.each([{ turnCount: 0 }, { turnCount: 2 }, { folderProfile: true, currentFol
 // columns it ends the frame, below the three columns.
 test.each([
   ["a new chat (rail)", {}],
-  ["a started chat (no rail)", { turnCount: 1 }],
+  ["a started chat", { turnCount: 1 }],
   ["a machine profile", { folderProfile: true, currentFolder: true }],
 ] as const)("an agent update sits in a footer below the model list: %s", async (_name, options) => {
   let updated = 0;

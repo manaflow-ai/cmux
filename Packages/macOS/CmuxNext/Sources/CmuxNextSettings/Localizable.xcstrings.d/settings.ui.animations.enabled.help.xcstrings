@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.ui.animations.enabled.help" : {
+      "comment" : "Settings > Appearance > Motion: the help text under a motion switch (ui.animations.*).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "الإيقاف يوقف كل الرسوم المتحركة. عند التشغيل، تختار المفاتيح أدناه حسب المنطقة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Isključeno gasi sve animacije. Uključeno, prekidači ispod biraju po području."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fra slår alle animationer fra. Til vælger kontakterne nedenfor område for område."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Aus schaltet alle Animationen ab. An wählen die Schalter darunter nach Bereich."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Off turns every animation off. On, the switches below pick by area."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Desactivado apaga todas las animaciones. Activado, los interruptores de abajo eligen por área."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Désactivé coupe toutes les animations. Activé, les commutateurs ci-dessous choisissent par zone."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Disattivato spegne tutte le animazioni. Attivato, gli interruttori sotto scelgono area per area."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "オフにするとすべてのアニメーションが止まります。オンのときは下のスイッチで領域ごとに選べます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បិទ នឹងបិទចលនាទាំងអស់។ បើក កុងតាក់ខាងក្រោមជ្រើសរើសតាមតំបន់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "끄면 모든 애니메이션이 꺼집니다. 켜면 아래 스위치로 영역별로 고를 수 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Av slår av alle animasjoner. På velger bryterne nedenfor område for område."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wyłączone wyłącza wszystkie animacje. Włączone — przełączniki poniżej wybierają obszar po obszarze."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Desativado desliga todas as animações. Ativado, as chaves abaixo escolhem por área."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Выключено отключает все анимации. Включено — переключатели ниже выбирают по областям."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ปิดจะหยุดภาพเคลื่อนไหวทั้งหมด เปิดอยู่ สวิตช์ด้านล่างเลือกได้ทีละส่วน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kapalı, tüm animasyonları kapatır. Açıkken aşağıdaki anahtarlar alan alan seçer."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вимкнено вимикає всі анімації. Увімкнено — перемикачі нижче вибирають область за областю."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tắt sẽ tắt mọi hoạt ảnh. Bật thì các công tắc bên dưới chọn theo từng khu vực."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "关闭会停止所有动画。开启时，可用下方开关按区域选择。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "關閉會停止所有動畫。開啟時，可用下方開關依區域選擇。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -7,8 +7,7 @@ import Foundation
 import Testing
 
 /// Home's Set Up cmux card replaces the first-run windows (goal next-first-run-setup): a first run starts
-/// it and marks the Agents window and the CLI toast shown, so neither opens beside it (Bring your history opens
-/// from the card's chat history row, which keeps that page's once flag);
+/// it and marks the Agents window and the CLI toast shown, so neither opens beside it;
 /// an upgrade, or a channel that already showed the Agents window, never starts it automatically; Hide ends it until reopened.
 @MainActor @Suite(.serialized) struct FirstRunSetupTests {
     static let replaced = ["cli.install.offeredAtLaunch"]
@@ -27,7 +26,6 @@ import Testing
         #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
         #expect(setup.shows)
         for key in [OnboardingWindowPresenter.agentsShownKey] + Self.replaced { #expect(defaults.bool(forKey: key), "\(key) counts as shown") }
-        #expect(!defaults.bool(forKey: OnboardingWindowPresenter.historyShownKey), "Bring your history waits for the card's row")
         #expect(!OnboardingWindowPresenter.isFirstLaunch(defaults: defaults), "a started card is a finished first launch")
 
         // The Agents window, asked for after the card started, does not open even with an agent installed.
@@ -43,7 +41,7 @@ import Testing
         #expect(!setup.begin(isFirstRun: true, replacedKeys: Self.replaced), "never twice")
         setup.end()
         #expect(!setup.shows)
-        #expect(defaults.bool(forKey: OnboardingWindowPresenter.historyShownKey), "Hide dismisses the chat history row with the card")
+        #expect(defaults.bool(forKey: OnboardingWindowPresenter.historyShownKey), "Hide finishes this Mac's first launch")
         #expect(!FirstRunSetup(defaults: defaults).shows)
         #expect(!FirstRunSetup(defaults: defaults).begin(isFirstRun: true, replacedKeys: Self.replaced))
     }
@@ -66,12 +64,10 @@ import Testing
         #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
         setup.end()
         #expect(!setup.shows)
-        #expect(setup.historyDone)
 
         setup.reopen()
         #expect(setup.shows)
         #expect(defaults.string(forKey: FirstRunSetup.stateKey) == "reopened")
-        #expect(setup.historyDone, "reopening keeps the completed history row done")
         #expect(FirstRunSetup(defaults: defaults).shows)
     }
 
@@ -92,14 +88,12 @@ import Testing
     func completedRowsAutoHideOnlyOnFirstRun(reopened: Bool) async throws {
         let setup = FirstRunSetup(defaults: try defaults())
         #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
-        setup.historyAnswered()
         if reopened { setup.end(); setup.reopen() }
         let source = MockAgentSignInSource(agents: [OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: .signedIn)])
         let provider = SetupCardPageProvider(setup: setup, agents: source, environment: SetupCardEnvironment(
-            account: { (true, nil) }, signInAccount: {}, cliState: { "installed" }, installCLI: { _ in }, openAgents: {},
-            historySources: { true }, importHistory: { false }))
+            account: { (true, nil) }, signInAccount: {}, cliState: { "installed" }, installCLI: { _ in }, openAgents: {}))
         defer { provider.stop() }
-        await until { provider.agents.loaded && provider.cli != nil && provider.history != nil }
+        await until { provider.agents.loaded && provider.cli != nil }
         #expect(provider.allDone)
         var received = false
         let subscription = try await provider.subscribe("cmux.setup.changed", filter: [:], context: click(1)) { _ in received = true }
@@ -107,44 +101,10 @@ import Testing
         await until { received }
         #expect(received)
         #expect(setup.shows == reopened, "an explicit visit keeps completed rows visible")
-        #expect(provider.state["history"] == ["done": true])
         #expect(provider.state["cli"] == "installed")
         #expect(provider.state["agents"]?.arrayValue?.first?["state"] == "signedIn")
         _ = try await provider.call("cmux.setup.hide", params: [:], context: click(2))
         #expect(!setup.shows, "Hide still ends either kind of visit")
-    }
-
-    /// Chats found on this Mac: the card's chat history row opens Bring your history on a click, and its once flag
-    /// is set only once that page showed or the row was dismissed. None found: no row.
-    @Test func theChatHistoryRowOpensBringYourHistory() async throws {
-        let defaults = try defaults()
-        let setup = FirstRunSetup(defaults: defaults)
-        #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
-        let mac = PressLog()
-        let environment = SetupCardEnvironment(account: { (false, nil) }, signInAccount: {}, cliState: { "missing" }, installCLI: { _ in },
-                                               openAgents: {}, screenReader: { false }, historySources: { true },
-                                               importHistory: { mac.imports += 1; return mac.importShows })
-        let provider = SetupCardPageProvider(setup: setup, agents: nil, environment: environment)
-        defer { provider.stop() }
-        await until { provider.history != nil }
-        #expect(provider.state["history"] == ["done": false])
-        let importIt: JSONValue = ["action": ["kind": "importHistory"]]
-        let click = { (at: TimeInterval) in PageCallContext(page: PageDescriptor.setupCard.id, userGesture: true, gestureEvent: at) }
-
-        // The page did not show (a top page refused): the row stays.
-        _ = try await provider.call("cmux.setup.run", params: importIt, context: click(1))
-        #expect(mac.imports == 1 && !setup.historyDone && !defaults.bool(forKey: OnboardingWindowPresenter.historyShownKey))
-        mac.importShows = true
-        _ = try await provider.call("cmux.setup.run", params: importIt, context: click(2))
-        #expect(mac.imports == 2 && setup.historyDone && defaults.bool(forKey: OnboardingWindowPresenter.historyShownKey))
-        #expect(provider.state["history"] == ["done": true])
-        #expect(setup.shows, "the rest of the card stays")
-
-        let none = SetupCardPageProvider(setup: setup, agents: nil, environment: SetupCardEnvironment(
-            account: { (false, nil) }, signInAccount: {}, cliState: { "missing" }, installCLI: { _ in }, openAgents: {}, historySources: { false }, importHistory: { false }))
-        defer { none.stop() }
-        await until { none.history != nil }
-        #expect(none.state["history"] == .null)
     }
 
     /// A `cmux` that is no cmux app's ("foreign", ``CLIInstallReport/setupRow(_:)``) is never installed over, even
@@ -153,7 +113,7 @@ import Testing
         let setup = FirstRunSetup(defaults: try defaults())
         let mac = PressLog()
         let provider = SetupCardPageProvider(setup: setup, agents: nil, environment: SetupCardEnvironment(
-            account: { (false, nil) }, signInAccount: {}, cliState: { "foreign" }, installCLI: { _ in mac.installs += 1 }, openAgents: {}, historySources: { false }, importHistory: { false }))
+            account: { (false, nil) }, signInAccount: {}, cliState: { "foreign" }, installCLI: { _ in mac.installs += 1 }, openAgents: {}))
         defer { provider.stop() }
         await until { provider.cli != nil }
         #expect(provider.state["cli"] == "foreign")
@@ -164,15 +124,15 @@ import Testing
         #expect(mac.installs == 0)
     }
 
-    /// The launch after the card started (pending, or ended) runs no first-run window: the old path would mark
-    /// Bring your history shown with nothing shown and silently finish the card's chat history row.
+    /// The launch after the card started (pending, or ended) runs no first-run window, and finishes no first launch
+    /// before the card ends.
     @Test func aLaterLaunchLeavesTheFirstRunStepsToTheCard() throws {
         let defaults = try defaults()
         #expect(FirstRunSetup(defaults: defaults).route(isFirstRun: true, replacedKeys: Self.replaced) == .startCard)
         let relaunch = FirstRunSetup(defaults: defaults)
         #expect(relaunch.route(isFirstRun: false, replacedKeys: Self.replaced) == .cardOwns)
-        #expect(relaunch.shows && !relaunch.historyDone)
-        #expect(!defaults.bool(forKey: OnboardingWindowPresenter.historyShownKey), "the chat history row stays")
+        #expect(relaunch.shows)
+        #expect(!defaults.bool(forKey: OnboardingWindowPresenter.historyShownKey), "the first launch ends with the card")
         relaunch.end()
         #expect(FirstRunSetup(defaults: defaults).route(isFirstRun: false, replacedKeys: Self.replaced) == .cardOwns)
 
@@ -191,7 +151,7 @@ import Testing
             account: { (false, nil) }, signInAccount: {}, cliState: { mac.cliAfter }, installCLI: { _ in
                 mac.installs += 1
                 await withCheckedContinuation { mac.installRuns = $0 }
-            }, openAgents: {}, historySources: { false }, importHistory: { false }))
+            }, openAgents: {}))
         defer { provider.stop() }
         await until { provider.cli != nil }
         let install: JSONValue = ["action": ["kind": "installCLI"]]
@@ -208,28 +168,6 @@ import Testing
         #expect(provider.state["cli"] == "installed")
     }
 
-    /// Every other row done, and the read of the chat sources slow to answer: the card does not end before that
-    /// read returns, so a found history keeps its row (and its offer).
-    @Test func theCardWaitsForTheChatSourcesBeforeEnding() async throws {
-        let defaults = try defaults()
-        let setup = FirstRunSetup(defaults: defaults)
-        #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
-        let mac = PressLog()
-        let provider = SetupCardPageProvider(setup: setup, agents: nil, environment: SetupCardEnvironment(
-            account: { (true, nil) }, signInAccount: {}, cliState: { "installed" }, installCLI: { _ in }, openAgents: {},
-            historySources: { await withCheckedContinuation { mac.sourcesRead = $0 }; return true }, importHistory: { false }))
-        defer { provider.stop() }
-        await until { provider.cli != nil && mac.sourcesRead != nil }
-        #expect(provider.history == nil)
-        #expect(!provider.rowsBesideAgentsDone, "no end while the chat sources are still being read")
-
-        mac.sourcesRead?.resume()
-        await until { provider.history != nil }
-        #expect(provider.history == true && !provider.rowsBesideAgentsDone && setup.shows)
-        setup.historyAnswered()
-        #expect(provider.rowsBesideAgentsDone)
-    }
-
     /// An install that failed, then a read that finds the agent installed after all: the row follows the read
     /// (Sign In), not the stale failure (an Install with nothing to do).
     @Test func aFreshReadWinsOverAnEarlierFailedInstall() async throws {
@@ -238,8 +176,7 @@ import Testing
             OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: .unknown, installed: false)])
         source.installFails = "the installer exited 1"
         let provider = SetupCardPageProvider(setup: setup, agents: source, environment: SetupCardEnvironment(
-            account: { (false, nil) }, signInAccount: {}, cliState: { "missing" }, installCLI: { _ in }, openAgents: {},
-            historySources: { false }, importHistory: { false }))
+            account: { (false, nil) }, signInAccount: {}, cliState: { "missing" }, installCLI: { _ in }, openAgents: {}))
         defer { provider.stop() }
         await until { provider.agents.loaded }
         provider.agents.install("claude")
@@ -259,10 +196,9 @@ import Testing
         #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
         let source = MockAgentSignInSource(agents: [OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: .unknown)])
         let provider = SetupCardPageProvider(setup: setup, agents: source, environment: SetupCardEnvironment(
-            account: { (true, nil) }, signInAccount: {}, cliState: { "installed" }, installCLI: { _ in }, openAgents: {},
-            historySources: { false }, importHistory: { false }))
+            account: { (true, nil) }, signInAccount: {}, cliState: { "installed" }, installCLI: { _ in }, openAgents: {}))
         defer { provider.stop() }
-        await until { provider.agents.loaded && provider.cli != nil && provider.history != nil }
+        await until { provider.agents.loaded && provider.cli != nil }
         #expect(provider.state["agents"]?.arrayValue?.first?["state"] == "signedOut")
 
         // The login opens, then is cancelled: the sign-in still reads as unknown.
@@ -283,10 +219,9 @@ import Testing
         let setup = FirstRunSetup(defaults: try defaults())
         let source = MockAgentSignInSource(agents: [OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: .unknown)])
         let provider = SetupCardPageProvider(setup: setup, agents: source, environment: SetupCardEnvironment(
-            account: { (true, nil) }, signInAccount: {}, cliState: { "installed" }, installCLI: { _ in }, openAgents: {},
-            historySources: { false }, importHistory: { false }))
+            account: { (true, nil) }, signInAccount: {}, cliState: { "installed" }, installCLI: { _ in }, openAgents: {}))
         defer { provider.stop() }
-        await until { provider.agents.loaded && provider.cli != nil && provider.history != nil }
+        await until { provider.agents.loaded && provider.cli != nil }
         _ = try await provider.call("cmux.setup.run", params: ["action": ["kind": "confirmAgent", "id": "claude"]], context: click(1))
         #expect(provider.agents.confirmedLogins.isEmpty)
         #expect(provider.state["agents"]?.arrayValue?.first?["state"] == "signedOut")
@@ -303,7 +238,7 @@ import Testing
         let setup = FirstRunSetup(defaults: try defaults())
         let source = HeldInstallSource()
         let environment = SetupCardEnvironment(account: { (false, nil) }, signInAccount: {}, cliState: { "missing" }, installCLI: { _ in },
-                                               openAgents: {}, historySources: { false }, importHistory: { false })
+                                               openAgents: {})
         let first = SetupCardPageProvider(setup: setup, agents: source, environment: environment)
         await until { first.agents.loaded }
         let click = { (at: TimeInterval) in PageCallContext(page: PageDescriptor.setupCard.id, userGesture: true, gestureEvent: at) }
@@ -341,7 +276,7 @@ import Testing
         #expect(setup.needsChiefAgent, "Codex signed in does not answer for Chief")
 
         let environment = SetupCardEnvironment(account: { (false, nil) }, signInAccount: {}, cliState: { "missing" }, installCLI: { _ in },
-                                               openAgents: {}, historySources: { true }, importHistory: { false })
+                                               openAgents: {})
         let provider = SetupCardPageProvider(setup: setup, agents: source, environment: environment, forChief: true)
         defer { provider.stop() }
         #expect(provider.state["forChief"] == true)
@@ -370,18 +305,242 @@ import Testing
         #expect(FirstRunSetup(defaults: try defaults(), skipsOnboarding: true).shows == false)
     }
 
-    /// Not Now on the chat history row answers it for good.
-    @Test func notNowDismissesTheChatHistoryRow() async throws {
-        let defaults = try defaults()
-        let setup = FirstRunSetup(defaults: defaults)
+    /// Classic stable's save (no workspaces), as the launch's migration asks it: the app reads the daemon's preview
+    /// into this offer (`AppOnboardingServices.classicOffer`), so the test's preview is the offer itself.
+    private static let plan = FirstRunSetup.ClassicOffer(workspaces: 0, app: "cmux", savedAt: 1_793_000_000, running: false)
+    private static let quiet = SetupCardEnvironment(account: { (true, nil) }, signInAccount: {}, cliState: { "installed" }, installCLI: { _ in },
+                                                    openAgents: {})
+
+    /// The launch's migration through the card (``FirstRunSetup/classicMigration(seam:offer:dialog:screenReader:imported:_:)``): it asks the plan
+    /// once `ask` resumes, and returns the answer; `dialog` counts the dialog's asks.
+    /// `screenReader` is VoiceOver when it asks; with `holds`, the import waits after the answer until `finish()`
+    /// (failing when `fails`), as a real import's backup and workspaces take a moment.
+    @MainActor private final class LaunchRun {
+        struct ImportFailed: Error {}
+        var dialogs = 0
+        var gate: CheckedContinuation<Void, Never>?
+        var gated = false
+        var held: CheckedContinuation<Void, Never>?
+        var holds = false
+        var fails = false
+        var madeNothing = false
+
+        func start(_ setup: FirstRunSetup, seam: (@MainActor (FirstRunSetup.ClassicOffer) async -> ClassicImportAnswer)? = nil,
+                   screenReader: Bool = false) -> Task<ClassicImportAnswer?, Never> {
+            Task { @MainActor in
+                try? await setup.classicMigration(seam: seam, offer: { $0 }, dialog: { [self] _ in dialogs += 1; return .declined },
+                                                  screenReader: { screenReader }, imported: { [self] _ in !madeNothing }) { confirm in
+                    await withCheckedContinuation { gate = $0; gated = true }
+                    let answer = await confirm(FirstRunSetupTests.plan)
+                    if holds { await withCheckedContinuation { held = $0 } }
+                    if fails { throw ImportFailed() }
+                    return answer
+                }
+            }
+        }
+
+        func ask() {
+            gate?.resume()
+            gate = nil
+        }
+
+        func finish() {
+            held?.resume()
+            held = nil
+        }
+    }
+
+    /// A Classic user's first run is the same card: the launch's classic import asks on its cmux Classic row (the
+    /// app, its save time, whether it is open, what Import also does), and the row's own click answers it, Import
+    /// or Skip (a No the migration keeps); the row then reads the answer and no dialog asked.
+    @Test func theLaunchsClassicImportAsksOnTheCardsClassicRow() async throws {
+        for (kind, answer, wire) in [("importClassic", ClassicImportAnswer.accepted, "imported"), ("declineClassic", .declined, "declined")] {
+            let setup = FirstRunSetup(defaults: try defaults())
+            #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
+            let provider = SetupCardPageProvider(setup: setup, agents: nil, environment: Self.quiet)
+            defer { provider.stop() }
+            let run = LaunchRun()
+            let launch = run.start(setup)
+            await until { run.gated }
+            #expect(provider.state["classic"] == .null, "no row before the migration asks")
+            run.ask()
+            await until { setup.classic != nil }
+            let row = try #require(provider.state["classic"]?.objectValue)
+            #expect(row["workspaces"] == .number(0) && row["app"] == .string("cmux") && row["savedAt"] == .number(1_793_000_000_000))
+            #expect(row["running"] == .bool(false) && row["resumes"] == .bool(false) && row["answered"] == nil)
+
+            // Only the person's own click answers it.
+            await #expect(throws: PageError.self) {
+                try await provider.call("cmux.setup.run", params: ["action": ["kind": .string(kind)]],
+                                        context: PageCallContext(page: PageDescriptor.setupCard.id, userGesture: false))
+            }
+            #expect(setup.classicAnswer == nil)
+            _ = try await provider.call("cmux.setup.run", params: ["action": ["kind": .string(kind)]], context: click(1))
+            #expect(await launch.value == answer)
+            #expect(run.dialogs == 0)
+            #expect(provider.state["classic"]?.objectValue?["answered"] == .string(wire))
+        }
+    }
+
+    /// The card never ends before the launch's migration decided whether it asks, nor while it asks; Hide leaves the
+    /// ask unanswered (only Skip is a No, so the next launch asks again), and with the card gone the dialog asks.
+    @Test func theCardWaitsForTheClassicAnswerAndHideLeavesItUnanswered() async throws {
+        let setup = FirstRunSetup(defaults: try defaults())
         #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
-        let provider = SetupCardPageProvider(setup: setup, agents: nil, environment: SetupCardEnvironment(
-            account: { (false, nil) }, signInAccount: {}, cliState: { "missing" }, installCLI: { _ in }, openAgents: {}, historySources: { true }, importHistory: { false }))
+        let agent = OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: .signedIn)
+        let provider = SetupCardPageProvider(setup: setup, agents: MockAgentSignInSource(agents: [agent]), environment: Self.quiet)
         defer { provider.stop() }
-        _ = try await provider.call("cmux.setup.run", params: ["action": ["kind": "declineHistory"]],
-                                    context: PageCallContext(page: PageDescriptor.setupCard.id, userGesture: true, gestureEvent: 1))
-        #expect(setup.historyDone && defaults.bool(forKey: OnboardingWindowPresenter.historyShownKey))
-        #expect(FirstRunSetup(defaults: defaults).historyDone)
+        await until { provider.agents.loaded && provider.state["cli"] == .string("installed") }
+        #expect(provider.allDone, "every row done with no migration running")
+
+        let run = LaunchRun()
+        let launch = run.start(setup)
+        await until { run.gated }
+        #expect(!provider.allDone, "the migration has not decided yet")
+        run.ask()
+        await until { setup.classic != nil }
+        #expect(!provider.allDone, "the cmux Classic row still asks")
+        _ = try await provider.call("cmux.setup.hide", params: [:], context: click(1))
+        #expect(await launch.value == .unanswered, "Hide is no answer: only Skip is a No")
+        #expect(!setup.shows && run.dialogs == 0)
+
+        let after = LaunchRun()
+        let again = after.start(setup)
+        await until { after.gated }
+        after.ask()
+        #expect(await again.value == .declined && after.dialogs == 1, "with no card, the launch asks with its dialog")
+    }
+
+    /// A card that shows but is drawn nowhere (its page could not be made, or its window closed mid-ask) never holds
+    /// the migration: with no card drawn the dialog asks at once, and the last card closing hands an ask to it.
+    @Test func withNoCardDrawnTheDialogAsks() async throws {
+        let setup = FirstRunSetup(defaults: try defaults(), cardWait: .milliseconds(50))
+        #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
+        let none = LaunchRun()
+        let first = none.start(setup)
+        await until { none.gated }
+        none.ask()
+        #expect(await first.value == .declined && none.dialogs == 1 && setup.classic == nil, "no card drawn in time: the dialog")
+
+        let provider = SetupCardPageProvider(setup: setup, agents: nil, environment: Self.quiet)
+        let closing = LaunchRun()
+        let second = closing.start(setup)
+        await until { closing.gated }
+        closing.ask()
+        await until { setup.classic != nil }
+        provider.stop()
+        provider.stop()
+        #expect(await second.value == .declined && closing.dialogs == 1, "the card closed mid-ask: the dialog")
+        #expect(setup.classic == nil && setup.shows)
+    }
+
+    /// Import says Imported only once the migration brought the workspaces: Importing while it runs (the card does
+    /// not end), and Not imported when it failed, so a failed import never keeps a checkmark.
+    @Test func theClassicRowSaysImportedOnlyWhenTheImportFinished() async throws {
+        for (fails, wire) in [(false, "imported"), (true, "failed")] {
+            let setup = FirstRunSetup(defaults: try defaults())
+            #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
+            let agent = OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: .signedIn)
+            let provider = SetupCardPageProvider(setup: setup, agents: MockAgentSignInSource(agents: [agent]), environment: Self.quiet)
+            defer { provider.stop() }
+            await until { provider.agents.loaded && provider.state["cli"] == .string("installed") }
+            let run = LaunchRun()
+            (run.holds, run.fails) = (true, fails)
+            let launch = run.start(setup)
+            await until { run.gated }
+            run.ask()
+            await until { setup.classic != nil }
+            _ = try await provider.call("cmux.setup.run", params: ["action": ["kind": .string("importClassic")]], context: click(1))
+            await until { run.held != nil }
+            #expect(provider.state["classic"]?.objectValue?["answered"] == .string("importing"))
+            #expect(!provider.allDone, "the card stays while the import runs")
+            run.finish()
+            #expect(await launch.value == (fails ? nil : .accepted))
+            #expect(provider.state["classic"]?.objectValue?["answered"] == .string(wire))
+            #expect(provider.allDone, "answered and finished either way")
+        }
+    }
+
+    /// With VoiceOver on, the import asks with its dialog even on a card an earlier launch left pending: VoiceOver
+    /// cannot press the card's WebKit buttons.
+    @Test func withVoiceOverAPendingCardLeavesTheAskToTheDialog() async throws {
+        let store = try defaults()
+        #expect(FirstRunSetup(defaults: store).begin(isFirstRun: true, replacedKeys: Self.replaced))
+        let relaunched = FirstRunSetup(defaults: store)
+        #expect(relaunched.route(isFirstRun: false, replacedKeys: Self.replaced, screenReader: true) == .cardOwns && relaunched.shows)
+        let provider = SetupCardPageProvider(setup: relaunched, agents: nil, environment: Self.quiet)
+        defer { provider.stop() }
+        let run = LaunchRun()
+        let launch = run.start(relaunched, screenReader: true)
+        await until { run.gated }
+        run.ask()
+        #expect(await launch.value == .declined && run.dialogs == 1 && relaunched.classic == nil)
+    }
+
+    /// A cold launch draws the card once Home's chat starts, which can be after the migration asks: the ask waits for
+    /// that card and shows on its row, and the dialog never asks.
+    @Test func aCardDrawnAfterTheAskStartedStillAsksOnItsRow() async throws {
+        let setup = FirstRunSetup(defaults: try defaults())
+        #expect(setup.route(isFirstRun: true, replacedKeys: Self.replaced) == .startCard)
+        let run = LaunchRun()
+        let launch = run.start(setup)
+        await until { run.gated }
+        run.ask()
+        await until { setup.classic != nil }
+        let provider = SetupCardPageProvider(setup: setup, agents: nil, environment: Self.quiet)
+        defer { provider.stop() }
+        #expect(provider.state["classic"]?.objectValue?["workspaces"] == .number(0))
+        _ = try await provider.call("cmux.setup.run", params: ["action": ["kind": .string("declineClassic")]], context: click(1))
+        #expect(await launch.value == .declined && run.dialogs == 0)
+    }
+
+    /// An import that returns having made nothing (every workspace failed without throwing) is not Imported.
+    @Test func anImportThatMadeNothingIsNotImported() async throws {
+        let setup = FirstRunSetup(defaults: try defaults())
+        #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
+        let provider = SetupCardPageProvider(setup: setup, agents: nil, environment: Self.quiet)
+        defer { provider.stop() }
+        let run = LaunchRun()
+        run.madeNothing = true
+        let launch = run.start(setup)
+        await until { run.gated }
+        run.ask()
+        await until { setup.classic != nil }
+        _ = try await provider.call("cmux.setup.run", params: ["action": ["kind": .string("importClassic")]], context: click(1))
+        #expect(await launch.value == .accepted)
+        #expect(setup.classicImported == false && provider.state["classic"]?.objectValue?["answered"] == .string("failed"))
+    }
+
+    /// A browser-only import still says what Import also does (it loads the saved pages).
+    @Test func aBrowserOnlyImportSaysItLoadsPages() {
+        #expect(FirstRunSetup.ClassicOffer(workspaces: 1, app: "cmux", savedAt: 0, running: false, browserTabs: 2).resumes)
+        #expect(!FirstRunSetup.ClassicOffer(workspaces: 1, app: "cmux", savedAt: 0, running: false).resumes)
+    }
+
+    /// A Classic user whose other rows are all done: the launch's route makes the card wait for the migration before
+    /// any card is drawn, so a card's first snapshot cannot end it before the cmux Classic row asks.
+    @Test func theRouteMakesTheCardWaitForTheMigrationBeforeItIsDrawn() async throws {
+        let setup = FirstRunSetup(defaults: try defaults())
+        #expect(setup.route(isFirstRun: true, replacedKeys: Self.replaced) == .startCard)
+        #expect(setup.awaitsClassic)
+        let agent = OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: .signedIn)
+        let provider = SetupCardPageProvider(setup: setup, agents: MockAgentSignInSource(agents: [agent]), environment: Self.quiet)
+        defer { provider.stop() }
+        await until { provider.agents.loaded && provider.state["cli"] == .string("installed") }
+        #expect(!provider.allDone && setup.shows, "drawn before the migration asked: it waits")
+        setup.classicSettled()
+        #expect(provider.allDone, "no migration at launch: every row done")
+    }
+
+    /// A test's answer (`classicMigrationConfirmation`) wins over the card's row.
+    @Test func aTestsAnswerWinsOverTheCard() async throws {
+        let setup = FirstRunSetup(defaults: try defaults())
+        #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
+        let run = LaunchRun()
+        let launch = run.start(setup, seam: { _ in .accepted })
+        await until { run.gated }
+        run.ask()
+        #expect(await launch.value == .accepted && setup.classic == nil && run.dialogs == 0)
     }
 
     private func until(_ done: () -> Bool) async {
@@ -421,8 +580,7 @@ import Testing
         #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
         let mac = PressLog()
         let environment = SetupCardEnvironment(account: { (false, nil) }, signInAccount: { mac.signIns += 1 }, cliState: { "missing" },
-                                               installCLI: { _ in }, openAgents: { mac.opened += 1 }, screenReader: { mac.voiceOver },
-                                               historySources: { false }, importHistory: { false })
+                                               installCLI: { _ in }, openAgents: { mac.opened += 1 }, screenReader: { mac.voiceOver })
         let provider = SetupCardPageProvider(setup: setup, agents: nil, environment: environment)
         defer { provider.stop() }
         let press = PageCallContext(page: PageDescriptor.setupCard.id)
@@ -449,12 +607,9 @@ import Testing
     var voiceOver = false
     var opened = 0
     var signIns = 0
-    var imports = 0
     var installs = 0
-    var sourcesRead: CheckedContinuation<Void, Never>?
     var cliAfter = "missing"
     var installRuns: CheckedContinuation<Void, Never>?
-    var importShows = false
 }
 
 /// Claude Code and Codex missing; an install holds until the test resumes it, then reads as installed.

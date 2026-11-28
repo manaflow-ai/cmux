@@ -8,19 +8,38 @@ import {
   type AnyRouter,
   type RouteComponent,
   type RouterHistory,
+  redirect,
 } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
 import { ensureSection, routeSection } from "./sectionQueries";
 import type { SettingsStore } from "./store";
-import { parsePersonalizationPart, type PartID } from "./personalizationParts";
+import { routeFocus } from "./legacyLinks";
 
 /** What every route's loader reads from: the page's query cache and its store. */
 export type SettingsRouterContext = { queryClient: QueryClient; store: SettingsStore };
+export const CLOUD_MODELS_FOCUS = "card.cloudModels";
+export const CLOUD_MODELS_ADD_FOCUS = "cloudModels.add";
+export const MODELS_ADD_FOCUS = "models.add";
 
 /** The route's search: the focused key, the workspace Change Background… came from, the sidebar
  * search's text (`q`). `changed=1` is the removed Changed filter's: an old link keeps it, and the page
- * ignores it. Plain `?a=b` pairs, never JSON. */
-export type SettingsSearch = { focus?: string; workspace?: string; part?: PartID; q?: string; changed?: true };
+ * ignores it. An old Personalization link's `part` becomes its focus (legacyLinks.ts). Plain `?a=b`
+ * pairs, never JSON. */
+export type SettingsSearch = {
+  focus?: string;
+  workspace?: string;
+  q?: string;
+  changed?: true;
+  provider?: string;
+  machine?: string;
+  machineName?: string;
+  environment?: string;
+  recoverySession?: string;
+  /** `cmux://slack/connected` hints to re-read the connection. */
+  slack?: "connect" | "connected";
+  open?: string;
+  fromSend?: true;
+};
 
 export function validateSettingsSearch(raw: Record<string, unknown>): SettingsSearch {
   const text = (value: unknown) => (value === undefined || value === null || value === "" ? undefined : String(value));
@@ -28,11 +47,31 @@ export function validateSettingsSearch(raw: Record<string, unknown>): SettingsSe
   const focus = text(raw.focus);
   const workspace = text(raw.workspace);
   const q = text(raw.q);
-  const part = parsePersonalizationPart(raw.part);
+  const part = text(raw.part);
+  const provider = text(raw.provider);
+  const open = text(raw.open);
   if (focus) out.focus = focus;
-  if (part) out.part = part;
+  // `?part=` was Personalization's (#/settings/personalization?part=background): its focus now.
+  else if (part) out.focus = `personalization.${part}`;
   if (workspace) out.workspace = workspace;
   if (q) out.q = q;
+  if (provider) out.provider = provider;
+  if (typeof raw.machine === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(raw.machine)) out.machine = raw.machine;
+  if (typeof raw.environment === "string" && /^(?:env|denv)_[a-f0-9]{24}$/i.test(raw.environment)) {
+    out.environment = raw.environment;
+  }
+  if (typeof raw.recoverySession === "string" && /^[A-Za-z0-9_.:@-]{1,128}$/.test(raw.recoverySession)) {
+    out.recoverySession = raw.recoverySession;
+  }
+  if (typeof raw.machineName === "string" && raw.machineName.length <= 128 && raw.machineName.trim()) {
+    out.machineName = raw.machineName.trim();
+  }
+  if (open) out.open = open;
+  if (raw.fromSend === true || raw.fromSend === "1") out.fromSend = true;
+  if ((raw.slack === "connect" || raw.slack === "connected") && text(raw.open)) {
+    out.slack = raw.slack;
+    out.open = text(raw.open);
+  }
   if (raw.changed === true || raw.changed === "1" || raw.changed === 1) out.changed = true;
   return out;
 }
@@ -50,6 +89,23 @@ export function stringifySettingsSearch(search: Record<string, unknown>): string
   }
   const text = query.toString();
   return text ? `?${text}` : "";
+}
+
+/** Compatibility for links that opened Cloud setup through the Models category. */
+function legacyModelSetup(section: string | undefined, search: SettingsSearch): SettingsSearch | undefined {
+  const { focus, provider } = search;
+  if (provider === "ollama" || provider === "lm-studio") return undefined;
+  const target = focus === "cloud.claude" ? "claude" : focus === "cloud.chatgpt" ? "chatgpt" : undefined;
+  if (focus === "cloud.apiKey" && !provider) return { ...search, focus: CLOUD_MODELS_ADD_FOCUS };
+  if (
+    (section === "models" && provider && !focus) ||
+    focus === "cloud.claude" ||
+    focus === "cloud.chatgpt" ||
+    focus === "cloud.apiKey" ||
+    (section === "cloud" && provider && !focus)
+  ) {
+    return { ...search, focus: CLOUD_MODELS_FOCUS, provider: provider ?? target };
+  }
 }
 
 /**
@@ -73,6 +129,31 @@ export function createSettingsRouter(
     createRoute({
       getParentRoute: () => rootRoute,
       path,
+      beforeLoad: ({ params, search }) => {
+        const section = (params as { section?: string }).section;
+        const settingsSearch = search as SettingsSearch;
+        if (
+          section === "models" &&
+          !settingsSearch.focus &&
+          (settingsSearch.provider === "ollama" || settingsSearch.provider === "lm-studio")
+        ) {
+          throw redirect({
+            href:
+              "/settings/models" +
+              stringifySettingsSearch({
+                ...settingsSearch,
+                provider: undefined,
+                focus: MODELS_ADD_FOCUS + "." + settingsSearch.provider,
+              }),
+            replace: true,
+          });
+        }
+        const setup = legacyModelSetup(section, settingsSearch);
+        if (setup) {
+          const search = stringifySettingsSearch({ ...setup, open: setup.open ?? crypto.randomUUID() });
+          throw redirect({ href: "/settings/cloud" + search, replace: true });
+        }
+      },
       // The focused key picks the section (a key's home), so it is a loader dependency; the
       // search text and the workspace are not.
       loaderDeps: ({ search }) => ({ focus: (search as SettingsSearch).focus }),
@@ -139,12 +220,14 @@ export function fragmentLocation(fragment: string, state: unknown): FragmentLoca
   } as FragmentLocation;
 }
 
+/** An old Personalization link's `?part=` as the focus it meant (legacyLinks.ts). */
+const legacyFocus = (part: string | null) => (part ? `personalization.${part}` : null);
+
 /** `workspace` is the workspace Change Background… came from (the picker's This Workspace). */
 export type SettingsLocation = {
   section: string;
   focus: string | null;
   workspace: string | null;
-  part: PartID | null;
   /** The sidebar search's text; empty when not searching. */
   query: string;
 };
@@ -168,12 +251,14 @@ export function parseLocation(href: string): SettingsLocation {
       if (!(error instanceof URIError)) throw error;
     }
   }
-  const section = routeSection(requestedSection, focus);
+  const legacy = legacyModelSetup(requestedSection, validateSettingsSearch(Object.fromEntries(url.searchParams)));
+  const section = legacy ? "cloud" : routeSection(requestedSection, focus ?? legacyFocus(url.searchParams.get("part")));
   return {
     section,
-    focus,
+    focus: legacy
+      ? (legacy.focus ?? null)
+      : routeFocus(requestedSection, focus ?? legacyFocus(url.searchParams.get("part"))),
     workspace: url.searchParams.get("workspace"),
-    part: parsePersonalizationPart(url.searchParams.get("part")),
     query: url.searchParams.get("q") ?? "",
   };
 }
@@ -182,12 +267,11 @@ export function sectionHref(
   section: string,
   focus?: string | null,
   workspace?: string | null,
-  options?: { query?: string; part?: PartID | null },
+  options?: { query?: string },
 ): string {
   const query = new URLSearchParams();
   if (focus) query.set("focus", focus);
   if (workspace) query.set("workspace", workspace);
-  if (options?.part) query.set("part", options.part);
   if (options?.query) query.set("q", options.query);
   const search = query.toString();
   return `/settings/${encodeURIComponent(section)}${search ? `?${search}` : ""}`;

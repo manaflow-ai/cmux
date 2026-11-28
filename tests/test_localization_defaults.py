@@ -4,9 +4,11 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -127,6 +129,36 @@ class LocalizationDefaultsTests(unittest.TestCase):
         for path in ("cmuxTests/AgeTests.swift", "Packages/macOS/Pkg/Tests/PkgTests/T.swift", "vendor/Dep/Sources/D.swift"):
             self.fixture.swift(swift_call("age", "a few minutes"), path)
         self.assertEqual(self.fixture.check(), ([], 0))
+
+    def test_excluded_subtrees_are_pruned_before_scanning(self):
+        self.fixture.swift(swift_call("live", "Live %@"), "Packages/P/Sources/Live.swift")
+        for excluded in MODULE.SKIP_DIRS:
+            for index in range(3):
+                self.fixture.swift("ignored", f"Packages/P/{excluded}/deep/{index}/Ignored.swift")
+        real_scandir = os.scandir
+        visited = []
+
+        def record(path):
+            relative = Path(path).relative_to(self.fixture.root)
+            visited.append(relative)
+            return real_scandir(path)
+
+        with mock.patch.object(os, "scandir", side_effect=record):
+            found = MODULE.swift_files(self.fixture.root)
+        self.assertEqual(found, [self.fixture.root / "Packages/P/Sources/Live.swift"])
+        self.assertFalse([path for path in visited if not MODULE.SKIP_DIRS.isdisjoint(path.parts)],
+                         "excluded content must never be traversed, even when it contains no Swift files")
+
+    def test_pruning_preserves_discovery_including_untracked_files_and_file_links(self):
+        for path in ("Top.swift", "Packages/P/Sources/A.swift", "Sources/New.swift", "Sources/Not.swift.txt",
+                     "myTests/StillIncluded.swift", "vendor/Excluded.swift", "Sources/Tests/Excluded.swift"):
+            self.fixture.swift("", path)
+        (self.fixture.root / "Sources/Alias.swift").symlink_to(self.fixture.root / "Top.swift")
+        (self.fixture.root / "Sources/LinkedDirectory").symlink_to(self.fixture.root / "myTests",
+                                                                  target_is_directory=True)
+        expected = sorted(path for path in self.fixture.root.rglob("*.swift")
+                          if MODULE.SKIP_DIRS.isdisjoint(path.relative_to(self.fixture.root).parts[:-1]))
+        self.assertEqual(MODULE.swift_files(self.fixture.root), expected)
 
     def test_allowlisted_mismatch_passes_and_a_stale_entry_fails(self):
         self.fixture.catalog({

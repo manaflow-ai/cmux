@@ -8,10 +8,14 @@
 # To time an older commit, revert the change on a scratch ref of the tip (the script blob must match the reviewed one).
 #
 # Options this script reads (the rest go to split-spring-terminal.py):
-#   --app-cache     reuse this commit's app when an earlier step on this worker built it
+#   --app-cache     (the default) reuse this commit's app when an earlier step on this worker built it
 #                   ($CI_SHARED_CACHE_DIR/split-spring-apps/<sha>), and keep it there after a build (the 3
-#                   newest unpinned commits). The perf cron (scripts/cmux-next/perf-cron.py) builds once per
-#                   measurement.
+#                   newest unpinned commits) while the volume keeps SPLIT_SPRING_CACHE_MIN_FREE_GIB (60) free.
+#                   The perf cron (scripts/cmux-next/perf-cron.py) builds once per measurement. It was opt-in until
+#                   2026-11-27: 150 of 184 split-spring steps in 24 h passed no --app-cache, 9 of 58 started ones
+#                   re-ran a ref their worker had already built, and the build was 49% of split-spring's 30.9
+#                   held-Mac hours (measure-queue-wait, controller /v1/jobs/history).
+#   --no-app-cache  build fresh and keep nothing (a measurement of the build itself, or a suspect cache).
 #   --build-only    build (or find) the app, keep it in the cache and pin it there for 13 h (`pin`; a perf cron
 #                   measurement is abandoned after 12 h), measure nothing; report.json records the build. No
 #                   eviction removes a pinned app, so a measurement's later parts never build cold.
@@ -30,6 +34,11 @@
 #   --vdisplay-size=WxH  the virtual display's pixels (default 1920x1200: under the Dock a 1920x1080 display left
 #                   about 965 pt, and AppKit clamped the 1600 x 1000 STRESS window, 2026-10-24). The helper's ready
 #                   line reports the visible frame (visible=WxH), which the report's display.line keeps.
+#   --cpu-load      measure under full CPU load: before the bench starts, 4-thread spinners
+#                   (scripts/measure/qos-load-bench/spin.c) at the default priority, more threads than the host has
+#                   cores (hw.ncpu / 4 + 1 spinners), the same load as qos-load-bench.sh. They are stopped by PID when
+#                   the bench ends. The report gets `cpu_load`: {spinners, threads, ncpu}, or null without the option.
+#                   The perf cron never passes it; it is for a before/after pair under load ("idle and under load").
 # On exit, TERM, INT or HUP (a cancelled step) the script stops the bench, ends the tag's app and daemons
 # (scripts/cmux-next/tag_teardown.py, exact PIDs of the app bundle) and the virtual display.
 set -euo pipefail
@@ -38,11 +47,13 @@ set -euo pipefail
 # the suites, the args); a comment, log or report-key edit keeps it, so it keeps the history measurable.
 SPLIT_SPRING_MEASURE_VERSION=5  # 5: workspace-scaling adds a dispatcher suite (historical commits without it must not be bisected as another suite); 4: STRESS sessions open their extra terminal, Chromium and WebKit tabs (add_tab had a pane target the actions refuse; 3: the virtual display is 1920x1200)
 cd "$(git rev-parse --show-toplevel)"
-build_only=0 app_cache=0 vdisplay_hz="" vdisplay_hold=1200 vdisplay_size=1920x1200 args=() reload_config=()
+cpu_load=0 build_only=0 app_cache=1 vdisplay_hz="" vdisplay_hold=1200 vdisplay_size=1920x1200 args=() reload_config=()
 for arg in "$@"; do
   case "$arg" in
     --build-only) build_only=1 app_cache=1 ;;
     --app-cache) app_cache=1 ;;
+    --no-app-cache) app_cache=0 ;;
+    --cpu-load) cpu_load=1 ;;
     --vdisplay=*) vdisplay_hz="${arg#--vdisplay=}" ;;
     --vdisplay-hold=*) vdisplay_hold="${arg#--vdisplay-hold=}" ;;
     --vdisplay-size=*) vdisplay_size="${arg#--vdisplay-size=}" ;;
@@ -172,6 +183,13 @@ if [[ -z "$app" ]]; then
     fi
     exit 1
   fi
+  # A kept app is a few GiB: on a short volume (the 256 GB minis sit near the measure floor) keep nothing and
+  # leave the space to the next step's build.
+  free_gib="$(df -Pk "${CI_SHARED_CACHE_DIR:-.}" 2>/dev/null | awk 'NR==2 { print int($4 / 1048576) }')"
+  if [[ -n "$cache" && "$build_only" != 1 && "${free_gib:-0}" -lt "${SPLIT_SPRING_CACHE_MIN_FREE_GIB:-60}" ]]; then
+    echo "split-spring: not keeping the app (${free_gib:-?} GiB free < ${SPLIT_SPRING_CACHE_MIN_FREE_GIB:-60} GiB)"
+    cache=""
+  fi
   if [[ -n "$cache" ]]; then
     mkdir -p "$cache"
     rm -rf "${cache:?}/$key.tmp"
@@ -208,7 +226,14 @@ if [[ "$build_only" == 1 ]]; then
   exit 0
 fi
 
-vdisplay_pid="" bench_pid="" measuring=0
+vdisplay_pid="" bench_pid="" measuring=0 spin_pids=()
+# shellcheck disable=SC2329 # run by cleanup
+stop_cpu_load() {
+  local pid
+  for pid in ${spin_pids[@]+"${spin_pids[@]}"}; do kill "$pid" 2>/dev/null || true; done  # the spinners this script started, by PID
+  for pid in ${spin_pids[@]+"${spin_pids[@]}"}; do wait "$pid" 2>/dev/null || true; done
+  spin_pids=()
+}
 stop_vdisplay() {
   if [[ -n "$vdisplay_pid" ]]; then
     kill "$vdisplay_pid" 2>/dev/null || true  # the helper this script started, by its PID
@@ -224,6 +249,7 @@ cleanup() {
     kill -TERM "$bench_pid" 2>/dev/null || true  # the bench this script started, by its PID
     wait "$bench_pid" 2>/dev/null || true
   fi
+  stop_cpu_load
   if [[ "$measuring" == 1 ]]; then
     python3 scripts/cmux-next/tag_teardown.py "$app" || true
   fi
@@ -270,7 +296,18 @@ sys.exit(0 if ok else 1)
 PY
 )"; then
     echo "split-spring: VDISPLAY ${vdisplay_hz} Hz main display ($line)"
-    sleep 2  # let WindowServer settle the new main display before the app opens on it
+    # Until a new process sees the virtual display as its main display (what the app opens on), 15 s.
+    # Only when the helper's ready line says it made the display main (main=ID).
+    vd_id="$(sed -n 's/^ready \([0-9]*\) [0-9.]* main=\1 .*/\1/p' "$vd/out" 2>/dev/null | head -1 || true)"
+    if [[ -n "$vd_id" ]]; then
+      vd_main="" vd_deadline=$((SECONDS + 15))
+      while (( SECONDS < vd_deadline )); do
+        vd_main="$("$vd/VDisplay.app/Contents/MacOS/VDisplay" probe 2>/dev/null | awk '$1 == "main" {print $2}' || true)"
+        [[ "$vd_main" == "$vd_id" ]] && break
+        sleep 0.2
+      done
+      [[ "$vd_main" == "$vd_id" ]] || echo "warning: a new process still sees display ${vd_main:-?} as main, not the virtual display $vd_id, after 15 s" >&2
+    fi
   else
     echo "split-spring: VDISPLAY-FALLBACK no ${vdisplay_hz} Hz virtual display ($line); measuring on the real display"
     stop_vdisplay
@@ -296,6 +333,26 @@ PY
   echo "$line" > "$out/display.txt"
 fi
 
+cpu_load_json='null'
+if [[ "$cpu_load" == 1 ]]; then
+  ncpu="$(sysctl -n hw.ncpu)"
+  spinners=$((ncpu / 4 + 1))
+  cc -O2 -o "$out/spin" scripts/measure/qos-load-bench/spin.c
+  for _ in $(seq "$spinners"); do "$out/spin" & spin_pids+=($!); done
+  cpu_load_json="{\"spinners\": $spinners, \"threads\": $((spinners * 4)), \"ncpu\": $ncpu}"
+  echo "split-spring: CPU-LOAD $spinners spinners, $((spinners * 4)) threads on $ncpu cores"
+  # Until every spinner runs on its cores before the app launches: each has used at least 1 s of CPU (its
+  # 4 threads, a quarter second of wall time), 10 s deadline.
+  spun=0
+  for _ in $(seq 100); do
+    spun="$(ps -o time= -p "$(IFS=,; echo "${spin_pids[*]-}")" 2>/dev/null |
+      awk -F: '{ s = 0; for (i = 1; i <= NF; i++) s = s * 60 + $i; if (s >= 1) n++ } END { print n + 0 }' || true)"
+    (( ${spun:-0} >= spinners )) && break
+    sleep 0.1
+  done
+  (( ${spun:-0} >= spinners )) || echo "split-spring: CPU-LOAD only ${spun:-0} of $spinners spinners used 1 s of CPU within 10 s" >&2
+fi
+
 status=0
 measuring=1
 # In the background and waited for, so a TERM reaches the trap at once (bash runs a trap only between commands).
@@ -304,11 +361,12 @@ python3 scripts/cmux-next/split-spring-terminal.py --tag "$tag" --app "$app" --o
 bench_pid=$!
 wait "$bench_pid" || status=$?
 bench_pid=""
+stop_cpu_load
 # Every report the step returns says which display it measured on (the perf cron reads `display.refresh_ms`) and the
 # host's macOS version.
 for report in "$out/report.json" "$out/perf-gate.json"; do
   [[ -f "$report" ]] || continue
-  python3 - "$report" "$display_json" "$macos" <<'PY' || echo "split-spring: could not add the display to $report" >&2
+  python3 - "$report" "$display_json" "$macos" "$cpu_load_json" <<'PY' || echo "split-spring: could not add the display to $report" >&2
 import json, sys
 path, display = sys.argv[1], json.loads(sys.argv[2])
 with open(path) as f:
@@ -316,8 +374,23 @@ with open(path) as f:
 if isinstance(report, dict):
     report["display"] = display
     report["macos"] = sys.argv[3] or None
+    report["cpu_load"] = json.loads(sys.argv[4])
     with open(path, "w") as f:
         json.dump(report, f, indent=1)
 PY
 done
+# The table, worst row first, as the last lines of the log: a detached step's check run carries the log tail
+# (cmux-next-split-table.yml, report_check.go), so a pull request reads it there. Nothing without a row table.
+python3 - "$out/report.json" <<'PY' || true
+import json, sys
+sys.path.insert(0, "scripts/cmux-next")
+try:
+    import split_scale_metrics as ssm
+    rows = json.load(open(sys.argv[1])).get("row_table")
+except Exception:
+    rows = None
+if rows:
+    print("\n## Split table (report-only)\n")
+    print(ssm.row_table_markdown(rows))
+PY
 exit "$status"

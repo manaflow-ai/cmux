@@ -14,7 +14,6 @@ import CmuxNextFocusUI
 import CmuxNextLayout
 import CmuxNextAppCore
 import CmuxNextSettings
-import Observation
 
 /// One window: sidebar, titlebar, and the content of the workspace it shows.
 /// Which workspace that is, plus frame and sidebar width, persist in the
@@ -39,7 +38,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     var parkSerial: UInt64 = 0
     /// The next Cmd-N's view, built before the key in idle steps on the daemon's reserved workspace (its own slot).
     private(set) lazy var reservedContent = WorkspaceSpareSlot<WorkspaceContentController>(owner: "WorkspaceSpare", on: services.mainWork, wanted: { [weak self] in
-        self.map { $0.services.windows.active === $0 && $0.content != nil && $0.services.daemon.reservesWorkspace } ?? false
+        self.map { $0.services.windows.active === $0 && $0.content != nil && $0.services.daemon.reservesWorkspace && $0.services.windows.deferredWindows.isEmpty } ?? false
     }, reserve: { [weak self] in
         self.flatMap { $0.services.agentTabs.reserveWorkspace(on: $0.services.daemon, cwd: WorkspaceSpawn().startFolder(roomFolder: $0.services.machines.local.store.profile($0.state.profileID)?.defaults?.cwd, local: true, daemonDefault: NewTerminalStart.defaultFolder(on: $0.services.daemon))) }
     }, build: { [weak self] model in
@@ -94,17 +93,26 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// This window's top pages (TOP-SECTION-ITEMS-ARE-PAGES), one view per route.
     private(set) lazy var topPages = TopPageHost(services: services)
 
+    /// A new shell window's size (no saved frame).
+    static let defaultSize = NSSize(width: 1100, height: 720)
+
     init(state: WindowState, services: AppServices, frame: NSRect?) {
         self.state = state
         self.services = services
         let sidebar = SidebarBridge(services: services, state: state)
         self.sidebar = sidebar
         SidebarProfileControl(services: services, state: state).install(model: sidebar.model, sidebar: sidebar.container.sidebarView)
-        // The footer's Search button runs the one palette.open path (plans/cmux-next/sidebar-search.md).
+        // The footer's Search button opens the Command Palette (Lawrence 2026-11-23: "we need some mechanism to
+        // educate user about cmd shift p"): the press runs the same action as the shortcut, and the tooltip
+        // shows its bound key (plans/cmux-next/sidebar-search.md).
         sidebar.container.sidebarView.onSearch = { [weak registry = services.registry] _ in
-            _ = registry?.perform("palette.open", invocation: ActionInvocation(arguments: ["scope": .string("search")], origin: .user))
+            _ = registry?.perform("commandPalette", invocation: ActionInvocation(origin: .user))
         }
-        root = WindowRootView(sidebar: sidebar.container, activeLook: services.activeLook)
+        sidebar.container.sidebarView.followSearchShortcut { [registry = services.registry] in
+            registry.shortcutDisplay(for: "commandPalette")
+        }
+        DebugTimings.markLaunch("window.sidebar_made"); root = WindowRootView(sidebar: sidebar.container, activeLook: services.activeLook) // startup-tti sub-marks
+        services.wallpaperBadge.add(root.backdropView) // a live wallpaper's badge shows the signed-in account
         // The static toggle runs the same action as the shortcut, palette and menu (R68).
         root.toolbarBand.onToggleSidebar = { [weak registry = services.registry] in
             _ = registry?.perform("toggleSidebar", invocation: ActionInvocation(origin: .user))
@@ -112,8 +120,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         let registry = services.registry
         root.toolbarBand.followToggleDescription(title: { registry.descriptor(for: "toggleSidebar")?.title ?? "" },
                                                  shortcut: { registry.shortcutDisplay(for: "toggleSidebar") })
-        let window = ShellWindow(
-            contentRect: frame ?? NSRect(x: 0, y: 0, width: 1100, height: 720),
+        root.toolbarBand.appButtons = services.apps.client.toolbarButtons(in: root.toolbarBand, reveal: root.titlebarReveal, registry: services.registry)
+        DebugTimings.markLaunch("window.root_made"); let window = ShellWindow(
+            contentRect: frame ?? NSRect(origin: .zero, size: Self.defaultSize),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -126,14 +135,14 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         window.minSize = NSSize(width: 520, height: 320)
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
-        super.init(window: window)
+        super.init(window: window); DebugTimings.markLaunch("window.shell_made")
         installHistoryButtons()
         // Kind, scope and backdrop before the content view (the root paints
         // the backdrop: `WindowSurfacePainting`).
         window.install(kind: .main, content: root, scope: themeScope, activeLook: services.activeLook)
         // contentRect grows by the titlebar; restore the saved frame exactly.
         if let frame { window.setFrame(frame, display: false) } else { window.center() }
-        window.delegate = self
+        window.delegate = self; DebugTimings.markLaunch("window.content_installed")
         let displayBackdrop = DisplayBackdropBinding(window: window, scope: themeScope,
                                                       displayID: { [weak window] in
                                                           window?.screen.flatMap(WindowPlacementFallback.displayID(of:))
@@ -148,7 +157,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
                 }
             }
         }
-        window.focus = focus
+        DebugTimings.markLaunch("window.backdrop_applied"); window.focus = focus
         window.focusLog = services.focusLog
         focus.applier = focusApplier
         focus.window = window
@@ -230,10 +239,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         titleObservation?.cancel()
         titleObservation = WindowListTitleObservation.start(values: { [weak self] in
             guard let self else { return (nil, nil, false, false) }
-            let workspace = self.state.workspaceID.flatMap { self.services.machines.workspace(id: $0)?.0 }
-            let names = WorkspaceAutoNameWiring(services: self.services, workspace: workspace)
+            let workspace = self.state.workspaceID.flatMap { self.services.machines.workspace(id: $0)?.0 }, names = WorkspaceAutoNameWiring(services: self.services, workspace: workspace)
             let title = workspace.map { names.reader.titlebarName($0) { self.state.selection.selection(in: $0.id) } }
-            return (spaceName: self.services.machines.local.store.profile(self.state.profileID)?.name,
+            let local = self.services.machines.local, spaces = SidebarSpaceBar.profiles(local, window: self.state.id, windows: self.services.windows).count
+            return (spaceName: spaces > 1 ? local.store.profile(self.state.profileID)?.name : nil, // the strip's rule: no space shows until a second
                     workspaceName: title, incognito: workspace.map { self.services.windows.isIncognito(workspace: $0) }
                         ?? self.services.windows.isIncognito(window: self.state.id),
                     showsWorkspaceChrome: self.state.page == nil && self.content != nil)
@@ -273,7 +282,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if requested != nil, state.machineID != MachineRegistry.localID, isWaiting(for: state.machineID) || showPausedMachine(state.machineID) { return }
         if let requested, services.windows.claims.awaits(requested, in: state.id) { return content == nil ? showConnecting() : () }  // keeps the request
         let members = services.windows.registry.members(of: state.id)
-        if let (workspace, daemon) = members.lazy.compactMap({ machines.workspace(id: $0) }).first { return showsHomePage(instead: workspace) ? () : show(workspace, on: daemon) }
+        if let (workspace, daemon) = members.lazy.compactMap({ machines.workspace(id: $0) }).first { state.shownVia = "showWorkspace-fallback"; return showsHomePage(instead: workspace) ? () : show(workspace, on: daemon) }
         // Keep what is shown (it stays until the manager closes or refills this window); a window with nothing yet waits.
         if content == nil { showConnecting() }
     }
@@ -315,7 +324,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             controller.unpark()
         } else {
             kept?.teardown()
-            controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state)
+            controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state); controller.layoutView.holdAttention() // cold: its rings wait too (cmux#59901)
         }
         content = controller
         // Panes pan and spring per display frame: shortcut chips over them follow.
@@ -326,7 +335,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         DebugWorkspaceSwitch.mark(self, "content")
         sidebar.sameTurn.syncNow(rows: sidebar.sameTurn.listsAnotherSpace(than: state.profileID.rawValue) || ((controller !== kept || controller === reserved) && !sidebar.model.lists(SidebarWorkspaceID(workspace.id))))
         DebugWorkspaceSwitch.mark(self, "sidebar")
-        root.show(controller.contentView)
+        root.show(controller.contentView); controller.layoutView.releaseHeldAttention { [hold = root.paintHold, view = controller.contentView] release in hold.kept.map { $0 !== view && hold.afterHold(of: $0, release) } ?? false } // never on the kept workspace
         DebugWorkspaceSwitch.mark(self, "root")
         arrangeOnScreen() // with `sidebar.multiView`, the workspaces shown beside it
         // The workspace's theme first, so the chrome repaints once: only the room's own views (sidebar,
@@ -344,7 +353,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         // The new workspace's panes: the coordinator restores its pane and, now that the content is installed, re-applies it.
         controller.didShow()
         DebugWorkspaceSwitch.mark(self, "did_show")
-        if let pane = focus.state.pane { focus.send(.contentPresented(pane: pane)) }
+        if let pane = focus.state.pane { focus.send(.contentPresented(pane: pane)) }; controller.layoutModel.enterShownFocus() // its focused pane's ring is read now (cmux#46908)
         services.windows.recordSaver.stateDidChange(state)
         services.cloudContextDidChange()
         services.canvasContextDidChange()
@@ -394,8 +403,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     func windowWillBeginSheet(_ notification: Notification) { focus.send(.overlayOpened(.sheet)) }
     func windowDidEndSheet(_ notification: Notification) { focus.send(.overlayClosed(.sheet)) }
 
-    func windowDidMove(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state) }
-    func windowDidEndLiveResize(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state) }
+    func windowDidMove(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state); BackdropImageStore.shared.light.windowDidMove() }
+    func windowDidEndLiveResize(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state); BackdropImageStore.shared.light.windowDidMove() }
     /// A resize with no live resize (Zoom, macOS tiling, an Accessibility client such as Rectangle,
     /// a display change) keeps the origin and never ends a live resize: it saves here (#25568).
     func windowDidResize(_ notification: Notification) {
@@ -407,7 +416,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         BackdropImageStore.shared.desktop.windowDidChange()
     }
     /// Shown, unhidden or uncovered: the desktop picture behind it may be another one now, and tabs an agent drove off screen come back.
-    func windowDidChangeOcclusionState(_ notification: Notification) { BackdropImageStore.shared.desktop.windowDidChange(); if let window { services.browserHost?.tabs.windowDidChangeOcclusion(window) } }
+    func windowDidChangeOcclusionState(_ notification: Notification) { BackdropImageStore.shared.desktop.windowDidChange(); if let window { services.browserHost?.tabs.windowDidChangeOcclusion(window) }; services.windows.recordSaver.launchImages.windowsChanged() }
 
     var sidebarObservation: Task<Void, Never>?
 
@@ -481,6 +490,7 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
     let presses = WindowPressRouter() // what a press does before AppKit gets it (ShellWindow+Events.swift)
     /// The incognito badge in the top row while the sidebar is hidden.
     var titlebarAccessoryFrame: CGRect? { (contentView as? WindowRootView)?.titlebarAccessoryFrame }
+    var titlebarAccessoryReserve: CGRect? { (contentView as? WindowRootView)?.titlebarAccessoryReserve }
     var sidebarHidden: Bool { (contentView as? WindowRootView)?.sidebarHidden ?? false }
     /// Views that keep clear of the top row (Home's header in a pane with no tab bar): they
     /// re-check when the top row, the main pane card or a pane moves (`WindowController+Sidebar`).
@@ -497,6 +507,21 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
     override func zoom(_ sender: Any?) { if !zoomState.zoom(self) { super.zoom(sender) } }
     override var isZoomed: Bool { zoomState.isZoomingIn ?? super.isZoomed }
     func windowZoomFinished(_ generation: Int) { zoomState.end(generation) }
+
+    /// Setting the window's minimum also sets the full-screen tile sizes AppKit asks for, so it never measures for them.
+    /// Unset, AppKit derives both (one cache) from the content's Auto Layout constraints after each change of the
+    /// window's views (`_doUpdateTilingConstraintsImmediately`, a run loop observer in the background or full screen),
+    /// walking every view in the window: about 3 ms of the main thread after each new tab, workspace or pane in a fleet
+    /// sample (CMUX NEXT Stable perf gate, 2026-11-27). Answering only the minimum moves that walk to the maximum's getter.
+    /// The tile minimum is the window's own (`minSize`); the content's constraints ask less at shipping settings (the
+    /// widest sidebar, 360 pt at 125%, is about 470 pt). The maximum is AppKit's own answer, read once here: set at init,
+    /// before the content, that is its unconstrained maximum.
+    override var minSize: NSSize {
+        didSet {
+            minFullScreenContentSize = contentRect(forFrameRect: NSRect(origin: .zero, size: minSize)).size
+            maxFullScreenContentSize = super.maxFullScreenContentSize
+        }
+    }
 
     /// Every frame stays on the test screen in an agent screenshot launch, whichever path sets it
     /// (`WindowPlacement.containedOnTestScreen`), and is kept as given with no display (`constrainsToScreen`).
@@ -527,6 +552,7 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
     override func addChildWindow(_ childWin: NSWindow, ordered place: NSWindow.OrderingMode) {
         // Only the overlay host panel and page windows belong here (debug and test builds record the rest).
         ChildWindowPolicy.check(childWin, parent: self)
+        ChromiumPageWindowMissionControl.keepOut(childWin) // a parked page's input window, 100 000 pt off, shrank Mission Control to nothing (cmux#48535)
         super.addChildWindow(childWin, ordered: place)
         if WindowOverlayLayer.isContent(childWin) { overlayLayer.evaluate() }
         WindowOverlayHost.childWindowsDidChange(of: self)

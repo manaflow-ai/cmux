@@ -32,6 +32,8 @@ pub const STATUS_FILE: &str = "/run/cmux-host/status.json";
 /// The session host's files on the supervisor contract (`cmux-supervise-core`): its owner record
 /// and its per-day restart budget with the causes, kept across reboots (the record's boot id
 /// tells a record of an earlier boot from a live host).
+/// Written once by the first agent on a VM disk; its presence later means the VM was reused.
+pub const MACHINE_MARKER: &str = "/var/lib/cmux/host/first-agent-start";
 pub const SUPERVISE_DIR: &str = "/var/lib/cmux/host";
 /// The session host's name in [`SUPERVISE_DIR`].
 pub const SESSION_HOST_NAME: &str = "session-host";
@@ -117,8 +119,9 @@ pub struct Config {
     /// Send the gratuitous ARP announce (off only in tests).
     pub announce: bool,
     /// `announce_interval_seconds`: repeat the announce this often while
-    /// bound and not parked (one-shot timer re-armed after each announce);
-    /// zero disables it. Default 30 s until the 2-hour idle reachability
+    /// bound and not parked (one-shot timer re-armed after each announce),
+    /// at most `machine::ANNOUNCE_REPEATS` times after a bind, resume or
+    /// start, so an idle VM goes quiet and can pause; zero disables it. Default 30 s until the 2-hour idle reachability
     /// smoke passes; then the default becomes 0 (vm-image.md 6.4).
     pub announce_interval: Duration,
     pub rearm_delay: Duration,

@@ -4,7 +4,7 @@
 // to read on white.
 {
   "name": "Tachyon Light",
-  "description": "A modern terminal, light: two-tone cool paper, deep-teal selected blocks, monospaced output as cards.",
+  "description": "Light: cool paper, command output as cards, a deep teal accent.",
 
   "appearance.theme": "Builtin Light",
   "appearance.appTheme": "followTerminal",
@@ -69,7 +69,7 @@
   "appearance.metrics.dividerThickness": 1,
 
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#eef0f1",
+  "appearance.surfaces.sidebar.color": "#f7f9fa",
   "appearance.surfaces.sidebar.opacity": 1,
   "sidebar.style": "standard",
   "sidebar.border": true,
@@ -80,11 +80,11 @@
   "appearance.surfaces.agentPane.opacity": 1,
   "appearance.surfaces.terminal.color": "#fafbfb",
   "appearance.surfaces.terminal.opacity": 1,
-  "appearance.surfaces.tabBar.color": "#eef0f1",
+  "appearance.surfaces.tabBar.color": "#f7f9fa",
   "appearance.surfaces.tabBar.opacity": 1,
-  "appearance.surfaces.browserChrome.color": "#eef0f1",
+  "appearance.surfaces.browserChrome.color": "#f7f9fa",
   "appearance.surfaces.browserChrome.opacity": 1,
-  "appearance.surfaces.docks.color": "#eef0f1",
+  "appearance.surfaces.docks.color": "#f7f9fa",
   "appearance.surfaces.docks.opacity": 1,
   "appearance.surfaces.editor.color": "#fafbfb",
   "appearance.surfaces.editor.opacity": 1,
@@ -95,7 +95,7 @@
   "appearance.surfaces.splitDivider.color": "#d5d9db",
   "appearance.surfaces.splitDivider.opacity": 1,
 
-  "appearance.surfaces.settings.color": "#eef0f1",
+  "appearance.surfaces.settings.color": "#f7f9fa",
   "appearance.surfaces.settings.opacity": 1,
   "appearance.surfaces.internalPage.color": "#fafbfb",
   "appearance.surfaces.internalPage.opacity": 1,

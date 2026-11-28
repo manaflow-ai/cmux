@@ -3,7 +3,7 @@
 // One Light palette in the terminal, deepened where a color would not read on white.
 {
   "name": "Kerf Light",
-  "description": "A fast editor, light: One Light grays, one-pixel chrome, a dense project panel, an indigo-blue accent.",
+  "description": "Light: cool grays, tight and flat, an indigo-blue accent.",
 
   "appearance.theme": "Builtin Light",
   "appearance.appTheme": "followTerminal",
@@ -67,14 +67,14 @@
   "appearance.metrics.dividerThickness": 1,
 
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#ebebec",
+  "appearance.surfaces.sidebar.color": "#f8f8f9",
   "appearance.surfaces.sidebar.opacity": 1,
   "sidebar.style": "standard",
   "sidebar.border": true,
   "sidebar.borderWidth": 1,
   "sidebar.sectionLook": "quiet",
 
-  "appearance.surfaces.agentPane.color": "#ebebec",
+  "appearance.surfaces.agentPane.color": "#f8f8f9",
   "appearance.surfaces.agentPane.opacity": 1,
   "appearance.surfaces.terminal.color": "#fafafa",
   "appearance.surfaces.terminal.opacity": 1,
@@ -84,11 +84,11 @@
   "appearance.surfaces.diff.opacity": 1,
   "appearance.surfaces.markdown.color": "#fafafa",
   "appearance.surfaces.markdown.opacity": 1,
-  "appearance.surfaces.tabBar.color": "#dcdcdd",
+  "appearance.surfaces.tabBar.color": "#e2e2e3",
   "appearance.surfaces.tabBar.opacity": 1,
-  "appearance.surfaces.browserChrome.color": "#dcdcdd",
+  "appearance.surfaces.browserChrome.color": "#e2e2e3",
   "appearance.surfaces.browserChrome.opacity": 1,
-  "appearance.surfaces.docks.color": "#ebebec",
+  "appearance.surfaces.docks.color": "#f8f8f9",
   "appearance.surfaces.docks.opacity": 1,
   "appearance.surfaces.splitDivider.color": "#c9c9ca",
   "appearance.surfaces.splitDivider.opacity": 1,
