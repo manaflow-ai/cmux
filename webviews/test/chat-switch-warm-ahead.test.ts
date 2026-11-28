@@ -184,7 +184,7 @@ const twoChats = async (name: string) => {
   return { daemon, A, B };
 };
 
-const warmedOn = (client: InstanceType<typeof AcpmuxDirectClient>, sessionId: string) =>
+const warmedOn = (client: Awaited<ReturnType<typeof AcpmuxDirectClient.connect>>, sessionId: string) =>
   new Promise<WarmedChat>((resolve) => {
     const stop = client.onWarmed((warmed) => {
       if (warmed.sessionId !== sessionId) return;
