@@ -720,6 +720,9 @@ export type AcpmuxRow = {
   folded?: boolean;
   /// A Worked-for row's actual open state, including a provisional key from paged history.
   foldOpen?: boolean;
+  /// A running turn's header whose fold holds nothing to open yet (turns.ts `liveFoldHidesWork`): its
+  /// first call still runs on the live line, or no step came. It draws no chevron until work lands.
+  foldEmpty?: boolean;
   /// A turn's header ("Worked for", turns.ts `turnHeaderId`) is one row from the turn's start to its
   /// end: `running` while the turn runs ("Working for 32s", its clock ticking from `at`, or held at
   /// `durationMs` once the answer came), unset once it ended.
@@ -1389,6 +1392,8 @@ export type AcpmuxSnapshot = {
   peers?: string[];
   /// Each peer's transport by name: `ssh` for an `ssh://` peer, `cloud` for any other (environments.ts).
   peerKinds?: Record<string, "ssh" | "cloud">;
+  /// The workspace registry ID of each peer leased by a Cloud link.
+  peerCloudRegistries?: Record<string, string>;
   /// Whether each peer is connected, as `_acpmux/status` last said (environments.ts).
   peerConnected?: Record<string, boolean>;
   /// Each peer's link state (`connected`, `reconnecting`, …), as `_acpmux/status` last said (environments.ts).
@@ -1687,6 +1692,7 @@ export type AcpmuxSnapshot = {
     pickable?: boolean;
     /** The declared launcher or route kind; routers cannot represent a harness family. */
     kind?: string;
+    endpoint?: true;
     /** acpmux's family for the harness (`_acpmux/harnesses` `family`): joins it to a catalog harness. */
     family?: string;
     /** `_acpmux/harnesses` `icon`: the profile's own icon value (a brand id, an emoji, an SF

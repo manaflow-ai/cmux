@@ -2105,6 +2105,7 @@ export function paneSnapshotEffect({
           harness,
           cwd,
           peer,
+          cloudRegistryId,
           deferred,
           noProject,
           model,
@@ -2229,6 +2230,8 @@ export function paneSnapshotEffect({
             noProject === true,
             peer && model ? String(model) : undefined,
             newTabRetainsDraft.current,
+            false,
+            typeof cloudRegistryId === "string" ? cloudRegistryId : undefined,
           );
           await persistSession(started);
           return started;

@@ -209,6 +209,21 @@ impl Hub {
         let deadline = tokio::time::Instant::now() + req.timeout;
         let (name, profile) = self.completion_harness(req.harness.as_deref()).await?;
         let recipe = recipes::recipe_for(&name, &profile)?;
+        // A request that names no model, on Claude Code: the text model the person chose
+        // (`agents.titles.model`, `model_settings.rs`), else the small model as before.
+        let chosen = if req.model.is_none() && recipe == Recipe::Claude {
+            tokio::task::spawn_blocking(crate::model_settings::text_model).await.ok().flatten()
+        } else {
+            None
+        };
+        let with_model;
+        let req = match chosen {
+            Some(model) => {
+                with_model = Request { model: Some(model), ..req.clone() };
+                &with_model
+            }
+            None => req,
+        };
         let reply = self
             .complete_with(
                 &name,
@@ -381,24 +396,45 @@ impl Hub {
         };
         // The profile's env with its bound route (claude-sr, claude-cr, a route file); for a
         // chat's own call, the env its own spawn takes (`ChatRoute`).
-        let env = match chat {
+        let mut env = match chat {
             Some(chat) => self.chat_completion_env(name, chat).await.map_err(failed)?,
             None => {
                 let mut env = profile.env.clone();
+                env.remove(crate::chatgpt::LOCAL_EXPIRY_ENV);
+                env.remove(crate::subscriptions::LOCAL_KIMI_EXPIRY);
                 self.apply_route_for(name, None, None, false, profile, &mut env)
                     .await
                     .map_err(|e| failed(e.message))?;
                 env
             }
         };
-        // Codex runs without the user's config: their provider comes back.
-        let codex = match recipe {
-            Recipe::Codex => codex_user_config(&env).await,
-            _ => CodexUserConfig::default(),
+        let chatgpt = recipe == Recipe::Codex && env.contains_key(crate::chatgpt::LOCAL_EXPIRY_ENV);
+        let kimi =
+            recipe == Recipe::OpenCode && env.contains_key(crate::subscriptions::LOCAL_KIMI_EXPIRY);
+        // The CLI ignores the user's config. Restore its provider only without a selected grant.
+        let codex = if recipe == Recipe::Codex && !chatgpt {
+            codex_user_config(&env).await
+        } else {
+            CodexUserConfig::default()
         };
-        let model = match &req.model {
-            Some(model) => Some(model.clone()),
-            None => self.small_model(name, recipe, &env, &codex).await,
+        let model = if kimi {
+            let qualified = format!(
+                "{}/{}",
+                crate::byo_endpoint::OPENCODE_PROVIDER,
+                crate::subscriptions::KIMI_MODEL
+            );
+            if let Some(model) = req.model.as_deref()
+                && !matches!(model, "default" | crate::subscriptions::KIMI_MODEL)
+                && model != qualified
+            {
+                return Err(CompleteError::InvalidParams("model not found".into()));
+            }
+            Some(qualified)
+        } else {
+            match &req.model {
+                Some(model) => Some(model.clone()),
+                None => self.small_model(name, recipe, &env, &codex).await,
+            }
         };
         let small_fast = env_value(&env, model_pick::SMALL_FAST_ENV);
         if !fallback.permits(recipe, model.as_ref(), small_fast.as_deref()) {
@@ -430,17 +466,24 @@ impl Hub {
         let dir =
             RunDir::new_in(&places.runs()).map_err(|e| failed(format!("a run folder: {e}")))?;
         let folders = recipes::Folders { cwd: &cwd, run: dir.path() };
-        let inv = recipes::invocation(recipe, program, prefix, model.as_deref(), folders)
+        let mut inv = recipes::invocation(recipe, program, prefix, model.as_deref(), folders)
             .with_codex_overrides(&codex.overrides);
+        if chatgpt {
+            let mut argv = vec![inv.program.clone()];
+            argv.append(&mut inv.args);
+            crate::agent_credentials::configure_chatgpt(&mut argv, &mut env);
+            inv.args = argv.into_iter().skip(1).collect();
+        }
         if let Some(file) = &inv.prompt_file {
             dir.write_private(file, req.prompt.as_bytes())
                 .map_err(|e| failed(format!("the prompt file: {e}")))?;
         }
+        let copilot_token = env.get(crate::agent_credentials::COPILOT_TOKEN).cloned();
         let mut spawn = profile.clone();
         spawn.env = env;
         // The harness's own command line rules: login env, nested-agent and
         // caller markers scrubbed, profile secrets resolved, route unsets.
-        let mut cmd = crate::agent::harness_command_ready(
+        let (mut cmd, scratch) = crate::agent::harness_command_ready(
             name,
             &spawn,
             &cwd,
@@ -450,22 +493,62 @@ impl Hub {
         .await
         .map_err(|e| failed(format!("{e:#}")))?;
         for (key, value) in &inv.env_set {
-            cmd.env(key, value);
+            if (kimi || scratch.is_some()) && key == "OPENCODE_CONFIG_CONTENT" {
+                // Keep the selected provider and add the completion's tool restrictions.
+                let current =
+                    crate::agent::command_env(&cmd).into_iter().find(|(name, _)| name == key);
+                let mut config: Value = current
+                    .and_then(|(_, value)| serde_json::from_str(&value).ok())
+                    .ok_or_else(|| failed("invalid OpenCode completion configuration".into()))?;
+                let isolated: Value = serde_json::from_str(value)
+                    .map_err(|_| failed("invalid OpenCode completion configuration".into()))?;
+                config["agent"] = isolated["agent"].clone();
+                cmd.env(key, config.to_string());
+            } else {
+                cmd.env(key, value);
+            }
         }
         for key in &inv.env_remove {
             cmd.env_remove(key);
         }
+        let local_key = cmd
+            .as_std()
+            .get_envs()
+            .find_map(|(key, value)| {
+                (key == crate::agent_credentials::LOCAL_REDACTION).then_some(value).flatten()
+            })
+            .and_then(|name| {
+                cmd.as_std()
+                    .get_envs()
+                    .find_map(|(key, value)| (key == name).then_some(value).flatten())
+            })
+            .and_then(|key| key.to_str())
+            .map(str::to_owned);
+        cmd.env_remove(crate::agent_credentials::LOCAL_REDACTION);
+        let redact = |bytes: Vec<u8>| {
+            [copilot_token.as_deref(), local_key.as_deref()].into_iter().flatten().fold(
+                bytes,
+                |bytes, key| {
+                    crate::agent_credentials::redact_line(
+                        String::from_utf8_lossy(&bytes).into_owned(),
+                        Some(key),
+                    )
+                    .into_bytes()
+                },
+            )
+        };
         let input = inv.stdin_prompt.then_some(req.prompt.as_bytes());
         let left = deadline.saturating_duration_since(tokio::time::Instant::now());
-        let out = run::run(cmd, input, left).await.map_err(|e| match e {
+        let mut out = run::run(cmd, input, left).await.map_err(|e| match e {
             RunError::Timeout => timed_out(),
             RunError::Spawn(why) => failed(format!("cannot start {}: {why}", inv.program)),
         })?;
+        out.stderr = redact(out.stderr);
         let answer = match &inv.output_file {
             Some(file) => run::read_file_capped(file, complete::OUTPUT_CAP).await,
             None => out.stdout.clone(),
         };
-        let text = complete::finish(name, &out, &answer, req.max_tokens)?;
+        let text = complete::finish(name, &out, &redact(answer), req.max_tokens)?;
         Ok(json!({
             "text": text,
             "harness": name,
