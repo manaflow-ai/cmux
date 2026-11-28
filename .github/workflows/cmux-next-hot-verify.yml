@@ -317,6 +317,20 @@ jobs:
             exit 0
           fi
           python3 "$tool" verdict "$RUNNER_TEMP/plan.out" | tee -a "$GITHUB_OUTPUT"
+          # The router (pr-router.yml) posts cmux/ui-proof success at once for a head that changes nothing a user
+          # sees, and the plan's web layer is wider than that list (any webviews/ path, e.g. webviews/scripts/
+          # intro-walk*.mjs on cmux#64036): its look answered a gate that was already settled, then could not run and
+          # posted failure over the success. No look for a head the gate calls UI-free (same paths as the router).
+          if grep -q '^eligible=true' "$GITHUB_OUTPUT" && [[ "$MERGED" != true ]]; then
+            fork_point="$(git merge-base "origin/$BASE_REF" "$HEAD_SHA" 2>/dev/null || true)"
+            if [[ -n "$fork_point" ]]; then
+              mapfile -t touched < <(git diff --no-renames --name-only "$fork_point" "$HEAD_SHA" 2>/dev/null)
+              if [[ ${#touched[@]} -gt 0 && "$(python3 scripts/ci/ui_proof_verdict.py affects "${touched[@]}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["need"])')" == "" ]]; then
+                echo "eligible=false" >> "$GITHUB_OUTPUT"
+                echo "hot verify plan: ${HEAD_SHA:0:12} touches nothing cmux/ui-proof calls visual; no look" | tee -a "$GITHUB_STEP_SUMMARY"
+              fi
+            fi
+          fi
           echo "hot verify plan: $(grep '^reason=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2-)" >> "$GITHUB_STEP_SUMMARY"
       # CI_POOL_FIRST: the dispatch goes out on a CI pool App first (each its own installation hour), then cmux-bot,
       # then the other pools, then github.token (scripts/ci/ci_pool_tokens.py, gh_budget_wait.sh GH_TOKEN_SPARES).
