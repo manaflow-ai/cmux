@@ -1,0 +1,3 @@
+{
+  "error": "gallery health could not render: launch: Chromium distribution 'chrome' is not found at /opt/google/chrome/chrome\nRun \"npx playwright install chrome\""
+}
