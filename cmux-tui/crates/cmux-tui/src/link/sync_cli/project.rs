@@ -50,6 +50,10 @@ use serde_json::{Value, json};
 use super::local::Source as Origin;
 use super::local::{self, LocalFile, Rules};
 use crate::link::seed::carry;
+use cmux_tui_core::projection::PROJECTION_EXTEND_CAPABILITY;
+
+#[path = "project_head.rs"]
+mod head;
 
 /// How long a start waits for the machine to mount the folder.
 const START_WAIT: Duration = Duration::from_secs(120);
@@ -166,6 +170,11 @@ pub(crate) fn run(args: &[String]) -> i32 {
         Ok(answer) => {
             println!("{answer}");
             0
+        }
+        // The start already read the ready line: a second line would never be read.
+        Err(error) if error.is::<head::AfterHeadReady>() => {
+            eprintln!("cmux link project: {error:#}");
+            1
         }
         Err(error) => {
             println!(
@@ -301,6 +310,13 @@ pub(crate) fn start(
         .args(["link", "project", "serve", "--socket"])
         .arg(socket)
         .args(["--at", remote, "--name", &name]);
+    // This start's identify decides for the child: a machine with `projection-extend-v1` mounts the
+    // folder's head first, so the chat starts before the whole folder is listed, sent and mounted.
+    command.arg(if supports(&identity, PROJECTION_EXTEND_CAPABILITY) {
+        "--head-first"
+    } else {
+        "--whole-folder"
+    });
     if handoff.is_some() {
         command.arg("--store-stdin");
     }
@@ -539,6 +555,14 @@ fn serving_identity(socket: &Path) -> Option<Value> {
     })
 }
 
+/// Whether the machine's `identify` lists `capability`.
+fn supports(identity: &Value, capability: &str) -> bool {
+    identity
+        .get("capabilities")
+        .and_then(Value::as_array)
+        .is_some_and(|served| served.iter().any(|name| name == capability))
+}
+
 /// The machine's store id (`identify`'s `session_id`).
 fn machine_id(socket: &Path) -> Option<String> {
     let identity = super::machine_call(socket, "identify", json!({})).ok()?;
@@ -550,12 +574,15 @@ fn machine_id(socket: &Path) -> Option<String> {
 fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     let (mut socket, mut at, mut name, mut folder, mut any_size) = (None, None, None, None, false);
     let mut store_handed = false;
+    let mut head_first = None;
     let mut words = args.iter();
     while let Some(word) = words.next() {
         match word.as_str() {
             "--socket" => socket = words.next().map(PathBuf::from),
             "--at" => at = words.next().cloned(),
             "--name" => name = words.next().cloned(),
+            "--head-first" => head_first = Some(true),
+            "--whole-folder" => head_first = Some(false),
             // Projects a folder within the copy's limits too (tests and the bench).
             "--any-size" => any_size = true,
             // The store this server keeps the folder's listing in, on stdin ([`start`]).
@@ -578,6 +605,14 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     // Every dial of this server names the folder, so the machine's mount says which it mirrors.
     let _ = SERVED_FOLDER.set(folder.to_string_lossy().into_owned());
     let started = Instant::now();
+    // A machine with `projection-extend-v1` mounts a small head first (the root's entries and the
+    // harness folders), and the whole folder extends it in place: the chat's start no longer
+    // waits on the listing, sending and mounting of every file (cmux#53069).
+    if head_first.unwrap_or_else(|| {
+        serving_identity(&socket).is_some_and(|id| supports(&id, PROJECTION_EXTEND_CAPABILITY))
+    }) {
+        return head::serve_head(&socket, &name, &at, &folder, started);
+    }
     let carry = projection_carry(&folder);
     let listed = list_with_carry(&folder, carry.as_ref())?;
     let listed_ms = elapsed_ms(started);
@@ -589,7 +624,7 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     let kept_already = super::base::kept(&folder, &at);
     let (dialed, made) = std::thread::scope(|scope| {
         let made = (!kept_already).then(|| scope.spawn(|| base_of_listing(&folder, &listed)));
-        (dial(&socket, &name, &at, &encoded, None), made.map(|made| made.join()))
+        (dial(&socket, &name, &at, &encoded, Offer::Full), made.map(|made| made.join()))
     });
     let (stream, mut answer) = dialed?;
     if !ok(&answer) {
@@ -617,27 +652,56 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     // The start's gate, split, in the server's log (`start` makes it `projections/<server>.log`): the
     // start-chat answer does not reach `cloud start-chat --from-folder`'s caller, and the log does
     // (cmuxterm-hq goals/cloud-no-network-wait.md, "Ceiling": is the O(files) cost the listing or the send).
+    stamp_ready(&mut answer, timing, listed.manifest.kept_count());
+    // Taken before the answer, so the pid [`start`] writes on it is never one without the lock.
+    let _lock = hold_lock(&at);
+    // What Bring Back plans against (project_back.rs): the manifest this session starts from.
+    record_listing(&name, &at, &folder, &encoded);
+    print_ready(&answer);
+    serve_full(&socket, &name, &at, &folder, &encoded, &listed, (stream, packed));
+    Ok(Value::Null)
+}
+
+fn record_listing(name: &str, at: &str, folder: &Path, encoded: &[u8]) {
+    if let Err(error) = super::project_back::record(name, at, folder, encoded) {
+        eprintln!("cmux link project: cannot keep the manifest for Bring Back: {error:#}");
+    }
+}
+
+/// Logs the start's gate split ([`ready_timing`]) and puts it on the ready answer's data.
+/// `kept_on_mac` is how many of the listed files stay on the Mac (the manifest's kept entries).
+fn stamp_ready(answer: &mut Value, timing: Value, kept_on_mac: usize) {
     eprintln!("cmux link project: ready {timing}");
     if let (Some(data), Value::Object(timing)) =
         (answer.get_mut("data").and_then(Value::as_object_mut), timing)
     {
         data.extend(timing);
-        data.insert("kept_on_mac".into(), json!(listed.manifest.kept_count()));
+        data.insert("kept_on_mac".into(), json!(kept_on_mac));
     }
-    // Taken before the answer, so the pid [`start`] writes on it is never one without the lock.
-    let _lock = hold_lock(&at);
-    // What Bring Back plans against (project_back.rs): the manifest this session starts from.
-    if let Err(error) = super::project_back::record(&name, &at, &folder, &encoded) {
-        eprintln!("cmux link project: cannot keep the manifest for Bring Back: {error:#}");
-    }
-    let mut stdout = std::io::stdout();
+}
+
+/// The one line [`start`] waits for: the folder is mounted and the chat can start.
+fn print_ready(answer: &Value) {
+    let mut stdout = std::io::stdout().lock();
     let _ = writeln!(stdout, "{answer}");
     let _ = stdout.flush();
+}
+
+/// Serves the whole listing on `stream` and every redial after it, until the machine is gone.
+fn serve_full(
+    socket: &Path,
+    name: &str,
+    at: &str,
+    folder: &Path,
+    encoded: &[u8],
+    listed: &Listed,
+    stream: (BufReader<UnixStream>, bool),
+) {
     // The listing goes to the store in the background: the chat is already running, and a resume
     // fetches it from there instead of sending it over this Mac's uplink.
     let published: Published = Arc::new(Mutex::new(None));
     let mut revisions = Revisions { published: Arc::clone(&published), resent: 0 };
-    let pair = pair_of(&name);
+    let pair = pair_of(name);
     std::thread::scope(|scope| {
         if super::store::on() {
             scope.spawn(|| match super::store::publish(&listed.manifest, &pair) {
@@ -660,14 +724,13 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
         // takes a second or more on a big checkout).
         if super::project_hot::enabled() {
             scope.spawn(|| {
-                let dirty = super::project_hot::dirty(&folder);
+                let dirty = super::project_hot::dirty(folder);
                 let hot = super::project_hot::pick(&listed.manifest, &dirty);
-                super::project_hot::warm(&socket, &name, &hot);
+                super::project_hot::warm(socket, name, &hot);
             });
         }
-        serve_until_gone(&socket, &name, &at, &encoded, &listed, (stream, packed), &mut revisions);
+        serve_until_gone(socket, name, at, encoded, listed, stream, &mut revisions);
     });
-    Ok(Value::Null)
 }
 
 /// The revision of the listing this server published, once it has.
@@ -758,21 +821,7 @@ fn serve_until_gone(
             unreachable_since = None;
             backoff = Duration::from_millis(200);
             last_error = None;
-            if let Ok(writer) = reader.get_ref().try_clone() {
-                // Lines both ways: the Cloud carrier moves whole lines only (`dial`). A machine
-                // that said `"wire": 2` gets binary lines and packed answers.
-                let reader = cmux_tui_core::projection::LineReader::new(reader);
-                let _ = if packed {
-                    let writer = cmux_tui_core::projection::LineWriter::binary(writer);
-                    answer_asks_packed(reader, writer, &counted)
-                } else {
-                    answer_asks(
-                        reader,
-                        cmux_tui_core::projection::LineWriter::new(writer),
-                        &counted,
-                    )
-                };
-            }
+            serve_reads(reader, &counted, packed);
             eprintln!("cmux link project: sent {}", sent.line());
         }
         let since = *unreachable_since.get_or_insert_with(Instant::now);
@@ -784,7 +833,7 @@ fn serve_until_gone(
             return;
         }
         std::thread::sleep(retry_wait(via_quiet, &mut backoff));
-        let (dialed, quiet) = redial(socket, name, at, &[], None);
+        let (dialed, quiet) = redial(socket, name, at, &[], Offer::Attach);
         via_quiet = quiet;
         match dialed {
             Ok((reader, answer)) if ok(&answer) => stream = Some((reader, packs(&answer))),
@@ -793,7 +842,7 @@ fn serve_until_gone(
                 // can, and only then is the whole manifest sent over this Mac's uplink.
                 let by_store = revisions
                     .reference()
-                    .map(|reference| redial(socket, name, at, &[], Some(&reference)).0);
+                    .map(|reference| redial(socket, name, at, &[], Offer::Revision(&reference)).0);
                 let again = match by_store {
                     Some(Ok((reader, answer))) if ok(&answer) => Some(Ok((reader, answer))),
                     Some(Ok((_, answer))) => {
@@ -813,7 +862,7 @@ fn serve_until_gone(
                             "cmux link project: sending the whole listing ({} so far)",
                             revisions.resent
                         );
-                        redial(socket, name, at, encoded, None).0
+                        redial(socket, name, at, encoded, Offer::Full).0
                     }
                 };
                 match again {
@@ -834,6 +883,39 @@ fn serve_until_gone(
             Err(error) => note_failure(&mut last_error, &error),
         }
     }
+}
+
+/// Answers the machine's reads on `reader` until it closes. Lines both ways: the Cloud carrier
+/// moves whole lines only (`dial`). A machine that said `"wire": 2` (`packed`) gets binary lines
+/// and packed answers.
+fn serve_reads(reader: BufReader<UnixStream>, source: &(dyn Source + Sync), packed: bool) {
+    if let Ok(writer) = reader.get_ref().try_clone() {
+        let reader = cmux_tui_core::projection::LineReader::new(reader);
+        let _ = if packed {
+            answer_asks_packed(
+                reader,
+                cmux_tui_core::projection::LineWriter::binary(writer),
+                source,
+            )
+        } else {
+            answer_asks(reader, cmux_tui_core::projection::LineWriter::new(writer), source)
+        };
+    }
+}
+
+/// What a dial offers the machine besides the manifest bytes it carries.
+#[derive(Clone, Copy)]
+enum Offer<'a> {
+    /// No manifest: attach again to the projection already mounted.
+    Attach,
+    /// The whole manifest, mounted as is.
+    Full,
+    /// No manifest: the listing is in the store, fetched by this reference.
+    Revision(&'a Value),
+    /// `projection-extend-v1`: a head manifest; the folder's sync barrier waits for the extend.
+    Head,
+    /// `projection-extend-v1`: the whole folder's manifest, for the head already mounted.
+    Extend,
 }
 
 /// Writes `error` unless it is the one written last.
@@ -874,14 +956,14 @@ fn redial(
     name: &str,
     at: &str,
     encoded: &[u8],
-    revision: Option<&Value>,
+    offer: Offer<'_>,
 ) -> (anyhow::Result<(BufReader<UnixStream>, Value)>, bool) {
     if let Some(quiet) = quiet_socket(socket) {
         if let Ok(stream) = UnixStream::connect(&quiet) {
-            return (ask(stream, name, at, encoded, revision), true);
+            return (ask(stream, name, at, encoded, offer), true);
         }
     }
-    (dial(socket, name, at, encoded, revision), false)
+    (dial(socket, name, at, encoded, offer), false)
 }
 
 /// Dials the machine and asks it to serve projection `name` at `at` (`encoded`: the manifest, or
@@ -891,11 +973,11 @@ fn dial(
     name: &str,
     at: &str,
     encoded: &[u8],
-    revision: Option<&Value>,
+    offer: Offer<'_>,
 ) -> anyhow::Result<(BufReader<UnixStream>, Value)> {
     let stream = UnixStream::connect(socket)
         .with_context(|| format!("cannot reach the machine at {}", socket.display()))?;
-    ask(stream, name, at, encoded, revision)
+    ask(stream, name, at, encoded, offer)
 }
 
 /// A dial the machine closed before it answered (a quiet socket while the machine sleeps).
@@ -920,7 +1002,7 @@ fn ask(
     name: &str,
     at: &str,
     encoded: &[u8],
-    revision: Option<&Value>,
+    offer: Offer<'_>,
 ) -> anyhow::Result<(BufReader<UnixStream>, Value)> {
     let mut line = json!({
         "id": 1,
@@ -938,9 +1020,15 @@ fn ask(
         // The folder on this Mac: the machine names it in its mount table, for the agent.
         object.insert("from".into(), json!(from));
     }
-    if let (Some(revision), Some(object)) = (revision, line.as_object_mut()) {
+    let extra = match offer {
+        Offer::Attach | Offer::Full => None,
         // The listing is in the store: the machine fetches it from there by this reference.
-        object.insert("revision".into(), revision.clone());
+        Offer::Revision(revision) => Some(("revision", revision.clone())),
+        Offer::Head => Some(("head", Value::Bool(true))),
+        Offer::Extend => Some(("extend", Value::Bool(true))),
+    };
+    if let (Some((key, value)), Some(object)) = (extra, line.as_object_mut()) {
+        object.insert(key.into(), value);
     }
     let mut bytes = serde_json::to_vec(&line)?;
     bytes.push(b'\n');
@@ -978,6 +1066,17 @@ fn list(folder: &Path) -> anyhow::Result<Listed> {
 
 fn list_with_carry(folder: &Path, carry: Option<&CarryFiles>) -> anyhow::Result<Listed> {
     let (set, _) = local::listed(folder, Rules::Copy, None)?;
+    from_set(folder, set, Vec::new(), carry)
+}
+
+/// The manifest of a listed `set`, with `dirs` as explicit folder entries (a head's folders, so
+/// the whole folder's listing holds them too) and the carry files when there are some.
+fn from_set(
+    folder: &Path,
+    set: local::LocalSet,
+    dirs: Vec<String>,
+    carry: Option<&CarryFiles>,
+) -> anyhow::Result<Listed> {
     let home = super::project_kept::tracked_kept(folder, &set);
     let root_mtime = std::fs::metadata(folder).map(|meta| mtime_ns(&meta)).unwrap_or(0);
     let mut files: Vec<(String, LocalFile)> = set.files.into_iter().collect();
@@ -1008,7 +1107,15 @@ fn list_with_carry(folder: &Path, carry: Option<&CarryFiles>) -> anyhow::Result<
         }
     }
     let stats = stat_all(&files);
-    let mut items = Vec::with_capacity(files.len() + set.links.len());
+    let mut items = Vec::with_capacity(dirs.len() + files.len() + set.links.len());
+    items.extend(dirs.into_iter().map(|path| Item {
+        path,
+        kind: Kind::Dir,
+        mode: 0o755,
+        size: 0,
+        mtime_ns: root_mtime,
+        link: None,
+    }));
     let mut kept = Vec::with_capacity(files.len());
     for ((relative, file), stat) in files.into_iter().zip(stats) {
         // A file gone or changed into something else since the listing is left out.
