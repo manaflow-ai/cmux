@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "sessionInfo.storage.kept" : {
+      "comment" : "Agent pane Session Info Storage: the folded line counting the worktrees that stay. {n} is a count",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{n} kept: in use or not finished"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "محفوظة: {n} (قيد الاستخدام أو بها عمل غير محفوظ أو غير مدمجة)"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zadržano: {n} (u upotrebi, nesačuvan rad ili nije spojeno)"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} beholdt: i brug, ikke-committet arbejde eller ikke merget"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} behalten: in Gebrauch, nicht committete Arbeit oder nicht gemergt"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} conservados: en uso, trabajo sin confirmar o sin fusionar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} conservés : utilisés, travail non validé ou non fusionnés"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} mantenuti: in uso, lavoro non salvato o non unito"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "保持: {n} 件（使用中、未コミットの作業、または未マージ）"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "រក្សាទុក {n}: កំពុងប្រើ មានការងារមិនទាន់ commit ឬមិនទាន់ merge"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n}개 유지: 사용 중, 커밋하지 않은 작업 또는 병합되지 않음"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} beholdt: i bruk, ikke-committet arbeid eller ikke flettet"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zachowane: {n} (w użyciu, niezatwierdzone zmiany lub niescalone)"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} mantidos: em uso, trabalho não confirmado ou não mesclado"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Оставлено: {n} (используются, есть незафиксированные изменения или не слиты)"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เก็บไว้ {n}: กำลังใช้ มีงานที่ยังไม่ commit หรือยังไม่ merge"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} korundu: kullanımda, commit edilmemiş iş veya birleştirilmemiş"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Залишено: {n} (використовуються, є незафіксовані зміни або не злиті)"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Giữ lại {n}: đang dùng, có thay đổi chưa commit hoặc chưa merge"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "保留 {n} 个：正在使用、有未提交的更改或未合并"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "保留 {n} 個：使用中、有未提交的變更或未合併"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

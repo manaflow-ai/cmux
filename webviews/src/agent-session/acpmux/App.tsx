@@ -291,6 +291,7 @@ import { SummaryCard } from "./summary/SummaryCard";
 import { transcriptBackground } from "./summary/sessionSummary";
 import { openSourceFile } from "./session-info/sourcesSectionModel";
 import { useSessionInfo } from "./session-info/useSessionInfo";
+import type { StorageSource } from "./session-info/StorageSection";
 import { toggleRemoteControl, useRemoteControl } from "./remoteControl";
 import { HybridChip, NewTabHybridChip, useSessionInfoCloud } from "./hybrid/HybridMounts";
 import {
@@ -3398,6 +3399,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (id: string) => directClient.current?.killProcess(id) ?? Promise.reject(new Error()),
     [],
   );
+  // Session Info's Storage (session-info/StorageSection.tsx): this Mac's stale worktrees.
+  const storageSource = useMemo<StorageSource>(
+    () => ({
+      report: () => directClient.current?.worktreeReport() ?? Promise.reject(new Error()),
+      clean: (paths) => directClient.current?.cleanWorktrees(paths) ?? Promise.reject(new Error()),
+    }),
+    [],
+  );
   // The Inspector's running-limit stepper (session-info/SubagentLimitStepper.tsx).
   const setRunningLimit = useCallback(
     (sessionId: string, maxRunning: number | null, from?: number) =>
@@ -5959,6 +5968,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     readPromptImage: quick ? undefined : readQueuedImage,
     processes: processRegistry,
     onStopProcess: stopProcess,
+    // Machine-wide: only this Mac's app, never Quick Chat or a Web client.
+    storage: quick || snapshot.origin !== "local" ? undefined : storageSource,
     subagents: cardSubagents,
     sessions: cardSessions,
     // acpmux takes the limit only from this Mac's app (a person-proven connection), never a Web one.

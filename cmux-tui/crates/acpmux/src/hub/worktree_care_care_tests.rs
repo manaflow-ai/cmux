@@ -39,6 +39,7 @@ fn care_each_removed_worktree_is_one_log_line_with_its_reason_idle_age_and_archi
         facts: None,
         bytes: None,
         outcome,
+        stale: false,
     };
     let done = |archive: &str| {
         Some(Outcome { ok: true, freed: 1_359_519_744, archive: Some(archive.into()), error: None })

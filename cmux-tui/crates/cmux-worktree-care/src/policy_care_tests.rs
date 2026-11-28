@@ -192,6 +192,22 @@ fn the_disk_s_used_share_names_its_pressure() {
 }
 
 #[test]
+fn only_clean_finished_work_that_may_go_is_stale() {
+    let finished = Facts { finished: Some("merged into origin/main".into()), ..pushed(30) };
+    let go = verdict(Action::Reclaim, "finished");
+    assert!(stale(&go, Some(&finished)));
+    assert!(stale(&verdict(Action::Archive, "finished"), Some(&finished)));
+    assert!(!stale(&verdict(Action::Keep, "session lane is open in it"), Some(&finished)));
+    assert!(!stale(&verdict(Action::Trim, "idle"), Some(&finished)));
+    assert!(!stale(&go, Some(&pushed(30))), "pushed but not merged");
+    let dirty = Facts { changed: 1, ..finished.clone() };
+    assert!(!stale(&go, Some(&dirty)));
+    let untracked = Facts { untracked: vec!["notes.md".into()], ..finished };
+    assert!(!stale(&go, Some(&untracked)));
+    assert!(!stale(&go, None), "unreadable facts");
+}
+
+#[test]
 fn headless_an_open_session_idle_past_the_recent_wait_does_not_keep_it() {
     let session = Session {
         name: "lane".into(),

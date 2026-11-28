@@ -121,6 +121,10 @@ use cmux_worktree_care::inventory::now_ms;
 use cmux_worktree_care::policy::Settings as CareSettings;
 use cmux_worktree_care::schedule::{self, Claim, Refused};
 
+/// How long a Storage panel report may spend measuring stale worktrees in
+/// all: the rest show no size rather than hold the panel.
+const STALE_MEASURE_BUDGET: Duration = Duration::from_secs(20);
+
 /// How long a session's start waits on its submodules coming back.
 const RESTORE_SUBMODULES: Duration = Duration::from_secs(120);
 
@@ -288,7 +292,7 @@ impl Hub {
         .flatten();
         let Some((claim, look)) = claim else { return };
         CARE.last_started_ms.store(now_ms(), Ordering::Relaxed);
-        match self.care_run(claim, true, Vec::new(), Some(look)).await {
+        match self.care_run(claim, true, Vec::new(), false, Some(look)).await {
             Ok(report) => {
                 // One line per folder that went, so a search of the journal
                 // for a missing checkout finds what removed it (hq#13316).
@@ -305,12 +309,16 @@ impl Hub {
         }
     }
 
-    /// `_acpmux/worktree/report` and `_acpmux/worktree/clean`: a pass now,
+    /// `_acpmux/worktree/report`, `clean` and `free_stale`: a pass now,
     /// acting with `apply`. A report-only pass measures what would be freed.
+    /// With `stale_only` (the Storage panel) it acts on and measures only
+    /// stale worktrees (`policy::stale`), measuring for at most
+    /// `STALE_MEASURE_BUDGET` in all.
     pub(crate) async fn care_pass(
         self: &Arc<Self>,
         apply: bool,
         only: Vec<PathBuf>,
+        stale_only: bool,
     ) -> Result<Value, RpcError> {
         let busy = || RpcError::internal("a worktree cleanup pass or report is already running");
         let Some(_running) = Running::claim(&CARE.running) else { return Err(busy()) };
@@ -329,7 +337,7 @@ impl Hub {
         })
         .await
         .map_err(|e| RpcError::internal(format!("the cleanup pass stopped: {e}")))??;
-        self.care_run(claim, apply, only, None).await
+        self.care_run(claim, apply, only, stale_only, None).await
     }
 
     /// Runs one pass; the caller holds `running` and the machine's `claim`,
@@ -339,11 +347,27 @@ impl Hub {
         claim: Claim,
         apply: bool,
         only: Vec<PathBuf>,
+        stale_only: bool,
         look: Option<care::Look>,
     ) -> Result<Value, RpcError> {
         let home = dirs::home_dir().ok_or_else(|| RpcError::internal("no home folder"))?;
-        let hub = Arc::clone(self);
         let daemon_home = crate::config::home();
+        // Read again before each removal, this daemon's chats and every other
+        // daemon's on disk: a chat may open in a worktree while the pass
+        // scans or archives. Weak: a pass never keeps the hub.
+        let weak = Arc::downgrade(self);
+        let (now_home, now_daemon) = (home.clone(), daemon_home.clone());
+        let sessions_now: Arc<cmux_worktree_care::pass::SessionsNow> = Arc::new(move || {
+            let managed = pr_archive::managed_root(&now_home);
+            let rules = super::auto_settle::read_rules();
+            let mut sessions = weak
+                .upgrade()
+                .map(|hub| hub.care_sessions(managed.as_deref(), &rules))
+                .unwrap_or_default();
+            sessions.extend(crate::worktree_sessions::on_disk(&now_home, Some(&now_daemon)));
+            sessions
+        });
+        let hub = Arc::clone(self);
         let only_given = !only.is_empty();
         let report = tokio::task::spawn_blocking(move || {
             let managed = pr_archive::managed_root(&home);
@@ -362,8 +386,9 @@ impl Hub {
                 crate::care_machine::Ask {
                     apply,
                     only,
-                    // A clean of named worktrees leaves the other families alone.
-                    only_families: if only_given {
+                    // A clean of named worktrees, or of the stale ones, leaves
+                    // the other families alone.
+                    only_families: if only_given || stale_only {
                         vec![care::WORKTREES.into()]
                     } else {
                         Vec::new()
@@ -383,6 +408,9 @@ impl Hub {
                     cmux_worktree_care::procs::open_inside(root)
                 }
             });
+            config.pass.stale_only = stale_only;
+            config.pass.measure_budget = stale_only.then_some(STALE_MEASURE_BUDGET);
+            config.pass.sessions_now = Some(sessions_now);
             let caches_on = config.clean_caches;
             let report = care::run(&config, look.as_ref());
             if let Err(error) = claim.finish(now_ms()) {

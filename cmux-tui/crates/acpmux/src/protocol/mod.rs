@@ -381,6 +381,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_GITHUB_READ, Request),
         untyped(method::MUX_WORKTREE_REPORT, Request),
         untyped(method::MUX_WORKTREE_CLEAN, Request),
+        untyped(method::MUX_WORKTREE_FREE_STALE, Request),
         untyped(method::MUX_WORKTREE_RESTORE, Request),
         untyped(method::MUX_RETENTION, Request),
         untyped(method::MUX_HISTORY_DELETE, Request),

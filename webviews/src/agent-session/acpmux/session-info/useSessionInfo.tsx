@@ -84,6 +84,7 @@ import {
   inlines,
 } from "./sessionInfoModel";
 import { MemoSessionInfoPanel, MemoSessionInfoSections } from "./SessionInfo";
+import type { StorageSource } from "./StorageSection";
 import { subagentsIn } from "../subagents/subagentRows";
 import type { Subagent } from "../subagents/subagentFold";
 import type { ResumeActions } from "../subagents/ResumeControl";
@@ -259,6 +260,7 @@ export function useSessionInfo({
   onOpenChat,
   onShowUsage,
   onRender,
+  storage,
 }: {
   snapshot: AcpmuxSnapshot;
   /// A view has the pane in the chat's place (App.tsx: a turn's diff in place, the event Inspector):
@@ -301,6 +303,8 @@ export function useSessionInfo({
   processes?: ProcessRegistry;
   /// `_acpmux/process/kill`.
   onStopProcess?: (id: string) => Promise<unknown>;
+  /// This Mac's worktree cleanup (StorageSection.tsx), the same object while the client is.
+  storage?: StorageSource;
   subagents?: {
     views: Record<string, AcpmuxRow[]> | undefined;
     /// The tool calls the chat's open asks are about (SubagentStatusList.tsx `pendingToolCalls`).
@@ -633,6 +637,7 @@ export function useSessionInfo({
         onOpenDocument={stableOnOpenDocument}
         onShowCall={stableOnShowCall}
         onShowTurn={stableOnShowTurn}
+        storage={storage}
         scope={subagent}
       />
     ),
@@ -908,6 +913,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onOpenDocument,
   onShowCall,
   onShowTurn,
+  storage,
   scope,
 }: {
   /// The chat whose width and folds it draws (sessionInfoState.ts `useSessionInfoState`).
@@ -985,6 +991,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onOpenDocument?: (artifact: Artifact) => void;
   onShowCall?: (toolCallId: string) => boolean;
   onShowTurn?: (turnId: string) => void;
+  storage?: StorageSource;
   /// The subagent it lists, while the pane shows one's own view.
   scope?: SubagentScope;
 }) {
@@ -1527,6 +1534,8 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         onOpenDocument={onOpenDocument}
         onShowCall={onShowCall}
         onShowTurn={onShowTurn}
+        // This Mac's, in the chat's own panel only.
+        storage={scope ? undefined : storage}
       />
     </MemoSessionInfoPanel>
   );

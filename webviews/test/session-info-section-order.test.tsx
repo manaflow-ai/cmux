@@ -202,8 +202,11 @@ test("a section drags anywhere, lifted while held, and the order stays", async (
   expect(container.querySelector("[data-lifted]")).toBeNull();
   expect(container.querySelector("[data-dragging]")).toBeNull();
   expect(slotOf(container, "outputs").style.transform).toBe("");
-  // The saved order is the drawn one, the line included.
-  expect(JSON.parse(dom.window.localStorage.getItem(ORDER_KEY)!) as string[]).toEqual(order(container));
+  // The saved order is the drawn one, the line included, with Storage (no acpmux client here)
+  // in its slot, not drawn.
+  expect(
+    (JSON.parse(dom.window.localStorage.getItem(ORDER_KEY)!) as string[]).filter((id) => id !== "storage"),
+  ).toEqual(order(container));
   await act(async () => root.unmount());
 
   // A fresh page reads the saved order.
@@ -342,6 +345,7 @@ test("the per-block order #27291 saved is read as one order, nothing lost", asyn
     "more",
     "usage",
     "connectors",
+    "storage",
     "changes",
   ]);
   await act(async () => root.unmount());
@@ -356,6 +360,7 @@ test("parseOrder keeps known sections once and reads both shapes", () => {
     "context",
     "usage",
     "connectors",
+    "storage",
     "changes",
     "sources",
     "outputs",
@@ -470,6 +475,7 @@ test("a hidden section keeps its slot when the shown ones move", async () => {
     "changes",
     "usage",
     "connectors",
+    "storage",
   ]);
   await act(async () => root.unmount());
 });
