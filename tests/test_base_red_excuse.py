@@ -17995,8 +17995,6 @@ SCANNERS = {
     "failed_steps_log._lead": lambda f: excuse.steps_log._lead(f.lines, f.raw, len(f.lines) - 1, 0),
     "failed_steps_log._one_to_one_starts": lambda f: excuse._one_to_one_starts(
         [s for s in f.job["steps"]], f.raw, f.lines, f.windows, excuse.STEP_NAMES_UNKNOWN),
-    "failed_steps_log._same_second_starts": lambda f: excuse.steps_log._same_second_starts(
-        [s for s in f.job["steps"]], f.raw, f.lines, f.windows, excuse.STEP_NAMES_UNKNOWN),
     "failed_steps_log.failed_steps_log": lambda f: excuse.failed_steps_log(f.job, f.log, **UNKNOWN),
     "base_red_excuse.failed_view": lambda f: excuse.failed_view(f.job, f.log, **UNKNOWN, base=False),
     "base_red_excuse.view_text": lambda f: excuse.view_text(f.view),
@@ -20540,71 +20538,27 @@ class CalledWorkflowStepNames(unittest.TestCase):
                                                    self.github(caller), {})
                 self.assertIs(names, excuse.STEP_NAMES_UNKNOWN)
 
+    def test_a_caller_with_no_name_is_named_by_its_id(self):
+        # 2026-11-28: cmux-next-post-merge.yml's `rust-workspaces:` job calls rust-workspaces.yml with no `name:`, so
+        # Actions names its job 'rust-workspaces / plan (changed Cargo workspaces)' (feat-cmux-next run 46113542594,
+        # job 140884231693). Read as STEP_NAMES_UNKNOWN, that base log was unplaced and cmux#64053's red of the same
+        # duplicate entry was refused ("its red base verdict's log does not map one to one onto its steps").
+        unnamed = self.CALLER.replace("    name: pr pipeline\n", "")
+        job = self.job("pipeline / linux")
+        names = excuse.workflow_step_names(REPO, job, ".github/workflows/caller.yml", self.github(unnamed), {})
+        self.assertIsNot(names, excuse.STEP_NAMES_UNKNOWN)
+        self.assertEqual(dict(names), {2: True, 3: True, 4: True})
+        owned = excuse.step_owners(job, self.LOG, step_names=names)
+        self.assertNotIn(excuse.AMBIGUOUS, {status for _, _, status in owned})
+        # Its id is its name only when it has none: a named caller is never matched by its id.
+        self.assertIs(excuse.workflow_step_names(REPO, job, ".github/workflows/caller.yml", self.github(), {}),
+                      excuse.STEP_NAMES_UNKNOWN)
+
     def test_a_workflow_that_calls_itself_ends(self):
         loop = self.CALLER.replace("./.github/workflows/callee.yml", "./.github/workflows/caller.yml")
         name = " / ".join(["pr pipeline"] * 12 + ["linux"])
         names = excuse.workflow_step_names(REPO, self.job(name), ".github/workflows/caller.yml", self.github(loop), {})
         self.assertIs(names, excuse.STEP_NAMES_UNKNOWN)
-
-
-class SameSecondHeadersPlace(unittest.TestCase):
-    """cmux#64053 (2026-11-28): "plan (changed Cargo workspaces)", run 46113401818, job 140881736364, failed in one step
-    ("Every Cargo workspace is listed", 05:43:52-53) with one `##[error]` line, but that step's header was stamped
-    05:43:52.078, inside "CI tier of this head"'s 05:43:51-52 too (the jobs API keeps whole seconds). _one_to_one_starts
-    refused the overlap, no workflow headers were known, and every line was AMBIGUOUS: land-judge refused the red as
-    "does not map one to one onto its steps". _same_second_starts places it: one header per step, every line in its
-    step's times, and the jobs API's pass and fail agreeing with each section's `##[error]` lines."""
-
-    @staticmethod
-    def at(second):
-        return f"2026-11-10T{clock(second)}Z"
-
-    def shape(self, tier="success", listed="failure", error_in="listed", late=None):
-        job = {"steps": framed_steps([("CI tier of this head", tier, 51, 52),
-                                      ("Every Cargo workspace is listed", listed, 52, 53)])}
-        at = self.at
-        tier_lines = [f"{at(52.002)} ##[group]Run if [ ! -f scripts/ci/head_tier.py ]; then exit 0; fi",
-                      f"{at(52.003)} ##[endgroup]", f"{at(52.068)} tier: full"]
-        listed_lines = [f"{at(52.078)} ##[group]Run python3 .github/scripts/rust-workspaces.py check",
-                        f"{at(52.079)} ##[endgroup]"]
-        red = [f"{at(53.096)} ##[error]scripts/bench/phone-speed is listed more than once",
-               f"{at(53.104)} ##[error]Process completed with exit code 1."]
-        if error_in == "listed":
-            listed_lines += red
-        else:
-            tier_lines += [f"{at(52.07)} ##[error]Process completed with exit code 1."]
-        if late is not None:
-            tier_lines.append(f"{at(late)} printed late")
-        text = "\n".join([f"{at(1.0)} Current runner version: '2.338.2'", *tier_lines, *listed_lines])
-        return job, text
-
-    def placed(self, job, text):
-        steps = sorted((s for s in job["steps"] if s.get("conclusion") != "skipped"), key=lambda s: s["number"])
-        return [(line, None if k is None else str(steps[k]["name"]), status)
-                for line, k, status in excuse.step_owners(job, text, **UNKNOWN)]
-
-    def test_cmux_64053_the_one_error_line_is_its_failed_steps(self):
-        job, text = self.shape()
-        steps = sorted(job["steps"], key=lambda s: s["number"])
-        windows = [(excuse.steps_log._stamp_time(s["started_at"]),
-                    excuse.steps_log._stamp_time(s["completed_at"]) + excuse.steps_log.timedelta(seconds=1))
-                   for s in steps]
-        self.assertIsNone(excuse._one_to_one_starts(steps, text.splitlines(), excuse.lines_of(text), windows,
-                                                    excuse.STEP_NAMES_UNKNOWN))  # before: the overlap places nothing
-        reds = [(name, status) for line, name, status in self.placed(job, text) if "##[error]" in line]
-        self.assertEqual(reds, [("Every Cargo workspace is listed", "failed")] * 2)
-        self.assertNotIn(excuse.AMBIGUOUS, {status for _, _, status in self.placed(job, text)})
-        self.assertIn("is listed more than once", excuse.failed_view(job, text, base=False, **UNKNOWN).text())
-
-    def test_an_error_line_in_the_passing_steps_section_places_nothing(self):
-        # The jobs API says the second step failed, but the only `##[error]` line sits in the first's section: which
-        # header is whose is then not proven, and every line stays AMBIGUOUS.
-        job, text = self.shape(error_in="tier")
-        self.assertEqual({status for _, _, status in self.placed(job, text)}, {excuse.AMBIGUOUS})
-
-    def test_a_line_outside_its_steps_times_places_nothing(self):
-        job, text = self.shape(late=55.0)
-        self.assertEqual({status for _, _, status in self.placed(job, text)}, {excuse.AMBIGUOUS})
 
 
 if __name__ == "__main__":
