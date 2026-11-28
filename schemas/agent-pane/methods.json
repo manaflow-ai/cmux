@@ -14,9 +14,6 @@
   },
   "refused_today": {
     "_acpmux/inbox_threads": "direct.ts inboxThreads (the chat.inbox.threads action, App.tsx) sends {sessionId}; not in AcpmuxPaneMethods.requests, so the app relay refuses it.",
-    "_acpmux/history": "direct.ts inspectorHistory (the inspector's Timing tab, cmux#61050) sends {sessionId, limit}; not in policy.json requests, so the app relay refuses it.",
-    "_acpmux/set_directories": "direct.ts setDirectories (cmux#32949) sends {sessionId, additionalDirectories, expectedAdditionalDirectories?}; not in policy.json requests, so the app relay refuses it.",
-    "_acpmux/turn_frames": "direct.ts turnFrames, turnFrameFull and latestFrame (liveFrames/turnFrames.ts, cmux#54952) send {sessionId, turnId or sinceSeq, index?}; not in policy.json requests, so the app relay refuses it.",
     "session/signature": "direct.ts signatures (cmux#47075; asked only while appearance.agentSignature is on, off by default) sends {sessionIds}; not in policy.json requests, so the app relay refuses it (the sidebar asks acpmux itself, SidebarAgentSignature.swift)."
   },
   "methods": {
@@ -70,6 +67,9 @@
     "_acpmux/move_targets": {"params": ["source", "sourceKind"]},
     "_acpmux/draft_get": {"params": ["sessionId", "attachments"]},
     "_acpmux/draft_set": {"params": ["sessionId", "text", "attachments"]},
+    "_acpmux/history": {"params": ["sessionId", "limit"]},
+    "_acpmux/set_directories": {"params": ["sessionId", "additionalDirectories", "expectedAdditionalDirectories"]},
+    "_acpmux/turn_frames": {"params": ["sessionId", "turnId", "index", "sinceSeq"]},
     "_acpmux/inbox_thread": {"params": ["sessionId", "threadId"]},
     "_acpmux/bookmark_get": {"params": ["sessionId"]},
     "_acpmux/turn_shots": {"params": ["sessionId", "turnId"]},

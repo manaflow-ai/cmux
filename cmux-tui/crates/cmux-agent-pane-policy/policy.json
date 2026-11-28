@@ -71,7 +71,8 @@
     "_acpmux/prompt_coach",
     "_acpmux/pull_request_action",
     "_acpmux/customize_run",
-    "_acpmux/auto_session/set", "_acpmux/auto_session/leftover", "_acpmux/auto_session/transcript"
+    "_acpmux/auto_session/set", "_acpmux/auto_session/leftover", "_acpmux/auto_session/transcript",
+    "_acpmux/history", "_acpmux/set_directories", "_acpmux/turn_frames"
   ],
   "notifications": ["session/cancel"],
   "maximum_frame_bytes": 33554432,
@@ -91,6 +92,7 @@
     "_acpmux/run_elsewhere/plan", "_acpmux/run_elsewhere/start", "_acpmux/bg/output", "_acpmux/bg/stop",
     "_acpmux/cold_archive", "_acpmux/prompt_coach", "_acpmux/pull_request_action",
     "_acpmux/auto_session/set", "_acpmux/auto_session/leftover", "_acpmux/auto_session/transcript",
+    "_acpmux/history", "_acpmux/set_directories", "_acpmux/turn_frames",
     "_acpmux/account/sign_in", "_acpmux/account/sign_in.finish", "_acpmux/account/sign_in.cancel"
   ],
   "optionally_session_scoped": [
@@ -210,6 +212,9 @@
     "_acpmux/place_chat": {"params": ["where", "targets", "parent", "key"], "acpmux": []},
     "_acpmux/draft_get": {"params": ["sessionId", "attachments"], "acpmux": []},
     "_acpmux/draft_set": {"params": ["sessionId", "text", "attachments"], "acpmux": []},
+    "_acpmux/history": {"params": ["sessionId", "limit"], "acpmux": []},
+    "_acpmux/set_directories": {"params": ["sessionId", "additionalDirectories", "expectedAdditionalDirectories"], "acpmux": []},
+    "_acpmux/turn_frames": {"params": ["sessionId", "turnId", "index", "sinceSeq"], "acpmux": []},
     "_acpmux/inbox_thread": {"params": ["sessionId", "threadId"], "acpmux": []},
     "_acpmux/bookmark_get": {"params": ["sessionId"], "acpmux": []},
     "_acpmux/turn_shots": {"params": ["sessionId", "turnId"], "acpmux": []},
