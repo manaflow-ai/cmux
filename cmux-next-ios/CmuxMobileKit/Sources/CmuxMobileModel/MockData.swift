@@ -172,7 +172,19 @@ extension AppStore {
         // CMUX_MOBILE_MOCK_PANES=1: first, a workspace of five terminals in two panes side by
         // side (build, server, logs | tests, git), for the Panes page's drag (PaneDragMoveUITests).
         let panes = ProcessInfo.processInfo.environment["CMUX_MOBILE_MOCK_PANES"] == "1" ? [Self.mockPanesWorkspace(now: now)] : []
-        return AppStore(teams: teams, activeTeamID: "team-manaflow", workspaces: (panes + terminalAgents + workspaces + bare).enumerated().map { Self.mockLinkIDs($1, index: $0) }, feed: feed,
+        // CMUX_MOBILE_MOCK_TABS=N: N more terminals in `ws-cmux` (t-stress-1...N), so
+        // its tab grid is a realistic phone's: many cards with live terminals
+        // (TabZoomFrameTimeUITests' grid zoom bench, ios-tab-zoom gate).
+        let stress = Self.mockStressTabCount
+        let full = stress == 0 ? workspaces : workspaces.map { workspace -> Workspace in
+            guard workspace.id == "ws-cmux" else { return workspace }
+            var workspace = workspace
+            workspace.tabs += (1...stress).map {
+                WorkspaceTab(id: "t-stress-\($0)", kind: .terminal, title: "zsh \($0)", subtitle: "~/Development/cmux")
+            }
+            return workspace
+        }
+        return AppStore(teams: teams, activeTeamID: "team-manaflow", workspaces: (panes + terminalAgents + full + bare).enumerated().map { Self.mockLinkIDs($1, index: $0) }, feed: feed,
                         tabMemory: tabMemory)
     }
 
@@ -199,14 +211,22 @@ extension AppStore {
     /// (CmuxLink): workspace `n` is `ws_` + n in 32 hex digits, its tab `m` is
     /// `tab_` + n·16+m, all of a workspace's tabs share pane `pane_` + n (the first
     /// selected), and an agent tab's harness session is `mock-<tab id>`.
+    /// `CMUX_MOBILE_MOCK_TABS` (0 to 60): extra terminals in `ws-cmux`.
+    static var mockStressTabCount: Int {
+        min(60, max(0, Int(ProcessInfo.processInfo.environment["CMUX_MOBILE_MOCK_TABS"] ?? "") ?? 0))
+    }
+
     static func mockLinkIDs(_ workspace: Workspace, index: Int) -> Workspace {
         func id(_ prefix: String, _ number: Int) -> String { prefix + String(format: "%032x", number) }
         var workspace = workspace
         workspace.resourceID = id("ws_", index + 1)
         for position in workspace.tabs.indices {
             let tab = workspace.tabs[position]
+            // Past 16 tabs (CMUX_MOBILE_MOCK_TABS) a workspace's ids leave the
+            // n·16+m range, so they never take the next workspace's.
+            let number = position < 16 ? (index + 1) * 16 + position : 0x10000 + (index + 1) * 0x100 + position
             workspace.tabs[position].linkIDs = WorkspaceTab.LinkIDs(
-                tab: id("tab_", (index + 1) * 16 + position), pane: id("pane_", index + 1), isPaneSelected: position == 0,
+                tab: id("tab_", number), pane: id("pane_", index + 1), isPaneSelected: position == 0,
                 harnessSession: tab.isAgent ? "mock-\(tab.id)" : nil)
         }
         return workspace
