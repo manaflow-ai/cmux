@@ -67,6 +67,7 @@ RETENTION_DAYS = (
     ("cmux-next-fast-", 1),
     ("git-mirror-cmux-", 1),
     ("cmux-next-daemon-tests-", 1),
+    ("ios-fast-verdict-", 1),
     ("", 30),
 )
 ARCHIVE = re.compile(r"^(v1/[^/]+)/objects/(?P<name>[A-Za-z0-9._-]+)\.(?:tar\.zst|tar\.gz)$")
