@@ -295,7 +295,7 @@ struct CloudStartSession {
                 started = try await Self.starting(name: name, id: id, agent: agent, account: account, now: { services.cloud.account }, asked: request.asked(machine: name)) {
                     try await CloudWait.retriedOnce({ try await remote.startNow(cwd: cwd, harness: agent, model: model) { @MainActor [services] in
                         try Self.check(account, now: services.cloud.account, CloudStartSessionStrings.Asked(machine: name, agent: agent, command: command))
-                    } }, closed: CloudWait.linkDropped, relink: { await session.linkUp(within: Self.connectWait) && session.linkHeld() })
+                    } }, closed: CloudWait.linkDropped, relinkAfter: { await CloudWait.relinked(after: $0, link: { [daemon = session.daemon] in daemon.connection }, drop: { session.reconnectAfterUpdate(restarted: true) }, refused: { session.resumeFailure != nil || session.linkRefusal.refused }) { await session.linkUp(within: Self.connectWait) && session.linkHeld() } })
                 }
             case let refused as AgentTabRefusedHost: throw refused.refusal
             default: throw AgentRemoteStartRefusal.startUnsupported(machine: name)
@@ -418,7 +418,7 @@ struct CloudStartSession {
                 let kept = CloudStartSessionStrings.newMachineKept(name, id: id), failure = ended as? ActionFailure
                 throw ActionFailure(message: (failure?.message ?? CloudStrings.errorText(ended)) + " " + kept, isNotFound: failure?.isNotFound ?? false, isQuiet: failure?.isQuiet ?? false)
             }
-            throw ended
+            throw (ended as? ActionFailure).flatMap { f in CloudStartSessionStrings.newMachineDeleted(name, id: id, after: f.message).map { ActionFailure(message: $0, isNotFound: f.isNotFound, isQuiet: f.isQuiet) as Error } } ?? ended
         }
     }
 

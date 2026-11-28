@@ -27,6 +27,8 @@ required-features = ["bindgen"]
 bindgen = ["uniffi/cli"]
 
 [dependencies]
+# The feed push rules (src/feed_push.rs: `feed_push_json`), shared with the Mac.
+cmux-feed-push-core = { path = "../cmux-feed-push-core" }
 cmux-mobile-core.workspace = true
 # The screen stream's rules (src/screen.rs: `screen_json`), shared with the Mac.
 cmux-rd-screen = { path = "../cmux-rd-screen" }
