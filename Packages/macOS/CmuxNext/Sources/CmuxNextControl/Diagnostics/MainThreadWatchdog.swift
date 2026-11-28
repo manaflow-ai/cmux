@@ -44,7 +44,7 @@ public final class MainThreadWatchdog: Sendable {
         /// How often a watchdog timer checks the host load; while it is above the core count, each
         /// check sends the main queue one block and times its answer, so an idle main thread the
         /// Mac starves of CPU (which the heartbeat reads as asleep) still gets a `starved` record
-        /// (``MainThreadWatchdog/noteProbeAnswered(sentAt:delayNanos:cpuNanos:observedAt:host:)``). Nil (the
+        /// (``MainThreadWatchdog/noteProbeAnswered(sentAt:delayNanos:cpuNanos:memoryAt:observedAt:host:)``). Nil (the
         /// default): no probe. The app sets 5 s; an unloaded Mac never wakes the main thread for it.
         public var starvationProbeInterval: Duration?
 
@@ -95,6 +95,9 @@ public final class MainThreadWatchdog: Sendable {
         /// that waits on a lock or a reply shows only the wait, and the holder is in here
         /// (``ThreadStackSampler/sampleOtherThreads(excluding:maxFrames:)``).
         public var otherThreads: [ThreadSample] = []
+        /// The checked blocking call the main thread was inside when sampled (``BlockingOpenCall/summary``),
+        /// Chrome's `HangWatcher` naming the `ScopedBlockingCall`; nil when none was open.
+        public var blockingCall: String?
     }
 
     public let configuration: Configuration
@@ -118,9 +121,11 @@ public final class MainThreadWatchdog: Sendable {
     let episodeSink = Mutex<HangEpisodeRecorder?>(nil) // ``episodes``
     /// Finished stalls of a hang's length by beat, the newest few, until their file takes one (+Episodes).
     let hangEnds = Mutex<[(beat: UInt64, nanos: UInt64, cpuNanos: UInt64)]>([])
-    /// The process's fault counters when the watchdog first sampled the stall of `beat`: the
-    /// base of its hang file's page-ins (+Episodes). Watchdog thread only (uncontended).
-    let stallEvents = Mutex<(beat: UInt64, counts: TaskEventCounts?)?>(nil)
+    /// The process's fault counters and the host's memory when the watchdog first sampled the
+    /// stall of `beat`: the base of its hang file's page-ins and memory line (+Episodes), and the
+    /// highest host load read since (``stallHost(beat:)``). The watchdog thread, and the main
+    /// thread once as the stall ends.
+    let stallEvents = Mutex<(beat: UInt64, counts: TaskEventCounts?, memory: HostMemory?, host: HostLoad?)?>(nil)
     let hangNanos: UInt64
     let hangIntervalNanos: UInt64
     private let hangAssertNanos: UInt64?
@@ -174,6 +179,10 @@ public final class MainThreadWatchdog: Sendable {
     private let publishedTaskPacked = Atomic<UInt64>(0)
     private let publishedTaskStart = Atomic<UInt64>(0)
     private let publishedTaskBudget = Atomic<UInt64>(0)
+    /// The checked blocking call open on the main thread in that sample (``BlockingOpenCall``), so the stall
+    /// record names it: its two words, written while the main thread is suspended (atomics only).
+    private let publishedOpenFileID = Atomic<UInt>(0)
+    private let publishedOpenPacked = Atomic<UInt64>(0)
     /// The main-thread scheduler's board (``attach(board:)``).
     let boardSink = Mutex<MainTaskBoard?>(nil)
     /// Stacks sampled while a scheduled task ran past its class budget, by packed task identity
@@ -379,6 +388,8 @@ public final class MainThreadWatchdog: Sendable {
         var cpuNanos: UInt64
         var addresses: [UInt]
         var details: [String: JSONValue]
+        /// The highest host load read while the stall ran (``stallHost(beat:)``).
+        var host: HostLoad?
     }
 
     /// The part of a stall's record that must be read before the next heartbeat is published: the
@@ -397,12 +408,17 @@ public final class MainThreadWatchdog: Sendable {
                 details = Self.details(of: task)
                 details["task_started_ms"] = .number((Double(task.startNanos) - Double(start)) / 1_000_000)
             }
+            // The checked blocking call the sample caught (none: the stall was not in a seam).
+            let open = BlockingOpenCall(fileID: publishedOpenFileID.load(ordering: .relaxed),
+                                        packed: publishedOpenPacked.load(ordering: .relaxed))
+            if let call = open.summary { details["blocking_call"] = .string(call) }
         }
         if nanos >= hangNanos {
             lastHangUptime.store(start &+ nanos, ordering: .releasing)
             hangEnds.withLock { $0.append((beat, nanos, cpuNanos)); if $0.count > 4 { $0.removeFirst() } }
         }
-        return EndedStall(start: start, nanos: nanos, cpuNanos: cpuNanos, addresses: addresses, details: details)
+        return EndedStall(start: start, nanos: nanos, cpuNanos: cpuNanos, addresses: addresses, details: details,
+                          host: stallHost(beat: beat))
     }
 
     /// The rest of a stall's record, once the next heartbeat is published: its verdict, the log
@@ -410,8 +426,8 @@ public final class MainThreadWatchdog: Sendable {
     private func finishStall(_ stall: EndedStall) {
         let (start, nanos, cpuNanos, addresses) = (stall.start, stall.nanos, stall.cpuNanos, stall.addresses)
         var details = stall.details
-        // Our code, or the Mac (StallVerdict): main-thread CPU against wall time, and the host load.
-        let host = HostLoad.current()
+        // Our code, or the Mac (StallVerdict): main-thread CPU against wall time, and the most host load seen meanwhile.
+        let host = stall.host
         let verdict = StallVerdict.classify(wall: .nanoseconds(Int64(clamping: nanos)), mainThreadCPU: .nanoseconds(Int64(clamping: cpuNanos)),
                                             host: host)
         details["verdict"] = .string(verdict.rawValue)
@@ -460,8 +476,8 @@ public final class MainThreadWatchdog: Sendable {
             // The heartbeat is old enough that the main thread may be stalling.
             if beat == beatSequence.load(ordering: .acquiring), !mainAsleep.load(ordering: .acquiring), beat != sampledBeat {
                 sampledBeat = beat
-                // One syscall per sampled stall: the base of a hang's page-in count.
-                stallEvents.withLock { $0 = (beat, TaskEventCounts.current()) }
+                // A few syscalls per sampled stall: the base of a hang's page-in count and memory line.
+                stallEvents.withLock { $0 = (beat, TaskEventCounts.current(), HostMemory.current(), HostLoad.current()) }
                 if let sampler {
                     let board = boardSink.withLock { $0 }
                     // Raw addresses only: symbolicating here can outlast a short stall.
@@ -487,6 +503,9 @@ public final class MainThreadWatchdog: Sendable {
         publishedTaskPacked.store(task.packed, ordering: .relaxed)
         publishedTaskStart.store(task.startNanos, ordering: .relaxed)
         publishedTaskBudget.store(task.budgetNanos, ordering: .relaxed)
+        let open = BlockingOpenCall.current()
+        publishedOpenFileID.store(open.fileID, ordering: .relaxed)
+        publishedOpenPacked.store(open.packed, ordering: .relaxed)
         publishedSampleCount.store(count, ordering: .relaxed)
         publishedSampleBeat.store(beat, ordering: .releasing)
     }

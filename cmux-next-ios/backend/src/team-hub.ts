@@ -5,6 +5,7 @@ import type { Env } from "./env.ts"
 import { MAILBOX_PENDING_LIMIT, MAILBOX_TTL_MS, MAILBOX_HOLD_BYTES, MAILBOX_HOLD_LIMIT, MAILBOX_PAGE } from "./push.ts";
 import { userTeams } from "./stack.ts"
 import { locationHintOf, relayPlacement, relayRoomName } from "./placement.ts"
+import { RegionLearner } from "./region-pick.ts"
 import { FIRST_GRANT, MIB, MibBucket, newTicket, RELAY_CLOSE, ticketsMatch, userMibPerMinute, type BudgetAnswer, type MibBucketState } from "./relay-access.ts"
 
 /** Per-socket identity, set by the Worker after auth and device checks (never by the client). */
@@ -36,6 +37,8 @@ export interface Ingress {
   /** Cloudflare's geolocation of the client, rounded to 0.1 degree (about 11 km); relay placement only. */
   lat?: number | null
   lon?: number | null
+  /** The client's network's AS number (`req.cf.asn`): with `colo`, the hub's central region pick keys on it (region-pick.ts). */
+  asn?: number | null
   /** The client's own netcheck, round-trip ms per Durable Object region (`placement.ts` parseNetcheck). */
   rtt?: Partial<Record<string, number>>
 }
@@ -45,7 +48,7 @@ export const MAX_LINK_STAT_FRAME = 2048
 /** A socket's stats closer together than this are dropped silently (the phone sends one a minute). */
 export const LINK_STAT_MIN_GAP_MS = 5000
 const LINK_STAT_TRANSPORTS = new Set(["wireguard", "webrtc"])
-const LINK_STAT_PATHS = new Set(["direct", "turn", "turn-tls", "https-relay", "none"])
+const LINK_STAT_PATHS = new Set(["direct", "turn", "turn-tls", "hop", "https-relay", "none"])
 const LINK_STAT_REASONS = new Set(["first", "periodic", "path", "end"])
 const LINK_STAT_ENDS = new Set(["app", "keepalive", "transport", "other"])
 const LINK_STAT_NETS = new Set(["cellular", "other"])
@@ -107,6 +110,16 @@ export function linkStatLine(f: Record<string, unknown>, kind: Attachment["kind"
     const p95 = num(r.p95, LINK_STAT_MAX_MS)
     const max = num(r.max, LINK_STAT_MAX_MS)
     if (n && p50 !== undefined && p95 !== undefined && max !== undefined) Object.assign(line, { rttN: n, rttP50: p50, rttP95: p95, rttMax: max })
+  }
+  if (typeof f.hop === "object" && f.hop !== null && !Array.isArray(f.hop)) {
+    const h = f.hop as Record<string, unknown>
+    const srttMs = num(h.srttMs, LINK_STAT_MAX_MS)
+    const lossPermille = num(h.lossPermille, 1_000)
+    const resent = num(h.resent, 100_000)
+    const repaired = num(h.repaired, 100_000)
+    if (srttMs !== undefined && lossPermille !== undefined && resent !== undefined && repaired !== undefined) {
+      Object.assign(line, { hopSrttMs: srttMs, hopLossPermille: lossPermille, hopResent: resent, hopRepaired: repaired })
+    }
   }
   const switches = num(f.switches, 10_000)
   if (switches !== undefined) line.switches = switches
@@ -359,6 +372,8 @@ export class TeamHub extends DurableObject<Env> {
   /** Sessions whose relay this instance prewarmed (`prewarmRelay`), in memory only. */
   private readonly prewarmed = new Set<string>()
   private ownerKey: string | null | undefined
+  /** The central relay region pick's learner (RFD 0142 O2); its tables are made on first use, only with `LINK_RELAY_CENTRAL_PICK=on`. */
+  private regionLearner: RegionLearner | undefined
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
@@ -672,6 +687,7 @@ export class TeamHub extends DurableObject<Env> {
     this.sessions.clear()
     this.ownerKey = undefined
     await this.ctx.storage.deleteAll()
+    this.regionLearner?.reset()
     this.schema()
     this.sql.exec(`INSERT INTO meta (key, value) VALUES ('retired', '1')`)
     return { closed }
@@ -769,7 +785,19 @@ export class TeamHub extends DurableObject<Env> {
     const line = linkStatLine(f, att.kind, att.ingress, await this.hubColo())
     if (!line) return
     this.linkStats.set(ws, now)
+    const learner = this.centralPick()
+    if (learner && line.path === "https-relay" && typeof line.rttN === "number" && typeof line.rttP50 === "number") {
+      const region = learner.credit(att.deviceId, line.rttP50, line.rttN, now)
+      if (region) line.relayRegion = region
+    }
     console.log(JSON.stringify(line))
+  }
+
+  /** The central pick's learner when `LINK_RELAY_CENTRAL_PICK` is `on`, else undefined (off: nothing is stored). */
+  private centralPick(): RegionLearner | undefined {
+    if (this.env.LINK_RELAY_CENTRAL_PICK !== "on") return undefined
+    this.regionLearner ??= new RegionLearner(this.sql)
+    return this.regionLearner
   }
 
   /** The owner's Macs with presence; only one team's when `teamId` is given. */
@@ -914,28 +942,48 @@ export class TeamHub extends DurableObject<Env> {
 
   /**
    * Sends the Mac's next page of queued, unexpired items on `ws` (after `hello`, a post, and each `mailbox_ack`):
-   * ordered by phone, then `seq`, each once per socket, at most MAILBOX_PAGE waiting for their ack on it at a time.
+   * ordered by phone, then `seq`, each once per socket, at most MAILBOX_PAGE per frame and MAILBOX_PAGE per phone
+   * waiting for their ack on it at a time.
    * Answers the ids it sent.
    */
   private deliverMailbox(ws: WebSocket, mac: string): string[] {
+    // Frames of at most MAILBOX_PAGE (an older Mac's cap) until nothing more fits: a second phone's items go in
+    // the next frame instead of waiting for the next ack. Each pass sends at least one item or stops.
+    const sent: string[] = []
+    for (;;) {
+      const page = this.deliverMailboxPage(ws, mac)
+      if (!page.length) return sent
+      sent.push(...page)
+    }
+  }
+
+  private deliverMailboxPage(ws: WebSocket, mac: string): string[] {
     const now = Date.now()
     this.mailboxSweep(now)
     const conn = this.attach(ws).connectedAt ?? 0
-    const outstanding = this.sql
-      .exec<{ n: number }>(`SELECT COUNT(*) AS n FROM mailbox WHERE mac = ? AND state = 'queued' AND expires_at > ? AND sent_conn = ?`, mac, now, conn)
-      .toArray()[0]?.n ?? 0
-    const room = MAILBOX_PAGE - outstanding
-    if (room <= 0) return []
-    const items = this.sql
-      .exec<{ id: string; from_device: string; sealed: string; at: number; seq: number | null }>(
-        `SELECT id, from_device, sealed, at, seq FROM mailbox WHERE mac = ? AND state = 'queued' AND expires_at > ? AND (sent_conn IS NULL OR sent_conn != ?)
-         ORDER BY from_device, COALESCE(seq, 0), at LIMIT ?`,
-        mac,
-        now,
-        conn,
-        room
-      )
-      .toArray()
+    // Counted per phone: one phone's items held on the Mac (unacked) never take another phone's room.
+    const outstanding = new Map<string, number>()
+    for (const r of this.sql.exec<{ from_device: string; n: number }>(
+      `SELECT from_device, COUNT(*) AS n FROM mailbox WHERE mac = ? AND state = 'queued' AND expires_at > ? AND sent_conn = ? GROUP BY from_device`,
+      mac,
+      now,
+      conn
+    ))
+      outstanding.set(r.from_device, r.n)
+    const items: Array<{ id: string; from_device: string; sealed: string; at: number; seq: number | null }> = []
+    for (const r of this.sql.exec<{ id: string; from_device: string; sealed: string; at: number; seq: number | null }>(
+      `SELECT id, from_device, sealed, at, seq FROM mailbox WHERE mac = ? AND state = 'queued' AND expires_at > ? AND (sent_conn IS NULL OR sent_conn != ?)
+       ORDER BY from_device, COALESCE(seq, 0), at`,
+      mac,
+      now,
+      conn
+    )) {
+      const sent = outstanding.get(r.from_device) ?? 0
+      if (sent >= MAILBOX_PAGE) continue
+      outstanding.set(r.from_device, sent + 1)
+      items.push(r)
+      if (items.length >= MAILBOX_PAGE) break
+    }
     if (!items.length) return []
     try {
       ws.send(JSON.stringify({ type: "mailbox", items: items.map((r) => ({ id: r.id, from: r.from_device, sealed: r.sealed, at: r.at, ...(r.seq ? { seq: r.seq } : {}) })) }))
@@ -1247,8 +1295,21 @@ export class TeamHub extends DurableObject<Env> {
     if (!owner) return
     if (this.prewarmed.size >= PREWARMED_MAX) this.prewarmed.clear()
     this.prewarmed.add(id)
-    const placed = relayPlacement(from.ingress, this.attach(target)?.ingress, locationHintOf(from.ingress))
-    const room = this.env.LINK_RELAY.get(this.env.LINK_RELAY.idFromName(relayRoomName(owner, this.boundSpace(), id)), placed.hint ? { locationHint: placed.hint } : undefined)
+    const to = this.attach(target)
+    const placed = relayPlacement(from.ingress, to?.ingress, locationHintOf(from.ingress))
+    let hint = placed.hint
+    // RFD 0142 O2: with the switch on, the user's own measured relay round trips for this network pair move the
+    // relay off the estimate when another region ran clearly faster (region-pick.ts; nothing learned: unchanged).
+    const learner = this.centralPick()
+    const phone = from.kind === "phone" ? from : to?.kind === "phone" ? to : undefined
+    const mac = from.kind === "mac" ? from : to?.kind === "mac" ? to : undefined
+    if (learner && phone && mac) {
+      const picked = learner.place(phone.deviceId, phone.ingress, mac.ingress, from.ingress, to?.ingress, placed.hint)
+      if (picked.region !== placed.hint)
+        console.log(JSON.stringify({ event: "relay_central_pick", by: picked.by, region: picked.region ?? null, estimate: placed.hint ?? null, ms: picked.ms ?? null }))
+      hint = picked.region
+    }
+    const room = this.env.LINK_RELAY.get(this.env.LINK_RELAY.idFromName(relayRoomName(owner, this.boundSpace(), id)), hint ? { locationHint: hint } : undefined)
     this.ctx.waitUntil(
       room.fetch("https://link-relay/prewarm", { method: "POST" }).then(
         (r) => r.body?.cancel(),

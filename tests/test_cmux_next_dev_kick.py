@@ -44,9 +44,9 @@ check(len(tick_steps) == 1 and "sha=" not in str(tick_steps[0].get("run")),
 check(len(tick_steps) == 1 and "!cancelled()" in str(tick_steps[0].get("if", "")),
       "a failed DEV dispatch still wakes the tick")
 
-check("vars.LINUX_RUNNER" not in text and "32vcpu" not in text and
-      "|| fromJSON(vars.RUNNER_POOLS).linux_4 }}" in text and "'ubuntu-24.04'" in text,
-      "DEV kick reads the ephemeral_only Linux pool (it holds a write token), never a fixed Blacksmith size that can stall")
+check("vars." not in text.split("runs-on:", 1)[1].split("\n", 1)[0] and "32vcpu" not in text and
+      "|| 'blacksmith-4vcpu-ubuntu-2404' }}" in text and "'ubuntu-24.04'" in text,
+      "DEV kick holds a write token, so it keeps the ephemeral runner its pool resolved to on 2026-11-24, named literally")
 
 # 2026-11-24: every push's kick went red on "HTTP 403: API rate limit exceeded for installation" (runs 45381829805 to
 # 45383131900) with github.token's shared hour spent elsewhere. The kick spends the cmux-bot App's hour first, falls
@@ -93,6 +93,12 @@ for step in kick_steps:
     code, out, tried = run_kick(step, {"bot": (1, limit), "repo": (1, limit)})
     check(code == 0 and tried == ["bot", "repo"] and "::warning title=DEV kick skipped::" in out,
           f"{step['name']}: every token rate-limited is a skipped kick with a warning, not a red ({code}, {out!r})")
+    code, out, tried = run_kick(step, {"bot": (1, "HTTP 500: Failed to run workflow dispatch")})
+    check(code == 0 and tried == ["bot", "repo"] and "::warning" not in out,
+          f"{step['name']}: a GitHub 5xx on the cmux-bot token falls back to github.token")
+    code, out, tried = run_kick(step, {"bot": (1, "HTTP 502: Bad Gateway"), "repo": (1, "HTTP 500: Server Error")})
+    check(code == 0 and "::warning title=DEV kick skipped::" in out,
+          f"{step['name']}: every token answered 5xx is a skipped kick with a warning, not a red ({code}, {out!r})")
     code, out, tried = run_kick(step, {"bot": (1, "HTTP 404: workflow not found")})
     check(code != 0 and tried == ["bot"], f"{step['name']}: any other failure stays red")
     code, out, tried = run_kick(step, {"repo": (1, limit)}, bot="")

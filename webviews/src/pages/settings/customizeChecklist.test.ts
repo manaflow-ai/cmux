@@ -10,6 +10,7 @@ import {
   settingGroup,
   setupEntryName,
   shortLine,
+  sidebarLookOf,
   stripJsonComments,
   toggleRowsByGroup,
   totals,
@@ -150,6 +151,50 @@ test("one search filters every group by title, line, detail or key; counts stay 
   expect(filterGroups(groups, "ember warm").map((group) => group.id)).toEqual(["looks"]);
   expect(filterGroups(groups, "recipes/focus").map((group) => group.id)).toEqual(["looks"]);
   expect(filterGroups(groups, "nothing like this")).toEqual([]);
+});
+
+test("each sidebar look but the default is one switch in Looks; only the one picked is on", () => {
+  const look = {
+    ...row("sidebar.look", "choice"),
+    title: { text: "Sidebar Look" },
+    help: { text: "Rows, headers and status marks like another app's sidebar. Your own settings still win." },
+    default: "cmux",
+    keywords: ["minimal"],
+    choices: [
+      { value: "cmux", title: { text: "cmux" } },
+      { value: "claude", title: { text: "Claude" } },
+      { value: "rex", title: { text: "Rex" } },
+    ],
+  } as SchemaRow;
+  const picked = (value: unknown) =>
+    checklistGroups(input({ sidebarLook: look, value: (key) => (key === "sidebar.look" ? value : false) }))
+      .find((group) => group.id === "looks")!
+      .items.filter((item) => sidebarLookOf(item) !== null);
+  // The default look (today's sidebar) has no switch and leaves every switch off.
+  expect(picked("cmux").map((item) => [item.id, item.title, item.on])).toEqual([
+    ["sidebar.look=claude", "Sidebar Look: Claude", false],
+    ["sidebar.look=rex", "Sidebar Look: Rex", false],
+  ]);
+  expect(picked(undefined).some((item) => item.on)).toBe(false);
+  expect(picked("rex").map((item) => item.on)).toEqual([false, true]);
+  expect(picked("rex")[1]!.help).toBe("Rows, headers and status marks like another app's sidebar.");
+  expect(sidebarLookOf({ id: "sidebar.look=rex" })).toBe("rex");
+  expect(sidebarLookOf({ id: "look:manaflow-ai/ember-look" })).toBeNull();
+  // Search finds it by its key, its value or the row's keywords; a managed key locks every one.
+  const groups = checklistGroups(
+    input({ sidebarLook: look, locked: (key) => (key === "sidebar.look" ? "Managed" : null) }),
+  );
+  expect(filterGroups(groups, "minimal rex").flatMap((group) => group.items.map((item) => item.id))).toEqual([
+    "sidebar.look=rex",
+  ]);
+  expect(
+    groups
+      .find((group) => group.id === "looks")!
+      .items.filter((item) => sidebarLookOf(item) !== null)
+      .map((item) => item.locked),
+  ).toEqual(["Managed", "Managed"]);
+  // No row (a build whose page hides it) adds nothing.
+  expect(checklistGroups(input()).find((group) => group.id === "looks")!.items).toHaveLength(2);
 });
 
 test("verified looks are every looks/ and recipes/ setup, sorted, but not one the index holds back", () => {

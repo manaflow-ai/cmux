@@ -321,6 +321,8 @@ pub(crate) struct ClientRegistry {
     /// owner (owner_keepers.rs).
     pub(super) frontend_seen: AtomicBool,
     pub(super) url_opens: url_open::URLRequests,
+    /// Who typed into each terminal last (`offer-link-to-phone`, phone_link.rs).
+    pub(super) last_inputs: super::phone_link::LastInputs,
     pub(crate) clipboard_reads: clipboard_read::ClipboardReads,
     /// Connection-scoped loopback streams (`loopback-forward-v1`).
     pub(super) loopback: loopback_forward::LoopbackForwarder,
@@ -410,6 +412,7 @@ impl ClientRegistry {
             frontend_seen: AtomicBool::new(false),
             next_id: AtomicU64::new(1),
             url_opens: url_open::URLRequests::default(),
+            last_inputs: Default::default(),
             clipboard_reads: Default::default(),
             loopback: loopback_forward::LoopbackForwarder::default(),
             #[cfg(unix)]
@@ -719,8 +722,12 @@ impl ClientRegistry {
             record.kind = Some(clamp_client_label(kind));
         }
         if let Some(capabilities) = capabilities {
+            // Binary frames only where every byte reaches the client as written: a local Unix
+            // socket. A WebSocket writes text messages and the remote entry's bridges cut lines.
+            let byte_clean = matches!(record.transport, ClientTransport::Unix);
             record.capabilities.extend(capabilities.into_iter().filter(|capability| {
-                capability == GUARDED_BROWSER_POINTER_CAPABILITY
+                (byte_clean && capability == super::ATTACH_FRAMES_CAPABILITY)
+                    || capability == GUARDED_BROWSER_POINTER_CAPABILITY
                     || capability == VIEW_ATTACHMENT_LEASE_CAPABILITY
                     || capability == VIEW_ATTACHMENT_DETACH_CAPABILITY
                     || capability == SHARED_SIZING_CAPABILITY
@@ -751,6 +758,10 @@ impl ClientRegistry {
                     || conversation_tabs_wire::negotiable(capability)
                     || capability == super::conversations::CONVERSATION_DRAFT_EVENTS_CAPABILITY
                     || capability == super::SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY
+                    // Replays first on `subscribe` (server/cmd_subscribe.rs). Unlisted, a
+                    // client's opt-in was dropped here and the replay never ran (hq#19373).
+                    || capability == super::SCREEN_DEVICE_IDENTITY_CAPABILITY
+                    || capability == super::AGENT_PRESENCE_REPLAY_CAPABILITY
                     || capability == super::TREE_SELECTION_DELTAS_CAPABILITY
                     || capability == super::FRONTEND_BROWSER_TABS_CAPABILITY
                     || (capability == super::conversation_runs::CONVERSATION_RUNS_CAPABILITY || capability == super::conversation_runs::CONVERSATION_RUN_ANSWERS_CAPABILITY)
@@ -770,6 +781,8 @@ impl ClientRegistry {
                     // `restart` on the daemon-shutdown notice (disconnect.rs).
                     || capability == super::DAEMON_SHUTDOWN_RESTART_CAPABILITY
                     || capability == "cloud-mobile-chat-v1"
+                    // A phone opens a link a program asks for (server/phone_link.rs).
+                    || capability == super::phone_link::CAPABILITY
             }));
             record.writer.negotiate_conversation_tabs(record.capabilities.iter());
         }

@@ -1,6 +1,6 @@
 //! A DEV build's harness profiles never reach a shipped build (hq#2569 item
 //! 11). A dogfood lane on a capture mini put a fake ACP agent (`p4rtfake`,
-//! models m1 and m2) in the user harness folder `~/.config/cmux/harnesses`
+//! models m1 and m2) in the user harness folder `~/.config/cmux-next/harnesses`
 //! for its DEV build, and cmux NEXT's model picker on that mini showed it as
 //! a harness named "P". The user folder is per user, not per build, so per-
 //! build isolation (cx-is1kf) did not cover it.
@@ -35,7 +35,7 @@ fn scratch() -> PathBuf {
 }
 
 /// `acpmux args` as the build whose acpmux home is `acpmux_home`. No
-/// `XDG_CONFIG_HOME`: the user folder is `$HOME/.config/cmux/harnesses`, as
+/// `XDG_CONFIG_HOME`: the user folder is `$HOME/.config/cmux-next/harnesses`, as
 /// on a real Mac. No daemon runs (the socket is absent).
 fn run(root: &Path, acpmux_home: &Path, args: &[&str]) -> Output {
     let mut cmd: Command = daemon_env::acpmux(root);
@@ -82,7 +82,7 @@ fn a_dev_builds_harness_never_shows_in_a_shipped_build() {
     for h in [&rc_tagged, &release_tagged] {
         assert!(h.to_string_lossy().ends_with("--lab"), "not a tagged key: {h:?}");
     }
-    let shared = home.join(".config").join("cmux").join("harnesses");
+    let shared = home.join(".config").join(cmux_config::NEXT_DIR).join("harnesses");
 
     // The person's own harness, in the user folder.
     std::fs::create_dir_all(&shared).unwrap();

@@ -9,6 +9,7 @@
 import { runMockAgentKeys } from "./mockAgentKeys";
 import { mockAutocloudState, runMockAutocloud } from "./mockAutocloud";
 import { mockHubState, runMockHub } from "./mockHub";
+import { mockTokensState, runMockTokens } from "./mockTokens";
 import { mockConnectionsState, runMockConnections } from "./mockConnections";
 import { mockModels, runMockModels } from "./mockModels";
 import { mockAllotments, runMockAllotment } from "./mockAllotments";
@@ -65,6 +66,7 @@ import {
   type WorkspaceBackground,
   type CustomizeTryOn,
   type KeysState,
+  type ModelsAccessResult,
   type ModelsRun,
   type ModelsState,
   type ComputerUseApproval,
@@ -72,6 +74,8 @@ import {
   type AgentToolsCardState,
   type McpServersRun,
   type McpServersState,
+  type HubRun,
+  type HubState,
   type AgentSkillsRun,
   type AgentSkillsState,
   type AgentMcpRun,
@@ -81,8 +85,6 @@ import {
   type AgentConfigAgent,
   type AgentConfigRun,
   type AgentConfigState,
-  type HubRun,
-  type HubState,
   type AccountsRunReply,
   type DoctorReport,
   type DoctorRun,
@@ -98,6 +100,9 @@ import {
   type ArchivedState,
   type ChecklistFact,
   type PreviousBuild,
+  type HistoryMutationResult,
+  type DeveloperTokensRun,
+  type DeveloperTokensState,
 } from "./ops";
 import { mockLooks, previewLook, runLooks } from "./mockLooks";
 import { rowsByKey, schema, hostRowsByKey } from "./schema";
@@ -115,6 +120,8 @@ import type { SlackConnection } from "./slackConnection";
 import type { WorktreeRecipe } from "../../worktreeRecipe";
 
 export type MockOptions = {
+  modelAccess?: ModelsAccessResult;
+  chatgptDeviceCompletion?: ModelsState;
   chatFolders?: ListRow["folders"];
   managed?: Record<string, { value: unknown } & ManagedInfo>;
   values?: Record<string, unknown>;
@@ -161,6 +168,9 @@ export type MockOptions = {
   /** Writes of these keys the daemon refuses with this reason and details (a json row's
    * `accepted.problems`, as cmux-config's refusal carries them). */
   refusals?: Record<string, { message: string; details: Record<string, unknown> }>;
+  /** false: a host without the durable settings history (`cmux.settings.history`, `.undo`, `.restore`,
+   * `.reset_group`, `.reset_keys` unknown), as before settings-history-v1. */
+  durableHistory?: boolean;
 };
 
 /** This Mac joined to a team with the one-line join, every consent switch off. */
@@ -255,6 +265,7 @@ export const mockCmuxAccount: Record<"signedIn" | "signedOut" | "signingIn", Acc
     statusKind: "quiet",
     busy: false,
     buttons: [cmuxButton("cmux.signIn", "Sign In to cmux")],
+    signInBackend: "Signs in to cmux.com",
     note: null,
     error: null,
   },
@@ -304,8 +315,25 @@ export type MockWorktreeProject = {
   files: string[];
 };
 
+/** One change in the mock's durable settings history (cmux-config `HistoryEntry`). */
+export type MockHistoryEntry = {
+  revision: number;
+  at: number;
+  origin: string;
+  keys: string[];
+  before: ReadonlyMap<string, unknown>;
+  undoes: number | null;
+};
+
+function sameValues(a: ReadonlyMap<string, unknown>, b: ReadonlyMap<string, unknown>): boolean {
+  if (a.size !== b.size) return false;
+  for (const [key, value] of a) if (!b.has(key) || JSON.stringify(b.get(key)) !== JSON.stringify(value)) return false;
+  return true;
+}
+
 export class MockSettingsProvider {
   slack: SlackConnection = { connected: false, teams: [] };
+  slackAllowance: number | null = null;
   readonly log: Array<{ op: string; params: unknown }> = [];
   /** The colors `cmux.settings.theme.colors` answers (the gallery installs every bundled theme). */
   themeColors: GhosttyTheme[] = mockThemeColors;
@@ -337,9 +365,20 @@ export class MockSettingsProvider {
 
   /** Every catalog action the page ran, with its arguments, in order (tests). */
   readonly actionsRun: Array<{ action: string; args: Params }> = [];
+  /** Whether this host serves the durable settings history (the daemon's settings-history-v1). */
+  readonly durableHistory: boolean;
+  /** The durable history, oldest first: each published change with the values before it (the
+   * daemon keeps the file text; the mock keeps its value map). */
+  readonly durable: MockHistoryEntry[] = [];
+  /** The values before the write `keyed` runs, which `commit` records. */
+  private pendingBefore: Map<string, unknown> | null = null;
+  /** The revision a running `settings.undo` takes back, which `commit` records. */
+  private pendingUndoes: number | null = null;
 
   constructor(options: MockOptions = {}) {
     this.chatFolders = options.chatFolders;
+    this.chatgptDeviceCompletion = options.chatgptDeviceCompletion;
+    this.modelAccess = options.modelAccess ?? { models: ["model-large", "model-small"] };
     this.managed = new Map(
       Object.entries(
         options.managed ?? {
@@ -354,6 +393,7 @@ export class MockSettingsProvider {
     this.refusals = options.refusals ?? {};
     this.actionRan = options.actionRan ?? true;
     this.connected = options.connected ?? true;
+    this.durableHistory = options.durableHistory ?? true;
     this.tryOn = options.tryOn ?? null;
     this.previousBuild = options.previousBuild ?? null;
     this.previousBuildRefusal = options.previousBuildRefusal ?? null;
@@ -385,6 +425,18 @@ export class MockSettingsProvider {
       "cmux.settings.set": (params) => this.keyed(params, () => this.set(params.key as string, params.value)),
       "cmux.settings.reset": (params) => this.keyed(params, () => this.reset(params.key as string)),
       "cmux.settings.reset_all": (params) => this.keyed(params, () => this.resetAll()),
+      ...(this.durableHistory
+        ? {
+            "cmux.settings.history": () => this.historyRead(),
+            "cmux.settings.undo": (params: Params) => this.keyed(params, () => recorded(this.durableUndo())),
+            "cmux.settings.restore": (params: Params) =>
+              this.keyed(params, () => recorded(this.durableRestore(Number(params.revision)))),
+            "cmux.settings.reset_group": (params: Params) =>
+              this.keyed(params, () => recorded(this.resetGroup(params.group as string))),
+            "cmux.settings.reset_keys": (params: Params) =>
+              this.keyed(params, () => recorded(this.resetKeys(params.keys as string[]))),
+          }
+        : {}),
       "cmux.settings.preview": () => ({}),
       "cmux.settings.preview.end": () => ({}),
       "cmux.settings.sound.play": () => ({}),
@@ -406,6 +458,16 @@ export class MockSettingsProvider {
         installUrl: "https://platform.example/v1/slack/apps/r0/install?ticket=example",
       }),
       "cmux.settings.slack.open": () => ({}),
+      "cmux.settings.slack.awake": (params) => {
+        if ("allowance_seconds" in params) this.slackAllowance = params.allowance_seconds as number | null;
+        return {
+          allowance_seconds: this.slackAllowance ?? 7200,
+          default_seconds: 7200,
+          max_seconds: 86400,
+          days: 7,
+          senders: [],
+        };
+      },
       "cmux.settings.server.restart": () => ({}),
       "cmux.settings.server.pair": () => ({}),
       "cmux.settings.mobile.allow_again": () => {
@@ -499,8 +561,23 @@ export class MockSettingsProvider {
       },
       "cmux.settings.agents.state": () => this.agents.state,
       "cmux.settings.agents.run": async (params) => {
-        if ((params as { action?: string }).action === "remove") await this.agents.endpoint.holdRemove;
-        return this.agents.run(params as unknown as AgentsRun);
+        const gesture = params as unknown as AgentsRun;
+        if (gesture.action === "remove") await this.agents.endpoint.holdRemove;
+        const result = this.agents.run(gesture);
+        if (
+          gesture.action === "remove" &&
+          this.models?.personal.connections.some((c) => c.id === gesture.id && c.kind === "endpoint")
+        ) {
+          const { personal } = this.models;
+          this.setModels({
+            ...this.models,
+            personal: {
+              ...personal,
+              connections: personal.connections.filter((c) => c.id !== gesture.id),
+            },
+          });
+        }
+        return result;
       },
       "cmux.settings.context_menus.set": (params) => {
         const menus = this.host.context_menus;
@@ -595,8 +672,22 @@ export class MockSettingsProvider {
       "cmux.chief.backend.add": async (params) => {
         await this.agents.endpoint.holdAdd;
         const before = this.agents.endpoint.addFails;
-        if (before) throw new ProtocolError(before, "the endpoint's model list could not be read");
+        const { validateEndpoint, model } = params as { validateEndpoint?: boolean; model?: string };
+        if (
+          before &&
+          (before !== "cmux.agents.endpoint_check" || validateEndpoint || model?.split(",").includes("*"))
+        ) {
+          throw new ProtocolError(before, "the endpoint's model list could not be read");
+        }
         const added = this.agents.addEndpoint(params);
+        const endpoint = this.agents.modelEndpoint(added.id);
+        if (endpoint && this.models) {
+          const { personal } = this.models;
+          const connections = personal.connections.some((c) => c.id === endpoint.id)
+            ? personal.connections.map((c) => (c.id === endpoint.id ? endpoint : c))
+            : [...personal.connections, endpoint];
+          this.setModels({ ...this.models, personal: { ...personal, connections } });
+        }
         const fail = this.agents.endpoint.addThenFail;
         if (fail) throw new ProtocolError(fail, "the add did not answer in time");
         return added;
@@ -821,16 +912,32 @@ export class MockSettingsProvider {
         this.allotment = runMockAllotment(this.allotment, run);
         return this.allotment;
       },
-      "cmux.settings.models.state": () => {
+      "cmux.settings.models.state": async () => {
+        if (this.modelsReadHold) await this.modelsReadHold;
         if (!this.models) throw new ProtocolError("cmux.settings.unavailable", "this host has no Models part");
         return this.models;
       },
-      "cmux.settings.models.run": (params) => {
+      "cmux.settings.models.run": async (params) => {
         const run = params as ModelsRun;
+        if (run.action === "checkClaudeLogin") {
+          if (run.machineName) await this.holdNamedClaudeStatus;
+          return {};
+        }
         this.modelRuns.push(run);
         if (!this.models) throw new ProtocolError("cmux.settings.unavailable", "this host has no Models part");
+        if (run.action === "signOutClaude" && this.claudeSignOutRefused)
+          throw new ProtocolError("cmux.models.failed", "Claude sign-out was refused");
+        if (run.action === "checkAccess") {
+          await this.holdModelAccess;
+          return this.modelAccess;
+        }
+        if (run.action === "addKey" && run.verifyAccess) {
+          await this.holdModelAccess;
+          if ("failure" in this.modelAccess) return { ...this.modelAccess, verificationFailed: true };
+        }
         try {
-          this.setModels(runMockModels(this.models, run));
+          const completed = run.action === "connectChatGPTDevice" ? this.chatgptDeviceCompletion : undefined;
+          this.setModels(completed ?? runMockModels(this.models, run));
         } catch (error) {
           throw new ProtocolError("cmux.settings.invalid", error instanceof Error ? error.message : String(error));
         }
@@ -1054,6 +1161,14 @@ export class MockSettingsProvider {
         this.hub = runMockHub(this.hub, run);
         return {};
       },
+      "cmux.settings.tokens.state": () => this.tokens,
+      "cmux.settings.tokens.run": (params) => {
+        const run = params as DeveloperTokensRun;
+        if (run.action !== "refresh") this.tokensRuns.push(run);
+        const { state, created } = runMockTokens(this.tokens, run);
+        this.tokens = state;
+        return created ? { ok: true, created } : { ok: true };
+      },
       "cmux.settings.connections.state": () => this.connections,
       "cmux.settings.connections.run": (params) => {
         const run = params as ConnectionsRun;
@@ -1136,6 +1251,7 @@ export class MockSettingsProvider {
       "cmux.settings.slack.request",
       "cmux.settings.slack.create_app",
       "cmux.settings.slack.open",
+      "cmux.settings.slack.awake",
       "cmux.settings.channels.state",
       "cmux.settings.channels.go_back",
       "cmux.settings.channels.update_machine",
@@ -1187,6 +1303,8 @@ export class MockSettingsProvider {
       "cmux.settings.autocloud.run",
       "cmux.settings.hub.state",
       "cmux.settings.hub.run",
+      "cmux.settings.tokens.state",
+      "cmux.settings.tokens.run",
       "cmux.settings.connections.state",
       "cmux.settings.connections.run",
       "cmux.settings.agentSkills.state",
@@ -1269,6 +1387,12 @@ export class MockSettingsProvider {
 
   /** Settings > Models as the app serves it (mockModels.ts); null is a host without the part. */
   models: ModelsState | null = structuredClone(mockModels.macLogins);
+  modelsReadHold: Promise<void> | null = null;
+  private readonly modelAccess: ModelsAccessResult;
+  private readonly chatgptDeviceCompletion?: ModelsState;
+  holdModelAccess: Promise<void> | null = null;
+  holdNamedClaudeStatus: Promise<void> | null = null;
+  claudeSignOutRefused = false;
   /** Models gestures the page sent (pasted keys included, so tests can check what was sent). */
   readonly modelRuns: ModelsRun[] = [];
   private readonly modelsChanged = new Set<EventSourceContext>();
@@ -1983,6 +2107,11 @@ export class MockSettingsProvider {
   hub: HubState = mockHubState();
   /** Every Integrations gesture but refresh, in order (the key a Link sent included). */
   hubRuns: HubRun[] = [];
+
+  /** Settings > Developer as the app serves it (`SettingsDeveloperTokens.state`). */
+  tokens: DeveloperTokensState = mockTokensState();
+  /** Every Developer gesture but refresh, in order. */
+  tokensRuns: DeveloperTokensRun[] = [];
 
   /** Settings > Connections as the app serves it (`SettingsConnections.state`). */
   connections: ConnectionsState = mockConnectionsState();
@@ -2786,7 +2915,12 @@ export class MockSettingsProvider {
       throw new ProtocolError("cmux.idempotency.conflict", `idempotency key ${key} was used for another request`);
     }
     this.usedKeys.set(key, print);
-    return write();
+    this.pendingBefore = new Map(this.values);
+    try {
+      return write();
+    } finally {
+      this.pendingBefore = null;
+    }
   }
 
   private guard(key: string): void {
@@ -2834,9 +2968,94 @@ export class MockSettingsProvider {
     return this.commit(keys, "user");
   }
 
+  /** Another writer (an agent over MCP, the CLI, a hand edit) changes `key`, as the daemon would
+   * record it: in the durable history with its origin. */
+  foreignSet(key: string, value: unknown, origin = "mcp"): MutationResult {
+    this.pendingBefore = new Map(this.values);
+    try {
+      if (value === undefined) this.values.delete(key);
+      else this.values.set(key, value);
+      return this.commit([key], origin);
+    } finally {
+      this.pendingBefore = null;
+    }
+  }
+
+  /** `settings.history`: newest first, revisions as decimal strings, without the earlier values. */
+  private historyRead(): { entries: Array<Record<string, unknown>> } {
+    return {
+      entries: [...this.durable].reverse().map((entry) => ({
+        revision: String(entry.revision),
+        at: String(entry.at),
+        origin: entry.origin,
+        keys: entry.keys,
+        ...(entry.undoes === null ? {} : { undoes: String(entry.undoes) }),
+      })),
+    };
+  }
+
+  /** `settings.undo` (cmux-config `history::undo_pick`): the newest change that is no undo, was not
+   * undone yet and would change something. */
+  private durableUndo(): MutationResult {
+    const undone = new Set(this.durable.flatMap((entry) => (entry.undoes === null ? [] : [entry.undoes])));
+    const pick = [...this.durable]
+      .reverse()
+      .find((entry) => entry.undoes === null && !undone.has(entry.revision) && !sameValues(entry.before, this.values));
+    if (!pick) throw new ProtocolError("validation.invalid", "nothing to undo");
+    this.pendingUndoes = pick.revision;
+    try {
+      return this.putBack(pick.before);
+    } finally {
+      this.pendingUndoes = null;
+    }
+  }
+
+  /** `settings.restore`: the values just before the change that produced `revision`. */
+  private durableRestore(revision: number): MutationResult {
+    const entry = this.durable.find((item) => item.revision === revision);
+    if (!entry) throw new ProtocolError("validation.invalid", `no change with revision ${revision}`);
+    return this.putBack(entry.before);
+  }
+
+  private putBack(before: ReadonlyMap<string, unknown>): MutationResult {
+    const keys = [...new Set([...this.values.keys(), ...before.keys()])].filter(
+      (key) =>
+        JSON.stringify(this.values.get(key)) !== JSON.stringify(before.get(key)) ||
+        this.values.has(key) !== before.has(key),
+    );
+    this.values.clear();
+    for (const [key, value] of before) this.values.set(key, value);
+    return this.commit(keys, "app");
+  }
+
+  /** `settings.reset_group` (cmux-config `Schema::rows_in_group`): a section, or `section.group`
+   * (the group key's last part); managed rows stay. */
+  private resetGroup(group: string): MutationResult {
+    const rows = schema.rows.filter((row) => {
+      const slug = row.group.key
+        ? row.group.key.split(".").at(-1)!
+        : row.group.text.replace(/[^a-z0-9]/gi, "").toLowerCase();
+      return row.section === group || `${row.section}.${slug}` === group;
+    });
+    if (rows.length === 0) throw new ProtocolError("validation.invalid", `unknown settings group '${group}'`);
+    return this.resetKeys(rows.map((row) => row.key));
+  }
+
+  /** The host's one `settings.edit` of resets (a card that is not one schema group). */
+  private resetKeys(keys: string[]): MutationResult {
+    const reset = keys.filter((key) => this.values.has(key) && !this.managed.has(key));
+    for (const key of reset) this.values.delete(key);
+    return this.commit(reset, "app");
+  }
+
   private commit(keys: string[], origin: string): MutationResult {
     this.revision += 1;
     const revision = this.revision;
+    const before = this.pendingBefore;
+    if (before && !sameValues(before, this.values)) {
+      this.durable.push({ revision, at: Date.now(), origin, keys, before, undoes: this.pendingUndoes });
+      this.pendingBefore = new Map(this.values);
+    }
     // The daemon emits after the reply; a microtask keeps that order.
     queueMicrotask(() => {
       for (const ctx of this.changed) ctx.emit({ revision, keys, origin });
@@ -3222,4 +3441,10 @@ export function mockArchived(): ArchivedState {
       { kind: "item", id: "itm-archived-link", title: "Design review", group: null, machine: null },
     ],
   };
+}
+
+/** A history write's reply (the host's `SettingsHistoryPage`): the mutation result and the revision
+ * of the change it recorded, which `cmux.settings.restore` takes. Plain writes carry none. */
+function recorded(result: MutationResult): HistoryMutationResult {
+  return { ...result, history_revision: result.revision };
 }
