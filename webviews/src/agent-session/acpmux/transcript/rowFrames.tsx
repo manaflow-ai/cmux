@@ -1,5 +1,5 @@
 import React from "react";
-import { rowMark, MARK_PROMPT, MARK_INDICATOR } from "../transcriptGrid";
+import { rowMark, MARK_PROMPT, MARK_INDICATOR, ownMessagesJoin } from "../transcriptGrid";
 import { LoadFadeWindow } from "../../shared/loadFade";
 import {
   type AcpmuxRow,
@@ -244,6 +244,9 @@ export function drawRowFrames(
           opensTurn={opensBackgroundTurn(row, prev)}
           beforeFooter={isBeforeFooter(row, next)}
           beforeIndicator={next !== undefined && rowMark(row) === MARK_PROMPT && rowMark(next) === MARK_INDICATOR}
+          beforeOwnMessage={
+            next !== undefined && rowMark(row) === MARK_PROMPT && rowMark(next) === MARK_PROMPT && ownMessagesJoin()
+          }
           replyActions={keepsReplyRoom(row, next)}
           status={statusEdge(row, next, prev)}
           lastFooter={isLastFooter(row, next)}

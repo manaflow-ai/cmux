@@ -15,6 +15,7 @@ struct BrowserTabDuplicate {
 
     func open(_ tab: TabModel) {
         let pane = pane, cache = pane.services.cache
+        guard cache.browserTabs.privacy.permitsDuplication(of: tab.id) else { return }
         let page = cache.existingBrowser(tab.id)?.tab
         let url = page?.state.url ?? tab.url.flatMap(URL.init(string:))
         // The record names the original's profile, as the page's cookies do.
