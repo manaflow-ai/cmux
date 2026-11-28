@@ -67,6 +67,7 @@ scale. Ranks match the RFD: 1 is the highest risk.
 | 8 | Terminal scrollback reads (daemon `read-scrollback`, find, projection parity) | `cmux-tui/crates/ghostty-vt` | `styled_history_page_bench`, `screen_row_text_bench` (`#[ignore]` tests in `styled_history_tests.rs`, `screen_row_text_tests.rs`) | 10k, 100k and 1M rows × 200 cols, 8,192-row page | partly: oracle and lookup-count tests run with the crate's tests (`a_long_history_page_looks_up_each_page_not_each_row`, under 1,024 lookups a page); timing is by hand | No time budget on a pull request. |
 | 8 | Tabs, panes, spaces | `Packages/macOS/CmuxNext/Sources/CmuxNextPages` | `TabSwitchPathBench`, `TabSwitchCycleBench`, `TabSwitchViewSwapBench`, `TabStripSelectionBench`, `TabStripFollowsPaneTickBench`, `SpaceSwitchBench`, `PaneMotionBench`, `PaneContentPolicyBench`, `LayoutDragBench`, `PageHostPoolClaimReadyBenchmark`, `KeyRouterBench` | 30 tabs | partly: ungated suites run when their target runs, without a budget, except `PaneMotionBench` (env-gated) | No fail threshold on a pull request. |
 | 9 | Palette and omnibar | `Packages/macOS/CmuxNext/Sources/CmuxNextPalette` | `PaletteBenchmarkTests`, `CmdPRankBench`, `OmniboxPhaseABenchmarkTests`, `OmnibarOpenTabsPerKeyBench`, `omnibar`, `newtab` | 1,000-2,000 items | yes when the target runs (median and p99 budgets) | `CmdPRankBench` is env-gated. |
+| 9 | Search All Windows | `Packages/macOS/CmuxNext/Sources/CmuxNextPalette/GlobalSearch`, `cmux-tui/crates/cmux-palette-ranker/src/global_search.rs` | `global_search::stress_sweep` | 1.2M lines (50 agent tabs × 24k) | tests by path: key 12 of a typed query tests at most 2% of the lines | Timing is the stress sweep by hand; the bound on PRs is the scanned-lines count (RFD 0199 section 9). |
 | 10 | iOS workspace sync and live link | `cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive` | `WorkspaceSyncPerformanceTests`, `LinkSmoothnessBenchTests`, `CloseTabRoundTripBench`, `ResumeLiveBenchTests`, `ResumeMatrixBenchTests`, `TerminalLoadBench`, `TranscriptReadFirstR1Bench`, `mobile-flows` | not at 1,100 workspaces | tests by path | Budget is counts the kit tests assert (whole catch-up list, 1 round trip per tab close, 0 whole-tree reads on an unchanged redial); no iOS bench gates a pull request. |
 | 10 | iOS terminal | `cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal` | `TerminalHistoryWindowBench`, `TerminalScrollBenchUITests`, `phone-speed` | synthetic; 100 and 10,000 lines | `phone-speed-icount` (Callgrind Ir within 10% of its baseline) | The Swift view layer has no counted budget yet; `phone-speed` counts the projection it renders through. |
 | 11 | Cloud relay and sync | `cmux-tui/crates/cmux-relay` | `cloud-turn`, `bytes-path`, `projection-scale`, `projection-way-back` | real relay; N files | no | Manual only. |
@@ -80,7 +81,7 @@ scale. Ranks match the RFD: 1 is the highest risk.
 | 13 | Terminal core (Rust) | `cmux-tui/crates/ghostty-vt`, `cmux-tui/crates/cmux-terminal-find`, `cmux-tui/crates/cmux-terminal-projection` | `terminal-throughput-quick` | 10k-100k rows | tests by path | No Linux `run` bench (libghostty-vt needs zig); history page-hop test not written yet (RFD 0199 area 10). |
 | 13 | Settings schema and window | `webviews/src/pages/settings` | `webviews/bench/settings-search-visible-only.bench.ts`, `webviews/bench/settings-cards-visible-only.bench.ts` | 160 KB | tests by path | none |
 | 8 | Tab strip and tab names | `Packages/macOS/CmuxNext/Sources/CmuxNextTabs`, `Packages/macOS/CmuxNext/Sources/CmuxNextApp/TabTitleResolver.swift`, `Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentChatTabTitle.swift`, `Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/SubagentTabTitles.swift`, `Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionRegistry+TabStripMenu.swift` | `TabStripSelectionBench`, `TabStripFollowsPaneTickBench`, `TabSwitchPathBench` | 2, 10 and 30 tabs | tests by path | Budgets are counts the work tests assert through `TabStripRowPasses` (0 row walks per switch or close echo, 0 cell writes per still resize); the Swift tests need a Mac. |
-| 13 | Update flow | `Packages/macOS/CmuxNext/Sources/CmuxNextUpdater`, `Packages/macOS/CmuxNext/Sources/CmuxNextApp/UpdaterService*.swift`, `Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugUpdater.swift`, `cmux-tui/crates/cmux-app-ffi/src/updater`, `cmux-tui/crates/cmux-app-ffi/src/updater.rs`, `cmux-tui/crates/cmux-update-prewarm-core`, `scripts/cmux-next/update-harness` | `post-update` | n/a (counts) | tests by path | Budgets are counts the update tests assert (0 pauses, 1 download, 0 cards, 1 click); `post-update` is manual. |
+| 13 | Update flow | `Packages/macOS/CmuxNext/Sources/CmuxNextUpdater`, `Packages/macOS/CmuxNext/Sources/CmuxNextApp/UpdaterService*.swift`, `Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugUpdater.swift`, `cmux-tui/crates/cmux-app-ffi/src/updater`, `cmux-tui/crates/cmux-app-ffi/src/updater.rs`, `cmux-tui/crates/cmux-update-prewarm-core`, `scripts/cmux-next/update-harness`, `scripts/bench/update_launch_budget.py` | `post-update` | first launch after an update (app_update_launch_ms) under 2 s | tests by path; `update_launch_budget.py` by path (fail open with no Mac or DMG) | Budgets are counts the update tests assert (0 pauses, 1 download, 0 cards, 1 click) plus the update launch's 2 s `budget_s`; `post-update` is manual. |
 | 13 | Launch first frame | `Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch`, `Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarFirstFrame.swift`, `cmux-tui/crates/cmux-launch-shell` | `launch`, `launch-bare`, `TerminalLaunchFrameKeeperBenchTests` | saved window images | tests by path | 0 opaque cover frames is asserted by `cmux-launch-shell` plan tests on Linux; the Swift reveal tests need a Mac. |
 | 13 | Composer hat line (web) | `webviews/src/agent-session/acpmux/subagents` | none | 14 subagents, 6 commands | tests by path | 0 accent words and 0 chips is a real-Chromium test; no bench. |
 | 13 | Screen sharing | `cmux-tui/crates/cmux-rd-host`, `cmux-tui/crates/cmux-rd-core`, `cmux-tui/crates/cmux-encode`, `Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView`, `Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen`, `cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileScreenSharing` | `screen-share`, `RemoteDecodeRangeBenchTests` | key to presented frame 100 ms p95 | tests by path | `screen-share` is manual; the per-frame stage ledger (screen_share_fast.present_p95_ms) is read by NOW on the wired Mac pair, not run on a PR. |
@@ -144,6 +145,7 @@ as a gate. `stress` has a dispatch-only compare workflow (`cmux-next-stress-benc
 | `dev-loop` | dev loop | n/a | no |
 | `download-bridge` | dev loop | n/a | no |
 | `ext-reload` | extensions | n/a | no |
+| `fold-hosts` | binary size, start and idle memory of the folded bin/cmux programs (CMUX-570) | base vs head release builds | no |
 | `footprint` | app memory | default session | no |
 | `graceful-swap` | web bundle swap | open pages | no |
 | `idle` | app idle | default session | no |
@@ -155,6 +157,7 @@ as a gate. `stress` has a dispatch-only compare workflow (`cmux-next-stress-benc
 | `launch-premain` | launch | n/a | no |
 | `launch-reboot` | launch | n/a | no |
 | `local-chat` | agent chat | one chat | no |
+| `local-summary` | on-device session summary model | 30 labeled sessions | no |
 | `localization-discovery` | localization tooling | excluded dependency trees (#63387) | no |
 | `mcp-fanout` | agents | N chats | no |
 | `mobile-flows` | iOS | per flow | no |
@@ -255,7 +258,9 @@ whether it fails on a number.
 | `TerminalLaunchFrameKeeperBenchTests` | `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/TerminalLaunchFrameKeeperBenchTests.swift` | `CMUX_KEEP_FRAMES_BENCH` | no |
 | `TerminalLoadBench` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/TerminalLoadBench.swift` | `CMUX_TERMINAL_LOAD_BENCH` | no |
 | `TerminalScrollBenchUITests` | `cmux-next-ios/UITests/TerminalScrollBenchUITests.swift` | UI test plan | yes |
+| `TerminalReadFirstR1Bench` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/TerminalReadFirstR1Bench.swift` | `CMUX_READ_FIRST_R1` | no |
 | `TranscriptReadFirstR1Bench` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/TranscriptReadFirstR1Bench.swift` | none | no |
+| `WorkspaceCacheSaveBurstPerfTests` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileInstantPerfTests/WorkspaceCacheSaveBurstPerfTests.swift` | none | burst of 50 or 500 saves writes ≤ 2 times, wall ≤ 3 single writes |
 | `WorkspaceSyncPerformanceTests` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/WorkspaceSyncPerformanceTests.swift` | none | no |
 
 A row whose path cell reads "pending <branch>" is a suite on an open branch: the test lets it be absent until the branch lands, then wants its path.
@@ -279,6 +284,7 @@ and gates nothing. The rest run in the perf cron's web UI suite or by hand.
 
 | glob | area | on PR |
 |---|---|---|
+| `webviews/bench/god-length-curve.bench.ts` | god chat length curve, 1k-100k turns | no |
 | `webviews/bench/chat-*.bench.ts` | agent chat open, switch, scroll, 100k flat | chat-open: report only |
 | `webviews/bench/transcript-*.bench.ts` | transcript scroll, resize, replay, turn end | no |
 | `webviews/bench/million-event-chat.bench.ts` | 1M-event chat | no |
