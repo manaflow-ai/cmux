@@ -31,7 +31,7 @@ public final class ScreenVideoView: UIView, @preconcurrency RTCVideoViewDelegate
     private let metal: RTCMTLVideoView?
     private let display: AVSampleBufferDisplayLayer?
     /// What the track feeds: ``MetalStamper`` in front of `metal`, or ``SampleBufferSink`` into `display`.
-    private let renderer: any RTCVideoRenderer
+    private let renderer: any RTCVideoRenderer & Sendable
     private let tap = FrameTap()
     private var track: VideoTrackBox?
 
