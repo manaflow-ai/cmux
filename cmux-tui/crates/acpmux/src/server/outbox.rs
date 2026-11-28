@@ -159,6 +159,8 @@ pub(super) async fn queue(
     }
     // A post the hub did not take in a way that passes, kept for the outbox's retry, and why.
     let mut hub_post: Option<(crate::mesh::OutMessage, String)> = None;
+    // The hub provably holds no copy of `hub_post` (`Posted::Queue::unreached`).
+    let mut hub_unreached = false;
     // A session here, one a peer lists, or one on a peer that is down now: anything else is no
     // session, said at once.
     if hub.resolve(&target).is_err()
@@ -186,7 +188,10 @@ pub(super) async fn queue(
         {
             match super::mesh_send::post_or_queue(hub, conn, &mesh, &request, &target).await {
                 super::mesh_send::Posted::Answered(answer) => return answer,
-                super::mesh_send::Posted::Queue { post, why } => hub_post = Some((post, why)),
+                super::mesh_send::Posted::Queue { post, why, unreached } => {
+                    hub_post = Some((post, why));
+                    hub_unreached = unreached;
+                }
             }
         } else {
             // The machine is reachable and has no such session: refused now, never queued,
@@ -224,6 +229,8 @@ pub(super) async fn queue(
         resends: 0,
         resent_at: 0,
         relay_post: hub_post.as_ref().map(|(post, _)| post.clone()),
+        relay_unreached: hub_post.is_some() && hub_unreached,
+        direct_maybe: false,
         open_on_peer: false,
         pin: None,
         proof: None,
@@ -358,6 +365,8 @@ pub(super) async fn remember_forward(
         resends: 0,
         resent_at: 0,
         relay_post: None,
+        relay_unreached: false,
+        direct_maybe: false,
         open_on_peer: false,
         pin: None,
         proof: None,
@@ -787,7 +796,7 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
             // The hub may hold it already: only the relay tries it again. With the relay off here
             // it may still deliver it (the target's daemon reads it), so it is never sent twice.
             relayed = true;
-            relay_attempt(hub, &delivery).await.unwrap_or_else(|| {
+            relay_or_direct(hub, &delivery).await.unwrap_or_else(|| {
                 let key = delivery.relay_post.as_ref().map_or("", |m| m.idempotency_key.as_str());
                 let why = format!(
                     "the mesh relay is off here; the team hub may hold it (key {key}), so it is not sent again another way"
@@ -826,7 +835,7 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 // Nothing has reached the target: the mesh relay carries it when it can.
                 Err((error, Next::Unsent)) if delivery.never_sent => {
                     relayed = true;
-                    match relay_attempt(hub, &delivery).await {
+                    match relay_or_direct(hub, &delivery).await {
                         Some(Ok(accepted)) => Ok(accepted),
                         Some(Err((why, next))) => Err((format!("{error}; {why}"), next)),
                         None => Err((error, Next::Unsent)),
@@ -837,7 +846,7 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 // it, never a "no session HOST/ID on" this machine.
                 Err((error, Next::NoSession)) if hub.mesh_only_host(&delivery.target) => {
                     relayed = true;
-                    match relay_attempt(hub, &delivery).await {
+                    match relay_or_direct(hub, &delivery).await {
                         Some(outcome) => outcome,
                         None => Err((error, Next::NoSession)),
                     }
@@ -850,7 +859,9 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 // A peer's session may lose it with the machine's disk until the owner's copy of
                 // that session holds it (`hub/open_delivery.rs`): open until then. One the ssh
                 // carrier took is the far daemon's own delivery now: no link sends it again.
-                let pin = if by_ssh { None } else { pin };
+                // One its machine took directly is that daemon's own delivery too.
+                let direct = accepted.get("via").and_then(Value::as_str) == Some("direct");
+                let pin = if by_ssh || direct { None } else { pin };
                 let open = pin.is_some();
                 let saved = hub.outbox.update_saved(id, |d| {
                     crate::hub::open_delivery::accepted(d, pin, accepted);
@@ -1355,6 +1366,85 @@ async fn relay_attempt(
     }))
 }
 
+/// [`relay_attempt`], and while the team hub is down a copy to the target's machine directly
+/// (`mesh_direct.rs`, RFD 0086): only with `meshRelay.directSend` on, for a target only the hub
+/// routes, on a machine this daemon's book lists, and only once every hub post of it provably
+/// never left here (`Delivery::relay_unreached`). A refusal of the hub's still fails it; a
+/// timeout or an answer still waits for the hub. Once a copy may have gone direct
+/// (`Delivery::direct_maybe`, saved first), only the direct path tries it again, under the same
+/// key, so the hub never holds a second copy.
+async fn relay_or_direct(
+    hub: &Arc<Hub>,
+    delivery: &Delivery,
+) -> Option<Result<Value, (String, Next)>> {
+    use super::mesh_direct::{self, Direct};
+    if hub.outbox.get(&delivery.id).is_some_and(|d| d.direct_maybe) {
+        return Some(direct_again(hub, delivery).await);
+    }
+    let outcome = relay_attempt(hub, delivery).await;
+    let Some(Err((why, next))) = &outcome else { return outcome };
+    if *next == Next::Fail {
+        return outcome;
+    }
+    // Read after the post: a first one recorded its message and whether it left.
+    let Some(fresh) = hub.outbox.get(&delivery.id) else { return outcome };
+    let Some(post) = fresh.relay_post.as_ref().filter(|_| fresh.relay_unreached) else {
+        return outcome;
+    };
+    if !hub_only(hub, &delivery.target) || !mesh_direct::switch_on(hub).await {
+        return outcome;
+    }
+    let Some(machine) = mesh_direct::machine(hub, post) else { return outcome };
+    // Saved before it goes: a crash mid-attempt leaves it for the direct path alone.
+    if !hub.outbox.update_saved(&delivery.id, |d| d.direct_maybe = true) {
+        return outcome;
+    }
+    let host = machine.1.clone();
+    Some(match mesh_direct::attempt(hub, &machine, post, fresh.attempts.max(1)).await {
+        Direct::Taken(accepted) => Ok(accepted),
+        Direct::Refused(reason) => Err((format!("{host} refused it: {reason}"), Next::Fail)),
+        Direct::NotRun(reason) => {
+            // The first direct copy ran nothing: the hub may carry it after all.
+            hub.outbox.update(&delivery.id, |d| d.direct_maybe = false);
+            Err((format!("{why}; not sent directly either: {reason}"), Next::Retry))
+        }
+        Direct::Maybe(reason) => {
+            Err((format!("{why}; sent to {host} directly, not settled yet: {reason}"), Next::Retry))
+        }
+    })
+}
+
+/// A delivery whose copy may have gone to its machine directly: tried again that way only, never
+/// posted to the hub, since only the direct prompt id dedups it there.
+async fn direct_again(hub: &Arc<Hub>, delivery: &Delivery) -> Result<Value, (String, Next)> {
+    use super::mesh_direct::{self, Direct};
+    let wait = |why: String| {
+        Err((
+            format!(
+                "sent to its machine directly before; {why}, so it waits, never sent another way"
+            ),
+            Next::Retry,
+        ))
+    };
+    let fresh = hub.outbox.get(&delivery.id);
+    let Some(post) = fresh.as_ref().and_then(|d| d.relay_post.as_ref()) else {
+        return wait("its message is gone".into());
+    };
+    if !mesh_direct::switch_on(hub).await {
+        return wait("direct sends are off here now (meshRelay.directSend)".into());
+    }
+    let Some(machine) = mesh_direct::machine(hub, post) else {
+        return wait("this machine's book does not list its machine now".into());
+    };
+    let attempt = fresh.as_ref().map_or(1, |d| d.attempts.max(1));
+    match mesh_direct::attempt(hub, &machine, post, attempt).await {
+        Direct::Taken(accepted) => Ok(accepted),
+        Direct::Refused(reason) => Err((format!("{} refused it: {reason}", machine.1), Next::Fail)),
+        // An earlier copy may have run there: this one running nothing proves nothing of it.
+        Direct::NotRun(reason) | Direct::Maybe(reason) => wait(reason),
+    }
+}
+
 /// The reason a kept delivery waits while the hub lists no session by its name.
 const UNLISTED: &str = "the hub lists no session by that name yet (its machine may be paused, \
      restarting or between heartbeats); tried again before it fails";
@@ -1689,6 +1779,10 @@ mod relay_tests;
 #[cfg(test)]
 #[path = "outbox_hub_queue_tests.rs"]
 mod hub_queue_tests;
+
+#[cfg(test)]
+#[path = "outbox_direct_tests.rs"]
+mod direct_tests;
 #[cfg(test)]
 #[path = "lost_message_tests.rs"]
 mod lost_message_tests;

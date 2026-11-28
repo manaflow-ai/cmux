@@ -628,6 +628,12 @@ impl Hub {
         // drain). Checked again as the steer is written (`steer_end.rs`).
         let prompt_held =
             from_agent && running.is_some() && super::inbox::persons_prompt_waits(session);
+        // Nor before a Codex turn's model answered its prompt: codex-acp takes that steer as a new
+        // prompt and cancels the running one (`inbox_admit.rs` `codex_unanswered`). It queues
+        // behind the turn; the person's own steer still goes in.
+        let codex_held = from_agent
+            && running.is_some()
+            && session.read_meta(|m| super::inbox::codex_unanswered(session, m));
         // Other agents wait until the person's own turn ends; family replies, and the reports
         // of the chat's own lanes (`lane_reports.rs`), still enter it.
         let persons_held = from_agent
@@ -655,6 +661,7 @@ impl Hub {
             && !notice_held
             && !review_held
             && !prompt_held
+            && !codex_held
             && !persons_held;
         if steer && opts.steer_only && !steer_now {
             if review_held && running.is_some() {
@@ -713,9 +720,7 @@ impl Hub {
             }
             return steered;
         }
-        // An automatic continuation runs only while its chat still ends on the cut turn. Its
-        // required environment handoff has already completed before this prompt is admitted;
-        // ordinary prompts may await the quiet restart check below before `queue_slot`.
+        // An automatic continuation runs only while its chat still ends on the cut turn.
         let after_turn = opts.after_turn.clone();
         let fired = opts.fired;
         super::auto_resume::check_cut(
@@ -724,14 +729,12 @@ impl Hub {
             false,
             opts.provenance.as_ref(),
         )?;
-        // A route/credential/gateway/profile restart marked while this chat was between turns
-        // must not let the next ordinary prompt reuse the old environment. Recheck the same
-        // quietness and process census used by the reaper before claiming the turn; if work is
-        // still present, the mark remains and the prompt may continue on the live child.
-        // Continuations already completed their required handoff before calling this path.
-        // Ordinary prompts still perform the quiet/census check, but a queued continuation never
-        // awaits here and therefore cannot accidentally join the queue after the check.
-        if fired.is_none() && running.is_none() && session.respawn_when_quiet.load(Ordering::SeqCst)
+        // Opportunistic updates can use a quiet gap before the next prompt.
+        // A required change is handled under the turn claim, including for the restored queue.
+        if fired.is_none()
+            && running.is_none()
+            && session.respawn_when_quiet.load(Ordering::SeqCst)
+            && !session.respawn_required.load(Ordering::SeqCst)
         {
             // Own the quiet check in a detached task. Once the census commits hibernation,
             // `hibernate_held` takes the child slot and its kill may outlive this admission's
@@ -803,7 +806,7 @@ impl Hub {
         // The quiet handoff and live check above may await long enough for a person's prompt to
         // take the turn lock. A continuation must recheck its cut immediately before queueing so
         // it cannot join behind a newer turn that superseded it during those awaits.
-        if fired.is_some() {
+        if after_turn.is_some() {
             super::auto_resume::check_cut(
                 session,
                 after_turn.as_deref(),
@@ -907,6 +910,23 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
+        // The preceding turn can install a fallback while this prompt is in the queue.
+        // Check after claiming the turn, including for a prompt restored after admission defers.
+        if session.respawn_required.load(Ordering::SeqCst) {
+            let restart = async {
+                self.wait_required_prompt_restart(
+                    session,
+                    cancels,
+                    no_queue || after_turn.is_some(),
+                )
+                .await?;
+                self.cold_prompt_check(session).await
+            };
+            if let Err(e) = Box::pin(restart).await {
+                self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
+                return Err(e);
+            }
+        }
         // What its queue entry holds now (`queue_edit.rs` may edit a prompt that waited).
         let (mut blocks, control, trust_gate, cloud_mobile) =
             (run.blocks.clone(), run.control, run.trust_gate, run.cloud_mobile);
@@ -969,6 +989,22 @@ impl Hub {
         if !no_queue {
             self.hold_retry_start(session, &prompt_id).await;
         }
+        if (session.read_meta(super::credentials::claude_login_needs_restart)
+            || (session.route_switch.load(Ordering::SeqCst) && self.route_child_is_idle(session)))
+            && let Err(e) = Box::pin(self.restart_on_route(session)).await
+        {
+            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
+            drop(guard);
+            return Err(e);
+        }
+        if let Err(e) = Box::pin(self.refresh_disconnected_subscription_before_turn(session)).await
+        {
+            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
+            drop(guard);
+            return Err(e);
+        }
+        self.refresh_local_chatgpt_between_turns(session).await;
+        self.refresh_local_kimi_between_turns(session).await;
         if session.cancels.load(Ordering::SeqCst) != cancels {
             // A continuation or retry of a cut turn is refused as one Stop overtook
             // (`auto_resume.stopped`): its callers answer `retry.stopped` and record the skip.
@@ -1274,11 +1310,15 @@ impl Hub {
         // Only this turn's start resumes the cut turn, never a later one.
         session.resume_cut_ask.store(false, Ordering::SeqCst);
         let started = match started {
-            Ok(child) => session
-                .meta()
-                .agent_session_id
-                .map(|sid| (child, sid))
-                .ok_or_else(|| RpcError::internal("no agent session")),
+            Ok(child) => match Box::pin(self.check_local_subscription_child(session, &child)).await
+            {
+                Ok(()) => session
+                    .meta()
+                    .agent_session_id
+                    .map(|sid| (child, sid))
+                    .ok_or_else(|| RpcError::internal("no agent session")),
+                Err(e) => Err(e),
+            },
             Err(e) => Err(e),
         };
         let (mut child, agent_sid) = match started {
@@ -1433,8 +1473,23 @@ impl Hub {
         } else {
             *session.prefetch.lock().unwrap_or_else(|e| e.into_inner()) = None;
         }
+        // A person's first prompt that is a task asks for a plan and a stop (`plan_first.rs`).
+        if !resumed
+            && person
+            && session.meta.lock().unwrap_or_else(|e| e.into_inner()).turn_count == 1
+            && super::forum::slash_command(&blocks).is_none()
+            && let Some(block) = super::plan_first::start(&session.id, &turn_id, &text)
+        {
+            blocks.push(block);
+        }
         // A turn rule that matches this prompt, and the end rule the last turn left (`turn_rules.rs`).
         if !resumed && let Some(said) = self.turn_rules_start(session, &text) {
+            blocks.push(
+                json!({"type": "text", "text": said, "_meta": {"acpmux": {"context": true}}}),
+            );
+        }
+        // What a sidecar rule found at the last turn's end, said once (`sidecars.rs`).
+        if !resumed && let Some(said) = self.sidecars_start(session) {
             blocks.push(
                 json!({"type": "text", "text": said, "_meta": {"acpmux": {"context": true}}}),
             );
@@ -1452,6 +1507,8 @@ impl Hub {
             .seq;
         // The chat's page before the turn changes it (`turn_shots.rs`), off the turn's path.
         super::turn_shots::turn_began(session, &turn_id);
+        // The gap it ends joins the chat's rhythm (`residency.rs`).
+        self.rhythm_turn_began(session);
         // Its frames as the page forms (`turn_frames.rs`), at no agent tokens.
         super::turn_frames::turn_began(session, &turn_id);
         // The prompt as the agent gets it, before the checks below: making its model-sized copies
@@ -1670,7 +1727,12 @@ impl Hub {
                 }
                 self.save_meta(session);
                 let control = session.turn().map_or(control, |t| t.control);
-                let fallback = Box::pin(self.child_for_since(session, stops)).await;
+                let fallback = match Box::pin(self.child_for_since(session, stops)).await {
+                    Ok(child) => Box::pin(self.check_local_subscription_child(session, &child))
+                        .await
+                        .map(|()| child),
+                    Err(e) => Err(e),
+                };
                 let refusal = match &fallback {
                     Ok(_) => match self
                         .check_dispatch(

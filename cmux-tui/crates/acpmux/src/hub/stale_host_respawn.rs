@@ -216,22 +216,115 @@ impl Hub {
         if turn.is_err() || using.is_err() || spawning.is_err() || !same || !eligible() {
             return false;
         }
-        let seen = session.last_active.load(Ordering::SeqCst);
-        let census = self.idle_census(child.pid, sidecars).await;
-        if !matches!(census, super::idle_census::Census::Clear) {
-            self.note_refusal(session, &census);
+        let Some((seen, link_lost)) =
+            self.quiet_stale_census(session, &child, sidecars, &eligible).await
+        else {
             return false;
-        }
-        Self::drain_inbound(session).await;
-        if session.last_active.load(Ordering::SeqCst) != seen || !eligible() {
-            return false;
-        }
-        let link_lost = child.host_record().is_some() && !child.is_alive().await;
+        };
         if !self.hibernate_held(session, link_lost, Some(seen), firing_retry).await {
             return false;
         }
         tracing::info!(session = %session.id, cause, "hibernated: stale agent passed every quietness gate and the census");
         true
+    }
+
+    async fn quiet_stale_census(
+        &self,
+        session: &Session,
+        child: &ChildAgent,
+        sidecars: Option<crate::sidecar_census::Servers>,
+        eligible: &impl Fn() -> bool,
+    ) -> Option<(u64, bool)> {
+        let seen = session.last_active.load(Ordering::SeqCst);
+        let census = self.idle_census(child.pid, sidecars).await;
+        if !matches!(census, super::idle_census::Census::Clear) {
+            self.note_refusal(session, &census);
+            return None;
+        }
+        let link_lost = child.host_record().is_some() && !child.is_alive().await;
+        Self::drain_inbound(session).await;
+        (session.last_active.load(Ordering::SeqCst) == seen && eligible())
+            .then_some((seen, link_lost))
+    }
+
+    /// Called with the next prompt's turn claimed. The admission deadline can return that
+    /// prompt to the durable queue while it waits. Every new claimant runs the same gate.
+    pub(super) async fn wait_required_prompt_restart(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        cancels: u64,
+        no_wait: bool,
+    ) -> Result<(), RpcError> {
+        while session.respawn_required.load(Ordering::SeqCst) {
+            if self.shutting_down() {
+                return Err(super::shutdown::shutting_down_error());
+            }
+            if session.moving().is_some() {
+                return Err(super::queue::moving_error(session));
+            }
+            if session.cancels.load(Ordering::SeqCst) != cancels
+                || session.status() == SessionStatus::Closed
+            {
+                return Err(super::turns::stopped_before_prompt());
+            }
+            if self.try_required_prompt_restart(session, cancels).await {
+                break;
+            }
+            if no_wait {
+                return Err(super::auto_resume::retry_turn::busy());
+            }
+            // An unreported descendant can exit without notifying the daemon. Only the
+            // prompt that owns the turn needs to recheck its census.
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+        Ok(())
+    }
+
+    async fn try_required_prompt_restart(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        cancels: u64,
+    ) -> bool {
+        let Ok(using) = session.harness_use.clone().try_write_owned() else { return false };
+        let Ok(spawning) = session.spawn_lock.clone().try_lock_owned() else { return false };
+        let restart = async {
+            let child = session.child.lock().await.clone();
+            let Some(child) = child else { return true };
+            let eligible = || self.required_prompt_restart_eligible(session, cancels);
+            if !eligible() {
+                return false;
+            }
+            let sidecars = self.sidecars(session, &child).await;
+            let Some((seen, link_lost)) =
+                self.quiet_stale_census(session, &child, sidecars, &eligible).await
+            else {
+                return false;
+            };
+            let hub = Arc::clone(self);
+            let session = Arc::clone(session);
+            // task-owner: the spawn and harness-use leases serialize committed teardown.
+            // Admission can defer while it finishes. Only teardown outlives the caller.
+            self.scope
+                .spawn_named("required-prompt-restart", async move {
+                    let _leases = (using, spawning);
+                    if !hub.required_prompt_restart_eligible(&session, cancels) {
+                        return false;
+                    }
+                    hub.hibernate_held(&session, link_lost, Some(seen), None).await
+                })
+                .await
+                .unwrap_or(false)
+        };
+        tokio::time::timeout(super::prompt_admission::ADMISSION_BOUND, restart)
+            .await
+            .unwrap_or(false)
+    }
+
+    fn required_prompt_restart_eligible(&self, session: &Session, cancels: u64) -> bool {
+        session.respawn_required.load(Ordering::SeqCst)
+            && session.cancels.load(Ordering::SeqCst) == cancels
+            && session.moving().is_none()
+            && self.prompt_restart_eligible(session)
     }
 
     /// Once the agents the previous daemon left are adopted, on a task of its own: an agent whose

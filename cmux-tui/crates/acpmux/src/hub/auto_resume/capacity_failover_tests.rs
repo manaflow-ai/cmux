@@ -70,3 +70,16 @@ async fn automatic_restart_capacity_switch_and_restore_preserve_background_work(
     assert_ne!(session.meta().hibernated_ms, 0);
     hub.shutdown_all().await;
 }
+
+/// An error that asks for another model switches at the first attempt, whatever the setting
+/// (acp-chief-issues 2026-11-25: Codex chats retried a full gpt-6.2-sol for hours); any other
+/// capacity error keeps the setting, 0 never switching.
+#[test]
+fn an_error_that_asks_for_another_model_switches_at_once() {
+    assert_eq!(switch_after(0, true), 1);
+    assert_eq!(switch_after(3, true), 1);
+    assert_eq!(switch_after(0, false), 0);
+    assert_eq!(switch_after(3, false), 3);
+    assert!(fails_over_at(1, switch_after(0, true)));
+    assert!(!fails_over_at(1, switch_after(0, false)));
+}

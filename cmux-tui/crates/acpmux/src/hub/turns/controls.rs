@@ -210,16 +210,30 @@ impl Hub {
         // one is kept in memory alone, its record the one trace of it. The save stays: it
         // journals nothing when the image is unchanged (`store/journal_store/meta.rs`), and it
         // keeps a harness's move that lands between this read and the writes below.
-        let unchanged = session.read_meta(|m| {
-            m.modes.as_ref().and_then(|modes| modes.get("currentModeId")).and_then(Value::as_str)
-                == Some(mode_id)
-        });
+        let recorded_mode = |m: &SessionMeta| {
+            m.modes
+                .as_ref()
+                .and_then(|modes| modes.get("currentModeId"))
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        };
+        let before = session.read_meta(recorded_mode);
         let r = self
             .forward_as(session, method::SESSION_SET_MODE, json!({"modeId": mode_id}), granted)
             .await?;
-        self.write_mode_state(session, [ModeWrite::CurrentMode(json!(mode_id))]);
-        if !unchanged {
-            self.append(session, "mux", "mode", json!({"modeId": mode_id}));
+        // forward_as applied the harness's answer (or the requested mode for an empty ACP
+        // acknowledgement). Never replace a different reported mode with the request here.
+        let applied = session
+            .read_meta(recorded_mode)
+            .or_else(|| {
+                r.get("currentModeId")
+                    .or_else(|| r.get("modeId"))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
+            .unwrap_or_else(|| mode_id.to_owned());
+        if before.as_deref() != Some(applied.as_str()) {
+            self.append(session, "mux", "mode", json!({"modeId": applied}));
         }
         self.save_meta_answered(session)?;
         Ok(r)
