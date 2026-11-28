@@ -21,8 +21,7 @@ struct DevicesAccessToggleRow: View {
         ) {
             Toggle(control.title, isOn: Binding(get: { control.isOn }, set: set))
                 .labelsHidden()
-                .toggleStyle(.switch)
-                .controlSize(.small)
+                .toggleStyle(CompactGrayToggleStyle())
                 .disabled(!control.isEnabled)
                 .accessibilityLabel(control.title)
                 .accessibilityIdentifier(identifier)
