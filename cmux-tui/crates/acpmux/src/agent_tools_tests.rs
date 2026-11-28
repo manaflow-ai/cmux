@@ -46,6 +46,7 @@ fn memory_inputs(bin: &std::path::Path, cmux_json: Option<&str>) -> super::Input
         secrets: false,
         offers: false,
         subsessions: false,
+        forum: false,
         displays: None,
         hosted: false,
         hosted_cloud: false,
@@ -154,6 +155,7 @@ fn own_servers_run_under_the_daemon_prefix() {
         secrets: true,
         offers: true,
         subsessions: true,
+        forum: true,
         ..memory_inputs(&root, None)
     };
     let servers = |prefix: &[&str]| -> Vec<(String, Vec<String>)> {
@@ -538,6 +540,7 @@ fn a_chat_runs_acpmux_s_own_tool_servers_in_one_process() {
         secrets: true,
         offers: true,
         subsessions: true,
+        forum: true,
         ..memory_inputs(&root, None)
     };
     let folded = resolve(&inputs).for_session("s-one").folded();
@@ -657,6 +660,7 @@ async fn with_a_gateway_acpmux_s_own_upstreams_name_its_tool_endpoint() {
         secrets: true,
         offers: true,
         subsessions: true,
+        forum: true,
         ..memory_inputs(&root, None)
     };
     let home = root.join("home");
@@ -750,6 +754,7 @@ async fn a_chat_starts_at_most_its_budget_of_acpmux_processes() {
         secrets: true,
         offers: true,
         subsessions: true,
+        forum: true,
         hosted: true,
         ..memory_inputs(&root, Some(r#"{"agents": {"cmuxMcp": "off"}}"#))
     };
@@ -843,6 +848,7 @@ fn every_server_acpmux_starts_as_itself_is_one_the_gateway_serves() {
         secrets: true,
         offers: true,
         subsessions: true,
+        forum: true,
         hosted: true,
         github: true,
         ..memory_inputs(root.path(), Some(r#"{"agents": {"cmuxMcp": "off"}}"#))
@@ -934,13 +940,17 @@ fn the_cmux_server_definition_names_the_settings_file() {
     assert_eq!(server.args, ["mcp", "serve"]);
     // Always the resolved settings file, and the acpmux guest mode always off: Codex merges these
     // keys into a person's own `cmux` entry, one `cmux acp desktop link` wrote among them.
-    assert_eq!(
-        server.env,
-        [
-            ("CMUX_NEXT_CONFIG_FILE".to_owned(), "/h/cmux-next-x.json".to_owned()),
-            (crate::desktop_link::GUEST_ENV.to_owned(), String::new()),
-        ]
+    // Then macOS malloc's space-efficient mode, as the daemons get it (none off macOS).
+    let mut want = vec![
+        ("CMUX_NEXT_CONFIG_FILE".to_owned(), "/h/cmux-next-x.json".to_owned()),
+        (crate::desktop_link::GUEST_ENV.to_owned(), String::new()),
+    ];
+    want.extend(
+        cmux_tui_platform::malloc_space::child_env()
+            .into_iter()
+            .map(|(key, value)| (key.to_owned(), value.to_owned())),
     );
+    assert_eq!(server.env, want);
     let all = super::cmux_server(std::path::Path::new("/A/cmux"), true, settings);
     assert_eq!(all.args, ["mcp", "serve", "--all-tools"]);
 }
@@ -1366,6 +1376,7 @@ fn own_server_instructions_move_to_a_system_prompt_every_chat_shares() {
         secrets: true,
         offers: true,
         subsessions: true,
+        forum: true,
         ..memory_inputs(&root, None)
     };
     let chat = |session: &str, cwd: &std::path::Path| {
@@ -1472,5 +1483,35 @@ fn a_chat_whose_memory_followed_it_keeps_memory_and_reaches_its_owner() {
     // The person turned memory off on this machine: off for moved chats too.
     let off = Some(r#"{"agents": {"memory": {"enabled": false}}}"#);
     assert!(memory(off, &moved).is_none());
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Leo, 2026-11-26: "identify all the weird opinoinated fleet things we shipped into the app and
+/// remove them". The forum tools go to chats on a machine in a team or forum, not every chat.
+#[test]
+fn forum_tools_come_only_in_a_team_or_forum() {
+    let root = std::env::temp_dir().join(format!("acpmux-forum-gate-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let inputs = |forum: bool| super::Inputs {
+        acpmux: Some(crate::self_command::SelfCommand::new(
+            std::path::PathBuf::from("/usr/local/bin/acpmux"),
+            vec![],
+        )),
+        forum,
+        ..memory_inputs(&root, None)
+    };
+    let name = crate::forum_mcp::SERVER_NAME;
+    let off = resolve(&inputs(false));
+    assert!(off.servers.iter().all(|s| s.name != name));
+    // The acpmux server stays either way.
+    assert!(off.servers.iter().any(|s| s.name == crate::acpmux_mcp_names::SERVER_NAME));
+    assert!(resolve(&inputs(true)).servers.iter().any(|s| s.name == name));
+    let gate = crate::forum_mcp::enabled_from;
+    assert!(!gate(None, false, None, false), "a person with no team or forum");
+    assert!(gate(None, true, None, false), "a hosted forum team");
+    assert!(gate(None, false, Some(true), false), "the Forum page on");
+    assert!(gate(None, false, None, true), "rules already posted here");
+    assert!(!gate(None, false, Some(false), false));
+    assert!(gate(Some("1"), false, None, false) && !gate(Some("0"), true, Some(true), true));
     let _ = std::fs::remove_dir_all(&root);
 }

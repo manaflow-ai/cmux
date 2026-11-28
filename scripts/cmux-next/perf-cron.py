@@ -39,7 +39,7 @@ Subcommands: fetch-state, plan, fleet-check, run-part, part-cleanup, run-linux-p
 replay-results (see each --help). Tests: scripts/cmux-next/tests/test_perf_cron.py (decisions) and test_perf_cron_io.py (GitHub, git, the
 fleet client and multi-tick runs, faked) (run them yourself; no CI job runs them).
 """
-import argparse, collections, copy, datetime, hashlib, importlib.util, io, json, os, random, re, shutil, subprocess, sys, tempfile, time
+import argparse, collections, concurrent.futures, copy, datetime, hashlib, importlib.util, io, json, os, random, re, shutil, subprocess, sys, tempfile, time
 import urllib.error, urllib.parse, urllib.request, zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -107,9 +107,19 @@ CLOSE_GRACE_HOURS = 6
 MAX_YIELDS = 3
 PART_RUN_SECONDS = 900      # one part, its app build included (Lawrence: under 15 minutes each)
 PART_QUEUE_SECONDS = 300    # a part that does not start at once gives its place back
-CANDIDATE_DEPTH = 80
+# How far back from the tip the plan looks for a commit with a published cmux-tui tree. The tree publisher coalesces
+# pushes, so about one commit an hour has a tree, and feat-cmux-next gets about 100 first-parent commits an hour
+# (2026-11-27). At 80 the walk stopped short of every published tree: at 04:54Z it fell back to the tree-less tip
+# e6896269634a while 001cba8182ee, 73 min older, had one, so the Mac parts (tabs among them, which goal
+# tabs-keep-speed reads) waited TREE_WAIT_HOURS for a tree that never came, and the next tip did the same. The walk
+# also stops at the last tip tried and at TREE_LOOKUP_SECONDS.
+CANDIDATE_DEPTH = 600
 # What one plan's tree lookups (tree_published) may take together, inside the plan step's `timeout 600`.
 TREE_LOOKUP_SECONDS = 300
+# Tree lookups in flight at once (tree_ready): each is two key computations and two HTTPS reads, about 15 s on the
+# plan's runner, so one at a time the budget covered 7 commits (run 45986071929, 2026-11-27 10:56Z) while the newest
+# published tree was 68 commits back.
+TREE_LOOKUP_PARALLEL = 8
 # feat-cmux-next gets ~400 first-parent commits a day and a tip measurement takes 3 h or more, so a newer tip
 # always exists: while a regression range can be bisected, a tip measurement starts at most once per TIP_EVERY_HOURS
 # and the ticks in between go to the bisect.
@@ -327,8 +337,21 @@ PARTS = [
     # Leo 2026-11-25 "when you press enter, the stuff should just start playing": the agent chat's Enter to the sent
     # row's frame, its reserved turn in that frame, layout shifts per send, first token and chat switch, plain, in a
     # 1000-turn chat, with 12 other chats open and offline (scripts/measure/snappy-bench.py; chat_snappy.<duress>.*).
+    # goal: NOW's chat_snappy_send_paint_p95_ms (goal snappy-enter-paint), so once due it goes right after the build
+    # (part_order). Without it the part kept its PARTS place behind every stale Mac part and the row read one run, at
+    # e7e5eceb on 2026-11-25 08:50Z, for 2 days. goal_rows: a store without the plain send_paint row stays due.
     {"name": "chat-snappy", "args": [*MEASURE, "--config=bench", "--suite=chat-snappy"],
-     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "chat-snappy", "run_seconds": 1800},
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "chat-snappy",
+     "goal": "snappy-enter-paint", "goal_rows": r"chat_snappy\.none\.send_paint@", "run_seconds": 1800},
+    # Goal hot-swap-fast: a webview .tsx save to the first changed frame of the focused pane, the unfocused pane and a
+    # hidden tab's show, on the dev server, with every other region's draft kept (scripts/measure/graceful-swap-cron.py
+    # over graceful-swap-fleet.py's latency series, no films; hot_swap.mac.<surface>.p95_ms, bars 150/300/100 ms, plus
+    # drafts_lost and transient_frames). Before it, NOW's hot_swap_mac_*_p95_ms came only from a hand-run capture,
+    # import and publish (the unfocused row read null 2026-11-24 to 11-27). goal_rows: a run that stored no p95 row
+    # (an invalid swap) leaves the part due. A bench build plus 2 series of 20 saves: 45 minutes.
+    {"name": "hot-swap", "args": [*MEASURE, "--config=bench", "--suite=graceful-swap"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "graceful-swap",
+     "goal": "hot-swap-fast", "goal_rows": r"hot_swap\.mac\.[a-z_]+\.p95_ms@", "run_seconds": 2700},
     # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
     # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.
@@ -466,7 +489,7 @@ ROW_PARTS = [
     (r"^terminal\.throughput\.", "throughput"), (r"^typing\.", "typing-load"),
     (r"^terminal\.throughput\.", "throughput"), (r"^cef_resize\.", "cef-resize"), (r"^terminal\.scroll\.", "terminal-scroll"),
     (r"^power_user\.native\.", "power-user-native"), (r"^power\.", "power"),
-    (r"^chat_size\.", "chat-size"), (r"^chat_snappy\.", "chat-snappy"),
+    (r"^chat_size\.", "chat-size"), (r"^chat_snappy\.", "chat-snappy"), (r"^hot_swap\.", "hot-swap"),
     (r"^terminal\.key_to_echo\.", "typing"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
     (r"^webui\.state_growth\.", "web-ui-growth"),
@@ -1390,9 +1413,14 @@ def linux_bench_runs(root, part="diff-viewer"):
         # linux job's cap covers both (linux_job_minutes). A cold build of acpmux, cmux-tui and its Zig terminal engine
         # outlasted 38 minutes on a 4-vCPU runner (2026-11-17); its leg runs on the one cmux-linux label like the others.
         # The suite's build is then a no-op; its rows are the part's (a webui part keeps the last run's).
+        # all-live: the same 1,000 items with lazy start off (every shell started at once), in a run of its own after
+        # the product arm, its rows named infinite_items.all_live.nN.* (--row-arm) beside the product's
+        # infinite_items.nN.*: NOW shows what lazy start saves next to what it costs (practices gap c155dd8eab85).
         script = os.path.join(root, INFINITE_ITEMS)
         return {"build": (["bash", script, "build-only"], root or ".", {}),
-                "suite": (["bash", script, "pages=0", "days=1", "--window=5"], root or ".", {})}
+                "suite": (["bash", script, "pages=0", "days=1", "--window=5"], root or ".", {}),
+                "all-live": (["bash", script, "pages=0", "days=1", "--window=5", "counts=1000", "--lazy-start=off",
+                              "--row-arm=all_live"], root or ".", {})}
     return {
         "sidecar": ([os.path.join(root, "scripts/run-diff-sidecar-cargo.sh"), "run", "--quiet", "--release", "--locked",
                      "--manifest-path", os.path.join(root, "Native/DiffSidecar/Cargo.toml"), "--bin", "cmux-diff-sidecar",
@@ -1549,6 +1577,12 @@ def last_tip_build_failed(state):
     return bool(entry.get("build_failed")) or "build_failed" in (entry.get("failed_why") or {}).values()
 
 
+def tree_waiting(cur):
+    """The tip measurement in flight's Mac parts wait for its commit's cmux-tui tree (wait_for_tree) (pure)."""
+    return (isinstance(cur, dict) and cur.get("kind") == "tip" and not cur.get("superseded")
+            and not cur.get("tree_seen") and bool(cur.get("tree_wait_since")) and needs_mac(cur))
+
+
 def build_never_ran(cur):
     """The tip in flight's build part failed before it ran anything of the commit (BUILD_NEVER_RAN_RE) (pure)."""
     build = (cur.get("parts") or {}).get("build") if isinstance(cur, dict) else None
@@ -1615,6 +1649,22 @@ def supersede_for_unread(state, t, newest, supported_parts):
             cur["parts_todo"] = []
             cur.pop("host_asked_since", None)
             end_yield(cur, t)
+        return why
+    if tree_waiting(cur) and newest and newest != cur["sha"]:
+        # Its tree may never be published: the tree publisher coalesces a window of pushes into one build of the
+        # newest, so a commit picked before that build has no tree of its own, ever. Without this its Mac parts waited
+        # the whole TREE_WAIT_HOURS and the measurement ended with none (tip e6896269634a, 2026-11-27: picked at
+        # 04:54:55Z with no newer tree; the window's build published 56b23b70562d, merged 3 s later, at 05:42Z, and
+        # the Mac sat idle to 06:55Z, 285 h after the last finished measurement). A newer commit whose tree is
+        # published (plan) takes the Mac now; the Linux parts end too, as for a failed build (above): it runs them.
+        why = f"no published cmux-tui tree of {cur['sha'][:12]}; {newest[:12]} is newer and has one"
+        cur["superseded"] = {"by": newest, "why": why, "at": iso(t)}
+        for name in list(cur["parts_todo"]):
+            cur["parts"][name] = {"state": "superseded", "reason": why}
+        cur["parts_todo"] = []
+        cur.pop("tree_wait_since", None)
+        cur.pop("host_asked_since", None)
+        end_yield(cur, t)
         return why
     missing = unread_missing(state, cur)
     if not missing or not newest:
@@ -2091,7 +2141,8 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
     (start_yield; record_part ends it), not the measurement's active time. tree_ready(sha): the commit's cmux-tui
     tree is published; a tip whose tree is not runs only its Linux parts until it is (wait_for_tree). newest: the newest
     measurable commit with a published tree, given while the tip in flight lacks a part that never produced a reading
-    (unread_missing); its Mac parts then end so the next tip measures that part first (supersede_for_unread).
+    (unread_missing), whose build failed, or whose tree is unpublished (tree_waiting); its Mac parts then end so the
+    next tip measures it first (supersede_for_unread).
     idle_hosts: the measure hosts the controller called idle (controller_idle_hosts), or None; a new tip pins only to
     one of them (tip_pin_host). A bisect step keeps its host: its rows are judged only there."""
     drop_dead_measurement(state, t, measurable)
@@ -2407,21 +2458,75 @@ def gh_shape(path):
     return re.sub(r"/[0-9a-f]{40}(\.\.\.[0-9a-f]{40})?|/\d+", "/N", path.split("?")[0].replace("https://api.github.com", ""))
 
 
+# The tick's own github.token shares the repository's GITHUB_TOKEN hour with every workflow, and on 2026-11-27 other
+# workflows spent it within minutes of each reset: from 12:20Z every tick's first read (the artifacts list) got 403,
+# so no tick read the state and the cron measured nothing for hours (cmux#24569), while the CI pool Apps
+# (CI_POOL_TOKEN_1/2, the tokens pr-router and the UI proof gate fall back to) had their own hours. A read GitHub
+# refuses for the limit goes on with the next token, and a spent token is not tried again in this process; only when
+# every token is spent is the tick a RateLimited one. Writes stay on GH_TOKEN (the pool Apps may not hold issues: write).
+SPENT_TOKENS = set()
+
+
+def read_tokens():
+    """GH_TOKEN, then PERF_CRON_POOL_TOKENS (space-separated), each once, without the ones spent in this process."""
+    first = os.environ.get("GH_TOKEN", "")
+    pool = os.environ.get("PERF_CRON_POOL_TOKENS", "").split()
+    return [t for t in dict.fromkeys(t for t in [first, *pool] if t) if t not in SPENT_TOKENS]
+
+
+def with_read_tokens(what, read):
+    """READ(token) with each read token in turn while GitHub refuses for the rate limit. The last refusal raises
+    RateLimited (its wait the soonest reset seen); any other error raises at once."""
+    tokens = read_tokens()
+    if not tokens:
+        # Every token was spent earlier in this process: KeyError without GH_TOKEN, as before.
+        if not os.environ.get("GH_TOKEN"):
+            raise KeyError("GH_TOKEN")
+        raise RateLimited(f"{what}: every token spent")
+    waits = []
+    for i, token in enumerate(tokens):
+        try:
+            return read(token)
+        except urllib.error.HTTPError as error:
+            if not rate_limited(error):
+                raise
+            SPENT_TOKENS.add(token)
+            refused = refused_for_the_limit(what, error)
+            if refused.wait is not None:
+                waits.append(refused.wait)
+            if i == len(tokens) - 1:
+                refused.wait = min(waits) if waits else None
+                if len(tokens) > 1:
+                    refused.args = (f"{what}: HTTP {error.code} with each of {len(tokens)} tokens",)
+                raise refused from error
+            print(f"perf-cron: {what} refused for the rate limit with token {i + 1} of {len(tokens)}; trying the next",
+                  flush=True)
+    raise AssertionError("unreachable")
+
+
 def gh_request(path, method="GET", body=None, raw=False, timeout=30):
     api = os.environ.get("GITHUB_API_URL", "https://api.github.com")
     url = path if path.startswith("http") else f"{api}{path}"
     data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(url, data=data, method=method, headers={
-        "Authorization": f"Bearer {os.environ['GH_TOKEN']}", "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "cmux-perf-cron"})
-    GH_CALLS[f"{method} {gh_shape(path)}"] += 1
-    try:
+    what = f"{method} {gh_shape(path)}"
+
+    def call(token):
+        req = urllib.request.Request(url, data=data, method=method, headers={
+            "Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "cmux-perf-cron"})
+        GH_CALLS[what] += 1
         with urllib.request.urlopen(req, timeout=timeout) as r:
-            payload = r.read()
-    except urllib.error.HTTPError as error:
-        if rate_limited(error):
-            raise refused_for_the_limit(f"{method} {gh_shape(path)}", error) from error
-        raise
+            return r.read()
+
+    if method == "GET":
+        payload = with_read_tokens(what, call)
+    else:
+        try:
+            payload = call(os.environ["GH_TOKEN"])
+        except urllib.error.HTTPError as error:
+            if rate_limited(error):
+                raise refused_for_the_limit(what, error) from error
+            raise
     return payload if raw else (json.loads(payload) if payload else {})
 
 
@@ -2523,18 +2628,23 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 def download_redirected(url, timeout=120):
     """An artifact archive: GitHub answers 302 to a signed storage URL, which refuses the GitHub token, so the
     redirect is followed without it."""
-    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}",
-                                               "Accept": "application/vnd.github+json", "User-Agent": "cmux-perf-cron"})
-    GH_CALLS[f"GET {gh_shape(url)}"] += 1
-    try:
-        with urllib.request.build_opener(_NoRedirect).open(req, timeout=timeout) as r:
-            return r.read()
-    except urllib.error.HTTPError as error:
-        if rate_limited(error):
-            raise refused_for_the_limit(f"GET {gh_shape(url)}", error) from error
-        if error.code not in (301, 302, 303, 307, 308) or not error.headers.get("Location"):
-            raise
-        location = error.headers["Location"]
+    what = f"GET {gh_shape(url)}"
+
+    def call(token):
+        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}",
+                                                   "Accept": "application/vnd.github+json", "User-Agent": "cmux-perf-cron"})
+        GH_CALLS[what] += 1
+        try:
+            with urllib.request.build_opener(_NoRedirect).open(req, timeout=timeout) as r:
+                return r.read(), None
+        except urllib.error.HTTPError as error:
+            if rate_limited(error) or error.code not in (301, 302, 303, 307, 308) or not error.headers.get("Location"):
+                raise
+            return None, error.headers["Location"]
+
+    blob, location = with_read_tokens(what, call)
+    if location is None:
+        return blob
     with urllib.request.urlopen(urllib.request.Request(location, headers={"User-Agent": "cmux-perf-cron"}), timeout=timeout) as r:
         return r.read()
 
@@ -2799,7 +2909,7 @@ def supported_parts_at(sha):
                                    capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = "--suite=launch" in text and '"--fresh-copy"' in bench and '"--ready-mark"' in bench
         elif need in ("perf-gate", "launch", "memory-agents", "relaunch", "wake", "power", "chat-size", "cef-resize",
-                      "chat-snappy"):
+                      "chat-snappy", "graceful-swap"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = f"--suite={need}" in text
@@ -2974,9 +3084,37 @@ def fleet_runs(sha, tip_version):
     return tip_version is not None and measure_version(sha) == tip_version
 
 
+# The plan's checkout is a 300-commit partial clone. A git read of a commit or object past it fetches that object
+# from the remote, one fetch per call: the walk's is_ancestor(sha, last tip) against a tip 584 commits back took 48 s
+# for the first commit and 1-2 s for each next one, inside the tree lookup budget (run 45986071929). Its answer was
+# always False there anyway (the fetched commit has no path to the checkout). The ancestry reads stay local.
+NO_LAZY_FETCH_ENV = {**os.environ, "GIT_NO_LAZY_FETCH": "1", "GIT_TERMINAL_PROMPT": "0"}
+
+
 def is_ancestor(a, b):
-    return subprocess.run(["git", "-C", ROOT, "merge-base", "--is-ancestor", "--end-of-options", a, b],
-                          capture_output=True).returncode == 0
+    """a is an ancestor of b in the checkout; False when either is not in it (never fetched) or git takes past
+    PATH_CHECK_TIMEOUT_S."""
+    try:
+        return subprocess.run(["git", "-C", ROOT, "merge-base", "--is-ancestor", "--end-of-options", a, b],
+                              capture_output=True, env=NO_LAZY_FETCH_ENV, timeout=PATH_CHECK_TIMEOUT_S).returncode == 0
+    except subprocess.TimeoutExpired:
+        return False
+
+
+def first_parent_since(tip, stop, depth):
+    """(commits, reached): tip's newest `depth` first-parent commits newer than stop (stop and its ancestors left out),
+    in one git call, and whether the list ends at stop. A stop the checkout lacks (older than its depth) leaves the
+    whole list, reached False: every commit in it is newer than a commit past the checkout."""
+    if stop:
+        try:
+            out = subprocess.run(["git", "-C", ROOT, "rev-list", "--first-parent", f"-n{depth}", tip, f"^{stop}", "--"],
+                                 capture_output=True, text=True, env=NO_LAZY_FETCH_ENV, timeout=120)
+        except subprocess.TimeoutExpired:
+            out = None
+        if out is not None and out.returncode == 0:
+            commits = out.stdout.split()
+            return commits, len(commits) < depth
+    return git("rev-list", "--first-parent", f"-n{depth}", tip).split(), False
 
 
 ON_BRANCH_KEEP = 300  # commits the state remembers as verified on the branch (each later tick asks GitHub for none)
@@ -3924,9 +4062,10 @@ LIMIT_WAIT_SLACK_S = 5
 
 
 def cmd_fetch_state(o):
-    # A result run (--wait-limit) carries the controller's result of a part that ran on the bench: doing nothing
-    # drops it and the next tick asks for the same part again (2026-11-14: the build of babcb18cd895 ran twice and
-    # both results met a spent limit). It waits for the limit's reset, once, and reads the state then.
+    # With --wait-limit (the workflow passes it on every tick) a spent limit is waited out, once, and the state read
+    # then: a result run that did nothing dropped its result (2026-11-14: the build of babcb18cd895 ran twice and both
+    # results met a spent limit), and a plain tick that did nothing met the same spent limit at the next tick
+    # (2026-11-27 12:20Z-13:27Z: five ticks in a row read no state).
     limit = getattr(o, "wait_limit", 0) or 0
     try:
         try:
@@ -3937,6 +4076,7 @@ def cmd_fetch_state(o):
             print(f"perf-cron: GitHub rate limit ({error}); waiting {error.wait} s for its reset to keep this run's result",
                   flush=True)
             time.sleep(error.wait + LIMIT_WAIT_SLACK_S)  # sleep-ok: GitHub's named rate-limit reset time
+            SPENT_TOKENS.clear()  # the soonest reset has passed: each token may answer again
             fetch_state(o.repo, o.dir)
     except RateLimited as error:
         # No state read: the plan must not start from an empty one. It and the report see the mark and do nothing.
@@ -3995,14 +4135,44 @@ def linux_matrix(parts):
                       separators=(",", ":"))
 
 
+# Parts that spend the repository's GITHUB_TOKEN budget themselves: a drained budget cannot run them.
+STAND_IN_SKIPPED = {"cloud-claim"}
+
+
+def stand_in_parts(tip):
+    """The Linux parts a tick runs when the state could not be read: every Linux part the tip's tree can measure, in
+    PARTS order, bar those that call GitHub with the token (STAND_IN_SKIPPED)."""
+    supported = set(supported_parts_at(tip))
+    return [p["name"] for p in PARTS
+            if p.get("where") == "linux" and p["name"] in supported and p["name"] not in STAND_IN_SKIPPED]
+
+
+def stand_in_outputs(tip, error):
+    """The plan's outputs when GitHub's rate limit hid the state (2026-11-27: five ticks in a row planned nothing, and the
+    perf board did not measure for hours, because the shared GITHUB_TOKEN budget was drained by other workflows). The
+    tip's Linux parts run with no state (git is local, the parts call no GitHub API), their numbers land in each
+    part's job summary and artifact, and nothing is saved: the report sees the RATE_LIMITED mark and leaves the last
+    trusted state alone. The Mac parts need the state (the measurement in flight, the host that built the app) and wait."""
+    parts = stand_in_parts(tip)
+    return {"action": "part" if parts else "none", "sha": tip if parts else "", "part": "",
+            "linux_matrix": linux_matrix(parts), "linux_request": "", "mac_parts": "", "worker": "",
+            "frame_pacing": "false", "rate_limited": "true",
+            "reason": (f"GitHub rate limit ({error}); the state was not read, so the tip's {len(parts)} Linux parts "
+                       "run as a stand-in and nothing is saved")}
+
+
 def cmd_plan(o):
     try:
         plan(o)
     except RateLimited as error:
         # Nothing written: the state file stays the one fetched, so the report saves nothing and the next tick
-        # starts from the same state.
-        out = {"action": "none", "sha": "", "part": "", "linux_matrix": "[]", "worker": "", "frame_pacing": "false",
-               "rate_limited": "true", "reason": f"GitHub rate limit ({error}); the next tick tries again"}
+        # starts from the same state. The Linux parts of the tip still run (stand_in_outputs): a budget drained by
+        # other workflows must not stop the cron from measuring.
+        try:
+            out = stand_in_outputs(git("rev-parse", "--verify", "--end-of-options", f"{o.tip}^{{commit}}"), error)
+        except (subprocess.SubprocessError, OSError) as failure:
+            out = {"action": "none", "sha": "", "part": "", "linux_matrix": "[]", "worker": "", "frame_pacing": "false",
+                   "rate_limited": "true", "reason": f"GitHub rate limit ({error}); no tip to measure ({failure!r})"}
         print(f"perf-cron plan: {json.dumps(out)}")
         write_outputs(o.output, out)
     print_calls("plan")
@@ -4043,7 +4213,9 @@ def plan(o):
     # Past it a commit reads as unpublished, which every caller already handles (the next tick looks again).
     tree_deadline = time.monotonic() + TREE_LOOKUP_SECONDS
 
-    def tree_ready(sha):
+    def tree_ready(sha, ahead=()):
+        """Whether sha's tree is published. ahead: the commits the caller reads next, looked up with it,
+        TREE_LOOKUP_PARALLEL at once."""
         if sha not in trees:
             if time.monotonic() >= tree_deadline:
                 if not trees.get("_spent"):
@@ -4051,28 +4223,45 @@ def plan(o):
                     print(f"perf-cron: tree lookups used this plan's {TREE_LOOKUP_SECONDS} s; later commits read as "
                           "unpublished this tick")
                 return False
+            batch = [sha] + [s for s in ahead if s not in trees and s != sha][:TREE_LOOKUP_PARALLEL - 1]
             started = time.monotonic()
-            trees[sha] = tree_published(sha, tree_deadline)
+            if len(batch) == 1:
+                trees[sha] = tree_published(sha, tree_deadline)
+            else:
+                with concurrent.futures.ThreadPoolExecutor(len(batch)) as pool:
+                    for s, ok in zip(batch, pool.map(lambda s: tree_published(s, tree_deadline), batch)):
+                        trees[s] = ok
             if time.monotonic() - started > 30:
-                print(f"perf-cron: the tree lookup of {sha[:12]} took {round(time.monotonic() - started)} s")
+                print(f"perf-cron: the tree lookup of {sha[:12]}{f' and {len(batch) - 1} more' if len(batch) > 1 else ''} "
+                      f"took {round(time.monotonic() - started)} s")
         return trees[sha]
     if not state.get("current"):
-        for sha in git("rev-list", "--first-parent", f"-n{CANDIDATE_DEPTH}", tip).split():
-            if sha == last_sha or (last_sha and is_ancestor(sha, last_sha)):
+        walked = 0
+        commits, reached_last = first_parent_since(tip, last_sha, CANDIDATE_DEPTH)
+        for i, sha in enumerate(commits):
+            if sha == last_sha:  # first_parent_since left out its ancestors; a git without ^stop still ends here
+                reached_last = True
                 break
             if not fleet_runs(sha, tip_version):
                 print(f"perf-cron: {sha[:12]} has another {MEASURE_SCRIPT} measurement version than the tip's ({tip_version})")
                 break
             newest = newest or sha
-            if tree_ready(sha):
+            if tree_ready(sha, commits[i + 1:]):
                 candidate = sha
                 break
-            print(f"perf-cron: {sha[:12]} has no published cmux-tui tree yet; trying its parent")
+            walked += 1
+            if trees.get("_spent"):
+                reached_last = False  # the rest read as unpublished this tick
+                break
+            if walked <= 3 or walked % 50 == 0:
+                print(f"perf-cron: {sha[:12]} has no published cmux-tui tree yet; trying its parent ({walked} so far)")
         if not candidate and newest:
             # Only the Mac parts need the tree: the Linux parts measure the newest commit now (wait_for_tree).
             candidate = newest
-            print(f"perf-cron: no commit since the last tip has a published cmux-tui tree; the tip is {newest[:12]}, "
-                  f"its Mac parts wait for its tree (at most {TREE_WAIT_HOURS} h)")
+            where = ("since the last tip" if reached_last else
+                     "in the tree lookup budget" if trees.get("_spent") else f"in the newest {CANDIDATE_DEPTH} commits")
+            print(f"perf-cron: no commit {where} has a published cmux-tui tree ({walked} looked at); the tip is "
+                  f"{newest[:12]}, its Mac parts wait for its tree (at most {TREE_WAIT_HOURS} h)")
     bisect = None
     budget = BISECT_JUDGED_PER_TICK
     if not state.get("current") and not (candidate and tip_due(state, t)):
@@ -4111,13 +4300,16 @@ def plan(o):
                 break
     newest = None
     gone_by = state.get("current") or {}
-    if not no_mac and (unread_missing(state, gone_by) or build_failed_tip(gone_by)):
-        # A part that never produced a reading (unread_parts) and that the tip in flight predates, or a tip whose app
-        # build failed (build_failed_tip): the newest commit that can run it on the fleet (supersede_for_unread).
-        for sha in git("rev-list", "--first-parent", f"-n{CANDIDATE_DEPTH}", tip).split():
-            if sha == gone_by["sha"] or is_ancestor(sha, gone_by["sha"]) or not fleet_runs(sha, tip_version):
+    if not no_mac and (unread_missing(state, gone_by) or build_failed_tip(gone_by)
+                       or (tree_waiting(gone_by) and not tree_ready(gone_by["sha"]))):
+        # A part that never produced a reading (unread_parts) and that the tip in flight predates, a tip whose app
+        # build failed (build_failed_tip), or one whose Mac parts wait for a tree still unpublished (tree_waiting):
+        # the newest commit that can run it on the fleet (supersede_for_unread).
+        later, _ = first_parent_since(tip, gone_by["sha"], CANDIDATE_DEPTH)
+        for i, sha in enumerate(later):
+            if sha == gone_by["sha"] or not fleet_runs(sha, tip_version):
                 break
-            if tree_ready(sha):
+            if tree_ready(sha, later[i + 1:]):
                 newest = sha
                 break
     busy, busy_known = None, False
@@ -4607,14 +4799,23 @@ def cmd_run_linux_part(o):
                 # The suite's report becomes the part's, keeping what ran before it: the web-ui-god part's paired
                 # rounds run first (cmux#57939), and a bare `report = value` dropped them, so the board kept the
                 # one-run ratio 4 more days (perf cron run 45853686955: 6 rounds, token 1.163, nothing stored).
-                report = {**value, **{k: v for k, v in report.items() if k == "paired"}}
+                # A part of more than one row run (infinite-items' suite and all-live) keeps every run's rows: the
+                # later run's rows are added to the earlier's, not put in their place.
+                rows = [r for r in report.get("rows") or [] if isinstance(r, dict)] \
+                    + [r for r in value.get("rows") or [] if isinstance(r, dict)]
+                report = {**value, **{k: v for k, v in report.items() if k == "paired"}, "rows": rows}
                 failed = [f for f in value.get("failed") or [] if isinstance(f, dict)]
                 if failed:
                     report["incomplete"] = [f"{f.get('bench')}: {f.get('why')}" for f in failed]
                     # A bench's setup failure (no browser) is in its own tail, not its exit code: record_part reads it.
                     tail += [str(x) for f in failed for x in f.get("tail") or [] if SETUP_FAILURE_RE.search(str(x))][-3:]
                     tail += [f"{f.get('bench')}: {f.get('why')}" for f in failed]
-            ok = isinstance(value, dict) and bool(value.get("rows"))
+            # The first row run decides the part (the product arm); a later arm that failed leaves its rows out and
+            # says so in the tail, not a failed part that drops the product arm's rows.
+            if name == next(n for n in runs if n not in ("build", "paired")):
+                ok = isinstance(value, dict) and bool(value.get("rows"))
+            elif name != "build" and not (isinstance(value, dict) and value.get("rows")):
+                report["incomplete"] = (report.get("incomplete") or []) + [f"{name}: no rows (exit {code})"]
         elif code != 0 or value is None:
             ok = False
         else:

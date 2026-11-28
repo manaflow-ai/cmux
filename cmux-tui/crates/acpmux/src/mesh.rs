@@ -67,6 +67,13 @@ pub struct SessionRow {
     /// The role addresses it claimed (`acpmux role claim`), at most [`MAX_ROLES`].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub roles: Vec<RoleClaim>,
+    /// Its live tags (`acpmux session tag`, `session::live_tags`), bounded by [`heartbeat_tags`],
+    /// so another machine's row lists the lineage (`succeeds=`, `takes-from=`, `goal=`) a local
+    /// one does. Without it every hub-listed row read `tags: null` on other machines (2026-11-27:
+    /// all 1,554 on one lane VM's listing) and `lane_deaths` called finished lanes unfinished. A
+    /// hub that does not know the key drops it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tags: Option<std::collections::BTreeMap<String, String>>,
     /// When the session last changed here (ms since the epoch, its meta's `updated_at`): what
     /// another machine's row shows as `updatedAt`. Without it a reading daemon stamps each hub row
     /// with its own clock whenever it first sees it, so every restart of a reader moved all of a
@@ -138,6 +145,36 @@ pub fn heartbeat_handle(handle: Option<&str>, id: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// The most tags one heartbeat row lists.
+pub const MAX_TAGS: usize = 32;
+/// The longest tag key and value (chars) a heartbeat lists.
+pub const MAX_TAG_KEY: usize = 64;
+pub const MAX_TAG_VALUE: usize = 256;
+/// The most bytes a row's tags take as JSON: the hub (cmux-platform `MAX_SESSION_TAGS_BYTES`)
+/// stores a larger set as null.
+pub const MAX_TAGS_BYTES: usize = 4096;
+
+/// The tags a heartbeat lists for a session: its live ones (`tags`, a flat key to value map as
+/// `session::live_tags` makes), each key 1..=[`MAX_TAG_KEY`] and value at most [`MAX_TAG_VALUE`]
+/// chars, at most [`MAX_TAGS`] by key order, then cut from the end until the JSON fits
+/// [`MAX_TAGS_BYTES`]; none when no tag is left.
+pub fn heartbeat_tags(tags: &Value) -> Option<std::collections::BTreeMap<String, String>> {
+    let mut out: std::collections::BTreeMap<String, String> = tags
+        .as_object()?
+        .iter()
+        .filter_map(|(k, v)| Some((k, v.as_str()?)))
+        .filter(|(k, v)| {
+            (1..=MAX_TAG_KEY).contains(&k.chars().count()) && v.chars().count() <= MAX_TAG_VALUE
+        })
+        .take(MAX_TAGS)
+        .map(|(k, v)| (k.clone(), v.to_owned()))
+        .collect();
+    while !out.is_empty() && serde_json::to_vec(&out).map_or(0, |j| j.len()) > MAX_TAGS_BYTES {
+        out.pop_last();
+    }
+    (!out.is_empty()).then_some(out)
+}
+
 /// The longest `cwd` (UTF-16 units, as the hub counts) a heartbeat lists (`MeshSessionAnnouncement`).
 pub const MAX_CWD_UNITS: usize = 1024;
 
@@ -174,6 +211,12 @@ pub struct BookDaemon {
     pub user: String,
     #[serde(default)]
     pub last_seen_at: u64,
+    /// The host health its last heartbeat carried, and when the hub took it (ms); none from an
+    /// old hub or a daemon that sent none.
+    #[serde(default)]
+    pub health: Option<Value>,
+    #[serde(default)]
+    pub health_at: Option<u64>,
 }
 
 /// One live session in the address book, as its daemon's heartbeat listed it.
@@ -188,6 +231,9 @@ pub struct BookSession {
     pub harness: String,
     #[serde(default)]
     pub state: String,
+    /// A harness sandbox refusal or an explicit blocked result, when the session is failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stuck_reason: Option<String>,
     #[serde(default)]
     pub last_seen_at: u64,
     /// The rest of a row a local one carries: read whenever the hub returns them, each `None`
@@ -216,6 +262,9 @@ pub struct BookSession {
     /// Its heartbeat's `roles` (`SessionRow::roles`), when the hub returns them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub roles: Vec<RoleClaim>,
+    /// Its heartbeat's `tags` (`SessionRow::tags`), when the hub returns them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tags: Option<std::collections::BTreeMap<String, String>>,
     /// Its heartbeat's `updatedAt` (`SessionRow::updated_at`), when the hub returns it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<u64>,
@@ -231,6 +280,11 @@ pub struct Heartbeat {
     /// a message sent before the restarted daemon polls again is not leased to the dead one.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub leaving: bool,
+    /// This daemon's host health now, trimmed (`peer_health::wire`, under 2 KiB), so a placer
+    /// reads it from the address book with no ask of its own (RFD 0181 T1). Old daemons send
+    /// none; an old hub ignores it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub health: Option<Value>,
 }
 
 /// The most sessions one heartbeat lists.
@@ -584,6 +638,10 @@ pub struct HubError {
     /// It words a failure (`server/team.rs` `inbox_failure`); `refused` alone says whether to
     /// try again.
     pub source: HubErrorSource,
+    /// The request provably never left this daemon (no connection to the hub, a token command
+    /// that failed, a gate that kept it from asking): the hub cannot hold what it carried. Only
+    /// such a failure lets a send go to its machine directly instead (`server/mesh_direct.rs`).
+    pub unsent: bool,
 }
 
 /// Where a [`HubError`] came from.
@@ -615,7 +673,18 @@ impl HubError {
 
     /// A failure that may pass, made by this daemon before it asked (a token command that failed).
     pub fn local(message: impl Into<String>) -> Self {
-        Self { source: HubErrorSource::Daemon, ..Self::unavailable(message) }
+        Self { source: HubErrorSource::Daemon, unsent: true, ..Self::unavailable(message) }
+    }
+
+    /// A failure that may pass, from no connection to the hub at all: nothing was sent.
+    pub fn unconnected(message: impl Into<String>) -> Self {
+        Self { unsent: true, ..Self::unavailable(message) }
+    }
+
+    /// Whether the hub provably holds nothing this call carried ([`HubError::unsent`]). A
+    /// timeout, a dropped connection or any answer of the hub's is not: it may hold the post.
+    pub fn never_reached(&self) -> bool {
+        self.unsent
     }
 
     /// A refusal this daemon made before it asked; [`HubError::from_hub`] marks the hub's.
@@ -629,6 +698,7 @@ impl HubError {
             retry_after: None,
             status: None,
             source: HubErrorSource::Daemon,
+            unsent: false,
         }
     }
 
@@ -814,71 +884,5 @@ pub(crate) fn valid_team_suffix(value: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn only_a_plain_message_id_is_taken() {
-        assert!(is_message_id("msg_01HZY:3.a-b"));
-        for bad in ["", "Bearer eyJhbGci", "../ack", "a/b", "m?x=1", &"m".repeat(129)] {
-            assert!(!is_message_id(bad), "{bad:?}");
-        }
-    }
-
-    #[test]
-    fn records_read_and_write_the_hubs_field_names() {
-        // An inbox message as the hub sends it (cmux-platform openapi.json 1.3.0 MeshInboxMessage).
-        let message: InMessage = serde_json::from_value(json!({
-            "messageId": "msg_0123", "kind": "prompt", "op": null, "mode": "now",
-            "to": {"sessionId": null, "name": "dep-land"},
-            "from": {"daemonId": "inst_1", "user": "u_1", "host": "gcp-codex-lane-3",
-                     "name": "lane-a", "sessionId": null},
-            "body": "hi", "attempt": 2, "createdAt": 1, "leasedUntil": 2,
-        }))
-        .unwrap();
-        assert_eq!((message.kind, message.mode), (Kind::Prompt, Mode::Now));
-        assert_eq!(message.to.name.as_deref(), Some("dep-land"));
-        assert_eq!(message.from.session_id, None);
-        let kindless = json!({"messageId": "m", "body": "hi"});
-        assert!(serde_json::from_value::<InMessage>(kindless).is_err(), "no kind is no prompt");
-        let kind = |k: &str| serde_json::from_value::<Kind>(json!(k)).unwrap();
-        assert_eq!((kind("control"), kind("later")), (Kind::Control, Kind::Unknown));
-        let ack = serde_json::to_value(Ack::delivered("m-1", None)).unwrap();
-        assert_eq!(ack, json!({"state": "delivered", "promptId": "m-1"}));
-        let ack = serde_json::to_value(Ack::refused("no")).unwrap();
-        assert_eq!(ack, json!({"state": "refused", "detail": "no"}));
-        let mode = serde_json::to_value(Mode::TurnEnd).unwrap();
-        assert_eq!(mode, json!("turn-end"));
-        let allowed: InMessage = serde_json::from_value(json!({
-            "messageId": "m", "kind": "prompt", "startWork": "allowed"
-        }))
-        .unwrap();
-        assert_eq!(allowed.start_work, Some(StartWork::Allowed));
-        assert!(
-            serde_json::from_value::<InMessage>(json!({
-                "messageId": "m", "kind": "prompt", "startWork": true
-            }))
-            .is_err()
-        );
-    }
-
-    #[test]
-    fn backoff_doubles_to_its_cap_and_starts_over_after_a_success() {
-        let mut b = Backoff::new(Duration::from_secs(1), Duration::from_secs(8));
-        let waits: Vec<_> = (0..6).map(|_| b.next_wait()).collect();
-        let bounds = [1, 2, 4, 8, 8, 8];
-        for (wait, top) in waits.iter().zip(bounds) {
-            let top = Duration::from_secs(top);
-            assert!(*wait <= top && *wait >= top * 4 / 5, "{wait:?} for {top:?}");
-        }
-        b.reset();
-        assert!(b.next_wait() <= Duration::from_secs(1));
-        // The cap bounds the first wait too, and a huge one never overflows.
-        let mut b = Backoff::new(Duration::from_secs(10), Duration::from_secs(1));
-        assert!(b.next_wait() <= Duration::from_secs(1));
-        let mut b = Backoff::new(Duration::MAX, Duration::MAX);
-        b.next_wait();
-        assert!(b.next_wait() <= Duration::MAX);
-    }
-}
+#[path = "mesh_tests.rs"]
+mod tests;

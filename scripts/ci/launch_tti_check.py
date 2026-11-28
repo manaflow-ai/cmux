@@ -102,6 +102,7 @@ from __future__ import annotations
 
 import csv
 import ctypes
+import datetime
 import ctypes.util
 import json
 import math
@@ -110,6 +111,7 @@ import os
 import plistlib
 import select
 import shutil
+import statistics
 import subprocess
 import sys
 import threading
@@ -138,6 +140,12 @@ LOAD_BOUND_PER_CORE = 0.5
 LOAD_WAIT_S = 120.0
 LOAD_POLL_S = 5.0
 MIN_QUIET_ROUNDS = 5
+# The plan stops starting rounds this many seconds after the check began, so its TTI lines print inside the workflow
+# step's 30-minute bound (next-dogfood.yml `Launch to first interaction`). A step killed at its bound printed no TTI line:
+# 4 legs of 2026-11-27 (jobs 140284181938, 140322193678, 140385791115, 140458119082) ran 30m13s each and
+# gave the nightly's 4 app_*_launch_to_interaction_ms rows nothing, once the plan grew 18 cold_install:terminal rounds.
+# 25 minutes leaves the round in flight, the quit and the summary 5.
+DEADLINE_S = 1500.0
 INPUT_MARK_MESSAGE = b"pane.inputEchoed"  # what a page posts when its composer drew a typed key (the mark's source)
 CHAT_MARK = "agent_pane.input_echoed"
 TYPE_PROBE_VARIABLE = "CMUX_NEXT_LAUNCH_TYPE_PROBE"  # LaunchTypeProbe: the app types one key at its first window frame
@@ -175,9 +183,14 @@ BROWSER_PAGE = (b"<!doctype html><html><head><meta charset=utf-8><title>tti page
 # launch kept the daemon that held the session or started a new one. hq run 45746889291's round 2 typed its key 1.2 s
 # before daemon_connected and the key never reached the pty; these say which of the two that launch was.
 FIRST_KEY_PREFIX = "terminal.first_key."
+# The app's own steps before the first frame (main.*, dfl.*, window.*, services.*, launch.*, app.*, frame.*) and stage
+# 0's (launch_shell.*): the terminal round's input_ms is the first frame plus about 26 ms (hq run 45924325260: probe
+# typed 603.1, echo 628.8), so the gap from did_finish_launching (199) to the first frame (601) is the whole number,
+# and without these the line could not say which step of it was slow or whether stage 0 showed.
 KEPT_MARK_PREFIXES = ("cef.", "chromium_page.", "first_page.", "agent_pane.", "home.", "reveal.", "after_open.",
-                      "daemon.", FIRST_KEY_PREFIX)
-KEPT_MARKS_MAX = 120  # a round's line stays small; the stage marks and KEPT_MARKS always fit first
+                      "daemon.", FIRST_KEY_PREFIX, "main.", "dfl.", "window.", "services.", "launch.", "app.",
+                      "frame.", "launch_shell.", "layout_cache.")
+KEPT_MARKS_MAX = 200  # a round's line stays small; the stage marks and KEPT_MARKS always fit first
 
 
 def kept_marks(marks: dict) -> dict:
@@ -911,6 +924,7 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
     # --load busy starts after the quiet wait: started before it, the round would wait out --load-wait on its own load.
     args.load_runner.start()
     spawned = uptime_ns()
+    launched_wall = time.time()
     try:
         if args.launch == "open":
             process, fd = ls_launch(app, launch_env(env, probe, path, args.launch_delay_ms, which), out / "app-tti.log")
@@ -1019,11 +1033,55 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
         row["probe_focus"] = probe_focus(marks)
     row["marks"] = kept_marks(marks)
     row["stages"] = launch_stages.spans(marks)
+    row["binders"] = launch_row_binders(env["HOME"], app, launched_wall)
     if process.poll() is not None:
         failures.append(f"the app exited (status {process.poll()})")
     failures += round_failures(which, path, row, marks, args.settle)
     rr.safe_print("TTI-ROUND " + json.dumps(row, default=str), flush=True)
     return row, process, app
+
+
+def launch_row_binders(home: str, app: Path, since: float, wait: float = 3.0) -> dict | None:
+    """This launch's ``binders`` from the app's launch-times.jsonl (cmux#57799: each `AppActions.bind` binder's
+    main-thread ms, the slowest LaunchTimesRecord.binderCount). The row has no pid: it is the newest one started at or
+    after SINCE (wall seconds, less 1 s for the row's whole-second started_at). None when no such row arrives in WAIT
+    seconds or the build writes no binders: the round reads nothing, never fails."""
+    import fresh_home_launch_smoke as smoke
+    try:
+        bundle_id, _ = smoke.bundle_info(app)
+    except (OSError, KeyError, ValueError):
+        return None
+    path = Path(home) / "Library" / "Application Support" / bundle_id / "launch-times.jsonl"
+    deadline = time.monotonic() + max(0.0, wait)
+    while True:
+        try:
+            lines = path.read_text(errors="replace").splitlines()
+        except OSError:
+            lines = []
+        for line in reversed(lines):
+            try:
+                record = json.loads(line)
+                started = datetime.datetime.fromisoformat(str(record.get("started_at", "")).replace("Z", "+00:00"))
+            except (TypeError, ValueError, AttributeError):
+                continue
+            if started.timestamp() < since - 1.0:
+                break
+            binders = record.get("binders")
+            return binders if isinstance(binders, dict) else None
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(0.1)
+
+
+def binder_medians(rows: list) -> dict:
+    """Each binder's median ms over ROWS' ``binders``, slowest first (the pre-frame cut's list)."""
+    got: dict = {}
+    for row in rows:
+        for name, ms in (row.get("binders") or {}).items() if isinstance(row.get("binders"), dict) else ():
+            if isinstance(ms, (int, float)) and not isinstance(ms, bool):
+                got.setdefault(name, []).append(ms)
+    medians = {name: round(statistics.median(v), 2) for name, v in got.items()}
+    return dict(sorted(medians.items(), key=lambda kv: -kv[1]))
 
 
 # ---- restart to first paint ----------------------------------------------------------------
@@ -1070,9 +1128,15 @@ def restart_first_paint(rounds: list[dict], load: str) -> tuple[list[dict], list
 
 # ---- the check ------------------------------------------------------------------------------
 
+def round_fits(began: float, now: float, slowest: float, deadline_s: float) -> bool:
+    """Whether one more round, as slow as the slowest so far, ends before DEADLINE_S seconds after BEGAN."""
+    return now - began + slowest <= deadline_s
+
+
 def check(args) -> int:
     import fresh_home_launch_smoke as smoke
     result: dict = {"rounds": [], "recoveries": []}
+    began = time.monotonic()
     keys = Keys()
 
     def journey(process, socket_path, env, app, out, report):
@@ -1104,8 +1168,17 @@ def check(args) -> int:
         pristine.parent.mkdir(parents=True, exist_ok=True)
         subprocess.run(["ditto", str(app), str(pristine)], check=True, timeout=600)
         failures = []
+        slowest = 0.0
         for n, (kind, which) in enumerate(args.plan, 1):
+            if not round_fits(began, time.monotonic(), slowest, args.deadline_s):
+                result["deadline"] = {"rounds_run": n - 1, "of": len(args.plan), "deadline_s": args.deadline_s,
+                                      "elapsed_s": round(time.monotonic() - began, 1), "slowest_round_s": round(slowest, 1)}
+                rr.safe_print("TTI-DEADLINE " + json.dumps(result["deadline"]), flush=True)
+                failures.append(f"deadline: {n - 1} of {len(args.plan)} rounds in {args.deadline_s:.0f} s")
+                break
+            round_began = time.monotonic()
             row, process, app = round_once(n, kind, which, process, inst, app, pristine, env, made, keys, args, out)
+            slowest = max(slowest, time.monotonic() - round_began)
             result["rounds"].append(row)
             failures += [f"round {n}: {f}" for f in row["failures"]]
             if process.poll() is not None:
@@ -1156,6 +1229,9 @@ def check(args) -> int:
     # Each stage's median per front over the rounds (ms from process start; launch_stages.TABLE names the marks).
     result["stages"] = {which: launch_stages.medians([r.get("stages") for r in result["rounds"] if r.get("front") == which])
                         for which in fronts}
+    # Each launch binder's median per front (startup-under-100ms: which binders the pre-frame cut defers).
+    result["binders"] = {which: binder_medians([r for r in result["rounds"] if r.get("front") == which]) for which in fronts}
+    rr.safe_print("TTI-BINDERS " + json.dumps(result["binders"]), flush=True)
     # The percentile rows (startup-matrix): p50/p95 per KIND_FRONT over the rounds launched under the load bound.
     result["percentiles"] = percentiles(result["rounds"], args.max_load_per_core, args.min_quiet)
     rr.safe_print("TTI-PCT " + json.dumps(result["percentiles"]), flush=True)
@@ -1175,7 +1251,7 @@ def check(args) -> int:
         print("RESTART-FIRST-PAINT " + json.dumps(line), flush=True)
     for line in ratios:
         print("RESTART-FIRST-PAINT-RATIO " + json.dumps(line), flush=True)
-    shown = ("verdict", "post_access", "input", "launch_delay_ms", "seed", "seed_error", "stages", "percentiles",
+    shown = ("verdict", "post_access", "input", "launch_delay_ms", "seed", "seed_error", "deadline", "stages", "binders", "percentiles",
              "recoveries", *summary)
     print("TTI " + json.dumps({k: result.get(k) for k in shown}),
           flush=True)
@@ -1209,6 +1285,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--plan", default=DEFAULT_PLAN, help="KIND:FRONT rounds in order; KIND cold_install, "
                                                              "cold_after_update, warm or warm60, FRONT chat, terminal "
                                                              "or browser")
+    parser.add_argument("--deadline-s", type=float, default=DEADLINE_S,
+                        help="start no round that would end past this many seconds after the check began")
     parser.add_argument("--settle", type=float, default=30.0, help="seconds a launch may take to take a key")
     parser.add_argument("--input", choices=("auto", "posted", "in_app"), default="auto",
                         help="who types: posted (CGEventPostToPid, needs the PostEvent grant), in_app (the app's "

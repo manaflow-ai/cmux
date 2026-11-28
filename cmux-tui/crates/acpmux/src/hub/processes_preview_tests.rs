@@ -151,7 +151,7 @@ async fn an_adopted_hosts_running_server_is_watched_again() {
     hub.note_process(&session, &rec, file.to_str());
     assert!(session.processes.lock().unwrap().watching.is_empty());
 
-    hub.recover_processes(&session);
+    hub.recover_processes(&session, None);
     assert_eq!(
         listed_preview(&hub, &session).await,
         json!({"url": format!("http://127.0.0.1:{port}/"), "port": port})

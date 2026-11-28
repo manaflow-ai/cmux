@@ -20,6 +20,7 @@ cat > "$tmp/p/Package.swift" <<'P'
 // swift-tools-version:5.9
 import PackageDescription
 let package = Package(name: "P",
+  products: [.library(name: "P", targets: ["P"])],  // xcodebuild makes scheme P only for a product
   dependencies: [.package(url: "https://github.com/apple/swift-atomics.git", exact: "1.2.0")],
   targets: [.target(name: "P", dependencies: [.product(name: "Atomics", package: "swift-atomics")])])
 P
@@ -34,7 +35,8 @@ resolve none; s=$?
 echo "no header: exit $s (want 0)"; [ "$s" -eq 0 ] || { ok=0; tail -5 "$tmp/none.log"; }
 bogus="AUTHORIZATION: basic $(printf 'x-access-token:bogus' | base64 | tr -d '\n')"
 resolve bogus GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="$bogus"; s=$?
-refusal="$(grep -m1 -oE 'returned error: [0-9]+|Authentication failed|Invalid username or token' "$tmp/bogus.log")"
+# git answers GitHub's 401 by asking for credentials, which a job has no terminal for: that line is the refusal too
+refusal="$(grep -m1 -oE 'returned error: [0-9]+|Authentication failed|Invalid username or token|could not read Username' "$tmp/bogus.log")"
 echo "bogus token header: exit $s, ${refusal:-no refusal} (want a refusal)"
 [ "$s" -ne 0 ] && [ -n "$refusal" ] || { ok=0; tail -5 "$tmp/bogus.log"; }
 if [ -n "${CMUX_GITHUB_GIT_TOKEN:-}" ]; then
