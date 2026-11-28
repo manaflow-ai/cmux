@@ -50,10 +50,9 @@ final class BrowserPageRequests: BrowserTabDelegate {
                 guard let services = self?.services, let tab = services.locateTab(surface: opener) else { return }
                 if foreground, let made = services.locateTab(surface: child), let pane = services.locateTab(model: made)?.1 { services.paneController(for: pane)?.state?.selection.closeRule.linkOpened(in: pane.id) } // no close opener (TabCloseSelection.linkOpened)
                 guard services.cache.agentDrivenTabs.contains(tab.id) else { return }
-                let session = services.cache.agentMarks.sessions[tab.id] // the child's visits name its opener's session
-                services.cache.markAgentDriven(surface: child, session: session)
+                services.cache.markAgentDriven(surface: child, session: services.cache.agentMarks.sessions[tab.id]) // its visits name its opener's session
                 if let key = services.locateTab(surface: child)?.id, services.cache.existingBrowser(key) != nil {
-                    services.cache.markAgentDriven(key, session: session)
+                    services.cache.markAgentDriven(key, session: services.cache.agentMarks.sessions[tab.id])
                 }
             }
         }
