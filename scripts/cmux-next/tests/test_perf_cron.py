@@ -24,7 +24,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-memory", "web-ui-flat", "web-ui-scroll-up", "web-ui-flat-grown", "web-ui-ladder", "web-ui-fidelity", "web-ui-typing", "web-ui-scroll", "web-ui-orchestrator", "web-ui-power-user", "web-ui-settled", "chat-disk", "cloud-claim", "terminal-scroll", "daemon-restart", "coord-sim", "chat-search"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-memory", "web-ui-flat", "web-ui-scroll-up", "web-ui-god-curve", "web-ui-flat-grown", "web-ui-ladder", "web-ui-fidelity", "web-ui-typing", "web-ui-scroll", "web-ui-orchestrator", "web-ui-power-user", "web-ui-settled", "chat-disk", "cloud-claim", "terminal-scroll", "daemon-restart", "coord-sim", "chat-search"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 # A fresh state's order (part_order): a part with no row anywhere goes before a goal's part, so the goal's parts go last.
 LINUX_FRESH_ORDER = [n for n in LINUX_PARTS if not cron.PART_BY_NAME[n].get("goal")] + \
@@ -1753,6 +1753,14 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(cron.part_for_row("webui.million_event_chat.short.heap_mb@linux"), "web-ui-million")
         argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-million")["suite"]
         self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "million-event-chat,million-event-chat-short"])
+        self.assertEqual(cwd, "/r/webviews")
+
+    def test_the_god_length_curve_rows_have_their_own_part(self):
+        self.assertTrue(cron.is_linux_part("web-ui-god-curve"))
+        self.assertEqual(cron.part_for_row("webui.god_length_curve.ratio_max@linux"), "web-ui-god-curve")
+        self.assertEqual(cron.part_for_row("webui.god_length_curve.token_ms.t100000@linux"), "web-ui-god-curve")
+        argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-god-curve")["suite"]
+        self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "god-length-curve"])
         self.assertEqual(cwd, "/r/webviews")
 
     def test_the_scroll_up_scale_rows_have_their_own_part(self):
@@ -5524,6 +5532,64 @@ class UnreadPartFirstTests(unittest.TestCase):
         self.assertTrue(cur["parts_todo"])
         d = cron.decide(state, at(1.2), None, None, self.supported, None, newest=self.NEW)
         self.assertEqual(d["action"], "finish")
+
+    # Tip cdf458ee's stored switch report (2026-11-28, state artifact 15274910873): the app trapped at launch
+    # (cmux#59517's `home rules op chiefs_tab: unknownOp`), both benches exited 1 within 8 s, no row measured.
+    LAUNCH_DEAD_REPORT = {"rows": [], "counts": {"expected": 2, "measured": 0, "unsupported": 0, "failed": 0, "incomplete": 2},
+                          "runs": {"tab_switch": {"exit": 1, "seconds": 6.4}, "palette": {"exit": 1, "seconds": 7.4}}}
+
+    def test_a_report_whose_benches_all_died_at_launch_is_launch_dead(self):
+        self.assertIn("tab_switch: exit 1 in 6.4 s", cron.launch_dead_report(self.LAUNCH_DEAD_REPORT))
+        slow = json.loads(json.dumps(self.LAUNCH_DEAD_REPORT))
+        slow["runs"]["palette"]["seconds"] = 120.0
+        self.assertEqual(cron.launch_dead_report(slow), "", "a bench that ran a while is a bench failure, not a launch")
+        slow["runs"]["palette"]["tail"] = ['BENCH-LAUNCH {"ok": false, "reason": "crashed", "exit": -5}']
+        self.assertTrue(cron.launch_dead_report(slow), "split-spring's crashed launch line counts at any length")
+        measured = json.loads(json.dumps(self.LAUNCH_DEAD_REPORT))
+        measured["counts"]["measured"] = 1
+        self.assertEqual(cron.launch_dead_report(measured), "", "a row measured: the app launched")
+        ok = json.loads(json.dumps(self.LAUNCH_DEAD_REPORT))
+        ok["runs"]["palette"]["exit"] = 0
+        self.assertEqual(cron.launch_dead_report(ok), "")
+        self.assertEqual(cron.launch_dead_report({"runs": 20, "counts": {"measured": 0}}), "", "hot-swap's runs is a count")
+
+    def launch_dead_tip_state(self, history=None):
+        state = cron.empty_state(T0)
+        state["part_stored"] = {n: {"sha": self.OLD, "at": cron.iso(T0), "rows": 1} for n in ALL if n != "build"}
+        state["history"] = history or []
+        cron.decide(state, T0, self.OLD, None, self.supported, None)
+        cur = state["current"]
+        cron.record_part(cur, "build", {"state": "done", "worker": cron.BENCH_WORKER}, "u", T0)
+        cron.record_part(cur, "switch", {"state": "done", "worker": cron.BENCH_WORKER}, "u", T0)
+        d = tempfile.mkdtemp()
+        os.makedirs(os.path.join(d, "parts"))
+        with open(os.path.join(d, "parts", "switch.json"), "w") as f:
+            json.dump({"measurement": cron.measurement_id(cur), "report": self.LAUNCH_DEAD_REPORT}, f)
+        self.assertTrue(cron.mark_launch_dead(cur, d))
+        self.assertFalse(cron.mark_launch_dead(cur, d), "marked once")
+        return state
+
+    def test_a_tip_whose_app_crashed_at_launch_frees_the_mac_for_a_newer_tip(self):
+        # Before: tip cdf458ee kept its 19 Mac parts yielding toward ABANDON_WALL_HOURS (48 h), every one launching the
+        # same crashing app. After: the next tick with a newer measurable tip ends it, as for a failed build.
+        state = self.launch_dead_tip_state()
+        self.assertEqual(cron.launch_dead_tip(state["current"]), ["switch"])
+        cron.decide(state, at(1), None, None, self.supported, None, newest=None)
+        self.assertNotIn("superseded", state["current"], "no newer commit: it keeps going")
+        d = cron.decide(state, at(1), None, None, self.supported, None, newest=self.NEW)
+        self.assertEqual(d["action"], "finish")
+        self.assertIn(cron.LAUNCH_DEAD_MARK, d["reason"])
+        self.assertEqual(state["current"]["parts"]["tabs"]["state"], "superseded")
+        cron.finish_measurement(state, {}, 8.33, None, "u", at(1), budgets_mod)
+        self.assertEqual(state["history"][-1]["launch_dead"], ["switch"])
+        self.assertTrue(cron.last_tip_launch_dead(state))
+
+    def test_a_second_tip_in_a_row_that_crashed_at_launch_keeps_its_parts(self):
+        # The base is likely broken: the next tip would crash the same way, so the measurement keeps going.
+        state = self.launch_dead_tip_state(history=[{"sha": "e" * 40, "kind": "tip", "launch_dead": ["motion"]}])
+        cron.decide(state, at(1), None, None, self.supported, None, newest=self.NEW)
+        self.assertNotIn("superseded", state["current"])
+        self.assertIn("tabs", state["current"]["parts_todo"])
 
     def test_a_bisect_step_whose_build_failed_is_not_superseded(self):
         cur = {"kind": "bisect", "sha": self.OLD, "parts": {"wake": {"state": "build_failed"}}}
