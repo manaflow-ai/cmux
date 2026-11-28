@@ -120,6 +120,20 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "workspace.subagentLimit",
+        group: GROUP,
+        title: t("ActionCatalog", "action.workspace.subagentLimit", "Workspace Subagent Limit…"),
+        keywords: &["subagent", "sub-session", "limit", "parallel", "concurrency", "workspace"],
+        category: "agents",
+        symbol: "slider.horizontal.3",
+        surfaces: PALETTE | CONTEXT_MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("workspaceRow", "identity", 206).folder("options").label(t("Localizable", "menu.object.subagentLimit", "Subagent Limit…"))], ..SurfacePlan::DEFAULT },
+        targets: &["workspace"],
+        cli_name: "action workspace-subagent-limit",
+        is_person_only: true,
+        ..Action::DEFAULT
+    },
+    Action {
         id: "palette.newAgentChat",
         group: GROUP,
         title: t("ActionCatalog", "action.palette.newAgentChat", "New Agent Chat"),
