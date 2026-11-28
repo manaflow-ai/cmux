@@ -241,6 +241,7 @@ impl Hub {
                             answer: Some(tx.clone()),
                             reader: reader.clone(),
                         });
+                        fold::fold_thread(&mut inbox, &thread);
                         trim(&mut inbox);
                         true
                     }

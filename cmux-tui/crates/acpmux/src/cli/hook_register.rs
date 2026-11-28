@@ -96,10 +96,16 @@ pub fn reached(answer: &Value) -> bool {
         .any(|key| answer.get(*key).and_then(Value::as_bool) == Some(true))
 }
 
-/// Leaves the mark for `socket` and `token` when `answer` says the chat is reached, and drops
-/// marks older than [`MARK_TTL`]. Best effort: a mark not written only costs another ask.
+/// Whether the daemon's `answer` says this process gets no code from another ask: reached, or
+/// an automatic code already went to the chat (`offered`), so a later prompt has nothing to ask.
+pub fn settled(answer: &Value) -> bool {
+    reached(answer) || answer.get("offered").and_then(Value::as_bool).is_some()
+}
+
+/// Leaves the mark for `socket` and `token` when `answer` is [`settled`], and drops marks older
+/// than [`MARK_TTL`]. Best effort: a mark not written only costs another ask.
 pub(crate) fn mark_if_reached(home: &Path, socket: &str, token: &str, answer: &Value) {
-    if !reached(answer) {
+    if !settled(answer) {
         return;
     }
     let path = mark_path(home, socket, token);
