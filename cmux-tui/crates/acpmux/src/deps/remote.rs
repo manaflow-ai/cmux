@@ -86,10 +86,21 @@ pub enum Fetched {
         size: u64,
         got: u64,
     },
+    /// The hub sent nothing for [`STALL_MS`] (before its answer or between
+    /// bytes): the whole download is dropped and the install runs from the
+    /// package registry, never a retry of the cache. The bytes read.
+    Stalled {
+        got: u64,
+    },
 }
 
 /// Time a download's pace is measured over before `give_up` is asked.
 const PACE_AFTER_MS: u64 = 300;
+
+/// How long a download may go without a byte (or the hub without an answer)
+/// before it is [`Fetched::Stalled`]. A pace check needs bytes to run, so a
+/// stream that stops dead would otherwise wait out the 600 s client timeout.
+pub const STALL_MS: u64 = 5_000;
 
 /// What an upload did.
 #[derive(Debug, PartialEq, Eq)]
@@ -125,6 +136,8 @@ pub struct Remote {
     origin: String,
     bearer: String,
     client: reqwest::Client,
+    /// [`STALL_MS`]; tests shorten it.
+    stall: Duration,
 }
 
 impl Remote {
@@ -159,7 +172,7 @@ impl Remote {
             .timeout(Duration::from_secs(600))
             .build()
             .context("build dependency cache client")?;
-        Ok(Remote { origin, bearer, client })
+        Ok(Remote { origin, bearer, client, stall: Duration::from_millis(STALL_MS) })
     }
 
     fn url(&self, key: &str, rest: &str) -> String {
@@ -176,13 +189,11 @@ impl Remote {
         give_up: impl Fn(u64, u64, u64) -> bool,
     ) -> Result<Fetched> {
         let started = std::time::Instant::now();
-        let mut response = self
-            .client
-            .get(self.url(key, ""))
-            .bearer_auth(&self.bearer)
-            .send()
-            .await
-            .context("dependency cache unreachable")?;
+        let request = self.client.get(self.url(key, "")).bearer_auth(&self.bearer).send();
+        let Ok(response) = tokio::time::timeout(self.stall, request).await else {
+            return Ok(Fetched::Stalled { got: 0 });
+        };
+        let mut response = response.context("dependency cache unreachable")?;
         let status = response.status().as_u16();
         if status == 404 {
             let body: Value = response.json().await.unwrap_or_default();
@@ -208,7 +219,11 @@ impl Remote {
         let mut file = std::io::BufWriter::new(std::fs::File::create(out)?);
         let mut hasher = TreeHasher::new(part_bytes);
         let mut got = 0u64;
-        while let Some(chunk) = response.chunk().await.context("dependency cache download")? {
+        loop {
+            let Ok(chunk) = tokio::time::timeout(self.stall, response.chunk()).await else {
+                return Ok(Fetched::Stalled { got });
+            };
+            let Some(chunk) = chunk.context("dependency cache download")? else { break };
             got += chunk.len() as u64;
             if got > size {
                 bail!("archive is longer than its size");
