@@ -11,6 +11,13 @@ nonisolated enum MacScreenRules {
         ScreenRules { operation, data in call(operation, data) }
     }
 
+    /// One `rd_hub_*` op (cmux-rd-core's device hub rules) with a JSON object each way; nil when the
+    /// library refuses the request or answers something that is not an object.
+    static func rdHub(_ operation: String, _ request: [String: Any]) -> [String: Any]? {
+        guard let data = try? JSONSerialization.data(withJSONObject: request), let reply = call(operation, data) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: reply)) as? [String: Any]
+    }
+
     /// One `cmux_layout_reducer_json` call, retried once at the size it asks for.
     private static func call(_ operation: String, _ data: Data) -> Data? {
         var capacity = 4096

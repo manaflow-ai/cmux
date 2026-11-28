@@ -46,7 +46,19 @@ fi
 phase "FFI ($ffi_how)" $((SECONDS - t))
 
 status=0
-dd="${CMUX_DERIVED_DATA_SLOT:-$tmp/dd-ios-sim}"
+# A hosted Mac has no slot: CMUX_IOS_FAST_DD_ROOT (pr-pipeline.yml, restored from ios-fast-verdict-seed.yml's warm
+# DerivedData) holds the kit's (kit/) and the app's (app/) DerivedData; unset, both start empty under $tmp.
+dd_root="${CMUX_IOS_FAST_DD_ROOT:-}"
+if [[ -n "${CMUX_DERIVED_DATA_SLOT:-}" ]]; then
+  dd="$CMUX_DERIVED_DATA_SLOT"
+  app_dd="$CMUX_DERIVED_DATA_SLOT/dd"
+elif [[ -n "$dd_root" ]]; then
+  dd="$dd_root/kit"
+  app_dd="$dd_root/app"
+else
+  dd="$tmp/dd-ios-sim"
+  app_dd="$tmp/dd"
+fi
 packages=()
 # A warm slot has the resolved checkouts: no network round trip for the package graph.
 [[ -d "$dd/SourcePackages/checkouts" ]] && packages=(-skipPackageUpdates)
@@ -107,7 +119,7 @@ if [[ -n "$app" ]]; then
   fi
   (cd cmux-next-ios && "$xcodegen" generate -q) || { echo "::error::xcodegen failed"; exit 1; }
   xcodebuild -project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Demo \
-    -destination 'generic/platform=iOS Simulator' -derivedDataPath "${CMUX_DERIVED_DATA_SLOT:-$tmp}/dd" "${packages[@]}" \
+    -destination 'generic/platform=iOS Simulator' -derivedDataPath "$app_dd" "${packages[@]}" \
     CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= ARCHS=arm64 ONLY_ACTIVE_ARCH=YES -quiet \
     'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) DEBUG CMUX_MOBILE_DEMO' build-for-testing || status=1
   # build-for-testing: the scheme's test target CmuxMobileAppUITests compiles too (cmux#55664 broke only it).

@@ -17,7 +17,8 @@ compresses DAYS days into minutes; each simulated day is:
     person comes back to: its hibernated agent wakes and goes again);
   - an archive and unarchive of a few chats;
   - a sleep/wake: every process of both trees stopped (SIGSTOP) for SLEEP seconds and continued;
-  - the acpmux idle timer fast-forwarded (ACPMUX_IDLE_CHILD_SECS, default 2 min in the product);
+  - the acpmux idle timer fast-forwarded (ACPMUX_IDLE_CHILD_SECS, default 2 min in the product), and its
+    chat eviction too (ACPMUX_EVICT_IDLE_SECS, default 10 min in the product; --evict-idle-secs=0 is off);
 then it waits for the idle agents to hibernate and samples an idle window.
 
 Each sample is per process role (acpmux, agent-host, agent, acpmux-child, cmux-tui, terminal-host, holder,
@@ -468,6 +469,10 @@ class Run:
             env["CMUX_TUI_TERMINAL_HOST_MODEL"] = self.args.terminal_host_model
         # The agent holder under test (acpmux agent_host/custody.rs), never the caller's.
         env["ACPMUX_AGENT_HOLDER"] = "1" if self.args.agent_holder == "on" else "0"
+        # Chat eviction under test (acpmux hub/evict.rs, on by default in acpmux), never the caller's: the
+        # product's period fast-forwarded like the idle timer, or 0, off. None (an older caller) is the
+        # binary's own default.
+        env.pop("ACPMUX_EVICT_IDLE_SECS", None)
         if self.args.evict_idle_secs is not None:
             env["ACPMUX_EVICT_IDLE_SECS"] = str(self.args.evict_idle_secs)
         # Lazy start under test (cmux-tui mux/terminal_respawn/lazy.rs, CMUX_TUI_LAZY_START, on by default in
@@ -686,8 +691,8 @@ class Run:
 
     def open_probe(self, k):
         """--open-probe K: opens K idle chats as the app does (attach, newest 400 records), each on a fresh
-        connection, after the last idle window so it moves no memory number. With --evict-idle-secs those
-        chats are evicted rows, so this is the open of an evicted chat; without it, of a resident one."""
+        connection, after the last idle window so it moves no memory number. With eviction on (the default) those
+        chats are evicted rows, so this is the open of an evicted chat; with --evict-idle-secs=0, of a resident one."""
         picks = random.Random(self.count).sample(self.idle, min(k, len(self.idle)))
         took = []
         for sid in picks:
@@ -744,7 +749,7 @@ class Run:
 
     def park_idle(self):
         """--park-idle: what the app's freeing tier does to a hibernated workspace (CmuxNextHibernation
-        WorkspaceFreeingPlanner, `workspaces.freeing.*`, off by default): `park-tabs` on every tab of the run's
+        WorkspaceFreeingPlanner, `workspaces.freeing.*`, on by default after a day idle): `park-tabs` on every tab of the run's
         workspaces. The shells end, the tabs stay (dead, `relaunch.on_show`); non-terminal tabs are left as they
         are. Headless cmux-tui has no app, so without this no shell is ever freed here."""
         if not self.args.park_idle or not self.workspaces:
@@ -1079,8 +1084,8 @@ def main():
     p.add_argument("--idle-child-secs", type=int, default=5, help="ACPMUX_IDLE_CHILD_SECS (product: 120)")
     p.add_argument("--reap-grace-secs", type=int, default=5,
                    help="cmux-tui --terminal-reap-grace-seconds (the app's owner: 30)")
-    p.add_argument("--evict-idle-secs", type=int, default=None,
-                   help="ACPMUX_EVICT_IDLE_SECS: evict chats idle this long to a compact row (off when unset)")
+    p.add_argument("--evict-idle-secs", type=int, default=5,
+                   help="ACPMUX_EVICT_IDLE_SECS: evict chats idle this long to a compact row (product: 600; 0: off)")
     p.add_argument("--resident-cap", type=int, default=0,
                    help="ACPMUX_RESIDENT_CAP: keep at most this many chats in memory, the least recently used "
                         "evicted past it (off when 0)")
@@ -1102,11 +1107,12 @@ def main():
     p.add_argument("--browser-tabs", action="store_true", help="a browser tab in each workspace too (model only)")
     p.add_argument("--park-idle", action="store_true",
                    help="park every tab of the run's workspaces after the open and each day (park-tabs), as the app's "
-                        "freeing tier does to hibernated workspaces when workspaces.freeing is on (off by default)")
+                        "freeing tier does to hibernated workspaces (workspaces.freeing, on by default, after a day idle)")
     p.add_argument("--free-idle-seconds", type=int, default=0,
                    help="start cmux-tui with --freeing-idle-seconds N: the daemon's own freeing timer parks every "
-                        "terminal idle at its prompt with no client for N seconds (workspaces.freeing.*, off by "
-                        "default), with no park-tabs request; 0 (default) leaves it off")
+                        "terminal idle at its prompt with no client for N seconds (workspaces.freeing.*, on by default "
+                        "with a day's idle time, which a simulated day never reaches), with no park-tabs request; 0 "
+                        "(default) passes nothing, so the settings file decides")
     p.add_argument("--lazy-start", choices=("off", "on"), default="on",
                    help="CMUX_TUI_LAZY_START for cmux-tui: on, a never-shown plain shell (new-workspace, new-tab, "
                         "create-terminal in a workspace no client shows) gets no shell or host until its first need "
