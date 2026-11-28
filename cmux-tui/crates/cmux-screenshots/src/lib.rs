@@ -11,12 +11,14 @@
 //! - [`reader`]: which directory entries a folder scan lists or enters, and the newest picture.
 //! - [`pane`]: the pane's sources: what to read, watch, drop and look at after a watch event.
 //! - [`page`], [`gate`], [`names`]: the page address, the access gate, dropped-image and rename names.
+//! - [`open`]: what a `screenshots.open` run is told.
 
 pub mod detect;
 pub mod ffi;
 pub mod gate;
 pub mod listing;
 pub mod names;
+pub mod open;
 pub mod page;
 pub mod pane;
 pub mod reader;
