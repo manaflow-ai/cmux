@@ -454,7 +454,6 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.sessionInfo.sections.changes` | boolean | `true` |  | Session Info: Pull Requests. The chat's pull requests and their checks. |
 | `agentPane.display.sessionInfo.sections.usage` | boolean | `true` |  | Session Info: Usage. Tokens, cost and time this chat used. |
 | `agentPane.display.sessionInfo.sections.connectors` | boolean | `true` |  | Session Info: Connectors. The MCP servers and connectors the chat has. |
-| `agentPane.display.sessionInfo.sections.carried` | boolean | `true` |  | Session Info: Carried memory. The MCP servers and carried the chat has. |
 | `agentPane.display.environment.placement` | string | `"left"` | `left`, `right`, `off` | Session Info Chip. Where the chip sits: under the tabs (Left) or in the header (Right). |
 | `agentPane.display.minimap` | string | `"compact"` | `compact`, `full`, `off` | Chat Minimap. What runs down the chat's edge. |
 | `agentPane.display.detail` | string | `"normal"` | `messages`, `normal`, `thinking`, `verbose` | Chat Detail. How much a chat shows: messages only, tool rows, thoughts, or every tool's output. A chat's ··· menu sets its own. |
@@ -885,6 +884,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `experiments.forumCallCard` | boolean | `false` |  | Forum Tool Calls. Agent forum searches, reads and posts show as forum rows with links to their threads. |
 | `experiments.toastsV2` | boolean | `false` |  | Toasts v2. Spinner toasts that turn into their result in place, and an Undo after closing a tab or workspace or archiving a chat. |
 | `experiments.themedPrompts` | boolean | `false` |  | Themed Floating Prompts. Prompts over other apps, such as a teammate asking to control this Mac, use your theme's glass and colors. |
+| `experiments.findGlass` | boolean | `false` |  | Find Glass. The find bar in chats sits on the same glass as the app's own find bar. |
 | `experiments.toastGlass` | boolean | `false` |  | Toast Glass. Toasts in chats sit on the same glass as the app's own toasts. |
 | `experiments.terminalHistoryFind` | boolean | `true` |  | Terminal History Find. Cmd-F in a terminal searches its whole history, with case, whole-word and regex options. |
 | `experiments.chatWidgets` | boolean | `false` |  | Extension Chat Widgets. Installed extensions can show a card under a finished tool call in agent chat. |
@@ -900,6 +900,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `experiments.attachmentTypeIcons` | boolean | `false` |  | Attachment Type Icons. While an attachment loads, its chip shows a file or image icon instead of the loading mark. |
 | `experiments.quietConnect` | boolean | `false` |  | Quiet Connections. Hide Resuming… and connection waits that end within 10 seconds. |
 | `experiments.forum` | boolean | `false` |  | Forum. Read and answer your team's forum in the app: threads from people and their agents, with search and a reply box. |
+| `experiments.feed` | boolean | `false` |  | Feed. Read every update in one feed: agents that finished or wait on you, approvals, pull requests, CI and notifications, newest first. |
 | `experiments.foldSummaryCounts` | boolean | `false` |  | Fold Summary Counts. A finished turn's Worked for line also says what it hides, such as ran 4 commands, edited 2 files. |
 | `experiments.cloudDiskBar` | boolean | `false` |  | Cloud Disk Bar. Cloud machine cards show disk use as a bar split into system, project and caches. |
 | `experiments.browserProfileCard` | boolean | `false` |  | Browser Profile Card. The browser's profile menu opens with a profile card. |

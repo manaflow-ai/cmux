@@ -10,7 +10,16 @@ type Props = {
   replace?: boolean;
   /** Terminal history find: whole-word and regex toggles, a streaming count, an inline pattern error. */
   terminal?: "idle" | "streaming" | "invalid" | "toggles";
+  /** The pill's glass (RFD 0207; ui/findGlass.experiment.ts): `page` ships; `host`, behind experiments.findGlass
+   *  (off by default), the App's transient glass under the page. A browser gallery has no App, so the two
+   *  look alike here: the App's capture shows them. */
+  glass?: "page" | "host";
+  /** Transcript-like text under the pill. */
+  busy?: boolean;
 };
+const BUSY_TEXT =
+  "Read 14 files in webviews/src/ui. The find pill steps through the matches and keeps the count beside the " +
+  "field; the transcript under it keeps scrolling while the pill stays legible over it. ".repeat(4);
 const icons = {
   search: "search",
   previous: "chevronUp",
@@ -18,7 +27,7 @@ const icons = {
   close: "close",
 } as const satisfies Record<FindPillIconRole, IconName>;
 
-function FindFixture({ noMatches = false, selected = false, replace = false, terminal }: Props) {
+function FindFixture({ noMatches = false, selected = false, replace = false, terminal, glass = "page", busy = false }: Props) {
   const [query, setQuery] = useState("needle");
   const [matchCase, setMatchCase] = useState(selected);
   const [replacement, setReplacement] = useState("replacement");
@@ -38,8 +47,14 @@ function FindFixture({ noMatches = false, selected = false, replace = false, ter
             ? "No matches"
             : `${index} of 3`;
   return (
-    <div style={{ padding: 24 }}>
+    <div style={{ padding: 24, position: "relative" }}>
+      {busy && (
+        <p aria-hidden="true" style={{ position: "absolute", inset: 0, margin: 0, padding: 8, opacity: 0.8 }}>
+          {BUSY_TEXT}
+        </p>
+      )}
       <FindPill
+        hostGlass={glass === "host"}
         query={terminal === "idle" ? "" : invalid ? "(unclosed" : query}
         onQueryChange={setQuery}
         status={status}
@@ -104,6 +119,15 @@ export default componentEntry<Props>({
       note: "A bad regex shows Invalid pattern in the danger ink instead of a count.",
     },
     "terminal-toggles": { props: { terminal: "toggles", selected: true }, note: "Case, whole word and regex all on." },
+    "glass-page": { props: { glass: "page" }, note: "Shipped (the default): the page's own glass." },
+    "glass-host": {
+      props: { glass: "host" },
+      note: "experiments.findGlass (off by default): the App's transient glass under the pill (data-host-glass, role toast).",
+    },
+    "glass-host-busy": {
+      props: { glass: "host", busy: true },
+      note: "experiments.findGlass over busy transcript text: the glass keeps the pill legible.",
+    },
     empty: {
       props: { noMatches: true, replace: true },
       note: "No matches uses the theme danger ink; disabled actions stay still.",

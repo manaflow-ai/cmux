@@ -64,6 +64,10 @@ export type FindPillProps = {
   /** Ids kept for callers that address the parts (tests, keyboard scopes). */
   ids?: { root?: string; field?: string; count?: string };
   className?: string;
+  /** The pill on the App's own transient glass under the page (glass/hostGlass.ts: level popover, role toast),
+   *  as the native find pill; false keeps the page's glass. Find in Chat reads the find-glass experiment
+   *  (`experiments.findGlass`, off by default). */
+  hostGlass?: boolean;
 };
 
 function markPress(event: ReactPointerEvent<HTMLButtonElement>) {
@@ -233,7 +237,14 @@ export function FindPill(props: FindPillProps) {
     .filter(Boolean)
     .join(" ");
   return (
-    <search id={ids?.root} className={rootClass} aria-label={labels.placeholder}>
+    <search
+      id={ids?.root}
+      className={rootClass}
+      aria-label={labels.placeholder}
+      data-host-glass={props.hostGlass ? "popover" : undefined}
+      data-host-glass-role={props.hostGlass ? "toast" : undefined}
+      data-host-glass-cover={props.hostGlass ? "" : undefined}
+    >
       {replace ? (
         <>
           <div className="find-pill__row">

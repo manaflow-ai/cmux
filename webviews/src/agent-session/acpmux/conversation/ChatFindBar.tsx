@@ -3,6 +3,8 @@
 // Cmd-G go to the next match, Shift-Enter and Shift-Cmd-G to the previous one, Escape closes.
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { FindPill, type FindPillIconRole } from "../../../ui/FindPill";
+import { findGlass } from "../../../ui/findGlass.experiment";
+import { useExperimentArm } from "../../../experiments/useExperimentArm";
 import { setPopupInsetTop } from "../../../ui/popupInset";
 import { Icon } from "../icons/Icon";
 import { useT } from "../i18n";
@@ -22,6 +24,8 @@ const POPUP_CLEARANCE = 4;
 /** `label` names the field (its placeholder too); Find in Chat by default. */
 export function ChatFindBar({ find, label }: { find: FindBarState; label?: string }) {
   const t = useT();
+  // The App's transient glass under the pill (experiments.findGlass, off by default: the page's glass).
+  const hostGlass = useExperimentArm(findGlass) === "host";
   const field = useRef<HTMLInputElement>(null);
   const bar = useRef<HTMLDivElement>(null);
   // The bar is the top layer of its pane: while it shows, tooltips and hover cards keep below it,
@@ -107,6 +111,7 @@ export function ChatFindBar({ find, label }: { find: FindBarState; label?: strin
           onPrevious={find.previous}
           onClose={find.hide}
           inputRef={field}
+          hostGlass={hostGlass}
           labels={{
             placeholder: label ?? t("find.placeholder"),
             previous: t("find.previous"),

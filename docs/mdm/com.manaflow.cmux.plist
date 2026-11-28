@@ -7032,18 +7032,6 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
-			<key>pfm_description</key>
-			<string>The MCP servers and carried the chat has.</string>
-			<key>pfm_name</key>
-			<string>agentPane.display.sessionInfo.sections.carried</string>
-			<key>pfm_title</key>
-			<string>Session Info: Carried memory</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
 			<string>left</string>
 			<key>pfm_description</key>
 			<string>Where the chip sits: under the tabs (Left) or in the header (Right).</string>
@@ -12900,6 +12888,18 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>The find bar in chats sits on the same glass as the app's own find bar.</string>
+			<key>pfm_name</key>
+			<string>experiments.findGlass</string>
+			<key>pfm_title</key>
+			<string>Find Glass</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>Toasts in chats sit on the same glass as the app's own toasts.</string>
 			<key>pfm_name</key>
 			<string>experiments.toastGlass</string>
@@ -13073,6 +13073,18 @@
 			<string>experiments.forum</string>
 			<key>pfm_title</key>
 			<string>Forum</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Read every update in one feed: agents that finished or wait on you, approvals, pull requests, CI and notifications, newest first.</string>
+			<key>pfm_name</key>
+			<string>experiments.feed</string>
+			<key>pfm_title</key>
+			<string>Feed</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
