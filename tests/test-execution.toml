@@ -2180,6 +2180,10 @@ lane = "manual"
 reason = "Focused OpenCode server-entry Node harness; no workflow names it yet, so it is run by the OpenCode regression verification command."
 
 [[test]]
+path = "tests/test_cmux_tui_opencode_plugin_v2.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_resume_tracks.py"
 lane = "linux-guard"
 

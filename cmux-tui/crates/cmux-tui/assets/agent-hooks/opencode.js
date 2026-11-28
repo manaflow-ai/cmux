@@ -61,31 +61,59 @@ function emit(nativeEvent, native) {
   child.stdin.end(payload);
 }
 
+function handle(event, location) {
+  const nativeEvent = event && typeof event.type === "string" ? event.type : "event";
+  // OpenCode also emits streaming message-part deltas. Terminal capture
+  // already records their visible bytes, so spawning one process per token
+  // would add load without adding a semantic transition.
+  if (!events.has(nativeEvent)) return;
+  // An interrupt (Esc) or a recoverable context overflow arrives as
+  // session.error but the turn continues to idle; it is not a failure.
+  const errorName = (event.properties || event.data || {}).error?.name;
+  if (nativeEvent === "session.error" && NON_TERMINAL_SESSION_ERRORS.has(errorName)) return;
+  const sessionTopology = topology(event);
+  emit(nativeEvent, {
+    event,
+    context: {
+      directory: location.directory,
+      worktree: location.worktree,
+      ...sessionTopology,
+    },
+  });
+  if (nativeEvent === "session.deleted" && sessionTopology.session_id) {
+    sessionRoots.delete(sessionTopology.session_id);
+  }
+}
+
+// OpenCode 1.x: `server(ctx)` returns hooks, and events arrive through `event`.
 const CmuxTuiJournal = async (context) => ({
   event: async ({ event }) => {
-    const nativeEvent = event && typeof event.type === "string" ? event.type : "event";
-    // OpenCode also emits streaming message-part deltas. Terminal capture
-    // already records their visible bytes, so spawning one process per token
-    // would add load without adding a semantic transition.
-    if (!events.has(nativeEvent)) return;
-    // An interrupt (Esc) or a recoverable context overflow arrives as
-    // session.error but the turn continues to idle; it is not a failure.
-    const errorName = (event.properties || event.data || {}).error?.name;
-    if (nativeEvent === "session.error" && NON_TERMINAL_SESSION_ERRORS.has(errorName)) return;
-    const sessionTopology = topology(event);
-    emit(nativeEvent, {
-      event,
-      context: {
-        directory: context?.directory,
-        worktree: context?.worktree,
-        ...sessionTopology,
-      },
-    });
-    if (nativeEvent === "session.deleted" && sessionTopology.session_id) {
-      sessionRoots.delete(sessionTopology.session_id);
-    }
+    handle(event, { directory: context?.directory, worktree: context?.worktree });
   },
 });
 
-export { CmuxTuiJournal };
-export default CmuxTuiJournal;
+// OpenCode 2.x: `setup(context)` subscribes to the event stream itself and
+// returns a cleanup that ends the subscription when the plugin unloads.
+function setup(context) {
+  const controller = new AbortController();
+  const location = {
+    directory: context?.location?.directory,
+    worktree: context?.location?.project?.directory,
+  };
+  (async () => {
+    for await (const event of context.event.subscribe({ signal: controller.signal })) {
+      try {
+        handle(event, location);
+      } catch (_) {}
+    }
+  })().catch(() => {});
+  return () => controller.abort();
+}
+
+// OpenCode 2 requires a default `{ id, setup }` and ignores other keys.
+// OpenCode 1.x reads `{ id, server }` from the same object.
+export default {
+  id: "cmux-tui.journal",
+  setup,
+  server: CmuxTuiJournal,
+};

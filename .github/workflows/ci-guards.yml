@@ -508,6 +508,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_btop_agents_sidebar.py
 
+      - name: Test the cmux-tui OpenCode journal plugin against the OpenCode 2 plugin contract
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_cmux_tui_opencode_plugin_v2.py
+
       - name: Validate settings rows advertise supported cmux.json paths
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_settings_configuration_review_paths.py
