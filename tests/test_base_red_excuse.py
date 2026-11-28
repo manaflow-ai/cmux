@@ -18679,6 +18679,9 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "cmux-next-tab-switch.yml",
             # iPhone DEV built ahead (#51721): an advisory fleet build per PR head; never a required check.
             "cmux-next-ios-try-ahead.yml",
+            # cmux ios verify per iOS PR head (ask-292c9fdd30): dispatches the protected-branch run that posts the
+            # ios-flows proof record; cmux/ios-fast (pr-router.yml) is the gate, this job never is.
+            "cmux-next-ios-verify-auto.yml",
             # Split latency measurements (#61185) and acpmux's transfer_cli product tests (#58314).
             "cmux-next-split-table.yml", "session-move-tests.yml",
             # Type-checks the measuring probes (scripts/measure/*.swift) on a Mac when a change touches them.

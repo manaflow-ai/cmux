@@ -160,9 +160,26 @@ def run_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "1") -
             "exit": p.returncode, "seconds": round(time.monotonic() - t0), "tail": text.strip()[-400:]}
 
 
+# Where a flow's `scripts` run, and with which environment. By default the checkout this tool runs from (a person's
+# head checkout). --scripts-at puts them in another tree: the automatic run (.github/workflows/cmux-next-ios-verify-
+# auto.yml) runs this tool from the protected branch, so the head's scripts run in a worktree of the head, with no
+# token in their environment (SCRUBBED): head code never sees the token that posts the record.
+SCRUBBED = ("GH_TOKEN", "GITHUB_TOKEN", "TOKENS", "GH_TOKEN_SPARES", "CI_POOL_GH_TOKEN", "CI_POOL_GH_TOKEN_SPARES",
+            "ACTIONS_RUNTIME_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_TOKEN")
+SCRIPTS_AT: Path | None = None
+
+
 def run_script(script: str) -> dict:
     t0 = time.monotonic()
-    p = subprocess.run(shlex.split(script), capture_output=True, text=True, cwd=REPO_ROOT)
+    cwd, env = REPO_ROOT, None
+    if SCRIPTS_AT is not None:
+        cwd, env = SCRIPTS_AT, {k: v for k, v in os.environ.items() if k not in SCRUBBED}
+    try:
+        p = subprocess.run(shlex.split(script), capture_output=True, text=True, cwd=cwd, env=env)
+    except FileNotFoundError as e:
+        # A tool this machine lacks (cargo on a Linux runner without Rust) cannot judge the script: skipped, as a
+        # macOS-only helper's exit 2 is, never a pass. pr-pipeline's own jobs build the same code.
+        p = subprocess.CompletedProcess(script, 2, "", f"skipped: {e.filename} only where it is installed")
     # exit 2 from a macOS-only helper on Linux (tagged-sim.sh: "xcrun not found") is skipped, not passed.
     result = "pass" if p.returncode == 0 else ("skipped" if p.returncode == 2 and "only" in p.stderr else "fail")
     return {"name": f"script: {script}", "mode": "script", "worker": os.uname().nodename, "args": [script],
@@ -430,7 +447,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--plan", action="store_true")
     ap.add_argument("--no-post", action="store_true")
     ap.add_argument("--out", help="write the record here too")
+    ap.add_argument("--scripts-at", help="run the flows' scripts in this tree (a head worktree), with no token in "
+                    "their environment")
     a = ap.parse_args(argv)
+    if a.scripts_at:
+        global SCRIPTS_AT
+        SCRIPTS_AT = Path(a.scripts_at).resolve()
     t_start = time.monotonic()
     workers = workers_from(a.workers)
     if a.pin_strict and not workers:
