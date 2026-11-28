@@ -13,11 +13,10 @@
 use super::replica::{NeedsMachine, ReplicaRead, ReplicaSource};
 use super::seed::SeededReplica;
 use super::{Op, WriteJournal};
+use cmux_process::{Command, Stdio};
 use std::io::{self, Read, Seek};
 use std::path::Path;
-use std::process::{Command, Stdio};
 use std::time::Duration;
-use wait_timeout::ChildExt;
 
 /// Longest one `git` call at pause may take: a pause must not wait on a huge tree.
 const GIT_BOUND: Duration = Duration::from_secs(10);
