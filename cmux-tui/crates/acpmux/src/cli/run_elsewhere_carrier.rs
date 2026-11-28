@@ -166,6 +166,7 @@ pub async fn run(args: RunElsewhereCarrierArgs) -> Result<i32> {
     Ok(code)
 }
 
-#[cfg(test)]
+// Unix only: the tests set file modes and the process umask.
+#[cfg(all(test, unix))]
 #[path = "run_elsewhere_carrier_tests.rs"]
 mod tests;
