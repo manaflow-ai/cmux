@@ -16,6 +16,7 @@
 
 use crate::cli::run::move_end::Reach;
 use cmux_bytes::serial::Learned;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::path::PathBuf;
 
@@ -76,35 +77,24 @@ pub(crate) fn keep(class: &str, kind: &str, learned: Learned, now_ms: u64) {
     }
 }
 
-pub(super) fn kept_in(mut store: Value, class: &str, kind: &str, l: Learned, now_ms: u64) -> Value {
-    if !store.is_object() {
-        store = json!({});
-    }
+pub(super) fn kept_in(store: Value, class: &str, kind: &str, l: Learned, now_ms: u64) -> Value {
+    use serde_json::Map;
+    let object = |v: Option<&Value>| v.and_then(Value::as_object).cloned().unwrap_or_default();
+    let mut classes: Map<String, Value> = object(store.get("classes"));
+    let mut latest: Map<String, Value> = object(store.get("latest"));
     let entry = json!({"level": l.level, "linkBytesPerSec": l.link.round(), "cpu": l.cpu,
                        "at": now_ms});
-    let classes = store.as_object_mut().unwrap().entry("classes").or_insert_with(|| json!({}));
-    if !classes.is_object() {
-        *classes = json!({});
-    }
-    let map = classes.as_object_mut().unwrap();
-    let seen = map.get(class).and_then(|e| e.get("copies")).and_then(Value::as_u64).unwrap_or(0);
-    let mut entry_with = entry.clone();
-    entry_with["copies"] = json!(seen + 1);
-    map.insert(class.to_owned(), entry_with);
-    while map.len() > KEEP_CLASSES {
-        let oldest = map
-            .iter()
-            .min_by_key(|(_, e)| e.get("at").and_then(Value::as_u64).unwrap_or(0))
-            .map(|(k, _)| k.clone());
-        match oldest {
-            Some(k) => map.remove(&k),
-            None => break,
+    let seen = classes.get(class).and_then(|e| e.get("copies")).and_then(Value::as_u64);
+    let mut counted = entry.clone();
+    counted.set("copies", json!(seen.unwrap_or(0) + 1));
+    classes.insert(class.to_owned(), counted);
+    while classes.len() > KEEP_CLASSES {
+        let at = |e: &Value| e.get("at").and_then(Value::as_u64).unwrap_or(0);
+        let Some(oldest) = classes.iter().min_by_key(|(_, e)| at(e)).map(|(k, _)| k.clone()) else {
+            break;
         };
+        classes.remove(&oldest);
     }
-    let latest = store.as_object_mut().unwrap().entry("latest").or_insert_with(|| json!({}));
-    if !latest.is_object() {
-        *latest = json!({});
-    }
-    latest[kind] = entry;
-    store
+    latest.insert(kind.to_owned(), entry);
+    json!({"classes": classes, "latest": latest})
 }
