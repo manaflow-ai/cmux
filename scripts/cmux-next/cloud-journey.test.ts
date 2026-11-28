@@ -3045,6 +3045,30 @@ except probe.OutOfTime as cut:
     expect(out).toContain("[secret]");
   });
 
+  test("an exec the guest never saw (503 vm_unavailable, overloaded) is sent again; one that may have run is not", async () => {
+    const answers = (reason: string, okAfter: number) => {
+      let execs = 0;
+      const api = {
+        raw: async (_m: string, route: string) => {
+          if (route.endsWith("/client-session")) return { status: 501, body: { error: { code: "cloud.provider.unsupported" } } };
+          execs++;
+          if (execs <= okAfter) return { status: 503, body: { ok: false, error: { code: "vm_unavailable", reason } } };
+          return { status: 200, body: { value: { ok: true, exitCode: 0, stdout: "x", stderr: "" } } };
+        },
+      } as any;
+      return { api, count: () => execs };
+    };
+    const busy = answers("overloaded", 2);
+    expect((await directExec(busy.api, "m1", { secrets: [] } as any, 2_000, 0)("true")).stdout).toBe("x");
+    expect(busy.count()).toBe(3);
+    const reset = answers("restarted", 1);
+    await expect(directExec(reset.api, "m1", { secrets: [] } as any, 2_000, 0)("true")).rejects.toThrow('exec: HTTP 503 "vm_unavailable" (restarted)');
+    expect(reset.count()).toBe(1);
+    const down = answers("overloaded", 99);
+    await expect(directExec(down.api, "m1", { secrets: [] } as any, 2_000, 0)("true")).rejects.toThrow("(overloaded)");
+    expect(down.count()).toBe(4);
+  });
+
   test("the machine exec route's HTTP request waits as long as the command may run", async () => {
     const waits: (number | undefined)[] = [];
     const api = {
