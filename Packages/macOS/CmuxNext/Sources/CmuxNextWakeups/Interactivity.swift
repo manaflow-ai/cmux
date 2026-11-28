@@ -25,6 +25,16 @@ public struct Interactivity {
         #endif
     }
 
+    /// True while the person drags, types or scrolls, the policy's decay included (one atomic load in Rust).
+    /// ``BackgroundWork`` holds best-effort and idle work back while it is.
+    public static var isInteracting: Bool {
+        #if canImport(CCmuxInteractivityFFI)
+        cmux_interactivity_is_interacting()
+        #else
+        false
+        #endif
+    }
+
     /// The priority the policy gives `workClass` right now.
     public static func priority(_ workClass: WorkClass) -> WorkPriority {
         #if canImport(CCmuxInteractivityFFI)
@@ -41,9 +51,10 @@ public struct Interactivity {
     }
 
     /// The app's one event monitor: notes keys, scroll and drags (a divider or sidebar drag, a selection) of this
-    /// app's windows, and returns each event untouched. A window edge live resize reaches the Rust policy through
-    /// the daemon: the layout sizes the app sends while it runs are drag commands (`set-layout-sizes`).
-    /// The scheduler owns it for the app's life.
+    /// app's windows, and returns each event untouched. A window edge live resize runs in AppKit's own tracking
+    /// loop, which a local monitor does not see: ``LayoutRootView`` notes it per live-resize tick instead, and
+    /// the terminal hosts note it themselves from each viewer size the daemon forwards. The scheduler owns it
+    /// for the app's life.
     @MainActor
     public final class EventMonitor {
         /// Held for the app's life (the scheduler is never torn down); AppKit retains the monitor itself.

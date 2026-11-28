@@ -6,12 +6,12 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { act, Profiler } from "react";
 import type { Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import {
-  HOLD_SETTLE_MS,
-  ReaderScroll,
-  useHeldWhileScrolling,
-} from "../src/agent-session/acpmux/summary/heldWhileScrolling";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { HOLD_SETTLE_MS, ReaderScroll, useHeldWhileScrolling } = await importWithDom(
+  () => import("../src/agent-session/acpmux/summary/heldWhileScrolling"),
+);
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT", "Node", "Element"] as const;
