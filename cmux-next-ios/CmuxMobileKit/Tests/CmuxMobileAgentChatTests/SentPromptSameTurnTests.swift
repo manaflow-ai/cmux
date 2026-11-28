@@ -21,7 +21,12 @@ import UIKit
         store.send(prompt: "run the tests")
         let id = try SentPromptShownTests.promptID(source)
         let ids = list.layout.items.map(\.id)
-        #expect(ids.contains("u-\(AgentChatStore.localTurnID(id))"), "shown in the same turn as Send: \(before) → \(ids)")
+        // The list rebuilt in this turn: the sent turn's rows are in it before Send returns.
+        #expect(ids != before, "rebuilt in the same turn as Send: \(before) → \(ids)")
+        // While it is sending, the outgoing bubble draws the prompt (`OutgoingMessagesView`,
+        // `store.outgoing`), not the transcript: one bubble, never two (SentPromptShownTests).
+        #expect(store.outgoing.map(\.id) == [id], "the bubble is drawn in the same turn as Send")
+        #expect(!ids.contains("u-\(AgentChatStore.localTurnID(id))"), "one bubble, never two")
     }
 
     /// The rows are laid out in that turn too, so the transcript's glide starts in the frame the
