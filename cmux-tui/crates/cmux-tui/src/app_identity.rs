@@ -144,10 +144,34 @@ impl AppIdentity {
     /// `~/.local/state/cmux`, else `/tmp`), that is the path. Release's
     /// `cmux.sock` never falls back to classic's folder, where classic
     /// cmux's own release socket has that name.
+    ///
+    /// The app terminal's `CMUX_SOCKET_PATH` wins, except one that names this
+    /// build's socket at a name from before the move (`~/.local/state/cmux/…`
+    /// or `/tmp/…`, same file name) that is gone while the build's own socket
+    /// is there: a terminal whose daemon outlived the app's update keeps the
+    /// old app's environment, and every `cmux` in it said "no cmux app is
+    /// running" while NIGHTLY answered at `~/.local/state/cmux-next`
+    /// (2026-11-27, NIGHTLY 1.0.0-nightly.4594117542401).
     pub(crate) fn control_socket(&self, home: &Path) -> PathBuf {
-        if let Some(path) = &self.socket_override {
+        let own = self.own_control_socket(home);
+        let Some(path) = &self.socket_override else {
+            return own;
+        };
+        if path.exists() {
             return path.clone();
         }
+        let pre_move_folder = path.parent().is_some_and(|parent| {
+            parent == home.join(build_identity::SOCKET_STATE_DIR_BEFORE)
+                || parent == Path::new("/tmp")
+        });
+        if pre_move_folder && path.file_name() == own.file_name() && own != *path && own.exists() {
+            return own;
+        }
+        path.clone()
+    }
+
+    /// [`Self::control_socket`] of the build alone, without the app terminal's override.
+    fn own_control_socket(&self, home: &Path) -> PathBuf {
         let old = self
             .build()
             .control_socket(home)

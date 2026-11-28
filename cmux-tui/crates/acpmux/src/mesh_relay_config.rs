@@ -25,6 +25,13 @@ pub struct MeshRelayConfig {
     /// other sender the machine owner opts in by its daemon id.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub control_from: Vec<MeshControlFrom>,
+    /// While the hub is down, a send the hub provably never took goes straight to its machine's
+    /// daemon over the hub carrier, and this daemon takes such sends from the person's other
+    /// machines (`server/mesh_direct.rs`, RFD 0086). Off unless `"directSend": true`: new
+    /// security policy, so never on by default (Leo, TBD d-a6cc56afd2: "Yes, behind a switch,
+    /// only machines in your mesh book").
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub direct_send: bool,
 }
 
 /// An owner-configured control sender: one daemon by its hub-stamped id (`daemonId`), or every
@@ -61,6 +68,7 @@ impl Default for MeshRelayConfig {
             team_messaging: true,
             credential: None,
             control_from: Vec::new(),
+            direct_send: false,
         }
     }
 }

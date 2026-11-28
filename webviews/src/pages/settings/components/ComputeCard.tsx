@@ -10,13 +10,23 @@ import { useId, useState, type ReactNode } from "react";
 import { Button } from "../../../ui/Button";
 import { Disclosure } from "../../../ui/Disclosure";
 import { Switch } from "../../../ui/Switch";
-import { computeModel, type ComputeModel, type DialOption, type MemberRow } from "../computeAllotment";
+import {
+  computeModel,
+  HOLD_SWITCH_SECONDS,
+  type ComputeModel,
+  type DialOption,
+  type MemberRow,
+} from "../computeAllotment";
 import { useStore } from "../context";
 import type { AllotmentPosition, AllotmentSet, AllotmentView } from "../ops";
 import { settingsKeys } from "../queries";
 import { locale } from "../strings";
 
 export type ComputeLayout = "ledger" | "meter" | "inbox";
+
+/** How the team's hold for its people is offered, on trial in the gallery: every choice in a row,
+ * one switch, or the choices tucked under Advanced. Absent: the card draws no hold control. */
+export type HoldControl = "choices" | "switch" | "advanced";
 
 export type ComputeCardViewProps = {
   model: ComputeModel;
@@ -25,6 +35,8 @@ export type ComputeCardViewProps = {
   error?: string | null;
   /** The host serves only the read: no dial buttons, no Auto switch, nothing that cannot work. */
   readOnly?: boolean;
+  /** Gallery only for now: the app's card passes none, so nothing is drawn there. */
+  holdControl?: HoldControl;
   onSet(run: AllotmentSet): void;
 };
 
@@ -77,10 +89,12 @@ export function ComputeCard({
 export function ComputeCardDemo({
   view,
   layout,
+  holdControl,
   answer,
 }: {
   view: AllotmentView;
   layout: ComputeLayout;
+  holdControl?: HoldControl;
   answer(view: AllotmentView, run: AllotmentSet): AllotmentView;
 }) {
   const [current, setCurrent] = useState(view);
@@ -88,6 +102,7 @@ export function ComputeCardDemo({
     <ComputeCardView
       model={computeModel(current, "en")}
       layout={layout}
+      holdControl={holdControl}
       onSet={(run) => setCurrent((before) => answer(before, run))}
     />
   );
@@ -116,8 +131,10 @@ export function ComputeCardView({
   busy = false,
   error = null,
   readOnly = false,
+  holdControl,
   onSet,
 }: ComputeCardViewProps) {
+  const hold = readOnly ? undefined : holdControl;
   return (
     <section
       className="group"
@@ -154,6 +171,21 @@ export function ComputeCardView({
             {!model.empty && <MemberTable model={model} />}
           </>
         )}
+        {hold === "choices" && (
+          <div className="row flex flex-col gap-2" data-compute-hold="choices">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <span>Keep people's machines ready</span>
+              <HoldChoices model={model} busy={busy} onSet={onSet} />
+            </div>
+            <HoldLine model={model} />
+          </div>
+        )}
+        {hold === "switch" && (
+          <div className="row flex flex-col gap-2" data-compute-hold="switch">
+            <HoldSwitch model={model} busy={busy} onSet={onSet} />
+            <HoldLine model={model} />
+          </div>
+        )}
         {error && (
           <div className="row">
             <p className="row-error m-0" role="alert">
@@ -166,6 +198,15 @@ export function ComputeCardView({
             <p className="row-help m-0 pt-2" data-compute-hard-cap="">
               {model.hardCap}
             </p>
+            {hold === "advanced" && (
+              <div className="flex flex-col gap-2 pt-3" data-compute-hold="advanced">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <span>Keep people's machines ready</span>
+                  <HoldChoices model={model} busy={busy} onSet={onSet} />
+                </div>
+                <HoldLine model={model} />
+              </div>
+            )}
           </Disclosure>
         </div>
       </div>
@@ -235,6 +276,52 @@ function AutoSwitch({ model, busy, onSet }: PartProps) {
 
 /** `.row-help` is one clipped line on this page (unlayered sheet, so a utility class loses): table text wraps instead. */
 const WRAP = { whiteSpace: "normal" } as const;
+
+/** What the chosen hold does, in one line that wraps. */
+function HoldLine({ model }: { model: ComputeModel }) {
+  return (
+    <p className="row-help m-0" style={WRAP} data-compute-ready-line="">
+      {model.hold.line}
+    </p>
+  );
+}
+
+/** Every hold in a row; the chosen one is solid. One click sends one set. */
+function HoldChoices({ model, busy, onSet }: PartProps) {
+  return (
+    <fieldset aria-label="Keep people's machines ready" className="m-0 flex gap-1 border-0 p-0">
+      {model.hold.options.map((option) => (
+        <Button
+          key={option.seconds ?? "off"}
+          size="sm"
+          variant={option.selected ? "solid" : "subtle"}
+          aria-pressed={option.selected}
+          disabled={busy}
+          data-compute-hold-option={option.seconds ?? "off"}
+          onClick={() => onSet({ person_hold_seconds: option.seconds })}
+        >
+          {option.label}
+        </Button>
+      ))}
+    </fieldset>
+  );
+}
+
+/** One switch: on holds for the longest choice, off clears the hold. */
+function HoldSwitch({ model, busy, onSet }: PartProps) {
+  const label = useId();
+  return (
+    <span className="flex items-center justify-between gap-4">
+      <span id={label}>Keep people's machines ready</span>
+      <Switch
+        aria-labelledby={label}
+        checked={model.hold.seconds !== null}
+        disabled={busy}
+        onCheckedChange={(on) => onSet({ person_hold_seconds: on ? HOLD_SWITCH_SECONDS : null })}
+      />
+    </span>
+  );
+}
 
 function MemberTable({ model }: { model: ComputeModel }) {
   const cell = "py-1 pr-4 text-left align-top";

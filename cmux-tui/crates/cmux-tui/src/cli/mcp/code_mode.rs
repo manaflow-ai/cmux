@@ -106,6 +106,8 @@ pub(super) fn descriptors(tools: &[Value], computer_use_only: bool) -> Vec<Value
     // agent only through `cmux.docs`, and a Codex chat has no hook to steer its shell.
     let bg = if tools.iter().any(|t| t["name"] == BG_START) { BG_STEER } else { "" };
     let github = if tools.iter().any(|t| t["name"] == GITHUB_STATUS) { GITHUB_STEER } else { "" };
+    let settings =
+        if tools.iter().any(|t| t["name"] == SETTINGS_ASK) { SETTINGS_STEER } else { "" };
     let wrap_up = if tools.iter().any(|t| t.get("name").and_then(Value::as_str) == Some(WRAP_UP)) {
         WRAP_UP_STEER
     } else {
@@ -199,7 +201,7 @@ pub(super) fn descriptors(tools: &[Value], computer_use_only: bool) -> Vec<Value
              inputSchema}}], more: [names]}}; a tool's exact name finds it first. \
              app_* tools are the app's menu actions. A failed call throws an Error whose `cmux` \
              field has the error, its state and its idempotency key; its message names the fix. \
-             A failed script reports the calls that already ran. Families: {families}.{bg}{github}{wrap_up}{offers}{send}"
+             A failed script reports the calls that already ran. Families: {families}.{bg}{github}{settings}{wrap_up}{offers}{send}"
         ),
         "inputSchema": {
             "type": "object",
@@ -240,6 +242,17 @@ const GITHUB_STEER: &str = " When the person asks about their GitHub (can you se
     see for this chat and how cmux checked each, with no token. Answer with those logins and say \
     they are connected through cmux; an organization account is the one their cmux team \
     connected, not the person.";
+
+/// acpmux's `settings_ask` behind this server (acpmux `acpmux_mcp_settings_ask.rs`): a card or
+/// link that opens one setting or GitHub connection. Its steer was only in acpmux's server
+/// instructions, which a code-mode chat sees only after a `cmux.docs` search, so a NIGHTLY chat
+/// asked "Do you have a settings_ask tool (acpmux_settings_ask)?" said no (cmux ask
+/// c-073fa3e7ff, 2026-11-27).
+const SETTINGS_ASK: &str = "acpmux_settings_ask";
+const SETTINGS_STEER: &str = " To get a GitHub connection or any setting from the person, call \
+    `cmux.acpmux_settings_ask({target, why})` (target connection:github[:ORG[/REPO]], \
+    setting:SECTION[/KEY] or a cmux://settings/... link): it opens that one control as a card or \
+    link, instead of telling them to open Settings.";
 
 /// acpmux's `wrap_up` behind this server (acpmux `acpmux_mcp_wrap_up.rs`): the next-step box the
 /// person sees under the answer. Its `call_log` record carries what it showed (`shown`), which
@@ -625,6 +638,15 @@ fn exec_mode(
     for message in &from_script {
         match message {
             ToServer::Request(request, reply) => {
+                // The wrap-up's box, for the agent pane to draw from the transcript: built from
+                // the call's own input, because its answer no longer echoes it back to the agent
+                // (`acpmux_mcp_wrap_up.rs`, RFD 0087).
+                let drawn = match &request {
+                    Request::Call { name, arguments } if name.as_str() == WRAP_UP => {
+                        acpmux::acpmux_mcp::wrap_up_box(&Value::Object(arguments.clone()))
+                    }
+                    _ => None,
+                };
                 let name = match &request {
                     Request::Call { name, .. } => Some(name.clone()),
                     Request::ActivityStart { kind, .. } => Some(kind.clone()),
@@ -645,13 +667,8 @@ fn exec_mode(
                         if let Some(key) = answered["error"]["idempotency_key"].as_str() {
                             record.set("idempotency_key", json!(key));
                         }
-                        // The wrap-up's box, for the agent pane to draw from the transcript.
-                        if ok
-                            && name == WRAP_UP
-                            && let Some(shown) =
-                                answered.get("value").filter(|value| value.is_object())
-                        {
-                            record.set("shown", shown.clone());
+                        if ok && let Some(shown) = drawn {
+                            record.set("shown", shown);
                         }
                         records.push(record);
                     }

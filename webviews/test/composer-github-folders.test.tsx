@@ -759,7 +759,8 @@ test("the filesystem root stays out of the projects list and can still be used a
     expect(fit.textContent).toBe("");
     expect(labels(".ui-combobox-pinned [role=option]")).toEqual(["Add project…", "No folder"]);
     expect(option("No folder")?.querySelector("[data-no-folder] .acpmux-location-action-icon svg")).toBeTruthy();
-    expect(option("notes")?.querySelector(".acpmux-location-action-icon svg")).toBeTruthy();
+    // A folder row draws the project's badge, as the chip does (ProjectBadge: a plain folder here).
+    expect(option("notes")?.querySelector(".acpmux-project-badge svg")).toBeTruthy();
     await type("/");
     const usePath = option("Use /");
     expect(usePath?.textContent).toBe("Use /");
@@ -1367,8 +1368,11 @@ test("a pending connection's words never sit under Connect to GitHub, and a clic
 // cmux#53226: the This Mac folder menu listed GitHub right under the last folder, its heading with no
 // line over it, and its repositories arrived after the open, the rows filling in under the pointer.
 const persistent = { runMode: { mode: "persistent", onMode: () => {} } };
-/// Which icon a row drew (FolderPopover LocationIcon `data-icon`): "github" or "folder".
-const icon = (row: Element | undefined | null) => row?.querySelector("[data-icon]")?.getAttribute("data-icon");
+/// Which icon a row drew: "github" (FolderPopover LocationIcon) for a repository from GitHub, or "project" for a
+/// folder of this Mac, which draws the project's own badge as the chip does (ProjectBadge).
+const icon = (row: Element | undefined | null) =>
+  row?.querySelector("[data-icon]")?.getAttribute("data-icon") ??
+  (row?.querySelector(".acpmux-project-badge") ? "project" : undefined);
 const listRow = (name: string) =>
   [...doc().querySelectorAll<HTMLElement>(".ui-combobox-scroll [role=option]")].find((item) =>
     item.textContent?.includes(name),
@@ -1395,7 +1399,7 @@ test("one list, most recently used first: an added GitHub repository sits among 
   }
 });
 
-test("a folder that is a clone of an added GitHub repository is its one row, with the folder icon (cmux#53226)", async () => {
+test("a folder that is a clone of an added GitHub repository is its one row, with the project badge (cmux#53226)", async () => {
   const gh = host({ "github.status": ready, "github.repos.list": installed });
   rememberAddedRepo({ fullName: "acme/api", private: true }, 2000);
   rememberAddedRepo({ fullName: "acme/web", private: false }, 1000);
@@ -1419,10 +1423,10 @@ test("a folder that is a clone of an added GitHub repository is its one row, wit
     // Before, the clone was listed as a folder and the repository again under GitHub.
     expect(labels(".ui-combobox-scroll [role=option]")).toEqual(["acme/web", "app", "api"]);
     const clone = listRow("api")!;
-    // A clone is a folder on this Mac: the folder icon, never GitHub's mark (cmux#53226).
-    expect(icon(clone)).toBe("folder");
+    // A clone is a folder on this Mac: the project's badge, never GitHub's mark (cmux#53226).
+    expect(icon(clone)).toBe("project");
     // A plain folder keeps its own icon.
-    expect(icon(listRow("app"))).toBe("folder");
+    expect(icon(listRow("app"))).toBe("project");
     await type("api");
     expect(labels(".ui-combobox-scroll [role=option]")).toEqual(["api"]);
   } finally {
@@ -1523,8 +1527,8 @@ test("with Cloud picked, this Mac's folders and the added repositories are one r
     // Before: only GitHub repositories, every one on the account, under a GitHub heading.
     expect(labels(".ui-combobox-scroll [role=option]")).toEqual(["app", "notes", "web"]);
     expect(doc().querySelectorAll(".ui-combobox-scroll [data-section]")).toHaveLength(0);
-    expect(icon(listRow("web"))).toBe("folder");
-    expect(icon(listRow("notes"))).toBe("folder");
+    expect(icon(listRow("web"))).toBe("project");
+    expect(icon(listRow("notes"))).toBe("project");
     await press(listRow("notes")!);
     expect(picked).toEqual([["/Users/me/notes", undefined]]);
     // The chip names the picked folder; it is not dropped for having no GitHub repository.
@@ -1538,7 +1542,7 @@ test("with Cloud picked, this Mac's folders and the added repositories are one r
 // The user's screenshots (2026-11-25): my-first-project and strauss, cmux chat worktrees of clones whose `origin` is on
 // GitHub, showed GitHub's mark. Any folder on this Mac is a folder; GitHub's mark is only for a repository from the
 // GitHub connection that is no folder here.
-test("a worktree of a clone with a GitHub origin shows the folder icon; only a repository from GitHub shows the mark (cmux#53226)", async () => {
+test("a worktree of a clone with a GitHub origin shows the project badge; only a repository from GitHub shows the mark (cmux#53226)", async () => {
   const gh = host({ "github.status": ready, "github.repos.list": installed });
   rememberAddedRepo({ fullName: "acme/web", private: false }, 1000);
   const worktree = "/Users/me/.cmux/worktrees.noindex/strauss/chat-2e499e";
@@ -1560,7 +1564,7 @@ test("a worktree of a clone with a GitHub origin shows the folder icon; only a r
     await openFolderMenu();
     const strauss = listRow("strauss")!;
     expect(strauss).toBeTruthy();
-    expect(icon(strauss)).toBe("folder");
+    expect(icon(strauss)).toBe("project");
     // The repository listed from GitHub, with no folder here, is the one row with the mark.
     expect(icon(listRow("acme/web"))).toBe("github");
     expect(doc().querySelectorAll('.acpmux-folder-popover [data-icon="github"]')).toHaveLength(1);

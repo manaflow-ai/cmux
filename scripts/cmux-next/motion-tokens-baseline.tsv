@@ -5,7 +5,7 @@ colour	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneReplyImages.sw
 colour	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/DebugPaletteCapture.swift	1
 colour	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/AppsGlyphResource.swift	1
 colour	Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneContentView+Backdrop.swift	1
-colour	Packages/macOS/CmuxNext/Sources/CmuxNextApp/SleepyMode/SleepySceneView.swift	2
+colour	Packages/macOS/CmuxNext/Sources/CmuxNextFloating/SleepyMode/SleepySceneView.swift	2
 colour	Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneStyle.swift	1
 colour	Packages/macOS/CmuxNext/Sources/CmuxNextBridge/HarnessIconArtwork.swift	1
 colour	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Core/PageBackground.swift	1

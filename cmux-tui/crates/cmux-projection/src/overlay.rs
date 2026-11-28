@@ -38,7 +38,7 @@ use std::os::unix::fs::{FileExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, RwLock};
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use crate::lower::Lower;
 use crate::manifest::{Entry, Kind, Manifest, ROOT};
@@ -74,10 +74,8 @@ fn is_git_pack(path: &str) -> bool {
         })
 }
 
-/// The most files one readahead batch asks for.
-const BATCH_FILES: usize = 256;
-/// The most bytes one readahead batch asks for.
-const BATCH_BYTES: u64 = 16 * 1024 * 1024;
+/// The most files one readahead batch asks for, by default ([`crate::tune::readahead_files`]).
+const BATCH_FILES: usize = crate::tune::DEFAULT_READAHEAD_FILES;
 /// The most entries one readahead pick looks at, skipped ones included, so a fault never walks a
 /// big folder for nothing.
 const BATCH_SCAN: usize = 4096;
@@ -391,6 +389,139 @@ struct Handle {
     lower: Option<u32>,
 }
 
+struct MutationGate {
+    state: Mutex<MutationState>,
+    drained: Condvar,
+    #[cfg(test)]
+    pause: Mutex<Option<TestMutationPause>>,
+}
+
+struct MutationState {
+    sealed: bool,
+    active: usize,
+    /// A write can hold a descriptor or a transaction between FUSE requests. Once any
+    /// mutation was admitted, replacing a directory can strand that later work.
+    admitted: bool,
+    replacing: bool,
+}
+
+#[cfg(test)]
+struct TestMutationPause {
+    entered: std::sync::mpsc::Sender<()>,
+    release: std::sync::mpsc::Receiver<()>,
+}
+
+struct MutationGuard<'a> {
+    gate: &'a MutationGate,
+    replacing: bool,
+}
+
+impl MutationGuard<'_> {
+    fn replacement_committed(&self) {
+        debug_assert!(self.replacing);
+        self.gate.state.lock().unwrap_or_else(PoisonError::into_inner).admitted = true;
+    }
+}
+
+impl Drop for MutationGuard<'_> {
+    fn drop(&mut self) {
+        let mut state = self.gate.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.active -= 1;
+        if self.replacing {
+            state.replacing = false;
+        }
+        if state.active == 0 {
+            self.gate.drained.notify_all();
+        }
+    }
+}
+
+impl MutationGate {
+    fn new() -> Self {
+        Self {
+            state: Mutex::new(MutationState {
+                sealed: false,
+                active: 0,
+                admitted: false,
+                replacing: false,
+            }),
+            drained: Condvar::new(),
+            #[cfg(test)]
+            pause: Mutex::new(None),
+        }
+    }
+
+    fn enter(&self) -> Result<MutationGuard<'_>, i32> {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        while state.replacing && !state.sealed {
+            state = self.drained.wait(state).unwrap_or_else(PoisonError::into_inner);
+        }
+        if state.sealed {
+            return Err(libc::EROFS);
+        }
+        state.admitted = true;
+        state.active += 1;
+        let admitted = MutationGuard { gate: self, replacing: false };
+        drop(state);
+        #[cfg(test)]
+        let pause = { self.pause.lock().unwrap_or_else(PoisonError::into_inner).take() };
+        #[cfg(test)]
+        if let Some(pause) = pause {
+            let _ = pause.entered.send(());
+            let _ = pause.release.recv();
+        }
+        Ok(admitted)
+    }
+
+    /// An opportunistic directory replacement may run only before the first mutation.
+    /// The guard excludes other admissions without holding the mutex across filesystem
+    /// work, so a concurrent seal still has a bounded wait. A fingerprint alone cannot
+    /// protect an open temporary file or a Git transaction.
+    fn replace_pristine(&self) -> Result<MutationGuard<'_>, i32> {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.sealed {
+            return Err(libc::EROFS);
+        }
+        if state.admitted || state.replacing {
+            return Err(libc::EBUSY);
+        }
+        state.replacing = true;
+        state.active += 1;
+        Ok(MutationGuard { gate: self, replacing: true })
+    }
+
+    fn seal(&self, timeout: Duration) -> bool {
+        let started = Instant::now();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        // Sticky even on timeout: a concurrent or retried detach must never reopen admission.
+        state.sealed = true;
+        self.drained.notify_all();
+        while state.active != 0 {
+            let remaining = timeout.saturating_sub(started.elapsed());
+            if remaining.is_zero() {
+                return false;
+            }
+            let (next, _) =
+                self.drained.wait_timeout(state, remaining).unwrap_or_else(PoisonError::into_inner);
+            state = next;
+        }
+        true
+    }
+
+    fn is_sealed(&self) -> bool {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).sealed
+    }
+
+    #[cfg(test)]
+    fn pause_next(&self) -> (std::sync::mpsc::Receiver<()>, std::sync::mpsc::Sender<()>) {
+        let (entered, entered_rx) = std::sync::mpsc::channel();
+        let (release_tx, release) = std::sync::mpsc::channel();
+        *self.pause.lock().unwrap_or_else(PoisonError::into_inner) =
+            Some(TestMutationPause { entered, release });
+        (entered_rx, release_tx)
+    }
+}
+
 /// One folder entry: inode, type, name, and its attributes when the manifest alone answers them.
 pub type Listed = (u64, Type, String, Option<Attr>);
 
@@ -440,6 +571,7 @@ pub struct Overlay {
     /// replaces one ([`Overlay::swap_to_link`]), so no lookup pairs the old kind with the new
     /// number.
     swap: RwLock<()>,
+    mutation: MutationGate,
     /// The access list this overlay records and replays ([`replay`]); `None` unless
     /// [`Overlay::with_replay`] asked for it.
     replay: Option<replay::Replay>,
@@ -608,7 +740,8 @@ fn marked(manifest: &Lower, folder: u32) -> bool {
 /// a project (its sources) are left for their own faults, as most are never read.
 ///
 /// `skip` names what is not to be read (a hidden path, and for a file a cached one); a skipped
-/// folder is not looked into. The faulting file's size counts against [`BATCH_BYTES`], the batch
+/// folder is not looked into. The faulting file's size counts against
+/// [`crate::tune::readahead_bytes`], the batch
 /// holds at most [`BATCH_FILES`] files with the faulting one, and a pick looks at most
 /// [`BATCH_SCAN`] entries. Each folder is looked into once, so no file is picked twice.
 fn read_ahead(manifest: &Lower, index: u32, skip: impl Fn(u32, &Entry) -> bool) -> Vec<u32> {
@@ -650,7 +783,7 @@ struct Pick<'a, F> {
 
 impl<F: Fn(u32, &Entry) -> bool> Pick<'_, F> {
     fn full(&self) -> bool {
-        self.picked.len() + 1 >= BATCH_FILES || self.scanned >= BATCH_SCAN
+        self.picked.len() + 1 >= crate::tune::readahead_files() || self.scanned >= BATCH_SCAN
     }
 
     /// Looks at the children of `folder` in name order and takes its small files.
@@ -666,7 +799,7 @@ impl<F: Fn(u32, &Entry) -> bool> Pick<'_, F> {
             if child.kind == Kind::File
                 && other != self.index
                 && child.size <= CHUNK
-                && self.bytes + child.size <= BATCH_BYTES
+                && self.bytes + child.size <= crate::tune::readahead_bytes()
             {
                 self.bytes += child.size;
                 self.picked.push(other);
@@ -758,6 +891,7 @@ impl Overlay {
             pins_file,
             pin_reserve: pin::DEFAULT_PIN_RESERVE,
             swap: RwLock::new(()),
+            mutation: MutationGate::new(),
             replay: None,
             restated: Mutex::new(restated),
             generation,
@@ -2053,6 +2187,10 @@ impl Overlay {
     /// Opens `ino` with open(2) `flags`. A write open copies a lower file up first; the handle
     /// then reads and writes the upper file's own descriptor.
     pub fn open_handle(&self, ino: u64, flags: i32) -> Result<u64, i32> {
+        let write = flags & libc::O_ACCMODE != libc::O_RDONLY || flags & libc::O_TRUNC != 0;
+        // Admission precedes resolving an inode: a directory swap that wins the gate may
+        // retire it, so the write must not continue from a path resolved before that swap.
+        let _mutation = write.then(|| self.mutation.enter()).transpose()?;
         if let Some(index) = self.retired_index(ino) {
             if flags & libc::O_ACCMODE != libc::O_RDONLY {
                 return Err(EISDIR);
@@ -2064,7 +2202,6 @@ impl Overlay {
         if let Some(Node::Lower(index)) = self.node(&path) {
             self.refuse_kept(index)?;
         }
-        let write = flags & libc::O_ACCMODE != libc::O_RDONLY || flags & libc::O_TRUNC != 0;
         if write {
             match self.node(&path).ok_or(ENOENT)? {
                 Node::Lower(index) if flags & libc::O_TRUNC != 0 => {
@@ -2104,6 +2241,28 @@ impl Overlay {
         self.handles().get(&handle).and_then(|handle| handle.file.clone())
     }
 
+    /// Refuses new changes (`EROFS`) and waits at most `timeout` for admitted mutations.
+    /// Returns true only once they have drained, when the upper layer is safe to mark and
+    /// unmount. On timeout, admission stays sealed but admitted edits can still finish;
+    /// retain the mount and state and retry. Reads remain available throughout.
+    #[must_use]
+    pub fn seal(&self, timeout: Duration) -> bool {
+        self.mutation.seal(timeout)
+    }
+
+    /// Whether [`Overlay::seal`] was called.
+    #[must_use]
+    pub fn is_sealed(&self) -> bool {
+        self.mutation.is_sealed()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pause_next_mutation(
+        &self,
+    ) -> (std::sync::mpsc::Receiver<()>, std::sync::mpsc::Sender<()>) {
+        self.mutation.pause_next()
+    }
+
     /// Ends open handle `handle`.
     pub fn release(&self, handle: u64) {
         self.handles().remove(&handle);
@@ -2140,18 +2299,24 @@ impl Overlay {
         offset: u64,
         data: &[u8],
     ) -> Result<u32, i32> {
+        let _mutation = self.mutation.enter()?;
         match self.handle_file(handle) {
             Some(file) => self.with_room(|| {
                 file.write_all_at(data, offset).map_err(|error| io_errno(&error))?;
                 u32::try_from(data.len()).map_err(|_| EINVAL)
             }),
             None if self.handles().contains_key(&handle) => Err(EBADF),
-            None => self.write(ino, offset, data),
+            None => self.write_inner(ino, offset, data),
         }
     }
 
     /// Writes `ino` by its path (no open handle), copying a lower file up first.
     pub fn write(&self, ino: u64, offset: u64, data: &[u8]) -> Result<u32, i32> {
+        let _mutation = self.mutation.enter()?;
+        self.write_inner(ino, offset, data)
+    }
+
+    fn write_inner(&self, ino: u64, offset: u64, data: &[u8]) -> Result<u32, i32> {
         self.with_room(|| {
             let path = self.path_of(ino)?;
             self.ensure_upper(&path)?;
@@ -2164,6 +2329,7 @@ impl Overlay {
     /// `fallocate(2)` through open handle `handle` (Linux).
     #[cfg(target_os = "linux")]
     pub fn fallocate(&self, handle: u64, offset: i64, length: i64, mode: i32) -> Result<(), i32> {
+        let _mutation = self.mutation.enter()?;
         let file = self.handle_file(handle).ok_or(EBADF)?;
         // SAFETY: the descriptor is open for the call.
         check(unsafe { libc::fallocate(file.as_raw_fd(), mode, offset, length) })
@@ -2208,6 +2374,7 @@ impl Overlay {
     /// level saved on every create after the first in a folder); an upper path already there is
     /// the disk's own `EEXIST`.
     pub fn create(&self, parent: u64, name: &str, mode: u32, who: Who) -> Result<(Attr, u64), i32> {
+        let _mutation = self.mutation.enter()?;
         self.with_room(|| self.create_once(parent, name, mode, who))
     }
 
@@ -2246,6 +2413,7 @@ impl Overlay {
     }
 
     pub fn mkdir(&self, parent: u64, name: &str, mode: u32, who: Who) -> Result<Attr, i32> {
+        let _mutation = self.mutation.enter()?;
         let (parent, child) = self.child(parent, name)?;
         self.make_room(&parent, &child)?;
         self.with_room(|| self.in_folder(&parent, || self.upper.mkdir(&child, 0o700)))?;
@@ -2262,6 +2430,7 @@ impl Overlay {
         rdev: u64,
         who: Who,
     ) -> Result<Attr, i32> {
+        let _mutation = self.mutation.enter()?;
         let (parent, child) = self.child(parent, name)?;
         self.make_room(&parent, &child)?;
         let format = mode & fmt::S_IFMT;
@@ -2285,6 +2454,7 @@ impl Overlay {
     }
 
     pub fn symlink(&self, parent: u64, name: &str, target: &Path, who: Who) -> Result<Attr, i32> {
+        let _mutation = self.mutation.enter()?;
         let (parent, child) = self.child(parent, name)?;
         self.make_room(&parent, &child)?;
         let target = target.as_os_str().as_encoded_bytes();
@@ -2295,6 +2465,7 @@ impl Overlay {
 
     /// A new name `new_name` in `new_parent` for file `ino` (a hard link).
     pub fn link(&self, ino: u64, new_parent: u64, new_name: &str) -> Result<Attr, i32> {
+        let _mutation = self.mutation.enter()?;
         let from = self.path_of(ino)?;
         let node = self.node(&from).ok_or(ENOENT)?;
         if Self::kind(&node, &self.manifest) == Type::Dir {
@@ -2341,6 +2512,7 @@ impl Overlay {
     }
 
     pub fn unlink(&self, parent: u64, name: &str) -> Result<(), i32> {
+        let _mutation = self.mutation.enter()?;
         let (_, child) = self.child(parent, name)?;
         // The upper path first: the manifest is asked only when the disk has nothing there, and
         // the disk's refusal (EPERM in a sticky folder and the rest) is the answer as it said it.
@@ -2356,6 +2528,7 @@ impl Overlay {
     }
 
     pub fn rmdir(&self, parent: u64, name: &str) -> Result<(), i32> {
+        let _mutation = self.mutation.enter()?;
         let (_, child) = self.child(parent, name)?;
         if self.lower(&child).is_none() {
             // Only in the upper layer: one rmdir, the disk checks that it is a folder and empty.
@@ -2384,6 +2557,7 @@ impl Overlay {
         new_name: &str,
         flags: u32,
     ) -> Result<(), i32> {
+        let _mutation = self.mutation.enter()?;
         let (_, from) = self.child(parent, name)?;
         let (to_parent, to) = self.child(new_parent, new_name)?;
         let exchange = flags & RENAME_EXCHANGE != 0;
@@ -2505,6 +2679,7 @@ impl Overlay {
     /// setattr(2)-family changes to `ino`, through open handle `handle` when the kernel names one
     /// (an `ftruncate` of a file deleted while open).
     pub fn setattr(&self, ino: u64, handle: Option<u64>, set: Set) -> Result<Attr, i32> {
+        let _mutation = (set != Set::default()).then(|| self.mutation.enter()).transpose()?;
         self.with_room(|| self.setattr_once(ino, handle, set))
     }
 

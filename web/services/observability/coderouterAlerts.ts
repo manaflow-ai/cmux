@@ -81,9 +81,14 @@ type RouteEventCounts = {
   readonly routeCrashes: RouteCrashCounts;
   readonly operatorFailures: number;
   readonly upstreamFailures: number;
+  readonly upstreamByProvider: ReadonlyMap<string, number>;
+  readonly upstreamByStage: ReadonlyMap<string, number>;
+  readonly upstreamByStatus: ReadonlyMap<string, number>;
   readonly noUsableAccount: number;
   readonly authRejected: number;
   readonly noUsableAccountTeams: ReadonlySet<string>;
+  readonly noUsableAccountByStage: ReadonlyMap<string, number>;
+  readonly noUsableAccountByProvider: ReadonlyMap<string, number>;
 };
 
 export type CoderouterAlertDependencies = {
@@ -248,7 +253,7 @@ export async function runCoderouterAlertChecks(
     const upstreamCount = counts.upstreamFailures;
     await evaluate("coderouter-upstream-failures", upstreamCount, thresholds.upstreamFailures, () => ({
       title: "coderouter upstream providers are failing",
-      body: `${upstreamCount} of ${counts.total} requests in the last ${CODEROUTER_ALERT_WINDOW_MINUTES} minutes ended in a provider failure after failover. Check provider health and routing configuration.`,
+      body: `${upstreamCount} of ${counts.total} requests in the last ${CODEROUTER_ALERT_WINDOW_MINUTES} minutes ended in a provider failure after failover. Providers: ${formatBreakdown(counts.upstreamByProvider)}. Stages: ${formatBreakdown(counts.upstreamByStage)}. Statuses: ${formatBreakdown(counts.upstreamByStatus)}. Check provider health and routing configuration.`,
       severity: "warning",
     }));
 
@@ -258,7 +263,7 @@ export async function runCoderouterAlertChecks(
       const teamLabel = teamCount === 10 ? "at least 10" : String(teamCount);
       return {
         title: "coderouter teams have no usable account",
-        body: `${noAccountCount} requests in the last ${CODEROUTER_ALERT_WINDOW_MINUTES} minutes found no healthy account across ${teamLabel} affected team(s). Check account configuration and credential health.`,
+        body: `${noAccountCount} requests in the last ${CODEROUTER_ALERT_WINDOW_MINUTES} minutes found no healthy account across ${teamLabel} affected team(s). Stages: ${formatBreakdown(counts.noUsableAccountByStage)}. Providers: ${formatBreakdown(counts.noUsableAccountByProvider)}. Check account configuration and credential health.`,
         severity: "warning",
       };
     });
@@ -424,17 +429,34 @@ function aggregateRouteEvents(rows: readonly RouteEventRow[]): RouteEventCounts 
   let total = 0;
   let operatorFailures = 0;
   let upstreamFailures = 0;
+  const upstreamByProvider = new Map<string, number>();
+  const upstreamByStage = new Map<string, number>();
+  const upstreamByStatus = new Map<string, number>();
   let noUsableAccount = 0;
   let authRejected = 0;
   const noUsableAccountTeams = new Set<string>();
+  const noUsableAccountByStage = new Map<string, number>();
+  const noUsableAccountByProvider = new Map<string, number>();
   for (const row of rows) {
     const count = Number.isFinite(row.c) ? row.c : 0;
     total += count;
     if (isOperatorFailure(row)) operatorFailures += count;
-    if (isUpstreamFailure(row)) upstreamFailures += count;
+    if (isUpstreamFailure(row)) {
+      upstreamFailures += count;
+      const provider = row.provider || "unknown";
+      const stage = `${row.outcome}/${row.failure_stage || "unknown"}`;
+      const status = typeof row.status === "number" && row.status > 0 ? String(row.status) : "unknown";
+      upstreamByProvider.set(provider, (upstreamByProvider.get(provider) ?? 0) + count);
+      upstreamByStage.set(stage, (upstreamByStage.get(stage) ?? 0) + count);
+      upstreamByStatus.set(status, (upstreamByStatus.get(status) ?? 0) + count);
+    }
     if (row.outcome === "no_usable_account" &&
       (row.failure_stage === "account_selection" || row.failure_stage === "provider_config")) {
       noUsableAccount += count;
+      const stage = row.failure_stage || "unknown";
+      const provider = row.provider || "unknown";
+      noUsableAccountByStage.set(stage, (noUsableAccountByStage.get(stage) ?? 0) + count);
+      noUsableAccountByProvider.set(provider, (noUsableAccountByProvider.get(provider) ?? 0) + count);
       if (noUsableAccountTeams.size < 10) {
         const teamId = typeof row.team_id === "string" ? row.team_id.trim() : "";
         if (teamId) noUsableAccountTeams.add(teamId);
@@ -447,9 +469,14 @@ function aggregateRouteEvents(rows: readonly RouteEventRow[]): RouteEventCounts 
     routeCrashes: aggregateRouteCrashes(rows),
     operatorFailures,
     upstreamFailures,
+    upstreamByProvider,
+    upstreamByStage,
+    upstreamByStatus,
     noUsableAccount,
     authRejected,
     noUsableAccountTeams,
+    noUsableAccountByStage,
+    noUsableAccountByProvider,
   };
 }
 

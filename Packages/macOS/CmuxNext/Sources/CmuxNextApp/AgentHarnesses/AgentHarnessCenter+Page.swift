@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextHomeEngine
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
@@ -28,7 +29,7 @@ extension AgentHarnessCenter {
                 guard request.isComplete else { throw PageError.invalidParams("nothing to start") }
                 return try await add(request)
             case "remove" where !id.isEmpty:
-                return try await remove(id: id)
+                return try await remove(id: id, endpointRevision: params["endpointRevision"]?.stringValue)
             case "restore":
                 guard let backup = params["backup"]?.stringValue ?? lastRemovedBackup else {
                     throw PageError.invalidParams("no backup")
@@ -62,5 +63,42 @@ extension AgentHarnessCenter {
             return rpc.name.map { String($0.split(separator: ".").last ?? Substring($0)) } ?? "failed"
         default: return "failed"
         }
+    }
+}
+
+extension AgentHarnessCenter: ChiefBackendHarnesses {
+    var chiefBackendPage: ChiefBackendPageRoute {
+        ChiefBackendPageRoute(harnesses: self, personOnly: { RefusalStrings.personOnlyFromPage })
+    }
+
+    /// One acpmux add (it checks the id, writes the profile and stores the key in one locked step).
+    func addChiefBackend(_ backend: BroughtChiefBackend) async throws -> String {
+        var request = AgentHarnessAddRequest()
+        request.id = backend.id
+        request.displayName = backend.name
+        request.replace = backend.replace
+        request.editEndpoint = backend.editEndpoint
+        request.servesCloud = backend.servesCloud
+        switch backend.kind {
+        case .command(let command, let args):
+            request.command = command
+            request.args = args
+        case .endpoint(let example, let baseURL, let model, let apiKey):
+            request.example = example
+            request.endpointPreset = backend.endpointPreset
+            request.validateEndpoint = backend.validateEndpoint
+            request.baseURL = baseURL
+            request.model = model
+            request.apiKey = apiKey
+        }
+        return try await add(request)["id"]?.stringValue ?? backend.id
+    }
+
+    func doctorChiefBackend(id: String, extra: [String: any Sendable]) async throws -> JSONValue {
+        try await doctor(id: id, extra: extra)
+    }
+
+    func chiefBackendError(_ error: any Error) -> PageError {
+        PageError(code: "cmux.agents.\(Self.code(error))", message: Self.text(error))
     }
 }

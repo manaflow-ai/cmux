@@ -47,6 +47,8 @@ def resolved(runs_on: str, owner: str, linux_runner: str, overflow: str, trusted
             "CI_CLOUD_OVERFLOW_SAVED": [overflow],
             "CI_TRUSTED_RUNNER": [trusted],
             "LINUX_RUNNER_DARWIN_CROSS": [darwin_cross],
+            # The overflow switch (scripts/ci/one_linux_label.py OVERFLOW): unset until a failover writes it.
+            "CI_OVERFLOW_LINUX": [""],
         },
         silent=("needs",),
     )
