@@ -49,12 +49,14 @@
 #include "include/cef_browser.h"
 #include "include/cef_client.h"
 #include "include/cef_command_line.h"
+#include "include/cef_focus_handler.h"
 #include "include/cef_keyboard_handler.h"
 #include "include/wrapper/cef_closure_task.h"
 #include "include/wrapper/cef_library_loader.h"
 
 #include "chromium_host_wire.h"
 #include "command_line_apply.h"
+#include "host_focus_policy.h"
 #include "page_scheme_registration.h"
 
 @interface ChromiumHostApplication : NSApplication <CefAppProtocol> {
@@ -463,9 +465,32 @@ uint64_t NSFlags(uint32_t flags) {
   return ns;
 }
 
+static_assert(cmux_host::kFocusSourceNavigation == FOCUS_SOURCE_NAVIGATION &&
+                  cmux_host::kFocusSourceSystem == FOCUS_SOURCE_SYSTEM,
+              "host_focus_policy.h's focus sources are CEF's");
+static_assert(cmux_host::kActivationPolicyAccessory == NSApplicationActivationPolicyAccessory &&
+                  cmux_host::kActivationPolicyProhibited == NSApplicationActivationPolicyProhibited,
+              "host_focus_policy.h's activation policies are AppKit's");
+
+// The host's activation policy (host_focus_policy.h): prohibited until it has finished launching and made its first
+// page, so macOS never activates it as it finishes launching under an active cmux; accessory after.
+bool g_finished_launching = false;
+bool g_page_created = false;
+void ApplyActivationPolicy() {
+  const auto policy = static_cast<NSApplicationActivationPolicy>(
+      cmux_host::ActivationPolicy(g_finished_launching, g_page_created));
+  if (NSApp.activationPolicy != policy) [NSApp setActivationPolicy:policy];
+}
+
 class Client : public CefClient, public CefLifeSpanHandler, public CefDisplayHandler, public CefLoadHandler,
-               public CefRequestHandler, public CefKeyboardHandler {
+               public CefRequestHandler, public CefKeyboardHandler, public CefFocusHandler {
  public:
+  CefRefPtr<CefFocusHandler> GetFocusHandler() override { return this; }
+  // cmux alone moves the page's focus, in both modes. CEF focuses a page after a new browser's first navigation,
+  // and for this child browser that activates the host ([NSApp activateIgnoringOtherApps:YES] under
+  // CefBrowserPlatformDelegateChromeChildWindow::SetFocus): every page open made its host the person's front app.
+  // host_focus_policy.h; true cancels the request.
+  bool OnSetFocus(CefRefPtr<CefBrowser>, FocusSource source) override { return cmux_host::CancelsFocus(source); }
   CefRefPtr<CefKeyboardHandler> GetKeyboardHandler() override { return this; }
   // Remote Cocoa: a Command chord the page did not handle reached this
   // process (the page's view is cmux's, but the unhandled event comes back to
@@ -490,6 +515,8 @@ class Client : public CefClient, public CefLifeSpanHandler, public CefDisplayHan
   void OnAfterCreated(CefRefPtr<CefBrowser> browser) override {
     g_browser = browser;
     g_creating = false;
+    g_page_created = true;
+    ApplyActivationPolicy();
     actprobe::Step("page_created");
     ScheduleHosting();
   }
@@ -841,8 +868,16 @@ int main(int argc, char* argv[]) {
   @autoreleasepool {
     [ChromiumHostApplication sharedApplication];
     actprobe::Install();
-    [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
-    actprobe::Step("after_set_accessory");
+    ApplyActivationPolicy();  // prohibited: macOS activated the host as it finished launching under an active cmux
+    actprobe::Step("after_set_prohibited");
+    [[NSNotificationCenter defaultCenter] addObserverForName:NSApplicationDidFinishLaunchingNotification
+                                                      object:NSApp
+                                                       queue:[NSOperationQueue mainQueue]
+                                                  usingBlock:^(NSNotification*) {
+                                                    g_finished_launching = true;
+                                                    ApplyActivationPolicy();
+                                                    actprobe::Step("finished_launching");
+                                                  }];
   }
   // One thread so far: the framework's allocator and static initializers run
   // before any other thread exists (the race CmuxNextMallocZone removes in
