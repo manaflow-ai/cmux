@@ -1004,6 +1004,7 @@ updates.web
 updates.whatsNewInstall
 window.settingsLanding
 window.settingsLeadPages
+window.settingsPresentation
 window.titlebar
 window.titlebarButtons
 window.trafficLightClearance

@@ -24,11 +24,14 @@
             "rows" : [
               "window.titlebar",
               "window.titlebarButtons",
+              "window.settingsPresentation",
               "app.globalHotKey",
               "app.startAgentGlobalHotKey",
               "app.captureScreenshotGlobalHotKey",
               "app.hideDockIconWithoutWindows",
-              "app.showMenuBarIcon"
+              "app.showMenuBarIcon",
+              "window.settingsLanding",
+              "window.settingsLeadPages"
             ],
             "title" : {
               "key" : "settings.group.window",
@@ -4348,6 +4351,157 @@
     },
     {
       "accepts" : [
+        "tab",
+        "page"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.window.settingsPresentation.tab",
+            "text" : "Tab"
+          },
+          "value" : "tab"
+        },
+        {
+          "title" : {
+            "key" : "settings.window.settingsPresentation.page",
+            "text" : "Full Window"
+          },
+          "value" : "page"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "tab",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.window",
+        "text" : "Window"
+      },
+      "help" : {
+        "key" : "settings.window.settingsPresentation.help",
+        "text" : "Tab opens Settings as a tab in the focused pane. Full Window opens it over the whole window, with its sections on the left."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "window.settingsPresentation",
+      "keywords" : [
+        "settings",
+        "preferences",
+        "full window",
+        "page",
+        "tab",
+        "open"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "window",
+        "settingsPresentation"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:window.settingsPresentation"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.window.settingsPresentation",
+        "text" : "Open Settings In"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -5028,6 +5182,289 @@
       "title" : {
         "key" : "settings.app.showMenuBarIcon",
         "text" : "Show Menu Bar Icon"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.window",
+        "text" : "Window"
+      },
+      "help" : {
+        "key" : "settings.window.settingsLanding.help",
+        "text" : "The Settings page that opens first, by id (general, models, appearance). Empty opens General."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "window.settingsLanding",
+      "keywords" : [
+        "settings",
+        "landing",
+        "first page",
+        "open",
+        "start page",
+        "profile"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "window",
+        "settingsLanding"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:window.settingsLanding"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.window.settingsLanding",
+        "text" : "Settings Opens On"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "ws-1",
+          "2B7F0C3A-workspace"
+        ]
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.window",
+        "text" : "Window"
+      },
+      "help" : {
+        "key" : "settings.window.settingsLeadPages.help",
+        "text" : "Settings pages to list first in the sidebar, in this order, by id. Empty keeps cmux's order."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "window.settingsLeadPages",
+      "keywords" : [
+        "settings",
+        "order",
+        "sidebar",
+        "pages",
+        "first",
+        "profile"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : false,
+      "path" : [
+        "window",
+        "settingsLeadPages"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "ws-1",
+        [
+          1
+        ],
+        [
+          ""
+        ],
+        {
+
+        }
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:window.settingsLeadPages"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.window.settingsLeadPages",
+        "text" : "Settings Pages First"
       },
       "validation" : "portable"
     },
