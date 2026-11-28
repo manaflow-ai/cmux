@@ -21,6 +21,19 @@ struct MobileMacListAuthStateTests {
             #expect(state.entry(pairingID: "physical-device") == nil)
     }
 
+    /// App Review (2026-11-10 reviewer run): the local Demo Mac has no
+    /// directory record, so its unknown version read as "Mac update required".
+    /// The demonstration computer is always current.
+    @Test
+    func demonstrationComputerIsNeverOutdated() {
+        let state = MobileMacListAuthState()
+        state.applyPolicyMinimumSupportedMacVersions(stable: "0.64.23", nightly: "0.64.23")
+        state.replace(entriesByIdentity: [:])
+        let entry = state.compatibilityEntry(pairingID: MobileDemoContentCatalog.macDeviceID)
+        #expect(!entry.isOutdated)
+        #expect(state.compatibilityEntry(pairingID: "physical-device").isOutdated)
+    }
+
     @Test
     func comparesReportedVersionToServerFloor() {
         let outdated = MobileMacListAuthState.Entry(

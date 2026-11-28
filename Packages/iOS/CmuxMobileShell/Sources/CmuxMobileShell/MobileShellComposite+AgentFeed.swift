@@ -63,6 +63,7 @@ extension MobileShellComposite {
     /// Refreshes the agent feed from every currently connected capable Mac.
     /// A Mac that is offline keeps its last-known snapshot.
     public func refreshAgentFeed() async {
+        seedDemonstrationAgentFeedIfNeeded()
         let targets = agentFeedTargets()
         if targets.isEmpty {
             recomputeAgentFeedItems()
@@ -596,6 +597,10 @@ extension MobileShellComposite {
             return false
         }
         guard !agentFeedPendingTerminalReplyItemIDs.contains(item.id) else { return false }
+        if demonstrationOwnsAgentFeedItem(item) {
+            // No Mac owns demo rows: accept the reply locally.
+            return recordDemonstrationAgentFeedTerminalReply(item, text: trimmed)
+        }
         guard let target = agentFeedTarget(for: agentFeedOwnerKey(for: item)) else {
             // The owning Mac is not connected: nothing was typed.
             agentFeedFailedTerminalReplies[item.id] = MobileAgentFeedFailedReply(
@@ -663,6 +668,10 @@ extension MobileShellComposite {
         params: [String: Any],
         decision: MobileAgentFeedDecision
     ) async -> Bool {
+        if demonstrationOwnsAgentFeedItem(item) {
+            guard let requestID = item.requestID else { return false }
+            return resolveDemonstrationAgentFeedRequest(requestID: requestID, decision: decision)
+        }
         guard let requestID = item.requestID,
               !agentFeedPendingReplyRequestIDs.contains(requestID),
               let target = agentFeedTarget(for: agentFeedOwnerKey(for: item)) else {
@@ -721,6 +730,10 @@ extension MobileShellComposite {
     /// Fetches the retained message from its exact Mac instance on demand.
     /// Pages are published to the reader only after the entire read succeeds.
     public func loadAgentFeedFullText(_ item: MobileAgentFeedItem) async throws -> String {
+        if demonstrationOwnsAgentFeedItem(item) {
+            // Demo rows carry their whole text locally.
+            return item.fullTextPreview ?? item.text ?? item.stopReason ?? item.plan ?? ""
+        }
         let owner = agentFeedOwnerKey(for: item)
         guard let client = agentFeedClient(for: owner) else { throw URLError(.notConnectedToInternet) }
         var text = ""
@@ -1055,13 +1068,18 @@ extension MobileShellComposite {
         if let remoteClient {
             connectedClientIDs.insert(ObjectIdentifier(remoteClient))
         }
-        guard !connectedClientIDs.isEmpty else { return .unavailable }
+        // Demonstration content is a live Feed source without an RPC client.
+        guard !connectedClientIDs.isEmpty else {
+            return demonstrationAgentFeedSeeded ? .ready : .unavailable
+        }
         // A cached workstream snapshot is still a usable Feed when the current
         // connection only advertises older capabilities. Keep the retained
         // rows visible without labeling them as an upgrade prompt.
         if !agentFeedItems.isEmpty { return .ready }
         let targets = agentFeedTargets()
-        guard !targets.isEmpty else { return .requiresMacUpdate }
+        guard !targets.isEmpty else {
+            return demonstrationAgentFeedSeeded ? .ready : .requiresMacUpdate
+        }
         let targetOwnerKeys = Set(targets.map(\.ownerKey))
         if agentFeedSuccessfulMacIDs.isDisjoint(with: targetOwnerKeys) {
             return .unavailable
@@ -1118,6 +1136,9 @@ extension CMUXMobileShellStore {
     /// Resolve against the exact owner after any connection switch. A deleted
     /// terminal must never open a different tab or a sibling app instance.
     public func openAgentFeedDestination(_ item: MobileAgentFeedItem, openTab: Bool) async -> Bool {
+        if demonstrationOwnsAgentFeedItem(item) {
+            return openDemonstrationAgentFeedDestination(item, openTab: openTab)
+        }
         guard let remoteWorkspaceID = item.remoteWorkspaceID else { return false }
         let owner = MacPairingKey(macDeviceID: item.macDeviceID, instanceTag: item.macInstanceTag)
         let foreground = foregroundMacDeviceID.map {

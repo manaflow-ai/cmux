@@ -36,6 +36,9 @@ public struct MobileDemoContentCatalog: Sendable {
     public let workspaces: [MobileWorkspacePreview]
     /// Sample notification-feed entries, newest first.
     public let notifications: [MobileNotificationFeedItem]
+    /// Sample agent-feed (Feed tab) rows, newest first: requests that need
+    /// input, finished turns, and agent status updates.
+    public let agentFeedItems: [MobileAgentFeedItem]
     /// The canned terminal sessions backing every demo terminal surface.
     public let terminalScripts: [MobileDemoTerminalScript]
 
@@ -293,6 +296,126 @@ public struct MobileDemoContentCatalog: Sendable {
                 body: "Getting-started guide published to the docs site.",
                 createdAt: minutesAgo(1_294),
                 isRead: true,
+                workspaceTitle: "Docs site",
+                surfaceTitle: "Dev server",
+                connectionStatus: .connected
+            ),
+        ]
+
+        // MARK: Agent feed (newest first)
+
+        agentFeedItems = [
+            MobileAgentFeedItem(
+                macDeviceID: mac,
+                macDisplayName: macName,
+                itemID: "cmux-demo-feed-migration",
+                workstreamID: "claude-cmux-demo-session-review",
+                source: "claude",
+                kind: .permissionRequest,
+                status: .pending,
+                createdAt: minutesAgo(6),
+                updatedAt: minutesAgo(6),
+                cwd: "~/code/api-server",
+                requestID: "cmux-demo-feed-request-migration",
+                toolName: "Bash",
+                toolInput: "npm run migrate -- --env staging 0043_add_delivery_metrics",
+                remoteWorkspaceID: "cmux-demo-ws-review",
+                remoteSurfaceID: "cmux-demo-term-review-agent",
+                workspaceTitle: "Webhook retries",
+                surfaceTitle: "Agent",
+                context: MobileAgentFeedContext(
+                    lastUserMessage: "Add delivery metrics for webhook retries",
+                    assistantPreamble: "The metrics table needs a migration before the new tests can run on staging."
+                ),
+                connectionStatus: .connected
+            ),
+            MobileAgentFeedItem(
+                macDeviceID: mac,
+                macDisplayName: macName,
+                itemID: "cmux-demo-feed-review-done",
+                workstreamID: "claude-cmux-demo-session-review",
+                source: "claude",
+                kind: .stop,
+                status: .telemetry,
+                createdAt: minutesAgo(12),
+                updatedAt: minutesAgo(12),
+                cwd: "~/code/api-server",
+                stopReason: "Review posted to PR #412. Retries back off 1s, 2s, 4s with jitter; 4 files changed, 48 tests green.",
+                remoteWorkspaceID: "cmux-demo-ws-review",
+                remoteSurfaceID: "cmux-demo-term-review-agent",
+                workspaceTitle: "Webhook retries",
+                surfaceTitle: "Agent",
+                connectionStatus: .connected
+            ),
+            MobileAgentFeedItem(
+                macDeviceID: mac,
+                macDisplayName: macName,
+                itemID: "cmux-demo-feed-release-notes",
+                workstreamID: "codex-cmux-demo-session-release",
+                source: "codex",
+                kind: .question,
+                status: .pending,
+                createdAt: minutesAgo(24),
+                updatedAt: minutesAgo(24),
+                cwd: "~/code/mobile-app",
+                requestID: "cmux-demo-feed-request-release-notes",
+                questions: [
+                    MobileAgentFeedQuestion(
+                        id: "cmux-demo-feed-question-notes",
+                        header: "Release notes",
+                        prompt: "Which release notes should ship with 2.3.1?",
+                        options: [
+                            MobileAgentFeedQuestionOption(
+                                id: "cmux-demo-feed-option-short",
+                                label: "Short summary",
+                                description: "Faster cold launch and webhook delivery metrics"
+                            ),
+                            MobileAgentFeedQuestionOption(
+                                id: "cmux-demo-feed-option-full",
+                                label: "Full changelog",
+                                description: "Every entry from CHANGELOG.md"
+                            ),
+                        ]
+                    ),
+                ],
+                remoteWorkspaceID: "cmux-demo-ws-release",
+                remoteSurfaceID: "cmux-demo-term-release-build",
+                workspaceTitle: "Release 2.3.1",
+                surfaceTitle: "Build",
+                connectionStatus: .connected
+            ),
+            MobileAgentFeedItem(
+                macDeviceID: mac,
+                macDisplayName: macName,
+                itemID: "cmux-demo-feed-release-status",
+                workstreamID: "codex-cmux-demo-session-release",
+                source: "codex",
+                kind: .assistantMessage,
+                status: .telemetry,
+                createdAt: minutesAgo(31),
+                updatedAt: minutesAgo(31),
+                cwd: "~/code/mobile-app",
+                text: "Release build archived in 4m 02s and all 312 tests passed. Uploading debug symbols next.",
+                remoteWorkspaceID: "cmux-demo-ws-release",
+                remoteSurfaceID: "cmux-demo-term-release-build",
+                workspaceTitle: "Release 2.3.1",
+                surfaceTitle: "Build",
+                connectionStatus: .connected
+            ),
+            MobileAgentFeedItem(
+                macDeviceID: mac,
+                macDisplayName: macName,
+                itemID: "cmux-demo-feed-docs-done",
+                workstreamID: "claude-cmux-demo-session-docs",
+                source: "claude",
+                kind: .stop,
+                status: .telemetry,
+                createdAt: minutesAgo(174),
+                updatedAt: minutesAgo(174),
+                cwd: "~/code/docs",
+                stopReason: "Getting-started guide rewritten for the new pairing flow and published to the docs site.",
+                remoteWorkspaceID: "cmux-demo-ws-docs",
+                remoteSurfaceID: "cmux-demo-term-docs-dev",
                 workspaceTitle: "Docs site",
                 surfaceTitle: "Dev server",
                 connectionStatus: .connected
