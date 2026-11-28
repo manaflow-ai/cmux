@@ -247,7 +247,7 @@ jobs:
       # A read-only token of the push App, so the rulesets' current_user_can_bypass answers for the App that pushes.
       - name: Mint the App's read token
         id: app-token
-        if: vars.CMUX_NEXT_BASE_AUTOFIX == '1' && vars.CMUX_NEXT_BASE_AUTOFIX_PUSH_PREFLIGHT != '0'
+        if: vars.CMUX_NEXT_BASE_AUTOFIX == '1' && format('{0}', vars.CMUX_NEXT_BASE_AUTOFIX_PUSH_PREFLIGHT) != '0'
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0

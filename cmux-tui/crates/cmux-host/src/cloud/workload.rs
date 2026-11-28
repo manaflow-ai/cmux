@@ -106,6 +106,28 @@ pub const SYSTEM_PROCESSES: &[&str] = &[
 /// System processes by `comm` prefix: the terminal daemon and its terminal hosts.
 pub const SYSTEM_PROCESS_PREFIXES: &[&str] = &["cmux-tui", "__terminal"];
 
+/// Coding agents by `comm` (exact). One a chat runs ([`chat_agents`]) never counts by its own CPU:
+/// the chat's state says whether it works (`active_sessions` counts a turn at work, and the Cloud
+/// reads sessions before the workload), and an idle agent CLI still wakes every few seconds (a
+/// Node or Bun event loop, a status poll) above [`CPU_BUSY_PERCENT`]. Before this, a machine whose
+/// chats were all quiet read busy every 3 to 5 minutes from its agent alone and never paused: the
+/// fleet's kept reasons over one hour (2026-11-27 11:45Z, 211 lines) were 109 `workload`, its
+/// most named busy process `claude`, then `opencode`. The agent's children (a build, a test, a dev
+/// server it started) still count by their own CPU, and an agent a person runs in a terminal
+/// counts as any process does.
+pub const AGENT_PROCESSES: &[&str] =
+    &["claude", "codex", "codex-acp", "opencode", "gemini", "pi", "cursor-agent", "amp"];
+
+/// The chat launcher's `comm`: an agent it started, through no shell and no terminal host, is a
+/// chat's agent.
+const CHAT_LAUNCHER: &str = "acpmux";
+
+/// How many parents [`chat_agents`] climbs at most: past this, a chain is not a chat's.
+const CHAT_DEPTH_MAX: usize = 16;
+
+/// Shells by `comm`: an agent under one was started by hand or by a script, not by a chat.
+const SHELLS: &[&str] = &["sh", "bash", "dash", "zsh", "fish"];
+
 /// Timer units that are the system's: the distribution's housekeeping (the same list
 /// [`crate::config::HOUSEKEEPING_TIMERS`] stops at park, plus common others) and cmux's own.
 pub const SYSTEM_TIMERS: &[&str] = &[
@@ -169,6 +191,8 @@ pub fn is_system_timer(name: &str) -> bool {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProcStat {
     pub pid: u32,
+    /// The parent's pid (0 for init and kernel threads' parent).
+    pub ppid: u32,
     pub comm: String,
     /// Start time in clock ticks after boot: with the pid, the process's identity.
     pub start: u64,
@@ -189,7 +213,39 @@ pub fn parse_stat(pid: u32, text: &str) -> Option<ProcStat> {
     let flags = field(9)?;
     let ticks =
         [14, 15, 16, 17].iter().try_fold(0u64, |sum, k| Some(sum.saturating_add(field(*k)?)))?;
-    Some(ProcStat { pid, comm, start: field(22)?, ticks, kthread: flags & PF_KTHREAD != 0 })
+    let ppid = u32::try_from(field(4)?).ok()?;
+    Some(ProcStat { pid, ppid, comm, start: field(22)?, ticks, kthread: flags & PF_KTHREAD != 0 })
+}
+
+/// The pids of the agents chats run: a process named in [`AGENT_PROCESSES`] whose parents reach
+/// [`CHAT_LAUNCHER`] within [`CHAT_DEPTH_MAX`] steps through no shell, no terminal host and no other
+/// agent. Anything else (an agent in a terminal, one a script started) is not a chat's.
+pub fn chat_agents(procs: &[ProcStat]) -> BTreeSet<u32> {
+    let by_pid: BTreeMap<u32, &ProcStat> = procs.iter().map(|p| (p.pid, p)).collect();
+    procs
+        .iter()
+        .filter(|p| !p.kthread && AGENT_PROCESSES.contains(&p.comm.as_str()))
+        .filter(|p| {
+            let mut at = p.ppid;
+            for _ in 0..CHAT_DEPTH_MAX {
+                let Some(parent) = by_pid.get(&at) else { return false };
+                let comm = parent.comm.as_str();
+                if comm == CHAT_LAUNCHER {
+                    return true;
+                }
+                if SHELLS.contains(&comm)
+                    || comm.starts_with("__terminal")
+                    || AGENT_PROCESSES.contains(&comm)
+                    || parent.ppid == 0
+                {
+                    return false;
+                }
+                at = parent.ppid;
+            }
+            false
+        })
+        .map(|p| p.pid)
+        .collect()
 }
 
 /// The LISTEN sockets of one `/proc/net/tcp` or `/proc/net/tcp6`: (port, inode), or None when a
@@ -328,8 +384,9 @@ impl Tracker {
         let window_ms = snap.mono_ms.checked_sub(prev_ms).filter(|ms| *ms > 0)?;
         let clk_tck = snap.clk_tck.max(1);
         let mut busy = BTreeSet::new();
+        let chats = chat_agents(&snap.procs);
         for p in &snap.procs {
-            if p.kthread || is_system_process(&p.comm) {
+            if p.kthread || is_system_process(&p.comm) || chats.contains(&p.pid) {
                 continue;
             }
             // A process new since the last probe used all its ticks inside the window.

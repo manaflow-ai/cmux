@@ -114,6 +114,12 @@ jobs:
 
       # The cargo cache setup of cmux-tui.yml's test job, under its own key (this job builds one package, debug
       # and release, not the workspace). Saved only from a feat-cmux-next push; every run restores it.
+      # Keyed on the toolchain and the UTC day, not cmux-tui/Cargo.lock (24 changes in the 24 h to 2026-11-28
+      # 02:30Z, each one a new entry in the 10 GB GitHub cache that evicts the rest): one save a day.
+      - name: Day of the target-dir cache
+        id: rust-day
+        if: steps.crate.outputs.have == 'true'
+        run: echo "day=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
       - name: Cache cargo build
         if: steps.crate.outputs.have == 'true'
         id: cargo-cache
@@ -123,7 +129,7 @@ jobs:
           add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-duress-linux-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
+          shared-key: cmux-duress-linux-${{ hashFiles('cmux-tui/rust-toolchain.toml', '.cargo/config.toml') }}-${{ steps.rust-day.outputs.day }}
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
 
       - name: Report cargo cache hit
