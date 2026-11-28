@@ -30,7 +30,8 @@ permissions:
 
 concurrency:
   group: vault-e2e-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: false
+  # A new push supersedes the PR's running proof; a dispatch keys on its own run id, so nothing cancels it.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   proof:
@@ -60,8 +61,7 @@ jobs:
         run: |
           # The runner image bakes these; ask dpkg first so apt runs only when one is missing.
           if ! dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y clang libclang-dev pkg-config
+            bash scripts/ci/apt-retry.sh -y clang libclang-dev pkg-config
           fi
       - name: Set up cmux-tui Rust
         uses: ./.github/actions/setup-cmux-tui-rust

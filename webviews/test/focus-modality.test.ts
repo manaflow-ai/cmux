@@ -380,7 +380,10 @@ describe("detectors", () => {
     // A command the app's key router took never reached the page as a key: it drops the ring first.
     for (const [file, call] of [
       ["src/pages/shared/pageStreams.ts", /\(data\) => \{(?:\s*\/\/.*)*\s*dismissFocusRing\(\);\s*onCommand\(data\);/],
-      ["src/agent-session/acpmux/App.tsx", /command\(name, sessionId\) \{(?:\s*\/\/.*)*\s*dismissFocusRing\(\);/],
+      [
+        "src/agent-session/acpmux/pane/paneSnapshot.ts",
+        /command\(name, sessionId\) \{(?:\s*\/\/.*)*\s*dismissFocusRing\(\);/,
+      ],
     ] as const)
       expect([file, call.test(readFileSync(path.join(webviews, file), "utf8"))]).toEqual([file, true]);
     // The pages served to a browser outside the app boot without the desktop layer.
