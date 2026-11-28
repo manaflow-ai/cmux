@@ -22,7 +22,7 @@ public nonisolated struct LayoutGrid: Sendable {
     public static let composerInset: CGFloat = 8
     public static let composerControl: CGFloat = 28
     public static let composerLeadCenter: CGFloat = 22
-    public static let composerText: CGFloat = 44
+    public static let composerText: CGFloat = 40
     public static let composerTrailCenter: CGFloat = 22
     public static let stripInset: CGFloat = 8
     public static let stripControl: CGFloat = 28

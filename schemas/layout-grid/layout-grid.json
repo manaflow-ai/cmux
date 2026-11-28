@@ -17,7 +17,7 @@
     {"name": "composer-inset", "pt": 8, "kind": "edge", "scaled": true, "description": "Control inset from the edge"},
     {"name": "composer-control", "pt": 28, "kind": "edge", "scaled": true, "description": "Leading and trailing control box"},
     {"name": "composer-lead-center", "pt": 22, "kind": "center", "scaled": true, "description": "Leading glyph center from the left edge", "formula": {"composer-inset": 1, "composer-control": 0.5}},
-    {"name": "composer-text", "pt": 44, "kind": "edge", "scaled": true, "description": "Text start from the left edge", "formula": {"composer-inset": 1, "composer-control": 1, "gap": 1}},
+    {"name": "composer-text", "pt": 40, "kind": "edge", "scaled": true, "description": "Text start from the left edge", "formula": {"composer-inset": 1, "composer-control": 1, "base": 1}},
     {"name": "composer-trail-center", "pt": 22, "kind": "center", "scaled": true, "description": "Trailing glyph center from the right edge", "formula": {"composer-lead-center": 1}},
     {"name": "strip-inset", "pt": 8, "kind": "edge", "scaled": true, "description": "Control inset from the edge", "formula": {"composer-inset": 1}},
     {"name": "strip-control", "pt": 28, "kind": "edge", "scaled": true, "description": "Leading and trailing control box", "formula": {"composer-control": 1}},
