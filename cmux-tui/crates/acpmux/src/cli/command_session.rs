@@ -96,6 +96,10 @@ pub enum SessionCmd {
         /// released). Default 12h.
         #[arg(long = "for", value_name = "DURATION")]
         hold_for: Option<String>,
+        /// With `--fleet`: the order its chats thaw in when it lifts, comma-separated entries
+        /// as in `--allow` (first match first, the rest after); default: the hold's own.
+        #[arg(long, value_delimiter = ',')]
+        thaw_order: Option<Vec<String>>,
     },
     /// Release a held session (`session hold`): it runs its next prompt as usual. With
     /// `--fleet`: lift the fleet hold.
@@ -172,8 +176,9 @@ pub enum SessionCmd {
         /// conversation with its first prompt.
         #[arg(long)]
         harness: Option<String>,
-        /// The model the fork starts on (with --harness).
-        #[arg(long, short, requires = "harness")]
+        /// The model the fork runs, on --harness or the chat's own harness (MODEL or
+        /// HARNESS/MODEL). A model the harness does not list fails the fork.
+        #[arg(long, short)]
         model: Option<String>,
     },
     /// Change mode, model, a config option, or the permission policy: key=value.
