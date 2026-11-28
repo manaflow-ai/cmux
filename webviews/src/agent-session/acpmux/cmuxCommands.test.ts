@@ -22,6 +22,7 @@ test("status is available before harness commands and stays cmux-owned", () => {
     "rename",
     "mcp",
     "cd",
+    "loop",
     "resume",
     "login",
     "customize",
@@ -203,4 +204,35 @@ test("a bare /mcp is cmux's, the agent's own /mcp gives way, and /mcp with argum
   expect(cmuxCommandRefusal(mcp.command, "", { ...state, summary: false })).toBe("composer.cmuxUnavailable");
   // New Tab (no summary yet): `/mcp <args>` is the agent's and goes as typed.
   expect(cmuxCommandRefusal(mcp.command, "enable github", { ...state, summary: false })).toBeUndefined();
+});
+
+test("/loop is cmux's on a harness without one, and a harness's own /loop takes it as typed", () => {
+  const state = {
+    summary: true,
+    forkable: true,
+    sideAvailable: true,
+    canContinue: true,
+    sideSessions: true,
+    session: true,
+    isSideSession: false,
+    targets: [],
+  };
+  const loop = composerCommand("/loop 5m check CI", "codex");
+  expect(loop?.kind === "cmux" && loop.command.action).toBe("loop");
+  if (loop?.kind !== "cmux") throw new Error("not cmux's");
+  expect(cmuxCommandRefusal(loop.command, loop.args, state)).toBeUndefined();
+  expect(cmuxCommandRefusal(loop.command, "check CI", state)).toBe("composer.cmuxLoopUsage");
+  expect(cmuxCommandRefusal(loop.command, "5m check CI", { ...state, session: false })).toBe(
+    "composer.cmuxUnavailable",
+  );
+  // New Tab's `/loop` starts its chat with the prompt as typed: never refused here.
+  expect(cmuxCommandRefusal(loop.command, "check CI", { ...state, session: false, newTab: true })).toBeUndefined();
+  // Claude Code's self-paced `/loop check CI` is its own: never refused here.
+  expect(cmuxCommandRefusal(loop.command, "check CI", { ...state, harnessLoop: true })).toBeUndefined();
+  // Its menu entry stays the harness's when the pane leaves cmux's out.
+  const own = mergedCommands(
+    [{ name: "loop", description: "Claude's loop", source: "agent" }],
+    new Set(["model"]),
+  ).find((command) => command.name === "loop");
+  expect(own?.source).toBe("agent");
 });

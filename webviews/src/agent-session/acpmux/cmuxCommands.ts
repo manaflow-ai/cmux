@@ -1,4 +1,5 @@
 import { cliOnlyCommand } from "./cliOnlyCommands";
+import { parseLoop } from "./loopSchedule";
 import { commandPlace } from "./commandPlace";
 import { cloudChatHome } from "./folderlessCloud";
 import type { StringKey } from "./i18n";
@@ -25,7 +26,8 @@ export type CmuxCommand = SlashCommand & {
     | "resume"
     | "login"
     | "customize"
-    | "help";
+    | "help"
+    | "loop";
   descriptionKey?: SlashCommand["descriptionKey"];
 };
 
@@ -197,6 +199,17 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
     source: "cmux",
     action: "help",
   },
+  // cmux's own scheduled prompt, for every harness (acpmux `prompt_schedule.rs`): Codex, OpenCode,
+  // Gemini and pi have no loop of their own. A harness that lists its own /loop (Claude Code)
+  // keeps it: the pane passes the command through to it.
+  {
+    name: "loop",
+    description: "",
+    descriptionKey: "composer.slashLoop",
+    hint: "<5m|idle|at 9:30> <prompt>",
+    source: "cmux",
+    action: "loop",
+  },
 ];
 
 /// Harnesses commonly expose these, but not every adapter advertises them through ACP. Keep a
@@ -352,6 +365,8 @@ export function cmuxCommandRefusal(
     /// from yet), or the chat runs on another machine of the person's: either way the prompt
     /// would not act on this machine's own files.
     startsElsewhere?: boolean;
+    /// The harness lists a /loop of its own, which takes the command as typed.
+    harnessLoop?: boolean;
   },
 ): StringKey | undefined {
   const placed = PLACED_ACTIONS.has(command.action) ? commandPlace(typedArgs) : undefined;
@@ -404,6 +419,12 @@ export function cmuxCommandRefusal(
     case "continue":
       if (args?.trim() && !resolveHarnessTarget(args, state.targets)) return "composer.cmuxContinueUnknown";
       return state.canContinue ? undefined : "composer.cmuxContinueBusy";
+    case "loop":
+      // A harness's own `/loop`, and New Tab's (whose chat does not exist yet, so the prompt
+      // starts it and goes as typed, as before cmux had one): never refused here.
+      if (state.harnessLoop || state.newTab) return undefined;
+      if (!state.session) return "composer.cmuxUnavailable";
+      return parseLoop(args) ? undefined : "composer.cmuxLoopUsage";
     case "btw":
       if (!state.sideSessions) return "composer.cmuxBtwDisabled";
       if (!args?.trim()) return "composer.cmuxBtwQuestion";
