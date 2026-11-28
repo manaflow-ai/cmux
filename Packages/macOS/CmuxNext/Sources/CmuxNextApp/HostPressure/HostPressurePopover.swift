@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextHostPressure
+import CmuxNextHostPressureTunables
 import CmuxNextHostPressureUI
 
 /// The host pressure popover under the top-row indicator: what the host is at
