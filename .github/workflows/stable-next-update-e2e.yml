@@ -75,6 +75,13 @@ jobs:
           FROM_BUILD: ${{ inputs.from_build }}
         run: |
           set -euo pipefail
+          # A pull request to main takes feat-cmux-next's harness, which may not have --channel yet (cmux#64600 adds
+          # it). There the PR has nothing to run, so it warns and passes; the schedule and a dispatch still fail red.
+          if [ "$GITHUB_EVENT_NAME" = pull_request ] && ! grep -q -- '"--channel"' scripts/cmux-next/update-e2e.py; then
+            echo "::warning::feat-cmux-next's update-e2e.py has no --channel yet (cmux#64600); nothing to run on this pull request"
+            echo "feed skipped: harness has no --channel (cmux#64600)" > "$RUNNER_TEMP/update-e2e.log"
+            exit 0
+          fi
           source scripts/ci/lib/signing-runtime-guard.sh
           cmux_signing_runtime_guard
           from=()
