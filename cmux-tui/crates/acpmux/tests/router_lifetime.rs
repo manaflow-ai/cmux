@@ -85,11 +85,12 @@ fn cli_shutdown_at(dir: &Path, home: &Path, extra: &[&str]) {
 /// The router admin socket of the acpmux home `home`, by the rule the router,
 /// acpmux and the cmux app share (cmux-coderouter admin_socket.rs, Swift
 /// `LocalRouterClient.socketPath`): `<home>/router/router.sock` when it fits a
-/// Unix socket address (103 bytes), else `/tmp/acpmux-<uid>/<fnv1a64(home)>-router.sock`.
+/// Unix socket address (`cmux_unix_socket::PORTABLE_MAX_PATH_BYTES`), else
+/// `/tmp/acpmux-<uid>/<fnv1a64(home)>-router.sock`.
 fn router_socket(home: &Path) -> PathBuf {
     use std::os::unix::ffi::OsStrExt;
     let preferred = home.join("router").join("router.sock");
-    if preferred.as_os_str().len() <= 103 {
+    if preferred.as_os_str().len() <= cmux_unix_socket::PORTABLE_MAX_PATH_BYTES {
         return preferred;
     }
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
@@ -267,7 +268,11 @@ fn a_long_home_gets_a_router_that_the_daemon_and_clients_reach() {
     let dir = scratch("rlng");
     let home = long_home(&dir);
     let socket = router_socket(&home);
-    assert!(socket.as_os_str().len() <= 103, "{}", socket.display());
+    assert!(
+        socket.as_os_str().len() <= cmux_unix_socket::PORTABLE_MAX_PATH_BYTES,
+        "{}",
+        socket.display()
+    );
     // Ended on every path: a router started by hand has no owner to outlive.
     struct Reaped(Child);
     impl Drop for Reaped {
