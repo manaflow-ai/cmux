@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { useLayoutEffect, useSyncExternalStore } from "react";
 import type { MentionTrigger } from "./emojiTokens";
 
 /// The composer's prompt text and caret, outside React state (Leo: "we need typing in the gui to be
@@ -60,6 +60,11 @@ export class PromptText {
     | undefined;
   /// Bumped on each dismissal change, so cached facts know to recompute.
   #dismissedVersion = 0;
+  /// `#facts` is a snapshot no render has drawn yet (`shown`). Until one does it keeps the latest text
+  /// and caret: a fact change notifies at once but draws later, and the field's own changes that come
+  /// first in the same task (a drop's chips placed after its first one filled the prompt) would
+  /// otherwise reach the field as an older value, which replaces its document.
+  #unshown = false;
 
   constructor(text: string) {
     this.#text = text;
@@ -158,8 +163,18 @@ export class PromptText {
       slashDismissed: this.#dismissed.has("slash"),
       mentionDismissed: this.#dismissed.has("mention"),
     };
-    if (!this.#facts || !sameFacts(this.#facts, next)) this.#facts = next;
+    if (!this.#facts || !sameFacts(this.#facts, next)) {
+      this.#facts = next;
+      this.#unshown = true;
+    } else if (this.#unshown && (this.#facts.text !== text || this.#facts.caret !== caret))
+      this.#facts = { ...this.#facts, text, caret };
     return this.#facts;
+  }
+
+  /// A render drew `facts`: from here typed text stays out of the snapshot until a fact changes or
+  /// `draw`, so the box does not render per key.
+  shown(facts: PromptFacts) {
+    if (facts === this.#facts) this.#unshown = false;
   }
 
   #notify() {
@@ -170,11 +185,14 @@ export class PromptText {
   draw() {
     if (!this.#facts || (this.#facts.text === this.#text && this.#facts.caret === this.#caret)) return;
     this.#facts = { ...this.#facts, text: this.#text, caret: this.#caret };
+    this.#unshown = true;
     this.#notify();
   }
 }
 
 /// The frame's view of the prompt: renders only when a fact changes.
 export function usePromptFacts(prompt: PromptText, probe: RecallProbe): PromptFacts {
-  return useSyncExternalStore(prompt.subscribe, () => prompt.facts(probe));
+  const facts = useSyncExternalStore(prompt.subscribe, () => prompt.facts(probe));
+  useLayoutEffect(() => prompt.shown(facts), [prompt, facts]);
+  return facts;
 }
