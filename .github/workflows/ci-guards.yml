@@ -1934,6 +1934,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_tailnet_oidc_pr_gate.py
 
+      - name: Validate only ios-e2e.yml joins through the ios-e2e tailnet identity
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_tailnet_oidc_identity_scope.py
+
       - name: Validate triage radar scoring
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_triage_radar.py

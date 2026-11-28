@@ -202,7 +202,14 @@ jobs:
     name: Windows live host (tailnet)
     # Never on a pull request today; the same-repo guard and RD_WINDOWS_PR_TAILNET say so to the tailnet gate
     # (tests/test_ci_workflow_tailnet_oidc_pr_gate.py) and keep a later PR trigger off the identity until it admits PRs.
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && vars.RD_WINDOWS_PR_TAILNET == 'true')) }}
+    # The tailnet join needs its own Tailscale trust credential. The ios-e2e identity behind
+    # TS_E2E_OIDC_CLIENT_ID trusts only ios-e2e.yml under workflow_dispatch (docs/ci/ios-e2e.md#secrets),
+    # so this workflow's join got 403 "Unauthorized" on every run since at least 11-19 (run 43840394161).
+    # The job runs once a tailnet admin creates an identity trusting this file (subject
+    # repo:manaflow-ai/cmux:environment:ios-e2e, workflow .github/workflows/cmux-rd-windows.yml, tag:e2e-backend)
+    # and sets TS_RD_WINDOWS_OIDC_CLIENT_ID and TS_RD_WINDOWS_OIDC_AUDIENCE
+    # (tests/test_ci_tailnet_oidc_identity_scope.py).
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && vars.RD_WINDOWS_PR_TAILNET == 'true')) && vars.TS_RD_WINDOWS_OIDC_CLIENT_ID != '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || fromJSON(vars.RUNNER_POOLS).windows }}
     timeout-minutes: 15
     defaults:
@@ -221,7 +228,7 @@ jobs:
       - name: Print OIDC subject (no secret)
         shell: pwsh
         env:
-          OIDC_AUDIENCE: ${{ vars.TS_E2E_OIDC_AUDIENCE }}
+          OIDC_AUDIENCE: ${{ vars.TS_RD_WINDOWS_OIDC_AUDIENCE }}
         run: |
           $ErrorActionPreference = 'Stop'
           $audience = [Uri]::EscapeDataString($env:OIDC_AUDIENCE)
@@ -236,8 +243,8 @@ jobs:
       - name: Join the CI tailnet
         uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
         with:
-          oauth-client-id: ${{ vars.TS_E2E_OIDC_CLIENT_ID }}
-          audience: ${{ vars.TS_E2E_OIDC_AUDIENCE }}
+          oauth-client-id: ${{ vars.TS_RD_WINDOWS_OIDC_CLIENT_ID }}
+          audience: ${{ vars.TS_RD_WINDOWS_OIDC_AUDIENCE }}
           tags: tag:e2e-backend
           hostname: cmux-rd-win-${{ github.run_id }}
 
@@ -286,7 +293,14 @@ jobs:
     name: macOS live viewer (tailnet)
     # Never on a pull request today; the same-repo guard and RD_WINDOWS_PR_TAILNET say so to the tailnet gate
     # (tests/test_ci_workflow_tailnet_oidc_pr_gate.py) and keep a later PR trigger off the identity until it admits PRs.
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && vars.RD_WINDOWS_PR_TAILNET == 'true')) }}
+    # The tailnet join needs its own Tailscale trust credential. The ios-e2e identity behind
+    # TS_E2E_OIDC_CLIENT_ID trusts only ios-e2e.yml under workflow_dispatch (docs/ci/ios-e2e.md#secrets),
+    # so this workflow's join got 403 "Unauthorized" on every run since at least 11-19 (run 43840394161).
+    # The job runs once a tailnet admin creates an identity trusting this file (subject
+    # repo:manaflow-ai/cmux:environment:ios-e2e, workflow .github/workflows/cmux-rd-windows.yml, tag:e2e-backend)
+    # and sets TS_RD_WINDOWS_OIDC_CLIENT_ID and TS_RD_WINDOWS_OIDC_AUDIENCE
+    # (tests/test_ci_tailnet_oidc_identity_scope.py).
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && vars.RD_WINDOWS_PR_TAILNET == 'true')) && vars.TS_RD_WINDOWS_OIDC_CLIENT_ID != '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_IOS || vars.MACOS_RUNNER_PR || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 15
     environment: ios-e2e
@@ -301,7 +315,7 @@ jobs:
 
       - name: Print OIDC subject (no secret)
         env:
-          OIDC_AUDIENCE: ${{ vars.TS_E2E_OIDC_AUDIENCE }}
+          OIDC_AUDIENCE: ${{ vars.TS_RD_WINDOWS_OIDC_AUDIENCE }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -350,8 +364,8 @@ jobs:
         if: steps.tailnet.outputs.existing == 'false'
         uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
         with:
-          oauth-client-id: ${{ vars.TS_E2E_OIDC_CLIENT_ID }}
-          audience: ${{ vars.TS_E2E_OIDC_AUDIENCE }}
+          oauth-client-id: ${{ vars.TS_RD_WINDOWS_OIDC_CLIENT_ID }}
+          audience: ${{ vars.TS_RD_WINDOWS_OIDC_AUDIENCE }}
           tags: tag:e2e-backend
           hostname: cmux-rd-mac-${{ github.run_id }}
 
