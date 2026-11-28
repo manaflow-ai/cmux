@@ -131,6 +131,29 @@ fn only_the_providers_the_rules_name_are_kept_in_memory() {
 }
 
 #[test]
+fn an_unkept_provider_keeps_its_name_and_a_malformed_one_is_skipped() {
+    let mut body: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_slice(&feed_body()).unwrap();
+    body.insert("broken".into(), json!(5));
+    body.insert("nameless".into(), json!({"models": {"m": {"id": "m"}}}));
+    let snapshot =
+        feed::parse(&serde_json::to_vec(&body).unwrap(), &feed::providers_used(&base())).unwrap();
+    assert_eq!(
+        snapshot.name_of("openai"),
+        Some("OpenAI"),
+        "an unkept provider's name is read without its models"
+    );
+    assert_eq!(snapshot.name_of("google"), Some("Google"));
+    assert_eq!(snapshot.name_of("nameless"), Some("nameless"));
+    assert_eq!(
+        snapshot.name_of("broken"),
+        None,
+        "a provider that is not an object is skipped, not fatal"
+    );
+    assert!(snapshot.has_models_of("google") && !snapshot.has_models_of("openai"));
+}
+
+#[test]
 fn a_feed_that_is_not_an_object_is_refused() {
     assert!(feed::parse(b"[1,2]", &feed::providers_used(&base())).is_err());
     assert!(feed::parse(b"not json", &feed::providers_used(&base())).is_err());

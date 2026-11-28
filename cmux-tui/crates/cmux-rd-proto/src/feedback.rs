@@ -3,6 +3,8 @@ use crate::error::{DecodeError, Reader};
 /// Most arrivals in one feedback; with the other limits a feedback payload
 /// stays under 1,100 bytes, inside every session's `max_datagram`.
 pub const MAX_ARRIVALS: usize = 128;
+/// The most LTR tokens one feedback payload acknowledges.
+pub const MAX_LTR_TOKENS: usize = 16;
 /// Most frames with NACKs in one feedback.
 pub const MAX_NACK_FRAMES: usize = 4;
 /// Most shard indexes per NACKed frame.
@@ -33,6 +35,8 @@ pub struct Feedback {
     pub decode_us: u32,
     /// The viewer could not decode from `acked_frame` on and asks for recovery.
     pub need_recovery: bool,
+    /// VideoToolbox LTR tokens for frames the viewer has fully received.
+    pub acked_ltr_tokens: Vec<u64>,
     pub arrivals: Vec<Arrival>,
     pub nacks: Vec<Nack>,
 }
@@ -58,6 +62,16 @@ impl Feedback {
             out.push(idx.len() as u8);
             for i in idx {
                 out.extend_from_slice(&i.to_le_bytes());
+            }
+        }
+        // LTR tokens ride in an optional tail after the NACKs, so a payload without them is
+        // byte-for-byte the version-1 layout. A viewer only acknowledges tokens a host sent,
+        // and only an LTR-aware host sends them, so an older host never sees the tail.
+        let tokens = self.acked_ltr_tokens.get(..MAX_LTR_TOKENS).unwrap_or(&self.acked_ltr_tokens);
+        if !tokens.is_empty() {
+            out.push(tokens.len() as u8);
+            for token in tokens {
+                out.extend_from_slice(&token.to_le_bytes());
             }
         }
         out
@@ -89,9 +103,20 @@ impl Feedback {
             }
             nacks.push(Nack { frame, indexes });
         }
+        let mut acked_ltr_tokens = Vec::new();
+        if !r.is_empty() {
+            let n_tokens = r.u8()? as usize;
+            if n_tokens == 0 || n_tokens > MAX_LTR_TOKENS {
+                return Err(DecodeError::Invalid("ltr token count"));
+            }
+            acked_ltr_tokens.reserve(n_tokens);
+            for _ in 0..n_tokens {
+                acked_ltr_tokens.push(r.u64()?);
+            }
+        }
         if !r.is_empty() {
             return Err(DecodeError::Invalid("trailing bytes"));
         }
-        Ok(Self { acked_frame, decode_us, need_recovery, arrivals, nacks })
+        Ok(Self { acked_frame, decode_us, need_recovery, acked_ltr_tokens, arrivals, nacks })
     }
 }

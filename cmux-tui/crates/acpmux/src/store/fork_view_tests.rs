@@ -781,14 +781,54 @@ fn a_cold_commit_waits_for_the_forks_history_write() {
             committed.unwrap()
         })
     };
-    let heard =
-        heard.recv_timeout(arrive).expect("the commit never reached its wait for `dropping`");
-    assert_eq!(heard, "waits", "the commit waits for the history's write");
+    let heard = heard.recv_timeout(arrive).expect("the commit never answered");
+    assert_eq!(heard, "done", "the commit leaves the log at once, never queued for `dropping`");
+    assert!(!commit.join().unwrap(), "the history's write holds `dropping`: no commit now");
     release.send(()).unwrap();
     delete.join().unwrap();
-    assert!(!commit.join().unwrap(), "the log changed since it was staged");
     assert!(!view.is_cold("fork"));
     assert!(view.load("fork").unwrap().unwrap().history_from.is_none());
+    assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), expected(20, 4));
+}
+
+/// A long read holds `dropping` (an export's history pack, minutes on a loaded Mac). A cold
+/// commit then leaves the log rather than wait, so no writer stands in front of the reads that
+/// come after it: on macOS each would queue behind that writer, and every delivery and page read
+/// did, for 5 min (2026-11-27). With nothing held, the next pass commits.
+#[test]
+fn a_cold_commit_behind_a_long_read_leaves_the_log_and_queues_no_reader() {
+    let dir = tempfile::tempdir().unwrap().keep();
+    let view =
+        std::sync::Arc::new(forked(Box::new(LocalStore::new(dir, 1 << 20).unwrap()), 30, 20, 4));
+    view.close_log("fork");
+    let wait = std::time::Duration::from_secs(30);
+    let (held_tx, held) = std::sync::mpsc::channel();
+    let (release, release_rx) = std::sync::mpsc::channel::<()>();
+    let reader = {
+        let view = view.clone();
+        std::thread::spawn(move || {
+            let _read = view.shared();
+            held_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+        })
+    };
+    held.recv_timeout(wait).expect("the long read never took `dropping`");
+    let staged = view.stage_cold("fork").unwrap().expect("the fork has a log to archive");
+    assert!(!view.commit_cold("fork", staged).unwrap(), "a read holds `dropping`: no commit now");
+    // Another read still runs while the long one holds: no writer waits in front of it.
+    let (read_tx, read) = std::sync::mpsc::channel();
+    let other = {
+        let view = view.clone();
+        std::thread::spawn(move || read_tx.send(seqs(&view.events("fork", 0, usize::MAX).unwrap())))
+    };
+    assert_eq!(read.recv_timeout(wait).expect("a read queued behind the commit"), expected(20, 4));
+    other.join().unwrap().unwrap();
+    release.send(()).unwrap();
+    reader.join().unwrap();
+    assert!(!view.is_cold("fork"));
+    let staged = view.stage_cold("fork").unwrap().expect("the fork has a log to archive");
+    assert!(view.commit_cold("fork", staged).unwrap(), "with nothing held, the commit lands");
+    assert!(view.is_cold("fork"));
     assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), expected(20, 4));
 }
 
@@ -821,4 +861,29 @@ fn the_fork_view_forwards_every_store_method() {
     let stale: Vec<&&str> =
         DEFAULT_STANDS.iter().filter(|m| forwarded.iter().any(|f| f == *m)).collect();
     assert!(stale.is_empty(), "forwarded now, take them out of DEFAULT_STANDS: {stale:?}");
+}
+
+/// A delete that finds a fork of the chat reserved and not saved yet waits for that save (moments
+/// later, under the same lock) instead of refusing the person (Leo, 2026-11-22: vacuous "try
+/// again"s are just done); the fork keeps the history.
+#[test]
+fn a_delete_waits_for_a_fork_still_being_saved() {
+    let view = std::sync::Arc::new(ForkView::new(Box::new(MemoryStore::default())));
+    view.save(&meta("chat", None)).unwrap();
+    for seq in 1..=4 {
+        view.append("chat", &record(seq, "agent_message_chunk")).unwrap();
+    }
+    let reference = HistoryRef { session: "chat".into(), through_seq: 4 };
+    view.reserve_reference("fork", &reference).unwrap();
+    let saver = {
+        let view = view.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            view.save(&meta("fork", Some(reference))).unwrap();
+        })
+    };
+    view.delete("chat").unwrap();
+    saver.join().unwrap();
+    assert!(view.load("chat").unwrap().is_none());
+    assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), [1, 2, 3, 4]);
 }

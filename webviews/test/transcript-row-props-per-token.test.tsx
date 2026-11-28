@@ -8,6 +8,7 @@ import { afterAll, expect, mock, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { teardownDom } from "./support/domTeardown";
+import { openSettled } from "./support/openSettled";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -125,6 +126,9 @@ async function streamAt(height: number): Promise<{ mounted: number; perToken: nu
   try {
     await draw();
     await draw();
+    // The rows mounted once the chat is open: its history above the view mounts after the open's first
+    // frame painted, not in its first commit.
+    await openSettled(dom.window);
     const mounted = dom.window.document.querySelectorAll(".acpmux-row").length;
     compared = 0;
     for (let step = 1; step <= TOKENS; step += 1) {

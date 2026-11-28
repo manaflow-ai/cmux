@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextAgentActivity
 @testable import CmuxNextAgentLanes
 import CmuxNextDesign
+import CmuxNextIcons
 @testable import CmuxNextApp
 @testable import CmuxNextHome
 @testable import CmuxNextSidebar
@@ -31,7 +32,7 @@ struct ChiefReplacesHomeTests {
         return SidebarFavicon(try #require(context.makeImage()))
     }
 
-    /// The top row reads as the Chief: its name and picture, its status and the subagents that need the person,
+    /// The top row reads as the Chief: its name beside Home's house (not the Chief's picture), its status and the subagents that need the person,
     /// and the blue dot while another chat is unread.
     @Test func theTopRowIsTheChiefThread() throws {
         let shown = ChiefSidebar.shared.status
@@ -43,10 +44,29 @@ struct ChiefReplacesHomeTests {
         let row = try #require(infos[Self.homeItem.id], "the default layout has no top row for the Chief")
         #expect(row.title == SidebarBuiltIn.home.title && row.title != SidebarBuiltIn.chief.title,
                 "the top row is named \(row.title), not Chief (Chief Activity is the other item, cmux#48416)")
-        #expect(row.favicon == picture, "the top row does not show the Chief's picture")
+        #expect(row.favicon == nil && row.symbol == "house" && row.icon == .home,
+                "the top row draws \(row.symbol), not Home's house (Lucas 2026-11-23)")
         #expect(row.activity == .waiting, "the top row does not show that the Chief needs the person (\(row.activity))")
         #expect(row.badge == 2, "the top row does not count the subagents that need the person (\(String(describing: row.badge)))")
         #expect(row.unreadDot, "another unread chat no longer shows on the top row")
+    }
+
+    /// Lawrence 2026-11-23 (msg 48175): "get rid of the crown". With no picture, no Chief row draws the icon pack's
+    /// `agent.chief` crown: the top row draws Home's house (#53281) and the Chief Activity item, placed in a section,
+    /// draws the icon pack's sparkles glyph.
+    @Test func theChiefRowsDrawNoCrown() throws {
+        let activity = LayoutItem(id: LayoutItemID("itm_chief_activity"), ref: .builtIn(.chief))
+        let infos = SidebarBridge.itemInfo(for: SidebarLayoutDocument.defaults, registered: { _ in true }, homeUnread: 0,
+                                           chiefFavicon: nil, listed: [activity])
+        let top = try #require(infos[Self.homeItem.id], "the default layout has no top row for the Chief")
+        let chief = try #require(infos[activity.id], "a placed Chief Activity item has no presentation")
+        for (name, row) in [("the top row", top), ("Chief Activity", chief)] {
+            #expect(row.icon != .agentChief, "\(name) draws the crown (\(String(describing: row.icon)))")
+        }
+        #expect(top.icon == .home && top.symbol == "house", "the top row draws \(String(describing: top.icon)) / \(top.symbol), not the house")
+        #expect(chief.icon == .sparkles && chief.symbol == "sparkles",
+                "Chief Activity draws \(String(describing: chief.icon)) / \(chief.symbol), not sparkles")
+        #expect(IconPack.bundled.drawing(for: .sparkles) != nil, "the sparkles icon is missing from the icon pack")
     }
 
     /// The Chief's subagents draw as indented rows right under the Chief's top row, before the next item.
@@ -86,6 +106,8 @@ struct ChiefReplacesHomeTests {
     /// a new page opens the way the person left it, and the button is lit while the list shows.
     @Test func chatsShowsAndFoldsTheList() throws {
         _ = NSApplication.shared
+        Motion.reduceMotionOverride = true
+        defer { Motion.reduceMotionOverride = nil }
         let suite = "cmux.tests.chiefReplacesHome.chats.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }

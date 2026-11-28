@@ -54,6 +54,47 @@ class MetricsTests(unittest.TestCase):
         m = self.report({'seconds':2,'quality_samples':[{'mse':4,'capture_us':123}]}, [])
         self.assertIsNone(m['psnr_db'])
 
+    def test_bits_per_pixel_from_ladder_picture_size(self):
+        m = self.report({'seconds':1},
+                        [{'release_us':1,'encoded_bytes':1000,'idr':True,'width':400,'height':200},
+                         {'release_us':2,'encoded_bytes':0,'idr':False,'width':400,'height':200},
+                         {'release_us':3,'encoded_bytes':250,'idr':False,'width':200,'height':100},
+                         {'release_us':4,'encoded_bytes':100,'idr':False,'width':400,'height':200}])
+        self.assertEqual(m['min_bits_per_pixel'], 0.01)
+        self.assertEqual(m['median_bits_per_pixel'], 0.1)
+        self.assertIsNotNone(m['bits_per_pixel_source'])
+
+    def test_bits_per_pixel_unmeasured_without_every_picture_size(self):
+        m = self.report({'seconds':1},
+                        [{'release_us':1,'encoded_bytes':1000,'idr':True},
+                         {'release_us':2,'encoded_bytes':10,'idr':False,'width':400,'height':200}])
+        self.assertIsNone(m['min_bits_per_pixel'])
+        self.assertIsNone(m['median_bits_per_pixel'])
+        self.assertIsNone(m['bits_per_pixel_source'])
+
+    def test_budget_bits_per_pixel_is_target_over_picture_at_fps_cap(self):
+        # An idle P frame codes far under the floor; the budget the ladder held does not.
+        m = self.report({'seconds':1},
+                        [{'release_us':1,'encoded_bytes':1000,'idr':True,'width':400,'height':200,
+                          'fps':60,'target_kbps':480},
+                         {'release_us':2,'encoded_bytes':0,'idr':False,'width':400,'height':200,
+                          'fps':60,'target_kbps':480},
+                         {'release_us':3,'encoded_bytes':2,'idr':False,'width':200,'height':100,
+                          'fps':30,'target_kbps':120}])
+        self.assertEqual(m['min_bits_per_pixel'], 0.0008)
+        self.assertEqual(m['budget_bits_per_pixel_min'], 0.1)
+        self.assertEqual(m['budget_bits_per_pixel_median'], 0.2)
+        self.assertIsNotNone(m['budget_bits_per_pixel_source'])
+
+    def test_budget_bits_per_pixel_unmeasured_without_every_target(self):
+        m = self.report({'seconds':1},
+                        [{'release_us':1,'encoded_bytes':1000,'idr':True,'width':400,'height':200,
+                          'fps':60,'target_kbps':480},
+                         {'release_us':2,'encoded_bytes':10,'idr':False,'width':400,'height':200}])
+        self.assertIsNotNone(m['min_bits_per_pixel'])
+        self.assertIsNone(m['budget_bits_per_pixel_min'])
+        self.assertIsNone(m['budget_bits_per_pixel_source'])
+
 
 if __name__ == '__main__':
     unittest.main()

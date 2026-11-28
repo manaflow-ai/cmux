@@ -38,7 +38,7 @@ public struct SystemScrollers {
     /// a scroll view to the system's style then). One that scrolls sideways too gets the shared
     /// ``ThinScroller`` on both bars: AppKit's overlay scrollers paint a track while the pointer is
     /// over them. A table's header corner (the square above the vertical bar) is removed.
-    public static func follow(_ scrollView: NSScrollView) {
+    public static func follow(_ scrollView: NSScrollView, scrollOnly: Bool = false) {
         if scrollView.hasHorizontalScroller {
             if !(scrollView.horizontalScroller is ThinScroller) { scrollView.horizontalScroller = ThinScroller() }
             if !(scrollView.verticalScroller is ThinScroller) { scrollView.verticalScroller = ThinScroller() }
@@ -55,27 +55,35 @@ public struct SystemScrollers {
         scrollView.autohidesScrollers = true
         scrollView.scrollerStyle = nativeStyle
         followed.removeAll { $0.value == nil || $0.value === scrollView }
-        followed.append(WeakScrollView(scrollView))
+        followed.append(WeakScrollView(scrollView, scrollOnly: scrollOnly))
+        if scrollOnly {
+            (scrollView.verticalScroller as? ThinScroller)?.autoHides = true
+            (scrollView.horizontalScroller as? ThinScroller)?.autoHides = true
+        }
         startObserving()
     }
 
     /// Gives `scrollView` the shared ``ThinScroller`` and follows it like ``follow(_:)``: the
     /// sidebar and every scrollable card (hover cards, the update card's popover) scroll with this
-    /// one style, the native twin of the chat's (webviews/src/scrollers.ts).
-    public static func followThin(_ scrollView: NSScrollView) {
+    /// one style, the native twin of the chat's (webviews/src/scrollers.ts). Sidebar callers pass
+    /// `scrollOnly` so the sidebar remains scroll-only even if the app's general scroller setting
+    /// requests persistent knobs.
+    public static func followThin(_ scrollView: NSScrollView, scrollOnly: Bool = false) {
         if !(scrollView.verticalScroller is ThinScroller) { scrollView.verticalScroller = ThinScroller() }
-        follow(scrollView)
+        follow(scrollView, scrollOnly: scrollOnly)
     }
 
-    /// The auto-hide of every ``ThinScroller``: true (the default, Lawrence 2026-10-23 msg 11494)
-    /// fades its knob out at rest and in while the view scrolls or the pointer nears its edge;
-    /// false keeps it shown for as long as the content overflows (Leo 2026-10-21's look).
+    /// The auto-hide of every non-sidebar ``ThinScroller``: true (the default, Lawrence 2026-10-23
+    /// msg 11494) fades its knob out at rest and in while the view scrolls; false keeps it shown for
+    /// as long as the content overflows (Leo 2026-10-21's look). Sidebar scrollers always stay
+    /// scroll-only because hover must never put a thumb over the resize band.
     public static var thinScrollersAutoHide = true {
         didSet {
             followed.removeAll { $0.value == nil }
             for entry in followed {
-                (entry.value?.verticalScroller as? ThinScroller)?.autoHides = thinScrollersAutoHide
-                (entry.value?.horizontalScroller as? ThinScroller)?.autoHides = thinScrollersAutoHide
+                let autoHides = entry.scrollOnly || thinScrollersAutoHide
+                (entry.value?.verticalScroller as? ThinScroller)?.autoHides = autoHides
+                (entry.value?.horizontalScroller as? ThinScroller)?.autoHides = autoHides
             }
         }
     }
@@ -117,7 +125,11 @@ public struct SystemScrollers {
 
     private struct WeakScrollView {
         weak var value: NSScrollView?
-        init(_ value: NSScrollView) { self.value = value }
+        let scrollOnly: Bool
+        init(_ value: NSScrollView, scrollOnly: Bool = false) {
+            self.value = value
+            self.scrollOnly = scrollOnly
+        }
     }
 }
 
@@ -184,17 +196,17 @@ struct ScrollerPartNames {
     static func name(for subrole: NSAccessibility.Subrole, vertical: Bool) -> String? {
         switch subrole {
         case .incrementPage:
-            vertical ? String(localized: "scroller.part.pageDown", defaultValue: "Page Down", bundle: .module)
-                : String(localized: "scroller.part.pageRight", defaultValue: "Page Right", bundle: .module)
+            vertical ? String(localized: "scroller.part.pageDown", defaultValue: "Page Down", bundle: .localizedModule)
+                : String(localized: "scroller.part.pageRight", defaultValue: "Page Right", bundle: .localizedModule)
         case .decrementPage:
-            vertical ? String(localized: "scroller.part.pageUp", defaultValue: "Page Up", bundle: .module)
-                : String(localized: "scroller.part.pageLeft", defaultValue: "Page Left", bundle: .module)
+            vertical ? String(localized: "scroller.part.pageUp", defaultValue: "Page Up", bundle: .localizedModule)
+                : String(localized: "scroller.part.pageLeft", defaultValue: "Page Left", bundle: .localizedModule)
         case .incrementArrow:
-            vertical ? String(localized: "scroller.part.scrollDown", defaultValue: "Scroll Down", bundle: .module)
-                : String(localized: "scroller.part.scrollRight", defaultValue: "Scroll Right", bundle: .module)
+            vertical ? String(localized: "scroller.part.scrollDown", defaultValue: "Scroll Down", bundle: .localizedModule)
+                : String(localized: "scroller.part.scrollRight", defaultValue: "Scroll Right", bundle: .localizedModule)
         case .decrementArrow:
-            vertical ? String(localized: "scroller.part.scrollUp", defaultValue: "Scroll Up", bundle: .module)
-                : String(localized: "scroller.part.scrollLeft", defaultValue: "Scroll Left", bundle: .module)
+            vertical ? String(localized: "scroller.part.scrollUp", defaultValue: "Scroll Up", bundle: .localizedModule)
+                : String(localized: "scroller.part.scrollLeft", defaultValue: "Scroll Left", bundle: .localizedModule)
         default: nil
         }
     }

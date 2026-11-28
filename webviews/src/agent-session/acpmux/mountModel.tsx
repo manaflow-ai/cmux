@@ -9,11 +9,12 @@ import { nativePopupHost } from "../../ui/popupHost";
 import { installNativeMenu } from "../../ui/nativeMenu";
 import { postNative } from "./native";
 import { pageHostFlickerSend, startFlickerLog } from "./flickerLog";
-import { pageHostClient } from "./pageHost";
+import { pageHostClient } from "./pageHostClient";
 import { appPopupHost } from "../../pages/shared/pagePopupHost";
 import { installMessageMenuReporter } from "./conversation/messageMenu";
 import { installDragOut } from "./conversation/dragOut";
 import { installPageKey } from "./pageKey";
+import { installAppLanguage } from "../../pages/shared/appLanguage";
 import { installRevealSettle } from "../shared/pageReveal";
 import { setHarnessSymbolHost } from "../shared/harnessIcons";
 import { experimentArm } from "../../experiments/experiment";
@@ -22,6 +23,7 @@ import { reportHostGlass } from "../../ui/glass/hostGlass";
 import { chatUnderHoverCard, hostGlassCover } from "./chatUnderGlass";
 import { installUiPointer, type UiPointerControl } from "./uiPointer/picker";
 import { reportChatSnapshot } from "./chatSnapshot/live";
+import { PaneViewContext } from "./paneViewStore";
 
 // The chat's snapshot drew in the document's first frame (chatSnapshot/boot.ts): the host shows the
 // page now, before the handshake, instead of keeping its loading state until the rows are read.
@@ -66,6 +68,8 @@ setHarnessSymbolHost((name) =>
   ),
 );
 export function mountAcpmux(initialChat?: InitialChat): void {
+  // Settings > General > Language: the host switches the pane's strings live (appLanguage.ts).
+  installAppLanguage();
   const root = document.getElementById("root")!;
   // A menu with no room in the pane goes past the window's edge through the native host (cx-6k6cg):
   // the shared page host's popup ops, else the legacy bridge's.
@@ -88,11 +92,28 @@ export function mountAcpmux(initialChat?: InitialChat): void {
   // shared page host its batches are the `diag.flicker` op, on the old host the pane's own WebKit
   // handler takes them.
   startFlickerLog(window, pageHostClient() ? pageHostFlickerSend() : undefined);
-  createRoot(root).render(
-    <UiProvider container={root} popupHost={popupHost}>
-      <PaneBoundary onRetry={() => window.location.reload()}>
-        <AcpmuxApp initialChat={initialChat} />
-      </PaneBoundary>
-    </UiProvider>,
-  );
+  // `?mounts=N` (dev host only, with `#sessions=`): N panes in this one document, each its own chat and pane view
+  // (paneViewStore.ts: its own header, tab row, notices and cards), so a bench can
+  // measure what a hidden chat costs as a view in a shared document (bench/chat-pages-memory.bench.ts SHARED=1).
+  const mounts = Math.max(1, Math.min(64, Number(new URLSearchParams(location.search).get("mounts")) || 1));
+  for (let index = 0; index < mounts; index += 1) {
+    let container = root;
+    if (mounts > 1) {
+      container = document.createElement("div");
+      container.dataset.paneMount = String(index);
+      root.append(container);
+    }
+    createRoot(container).render(
+      <PaneViewContext.Provider value={mounts > 1 ? `mount-${index}` : null}>
+        <UiProvider container={container} popupHost={popupHost}>
+          <PaneBoundary
+            onRetry={() => window.location.reload()}
+            onFailed={() => void postNative("pane.renderFailed").catch(() => undefined)}
+          >
+            <AcpmuxApp initialChat={initialChat} />
+          </PaneBoundary>
+        </UiProvider>
+      </PaneViewContext.Provider>,
+    );
+  }
 }

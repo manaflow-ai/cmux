@@ -221,7 +221,7 @@ class WorkflowWiringTests(unittest.TestCase):
 
     def test_ios_macos_jobs_restore_the_seed_before_checkout(self):
         for workflow, jobs in (
-            ("test-ios.yml", ("mobile-core-package", "ios-simulator-build")),
+            ("test-ios.yml", ("ios-simulator-build",)),
         ):
             text = (WORKFLOWS / workflow).read_text()
             for job in jobs:
@@ -231,7 +231,7 @@ class WorkflowWiringTests(unittest.TestCase):
     def test_a_failed_seeded_checkout_retries_without_the_seed(self):
         for workflow, jobs in (
             ("ci-macos.yml", ("macos-compile-admission", "swift-package-tests")),
-            ("test-ios.yml", ("mobile-core-package", "ios-simulator-build")),
+            ("test-ios.yml", ("ios-simulator-build",)),
         ):
             text = (WORKFLOWS / workflow).read_text()
             for job in jobs:
@@ -241,14 +241,6 @@ class WorkflowWiringTests(unittest.TestCase):
                     retry = body.index("- name: Retry checkout", discard)
                     self.assertIn('rm -rf "$GITHUB_WORKSPACE/.git"', body[discard:retry])
                     self.assertIn("steps.checkout.outcome == 'failure'", body[retry:retry + 200])
-
-    def test_only_main_saves_the_seed(self):
-        text = (WORKFLOWS / "seed-derived-data.yml").read_text()
-        step = re.search(r"- name: Save git object seed\n(.*?)(?=\n      - name:|\Z)", text, re.S)
-        self.assertIsNotNone(step)
-        self.assertIn("if: github.ref == 'refs/heads/main'", step.group(1))
-        self.assertIn("continue-on-error: true", step.group(1))
-        self.assertIn('git-seed.sh save "$GITHUB_WORKSPACE"', step.group(1))
 
 
 if __name__ == "__main__":

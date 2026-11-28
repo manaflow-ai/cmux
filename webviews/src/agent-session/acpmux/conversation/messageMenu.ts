@@ -9,6 +9,7 @@
 import { Lexer, lexer, type Token, walkTokens } from "marked";
 import { turnRows } from "../diff";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
+import { findSession } from "../sessionIndex";
 import { menuPartAt, type MenuPart } from "./menuParts";
 import { retryHelps, sendCause } from "../sendFailure";
 import { withoutSkillDollars } from "../slashCommands";
@@ -16,6 +17,8 @@ import { currentLanguage, type Translate } from "../i18n";
 import { replyMenuTime } from "./relativeTime";
 import { selectionText } from "./chipCopy";
 import { onVisualViewport } from "../../../ui/visualViewportBox";
+import { composerSettingsSnapshot } from "../composerSettings";
+import { markPopupWithin } from "../../../ui/popupWithin";
 import {
   sendPromptAgainMenu,
   sendPromptAgainTarget,
@@ -43,7 +46,18 @@ export type MessageMenuTarget = {
   sendPromptAgain?: SendPromptAgainMenu;
   /// The message's web links and images, each once, for Open Link.
   links?: string[];
+  /// A prompt I sent with attachments: where `agentPane.attachmentView` draws them now, for the
+  /// menu's Attachments Inline / Attachments at Top pair (Leo, 2026-11-27: "it should be toggleable
+  /// one or the other"). The same setting as Settings' Attachment View and the composer's right-click.
+  attachmentView?: "inline" | "strip";
 };
+
+/// Whether a sent prompt carries any attachment: an image, a recorded non-text part, a file.
+export function promptHasAttachments(row: AcpmuxRow): boolean {
+  return Boolean(
+    row.images?.length || row.retryAttachments?.length || row.inlineParts?.some((part) => part.kind !== "text"),
+  );
+}
 
 /// What the page reports on `contextmenu`: the message under the pointer, and the selected
 /// transcript text when the pointer is inside it (Quote in Reply, Search the Web...).
@@ -108,7 +122,7 @@ export const canFork = (snapshot: AcpmuxSnapshot) => forkServed(snapshot) && !sn
 /// ended (Leo, 2026-11-21: "inconsistent forking button appearing that is somehow dependent on
 /// future tool calls?"). Another agent forks only at a chat's end, so it waits for the idle chat.
 export const canForkTurn = (snapshot: AcpmuxSnapshot) =>
-  forkServed(snapshot) && (!snapshot.isWorking || forksAnyTurn(snapshot.summary?.family));
+  forkServed(snapshot) && (!snapshot.isWorking || forksAnyTurn(snapshot));
 
 /// Why Fork Conversation from the app (the palette's step, the chat's right-click menu, its
 /// shortcut: `chat.forkTo`) cannot fork the chat now, or undefined when it can: "unavailable" when
@@ -132,7 +146,29 @@ export function forkToTarget(snapshot: AcpmuxSnapshot): { live: true } | { throu
 
 /// Whether every completed turn can be forked: acpmux forks a Claude or Codex chat through any of
 /// them (`hub/fork_at.rs`, cx-yqiv, cx-a7r); other agents fork only at a chat's end.
-export const forksAnyTurn = (family: string | undefined) => family === "claude" || family === "codex";
+/// acpmux says so per chat (`forksAnyTurn` on its session row: the harness cuts a conversation at a
+/// turn, by kind), so a Claude Code profile under its own family name (`claude-sr2`) forks every turn
+/// too; only an older acpmux that does not say is read by family.
+/// A row without the field is unknown (acpmux built it while its configuration was being written,
+/// or it is older): the chat's last known answer stands, else the family's, never a false.
+export function forksAnyTurn(snapshot: Pick<AcpmuxSnapshot, "summary" | "sessions" | "sessionId">): boolean {
+  const id = snapshot.summary?.sessionId ?? snapshot.sessionId;
+  const listed = id ? findSession(snapshot.sessions ?? [], id)?.forksAnyTurn : undefined;
+  if (id && listed !== undefined) knownForksAnyTurn.set(id, listed);
+  return listed ?? (id ? knownForksAnyTurn.get(id) : undefined) ?? familyForksAnyTurn(snapshot.summary?.family);
+}
+
+/// Each chat's last `forksAnyTurn` acpmux gave, for a later row that leaves it out. A boolean per
+/// chat opened in this page.
+const knownForksAnyTurn = new Map<string, boolean>();
+
+/// Tests: forget every remembered answer.
+export function resetKnownForksAnyTurnForTests(): void {
+  knownForksAnyTurn.clear();
+}
+
+/// An older acpmux's answer: only the `claude` and `codex` families fork through any turn.
+export const familyForksAnyTurn = (family: string | undefined) => family === "claude" || family === "codex";
 
 /// Every turn a fork can start from, newest first: its seq and the prompt that began it (on one
 /// line). A steer later in the turn does not rename it, nor does a prompt that failed or is still
@@ -198,7 +234,7 @@ export function messageMenuTarget(
   const forkSeq =
     canForkTurn(snapshot) &&
     completedTurnSeq !== undefined &&
-    (forksAnyTurn(snapshot.summary?.family) || completedTurnSeq === latestForkSeq(snapshot.rows))
+    (forksAnyTurn(snapshot) || completedTurnSeq === latestForkSeq(snapshot.rows))
       ? completedTurnSeq
       : undefined;
   // Assistant bodies mark the turn's summary row in the rail. Prompts keep their own user row.
@@ -220,6 +256,8 @@ export function messageMenuTarget(
   if (forkSeq !== undefined && sideChat) target.sideChat = true;
   // A prompt too large to send is refused the same way again: no Retry, Edit takes an attachment out.
   if (row.kind === "user" && row.failed && retryHelps(sendCause(row.delivery))) target.retryRowId = row.id;
+  if (row.kind === "user" && promptHasAttachments(row))
+    target.attachmentView = composerSettingsSnapshot().attachmentView === "inline" ? "inline" : "strip";
   const links = webLinks(row.text);
   if (links.length > 0) target.links = links;
   return target;
@@ -334,11 +372,23 @@ const webkitHandler = () =>
     ?.messageHandlers?.[MESSAGE_MENU_HANDLER];
 /// Where reports go: the handler `installMessageMenuReporter` was given.
 let menuHandler: () => Handler | undefined = () => undefined;
-let openPopup: { id: string; anchor: Element } | undefined;
+/// The open menu's opener: lit (`data-popup-open`), its row marked (ui/popupWithin.ts) until the host reports the close.
+let openPopup: { id: string; anchor: Element; unmark: () => void } | undefined;
 
 function clearMessagePopup() {
   openPopup?.anchor.removeAttribute("data-popup-open");
+  openPopup?.unmark();
   openPopup = undefined;
+}
+
+/// A ref for a message menu's opener (More, Fork): when the opener unmounts while its menu is open, its
+/// row lets go of the open menu's mark at once, as the `:has([data-popup-open])` it replaces did. A
+/// stable function, so React calls it only at mount and unmount.
+export function releaseMessagePopupOnUnmount(anchor: Element | null) {
+  if (!anchor) return;
+  return () => {
+    if (openPopup?.anchor === anchor) clearMessagePopup();
+  };
 }
 
 /// Whether a host shows this page's message menu (its More button would do nothing without one).
@@ -357,8 +407,8 @@ export function openForkMenu(throughSeq: number, anchor?: Element): boolean {
   clearMessagePopup();
   const popupId = anchor ? crypto.randomUUID() : undefined;
   if (anchor && popupId) {
-    openPopup = { id: popupId, anchor };
     anchor.setAttribute("data-popup-open", "");
+    openPopup = { id: popupId, anchor, unmark: markPopupWithin(anchor) };
   }
   try {
     handler.postMessage({
@@ -386,8 +436,8 @@ export function openMessageMenu(rowId: string, anchor: Element): boolean {
   );
   clearMessagePopup();
   const popupId = crypto.randomUUID();
-  openPopup = { id: popupId, anchor };
   anchor.setAttribute("data-popup-open", "");
+  openPopup = { id: popupId, anchor, unmark: markPopupWithin(anchor) };
   try {
     handler.postMessage({ ...message, popUp: { left, top, right, bottom }, popupId } satisfies MessageMenuReport);
   } catch {

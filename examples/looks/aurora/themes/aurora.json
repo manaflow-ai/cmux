@@ -1,0 +1,86 @@
+// Aurora: clear glass over your own desktop, polar-night and snow colors, and a teal-to-violet
+// accent used in a few places only. The chrome (titlebar, tab strip, sidebar) is the window's own
+// glass; the chat is the content layer, nearly solid so it reads over any wallpaper. Light and dark
+// both come from this one file: `appearance.theme` names a light and a dark terminal theme and
+// `appearance.themeEdits` gives each its own colors, so the look follows the Mac's appearance.
+{
+  "name": "Aurora",
+  "description": "Clear glass over your desktop, snowy by day, polar night by dark, a teal-violet accent.",
+
+  // Light and dark: one terminal theme for each, with Aurora's own colors.
+  "appearance.theme": "light:Builtin Light,dark:Builtin Dark",
+  // cmux's own window, sidebar and pages follow the terminal theme, not the person's App Theme.
+  "appearance.appTheme": "followTerminal",
+  "appearance.themeEdits": {
+    // Polar night: a blue-black sky, starlight text, the aurora's green-teal as the accent and
+    // its violet upper edge as the cursor.
+    "Builtin Dark/background": "#0a0f1c",
+    "Builtin Dark/foreground": "#e7ecf4",
+    "Builtin Dark/cursor": "#c4b5fd",
+    "Builtin Dark/selection": "#657592",
+    "Builtin Dark/accent": "#5eead4",
+    "Builtin Dark/0": "#1b2333",
+    "Builtin Dark/1": "#f87171",
+    "Builtin Dark/2": "#4ade80",
+    "Builtin Dark/3": "#facc15",
+    "Builtin Dark/4": "#60a5fa",
+    "Builtin Dark/5": "#c4b5fd",
+    "Builtin Dark/6": "#5eead4",
+    "Builtin Dark/7": "#cbd5e1",
+    "Builtin Dark/8": "#7d8ba3",
+    "Builtin Dark/9": "#fca5a5",
+    "Builtin Dark/10": "#86efac",
+    "Builtin Dark/11": "#fde68a",
+    "Builtin Dark/12": "#93c5fd",
+    "Builtin Dark/13": "#ddd6fe",
+    "Builtin Dark/14": "#99f6e4",
+    "Builtin Dark/15": "#f8fafc",
+    // Snow: a cool off-white, ink text, a deep glacier teal that still reads as a mark on the
+    // clearest glass over a black desktop, and a deep violet cursor.
+    "Builtin Light/background": "#f4f7fb",
+    "Builtin Light/foreground": "#161d2b",
+    "Builtin Light/cursor": "#6d28d9",
+    "Builtin Light/selection": "#cfe0f2",
+    "Builtin Light/accent": "#0b5d55",
+    "Builtin Light/0": "#161d2b",
+    "Builtin Light/1": "#b42318",
+    "Builtin Light/2": "#13743a",
+    "Builtin Light/3": "#8a5a00",
+    "Builtin Light/4": "#1d4ed8",
+    "Builtin Light/5": "#6d28d9",
+    "Builtin Light/6": "#0d7268",
+    "Builtin Light/7": "#4b5565",
+    "Builtin Light/8": "#5b6576",
+    "Builtin Light/9": "#c22a1f",
+    "Builtin Light/10": "#106b35",
+    "Builtin Light/11": "#7a4f00",
+    "Builtin Light/12": "#1e40af",
+    "Builtin Light/13": "#5b21b6",
+    "Builtin Light/14": "#0b5f57",
+    "Builtin Light/15": "#f4f7fb"
+  },
+  "appearance.accent": "theme",
+
+  // The window: no painting, the Mac's own glass over your desktop, tinted 72% with the theme's
+  // background and leaning toward the desktop picture's hue. Under Reduce Transparency the app
+  // paints the theme background opaque instead.
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "glass",
+  "appearance.backgroundOpacity": 0.72,
+  "appearance.glassTransparency": 0,
+  "appearance.wallpaperTint": true,
+
+  // Chrome is glass, content is solid: the sidebar and the tab strip are the window's glass (no
+  // override), the chat covers 90% so text reads on the worst backdrop.
+  "appearance.chromeStyle": "flat",
+  "appearance.sidebarSurface": "same",
+  "appearance.surfaces.agentPane.opacity": 0.9,
+  "sidebar.sectionLook": "quiet",
+
+  // The address bar's glass takes a faint accent tint.
+  "browser.omnibar.glassTint": "accent",
+  "browser.omnibar.glassTintStrength": 0.12,
+
+  "appearance.statusIndicator.style": "arc",
+  "appearance.density": "comfortable"
+}

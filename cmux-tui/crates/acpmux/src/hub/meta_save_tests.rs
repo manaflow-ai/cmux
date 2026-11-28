@@ -324,6 +324,7 @@ async fn a_move_commit_answers_only_once_moved_to_is_durable() {
                     "tx-g2",
                     serde_json::json!({}),
                     Some(session.ownership_epoch()),
+                    None,
                 )
                 .await;
             // What a crash right after the answer would leave.
@@ -569,7 +570,7 @@ fn shutdown_flush_saves_only_the_changed_chat_among_300_loaded_closed_chats() {
 fn a_failed_metadata_save_stays_dirty_until_a_successful_save() {
     let (home, hub, saves) = loaded_closed_chats(1);
     let session = hub.resolve_here("chat-0").unwrap();
-    assert!(!session.meta_writer.needs_flush(&session));
+    assert!(!session.meta_writer.needs_flush(&session, &*hub.store));
     session.meta.lock().unwrap().composer_draft = Some("keep this".into());
     let path = home.path().join("sessions/chat-0/session.json");
     let backup = path.with_extension("backup");
@@ -579,14 +580,14 @@ fn a_failed_metadata_save_stays_dirty_until_a_successful_save() {
     std::fs::remove_dir(&path).unwrap();
     std::fs::rename(&backup, &path).unwrap();
     assert!(saved.is_err(), "a file could not replace a directory");
-    assert!(session.meta_writer.needs_flush(&session));
+    assert!(session.meta_writer.needs_flush(&session, &*hub.store));
     // The writer still holds the last good save, the one without the draft.
     let mut before = session.meta();
     before.composer_draft = None;
     assert_eq!(session.meta_writer.state.lock().unwrap().saved, super::Saved::of(&before));
     hub.flush();
     assert_eq!(saves.load(Ordering::Relaxed), 2, "one failed attempt and one retry");
-    assert!(!session.meta_writer.needs_flush(&session));
+    assert!(!session.meta_writer.needs_flush(&session, &*hub.store));
     assert_eq!(on_disk(home.path(), &session.id)["composerDraft"], "keep this");
 }
 
@@ -618,7 +619,7 @@ fn shutdown_flush_keeps_a_change_taken_back_while_an_older_save_runs() {
     session.meta.lock().unwrap().unread = true;
     let (release, writer) = hold_next_write(&hub, &session);
     session.meta.lock().unwrap().unread = false;
-    assert!(session.meta_writer.needs_flush(&session));
+    assert!(session.meta_writer.needs_flush(&session, &*hub.store));
     let shutdown = {
         let hub = hub.clone();
         std::thread::spawn(move || hub.flush())
@@ -630,7 +631,7 @@ fn shutdown_flush_keeps_a_change_taken_back_while_an_older_save_runs() {
     writer.join().unwrap();
     shutdown.join().unwrap();
     assert_eq!(on_disk(home.path(), &session.id)["unread"], false);
-    assert!(!session.meta_writer.needs_flush(&session));
+    assert!(!session.meta_writer.needs_flush(&session, &*hub.store));
 }
 
 #[test]
@@ -649,9 +650,9 @@ fn startup_repairs_are_dirty_even_before_any_commit_is_requested() {
         .unwrap();
         hub.install_stored_session(meta, true, false, saved);
         let session = hub.resolve_here(id).unwrap();
-        assert!(session.meta_writer.needs_flush(&session));
+        assert!(session.meta_writer.needs_flush(&session, &*hub.store));
         hub.flush();
-        assert!(!session.meta_writer.needs_flush(&session));
+        assert!(!session.meta_writer.needs_flush(&session, &*hub.store));
     }
 }
 
@@ -758,4 +759,39 @@ fn a_killed_daemon_keeps_the_title_the_harness_gave() {
     });
     assert_eq!(meta["title"], "Harness title", "the harness's title was not saved when it came");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A journal save hands the writer the digest it made for its patch, so a save serializes the
+/// chat once, not again for the shutdown's compare (#57984): the writer holds the store's
+/// digest, and the shutdown still tells a changed chat, its parts included, from a saved one.
+#[test]
+fn a_journal_save_keeps_the_store_digest_and_the_shutdown_still_sees_every_change() {
+    let home = tempfile::tempdir().unwrap();
+    let (hub, session) = hub_with_chat(home.path(), &SimStorage::new(84));
+    hub.write_meta(&session).unwrap();
+    let held = |session: &crate::hub::Session| {
+        let state = session.meta_writer.state.lock().unwrap();
+        match &state.saved {
+            Some(super::Saved::Store(digest)) => *digest,
+            other => panic!("the writer made its own digest: {other:?}"),
+        }
+    };
+    let first = held(&session);
+    assert_eq!(hub.store.digest(&session.meta()), Some(first));
+    assert!(!session.meta_writer.needs_flush(&session, &*hub.store));
+    // A change of a small field, then of a part (`meta_parts.rs`), each made without a commit.
+    session.meta.lock().unwrap().unread = !session.meta().unread;
+    assert!(session.meta_writer.needs_flush(&session, &*hub.store));
+    hub.write_meta(&session).unwrap();
+    assert_ne!(held(&session), first);
+    assert!(!session.meta_writer.needs_flush(&session, &*hub.store));
+    session.meta.lock().unwrap().available_commands =
+        Some(serde_json::json!([{ "name": "a-command-the-save-did-not-hold" }]).into());
+    assert!(session.meta_writer.needs_flush(&session, &*hub.store));
+    hub.flush();
+    assert!(!session.meta_writer.needs_flush(&session, &*hub.store));
+    // An unchanged save writes no record and still hands back the same digest.
+    let now = held(&session);
+    hub.write_meta(&session).unwrap();
+    assert_eq!(held(&session), now);
 }

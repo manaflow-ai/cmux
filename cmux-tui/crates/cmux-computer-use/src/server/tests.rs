@@ -98,7 +98,7 @@ fn fixture(tag: &str, uid: Option<u32>) -> Fixture {
     if let Some(uid) = uid {
         listener.uid = uid;
     }
-    let server = serve_on(engine.clone(), listener, path.to_str().unwrap(), &SECRET).unwrap();
+    let server = serve_on(engine.clone(), listener, path.to_str().unwrap(), &SECRET, None).unwrap();
     Fixture { _dir: dir, path, desktop, gate, engine, server: Some(server) }
 }
 
@@ -339,4 +339,151 @@ fn a_preview_watch_gets_the_card_of_an_active_session() {
     remote.send(&json!({"id": 1, "method": "preview/watch",
         "origin": {"kind": "remote", "machine": "m", "same_account": true}}));
     assert_eq!(remote.recv()["ok"], false);
+}
+
+/// The first id of a `role` element in a look's outline (`[3] button "Save"`).
+fn id_of(answer: &Value, role: &str) -> String {
+    let tree = answer["result"]["body"]["tree"].as_str().unwrap_or_else(|| panic!("{answer}"));
+    let line = tree
+        .lines()
+        .map(str::trim_start)
+        .find(|l| l.split_whitespace().nth(1) == Some(role))
+        .unwrap_or_else(|| panic!("no {role} in {tree}"));
+    line[1..line.find(']').unwrap()].to_string()
+}
+
+/// `cmux computer-use call` runs each call in its own process, with no attach: the element ids
+/// one call was shown act in the next call on a new connection (they were `stale_element`
+/// when the process's exit ended its session).
+#[test]
+fn a_detached_sessions_ids_act_from_its_next_connection() {
+    let f = fixture("det", None);
+    f.gate.release();
+    let mut first = Client::connect(&f.path);
+    first.call(1, "cli", "get_ui_tree", json!({"window_id": "1"}), None);
+    let id = id_of(&first.recv(), "button");
+    first.send(&json!({"id": 2, "method": "session/idle", "session": "cli"}));
+    assert_eq!(first.recv()["ok"], true);
+    drop(first);
+    let mut second = Client::connect(&f.path);
+    second.call(3, "cli", "click", json!({"window_id": "1", "element_id": id}), Some("c2"));
+    let answer = second.recv();
+    assert_eq!(answer["result"]["is_error"], false, "{answer}");
+    assert!(f.desktop.events().iter().any(|e| matches!(e, Event::Click { .. })));
+}
+
+/// An agent's session (attached) still ends with its process: its ids do not outlive it.
+#[test]
+fn an_attached_sessions_ids_end_with_its_presence() {
+    let f = fixture("dat", None);
+    f.gate.release();
+    let mut presence = Client::connect(&f.path);
+    presence.send(&json!({"id": 1, "method": "session/attach", "session": "s"}));
+    assert_eq!(presence.recv()["ok"], true);
+    let mut calls = Client::connect(&f.path);
+    calls.call(2, "s", "get_ui_tree", json!({"window_id": "1"}), None);
+    let id = id_of(&calls.recv(), "button");
+    drop(presence);
+    assert!(eventually(|| f.engine.active_sessions().is_empty()));
+    // The session's end runs on its lane; a call queued after it sees it ended.
+    calls.call(3, "s", "click", json!({"window_id": "1", "element_id": id}), Some("c3"));
+    let answer = calls.recv();
+    assert_eq!(answer["result"]["code"], "stale_element", "{answer}");
+}
+
+#[test]
+fn a_detached_session_is_tracked_and_an_attached_one_is_not() {
+    let f = fixture("dtr", None);
+    let mut presence = Client::connect(&f.path);
+    presence.send(&json!({"id": 1, "method": "session/attach", "session": "agent"}));
+    assert_eq!(presence.recv()["ok"], true);
+    let mut calls = Client::connect(&f.path);
+    for (id, session) in [(2, "agent"), (3, "cli"), (4, "remote:mini:k")] {
+        calls.call(id, session, "list_windows", json!({}), None);
+        assert_eq!(calls.recv()["result"]["is_error"], false);
+    }
+    let shared = &f.server.as_ref().unwrap().shared;
+    let detached = lock(&shared.detached);
+    assert!(detached.contains("cli") && detached.contains("remote:mini:k"));
+    assert!(!detached.contains("agent"));
+    drop(detached);
+    calls.send(&json!({"id": 5, "method": "session/end", "session": "cli"}));
+    assert_eq!(calls.recv()["ok"], true);
+    assert!(!lock(&shared.detached).contains("cli"));
+}
+
+/// Show an element, then queue its session's expiry behind a blocked lane.
+/// Dropping the release sender also unblocks it if a test assertion fails.
+fn queue_expiry_after_shown_element(
+    f: &Fixture,
+    client: &mut Client,
+) -> (String, std::sync::mpsc::Sender<()>) {
+    f.gate.release();
+    client.call(1, "cli", "get_ui_tree", json!({"window_id": "1"}), None);
+    let element = id_of(&client.recv(), "button");
+    let shared = &f.server.as_ref().unwrap().shared;
+    let (release, blocked) = std::sync::mpsc::channel();
+    let (entered, started) = std::sync::mpsc::channel();
+    shared.lanes.submit("cli", move || {
+        entered.send(()).unwrap();
+        let _ = blocked.recv_timeout(Duration::from_secs(10));
+    });
+    started.recv_timeout(Duration::from_secs(10)).unwrap();
+    lock(&shared.detached).touch(
+        "cli",
+        std::time::Instant::now() - detached::DETACHED_IDLE,
+        |_| false,
+    );
+    client.call(2, "other", "list_windows", json!({}), None);
+    assert_eq!(client.recv()["id"], 2);
+    assert!(!lock(&shared.detached).contains("cli"));
+    (element, release)
+}
+
+#[test]
+fn a_fresh_call_cancels_queued_expiry_and_preserves_shown_ids() {
+    let f = fixture("drefresh", None);
+    let mut client = Client::connect(&f.path);
+    let (element, release) = queue_expiry_after_shown_element(&f, &mut client);
+    client.call(
+        3,
+        "cli",
+        "click",
+        json!({"window_id": "1", "element_id": element}),
+        Some("after-expiry"),
+    );
+    // Status is handled synchronously on the same connection: its reply
+    // proves the click was admitted while expiry was still queued.
+    client.send(&json!({"id": 4, "method": "status"}));
+    assert_eq!(client.recv()["id"], 4);
+    release.send(()).unwrap();
+    let answer = client.recv();
+    assert_eq!(answer["id"], 3);
+    assert_eq!(answer["result"]["is_error"], false, "{answer}");
+    assert_eq!(f.desktop.events().iter().filter(|e| matches!(e, Event::Click { .. })).count(), 1);
+}
+
+#[test]
+fn attaching_cancels_queued_expiry_and_preserves_shown_ids() {
+    let f = fixture("dattach", None);
+    let mut client = Client::connect(&f.path);
+    let (element, release) = queue_expiry_after_shown_element(&f, &mut client);
+    client.send(&json!({"id": 3, "method": "session/attach", "session": "cli"}));
+    assert_eq!(client.recv()["id"], 3);
+    let (finished, expiry_ran) = std::sync::mpsc::channel();
+    f.server.as_ref().unwrap().shared.lanes.submit("cli", move || finished.send(()).unwrap());
+    release.send(()).unwrap();
+    // Wait for the queued expiry before the click: that click must not be
+    // what invalidates the ticket in this test of attachment alone.
+    expiry_ran.recv_timeout(Duration::from_secs(10)).unwrap();
+    client.call(
+        4,
+        "cli",
+        "click",
+        json!({"window_id": "1", "element_id": element}),
+        Some("after-expiry"),
+    );
+    let answer = client.recv();
+    assert_eq!(answer["result"]["is_error"], false, "{answer}");
+    assert_eq!(f.desktop.events().iter().filter(|e| matches!(e, Event::Click { .. })).count(), 1);
 }

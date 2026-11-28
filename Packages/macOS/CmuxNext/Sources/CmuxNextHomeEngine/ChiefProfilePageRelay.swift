@@ -1,4 +1,5 @@
 public import CmuxNextDaemon
+import CmuxNextHomeModel
 public import Foundation
 import os
 
@@ -17,18 +18,8 @@ import os
 ///   owner refuses it (`origin.forbidden`, `gesture_required`).
 @MainActor
 public final class ChiefProfilePageRelay {
-    /// The ops the page may send here (page-router.json, home-channels).
-    public static let operations: Set<String> = [
-        "chief.profile.list", "chief.profile.get", "chief.profile.create", "chief.profile.update",
-        "chief.profile.delete", "chief.profile.avatar.get", "chief.profile.avatar.set",
-        // The Chief editor's History and Undo (docs/chiefs-create-byo-backend.md).
-        "chief.profile.history", "chief.profile.undo",
-    ]
-    /// The update fields the owner changes only on the person's gesture (cmux-tui-core
-    /// chief_registry.rs `GESTURE_FIELDS`); `locked` is the person's switch.
-    static let gestureFields: Set<String> = [
-        "effort", "harness", "harnesses", "instructions", "locked", "model", "personality", "self_edit", "tools",
-    ]
+    // The ops the page may send, the gesture fields and the call deadline live in the Rust rules
+    // (`chief_brain.profile_relay_route`, cmux-home-rules chief_brain/relay.rs).
 
     private static var relays: [ObjectIdentifier: ChiefProfilePageRelay] = [:]
 
@@ -45,17 +36,14 @@ public final class ChiefProfilePageRelay {
     private let wake = RetryWake(owner: "ChiefProfilePageRelay")
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "chief-profile-relay")
     private let clock: any Clock<Duration>
-    /// Every page call answers within this, also when a step below it never does: the page's
-    /// sheet then clears busy and shows the error (`cmux.protocol.timeout`). Set when each step had
-    /// the 2 s request deadline: a connect (identify, hello, subscribe: 6 s), a confirmation and the
-    /// call (4 s), so 10 s per attempt and 16 s left room for the one reconnect's connect. Since
-    /// #35075 a step's deadline is 30 s, so this bound, not a step's deadline, ends a call to an
-    /// owner that never answers.
-    nonisolated static let callDeadline: Duration = .seconds(16)
+    /// Every page call answers within the route's `deadlineSecs` (16 s), also when a step below it
+    /// never does: the page's sheet then clears busy and shows the error (`cmux.protocol.timeout`).
+    /// This is the wait when the route op fails (the call then throws `unknown_op` before it).
+    nonisolated static let fallbackCallDeadline: Duration = .seconds(16)
 
     /// The owner process a relay connection serves: a restarted owner (same socket, new process)
     /// is another owner, and its page calls go on a connection to it.
-    struct OwnerKey: Equatable {
+    struct OwnerKey: Equatable, Encodable {
         var socket: String
         var pid: Int32
         var generation: DaemonGeneration
@@ -78,33 +66,27 @@ public final class ChiefProfilePageRelay {
         self.clock = clock
     }
 
-    /// Whether the owner takes `operation` with `params` from the page only on a gesture.
-    static func needsGesture(_ operation: String, params: [String: JSONValue]) -> Bool {
-        switch operation {
-        // An undo may set any field back, gesture fields included: always the person's click.
-        case "chief.profile.create", "chief.profile.delete", "chief.profile.undo": true
-        case "chief.profile.update": !gestureFields.isDisjoint(with: params.keys)
-        default: false
-        }
-    }
-
     /// One page call to the owner. `gestureEvent`: the uptime of the real key or pointer event
     /// that backs this call (`PageCallContext.gestureEvent`), nil without one. It always answers
-    /// within ``callDeadline``: the owner's result, its refusal, or a typed error.
+    /// within the route's deadline: the owner's result, its refusal, or a typed error.
     public func send(operation: String, params: [String: JSONValue], idempotencyKey: String?,
                      gestureEvent: TimeInterval?) async throws -> JSONValue {
-        guard Self.operations.contains(operation) else { throw DaemonError.command(cmd: operation, message: "not a Chief profile operation", code: "unknown_op") }
         // One gesture backs one call; a reconnect inside this call may use it again.
-        let gesture = Self.needsGesture(operation, params: params) && gestureEvent != nil && gestureEvent != spentGesture
-        if gesture { spentGesture = gestureEvent }
+        let route: RouteReply? = try? HomeRules.chiefBrain(
+            "profile_relay_route", RouteRequest(operation: operation, params: params, gestureEvent: gestureEvent,
+                                                spentGesture: spentGesture))
+        guard let route, route.known else { throw DaemonError.command(cmd: operation, message: "not a Chief profile operation", code: "unknown_op") }
+        let gesture = route.gesture
+        spentGesture = route.spentGesture
+        let callDeadline = Duration.milliseconds(Int64((route.deadlineSecs * 1000).rounded()))
         let started = ContinuousClock.now
         let elapsed = { Int((ContinuousClock.now - started) / .milliseconds(1)) }
         logger.info("\(operation, privacy: .public): start, gesture \(gesture)")
         do {
-            let result = try await PageCallDeadline.answer(within: Self.callDeadline, clock: clock, onTimeout: { [weak self] in
+            let result = try await PageCallDeadline.answer(within: callDeadline, clock: clock, onTimeout: { [weak self] in
                 // A step that never answered: the next call starts on a new connection.
                 self?.dropRelay()
-                return DaemonError.timedOut("\(operation) (no answer from the Chief owner within \(Self.callDeadline))")
+                return DaemonError.timedOut("\(operation) (no answer from the Chief owner within \(callDeadline))")
             }) { [self] in
                 try await call(operation: operation, params: params, idempotencyKey: idempotencyKey, gesture: gesture)
             }
@@ -139,19 +121,26 @@ public final class ChiefProfilePageRelay {
                 try Task.checkCancellation()
                 return try await ResourceRelayClient(connection: relay.connection).send(
                     operation: operation, params: params, idempotencyKey: idempotencyKey, origin: origin)
-            } catch let error as DaemonError where attempt == 1 && Self.isConnectionLost(error) {
+            } catch let error as DaemonError {
+                let usedCurrent = used.map { self.relay?.connection === $0 } ?? false
+                let retry: RetryReply? = try? HomeRules.chiefBrain(
+                    "profile_relay_retry", RetryRequest(attempt: attempt, error: Self.caseName(error), usedCurrent: usedCurrent))
+                guard let retry, retry.retry else { throw error }
                 logger.info("\(operation, privacy: .public): relay connection lost (\(error.description, privacy: .public)); again on a new one")
-                if let used, self.relay?.connection === used { dropRelay() }
+                if retry.dropRelay { dropRelay() }
             }
         }
         // Not reached: the second attempt returns or throws.
         throw DaemonError.notConnected
     }
 
-    nonisolated static func isConnectionLost(_ error: DaemonError) -> Bool {
+    /// The `DaemonError` case name the retry rule reads (the connection-lost ones; the rest are `other`).
+    nonisolated static func caseName(_ error: DaemonError) -> String {
         switch error {
-        case .notConnected, .connectionClosed, .daemonShutdown: true
-        default: false
+        case .notConnected: "notConnected"
+        case .connectionClosed: "connectionClosed"
+        case .daemonShutdown: "daemonShutdown"
+        default: "other"
         }
     }
 
@@ -166,13 +155,19 @@ public final class ChiefProfilePageRelay {
     /// The page relay connection to `owner`, the owner process the app's main connection is
     /// attached to now; a new one when that owner restarted or the connection dropped.
     private func relayConnection(_ owner: OwnerKey) async throws -> Relay {
-        if let relay, relay.owner == owner, await relay.connection.isReady, await relay.connection.identity.map({
-            $0.pid == owner.pid && $0.generation == owner.generation
-        }) == true {
-            return relay
+        var known: ReuseRequest.Known?
+        if let relay {
+            let identity = await relay.connection.identity.map { ReuseRequest.Identity(pid: $0.pid, generation: $0.generation) }
+            known = .init(owner: relay.owner, ready: await relay.connection.isReady, identity: identity)
         }
         // A connect to the same owner in flight is shared; one to another owner is not.
-        if let starting, starting.owner == owner { return try await starting.task.value }
+        let reuse: ReuseReply? = try? HomeRules.chiefBrain(
+            "profile_relay_reuse", ReuseRequest(owner: owner, relay: known, starting: starting?.owner))
+        switch reuse?.reuse {
+        case "reuse": if let relay { return relay }
+        case "joinStarting": if let starting { return try await starting.task.value }
+        default: break
+        }
         let identity = PageRelayIdentity(page: "home-channels")
         let configuration = DaemonConnection.Configuration(
             clientName: "cmux-next-chief-profile-relay", requiredCapabilities: [], retryWake: wake,
@@ -217,4 +212,50 @@ public final class ChiefProfilePageRelay {
         }
         return token
     }
+}
+
+private nonisolated struct RouteRequest: Encodable {
+    var operation: String
+    var params: [String: JSONValue]
+    var gestureEvent: TimeInterval?
+    var spentGesture: TimeInterval?
+}
+
+private nonisolated struct RouteReply: Decodable {
+    var known: Bool
+    var gesture: Bool
+    var spentGesture: TimeInterval?
+    var deadlineSecs: Double
+}
+
+private nonisolated struct RetryRequest: Encodable {
+    var attempt: Int
+    var error: String
+    var usedCurrent: Bool
+}
+
+private nonisolated struct RetryReply: Decodable {
+    var retry: Bool
+    var dropRelay: Bool
+}
+
+private nonisolated struct ReuseRequest: Encodable {
+    nonisolated struct Identity: Encodable {
+        var pid: Int32
+        var generation: DaemonGeneration
+    }
+
+    nonisolated struct Known: Encodable {
+        var owner: ChiefProfilePageRelay.OwnerKey
+        var ready: Bool
+        var identity: Identity?
+    }
+
+    var owner: ChiefProfilePageRelay.OwnerKey
+    var relay: Known?
+    var starting: ChiefProfilePageRelay.OwnerKey?
+}
+
+private nonisolated struct ReuseReply: Decodable {
+    var reuse: String
 }

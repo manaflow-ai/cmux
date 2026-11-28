@@ -519,6 +519,47 @@ class HotApplyRust(unittest.TestCase):
         self.assertIn("fetch", receipt["phases"])
         self.assertEqual(self.sha(), self.new)
 
+    def test_a_build_the_app_already_has_is_copied_not_downloaded(self):
+        # The app runs SHA's build already (a NIGHTLY of it, an apply whose cache was cleared): its own
+        # bin/ files that hash to the published sha256 seed the cache, and nothing is downloaded.
+        self.cmux.write_bytes(self.new_body)
+        app_host = self.app / "Contents/Resources/bin/cmux-app-host"
+        app_host.write_bytes(b"new host")
+        self.publish_companions({"cmux-app-host": b"new host"})
+        tree, built = self.tmp / "tree" / self.key, self.tmp / "commits" / FIX
+        (tree / self.name).unlink()
+        next(built.glob("cmux-tui-app-host-*")).unlink()
+        code, receipt, err = self.hot("prefetch", FIX, "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        state = self.tmp / "state" / "builds"
+        self.assertEqual((state / self.new / "cmux").read_bytes(), self.new_body)
+        self.assertEqual((state / hashlib.sha256(b"new host").hexdigest() / "cmux-app-host").read_bytes(), b"new host")
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(receipt["unchanged"], ["rust"])
+
+    def test_an_app_file_of_other_bytes_is_no_seed(self):
+        # bin/cmux is the app's old build: the published one is downloaded, and checked.
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app), "--dry-run")
+        self.assertEqual(code, 0, err)
+        self.assertIn("fetch", receipt["phases"])
+        self.assertEqual((self.tmp / "state" / "builds" / self.new / "cmux").read_bytes(), self.new_body)
+        self.assertFalse((self.tmp / "state" / "builds" / self.old).exists())
+
+    def test_a_companion_that_does_not_hash_leaves_nothing_kept(self):
+        # The build's files download at once: one that is not its sha256 fails the run, and no copy of it stays.
+        self.publish_companions({"cmux-app-host": b"new host", "cmux-cloud": b"new cloud"})
+        built = self.tmp / "commits" / FIX
+        next(built.glob("cmux-tui-cloud-server-*")).write_bytes(b"tampered")
+        code, receipt, _ = self.hot("apply", FIX, "--app", str(self.app))
+        self.assertEqual(code, 1)
+        self.assertIn("does not hash to", receipt["error"])
+        self.assertEqual(self.sha(), self.old)
+        builds = self.tmp / "state" / "builds"
+        self.assertFalse((builds / hashlib.sha256(b"new cloud").hexdigest()).exists() and
+                         any((builds / hashlib.sha256(b"new cloud").hexdigest()).iterdir()))
+        self.assertEqual([p for p in builds.rglob("tmp*")], [])
+
     def test_a_completion_without_this_host_s_binary_is_not_kept(self):
         (self.tmp / "tree" / self.key / "completion.json").write_text(json.dumps({"key": self.key, "binaries": {}}))
         code, _, _ = self.hot("prefetch", FIX, "--app", str(self.app))
@@ -564,7 +605,7 @@ class HotKeys(unittest.TestCase):
         subprocess.run(["rm", "-rf", str(self.tmp)])
 
     def publish(self, sha, **changed):
-        keys = {"schema": 1, "commit": sha, "tree_key": "1" * 40, "web": "0" * 64, "web_key": "2" * 64, "web_abi": 3,
+        keys = {"schema": 2, "commit": sha, "tree_key": "1" * 40, "web": "0" * 64, "web_key": "2" * 64, "web_abi": 3,
                 "shell": "3" * 64, "ffi": "4" * 64, "helpers": "5" * 64, **changed}
         (self.tmp / "keys" / f"{sha}.json").write_text(json.dumps(keys))
 
@@ -664,6 +705,27 @@ class HotKeys(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(json.loads(done.stdout)["parts"], ["rust"])
 
+    def test_keys_sorted_by_other_rules_fall_back_to_the_diff(self):
+        # A live_apply.py rule change moves files between digests: the two records do not compare.
+        self.publish(self.base, rules="a" * 64)
+        self.publish(FIX, rules="b" * 64)
+        done = subprocess.run([sys.executable, str(SCRIPT), "plan", FIX, "--base", self.base, "--app", str(self.tmp / "none")],
+                              capture_output=True, text=True, env=self.env)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        plan = json.loads(done.stdout)
+        self.assertNotIn("via", plan)
+        self.assertEqual(plan["parts"], ["rust"])  # cmux#37155's real diff
+        self.publish(FIX, rules="a" * 64)
+        # The first plan kept FIX's record under state/keys/hot; CI's republish replaces it there too.
+        (self.tmp / "state" / "keys" / "hot" / f"{FIX}.json").unlink()
+        code, plan, err = self.plan()
+        self.assertEqual(code, 0, err)
+        self.assertEqual(plan["via"], "published keys")
+
+    def test_the_keys_name_the_rules_that_sorted_them(self):
+        hot = load_hot("hot_apply_rules_digest_under_test")
+        self.assertRegex(hot.rules_digest(), r"^[0-9a-f]{64}$")
+
     def test_equal_keys_are_a_no_op(self):
         self.publish(self.base)
         self.publish(FIX)
@@ -673,7 +735,7 @@ class HotKeys(unittest.TestCase):
 
     def test_a_missing_or_malformed_key_file_falls_back_to_the_diff(self):
         self.publish(self.base)
-        (self.tmp / "keys" / f"{FIX}.json").write_text(json.dumps({"schema": 1, "commit": FIX}))
+        (self.tmp / "keys" / f"{FIX}.json").write_text(json.dumps({"schema": 2, "commit": FIX}))
         done = subprocess.run([sys.executable, str(SCRIPT), "plan", FIX, "--base", self.base, "--app", str(self.tmp / "none")],
                               capture_output=True, text=True, env=self.env)
         self.assertEqual(done.returncode, 0, done.stderr)
@@ -1059,6 +1121,17 @@ class LiveFromWholeApp(unittest.TestCase):
                 self.assertIn(path, out["floor_paths"])
                 self.assertEqual(self.hot.pins_daemon(self.repo, native), [])
 
+    def test_daemon_from_walks_past_the_whole_app_floor(self):
+        # The nightly-live channel swaps only the daemon: an app built before a Swift or web change can still
+        # run the newer daemon, so daemon_from goes on past live_from's floor, to the root commit here (it adds
+        # the project file, so it is the daemon floor itself).
+        native = self.commit("Packages/macOS/CmuxNext/Sources/CmuxNextViews/Panel.swift", "struct Panel {}\n")
+        daemon = self.commit("cmux-tui/crates/cmux-wg/src/lib.rs", "pub fn daemon() {}\n")
+        out = self.hot.live_from(self.repo, daemon, 3)
+        self.assertEqual((out["live_from"], out["floor"]), ([daemon, native], native))
+        self.assertEqual(out["daemon_from"], [daemon, native, self.base])
+        self.assertEqual(out["daemon_floor"], self.base)
+
     def test_function_body_and_deleted_swift_also_need_the_full_app(self):
         path = "Packages/macOS/CmuxNext/Sources/CmuxNextViews/Panel.swift"
         self.commit(path, "func value() -> Int {\n    return 1\n}\n")
@@ -1173,6 +1246,15 @@ class PinCompatibility(unittest.TestCase):
         self.assertEqual(result["live_from"], [removed])
         self.assertEqual(result["floor_paths"], [self.hot.ffi_part.PIN_FILE])
 
+    def test_a_repin_floors_daemon_from_too(self):
+        self.pin.unlink()
+        removed = self.commit()
+        (self.repo / "docs.md").write_text("docs\n")
+        docs = self.commit()
+        result = self.hot.live_from(self.repo, docs)
+        self.assertEqual((result["live_from"], result["daemon_from"]), ([docs, removed], [docs, removed]))
+        self.assertEqual(result["daemon_floor_paths"], [self.hot.ffi_part.PIN_FILE])
+
     def test_malformed_pin_cannot_publish_compatibility_or_a_digest(self):
         self.pin.write_text("not JSON\n")
         broken = self.commit()
@@ -1262,6 +1344,80 @@ class PinCompatibility(unittest.TestCase):
             fetched.assert_called_once()
 
 
+class StringCatalogs(unittest.TestCase):
+    """A string catalog gen-strings.mjs reads is web: the bundle built for a commit carries its words."""
+
+    # gen-strings.mjs names a one-file-per-key table by its directory (scripts/cmux-next/string_catalogs.py); an
+    # edit is to one key's file in it.
+    WEB_TABLE = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings.d"
+    WEB_CATALOG = f"{WEB_TABLE}/settings.demo.title.xcstrings"
+    SWIFT_CATALOG = "Packages/macOS/CmuxNext/Sources/CmuxNextOnlySwift/Localizable.xcstrings"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="hot-apply-strings-")
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = Path(self.tmp.name)
+        self.hot = load_hot("hot_apply_strings_under_test")
+        self.git("init", "-q")
+        self.git("config", "user.email", "t@example.com")
+        self.git("config", "user.name", "t")
+        gen = self.repo / "webviews/scripts/pages/gen-strings.mjs"
+        gen.parent.mkdir(parents=True)
+        gen.write_text(f'export const PAGES = {{ settings: {{ catalogs: [{{ file: "{self.WEB_TABLE}" }}] }} }};\n')
+        (self.repo / "webviews/src").mkdir(parents=True)
+        (self.repo / "webviews/src/web-abi.json").write_text('{"abi": 3}\n')
+        for catalog in (self.WEB_CATALOG, self.SWIFT_CATALOG):
+            (self.repo / catalog).parent.mkdir(parents=True, exist_ok=True)
+            (self.repo / catalog).write_text("{}\n")
+        self.base = self.commit()
+
+    def git(self, *args):
+        return subprocess.run(["git", "-C", str(self.repo), *args], check=True, capture_output=True, text=True).stdout.strip()
+
+    def commit(self, *edited):
+        for path in edited:
+            (self.repo / path).write_text(f"{path} edited\n")
+        self.git("add", ".")
+        self.git("commit", "-qm", "fixture", "--allow-empty")
+        return self.git("rev-parse", "HEAD")
+
+    def plan(self, sha):
+        return self.hot._plan(self.repo, self.repo / "unused.app", sha, False, self.base)
+
+    def test_a_catalog_the_web_pages_read_applies_with_the_web_and_says_translations_wait(self):
+        plan = self.plan(self.commit(self.WEB_CATALOG))
+        self.assertEqual(plan["parts"], ["web"])
+        self.assertNotIn("strings", plan["left"])
+        self.assertTrue(any("Swift's translations wait for the next build" in n and self.WEB_CATALOG in n
+                            for n in plan["notes"]), plan["notes"])
+
+    def test_a_swift_only_catalog_stays_left(self):
+        plan = self.plan(self.commit(self.SWIFT_CATALOG))
+        self.assertEqual(plan["parts"], [])
+        self.assertEqual(plan["left"]["strings"], [self.SWIFT_CATALOG])
+
+    def test_both_split_and_a_web_abi_the_app_lacks_keeps_the_web_catalog(self):
+        sha = self.commit(self.WEB_CATALOG, self.SWIFT_CATALOG)
+        plan = self.plan(sha)
+        self.assertEqual(plan["parts"], ["web"])
+        self.assertEqual(plan["left"]["strings"], [self.SWIFT_CATALOG])
+        (self.repo / "webviews/src/web-abi.json").write_text('{"abi": 4}\n')
+        plan = self.plan(self.commit(self.WEB_CATALOG))
+        self.assertEqual(plan["parts"], [])
+        self.assertIn("web ABI", plan["left"])
+
+    def test_the_keys_put_a_web_catalog_in_the_web_digest_and_a_swift_one_in_the_shell_digest(self):
+        sha = self.commit(self.WEB_CATALOG)
+        swift = self.commit(self.SWIFT_CATALOG)
+        with mock.patch.object(self.hot, "_tree_key", return_value="1" * 40), \
+                mock.patch.object(self.hot, "_web_key", return_value="2" * 64):
+            base, web, only_swift = (self.hot.hot_keys(self.repo, c) for c in (self.base, sha, swift))
+        self.assertNotEqual(web["web"], base["web"])
+        self.assertEqual(web["shell"], base["shell"])
+        self.assertEqual(only_swift["web"], web["web"])
+        self.assertNotEqual(only_swift["shell"], web["shell"])
+
+
 class WebCache(unittest.TestCase):
     """web_bundles(): a web key's bundles fetched once, checked on each use, bounded."""
 
@@ -1320,6 +1476,89 @@ class WebCache(unittest.TestCase):
         (keys / commit).write_text(key + "\n")
         self.assertTrue(self.hot.web_unchanged(Live(), key))
         self.assertFalse(self.hot.web_unchanged(Live(), "e" * 64))
+
+
+class SwapLayers(unittest.TestCase):
+    """RFD 0174 slice 1: every receipt names each layer's swap time, and `layers` gives their p95."""
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location("hot_apply_layers_under_test", SCRIPT)
+        cls.hot = importlib.util.module_from_spec(spec)
+        sys.modules["hot_apply_layers_under_test"] = cls.hot
+        spec.loader.exec_module(cls.hot)
+
+    def receipt(self, **over):
+        base = {"action": "apply", "applied": ["rust"], "platform": "mac",
+                "phases": {"plan": 0.2, "handoff": 1.38, "acpmux": 2.1, "verify": 0.1},
+                "steps": {"rust": {"daemon": "app handoff", "old_pid": 1, "new_pid": 2},
+                          "acpmux": [{"home": "/h", "old_pid": 10, "new_pid": 11}]}}
+        base.update(over)
+        return base
+
+    def test_an_apply_times_the_daemon_handoff_and_the_acpmux_restart_apart(self):
+        self.assertEqual(self.hot.swap_layers(self.receipt()), {
+            "daemon": {"ms": 1380, "state_kept": True},
+            "acpmux": {"ms": 2100, "homes": 1, "state_kept": True}})
+
+    def test_an_acpmux_home_answering_from_its_old_pid_kept_no_state(self):
+        r = self.receipt()
+        r["steps"]["acpmux"][0]["new_pid"] = 10
+        self.assertFalse(self.hot.swap_layers(r)["acpmux"]["state_kept"])
+
+    def test_the_ffi_part_is_quit_plus_launch_and_loses_the_layout(self):
+        r = self.receipt(applied=["ffi"], phases={"quit": 0.6, "swap": 0.05, "launch": 0.42},
+                         steps={"ffi": {"launch": {"pid": 5}}})
+        self.assertEqual(self.hot.swap_layers(r), {"ffi": {"ms": 1020, "state_kept": False, "kept": "sessions"}})
+        r["steps"]["ffi"]["launch"] = None  # the app was not running: nothing the person waited on
+        self.assertEqual(self.hot.swap_layers(r), {})
+
+    def test_dry_runs_failures_and_no_ops_have_no_layers(self):
+        self.assertEqual(self.hot.swap_layers(self.receipt(action="dry-run")), {})
+        self.assertEqual(self.hot.swap_layers(self.receipt(error="boom")), {})
+        self.assertEqual(self.hot.swap_layers(self.receipt(applied=[])), {})
+
+    def test_a_receipt_from_before_the_split_gives_its_reload_as_the_daemon_only_when_alone(self):
+        old = {"action": "apply", "applied": ["rust"], "phases": {"reload": 1.6},
+               "steps": {"rust": {"daemon": "app handoff"}}}
+        self.assertEqual(self.hot.swap_layers(old), {"daemon": {"ms": 1600, "state_kept": True}})
+        old["steps"]["acpmux"] = [{"home": "/h"}]  # reload then held both: neither layer's own time
+        self.assertEqual(self.hot.swap_layers(old), {})
+
+    def test_quantile_is_nearest_rank(self):
+        q = self.hot.quantile
+        self.assertIsNone(q([], 0.95))
+        self.assertEqual(q([5], 0.95), 5)
+        self.assertEqual(q(list(range(1, 21)), 0.95), 19)
+        self.assertEqual(q(list(range(1, 21)), 0.5), 10)
+        self.assertEqual(q([3, 1, 2], 0.0), 1)
+
+    def test_layers_reads_history_and_names_the_now_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            history = Path(tmp) / "history.jsonl"
+            lines = [json.dumps(self.receipt(phases={"handoff": s, "acpmux": 2.0})) for s in (1.0, 1.2, 1.4)]
+            lines += ["not json", json.dumps(self.receipt(action="dry-run")), json.dumps([1])]
+            history.write_text("\n".join(lines) + "\n")
+            out = subprocess.run([sys.executable, str(SCRIPT), "layers", "--json", "--history", str(history)],
+                                 capture_output=True, text=True)
+            self.assertEqual(out.returncode, 0, out.stderr)
+            got = json.loads(out.stdout)
+            self.assertEqual(got["layers"]["mac"]["daemon"],
+                             {"n": 3, "p50_ms": 1200, "p95_ms": 1400, "max_ms": 1400, "state_kept": 3})
+            self.assertEqual(got["rows"], {"hot_swap_mac_daemon_handoff_p95_ms": 1400,
+                                           "hot_swap_mac_acpmux_restart_p95_ms": 2000})
+            missing = subprocess.run([sys.executable, str(SCRIPT), "layers", "--history", str(Path(tmp) / "none")],
+                                     capture_output=True, text=True)
+            self.assertEqual(missing.returncode, 1)
+
+    def test_record_writes_the_layers_and_the_platform(self):
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(open(os.devnull, "w")):
+            self.hot.PHASES.seconds = {"handoff": 0.5}
+            receipt = self.receipt(phases=None, steps={"rust": {"daemon": "app handoff"}})
+            self.hot.record(Path(tmp), receipt)
+            line = json.loads((Path(tmp) / "history.jsonl").read_text())
+        self.assertEqual(line["layers"], {"daemon": {"ms": 500, "state_kept": True}})
+        self.assertEqual(line["platform"], "mac")
 
 
 class Phases(unittest.TestCase):
@@ -2142,5 +2381,82 @@ class RefusedOverlayRollback(unittest.TestCase):
         self.assertIn("overlay", json.loads(self.web_dev.read_text()))
 
 
+
+class AppCommitOnAShallowSource(unittest.TestCase):
+    """A fleet Mac's step source is a shallow bundle (hq#27830/#27935): one commit, no history, and an origin
+    it cannot reach. ext-rows-nightly.py crashed there resolving the NIGHTLY's short CMUXCommit (step
+    2a681326817c4454aeb4e856, 2026-11-26): `CMUXCommit 0a6830e is not one commit in .../src`."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="hot-apply-shallow-"))
+        upstream = self.tmp / "upstream"
+        env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+               "GIT_COMMITTER_EMAIL": "t@t"}
+
+        def git(repo, *args):
+            return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, check=True,
+                                  env=env).stdout.strip()
+        subprocess.run(["git", "init", "-q", "-b", "feat-cmux-next", str(upstream)], check=True)
+        for n in (1, 2):
+            (upstream / "f").write_text(f"{n}\n")
+            git(upstream, "add", "f")
+            git(upstream, "commit", "-q", "-m", f"c{n}")
+        self.nightly = git(upstream, "rev-parse", "HEAD~1")  # the app's commit: not the checkout's head
+        self.clone = self.tmp / "src"
+        subprocess.run(["git", "clone", "-q", "--depth", "1", "-b", "feat-cmux-next", f"file://{upstream}",
+                        str(self.clone)], check=True)
+        self.assertEqual(git(self.clone, "rev-parse", "--is-shallow-repository"), "true")
+        # GitHub 403s the office IP: the origin is unreachable.
+        git(self.clone, "remote", "set-url", "origin", str(self.tmp / "unreachable"))
+        self.app = self.tmp / "cmux NIGHTLY.app"
+        (self.app / "Contents/Resources/bin").mkdir(parents=True)
+        with open(self.app / "Contents/Info.plist", "wb") as handle:
+            plistlib.dump({"CMUXCommit": self.nightly[:7]}, handle)
+        spec = importlib.util.spec_from_file_location("hot_apply_shallow", SCRIPT)
+        self.hot = importlib.util.module_from_spec(spec)
+        sys.modules["hot_apply_shallow"] = self.hot
+        spec.loader.exec_module(self.hot)
+
+    def tearDown(self):
+        subprocess.run(["rm", "-rf", str(self.tmp)])
+
+    def test_the_bundle_s_own_full_commit_resolves_the_short_stamp(self):
+        (self.app / "Contents/Resources/bin/cmux-tui.version").write_text(
+            f"mode=tree\nkey=k\ncommit={self.nightly}\nsource=release-manifest\n")
+        self.assertEqual(self.hot.app_commit(self.app, self.clone), self.nightly)
+        self.assertEqual(self.hot.app_commit_receipt(self.app, self.clone),
+                         {"app_commit": self.nightly, "app_commit_resolved": True})
+
+    def test_a_bundle_commit_of_another_commit_is_not_taken(self):
+        (self.app / "Contents/Resources/bin/cmux-tui.version").write_text(f"commit={'f' * 40}\n")
+        self.assertFalse(self.hot.resolve_app_commit(self.app, self.clone)["resolved"])
+
+    def test_an_unresolved_stamp_is_a_receipt_as_given_and_a_refusal_for_a_plan(self):
+        receipt = self.hot.app_commit_receipt(self.app, self.clone)
+        self.assertEqual(receipt["app_commit"], self.nightly[:7])
+        self.assertIs(receipt["app_commit_resolved"], False)
+        self.assertIn("a shallow checkout", receipt["app_commit_unresolved"])
+        # What diffs or compares the commit (plan, hot-verify) still refuses: the ancestry is unknown here.
+        with self.assertRaisesRegex(RuntimeError, "is not one commit in a shallow checkout"):
+            self.hot.app_commit(self.app, self.clone)
+
+    def test_a_reachable_origin_deepens_a_shallow_checkout_by_a_day_of_merges(self):
+        subprocess.run(["git", "-C", str(self.clone), "remote", "set-url", "origin",
+                        f"file://{self.tmp / 'upstream'}"], check=True)
+        found = self.hot.resolve_app_commit(self.app, self.clone)
+        self.assertEqual((found["commit"], found["via"]), (self.nightly, "fetch"))
+
+    def test_the_cli_prints_it_for_shell_callers(self):
+        done = subprocess.run([sys.executable, "-I", str(SCRIPT), "app-commit", str(self.app), "--repo",
+                               str(self.clone), "--no-fetch"], capture_output=True, text=True)
+        self.assertEqual(done.returncode, 1, done.stderr)
+        self.assertEqual(json.loads(done.stdout)["commit"], self.nightly[:7])
+
 if __name__ == "__main__":
-    unittest.main()
+    # `--shard I/N`: the checks job runs this file as four pool commands (tests/unittest_shard.py); whole it
+    # ran 260 s on Linux and past the pool's 600 s deadline beside 15 other commands.
+    _shard_spec = importlib.util.spec_from_file_location(
+        "unittest_shard", Path(__file__).resolve().parents[3] / "tests" / "unittest_shard.py")
+    unittest_shard = importlib.util.module_from_spec(_shard_spec)
+    _shard_spec.loader.exec_module(unittest_shard)
+    unittest_shard.main()

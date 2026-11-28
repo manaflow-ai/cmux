@@ -11,7 +11,7 @@
 // failure: the chat opens cold, as it did before.
 import { peerCopyTail, type PeerCopy } from "./peerCopy";
 import { postNative } from "./native";
-import type { EventRecord } from "./direct";
+import type { EventRecord } from "./eventRecord";
 import type { QueuedPrompt } from "./model";
 
 /// A chat as the page last read it. What it says about the chat's *past* is drawn on the next
@@ -78,6 +78,7 @@ function tailThrough(tail: KeptTail): number {
 function noteShown(sessionId: string, tail: KeptTail): void {
   shownThrough.delete(sessionId);
   shownThrough.set(sessionId, { through: tailThrough(tail), generation: tail.summary?.createdAt });
+  // ends: each pass deletes the oldest key, so the map shrinks to SHOWN_CHATS
   while (shownThrough.size > SHOWN_CHATS) shownThrough.delete(shownThrough.keys().next().value!);
 }
 
@@ -95,12 +96,19 @@ export function keptTail(sessionId: string): KeptTail | undefined {
   return keptTails.get(sessionId) ?? readAheadTails.get(sessionId);
 }
 
+/// The tail read ahead of `sessionId`, only while no tail of an open of it is kept (the one
+/// `rememberReadAhead` would replace): what a read ahead of a chat that ran on adds its records to.
+export function readAheadTail(sessionId: string): KeptTail | undefined {
+  return keptTails.has(sessionId) ? undefined : readAheadTails.get(sessionId);
+}
+
 /// Keeps a tail read ahead of any open of the chat, in this page only. A chat this page read itself
 /// keeps that tail, which is the newer one.
 export function rememberReadAhead(sessionId: string, tail: KeptTail): void {
   if (keptTails.has(sessionId)) return;
   readAheadTails.delete(sessionId);
   readAheadTails.set(sessionId, tail);
+  // ends: each pass deletes the oldest key, so the map shrinks to READ_AHEAD_TAILS
   while (readAheadTails.size > READ_AHEAD_TAILS) readAheadTails.delete(readAheadTails.keys().next().value!);
 }
 
@@ -144,22 +152,66 @@ export function shareReadAhead(sessionId: string): boolean {
 /// older than this one, and the client the pane makes next on a lost connection draws the map's
 /// tail while it connects (direct.ts `drawTailWhileConnecting`). Left behind, it drew the chat as
 /// it was when it was last left, then the attach drew it as it is, once per dropped connection.
-export function rememberTail(sessionId: string, tail: KeptTail, forThisPage = true, toHost = true): void {
+export function rememberTail(
+  sessionId: string,
+  tail: KeptTail,
+  forThisPage = true,
+  toHost = true,
+  /// A chat switch's hand-over of the chat it left (direct.ts `selectOnce`): it goes to the host after
+  /// the switch's frame paints, not in it (`writeHostTailSoon`).
+  hostAfterPaint = false,
+): void {
   noteShown(sessionId, tail);
   if (!forThisPage && readAheadTails.has(sessionId)) readAheadTails.set(sessionId, tail);
   if (forThisPage || keptTails.has(sessionId)) {
     readAheadTails.delete(sessionId);
     keptTails.delete(sessionId);
     keptTails.set(sessionId, tail);
+    // ends: each pass deletes the oldest key, so the map shrinks to KEPT_TAILS
     while (keptTails.size > KEPT_TAILS) keptTails.delete(keptTails.keys().next().value!);
   }
   // `toHost` false: the caller hands it over in a request of its own (`TailHandOver`).
-  if (toHost) writeHostTail(sessionId, tail);
+  if (toHost && hostAfterPaint) writeHostTailSoon(sessionId, tail);
+  else if (toHost) writeHostTail(sessionId, tail);
+}
+
+/// Hand-overs a chat switch put off until its frame painted, by chat (the newest of each), oldest first.
+const hostTailsSoon = new Map<string, KeptTail>();
+let hostTailsSoonScheduled = false;
+
+/// Hands `tail` to the host once the frame being drawn has painted. Bounding the tail for the host
+/// (`hostTailOf`: every record's JSON length) cost a long chat's switch 4-5 ms in its own task,
+/// before the chat switched to could paint (settled-page.bench.ts chat_switch). A write that goes out
+/// at once meanwhile (`writeHostTail`) sends these first, so the host never sees them out of order,
+/// and a forgotten chat's (`forgetTail`) is dropped. A hidden page paints no frame: a timeout sends them.
+function writeHostTailSoon(sessionId: string, tail: KeptTail): void {
+  hostTailsSoon.delete(sessionId);
+  hostTailsSoon.set(sessionId, tail);
+  if (hostTailsSoonScheduled) return;
+  hostTailsSoonScheduled = true;
+  const flush = () => {
+    if (!hostTailsSoonScheduled) return;
+    flushHostTailsSoon();
+  };
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => setTimeout(flush, 0));
+  setTimeout(flush, HOST_TAIL_SOON_MS);
+}
+
+/// The longest a put-off hand-over waits for a frame (a hidden page draws none).
+const HOST_TAIL_SOON_MS = 250;
+
+function flushHostTailsSoon(): void {
+  hostTailsSoonScheduled = false;
+  if (hostTailsSoon.size === 0) return;
+  const tails = [...hostTailsSoon];
+  hostTailsSoon.clear();
+  for (const [sessionId, tail] of tails) writeHostTail(sessionId, tail);
 }
 
 /// A chat whose transcript this page no longer stands behind (acpmux purged it, or an attach of it
 /// failed): its next open reads acpmux again, in this tab and in the next one.
 export function forgetTail(sessionId: string): void {
+  hostTailsSoon.delete(sessionId);
   keptTails.delete(sessionId);
   shownThrough.delete(sessionId);
   readAheadTails.delete(sessionId);
@@ -211,6 +263,7 @@ export function keepHandedTail(sessionId: string, value: unknown): boolean {
   if (!tail) return false;
   readAheadTails.delete(sessionId);
   keptTails.set(sessionId, tail);
+  // ends: each pass deletes the oldest key, so the map shrinks to KEPT_TAILS
   while (keptTails.size > KEPT_TAILS) keptTails.delete(keptTails.keys().next().value!);
   return true;
 }
@@ -230,6 +283,7 @@ function startHostRead(sessionId: string): Promise<KeptTail | undefined> {
       // no longer stands behind, and an answer already in flight must not put it back.
       if (tail && !keptTails.has(sessionId) && reading.get(sessionId) === read) {
         keptTails.set(sessionId, tail);
+        // ends: each pass deletes the oldest key, so the map shrinks to KEPT_TAILS
         while (keptTails.size > KEPT_TAILS) keptTails.delete(keptTails.keys().next().value!);
       }
       return tail;
@@ -263,6 +317,9 @@ function callHost<T>(method: string, params: Record<string, unknown>): Promise<T
 /// `ifNewer` (a hover's hand-over, ``shareReadAhead``): the host keeps it only over an older tail,
 /// and a tail cut to nothing forgets nothing.
 function writeHostTail(sessionId: string, tail: KeptTail, ifNewer = false): void {
+  // A put-off hand-over of this chat is older than this one, and the others go first in order.
+  hostTailsSoon.delete(sessionId);
+  if (hostTailsSoon.size > 0) flushHostTailsSoon();
   const bounded = hostTailOf(tail);
   // Not one record of this chat fits the host's bound (a single huge paste, or a queue that fills
   // it on its own): the host forgets what it had rather than keeping an older tail under a chat

@@ -11,9 +11,9 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { promptIndexOf } from "./support/promptIndex";
 import { teardownDom } from "./support/domTeardown";
+import { railFrame, withRail } from "./support/railFrame";
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
 const dom = new JSDOM("<!doctype html><div id=root></div><div id=dock></div>", {
@@ -57,6 +57,7 @@ for (const key of Object.getOwnPropertyNames(dom.window))
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
+const { turnView } = await import("../src/agent-session/acpmux/conversation/turns");
 
 // jsdom has no layout: a 700 px view, a pane 1040 px wide, and a bottom stack `stack` px tall laid over
 // the view's foot.
@@ -139,17 +140,19 @@ test("held ticks sit centered in the view, never stacked at the box's foot, whil
   const root = createRoot(document.getElementById("root")!);
   const dock = document.getElementById("dock")!;
   const render = (props: { earlier?: AcpmuxRow[]; promptCount?: number }) =>
-    act(async () =>
-      root.render(
-        <VirtualTranscript
-          rows={turnView(held, new Set())}
-          {...props}
-          earlier={promptIndexOf(props.earlier)}
-          sessionId="rail-full"
-          dock={dock}
-          onToggleActivity={() => {}}
-          expanded={new Set()}
-        />,
+    withRail(
+      act(async () =>
+        root.render(
+          <VirtualTranscript
+            rows={turnView(held, new Set())}
+            {...props}
+            earlier={promptIndexOf(props.earlier)}
+            sessionId="rail-full"
+            dock={dock}
+            onToggleActivity={() => {}}
+            expanded={new Set()}
+          />,
+        ),
       ),
     );
   try {
@@ -203,6 +206,7 @@ test("without a count the rail grows as prompts arrive, as before", async () => 
         />,
       ),
     );
+    await railFrame();
     // Twelve prompts: a rail as tall as their ticks, centered on the view like a full one.
     expect(rail().height).toBe(120);
     expect(rail().top).toBe(centered(120));
@@ -219,17 +223,19 @@ test("a chat with more prompts than the rail holds keeps its latest tick at the 
   const root = createRoot(document.getElementById("root")!);
   const dock = document.getElementById("dock")!;
   const render = (props: { earlier?: AcpmuxRow[]; promptCount?: number }) =>
-    act(async () =>
-      root.render(
-        <VirtualTranscript
-          rows={turnView(held, new Set())}
-          {...props}
-          earlier={promptIndexOf(props.earlier)}
-          sessionId="rail-over"
-          dock={dock}
-          onToggleActivity={() => {}}
-          expanded={new Set()}
-        />,
+    withRail(
+      act(async () =>
+        root.render(
+          <VirtualTranscript
+            rows={turnView(held, new Set())}
+            {...props}
+            earlier={promptIndexOf(props.earlier)}
+            sessionId="rail-over"
+            dock={dock}
+            onToggleActivity={() => {}}
+            expanded={new Set()}
+          />,
+        ),
       ),
     );
   try {
@@ -290,6 +296,7 @@ for (const count of [45, 80])
           />,
         ),
       );
+      await railFrame();
       frames.push(frame());
     };
     try {

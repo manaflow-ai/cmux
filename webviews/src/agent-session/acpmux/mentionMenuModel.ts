@@ -35,6 +35,9 @@ const ESCAPE_START = /[\\&\uFFFC]/g;
 const ESCAPE = /\\[!-/:-@[-`{-~]|&(#x[0-9a-f]+|#[0-9]+|[a-z][a-z0-9]*);|\uFFFC[\w.~%-]+\uFFFC/iy;
 // perf-hot: 1ms composer-draft-typing
 export function markdownOffset(markdown: string, shown: number): number {
+  // A caret at or past the markdown end is already mapped. This is the ordinary append case for
+  // plain prompt text, and avoids scanning the whole draft for escape starters on every key.
+  if (shown >= markdown.length) return markdown.length;
   let index = 0;
   let count = 0;
   while (count < shown && index < markdown.length) {

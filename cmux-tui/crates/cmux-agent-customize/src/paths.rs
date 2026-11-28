@@ -89,6 +89,9 @@ pub struct Homes {
     /// The edit locks and backups of every file a skills switch writes: the private folder
     /// outside every project the hooks and settings parts use ([`crate::hooks_paths::state_dir`]).
     pub edits: Store,
+    /// cmux's own saved prompts, which the composer's `/` menu lists in every chat whatever its
+    /// agent ([`cmux_commands_dir`]).
+    pub cmux_commands: PathBuf,
 }
 
 impl Homes {
@@ -100,6 +103,7 @@ impl Homes {
             claude: var("CLAUDE_CONFIG_DIR").unwrap_or_else(|| home.join(".claude")),
             codex: var("CODEX_HOME").unwrap_or_else(|| home.join(".codex")),
             edits: Store::new(crate::hooks_paths::state_dir(&home, |name| std::env::var_os(name))),
+            cmux_commands: cmux_commands_dir(&home, |name| std::env::var_os(name)),
             home,
         })
     }
@@ -112,6 +116,7 @@ impl Homes {
             claude: home.join(".claude"),
             codex: home.join(".codex"),
             edits: Store::new(home.join(".local/state/cmux-tui/agent-config")),
+            cmux_commands: cmux_commands_dir(&home, |_| None),
             home,
         }
     }
@@ -130,6 +135,21 @@ impl Homes {
     pub fn agents_skills(&self) -> PathBuf {
         self.home.join(".agents/skills")
     }
+}
+
+/// cmux's saved prompts folder: `$CMUX_COMMANDS_DIR`, else `$XDG_CONFIG_HOME/cmux/commands`, else
+/// `~/.config/cmux/commands`, beside `~/.config/cmux/skills` (`cmux-next` instead of `cmux` on
+/// macOS, `cmux_config::NEXT_DIR`). One `NAME.md` a prompt: its
+/// frontmatter `description`, then the text the `/NAME` pick writes into the draft.
+pub fn cmux_commands_dir(home: &Path, var: impl Fn(&str) -> Option<std::ffi::OsString>) -> PathBuf {
+    let set = |name: &str| var(name).filter(|value| !value.is_empty()).map(PathBuf::from);
+    if let Some(dir) = set("CMUX_COMMANDS_DIR") {
+        return dir;
+    }
+    set("XDG_CONFIG_HOME")
+        .unwrap_or_else(|| home.join(".config"))
+        .join(cmux_config::NEXT_DIR)
+        .join("commands")
 }
 
 /// The folders from `cwd` up to its project root, innermost first: the nearest ancestor holding
@@ -154,61 +174,5 @@ pub fn project_dirs(cwd: &Path, home: &Path) -> Vec<PathBuf> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn env(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
-    }
-
-    #[test]
-    fn defaults_and_overrides() {
-        let p = Paths::from_env(&env(&[("HOME", "/h")])).unwrap();
-        assert_eq!(p.claude_json, PathBuf::from("/h/.claude.json"));
-        assert_eq!(p.claude_dir, PathBuf::from("/h/.claude"));
-        assert_eq!(p.codex_config(), PathBuf::from("/h/.codex/config.toml"));
-        let p = Paths::from_env(&env(&[
-            ("HOME", "/h"),
-            ("CLAUDE_CONFIG_DIR", "/c"),
-            ("CODEX_HOME", "/x"),
-        ]))
-        .unwrap();
-        assert_eq!(p.claude_json, PathBuf::from("/c/.claude.json"));
-        assert_eq!(p.codex_config(), PathBuf::from("/x/config.toml"));
-        assert!(Paths::from_env(&env(&[])).is_none());
-    }
-
-    #[test]
-    fn chain_stops_at_repo_or_home() {
-        let dir = tempfile::tempdir().unwrap();
-        let home = dir.path().join("home");
-        let repo = home.join("repo");
-        let deep = repo.join("a").join("b");
-        std::fs::create_dir_all(&deep).unwrap();
-        std::fs::create_dir_all(repo.join(".git")).unwrap();
-        assert_eq!(project_chain(&deep, &home), vec![deep.clone(), repo.join("a"), repo.clone()]);
-        let loose = home.join("loose");
-        std::fs::create_dir_all(&loose).unwrap();
-        assert_eq!(project_chain(&loose, &home), vec![loose.clone()]);
-        assert_eq!(project_chain(&home, &home).first(), Some(&home));
-    }
-
-    #[test]
-    fn project_dirs_stop_at_the_git_root() {
-        let root = tempfile::tempdir().unwrap();
-        let repo = root.path().join("repo");
-        let deep = repo.join("a/b");
-        std::fs::create_dir_all(&deep).unwrap();
-        std::fs::create_dir_all(repo.join(".git")).unwrap();
-        assert_eq!(
-            project_dirs(&deep, root.path()),
-            vec![deep.clone(), repo.join("a"), repo.clone()]
-        );
-        // Outside any repo: the folder alone.
-        let loose = root.path().join("loose/x");
-        std::fs::create_dir_all(&loose).unwrap();
-        assert_eq!(project_dirs(&loose, Path::new("/nonexistent-home")), vec![loose.clone()]);
-        // The home folder itself is the user scope, never a project.
-        assert!(project_dirs(root.path(), root.path()).is_empty());
-    }
-}
+#[path = "paths_tests.rs"]
+mod tests;

@@ -22,7 +22,16 @@ mod capture_platform;
 mod capture_tests;
 #[path = "computer_use_lifecycle.rs"]
 mod computer_use_lifecycle;
+#[path = "computer_use_preview_place.rs"]
+mod computer_use_preview_place;
 
+#[cfg(any(target_os = "linux", test))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#[path = "linux_screen.rs"]
+mod linux_screen;
+#[cfg(test)]
+#[path = "linux_screen_tests.rs"]
+mod linux_screen_tests;
 #[cfg(target_os = "macos")]
 #[path = "macos.rs"]
 mod platform;
@@ -133,7 +142,7 @@ pub(crate) fn paths_for(daemon_socket: &Path, state_root: &Path) -> Paths {
     let leaf = format!("rh-{}", &socket_digest[..12]);
     let mut runtime = daemon_socket.parent().unwrap_or_else(|| Path::new("/tmp")).join(&leaf);
     #[cfg(unix)]
-    if !crate::server::unix_socket_path_fits(&runtime.join("w-screen.sock")) {
+    if !crate::socket_path::unix_socket_path_fits(&runtime.join("w-screen.sock")) {
         runtime = crate::platform::fallback_runtime_dir().join(leaf);
     }
     // The name from before NEXT's folder move: the build keeps its Keychain items, so its device.
@@ -170,6 +179,9 @@ struct Inner {
     unavailable: Mutex<Option<String>>,
     /// A newer embedded build waits for the running host to become idle.
     upgrade_pending: Mutex<bool>,
+    /// Told whether a viewer is connected (the host's `busy`) on each status, and false when
+    /// the host goes away: the agent share's auto-off timer (`agent_share.rs`).
+    viewer_observer: std::sync::OnceLock<Box<dyn Fn(bool) + Send + Sync>>,
     /// The Computer Use worker's activity the host reported last
     /// (`workers["computer-use"].activity`), and where a change goes (the
     /// mux's `computer-use-activity` event, set by `configure_remote_host`).
@@ -178,6 +190,9 @@ struct Inner {
     /// Set while the daemon's `preview/watch` connection to the worker is
     /// open (computer_use_lifecycle.rs).
     preview_watching: std::sync::atomic::AtomicBool,
+    /// Where each session's preview card sits and whether it shows
+    /// (computer_use_preview_place.rs).
+    preview_places: Mutex<computer_use_preview_place::PreviewPlaces>,
     /// The verified app's own grants (memory only; the app reports them again on connect).
     app_permissions: Mutex<Option<super::AppPermissions>>,
 }
@@ -314,6 +329,11 @@ impl RemoteHostSupervisor {
             Inner::ensure_locked(&self.inner, None)?
         };
         connection.call(method, params)
+    }
+
+    /// Calls `observer` with whether a viewer is connected, on each host status (set once).
+    pub(crate) fn observe_viewer(&self, observer: Box<dyn Fn(bool) + Send + Sync>) {
+        let _ = self.inner.viewer_observer.set(observer);
     }
 
     /// The host's state for `remote-host-status` (never starts one).
@@ -680,6 +700,12 @@ impl Inner {
                 }
                 *lock(&connection.status) = status.clone();
                 Self::update_screen_device_id(this, connection, &status);
+                if let Some(inner) = this.upgrade()
+                    && let Some(observer) = inner.viewer_observer.get()
+                {
+                    // The timer only records the change; it never calls the host from here.
+                    observer(!idle);
+                }
                 if idle
                     && this.upgrade().is_some_and(|inner| {
                         *lock(&inner.upgrade_pending) && capture::require_open(&inner).is_ok()
@@ -694,6 +720,9 @@ impl Inner {
         *lock(&connection.closed.0) = true;
         connection.closed.1.notify_all();
         let Some(inner) = this.upgrade() else { return };
+        if let Some(observer) = inner.viewer_observer.get() {
+            observer(false);
+        }
         Self::host_gone(&inner, connection);
     }
 
@@ -1077,6 +1106,20 @@ impl crate::mux::Mux {
         self.control_clients
             .remote_host
             .configure(paths_for(daemon_socket, &state_root), Arc::downgrade(self));
+        // No cmux Remote on Linux: the machine's screen is its cmux-rd host's device.
+        #[cfg(target_os = "linux")]
+        linux_screen::watch(&self.control_clients.remote_host.inner);
+        // An agent's share turns itself off with no viewer: the host's status says who views,
+        // and the host's own session may turn sharing off (the hub allows it that much).
+        let agents = Arc::clone(&self.control_clients.remote_agents);
+        self.control_clients
+            .remote_host
+            .observe_viewer(Box::new(move |viewer| agents.viewer(viewer)));
+        let mux = Arc::downgrade(self);
+        self.control_clients.remote_agents.set_turn_off(Box::new(move || {
+            let mux = mux.upgrade().ok_or("the daemon is stopping")?;
+            mux.control_clients.remote_host.call("screen.share", json!({"on": false})).map(|_| ())
+        }));
     }
 }
 

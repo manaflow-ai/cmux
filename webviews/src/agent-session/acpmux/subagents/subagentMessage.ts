@@ -1,4 +1,4 @@
-// A message to a subagent from its own pane (SubagentComposer.tsx). Leo, 2026-11-03: "are claude
+// A message to a subagent from its own pane (App.tsx `subagentRelay`, Composer.tsx `relay`). Leo, 2026-11-03: "are claude
 // code subagents truly forced to be read only? you can't directly send to them?" and "currently it
 // says "read only" on the subagents in cmux-next. we should improve that".
 //
@@ -24,7 +24,7 @@ export type SubagentTarget = {
 
 /// Whether `family` is harness `base` or one of its profiles (`claude-sr2`, `codex_work`), as the mode
 /// menu reads it (harnessModes.ts `familyMenu`).
-function isHarness(family: string | undefined, base: "claude" | "codex"): boolean {
+export function isHarness(family: string | undefined, base: "claude" | "codex"): boolean {
   const id = (family ?? "").toLowerCase();
   return id === base || id.startsWith(`${base}-`) || id.startsWith(`${base}_`);
 }

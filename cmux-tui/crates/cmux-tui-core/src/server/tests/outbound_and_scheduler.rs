@@ -67,6 +67,8 @@ fn vt_state_wire_prefix_identifies_attach_before_large_replay_data() {
         pending_sequence: Arc::from([]),
         history_rows_omitted: None,
         history_rows_skipped: None,
+        stamp: None,
+        resume: None,
     };
 
     let serialized = RenderService::new().serialize_vt_state(&message).unwrap();
@@ -93,6 +95,8 @@ fn a_tail_vt_state_names_the_history_rows_it_left_out() {
         pending_sequence: Arc::from([]),
         history_rows_omitted: Some(9_721),
         history_rows_skipped: None,
+        stamp: None,
+        resume: None,
     };
     let serialized = RenderService::new().serialize_vt_state(&message).unwrap();
     assert!(serialized.starts_with(r#"{"event":"vt-state","surface":7,"#), "{}", &**serialized);
@@ -115,6 +119,8 @@ fn attach_replays_carry_the_pending_sequence_after_their_colors() {
         pending_sequence: Arc::from(&b"\x1b[1;3"[..]),
         history_rows_omitted: None,
         history_rows_skipped: None,
+        stamp: None,
+        resume: None,
     };
     let serialized = RenderService::new().serialize_vt_state(&message).unwrap();
     let decoded: Value = serde_json::from_str(&serialized).unwrap();
@@ -132,7 +138,8 @@ fn attach_replays_carry_the_pending_sequence_after_their_colors() {
         pending_sequence: Arc::from(&b"\xce"[..]),
         history_rows_omitted: Some(99_000),
     };
-    let shape = AttachWireShape { color_overrides: true, pending_sequence: true };
+    let shape =
+        AttachWireShape { color_overrides: true, pending_sequence: true, ..Default::default() };
     let serialized = RenderService::new().serialize_attach_frame(7, &resized, shape).unwrap();
     let decoded: Value = serde_json::from_str(&serialized).unwrap();
     assert_eq!(decoded["event"], "resized");
@@ -142,7 +149,8 @@ fn attach_replays_carry_the_pending_sequence_after_their_colors() {
 
     // Viewers that did not advertise the capability keep the legacy
     // shape: the pending bytes end the replay itself.
-    let legacy = AttachWireShape { color_overrides: true, pending_sequence: false };
+    let legacy =
+        AttachWireShape { color_overrides: true, pending_sequence: false, ..Default::default() };
     let serialized = RenderService::new().serialize_attach_frame(7, &resized, legacy).unwrap();
     let decoded: Value = serde_json::from_str(&serialized).unwrap();
     assert_eq!(decoded["replay"], base64.encode(b"screen\xce"));
@@ -256,6 +264,8 @@ fn vt_state_streaming_releases_partial_global_budget_on_overflow() {
         pending_sequence: Arc::from([]),
         history_rows_omitted: None,
         history_rows_skipped: None,
+        stamp: None,
+        resume: None,
     };
 
     let error = service
@@ -474,7 +484,7 @@ fn server_stats_report_lock_writer_and_connection_metrics() {
     let identity = handle_command(
         &mux,
         mux.local_test_client(0),
-        Command::Identify { machine_metadata: false, revisions: false },
+        Command::Identify { machine_metadata: false, revisions: false, restore_progress: false },
         &test_writer(),
     )
     .unwrap();
@@ -483,9 +493,13 @@ fn server_stats_report_lock_writer_and_connection_metrics() {
     );
     // Any registry use records a hold at its call site.
     let _ = mux.registry_identity();
-    let stats =
-        handle_command(&mux, unix_client, Command::ServerStats { include: None }, &test_writer())
-            .unwrap();
+    let stats = handle_command(
+        &mux,
+        unix_client,
+        Command::ServerStats { include: None, restore_progress: false },
+        &test_writer(),
+    )
+    .unwrap();
     assert_eq!(stats["schema"].as_u64(), Some(crate::diagnostics::SERVER_STATS_SCHEMA as u64));
     assert!(stats["uptime_ms"].is_u64());
     let lock = &stats["registry_lock"];
@@ -497,7 +511,7 @@ fn server_stats_report_lock_writer_and_connection_metrics() {
     let error = handle_command(
         &mux,
         websocket_client,
-        Command::ServerStats { include: None },
+        Command::ServerStats { include: None, restore_progress: false },
         &test_writer(),
     )
     .expect_err("remote clients must not receive internal server stats");
@@ -937,7 +951,7 @@ fn connection_close_cancels_a_wait_queued_after_clear_history() {
 /// answered while the admitted waits are pending. Closing the connection ends every wait
 /// and returns its permit.
 #[test]
-fn wait_for_off_dispatch_refuses_over_capacity_without_queueing() {
+fn wait_for_off_dispatch_admits_past_the_old_cap_without_queueing() {
     let mux = test_mux();
     let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
     let (writer, outbound) = captured_writer();
@@ -954,24 +968,17 @@ fn wait_for_off_dispatch_refuses_over_capacity_without_queueing() {
         })
         .to_string()
     };
-    for id in 0..RESOURCE_WAITS_PER_CLIENT_CAPACITY {
+    // Past the old cap of 8 waits per connection: no count refuses a wait.
+    let waits = 9;
+    for id in 0..waits {
         assert!(handle_connection_message(&mux, client, &wait(id), &writer, &scheduler));
     }
-    let over = RESOURCE_WAITS_PER_CLIENT_CAPACITY;
-    assert!(handle_connection_message(&mux, client, &wait(over), &writer, &scheduler));
     // A request that goes through the connection's queue, as the waits do: a plain `identify`
-    // is answered on the reader before the queue (#33273), so it would race the refusal and
-    // prove nothing about the queue.
+    // is answered on the reader before the queue (#33273), so it would not prove the waits
+    // left the queue.
     let later = json!({"id":"later","cmd":"list-workspaces"}).to_string();
     assert!(handle_connection_message(&mux, client, &later, &writer, &scheduler));
 
-    let refused = pop_json(&outbound);
-    assert_eq!(refused["id"], json!(over), "the wait over capacity was not answered first");
-    assert_eq!(refused["ok"], false, "a wait over capacity was admitted: {refused}");
-    assert!(
-        refused["error"].as_str().is_some_and(|error| error.contains("wait-for")),
-        "the refusal does not name wait-for: {refused}"
-    );
     let answered = pop_json(&outbound);
     assert_eq!(answered["id"], "later", "a queued request waited behind pending waits");
     assert_eq!(answered["ok"], true, "{answered}");
@@ -995,7 +1002,7 @@ fn wait_for_off_dispatch_refuses_over_capacity_without_queueing() {
     );
     assert_eq!(
         mux.control_clients.resource_wait_admission.active(),
-        RESOURCE_WAITS_PER_CLIENT_CAPACITY,
+        waits,
         "each pending wait-for must hold one terminal-wait worker permit"
     );
 

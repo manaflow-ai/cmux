@@ -1,7 +1,7 @@
 {
   "name": "cmux.pane/1",
   "version": 1,
-  "docs": "A tab kind: a pane the user opens from the palette, open-with or an op.",
+  "docs": "A tab kind: a pane the user opens from the palette, open-with or an op. With presentation.overlay the same scene also opens as a floating overlay over the window, from the person's own gesture only (mount context surface: overlay, origin user). Open arguments and a result (runtime 1.5.0): cmux.app.openPane(args) from any view of the same extension opens the tab with the person's gesture and resolves {result, dismissed} once the pane calls ctx.close(result) or the person closes it. The mount context carries args (null when the person opened it), close(result), onOpen(fn) and onClose(fn). A newer open dismisses the older one; args and result are at most 16 KiB of JSON.",
   "props": {
     "title": "string",
     "symbol": "string?"
@@ -9,6 +9,9 @@
   "methods": {
     "render": "scene|web|native"
   },
-  "events": [],
+  "events": [
+    "open",
+    "close"
+  ],
   "status": "draft: shapes are refined with the first implementing app before the interface is public"
 }

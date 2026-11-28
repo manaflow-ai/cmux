@@ -1,11 +1,11 @@
 // Linen: a soft, consumer chat look, light (the default). A white page with one centered reading
-// column, a soft gray (#f9f9f9) history sidebar with no line beside it, near-black text, prompts in
+// column, a soft gray (#fcfcfc) history sidebar with no line beside it, near-black text, prompts in
 // gray pills on the right, a black round Send, rounded menus, a quiet "Thinking" and a spinner while
 // work runs, and gentle motion.
 // Every value was sampled or measured from the pixels of the references in the README.
 {
   "name": "Linen",
-  "description": "A soft consumer chat: white page, #f9f9f9 history sidebar, gray prompt pills, a black Send.",
+  "description": "Light: white, a gray history sidebar, rounded prompts.",
 
   "appearance.theme": "Builtin Light",
   // The window, sidebar and pages take this file's colors, over an App Theme of your own.
@@ -77,24 +77,24 @@
   "appearance.metrics.columnGap": 0,
   "appearance.metrics.dividerThickness": 1,
 
-  // The sidebar: the soft #f9f9f9 gray, no edge line, quiet gray headings ("Pinned", "Threads").
+  // The sidebar: the soft #fcfcfc gray, no edge line, quiet gray headings ("Pinned", "Threads").
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#f9f9f9",
+  "appearance.surfaces.sidebar.color": "#fcfcfc",
   "appearance.surfaces.sidebar.opacity": 1,
   "sidebar.style": "standard",
   "sidebar.border": false,
   "sidebar.sectionLook": "quiet",
 
-  // The content: white everywhere a person reads; code and diffs on the #f9f9f9 of a code block.
+  // The content: white everywhere a person reads; code and diffs on the #fcfcfc of a code block.
   "appearance.surfaces.agentPane.color": "#ffffff",
   "appearance.surfaces.agentPane.opacity": 1,
   "appearance.surfaces.tabBar.color": "#ffffff",
   "appearance.surfaces.tabBar.opacity": 1,
   "appearance.surfaces.terminal.color": "#ffffff",
   "appearance.surfaces.terminal.opacity": 1,
-  "appearance.surfaces.editor.color": "#f9f9f9",
+  "appearance.surfaces.editor.color": "#fcfcfc",
   "appearance.surfaces.editor.opacity": 1,
-  "appearance.surfaces.diff.color": "#f9f9f9",
+  "appearance.surfaces.diff.color": "#fcfcfc",
   "appearance.surfaces.diff.opacity": 1,
   "appearance.surfaces.markdown.color": "#ffffff",
   "appearance.surfaces.markdown.opacity": 1,

@@ -13,8 +13,9 @@
 //! - Background-first: semantic UI Automation patterns first, then window
 //!   messages posted to the child window under the point or with the
 //!   keyboard focus. Nothing is activated, and the person's pointer never
-//!   moves. `Delivery::Foreground` raises the window and uses SendInput,
-//!   which the person's activity tracker knows to ignore.
+//!   moves. `Delivery::Foreground` raises the window and uses SendInput
+//!   for clicks and drags (the pointer is put back after; the activity
+//!   tracker knows to ignore it); a hover stays a posted WM_MOUSEMOVE.
 //! - Protected UI: a locked workstation, the secure desktop (UAC, sign-in)
 //!   or a session-0 service has no reachable input desktop; [`permissions`]
 //!   says so and every action refuses.
@@ -199,6 +200,16 @@ impl Desktop for WindowsDesktop {
             PointerTarget::Point { point, .. } => *point,
         };
         input::scroll(hwnd, at, dx, dy)
+    }
+
+    fn move_pointer(&self, target: &PointerTarget, delivery: Delivery) -> DResult<ActionOutcome> {
+        session::require_interactive()?;
+        let hwnd = self.window(target.window_id())?;
+        let at = match target {
+            PointerTarget::Element { element_id, .. } => self.uia.center(hwnd, element_id)?,
+            PointerTarget::Point { point, .. } => *point,
+        };
+        input::move_pointer(hwnd, at, delivery)
     }
 
     fn drag(

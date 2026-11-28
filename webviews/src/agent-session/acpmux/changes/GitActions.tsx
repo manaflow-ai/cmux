@@ -7,7 +7,7 @@ import { ChoiceGroup } from "../../../ui/ChoiceGroup";
 import { KeyboardScope } from "../../../ui/KeyboardScope";
 import { useScrollEdges } from "../../../ui/scrollEdges";
 import { useT } from "../i18n";
-import { canPush, messageTooLong, sameNewFiles, type CommitScope, type NewFiles } from "./gitWrite";
+import { canCommit, canPush, messageTooLong, sameNewFiles, type CommitScope, type NewFiles } from "./gitWrite";
 import type { GitWrite } from "./useGitWrite";
 import { useStartWhenDue } from "./useStartWhenDue";
 
@@ -47,7 +47,7 @@ export function GitToolbarButtons({
         className="acpmux-git-tool"
         data-tool="commit"
         aria-expanded={formOpen}
-        disabled={busy || disabled}
+        disabled={busy || disabled || !canCommit(git.status)}
         onClick={onToggleForm}
       >
         {t("git.commit.label")}
@@ -126,7 +126,8 @@ function CommitForm({
   const withNew = scope === "all" && includeNew;
   // New files are committed only after the reader has seen all of them.
   const newFilesShown = !withNew || (newFiles?.state === "loaded" && newFiles.files.skipped === 0);
-  const ready = message.trim().length > 0 && !tooLong && !busy && !git.statusFailed && newFilesShown;
+  const ready =
+    message.trim().length > 0 && !tooLong && !busy && !git.statusFailed && canCommit(git.status) && newFilesShown;
   const [listChanged, setListChanged] = useState(false);
   const list = (then?: (files: NewFiles) => void) => {
     const request = ++listing.current;
@@ -294,30 +295,33 @@ function NewFileList({ files }: { files?: NewFilesLoad }) {
 }
 
 /// The latest write: busy, done, or why it failed, with Retry, Refresh and Dismiss as they apply.
-/// A status read that failed shows here too, with Refresh. The `role=status` region stays
-/// mounted and only its text changes, so screen readers announce busy and done; a failure is
-/// its own alert.
+/// A status read that failed is read again on its own (useGitWrite.ts): nothing shows for it until it
+/// has kept failing, then one quiet line with no button. The `role=status` region stays mounted and
+/// only its text changes, so screen readers announce busy and done; a write's failure is its own alert.
 function WriteStatusLine({ git, disabled = false }: { git: GitWrite; disabled?: boolean }) {
   const t = useT();
   const state = git.state;
   const failed = state?.phase === "failed" ? state : undefined;
-  const statusFailed = !state && git.statusFailed;
-  const phase = state?.phase ?? (statusFailed ? "failed" : "idle");
+  const statusStillTrying = !state && git.statusFailed && git.statusStillTrying === true;
+  const phase = state?.phase ?? "idle";
   const progress =
     state?.phase === "busy"
       ? t(state.op === "commit" ? "git.commit.busy" : "git.push.busy")
       : state?.phase === "done"
         ? state.text
-        : "";
-  const canRefresh = failed ? failed.canRefresh : statusFailed;
+        : statusStillTrying
+          ? t("git.statusStillReading")
+          : "";
+  // retry-prompt-ok: Refresh after a failed write re-reads the branch before the person's next commit or push.
+  const canRefresh = failed?.canRefresh === true;
   return (
     <div className="acpmux-git-status" data-phase={phase}>
       <output className="acpmux-git-status-text" aria-live="polite">
         {progress}
       </output>
-      {(failed || statusFailed) && (
+      {failed && (
         <span className="acpmux-git-status-text" role="alert">
-          {failed ? failed.text : t("git.statusFailed")}
+          {failed.text}
         </span>
       )}
       {canRefresh && (
@@ -327,6 +331,7 @@ function WriteStatusLine({ git, disabled = false }: { git: GitWrite; disabled?: 
       )}
       {failed?.canRetry && (
         <button type="button" className="acpmux-git-secondary" disabled={disabled} onClick={git.retry}>
+          {/* retry-prompt-ok: runs the failed git commit or push again, a write to the repository. */}
           {t("git.retry")}
         </button>
       )}

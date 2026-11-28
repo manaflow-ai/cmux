@@ -1,0 +1,35 @@
+# Our own TURN relay (eturnal, https://eturnal.net). Same protocol the phone and Mac already speak
+# (turn:/turns:, RFC 5766 over UDP, TCP and TLS), so no client change: /v1/ice hands out these URLs
+# when TURN_SELF_URLS and TURN_SELF_SECRET are set (src/ice.ts), and Cloudflare TURN is then not called.
+#
+# This is a template: install.sh renders the @NAME@ markers (it does not trust eturnal to expand anything).
+# Host: any box with cheap egress and a public IPv4 (Hetzner-class: about EUR 1 per TB beyond 20 TB
+# included per server in the EU). Not GCP, not Cloudflare: both bill every relayed byte.
+# Ports: udp+tcp 3478, udp 443, tcp 443 (TLS: the one enterprise networks that block UDP still pass),
+# udp 49152-65535. Direct ICE behavior is unchanged; these URLs add own-relay candidates for the ICE agent.
+eturnal:
+  secret: "@ETURNAL_SECRET@"           # the same value as the Worker's TURN_SELF_SECRET (REST API credentials)
+  listen:
+    - ip: "::"
+      port: 3478
+      transport: udp
+    - ip: "::"
+      port: 3478
+      transport: tcp
+    - ip: "::"
+      port: 443
+      transport: udp
+    - ip: "::"
+      port: 443
+      transport: tls
+      proxy_protocol: false
+  relay_ipv4_addr: "@RELAY_PUBLIC_IPV4@"
+  relay_min_port: 49152
+  relay_max_port: 65535
+  max_allocations: 5000                # per user, a guard on a leaked credential
+  max_bps: 4000000                     # 4 MB/s per allocation: a screen-share ceiling, not a file-copy pipe
+  blacklist_clients: [recommended]     # never relay to private ranges: a relay is not a way into our network
+  blacklist_peers: [recommended]
+  tls_crt_file: @TLS_CERT@
+  tls_key_file: @TLS_KEY@
+  log_level: notice

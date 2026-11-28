@@ -7,13 +7,17 @@ import "./desktop.css";
 import "../../ui/glass/glass.css";
 // RUNNING-WAVE: the one shimmer across running indicators (ui/wave.ts).
 import "../../ui/wave.css";
+// TOOLTIP REFRESH: the opt-in look of every tooltip and hover card (experiments.hoverLook), after the glass.
+import "../../ui/hoverLook.css";
 import { parseComputedColor } from "../../backdrop";
 import { experimentArm } from "../../experiments/experiment";
 import { installScrollers } from "../../scrollers";
 import { chromiumGlassUnderlay } from "../../ui/glass/chromiumUnderlay.experiment";
 import { installBackdropFallback } from "../../ui/glass/glassState";
+import { installPageGlassBlur } from "../../ui/glass/pageGlassBlur";
 import { installSpinnerClock } from "../../ui/spinnerClock";
 import { installTooltips } from "../../ui/titleTooltips";
+import { installHoverLook } from "../../ui/hoverLook";
 import { installWave } from "../../ui/wave";
 import { installPageLoops } from "../../ui/pageLoops";
 import { installAdaptiveSelection } from "../../ui/adaptiveSelection";
@@ -39,11 +43,6 @@ export const TITLE_BAR_DOUBLE_CLICK = "cmux.app.window.title_bar_double_click";
 type Caller = { call(op: string, params: unknown): Promise<unknown> };
 
 let caller: Caller | null = null;
-
-/** Gives the layer the page client, for the title bar double-click (pages without one skip it). */
-export function setDesktopCaller(client: Caller | null): void {
-  caller = client;
-}
 
 /** True when `target` is inside a region a page marked as its title bar (`data-titlebar`). */
 export function isTitleBar(target: EventTarget | null): boolean {
@@ -73,6 +72,8 @@ export function installDesktopLayer(doc: Document = document): void {
   installAdaptiveSelection(doc);
   // CHROMIUM OVER THE WINDOW GLASS: the glass underlay's strength (chromiumUnderlay.experiment.ts).
   root.setAttribute(GLASS_UNDERLAY_ATTRIBUTE, experimentArm(chromiumGlassUnderlay));
+  // TOOLTIP REFRESH: data-hover-look follows experiments.hoverLook (off by default; ui/hoverLook.ts).
+  installHoverLook(doc);
   const view = doc.defaultView;
   if (!view) return;
   // IME-KEYS: keys an input method is using never reach page handlers (imeKeys.ts).
@@ -93,6 +94,9 @@ export function installDesktopLayer(doc: Document = document): void {
   // Transparency, with no host still or with no glass on the page). The fallback keeps a still the
   // host sends before the lens chunk arrives; the WebGL engine stays out of each page's eager budget.
   installBackdropFallback(view);
+  // GLASS BLURS WHAT IT COVERS: a menu or popover the App does not draw glass under blurs the page
+  // under it in place, so no text reads crisp through it (ui/glass/pageGlassBlur.ts).
+  if (doc.body) installPageGlassBlur(doc);
   void import("../../ui/glass/lens").then(({ installGlassLens }) => installGlassLens(doc));
   // A drop never navigates the page: a page that takes drops handles them (and calls
   // preventDefault itself); everything else is refused here.
@@ -129,13 +133,36 @@ export function updateHairline(doc: Document = document): void {
   hairlineWatches.set(doc, { ratio, query, listener });
 }
 
+const SURFACE_BACKGROUND = "--cmux-surface-background";
+
+/** Per document: the host's inline page background the attribute was last decided for, settled (no
+ * color transition was carrying the drawn value elsewhere then); "" while a decision is unsettled. */
+const seeThroughDecided = new WeakMap<Document, string>();
+
 /** Sets or clears ``SEE_THROUGH_ATTRIBUTE`` from the resolved page background. Without a host theme
- * (the plain-browser dev loop) the page is on the browser's canvas, not art: the attribute stays off. */
+ * (the plain-browser dev loop) the page is on the browser's canvas, not art: the attribute stays off.
+ *
+ * The host writes `--cmux-surface-background` only inline on `<html>` (WebTheme.swift `apply`, an
+ * `rgba()` or `color(srgb ...)`), and no stylesheet declares it but glass-parity's, which sets the
+ * attribute itself. So the page's start decides from that inline value, with no computed-style read:
+ * a computed read restyles whatever is dirty first, and at a chat page's start that is every element
+ * of its drawn copy (chatSnapshot/paint.ts) too. A `cmux-theme` whose inline value is the one already
+ * decided reads nothing; a changed one is read computed, as before, so a theme's color transition
+ * (WebTheme `settled`) flips the attribute when it did. */
 export function updateSeeThrough(doc: Document = document): void {
   const root = doc.documentElement;
   const view = doc.defaultView;
-  if (!view || view.getComputedStyle(root).getPropertyValue("--cmux-surface-background").trim() === "") {
+  const inline = root.style.getPropertyValue(SURFACE_BACKGROUND).trim();
+  if (!view || inline === "") {
+    seeThroughDecided.delete(doc);
     root.removeAttribute(SEE_THROUGH_ATTRIBUTE);
+    return;
+  }
+  if (seeThroughDecided.get(doc) === inline) return;
+  const declared = parseComputedColor(inline);
+  if (declared && !seeThroughDecided.has(doc)) {
+    seeThroughDecided.set(doc, inline);
+    root.toggleAttribute(SEE_THROUGH_ATTRIBUTE, declared.a < 1);
     return;
   }
   const probe = doc.createElement("span");
@@ -144,7 +171,11 @@ export function updateSeeThrough(doc: Document = document): void {
   root.append(probe);
   const color = parseComputedColor(view.getComputedStyle(probe).backgroundColor);
   probe.remove();
-  root.toggleAttribute(SEE_THROUGH_ATTRIBUTE, color !== null && color.a < 1);
+  const seeThrough = color !== null && color.a < 1;
+  root.toggleAttribute(SEE_THROUGH_ATTRIBUTE, seeThrough);
+  // Only a decision the drawn value agrees with is kept; one read mid-transition (or from a value this
+  // parser does not know) leaves "" (unsettled), so the next `cmux-theme` reads as drawn again.
+  seeThroughDecided.set(doc, declared !== null && declared.a < 1 === seeThrough ? inline : "");
 }
 
 if (typeof document !== "undefined") installDesktopLayer();

@@ -534,10 +534,17 @@ class RebuildOfAPublishedCommit(unittest.TestCase):
 
     def test_a_new_tree_carries_the_commit_acpmux_in_completion_json(self) -> None:
         # hq-1f: acpmux for x86_64/aarch64 musl and aarch64/x86_64 darwin, and cmux-rd
-        # with its notices for x86_64/aarch64 glibc.
+        # with its notices for x86_64/aarch64 glibc. The full list (and its order) is
+        # test_publish_cmux_tui_tree.py's ACPMUX_TREE_NAMES; this test needs these in it
+        # and checks every listed one, so a new optional companion needs no count here.
         result, commit, published, acpmux = self.publish_tree_with_acpmux()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(len(acpmux), 8)
+        hq_1f = {f"cmux-tui-acpmux-{t}" for t in (
+            "x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl",
+            "aarch64-apple-darwin", "x86_64-apple-darwin")}
+        hq_1f |= {f"cmux-tui-rd-{t}" for t in ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu")}
+        hq_1f |= {f"cmux-tui-rd-notices-{t}.md" for t in ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu")}
+        self.assertLessEqual(hq_1f, set(acpmux))
         gate = json.loads((published / "completion.json").read_text())["binaries"]
         for n in acpmux:
             self.assertEqual((published / n).read_bytes(), (commit / n).read_bytes(), n)

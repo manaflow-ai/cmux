@@ -47,6 +47,12 @@
 # suite=latency runs the per-call latency bench (cu-bench/README.md) in the same guest, on the same
 # engines the arena assembles (arms=, cu_fast=, cu_rewrite=), with no model and no route: reps=
 # rounds of every op against Calculator.
+#
+# suite=cueval base_url=... runs the CU hill-climb suite (evals/computer-use, its macOS prereg: 20 tasks
+# x reps=3 trials, arm cmux-cu, claude opus) against the newest NEXT Nightly installed in the guest
+# (cu-driver-eval/cueval-guest.sh); arena_tasks=a,b or another reps= runs it unregistered. The
+# artifact cu-driver-eval.tgz holds cueval/results.jsonl and calls.jsonl (cmuxterm-hq
+# tools/fleet-reconcilers/cu_suite_ondemand.py runs and summarizes it).
 set -uo pipefail
 started_at=$(date +%s)
 base_url="" suite=probe reps=3 drivers="cmux-cua,cua-driver-0.38.0" bench=preflight condition=background tasks="" waive=""
@@ -71,7 +77,7 @@ for arg in "$@"; do
     *) echo "cu-driver-bench.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
-[[ "$suite" == probe || "$suite" == input-ab || "$suite" == route || "$suite" == bench-v2 || "$suite" == arena || "$suite" == latency ]] || { echo "cu-driver-bench.sh: suite= is probe, input-ab, route, bench-v2, arena or latency" >&2; exit 2; }
+[[ "$suite" == probe || "$suite" == input-ab || "$suite" == route || "$suite" == bench-v2 || "$suite" == arena || "$suite" == latency || "$suite" == cueval ]] || { echo "cu-driver-bench.sh: suite= is probe, input-ab, route, bench-v2, arena, latency or cueval" >&2; exit 2; }
 [[ "$arms" =~ ^[a-z0-9.,-]*$ && "$arena_tasks" =~ ^[a-z0-9,-]*$ && "$harness" =~ ^[a-z0-9.,:-]*$ ]] || { echo "cu-driver-bench.sh: arms=, arena_tasks= and harness= are comma lists" >&2; exit 2; }
 for sha in "$cu_fast" "$cu_rewrite" "$chief_desktop"; do [[ -z "$sha" || "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "cu-driver-bench.sh: an engine commit is a full sha" >&2; exit 2; }; done
 [[ "$budget_s" =~ ^[0-9]{4,5}$ ]] || { echo "cu-driver-bench.sh: budget_s= is the step's timeout in seconds" >&2; exit 2; }
@@ -83,7 +89,7 @@ for sha in "$cu_fast" "$cu_rewrite" "$chief_desktop"; do [[ -z "$sha" || "$sha" 
 [[ "$drivers" =~ ^[a-z0-9.,-]*$ ]] || { echo "cu-driver-bench.sh: drivers= is a comma list of names" >&2; exit 2; }
 [[ -z "$base_url" || "$base_url" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]] || { echo "cu-driver-bench.sh: base_url=http://HOST[:PORT]" >&2; exit 2; }
 # The guest reaches the route through a TCP forward to a plain http:// URL on its own loopback.
-[[ ( "$suite" != route && "$suite" != bench-v2 && "$suite" != arena ) || "$base_url" =~ ^http://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]] || { echo "cu-driver-bench.sh: suite=$suite needs base_url=http://HOST[:PORT]" >&2; exit 2; }
+[[ ( "$suite" != route && "$suite" != bench-v2 && "$suite" != arena && "$suite" != cueval ) || "$base_url" =~ ^http://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]] || { echo "cu-driver-bench.sh: suite=$suite needs base_url=http://HOST[:PORT]" >&2; exit 2; }
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 here="$root/scripts/measure/cu-driver-eval"
@@ -115,9 +121,10 @@ EOF
   cat "$out/vm.json"
   tar -czf "$root/artifacts/cu-driver-bench.tgz" -C "$root/artifacts" cu-driver-bench
   # input-ab's artifact is cu-driver-eval.tgz; a run stopped before the A/B still leaves one.
-  if [[ ( "$suite" == input-ab || "$suite" == bench-v2 || "$suite" == arena || "$suite" == latency ) && ! -d "$root/artifacts/cu-driver-eval" ]]; then
+  if [[ ( "$suite" == input-ab || "$suite" == bench-v2 || "$suite" == arena || "$suite" == latency || "$suite" == cueval ) && ! -d "$root/artifacts/cu-driver-eval" ]]; then
     mkdir -p "$root/artifacts/cu-driver-eval"
     cp "$out/vm.json" "$root/artifacts/cu-driver-eval/"
+    [[ -f "$out/start.log" ]] && cp "$out/start.log" "$root/artifacts/cu-driver-eval/" # the blocked reason names it
     tar -czf "$root/artifacts/cu-driver-eval.tgz" -C "$root/artifacts" cu-driver-eval
   fi
 }
@@ -244,16 +251,30 @@ cleanup() {
 trap cleanup EXIT
 lume clone "$base" "$vm" >"$out/clone.log" 2>&1 || { finish "lume clone failed (clone.log)"; exit 4; }
 lume set "$vm" --cpu 6 --memory 12GB --display 1920x1080 >"$out/set.log" 2>&1 || { finish "lume set failed (set.log)"; exit 4; }
-# exec, so $! is Lume's own process, not a subshell around it.
-( exec "${lume_env[@]}" run "$vm" --no-display ) >"$out/run.log" 2>&1 &
-run_pid=$!
+# One boot that never answers SSH used to void the whole suite run (step 462455435aa3, 11-27): the clone gets a
+# second boot before the step gives up, and each failed try records whether Lume's run was alive and how many VM
+# processes the host had, as macos-cu-density.sh does.
 booted=0
-for _ in $(seq 1 90); do
-  kill -0 "$run_pid" 2>/dev/null || break
-  if lume ssh "$vm" -t 10 true >/dev/null 2>&1; then booted=1; break; fi
-  sleep 5 # bounded wait for the guest's SSH (7.5 min)
+for try in 1 2; do
+  # exec, so $! is Lume's own process, not a subshell around it.
+  ( exec "${lume_env[@]}" run "$vm" --no-display ) >"$out/run.log" 2>&1 &
+  run_pid=$!
+  for _ in $(seq 1 90); do
+    kill -0 "$run_pid" 2>/dev/null || break
+    if lume ssh "$vm" -t 10 true >/dev/null 2>&1; then booted=1; break; fi
+    sleep 5 # bounded wait for the guest's SSH (7.5 min)
+  done
+  [[ $booted == 1 ]] && break
+  run_state=$(kill -0 "$run_pid" 2>/dev/null && echo alive || echo exited)
+  vms=$(pgrep -f com.apple.Virtualization.VirtualMachine 2>/dev/null | wc -l | tr -d ' ')
+  cp "$out/run.log" "$out/run-try$try.log" 2>/dev/null || true
+  note "boot try $try: the guest's SSH never answered; lume run $run_state, $vms VM process(es) on the host"
+  lume stop "$vm" >/dev/null 2>&1 || true
+  kill "$run_pid" 2>/dev/null || true
+  wait "$run_pid" 2>/dev/null || true
+  run_pid=""
 done
-[[ $booted == 1 ]] || { tail -20 "$out/run.log"; finish "the guest's SSH never answered (run.log)"; exit 4; }
+[[ $booted == 1 ]] || { tail -20 "$out/run.log"; finish "the guest's SSH never answered on 2 boots: lume run $run_state, $vms VM process(es) on the host (run-try1.log, run-try2.log)"; exit 4; }
 
 note "STAGE guest"
 probe='
@@ -334,7 +355,7 @@ f.setdefault(sys.argv[2], {})[sys.argv[3]] = value
 print(json.dumps(f))' "$facts" "$@")
 }
 
-if [[ "$suite" == route || "$suite" == bench-v2 || "$suite" == arena ]]; then
+if [[ "$suite" == route || "$suite" == bench-v2 || "$suite" == arena || "$suite" == cueval ]]; then
   note "STAGE route"
   # The guest's 127.0.0.1:4016 becomes the route, through this worker. Only this ssh is killed on exit.
   route_hostport=${base_url#http://}
@@ -421,13 +442,56 @@ eval_args=""
 arena_budget=$(( started_at + budget_s - 300 - 600 - $(date +%s) ))
 [[ "$suite" == arena ]] && eval_args=$(printf ' %q' electron=0 arena=run "arms=$arms" "harness=$harness" "arena_tasks=$arena_tasks" "arena_budget=$arena_budget")
 [[ "$suite" == latency ]] && eval_args=$(printf ' %q' electron=0 arena=latency "arms=$arms" "reps=$reps" "arena_budget=$arena_budget")
-git archive "$rev" scripts/measure/cu-driver-eval.sh scripts/measure/cu-driver-eval scripts/measure/cu-bench scripts/build-cmux-cua.sh skills/cmux-cua |
+# cueval reads the engine's default deny list from policy.rs (cueval/arms.py default_denied_apps).
+runner="" cueval_paths=()
+if [[ "$suite" == cueval ]]; then
+  eval_args=$(printf ' %q' "trials=$reps" "tasks=$arena_tasks")
+  runner="CU_EVAL_RUNNER=scripts/measure/cu-driver-eval/cueval-guest.sh "
+  cueval_paths=(evals/computer-use cmux-tui/crates/cmux-computer-use/src/policy.rs)
+fi
+# The legacy cmux-cua arm's sources (build-cmux-cua.sh, skills/cmux-cua) left the tree with #37003, and
+# git archive refuses a pathspec the rev lacks: send each optional path only where the rev has it.
+archive_paths=(scripts/measure/cu-driver-eval.sh scripts/measure/cu-driver-eval scripts/measure/cu-bench)
+for p in scripts/build-cmux-cua.sh skills/cmux-cua ${cueval_paths[@]+"${cueval_paths[@]}"}; do
+  git cat-file -e "$rev:$p" 2>/dev/null && archive_paths+=("$p")
+done
+git archive "$rev" "${archive_paths[@]}" |
   guest 'rm -rf ~/cu-eval && mkdir -p ~/cu-eval && tar -x -C ~/cu-eval' || { finish "could not copy the A/B into the guest"; exit 4; }
 if [[ ( "$suite" == arena || "$suite" == latency ) && -d "$engines_out" ]]; then
   tar -c -C "$engines_out" . | guest 'mkdir -p ~/cu-eval/engines && tar -x -C ~/cu-eval/engines' || { finish "could not copy the engines into the guest"; exit 4; }
 fi
-guest_n "bash ~/cu-eval/scripts/measure/cu-driver-eval/guest-start.sh $rev $reps '$drivers'$eval_args" >"$out/start.log" 2>&1 ||
-  { cat "$out/start.log"; finish "could not start the A/B in the guest's session (start.log)"; exit 4; }
+start_ab() { guest_n "${runner}bash ~/cu-eval/scripts/measure/cu-driver-eval/guest-start.sh $rev $reps '$drivers'$eval_args" >>"$out/start.log" 2>&1; }
+start_status=0
+start_ab || start_status=$?
+if [[ $start_status == 5 ]]; then
+  # guest-start.sh found no login session after 5 minutes (2026-11-27: a fresh clone on a loaded host
+  # sat at loginwindow and the whole suite run was lost). The clone keeps its disk, the copied tree and
+  # the run's key, so one restart of the VM is a fresh auto-login; the guest may come back on a new IP.
+  cat "$out/start.log"
+  note "no login session in the guest: restarting the VM once"
+  setfact vm restarted "no login session"
+  lume stop "$vm" >/dev/null 2>&1 || true
+  kill "$run_pid" 2>/dev/null || true
+  wait "$run_pid" 2>/dev/null || true
+  ( exec "${lume_env[@]}" run "$vm" --no-display ) >>"$out/run.log" 2>&1 &
+  run_pid=$!
+  booted=0
+  for _ in $(seq 1 90); do
+    kill -0 "$run_pid" 2>/dev/null || break
+    if lume ssh "$vm" -t 10 true >/dev/null 2>&1; then booted=1; break; fi
+    sleep 5
+  done
+  [[ $booted == 1 ]] || { tail -20 "$out/run.log"; finish "the guest's SSH never answered after the restart (run.log)"; exit 4; }
+  ip=$(lume get "$vm" -f json 2>/dev/null | python3 -I -c '
+import json, sys
+data = json.load(sys.stdin)
+row = data[0] if isinstance(data, list) else data
+print(row.get("ipAddress") or "")' 2>/dev/null)
+  [[ "$ip" =~ ^[0-9.]+$ ]] || { finish "lume reported no guest IP after the restart"; exit 4; }
+  start_status=0
+  start_ab || start_status=$?
+fi
+[[ $start_status == 0 ]] || { cat "$out/start.log"; finish "could not start the A/B in the guest's session (start.log)"; exit 4; }
 cat "$out/start.log"
 note "the A/B is running in the guest"
 finished=0
@@ -435,7 +499,7 @@ finished=0
 # minutes before the step's budget runs out (a first pull and the boot spend some of it), so the
 # results still come back.
 deadline=$(( started_at + budget_s - 300 ))
-[[ "$suite" != arena ]] && (( deadline > $(date +%s) + 5400 )) && deadline=$(( $(date +%s) + 5400 ))
+[[ "$suite" != arena && "$suite" != cueval ]] && (( deadline > $(date +%s) + 5400 )) && deadline=$(( $(date +%s) + 5400 ))
 # A progress line every 5 minutes: the guest's eval.log stays in the guest until it ends, and the
 # controller stops a measurement that prints nothing for 45 minutes (CMUX_CI_MEASURE_SILENT_MAX).
 next_progress=$(( $(date +%s) + 300 ))
@@ -443,7 +507,7 @@ while (( $(date +%s) < deadline )); do
   guest_n 'test -f ~/cu-eval/eval.status' 2>/dev/null && { finished=1; break; }
   if (( $(date +%s) >= next_progress )); then
     next_progress=$(( $(date +%s) + 300 ))
-    note "still running: $(guest_n 'n=$(wc -l <~/cu-eval/artifacts/cu-driver-eval/arena/trials.jsonl 2>/dev/null || echo 0); echo "$n trials; $(tail -1 ~/cu-eval/eval.log 2>/dev/null | cut -c1-160)"' 2>/dev/null)"
+    note "still running: $(guest_n 'n=$(cat ~/cu-eval/artifacts/cu-driver-eval/arena/trials.jsonl ~/cu-eval/.build/cueval/out/results.jsonl 2>/dev/null | wc -l | tr -d " "); echo "$n trials; $(tail -1 ~/cu-eval/eval.log 2>/dev/null | cut -c1-160)"' 2>/dev/null)"
   fi
   sleep 10
 done

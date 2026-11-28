@@ -28,6 +28,8 @@ export interface RunPlan {
   eligible: boolean;
   why?: string;
   machines: RunMachine[];
+  /** What the command downloads, when it is a big fetch (acpmux `run_elsewhere::fetch_kind`). */
+  fetch?: "npm" | "pip" | "cargo" | "docker" | "model";
   tree?: {
     /** The repository the other machine fetches, without a login. */
     origin: string;

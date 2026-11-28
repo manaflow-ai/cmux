@@ -13,6 +13,7 @@
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { teardownDom } from "./support/domTeardown";
+import { railFrame } from "./support/railFrame";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -143,6 +144,7 @@ async function renderPane() {
       </>,
     ),
   );
+  await railFrame();
   return root;
 }
 

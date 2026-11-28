@@ -1,0 +1,25 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/aurora-look",
+  "name": "Aurora",
+  "tagline": "Clear glass over your desktop, with a teal-violet accent.",
+  "description": "The window turns to clear glass over your desktop while the chat stays solid and easy to read, with a teal-to-violet accent. Light and dark. Remove it and everything you had comes back.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "repository": "https://github.com/manaflow-ai/cmux-aurora-look",
+
+  "cmuxProfile": 1,
+  "settings": {
+    "appearance.themeFile": "aurora",
+    "agentPane.display.font.ui": "system-ui",
+    "agentPane.display.font.size": 14,
+    "agentPane.display.font.lineHeight": 1.6,
+    "agentPane.display.width": 760,
+    "sidebar.density": "comfortable",
+    "sidebar.groupPalette": "gradient",
+    "sidebar.groupGradient": "aurora",
+    "sidebar.workspaceRow.icon": true,
+    "sidebar.workspaceRow.branch": true,
+    "sidebar.workspaceRow.lastActivity": false
+  }
+}

@@ -30,7 +30,10 @@ export type SettingKind =
   // `{sound, volume, events}`. Set from the sidebar menus, the palette and the CLI; never a row.
   | "sound_rules"
   // Ordered choices (`row.choices`) or free-text tokens (`browser.urlsToAlwaysOpenExternally`).
-  | "string_list";
+  | "string_list"
+  // A nested value of the row's `shape`, a JSON Schema (`sidebar.workspaceRow.lines`: lists of token
+  // lists). The daemon checks it and says where a value went wrong (`accepted.problems`).
+  | "json";
 
 export type NumberUnit = "points" | "milliseconds" | "seconds" | "minutes" | "days" | "count" | "fraction";
 
@@ -55,6 +58,8 @@ export type SchemaRow = {
   range?: NumberRange;
   /** choice_or_url: the member that holds the address (`selfHosted`). */
   url_key?: string;
+  /** json: the value's JSON Schema (draft 2020-12; cmux-config schema/shape.rs checks it). */
+  shape?: { type: "array" | "object" } & Record<string, unknown>;
   default: unknown;
   default_label: LocalizedText | null;
   /** What a list row's empty field shows; null or absent shows none (a host list: its host example). */
@@ -129,25 +134,15 @@ export const sections: SchemaSection[] = schema.sections;
 
 export const rowsByKey: ReadonlyMap<string, SchemaRow> = new Map(schema.rows.map((row) => [row.key, row]));
 
+/** Every row the host accepts a write for, page-hidden ones too (a card writes those itself, as the
+ * customize checklist writes `customize.checklist.done`); the mock host validates against it. */
+export const hostRowsByKey: ReadonlyMap<string, SchemaRow> = new Map(document.rows.map((row) => [row.key, row]));
+
 export function rowsInSection(section: string): SchemaRow[] {
   return schema.rows.filter((row) => row.section === section);
 }
 
 export type RowGroup = { key: string; title: LocalizedText; rows: SchemaRow[] };
-
-/** Rows grouped by `group.key`, in schema order of each group's first row. */
-export function groupRows(rows: SchemaRow[]): RowGroup[] {
-  const groups = new Map<string, RowGroup>();
-  for (const row of rows) {
-    const id = row.group.key ?? row.group.text;
-    const group = groups.get(id) ?? { key: id, title: row.group, rows: [] };
-    group.rows.push(row);
-    groups.set(id, group);
-  }
-  return [...groups.values()];
-}
-
-export const defaultSection = sections[0]?.id ?? "general";
 
 export function isSection(id: string | undefined): id is string {
   return id !== undefined && sections.some((section) => section.id === id);

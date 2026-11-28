@@ -18,12 +18,15 @@ import Testing
         var failures = 0
         /// Runs at the start of each download (a test holds one there).
         var hold: (@Sendable () async -> Void)?
+        /// The `cas/1` fetches asked for (RFD 0166).
+        var casRequests: [WebUpdater.CasRequest] = []
     }
 
     static func pointerData(_ pointer: WebUpdatePointer) throws -> Data {
         var payload = WebUpdatePointerTests.payload(key: pointer.key, abi: pointer.abi, committedAt: pointer.committedAt,
                                                     sha: pointer.sha256, outputs: pointer.outputs, size: pointer.size)
         payload["published_at"] = pointer.publishedAt
+        if let cas = pointer.cas { payload["cas"] = ["prefix": cas.prefix, "manifest": cas.manifest, "pack": cas.pack] }
         return try WebUpdatePointerTests.envelope(payload)
     }
 
@@ -140,6 +143,29 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: kept.path))
     }
 
+    /// A quit mid-fetch leaves a `cas/1` staging tree and its chunk store; a launch that serves
+    /// the kept update (so prunes no tree) still removes them, after the answer.
+    @Test func aServedLaunchRemovesTheStagingAQuitLeft() async throws {
+        let root = try WebUpdateStoreTests.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (archive, pointer) = try await WebUpdateStoreTests.makeArchive(in: root)
+        let base = root.appending(path: "store", directoryHint: .isDirectory)
+        let store = WebUpdateStore(base: base)
+        let tree = try await store.install(archive: archive, pointer: pointer)
+        try store.write(WebUpdateState(active: pointer, floor: pointer.committedAt))
+        let left = store.casStaging()
+        for folder in [left.tree, left.chunks] {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try Data("chunk".utf8).write(to: folder.appending(path: "piece"))
+        }
+        #expect(Self.staging(in: base).count == 2)
+        let updater = Self.updater(Server(), store: store, app: .init(abi: 2, webBuiltAt: pointer.committedAt - 1))
+        #expect(await updater.launchTree() == tree)
+        await updater.launchSettled()
+        #expect(Self.staging(in: base).isEmpty)
+        #expect(store.verifiedTree(pointer) == tree)
+    }
+
     @Test func aKeptUpdateFromAnotherChannelIsNotServedAtLaunch() async throws {
         let root = try WebUpdateStoreTests.scratch()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -203,6 +229,44 @@ import Testing
         await updater.check()
         #expect(updater.lastRefusal == .notNewer)
         #expect(server.downloads == 0)
+    }
+
+    /// The switch file of web pieces refuses the update (`cmux app web-pieces refused`): it is
+    /// never downloaded or made active, so no page serves it before a pieces read rolls it back.
+    @Test func anUpdateTheSwitchFileRefusesIsNeverDownloadedOrMadeActive() async throws {
+        let root = try WebUpdateStoreTests.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (archive, pointer) = try await WebUpdateStoreTests.makeArchive(in: root)
+        let server = Server()
+        server.archive = archive
+        server.pointer = try Self.pointerData(pointer)
+        let store = WebUpdateStore(base: root.appending(path: "store", directoryHint: .isDirectory))
+        let updater = Self.updater(server, store: store)
+        var ready: [URL?] = []
+        var asked: [WebUpdatePointer] = []
+        updater.onReady = { tree, _ in ready.append(tree) }
+        updater.refuses = { pointer in
+            asked.append(pointer)
+            return true
+        }
+        await updater.check()
+        #expect(asked == [pointer])
+        #expect(updater.state.active == nil)
+        #expect(store.readState().active == nil)
+        #expect(ready.isEmpty)
+        #expect(server.downloads == 0)
+        #expect(updater.lastRefusal == .refusedBySwitchFile)
+        #expect(updater.phase == .idle)
+        // The same pointer: not asked again until it changes.
+        await updater.check()
+        #expect(asked.count == 1)
+        // A later switch file allows it: taken when the pointer is read again.
+        updater.refuses = { _ in false }
+        server.etag = "\"2\""
+        await updater.check()
+        #expect(updater.state.active == pointer)
+        #expect(server.downloads == 1)
+        #expect(ready == [store.tree(for: pointer.key).root])
     }
 
     @Test func aRollBackServesThePreviousUpdateAndRefusesTheRolledBackOne() async throws {
@@ -384,5 +448,111 @@ import Testing
         #expect(updater.lastRefusal == .unsigned)
         #expect(updater.phase == .failed(String(describing: WebUpdateRefusal.unsigned)))
         #expect(server.downloads == 0)
+    }
+
+    // MARK: cas/1 (RFD 0166): the tree by chunks when `casFetch` is set, the archive on any miss.
+
+    static let cas = WebUpdatePointer.Cas(prefix: "cmux-next-web/cas/", manifest: String(repeating: "e", count: 64),
+                                          pack: String(repeating: "f", count: 64))
+
+    /// An updater whose pointer names `cas`, and whose fake fetch copies the fixture tree (`src`,
+    /// which makeArchive wrote) into the request's folder, after `alter` changes the copy.
+    static func casSetup(_ root: URL, result: Result<Void, WebUpdater.CasMiss> = .success(()), alter: Bool = false)
+        async throws -> (Server, WebUpdateStore, WebUpdater, WebUpdatePointer) {
+        var (archive, pointer) = try await WebUpdateStoreTests.makeArchive(in: root)
+        pointer.cas = cas
+        let server = Server()
+        server.archive = archive
+        server.pointer = try Self.pointerData(pointer)
+        let store = WebUpdateStore(base: root.appending(path: "store", directoryHint: .isDirectory))
+        let updater = Self.updater(server, store: store)
+        let source = root.appending(path: "src", directoryHint: .isDirectory)
+        updater.casFetch = { request in
+            server.casRequests.append(request)
+            if case .failure(let miss) = result { return .failure(miss) }
+            do {
+                try FileManager.default.createDirectory(at: request.chunks, withIntermediateDirectories: true)
+                try FileManager.default.copyItem(at: source, to: request.out)
+                if alter { try Data("changed".utf8).write(to: request.out.appending(path: WebUpdateTree.inspectorOutput)) }
+            } catch { return .failure(.init("copy: \(error)")) }
+            return .success(.init(treeBytes: 100, chunks: 4, reused: 3, ranges: 1, rangeBytes: 25, metaBytes: 10))
+        }
+        return (server, store, updater, pointer)
+    }
+
+    static func staging(in store: URL) -> [String] {
+        ((try? FileManager.default.contentsOfDirectory(atPath: store.path)) ?? []).filter { $0.hasPrefix("staging-") }
+    }
+
+    @Test func aCasTreeIsTakenWithoutTheArchive() async throws {
+        let root = try WebUpdateStoreTests.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (server, store, updater, pointer) = try await Self.casSetup(root)
+        var ready: [URL?] = []
+        updater.onReady = { tree, _ in ready.append(tree) }
+        await updater.check()
+        #expect(server.downloads == 0)
+        #expect(updater.state.active == pointer)
+        #expect(ready == [store.tree(for: pointer.key).root])
+        #expect(try WebUpdateTree(root: store.tree(for: pointer.key).root).outputDigest() == pointer.outputs)
+        let request = try #require(server.casRequests.first)
+        #expect(request.manifest == Self.cas.manifest && request.pack == Self.cas.pack)
+        #expect(request.base.absoluteString == "https://files.cmux.com/cmux-next-web/cas/")
+        #expect(request.have.isEmpty)
+        #expect(updater.lastFetch?.by == .cas)
+        #expect(updater.lastFetch?.cas?.rangeBytes == 25)
+        #expect(Self.staging(in: root.appending(path: "store")).isEmpty)
+    }
+
+    @Test func aCasMissTakesTheArchiveInTheSameCheck() async throws {
+        let root = try WebUpdateStoreTests.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (server, _, updater, pointer) = try await Self.casSetup(root, result: .failure(.init("metered link")))
+        await updater.check()
+        #expect(server.casRequests.count == 1)
+        #expect(server.downloads == 1)
+        #expect(updater.state.active == pointer)
+        #expect(updater.lastFetch == .init(key: pointer.key, by: .archive, casMiss: "metered link", archiveBytes: pointer.size))
+    }
+
+    @Test func aCasTreeThatIsNotThePointersTakesTheArchive() async throws {
+        let root = try WebUpdateStoreTests.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (server, store, updater, pointer) = try await Self.casSetup(root, alter: true)
+        await updater.check()
+        #expect(server.downloads == 1)
+        #expect(updater.state.active == pointer)
+        #expect(try WebUpdateTree(root: store.tree(for: pointer.key).root).outputDigest() == pointer.outputs)
+        #expect(updater.lastFetch?.by == .archive)
+        #expect(updater.lastFetch?.casMiss?.hasPrefix("tree: ") == true)
+        #expect(Self.staging(in: root.appending(path: "store")).isEmpty)
+    }
+
+    @Test func aCasMissWhoseArchiveFailsRecordsNoFetch() async throws {
+        let root = try WebUpdateStoreTests.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (server, _, updater, _) = try await Self.casSetup(root, result: .failure(.init("metered link")))
+        server.failures = 1
+        await updater.check()
+        #expect(server.casRequests.count == 1)
+        #expect(updater.state.active == nil)
+        #expect(updater.lastFetch == nil)
+    }
+
+    @Test func withoutCasFetchOnlyTheArchiveIsRead() async throws {
+        let root = try WebUpdateStoreTests.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (server, _, updater, pointer) = try await Self.casSetup(root)
+        updater.casFetch = nil
+        await updater.check()
+        #expect(server.casRequests.isEmpty)
+        #expect(server.downloads == 1)
+        #expect(updater.lastFetch == .init(key: pointer.key, by: .archive, archiveBytes: pointer.size))
+    }
+
+    @Test func theReportIsTheOutputsLastLine() {
+        let output = Data("note\n{\"ok\":true,\"tree_bytes\":9,\"chunks\":3,\"reused\":2,\"ranges\":1,\"range_bytes\":4,\"meta_bytes\":5}\n".utf8)
+        #expect(WebUpdater.CasReport.parse(output) == .init(treeBytes: 9, chunks: 3, reused: 2, ranges: 1, rangeBytes: 4, metaBytes: 5))
+        #expect(WebUpdater.CasReport.parse(Data("error: no\n".utf8)) == nil)
     }
 }

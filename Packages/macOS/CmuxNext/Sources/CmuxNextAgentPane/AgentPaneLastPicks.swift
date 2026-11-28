@@ -31,10 +31,15 @@ public nonisolated struct AgentPaneLastPicks: Codable, Sendable, Equatable {
     public var global: Pick?
     /// Oldest first.
     public var folders: [FolderPick]
+    /// The agent and model last picked for a Cloud machine: Cloud's own bucket, apart from this Mac's
+    /// ``global`` and ``folders`` (Austin, 2026-11-27: "We should store a state for the local models and a
+    /// different state for the cloud+autocloud"). A page sends it as `newTab.remember` with `place: "cloud"`.
+    public var cloud: Pick?
 
-    public init(global: Pick? = nil, folders: [FolderPick] = []) {
+    public init(global: Pick? = nil, folders: [FolderPick] = [], cloud: Pick? = nil) {
         self.global = global
         self.folders = folders
+        self.cloud = cloud
     }
 
     /// The model a pick of an agent's own default names.
@@ -69,6 +74,19 @@ public nonisolated struct AgentPaneRememberedPick: Sendable, Equatable {
     /// The person picked a project (or kept the page's) and sent a prompt there (`started`): later
     /// New Tab pages default to it (Leo 2026-10-21). Agents', CLI and socket chats never send it.
     public var started: String?
+    /// The person started a Cloud chat in this folder of this Mac or GitHub repository (`cloudStarted`,
+    /// `github:owner/name`): later pages with Cloud picked default to it (cmux#53226).
+    public var cloudStarted: String?
+    /// The agent pick is for a Cloud machine (`place: "cloud"`): it is Cloud's last pick
+    /// (``AgentPaneLastPicks/cloud``), never this Mac's.
+    public var forCloud = false
+
+    /// A folder (absolute) or a GitHub repository (`github:owner/name`), at most 4096 characters.
+    public static func isCloudPick(_ value: String) -> Bool {
+        guard value.count <= 4096 else { return false }
+        if value.hasPrefix("/") { return true }
+        return value.range(of: #"^github:[^/\s]+/[^/\s]+$"#, options: .regularExpression) != nil
+    }
 
     public init(agent: String, model: String? = nil, folder: String? = nil) {
         self.agent = agent

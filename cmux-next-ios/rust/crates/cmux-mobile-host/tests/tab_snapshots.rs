@@ -1,0 +1,836 @@
+//! The `tabs` service end to end: phones on a link, a fake daemon feeding
+//! the producer, pictures offered by the Mac app.
+
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use bytes::Bytes;
+use cmux_mobile_host::config::{AcpmuxTarget, ServiceConfig};
+use cmux_mobile_host::control::SessionExposure;
+use cmux_mobile_host::pairing::LinkAuth;
+use cmux_mobile_host::services::{Peer, serve};
+use cmux_mobile_host::tab_snapshots::{self, Part, Tabs};
+use cmux_mobile_link::{Channel, ChannelEvent, Link, LinkConfig, Role};
+use cmux_tab_snapshots::{BlobHash, Deframer, Message, Mime, Mirror, Resume, Viewport, length_prefixed};
+use serde_json::{Value, json};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::net::UnixListener;
+use tokio::sync::watch;
+
+/// A daemon that answers the feeder's requests from `tree`.
+struct FakeDaemon {
+    socket: PathBuf,
+    tree: Arc<Mutex<Value>>,
+    events: tokio::sync::broadcast::Sender<String>,
+    open: Arc<AtomicUsize>,
+    remote_hellos: Arc<AtomicUsize>,
+    screen_reads: Arc<Mutex<HashMap<u64, usize>>>,
+    /// Surfaces whose `read-screen` fails (a hibernated terminal).
+    unreadable: Arc<Mutex<HashSet<u64>>>,
+    /// Bumped by [`FakeDaemon::restart`]: every open connection ends.
+    run: watch::Sender<u64>,
+}
+
+fn tree(tabs: Value) -> Value {
+    json!({"workspaces": [{"screens": [{"panes": [{"tabs": tabs}]}]}]})
+}
+
+impl FakeDaemon {
+    fn start(dir: &Path, tabs: Value) -> Self {
+        let socket = dir.join("main.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let daemon = Self {
+            socket,
+            tree: Arc::new(Mutex::new(tree(tabs))),
+            events: tokio::sync::broadcast::channel(64).0,
+            open: Arc::default(),
+            remote_hellos: Arc::default(),
+            screen_reads: Arc::default(),
+            unreadable: Arc::default(),
+            run: watch::channel(0).0,
+        };
+        let run = daemon.run.clone();
+        let (tree, events, open, remote, reads) = (
+            Arc::clone(&daemon.tree),
+            daemon.events.clone(),
+            Arc::clone(&daemon.open),
+            Arc::clone(&daemon.remote_hellos),
+            Arc::clone(&daemon.screen_reads),
+        );
+        let unreadable = Arc::clone(&daemon.unreadable);
+        tokio::spawn(async move {
+            loop {
+                let (stream, _) = listener.accept().await.unwrap();
+                let mut run = run.subscribe();
+                let (tree, mut events, open, remote, reads) = (
+                    Arc::clone(&tree),
+                    events.subscribe(),
+                    Arc::clone(&open),
+                    Arc::clone(&remote),
+                    Arc::clone(&reads),
+                );
+                let unreadable = Arc::clone(&unreadable);
+                open.fetch_add(1, Ordering::SeqCst);
+                tokio::spawn(async move {
+                    let (read, mut write) = stream.into_split();
+                    let mut lines = BufReader::new(read).lines();
+                    let mut subscribed = false;
+                    loop {
+                        tokio::select! {
+                            line = lines.next_line() => {
+                                let Ok(Some(line)) = line else { break };
+                                let request: Value = serde_json::from_str(&line).unwrap();
+                                let id = request["id"].clone();
+                                let reply = match request["cmd"].as_str().unwrap() {
+                                    "set-client-info" => {
+                                        if request["remote"] == true {
+                                            remote.fetch_add(1, Ordering::SeqCst);
+                                        }
+                                        json!({"id": id, "ok": true})
+                                    }
+                                    "subscribe" => {
+                                        subscribed = true;
+                                        json!({"id": id, "ok": true})
+                                    }
+                                    // One process: a restart is a new generation.
+                                    "identify" => {
+                                        let generation = *run.borrow();
+                                        json!({"id": id, "ok": true, "data": {"pid": 4242, "registry_id": "main", "generation": generation}})
+                                    }
+                                    "list-workspaces" => {
+                                        json!({"id": id, "ok": true, "data": tree.lock().unwrap().clone()})
+                                    }
+                                    "read-screen" => {
+                                        let surface = request["surface"].as_u64().unwrap();
+                                        let n = {
+                                            let mut reads = reads.lock().unwrap();
+                                            let n = reads.entry(surface).or_default();
+                                            *n += 1;
+                                            *n
+                                        };
+                                        if unreadable.lock().unwrap().contains(&surface) {
+                                            json!({"id": id, "ok": false, "error": {"code": "hibernated"}})
+                                        } else {
+                                            json!({"id": id, "ok": true, "data": {"text": format!("screen {surface} #{n}")}})
+                                        }
+                                    }
+                                    other => panic!("unexpected {other}"),
+                                };
+                                if write.write_all(format!("{reply}\n").as_bytes()).await.is_err() {
+                                    break;
+                                }
+                            }
+                            _ = run.changed() => break,
+                            event = events.recv(), if subscribed => {
+                                let Ok(event) = event else { break };
+                                if write.write_all(format!("{event}\n").as_bytes()).await.is_err() {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    open.fetch_sub(1, Ordering::SeqCst);
+                });
+            }
+        });
+        daemon
+    }
+
+    /// A new run of the daemon on the same socket, listing `tabs`: the old
+    /// run's connections end.
+    fn restart(&self, tabs: Value) {
+        *self.tree.lock().unwrap() = tree(tabs);
+        self.run.send_modify(|n| *n += 1);
+    }
+
+    fn emit(&self, event: Value) {
+        let _ = self.events.send(event.to_string());
+    }
+}
+
+/// One phone: its end of a `tabs` channel and a reference mirror.
+struct Phone {
+    channel: Channel,
+    deframer: Deframer,
+    mirror: Mirror,
+    blobs: Vec<BlobHash>,
+    _link: Link,
+}
+
+impl Phone {
+    async fn send(&self, msg: Message) {
+        self.channel.send(Bytes::from(length_prefixed(&msg.encode()).unwrap())).await.unwrap();
+    }
+
+    /// Applies whatever arrives within `wait`.
+    async fn drain(&mut self, wait: Duration) {
+        let _ = tokio::time::timeout(wait, self.apply_until(|_| false)).await;
+    }
+
+    /// Applies frames until `done` holds (3 s at most).
+    async fn until(&mut self, done: impl FnMut(&Mirror) -> bool) {
+        tokio::time::timeout(Duration::from_secs(3), self.apply_until(done))
+            .await
+            .expect("phone state in time");
+    }
+
+    /// Applies frames until `done` holds, with no bound of its own: [`Self::drain`] waits
+    /// longer than [`Self::until`]'s 3 s.
+    async fn apply_until(&mut self, mut done: impl FnMut(&Mirror) -> bool) {
+        while !done(&self.mirror) {
+            if let Some(frame) = self.deframer.next_frame().unwrap() {
+                if let Ok(Message::Blob(b)) = Message::decode(&frame) {
+                    self.blobs.push(b.hash);
+                }
+                self.mirror.apply_frame(&frame).unwrap();
+                continue;
+            }
+            match self.channel.recv().await {
+                Some(ChannelEvent::Data(data)) => self.deframer.push(&data),
+                event => panic!("tabs channel ended: {event:?}"),
+            }
+        }
+    }
+}
+
+/// A phone that opens `tabs` against `tabs::serve` directly (its own [`Tabs`]).
+async fn phone(
+    tabs: &Arc<Tabs>,
+    socket: Option<PathBuf>,
+    exposure: Option<watch::Receiver<SessionExposure>>,
+) -> Phone {
+    let (phone_stream, mac_stream) = tokio::io::duplex(64 * 1024);
+    let link = Link::new(phone_stream, Role::Phone, LinkConfig::default(), None);
+    let mac = Link::new(mac_stream, Role::Mac, LinkConfig::default(), None);
+    let tabs = Arc::clone(tabs);
+    tokio::spawn(async move {
+        let incoming = mac.accept().await.unwrap();
+        let (sender, receiver) = incoming.channel.split();
+        let _ = tab_snapshots::serve(&tabs, socket, exposure, &sender, receiver).await;
+        sender.close("eof", "").await;
+        let _mac = mac;
+    });
+    let channel = link.open("tabs", json!({})).await.unwrap();
+    Phone {
+        channel,
+        deframer: Deframer::new(16 << 20),
+        mirror: Mirror::new(),
+        blobs: Vec::new(),
+        _link: link,
+    }
+}
+
+fn ids(mirror: &Mirror) -> Vec<&str> {
+    mirror.rows().iter().map(|r| r.tab_id.as_str()).collect()
+}
+
+fn filled(mirror: &Mirror) -> bool {
+    !mirror.rows().is_empty() && mirror.rows().iter().all(|r| r.hashes().all(|h| mirror.holds(&h)))
+}
+
+async fn eventually(what: &str, mut check: impl FnMut() -> bool) {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !check() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("{what} in time"));
+}
+
+fn two_tabs() -> Value {
+    json!([
+        {"surface": 7, "kind": "pty", "title": "zsh", "size": {"cols": 100, "rows": 30}},
+        {"surface": 8, "kind": "browser", "title": "Docs"},
+    ])
+}
+
+#[tokio::test]
+async fn a_phone_doing_have_resume_viewport_gets_the_manifest_and_pushed_blobs() {
+    let dir = tempfile::tempdir().unwrap();
+    let daemon = FakeDaemon::start(dir.path(), two_tabs());
+    let tabs = Arc::new(Tabs::new("run-2"));
+    tabs.offer_image("8", Part::Favicon, b"fav8".to_vec(), 0, 0, Mime::Png, 10);
+    tabs.offer_image("8", Part::Thumb, b"thumb8".to_vec(), 576, 768, Mime::Jpeg, 10);
+    let mut p = phone(&tabs, Some(daemon.socket.clone()), None).await;
+    // The phone holds the favicon from before and a rev of an older run.
+    p.mirror.import_held([BlobHash::of(b"fav8")]);
+    p.send(Message::Have(vec![BlobHash::of(b"fav8")])).await;
+    p.send(Message::Resume(Resume { epoch: "run-1".into(), rev: 40 })).await;
+    p.send(Message::Viewport(Viewport::default())).await;
+    p.until(|m| ids(m) == ["7", "8"] && filled(m) && m.rows()[0].screen_hash.is_some()).await;
+    assert_eq!(p.mirror.epoch(), "run-2");
+    let terminal = &p.mirror.rows()[0];
+    assert_eq!((terminal.screen_cols, terminal.screen_rows), (100, 30));
+    assert!(p.mirror.holds(&BlobHash::of(b"screen 7 #1")));
+    assert!(p.blobs.contains(&BlobHash::of(b"thumb8")));
+    assert!(!p.blobs.contains(&BlobHash::of(b"fav8")), "a blob in `have` is not pushed");
+
+    // Output on the terminal is read again and arrives as a delta and a blob.
+    daemon.emit(json!({"event": "surface-output", "surface": 7}));
+    p.until(|m| m.holds(&BlobHash::of(b"screen 7 #2")) && filled(m)).await;
+    // A new tab from a tree event.
+    daemon.tree.lock().unwrap()["workspaces"][0]["screens"][0]["panes"][0]["tabs"]
+        .as_array_mut()
+        .unwrap()
+        .insert(0, json!({"surface": 9, "kind": "browser", "title": "New"}));
+    daemon.emit(json!({"event": "tab-created", "surface": 9}));
+    p.until(|m| ids(m) == ["9", "7", "8"]).await;
+    // A picture offered later is pushed.
+    tabs.offer_image("9", Part::Thumb, b"thumb9".to_vec(), 576, 768, Mime::Jpeg, 20);
+    p.until(|m| m.holds(&BlobHash::of(b"thumb9"))).await;
+    assert!(daemon.remote_hellos.load(Ordering::SeqCst) >= 2, "the feeder says remote: true");
+}
+
+#[tokio::test]
+async fn a_second_phone_gets_the_same_blobs_from_the_one_store() {
+    let dir = tempfile::tempdir().unwrap();
+    let daemon = FakeDaemon::start(dir.path(), two_tabs());
+    let tabs = Arc::new(Tabs::new("run"));
+    tabs.offer_image("8", Part::Thumb, b"thumb8".to_vec(), 576, 768, Mime::Jpeg, 10);
+    let mut first = phone(&tabs, Some(daemon.socket.clone()), None).await;
+    first.send(Message::Viewport(Viewport::default())).await;
+    first.until(|m| ids(m) == ["7", "8"] && filled(m) && m.rows()[0].screen_hash.is_some()).await;
+    let mut second = phone(&tabs, Some(daemon.socket.clone()), None).await;
+    second.send(Message::Viewport(Viewport::default())).await;
+    second.until(|m| ids(m) == ["7", "8"] && filled(m) && m.rows()[0].screen_hash.is_some()).await;
+    let a: HashSet<_> = first.blobs.iter().collect();
+    let b: HashSet<_> = second.blobs.iter().collect();
+    assert_eq!(a, b);
+    assert_eq!(tabs.stored_blobs(), a.len());
+    assert_eq!(tabs.feeds_started(), 1, "both phones share one feeder");
+    assert_eq!(daemon.screen_reads.lock().unwrap().get(&7), Some(&1), "the screen was read once for both");
+}
+
+#[tokio::test]
+async fn a_tab_of_a_chat_the_peer_may_not_see_is_absent() {
+    let dir = tempfile::tempdir().unwrap();
+    let daemon = FakeDaemon::start(
+        dir.path(),
+        json!([
+            {"surface": 7, "kind": "pty", "title": "zsh"},
+            {"surface": 9, "kind": "conversation", "title": "Secret", "agent_session": "s-blocked"},
+        ]),
+    );
+    let tabs = Arc::new(Tabs::new("run"));
+    tabs.offer_image("9", Part::Thumb, b"secret".to_vec(), 576, 768, Mime::Jpeg, 10);
+    let mut blocked = SessionExposure { configured: true, ..SessionExposure::default() };
+    blocked.blocked.insert("s-blocked".into());
+    let (exposure, rx) = watch::channel(blocked);
+    let mut p = phone(&tabs, Some(daemon.socket.clone()), Some(rx)).await;
+    p.send(Message::Viewport(Viewport::default())).await;
+    p.until(|m| ids(m) == ["7"] && filled(m) && m.rows()[0].screen_hash.is_some()).await;
+    eventually("the feeder listed the hidden tab", || tabs.tab_ids().len() == 2).await;
+    // Even a `want` for its picture is not served.
+    p.send(Message::Want(vec![BlobHash::of(b"secret")])).await;
+    p.drain(Duration::from_millis(300)).await;
+    assert!(!p.blobs.contains(&BlobHash::of(b"secret")));
+    assert_eq!(ids(&p.mirror), ["7"]);
+
+    // Exposing the chat shows it at once.
+    exposure.send_replace(SessionExposure { configured: true, ..SessionExposure::default() });
+    p.until(|m| ids(m) == ["7", "9"] && m.holds(&BlobHash::of(b"secret"))).await;
+    // An unavailable exposure hides every tab.
+    exposure.send_replace(SessionExposure { available: false, ..SessionExposure::default() });
+    p.until(|m| m.rows().is_empty()).await;
+}
+
+#[tokio::test]
+async fn a_new_daemon_run_is_a_new_epoch_and_no_old_surface_survives() {
+    let dir = tempfile::tempdir().unwrap();
+    let daemon = FakeDaemon::start(dir.path(), two_tabs());
+    let tabs = Arc::new(Tabs::new("run-a"));
+    tabs.offer_image("8", Part::Thumb, b"thumb8".to_vec(), 576, 768, Mime::Jpeg, 10);
+    let mut p = phone(&tabs, Some(daemon.socket.clone()), None).await;
+    p.send(Message::Viewport(Viewport::default())).await;
+    p.until(|m| ids(m) == ["7", "8"] && filled(m) && m.rows()[0].screen_hash.is_some()).await;
+    assert_eq!(p.mirror.epoch(), "run-a");
+    let old_rev = tabs.rev();
+    // A picture for a surface the old run lists only later.
+    tabs.offer_image("11", Part::Thumb, b"thumb11".to_vec(), 576, 768, Mime::Jpeg, 11);
+
+    // The new run numbers its surfaces again: 8 is now a terminal, 11 a page.
+    daemon.restart(json!([
+        {"surface": 8, "kind": "pty", "title": "bash", "size": {"cols": 80, "rows": 24}},
+        {"surface": 11, "kind": "browser", "title": "New page"},
+    ]));
+    p.until(|m| m.epoch() != "run-a" && ids(m) == ["8", "11"] && m.rows()[0].screen_hash.is_some()).await;
+    let epoch = tabs.epoch();
+    assert_eq!(p.mirror.epoch(), epoch);
+    let (eight, eleven) = (&p.mirror.rows()[0], &p.mirror.rows()[1]);
+    assert_eq!((eight.title.as_str(), eight.thumb_hash), ("bash", None), "8's old thumbnail is gone");
+    assert_eq!(eleven.thumb_hash, None, "a picture held for an old surface is gone");
+    assert_eq!(tabs.feeds_started(), 1, "the same feeder reconnected");
+
+    // A phone resuming from the old run gets a manifest of the new one.
+    let mut back = phone(&tabs, Some(daemon.socket.clone()), None).await;
+    back.send(Message::Resume(Resume { epoch: "run-a".into(), rev: old_rev })).await;
+    back.send(Message::Viewport(Viewport::default())).await;
+    back.until(|m| ids(m) == ["8", "11"]).await;
+    assert_eq!(back.mirror.epoch(), epoch);
+}
+
+/// A phone that leaves and comes back while the daemon runs on finds every picture it had: the
+/// feeder stops with the last phone and connects again, which is not a new run of the daemon.
+/// Taken for one, every thumbnail went and nothing sent them again, so the grid's browser cards
+/// showed only the globe after any reconnect (Leo, 2026-11-24: "there are too many empty
+/// previews in the safari grid thing").
+#[tokio::test]
+async fn a_phone_back_on_the_same_daemon_run_keeps_every_picture() {
+    let dir = tempfile::tempdir().unwrap();
+    let daemon = FakeDaemon::start(dir.path(), two_tabs());
+    let tabs = Arc::new(Tabs::new("run-a"));
+    tabs.offer_image("8", Part::Thumb, b"thumb8".to_vec(), 576, 768, Mime::Jpeg, 10);
+    let mut p = phone(&tabs, Some(daemon.socket.clone()), None).await;
+    p.send(Message::Viewport(Viewport::default())).await;
+    p.until(|m| ids(m) == ["7", "8"] && m.rows()[1].thumb_hash.is_some()).await;
+    p.channel.close("eof", "").await;
+    drop(p);
+    eventually("the feeder stopped", || !tabs.feeder_running()).await;
+    eventually("its daemon connections closed", || daemon.open.load(Ordering::SeqCst) == 0).await;
+
+    let mut back = phone(&tabs, Some(daemon.socket.clone()), None).await;
+    back.send(Message::Viewport(Viewport::default())).await;
+    back.until(|m| ids(m) == ["7", "8"]).await;
+    back.drain(Duration::from_millis(300)).await;
+    assert_eq!(tabs.feeds_started(), 2, "the feeder connected again");
+    assert_eq!(tabs.epoch(), "run-a", "the same run keeps its epoch");
+    assert_eq!(back.mirror.rows()[1].thumb_hash, Some(BlobHash::of(b"thumb8")), "8 keeps its thumbnail");
+}
+
+fn keyed_tabs() -> Value {
+    json!([
+        {"surface": 7, "kind": "pty", "title": "zsh", "size": {"cols": 100, "rows": 30}, "tab_resource_id": "tab-zsh"},
+        {"surface": 8, "kind": "browser", "title": "Docs", "tab_resource_id": "tab-docs"},
+        {"surface": 9, "kind": "conversation", "title": "Chat", "tab_resource_id": "tab-chat"},
+    ])
+}
+
+/// A restart of the daemon that gives every tab back its id keeps the epoch: an open phone and
+/// one resuming from before the restart keep every card's picture and screen. A later run that
+/// numbers the tabs again starts a new epoch, and the browser's picture follows its durable id
+/// to the new surface, never onto the tab now holding the old id (Leo, 2026-11-22: "there
+/// should be no reason for there to be so many blank favicons and blank previews and blank
+/// pages").
+#[tokio::test]
+async fn a_restarted_daemon_keeps_each_tab_and_its_picture_by_its_durable_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let daemon = FakeDaemon::start(dir.path(), keyed_tabs());
+    let tabs = Arc::new(Tabs::new("run-a"));
+    tabs.offer_image("8", Part::Thumb, b"thumb-docs".to_vec(), 576, 768, Mime::Jpeg, 10);
+    let mut p = phone(&tabs, Some(daemon.socket.clone()), None).await;
+    p.send(Message::Viewport(Viewport::default())).await;
+    p.until(|m| ids(m) == ["7", "8", "9"] && filled(m) && m.rows()[0].screen_hash.is_some()).await;
+    let keys: Vec<_> = p.mirror.rows().iter().map(|r| r.tab_key.clone()).collect();
+    assert_eq!(keys, ["tab-zsh", "tab-docs", "tab-chat"]);
+    let rev = tabs.rev();
+
+    // The same tabs under the same ids in a new run, which adds one; its
+    // terminal cannot be read yet (restored hibernated).
+    daemon.unreadable.lock().unwrap().insert(7);
+    let mut next = keyed_tabs();
+    next.as_array_mut()
+        .unwrap()
+        .push(json!({"surface": 10, "kind": "browser", "title": "New", "tab_resource_id": "tab-new"}));
+    daemon.restart(next);
+    p.until(|m| ids(m) == ["7", "8", "9", "10"]).await;
+    assert_eq!(tabs.epoch(), "run-a", "every id still names its tab");
+    assert_eq!(p.mirror.epoch(), "run-a");
+    assert!(tabs.has_delta_since(rev), "the phone took a delta across the restart");
+    assert_eq!(p.mirror.rows()[1].thumb_hash, Some(BlobHash::of(b"thumb-docs")));
+    assert_eq!(p.mirror.rows()[0].screen_hash, Some(BlobHash::of(b"screen 7 #1")), "the last screen stays");
+    // A phone that connects now gets them too.
+    let mut fresh = phone(&tabs, Some(daemon.socket.clone()), None).await;
+    fresh.send(Message::Viewport(Viewport::default())).await;
+    fresh.until(|m| ids(m) == ["7", "8", "9", "10"] && filled(m) && m.rows()[0].screen_hash.is_some()).await;
+    assert_eq!(fresh.mirror.rows()[1].thumb_hash, Some(BlobHash::of(b"thumb-docs")));
+
+    // A run that numbers them again: the page is surface 3, and 8 is a new terminal.
+    daemon.restart(json!([
+        {"surface": 3, "kind": "browser", "title": "Docs", "tab_resource_id": "tab-docs"},
+        {"surface": 8, "kind": "pty", "title": "bash", "tab_resource_id": "tab-bash"},
+    ]));
+    p.until(|m| m.epoch() != "run-a" && ids(m) == ["3", "8"]).await;
+    let (page, bash) = (&p.mirror.rows()[0], &p.mirror.rows()[1]);
+    assert_eq!((page.tab_key.as_str(), page.thumb_hash), ("tab-docs", Some(BlobHash::of(b"thumb-docs"))));
+    assert_eq!(
+        (bash.tab_key.as_str(), bash.thumb_hash),
+        ("tab-bash", None),
+        "8's old picture is not the new tab's"
+    );
+}
+
+/// A terminal's row carries its screen text with no phone ever having opened the terminal, and
+/// keeps the last one it read when the daemon can no longer read it (a hibernated terminal).
+#[tokio::test]
+async fn a_terminal_row_carries_its_last_screen_with_no_phone_having_opened_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let daemon = FakeDaemon::start(dir.path(), keyed_tabs());
+    let tabs = Arc::new(Tabs::new("run"));
+    let mut p = phone(&tabs, Some(daemon.socket.clone()), None).await;
+    p.send(Message::Viewport(Viewport::default())).await;
+    p.until(|m| ids(m) == ["7", "8", "9"] && m.rows()[0].screen_hash.is_some() && filled(m)).await;
+    let terminal = &p.mirror.rows()[0];
+    assert_eq!((terminal.kind.as_str(), terminal.screen_cols, terminal.screen_rows), ("terminal", 100, 30));
+    assert!(p.mirror.holds(&BlobHash::of(b"screen 7 #1")));
+    daemon.unreadable.lock().unwrap().insert(7);
+    daemon.emit(json!({"event": "surface-output", "surface": 7}));
+    eventually("the feeder tried the screen again", || {
+        daemon.screen_reads.lock().unwrap().get(&7) == Some(&2)
+    })
+    .await;
+    p.drain(Duration::from_millis(200)).await;
+    assert_eq!(p.mirror.rows()[0].screen_hash, Some(BlobHash::of(b"screen 7 #1")));
+}
+
+fn config(dir: &Path) -> Arc<ServiceConfig> {
+    Arc::new(ServiceConfig {
+        tui_socket_dir: dir.to_owned(),
+        default_session: "main".into(),
+        default_socket: None,
+        file_roots: vec![],
+        acpmux: AcpmuxTarget::Fixed { url: "ws://127.0.0.1:1/".into(), token: None },
+        pairing: None,
+        agent_tab_host: None,
+        uploads_dir: dir.join("uploads"),
+        chief_socket: None,
+        browser: cmux_mobile_host::browser::BrowserConfig::new(None, 1),
+        surface: cmux_mobile_host::surface::SurfaceConfig::new(None, 1),
+        viewport_sync: None,
+    })
+}
+
+/// Through `services::serve` (the process's shared [`tab_snapshots::TABS`]);
+/// the only test in this binary that uses it.
+#[tokio::test]
+async fn the_feeder_runs_while_a_phone_has_tabs_open_and_stops_when_the_last_leaves() {
+    let dir = tempfile::tempdir().unwrap();
+    let daemon = FakeDaemon::start(dir.path(), two_tabs());
+    let config = config(dir.path());
+    let (phone_stream, mac_stream) = tokio::io::duplex(64 * 1024);
+    let link = Link::new(phone_stream, Role::Phone, LinkConfig::default(), None);
+    let mac = Link::new(mac_stream, Role::Mac, LinkConfig::default(), None);
+    tokio::spawn(async move {
+        loop {
+            let Some(incoming) = mac.accept().await else { return };
+            let peer = Peer {
+                device_id: "p".into(),
+                session_id: "s".into(),
+                video: None,
+                session_exposure: None,
+                path: None,
+                viewport: None,
+                route: None,
+            };
+            tokio::spawn(serve(Arc::clone(&config), peer, Arc::new(LinkAuth::default()), incoming));
+        }
+    });
+    let tabs = &*tab_snapshots::TABS;
+    let open = |link: &Link| {
+        let link = link.clone();
+        async move {
+            let channel = link.open("tabs", json!({})).await.unwrap();
+            let p = Phone {
+                channel,
+                deframer: Deframer::new(16 << 20),
+                mirror: Mirror::new(),
+                blobs: Vec::new(),
+                _link: link,
+            };
+            p.send(Message::Viewport(Viewport::default())).await;
+            p
+        }
+    };
+    let mut a = open(&link).await;
+    let mut b = open(&link).await;
+    a.until(|m| ids(m) == ["7", "8"]).await;
+    b.until(|m| ids(m) == ["7", "8"]).await;
+    assert!(tabs.feeder_running());
+    assert_eq!(daemon.open.load(Ordering::SeqCst), 2, "one feeder: an event and a query connection");
+
+    a.channel.close("eof", "").await;
+    eventually("one phone left", || tabs.phones() == 1).await;
+    assert!(tabs.feeder_running(), "a phone still has tabs open");
+    b.channel.close("eof", "").await;
+    eventually("the feeder stopped", || !tabs.feeder_running()).await;
+    eventually("its daemon connections closed", || daemon.open.load(Ordering::SeqCst) == 0).await;
+    let reads = daemon.screen_reads.lock().unwrap().get(&7).copied();
+    daemon.emit(json!({"event": "surface-output", "surface": 7}));
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(daemon.screen_reads.lock().unwrap().get(&7).copied(), reads, "nothing polls with no phone");
+
+    // A phone that comes back starts it again.
+    let started = tabs.feeds_started();
+    let mut c = open(&link).await;
+    c.until(|m| ids(m) == ["7", "8"]).await;
+    assert_eq!(tabs.feeds_started(), started + 1);
+}
+
+/// An acpmux serving `_acpmux/events` (newest `limit` records) from each
+/// session's records; a session in `failing` answers with an error.
+#[derive(Clone, Default)]
+struct FakeAcpmux {
+    records: Arc<Mutex<HashMap<String, Vec<Value>>>>,
+    failing: Arc<Mutex<HashSet<String>>>,
+    reads: Arc<Mutex<HashMap<String, usize>>>,
+}
+
+impl FakeAcpmux {
+    async fn start() -> (Self, AcpmuxTarget) {
+        use futures_util::{SinkExt, StreamExt};
+        use tokio_tungstenite::tungstenite::Message as Ws;
+        let fake = Self::default();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("ws://{}/", listener.local_addr().unwrap());
+        let served = fake.clone();
+        tokio::spawn(async move {
+            while let Ok((stream, _)) = listener.accept().await {
+                let served = served.clone();
+                tokio::spawn(async move {
+                    let Ok(socket) = tokio_tungstenite::accept_async(stream).await else { return };
+                    let (mut sink, mut source) = socket.split();
+                    while let Some(Ok(Ws::Text(text))) = source.next().await {
+                        let request: Value = serde_json::from_str(&text).unwrap();
+                        assert_eq!(request["method"], "_acpmux/events", "the feeder only reads the log");
+                        let session = request["params"]["sessionId"].as_str().unwrap().to_owned();
+                        *served.reads.lock().unwrap().entry(session.clone()).or_default() += 1;
+                        let reply = if served.failing.lock().unwrap().contains(&session) {
+                            json!({"jsonrpc": "2.0", "id": request["id"], "error": {"code": -32000, "message": "unreadable"}})
+                        } else {
+                            let all =
+                                served.records.lock().unwrap().get(&session).cloned().unwrap_or_default();
+                            let limit = request["params"]["limit"].as_u64().unwrap() as usize;
+                            let newest =
+                                all.get(all.len().saturating_sub(limit)..).unwrap_or_default().to_vec();
+                            json!({"jsonrpc": "2.0", "id": request["id"],
+                                   "result": {"events": newest, "hasMore": all.len() > limit}})
+                        };
+                        if sink.send(Ws::Text(reply.to_string().into())).await.is_err() {
+                            return;
+                        }
+                    }
+                });
+            }
+        });
+        (fake, AcpmuxTarget::Fixed { url, token: None })
+    }
+
+    fn say(&self, session: &str, user: &str, reply: &str) {
+        let mut records = self.records.lock().unwrap();
+        let log = records.entry(session.to_owned()).or_default();
+        let seq = log.len() as u64;
+        log.push(json!({"seq": seq + 1, "dir": "mux", "kind": "user_message", "msg": {"text": user}}));
+        log.push(json!({"seq": seq + 2, "dir": "in", "kind": "session/update", "msg": {"method": "session/update",
+            "params": {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": reply}}}}}));
+    }
+
+    fn reads(&self, session: &str) -> usize {
+        self.reads.lock().unwrap().get(session).copied().unwrap_or(0)
+    }
+}
+
+fn agent_text(turns: &[(&str, &str)]) -> String {
+    use cmux_mobile_host::tab_agent_screen::{AgentTurn, agent_screen};
+    let turns: Vec<AgentTurn> = turns
+        .iter()
+        .map(|(who, text)| AgentTurn { who: (*who).to_owned(), text: (*text).to_owned() })
+        .collect();
+    agent_screen(&turns).unwrap()
+}
+
+fn agent_tabs() -> Value {
+    json!([
+        {"surface": 7, "kind": "pty", "title": "zsh", "size": {"cols": 100, "rows": 30}},
+        {"surface": 11, "kind": "conversation", "title": "Fix the build", "agent": "Claude",
+         "conversation": {"conversation": "conv_1", "agent_session": {"session": "s-agent"}}},
+    ])
+}
+
+fn screen_of<'a>(mirror: &'a Mirror, id: &str) -> Option<&'a cmux_tab_snapshots::Row> {
+    mirror.rows().iter().find(|r| r.tab_id == id)
+}
+
+/// Leo, 2026-11-25: "there are too many empty previews in the safari grid thing we ought to be
+/// able to simply capture them before they get hibernated maybe". An agent tab's row carries its
+/// chat's last turns, read on the Mac, with no phone ever having opened the chat, and the text
+/// follows the chat as it goes on.
+#[tokio::test]
+async fn an_agent_row_carries_its_last_turns_with_no_phone_having_opened_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let daemon = FakeDaemon::start(dir.path(), agent_tabs());
+    let (acpmux, target) = FakeAcpmux::start().await;
+    acpmux.say("s-agent", "why is CI red", "A test reads a stale fixture.");
+    acpmux.say("s-agent", "fix it", "Fixed and pushed.");
+    let tabs = Arc::new(Tabs::new("run"));
+    tabs.set_acpmux(Some(target));
+    let mut p = phone(&tabs, Some(daemon.socket.clone()), None).await;
+    p.send(Message::Viewport(Viewport::default())).await;
+    // The newest three turns, each under who said it.
+    let first = agent_text(&[
+        ("Claude", "A test reads a stale fixture."),
+        ("You", "fix it"),
+        ("Claude", "Fixed and pushed."),
+    ]);
+    assert!(first.starts_with("Claude\nA test"), "{first}");
+    p.until(|m| {
+        screen_of(m, "11").is_some_and(|r| r.screen_hash == Some(BlobHash::of(first.as_bytes()))) && filled(m)
+    })
+    .await;
+    let row = screen_of(&p.mirror, "11").unwrap();
+    assert_eq!(row.kind.as_str(), "agent");
+    assert_eq!((row.screen_cols, row.screen_rows), (80, first.lines().count() as u32));
+    assert!(p.mirror.holds(&BlobHash::of(first.as_bytes())));
+
+    // The chat goes on: an event naming the tab reads it again.
+    acpmux.say("s-agent", "thanks", "Anytime.");
+    daemon.emit(json!({"event": "title-changed", "surface": 11}));
+    let next = agent_text(&[("Claude", "Fixed and pushed."), ("You", "thanks"), ("Claude", "Anytime.")]);
+    p.until(|m| screen_of(m, "11").is_some_and(|r| r.screen_hash == Some(BlobHash::of(next.as_bytes()))))
+        .await;
+    // The terminal's screen still comes from the daemon.
+    assert!(p.mirror.holds(&BlobHash::of(b"screen 7 #1")));
+}
+
+/// Two tabs on one chat each get its text: what was read is kept per tab, not per chat.
+#[tokio::test]
+async fn two_agent_tabs_on_one_chat_each_get_its_text() {
+    let dir = tempfile::tempdir().unwrap();
+    let daemon = FakeDaemon::start(
+        dir.path(),
+        json!([
+            {"surface": 11, "kind": "conversation", "agent": "Claude",
+             "conversation": {"agent_session": {"session": "s-agent"}}},
+            {"surface": 12, "kind": "conversation", "agent": "Claude",
+             "conversation": {"agent_session": {"session": "s-agent"}}},
+        ]),
+    );
+    let (acpmux, target) = FakeAcpmux::start().await;
+    acpmux.say("s-agent", "hello", "Hi there.");
+    let tabs = Arc::new(Tabs::new("run"));
+    tabs.set_acpmux(Some(target));
+    let mut p = phone(&tabs, Some(daemon.socket.clone()), None).await;
+    p.send(Message::Viewport(Viewport::default())).await;
+    let text = BlobHash::of(agent_text(&[("You", "hello"), ("Claude", "Hi there.")]).as_bytes());
+    p.until(|m| ["11", "12"].iter().all(|id| screen_of(m, id).is_some_and(|r| r.screen_hash == Some(text))))
+        .await;
+
+    // The chat goes on: both tabs follow it.
+    acpmux.say("s-agent", "thanks", "Anytime.");
+    daemon.emit(json!({"event": "title-changed", "surface": 11}));
+    daemon.emit(json!({"event": "title-changed", "surface": 12}));
+    let next = BlobHash::of(
+        agent_text(&[("Claude", "Hi there."), ("You", "thanks"), ("Claude", "Anytime.")]).as_bytes(),
+    );
+    p.until(|m| ["11", "12"].iter().all(|id| screen_of(m, id).is_some_and(|r| r.screen_hash == Some(next))))
+        .await;
+}
+
+/// An acpmux home on this disk: `config.json` naming `target`'s listener, and
+/// chat `session`'s log, so the feeder can stat it.
+fn acpmux_home(dir: &Path, target: &AcpmuxTarget, session: &str) -> (AcpmuxTarget, PathBuf) {
+    let AcpmuxTarget::Fixed { url, .. } = target else { panic!("a fake acpmux has a URL") };
+    let listen = url.trim_start_matches("ws://").trim_end_matches('/');
+    let home = dir.join("acpmux");
+    let events = home.join("sessions").join(session).join("events");
+    std::fs::create_dir_all(&events).unwrap();
+    std::fs::write(home.join("config.json"), json!({"websocket": {"listen": listen}}).to_string()).unwrap();
+    let log = events.join("000001.ndjson");
+    std::fs::write(&log, "{\"seq\":1}\n").unwrap();
+    (AcpmuxTarget::Home(home), log)
+}
+
+/// Steady state costs no query: an idle chat whose log is on this disk is
+/// not asked again (a stat says its log did not move), however long it sits
+/// and even when an event names its tab; a record appended to its log reads it again.
+#[tokio::test]
+async fn an_idle_agent_tab_costs_no_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let daemon = FakeDaemon::start(dir.path(), agent_tabs());
+    let (acpmux, fixed) = FakeAcpmux::start().await;
+    let (target, log) = acpmux_home(dir.path(), &fixed, "s-agent");
+    acpmux.say("s-agent", "hello", "Hi there.");
+    let tabs = Arc::new(Tabs::new("run"));
+    tabs.set_acpmux(Some(target));
+    let mut p = phone(&tabs, Some(daemon.socket.clone()), None).await;
+    p.send(Message::Viewport(Viewport::default())).await;
+    let first = BlobHash::of(agent_text(&[("You", "hello"), ("Claude", "Hi there.")]).as_bytes());
+    p.until(|m| screen_of(m, "11").is_some_and(|r| r.screen_hash == Some(first))).await;
+    let captured = acpmux.reads("s-agent");
+    // A probe and a tail.
+    assert!(captured >= 2, "{captured}");
+    // Past a whole look interval, and an event naming the tab: the log did not move.
+    daemon.emit(json!({"event": "title-changed", "surface": 11}));
+    p.drain(Duration::from_millis(5_500)).await;
+    assert_eq!(acpmux.reads("s-agent"), captured, "an idle chat was read");
+
+    acpmux.say("s-agent", "thanks", "Anytime.");
+    let mut file = std::fs::OpenOptions::new().append(true).open(&log).unwrap();
+    std::io::Write::write_all(&mut file, b"{\"seq\":2}\n").unwrap();
+    // Looked at within a second (the event), read because the log moved.
+    daemon.emit(json!({"event": "title-changed", "surface": 11}));
+    let next = BlobHash::of(
+        agent_text(&[("Claude", "Hi there."), ("You", "thanks"), ("Claude", "Anytime.")]).as_bytes(),
+    );
+    p.until(|m| screen_of(m, "11").is_some_and(|r| r.screen_hash == Some(next))).await;
+}
+
+/// A read of the chat that fails (acpmux gone or refusing) keeps the last capture.
+#[tokio::test]
+async fn a_failed_agent_read_keeps_the_last_capture() {
+    let dir = tempfile::tempdir().unwrap();
+    let daemon = FakeDaemon::start(dir.path(), agent_tabs());
+    let (acpmux, target) = FakeAcpmux::start().await;
+    acpmux.say("s-agent", "hello", "Hi there.");
+    let tabs = Arc::new(Tabs::new("run"));
+    tabs.set_acpmux(Some(target));
+    let mut p = phone(&tabs, Some(daemon.socket.clone()), None).await;
+    p.send(Message::Viewport(Viewport::default())).await;
+    let kept = agent_text(&[("You", "hello"), ("Claude", "Hi there.")]);
+    p.until(|m| screen_of(m, "11").is_some_and(|r| r.screen_hash == Some(BlobHash::of(kept.as_bytes()))))
+        .await;
+    let before = acpmux.reads("s-agent");
+    acpmux.failing.lock().unwrap().insert("s-agent".into());
+    acpmux.say("s-agent", "still there?", "Yes.");
+    daemon.emit(json!({"event": "title-changed", "surface": 11}));
+    eventually("the feeder tried the chat again", || acpmux.reads("s-agent") > before).await;
+    p.drain(Duration::from_millis(300)).await;
+    assert_eq!(screen_of(&p.mirror, "11").unwrap().screen_hash, Some(BlobHash::of(kept.as_bytes())));
+    assert!(tabs.has_screen("11"));
+}
+
+/// An agent tab the phone's chat exposure hides gives that phone nothing: no row, and its text
+/// is not served even when asked for by hash. Exposing the chat shows the row with its text.
+#[tokio::test]
+async fn a_hidden_agent_tab_gives_the_phone_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let daemon = FakeDaemon::start(
+        dir.path(),
+        json!([
+            {"surface": 7, "kind": "pty", "title": "zsh"},
+            {"surface": 9, "kind": "conversation", "title": "Secret", "agent_session": "s-blocked"},
+        ]),
+    );
+    let (acpmux, target) = FakeAcpmux::start().await;
+    acpmux.say("s-blocked", "the secret plan", "Kept between us.");
+    let tabs = Arc::new(Tabs::new("run"));
+    tabs.set_acpmux(Some(target));
+    let mut blocked = SessionExposure { configured: true, ..SessionExposure::default() };
+    blocked.blocked.insert("s-blocked".into());
+    let (exposure, rx) = watch::channel(blocked);
+    let mut p = phone(&tabs, Some(daemon.socket.clone()), Some(rx)).await;
+    p.send(Message::Viewport(Viewport::default())).await;
+    p.until(|m| ids(m) == ["7"] && filled(m) && m.rows()[0].screen_hash.is_some()).await;
+    let secret = agent_text(&[("You", "the secret plan"), ("Agent", "Kept between us.")]);
+    eventually("the Mac captured the hidden chat", || tabs.has_screen("9")).await;
+    p.send(Message::Want(vec![BlobHash::of(secret.as_bytes())])).await;
+    p.drain(Duration::from_millis(300)).await;
+    assert_eq!(ids(&p.mirror), ["7"]);
+    assert!(!p.blobs.contains(&BlobHash::of(secret.as_bytes())));
+    assert!(!p.mirror.holds(&BlobHash::of(secret.as_bytes())));
+
+    exposure.send_replace(SessionExposure { configured: true, ..SessionExposure::default() });
+    p.until(|m| ids(m) == ["7", "9"] && m.holds(&BlobHash::of(secret.as_bytes()))).await;
+}

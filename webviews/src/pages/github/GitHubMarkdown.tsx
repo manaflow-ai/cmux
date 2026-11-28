@@ -5,8 +5,9 @@
 // nothing in a body can run or restyle the page: raw HTML shows as its text (an HTML comment, a
 // pull request template's hint, shows nothing), an image shows its alt text as a link to it, and
 // a link opens through the host only when it is https, on the person's click.
-import { lexer, type Token, type Tokens } from "marked";
+import type { Token, Tokens } from "marked";
 import { Fragment, useMemo, type ReactNode } from "react";
+import { bodyTokens, cachedDrawing } from "./bodyCache";
 import { githubHTML } from "./githubHTML";
 import { Link, type Open } from "./githubLink";
 
@@ -156,7 +157,7 @@ function blocks(tokens: readonly Token[], open: Open): ReactNode {
 /** GitHub's own rendering of the body when the host sent it (githubHTML.tsx), else `source`
  * rendered here; links open through `open`. */
 export function GitHubMarkdown({ source, html, open }: { source: string; html?: string; open: Open }) {
-  const drawn = useMemo(() => (html ? githubHTML(html, open) : null), [html, open]);
-  const tokens = useMemo(() => (drawn ? [] : lexer(source, { gfm: true })), [drawn, source]);
+  const drawn = useMemo(() => (html ? cachedDrawing(html, open, githubHTML) : null), [html, open]);
+  const tokens = useMemo(() => (drawn ? [] : bodyTokens(source)), [drawn, source]);
   return <div className="gh-md">{drawn ?? blocks(tokens, open)}</div>;
 }

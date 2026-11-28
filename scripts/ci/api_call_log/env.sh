@@ -7,7 +7,7 @@
 # together and the Python line's X-RateLimit-Reset names that token's installation pool. It
 # never logs a header value besides those, a body, a flag value or a token.
 #
-# It switches itself off at 2026-11-23 00:00 UTC (below). The third window (to 2026-11-22) was for the
+# It switches itself off at 2026-11-23 00:00 UTC (below), and is on again 2026-11-28 12:00 to 20:00 UTC. The third window (to 2026-11-22) was for the
 # routing App installation 164690637 (manaflow-glaeda-route); this day is for the repository's GITHUB_TOKEN
 # hour that ran dry about hourly on 2026-11-21 (about 8,000 calls an hour, ci-token-budget-sampler.yml),
 # whose calls the first three windows could not see. The first window ended 2026-11-05, the second
@@ -18,9 +18,9 @@
 #   - puts scripts/ci/api_call_log/gh first on PATH, a shim that logs one line and execs the real gh with the same
 #     argv; the first call on each token also logs that token's hour (GET /rate_limit, which costs no quota);
 #   - puts sitecustomize.py on PYTHONPATH, which wraps http.client to log requests to api.github.com;
-#   - defines python3/python, which give `-I`/`-E` programs (they ignore PYTHONPATH) the same hook (isolated.py),
-#     and curl, which names a request to api.github.com with its X-RateLimit headers (it adds -D, unless the
-#     caller already reads its own headers);
+#   - defines python3/python in the step's own shell, which give `-I`/`-E` programs (they ignore PYTHONPATH) the
+#     same hook (isolated.py), and curl, which names a request to api.github.com with its X-RateLimit headers (it
+#     adds -D, unless the caller already reads its own headers);
 #   - points the lines at the step shell's own stderr (the runner's pipe), so a child that captures
 #     or redirects its own stderr never sees them; on macOS (no /proc) they wait in a file and are
 #     printed when the next bash step starts.
@@ -33,8 +33,13 @@ _api_call_log_setup() {
   [ -z "${API_CALL_LOG_DIR:-}" ] || return 0
   case "${RUNNER_OS:-}" in Linux | macOS) ;; *) return 1 ;; esac
   [ -n "${RUNNER_TEMP:-}" ] && [ -n "${BASH_SOURCE[0]:-}" ] || return 1
-  # Self-expiring: after this hour (UTC) it does nothing, whether or not the cleanup PR has landed.
-  [ "$(date -u +%Y%m%d%H 2>/dev/null || echo 9999999999)" -lt 2026112300 ] || return 1
+  # Self-expiring: outside these hours (UTC) it does nothing, whether or not the cleanup PR has landed.
+  # The second window (2026-11-28 12:00 to 20:00 UTC) attributes the GITHUB_TOKEN hour that ran dry about
+  # 8 min after each reset on 2026-11-28 (1,943 of 5,000 spent in the first 3.3 min after the 10:55Z reset), which
+  # stalled every Nightly `decide` from about :10 to :55 each hour.
+  local hour
+  hour="$(date -u +%Y%m%d%H 2>/dev/null || echo 9999999999)"
+  [ "$hour" -lt 2026112300 ] || { [ "$hour" -ge 2026112812 ] && [ "$hour" -lt 2026112820 ]; } || return 1
   local src dir sink
   src=$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd) || src=""
   dir="$RUNNER_TEMP/api-call-log"
@@ -65,9 +70,16 @@ if [ -n "$_api_call_log_flush" ]; then
   # macOS: the lines earlier steps wrote, printed to this step's stderr (the only line this file prints).
   cat "$_api_call_log_flush" >&2 2>/dev/null && : >"$_api_call_log_flush" 2>/dev/null || true
 fi
-# The step shell's own functions (BASH_ENV defines them again in every bash a step starts). Each runs with xtrace
-# off and returns the wrapped command's own status; a trace still shows the step's own `python3 ...` or `curl ...`.
-if [ -n "${API_CALL_LOG_DIR:-}" ] && [ -f "$API_CALL_LOG_DIR/py/isolated.py" ]; then
+# The step shell's own functions, only in the shell the runner starts on the step's file ($RUNNER_TEMP/<guid>.sh):
+# a script the step runs keeps python3 and curl as PATH has them, since `command -v python3` names a function by
+# its bare name (scripts/install-git-hooks.sh refuses that, and tests keep `real_curl=$(command -v curl)`). Each
+# runs with xtrace off and returns the wrapped command's own status; a trace still shows the step's own
+# `python3 ...` or `curl ...`.
+case $0 in
+  "${RUNNER_TEMP:-/nonexistent}"/????????-????-????-????-????????????.sh) _api_call_log_step=1 ;;
+  *) _api_call_log_step="" ;;
+esac
+if [ -n "$_api_call_log_step" ] && [ -n "${API_CALL_LOG_DIR:-}" ] && [ -f "$API_CALL_LOG_DIR/py/isolated.py" ]; then
   _api_call_log_write() {
     local sink=${API_CALL_LOG_SINK:-}
     [ -n "$sink" ] || return 0
@@ -105,23 +117,25 @@ if [ -n "${API_CALL_LOG_DIR:-}" ] && [ -f "$API_CALL_LOG_DIR/py/isolated.py" ]; 
     fi
     return 0
   }
-  python3() {
+  # Each wrapper exists only where its program does: a function named curl would make `command -v curl` true on a
+  # PATH with no curl (workers/iroh-v2's deploy guard checks exactly that).
+  if type -P python3 >/dev/null 2>&1; then python3() {
     { local _x=$-; set +x; } 2>/dev/null
     local rc
     _api_call_log_python python3 "$@" && rc=0 || rc=$?
     if [ "$_api_call_log_ran" != 1 ]; then command python3 "$@" && rc=0 || rc=$?; fi
     case $_x in *x*) set -x ;; esac
     return $rc
-  }
-  python() {
+  }; fi
+  if type -P python >/dev/null 2>&1; then python() {
     { local _x=$-; set +x; } 2>/dev/null
     local rc
     _api_call_log_python python "$@" && rc=0 || rc=$?
     if [ "$_api_call_log_ran" != 1 ]; then command python "$@" && rc=0 || rc=$?; fi
     case $_x in *x*) set -x ;; esac
     return $rc
-  }
-  curl() {
+  }; fi
+  if type -P curl >/dev/null 2>&1; then curl() {
     { local _x=$-; set +x; } 2>/dev/null
     local a prev="" url="" meth="" auth="" own="" data="" tmp="" rc
     for a in "$@"; do
@@ -182,8 +196,8 @@ EOF_API_CALL_LOG
     } >/dev/null 2>&1 </dev/null || true
     case $_x in *x*) set -x ;; esac
     return $rc
-  }
+  }; fi
 fi
 unset -f _api_call_log_setup 2>/dev/null || true
-unset _api_call_log_fd2 _api_call_log_flush 2>/dev/null || true
+unset _api_call_log_fd2 _api_call_log_flush _api_call_log_step 2>/dev/null || true
 if [ -n "$_api_call_log_x" ]; then unset _api_call_log_x; set -x; else unset _api_call_log_x; fi

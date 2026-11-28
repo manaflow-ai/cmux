@@ -146,7 +146,7 @@ async fn prepare_is_idempotent_and_creates_one_unprompted_target_in_the_source_c
 }
 
 #[tokio::test]
-async fn prepare_cuts_the_oldest_context_to_fit_the_budget() {
+async fn prepare_keeps_the_first_prompt_and_cuts_the_oldest_context_after_it_to_fit_the_budget() {
     let (hub, _) = handoff_hub(None);
     let mut c = connect(&hub).await;
     let src = new_session(&mut c, "long").await;
@@ -159,7 +159,14 @@ async fn prepare_cuts_the_oldest_context_to_fit_the_budget() {
     let text = str_of(&h, "/capsule/text");
     assert!(text.len() <= 65536, "{} bytes", text.len());
     assert!(text.contains("second-marker"));
-    assert!(!text.contains("first-marker"), "the oldest turn goes first");
+    // The first prompt stays (its opening, #50094); the messages after it go first, and the
+    // capsule says how many.
+    assert!(text.contains("User: first-marker"), "the first prompt stays");
+    assert!(
+        text.contains("messages between the first and these were cut to fit"),
+        "{}",
+        &text[..400]
+    );
     let ctx = &h["capsule"]["context"];
     assert_eq!(ctx["truncated"], true, "{ctx}");
     assert!(ctx["totalBytes"].as_u64().unwrap() > ctx["bytes"].as_u64().unwrap(), "{ctx}");

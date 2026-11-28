@@ -5,6 +5,7 @@ A missing live build must fail its job so retry/alerting can see it. Cloud chann
 delivery is unrelated: a Linux failure must not prevent publishing Mac bytes.
 """
 import os
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -57,7 +58,17 @@ class MacLiveDelivery(unittest.TestCase):
                               "needs.adopt-commit-manifest.result": "success" if adopted else "skipped",
                               "needs.adopt-commit-manifest.outputs.state": adopted}
                     self.assertEqual(Context(values)(_Parser(condition).parse()), {True})
-                    values["github.ref"] = "refs/heads/lane/untrusted"
+                    # A lane branch never runs this workflow on push (the trigger excludes it); a dispatch there
+                    # is its PR head's on-request build and publishes the head's own per-commit file.
+                    values["github.ref"] = "refs/heads/lane/some-pr"
+                    self.assertEqual(Context(values)(_Parser(condition).parse()),
+                                     {event == "workflow_dispatch"})
+                    # Any other PR head publishes its own per-commit file on a push or a dispatch.
+                    values["github.ref"] = "refs/heads/some-pr-head"
+                    self.assertEqual(Context(values)(_Parser(condition).parse()), {True})
+                    values["github.ref"] = "refs/heads/cmux-tui-pin-x"
+                    self.assertEqual(Context(values)(_Parser(condition).parse()), {False})
+                    values["github.ref"] = "refs/heads/main"
                     self.assertEqual(Context(values)(_Parser(condition).parse()), {False})
 
     def run_step(self, failure):
@@ -101,6 +112,16 @@ echo "$name" >> "$CALLS"
                 result, calls = self.run_step(stage)
                 self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual(calls[-1], stage)
+
+    def test_the_job_outlasts_the_step_limits(self):
+        # 2026-11-23: the job had 20 minutes and the helper wait alone could take 21, so GitHub cancelled the
+        # job before the file was written and the channel stood still for 38 hours.
+        limits = [int(n) for n in re.findall(r"\btimeout (\d+) ", self.step["run"])]
+        self.assertGreaterEqual(len(limits), 3, limits)
+        waits = [int(n) for n in re.findall(r"\bwait=(\d+)", self.step["run"])]
+        self.assertLess(max(waits), limits[0], "the helper wait ends before its own timeout")
+        self.assertLessEqual(sum(limits) + 300, int(self.job["timeout-minutes"]) * 60,
+                             "the step's own limits, plus 5 minutes for checkout, fit in the job's")
 
     def test_success_reaches_signed_upload(self):
         result, calls = self.run_step("")

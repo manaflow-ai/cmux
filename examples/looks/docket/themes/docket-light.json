@@ -1,10 +1,10 @@
-// Docket Light: the same dense, calm issue-tracker look on white. A pale cool sidebar (#F5F6F8)
+// Docket Light: the same dense, calm issue-tracker look on white. A pale cool sidebar (#fdfeff)
 // beside a white, hairline-outlined panel, near-black text (#282A2F) with gray steps (#6C6F75), and
 // the same indigo (#5E6AD2) for focus, the selected mark and links. Inter type at 13 px, 28 px
 // sidebar rows, a 220 px sidebar, quick ease-out motion.
 {
   "name": "Docket Light",
-  "description": "A dense, calm issue-tracker look, Light: a pale sidebar, one white outlined panel, gray text steps, one indigo.",
+  "description": "Light: a pale sidebar, one white outlined panel, one indigo.",
 
   "appearance.theme": "Builtin Light",
   "appearance.appTheme": "followTerminal",
@@ -73,10 +73,11 @@
   "appearance.metrics.columnGap": 8,
   "appearance.metrics.dividerThickness": 1,
 
-  // The sidebar a cool step under white (#F5F6F8, sampled from the light list's group band), no
+  // The sidebar a cool step under white (#fdfeff: the light list's group band, #F5F6F8, lightened
+  // so a selected row's captions read at 4.5:1), no
   // edge line: the panel's outline is the only line. Plain gray section labels ("Your teams").
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#f5f6f8",
+  "appearance.surfaces.sidebar.color": "#fdfeff",
   "appearance.surfaces.sidebar.opacity": 1,
   "sidebar.style": "standard",
   "sidebar.border": false,
@@ -87,11 +88,11 @@
   // darker, so it still shows on white).
   "appearance.surfaces.agentPane.color": "#ffffff",
   "appearance.surfaces.agentPane.opacity": 1,
-  "appearance.surfaces.tabBar.color": "#f5f6f8",
+  "appearance.surfaces.tabBar.color": "#fdfeff",
   "appearance.surfaces.tabBar.opacity": 1,
-  "appearance.surfaces.browserChrome.color": "#f5f6f8",
+  "appearance.surfaces.browserChrome.color": "#fdfeff",
   "appearance.surfaces.browserChrome.opacity": 1,
-  "appearance.surfaces.docks.color": "#f5f6f8",
+  "appearance.surfaces.docks.color": "#fdfeff",
   "appearance.surfaces.docks.opacity": 1,
   "appearance.surfaces.editor.color": "#ffffff",
   "appearance.surfaces.editor.opacity": 1,

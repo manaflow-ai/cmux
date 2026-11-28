@@ -658,6 +658,20 @@ class GalleryRenderPlanTests(unittest.TestCase):
         # Rendered now, beside the after: both in the manifest without --parent.
         self.assertEqual([c["id"] for c in self.tool.manifest(out, cases)[0]], ["h--after", "h--before"])
 
+    def test_an_entrys_only_before_note_is_the_before_whatever_its_name(self):
+        # jump-place's `center` ("Before (Leo's screenshot)") for `end`, composer-studio's `standard-beside`
+        # ("Before: the default composer") for `studio`: both shipped with no before (2026-11-22).
+        jump = {"a.j": {"end": "Selected (ships)", "start": "Start edge", "center": "Before (Leo's screenshot): centered"}}
+        cases = [self.case("a.j", v) for v in ("end", "start", "corner", "center", "end-handle-right")]
+        self.assertEqual(self.tool.marked_before("a.j/end", cases, jump), "a.j/center")
+        studio = {"a.s": {"studio": "Studio's composer", "standard-beside": "Before: the default composer"}}
+        cases = [self.case("a.s", v) for v in ("studio", "studio-typed", "standard-beside")]
+        self.assertEqual(self.tool.marked_before("a.s/studio", cases, studio), "a.s/standard-beside")
+        # Two "Before" notes on other surfaces still name neither.
+        two = {"a.s": {**studio["a.s"], "other-old": "Before: another surface"}}
+        cases.append(self.case("a.s", "other-old"))
+        self.assertIsNone(self.tool.marked_before("a.s/studio", cases, two))
+
     def test_an_entry_that_marks_no_old_look_renders_the_before_at_the_parent(self):
         cases = [self.case("a.b", "x"), self.case("a.b", "y")]
         rows = [{"id": "h", "role": "before", "state": "a.b/x", "parent": "p"}]
@@ -676,6 +690,29 @@ class GalleryRenderPlanTests(unittest.TestCase):
         self.assertIn("h before: a.b/x is new in its commit, not in src/a.gallery.tsx at pppppppppppp", missing[0])
         self.assertIn('"Before:"', missing[0])
 
+    def test_an_overlaid_gallery_file_brings_the_changed_fixtures_it_imports(self):
+        # models-and-cloud-connections (#54956, run 46142019889): models.gallery.ts came alone, its import of
+        # chatgptDeviceError from the mockModels.ts that commit changed failed at the parent, so no before.
+        g = "webviews/src/pages/settings/models.gallery.ts"
+        files = {
+            ("c", g): 'import { a } from "../../gallery/format";\nimport { b } from "./mockModels";\n'
+                      'import { c } from "./ops";\nimport { d } from "../shared/galleryFixtures";\n',
+            ("c", "webviews/src/gallery/format.ts"): "same\n", ("p", "webviews/src/gallery/format.ts"): "same\n",
+            ("c", "webviews/src/pages/settings/mockModels.ts"): 'import { e } from "./mockProvider";\nnew\n',
+            ("p", "webviews/src/pages/settings/mockModels.ts"): "old\n",
+            ("c", "webviews/src/pages/settings/mockProvider.ts"): "new\n",
+            ("c", "webviews/src/pages/settings/ops.ts"): "product new\n", ("p", "webviews/src/pages/settings/ops.ts"): "old\n",
+            ("c", "webviews/src/pages/shared/galleryFixtures.ts"): "x\n", ("p", "webviews/src/pages/shared/galleryFixtures.ts"): "x\n",
+        }
+        text_at = lambda rev, path: files.get((rev, path))
+        # The changed mocks, transitively (mockProvider is new); never product code (ops.ts) or an unchanged fixture.
+        self.assertEqual(self.tool.fixture_overlays("c", "p", g, text_at),
+                         ["webviews/src/pages/settings/mockModels.ts", "webviews/src/pages/settings/mockProvider.ts"])
+        rows = [{"id": "m", "role": "before", "parent": "p", "commit": "c", "overlay": g}, {"id": "k", "parent": "q"}]
+        self.assertEqual(self.tool.overlay_lines(rows, "p", text_at),
+                         [f"c {g}", "c webviews/src/pages/settings/mockModels.ts", "c webviews/src/pages/settings/mockProvider.ts"])
+        self.assertEqual(self.tool.overlay_lines(rows, "q", text_at), [])
+
     def test_a_variant_its_commit_added_to_a_file_already_there_renders_at_the_parent_with_that_file(self):
         # new-tab-run-command (2026-11-17) added typed-command to NewTabScreen.gallery.ts and shipped with no before.
         import contextlib, io, json
@@ -685,10 +722,14 @@ class GalleryRenderPlanTests(unittest.TestCase):
                 {"id": "g", "role": "before", "state": "a.b/y", "parent": "q", "commit": "d"}]
         files = {"p": "y: {}\n", "c": "y: {}\nx: {}\n", "q": "x: {}\n", "d": "x: {}\n"}
         out, missing = self.tool.resolve(rows, cases, lambda rev, path: files.get(rev), {})
-        self.assertEqual(missing[1:], [])
-        self.assertIn("g before: a.b/y is new in its commit", missing[0])  # not in its own commit either
-        self.assertEqual([(r["state"], r["parent"], r["overlay"]) for r in out],
-                         [("a.b/x", "p", "webviews/src/a.gallery.tsx")])
+        self.assertEqual(missing, [])
+        # g's file names y nowhere, at its commit either (a generated name, as settings.gallery.ts's per-category
+        # variants): rendered at its parent with no overlay.
+        self.assertEqual([(r["state"], r["parent"], r.get("overlay")) for r in out],
+                         [("a.b/x", "p", "webviews/src/a.gallery.tsx"), ("a.b/y", "q", None)])
+        # At q the parent render decides: a checkout with no such state names it missing, never another one.
+        self.assertEqual(self.tool.manifest(out, [cases[0]], "q"), ([], ["g: no gallery state a.b/y at q"]))
+        out = out[:1]
         # At the parent, the same state from that checkout's cases (the overlaid file draws it there).
         self.assertEqual(self.tool.manifest(out, cases, "p")[0], [{**cases[0], "id": "h--before"}])
         with tempfile.TemporaryDirectory() as tmp:

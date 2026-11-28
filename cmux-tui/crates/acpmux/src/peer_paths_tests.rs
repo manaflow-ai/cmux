@@ -86,6 +86,69 @@ fn a_dead_path_is_probed_again_on_a_growing_backoff_and_comes_back_with_a_pong()
     assert_eq!(paths.recover_at(Via::Link), None);
 }
 
+/// A path that answers one probe and drops again (a relay circuit cut every few seconds, a
+/// tunnel the remote ends) kept its recovery backoff at the first step: each pong started it
+/// over, so it was redialed every 3 s for as long as it flapped (about 1,200 dials an hour).
+/// Its backoff now grows across the flaps, and starts over only once it stayed up a minute.
+#[test]
+fn a_flapping_path_keeps_its_recovery_backoff_until_it_stays_up() {
+    let mut paths = Paths::new(&[Via::Ssh, Via::Link]);
+    paths.pong(Via::Ssh, 40 * MS, 0);
+    let mut now = 1_000;
+    paths.failed(Via::Link, now);
+    let mut gaps = Vec::new();
+    for _ in 0..6 {
+        let at = paths.recover_at(Via::Link).unwrap();
+        gaps.push(at - now);
+        now = at;
+        assert!(paths.recovery_due(Via::Link, now));
+        // The redial answers once, then the path drops again a moment later.
+        paths.pong(Via::Link, 3 * MS, now + 100);
+        now += 200;
+        paths.failed(Via::Link, now);
+    }
+    assert_eq!(gaps[0], 3_000, "the first recovery probe still comes 3 s after it died");
+    assert!(gaps.windows(2).all(|w| w[1] >= w[0]), "the gaps never start over: {gaps:?}");
+    assert!(gaps[5] >= 60_000 - 200, "a flapping path backs off to the cap: {gaps:?}");
+
+    // Up a minute: recovered. Its next drop starts the backoff over.
+    let up = paths.recover_at(Via::Link).unwrap();
+    assert!(paths.recovery_due(Via::Link, up));
+    paths.pong(Via::Link, 3 * MS, up);
+    for n in 1..=20 {
+        paths.pong(Via::Link, 3 * MS, up + n * 3_000);
+    }
+    let dropped = up + 60_000;
+    paths.failed(Via::Link, dropped);
+    assert_eq!(paths.recover_at(Via::Link), Some(dropped + 3_000), "a stable path starts over");
+}
+
+/// Redials of a flapping path in an hour, before (the backoff started over on each pong) and
+/// after: the count the PR quotes.
+#[test]
+fn a_path_flapping_for_an_hour_is_redialed_dozens_of_times_not_a_thousand() {
+    let mut paths = Paths::new(&[Via::Ssh, Via::Link]);
+    paths.pong(Via::Ssh, 40 * MS, 0);
+    let hour = 3_600_000;
+    let mut now = 0;
+    paths.failed(Via::Link, now);
+    let mut dials = 0;
+    while let Some(at) = paths.recover_at(Via::Link) {
+        if at >= hour {
+            break;
+        }
+        now = at;
+        assert!(paths.recovery_due(Via::Link, now));
+        dials += 1;
+        paths.pong(Via::Link, 3 * MS, now + 100);
+        now += 200;
+        paths.failed(Via::Link, now);
+    }
+    // Before: one dial per 3.2 s, about 1,125 an hour. Now: 3, 6, 12, 24, 48 s, then one a
+    // minute.
+    assert!(dials <= 70, "{dials} redials of a flapping path in an hour");
+}
+
 #[test]
 fn a_cold_connect_dials_the_remembered_path_first() {
     let mut paths = Paths::new(&[Via::Ssh, Via::Link, Via::Hub]);
@@ -347,4 +410,29 @@ fn relay_first_a_link_moving_to_direct_dials_direct_first_and_alone() {
     paths.failed(Via::Wireguard, 3_100);
     assert_eq!(paths.dial_order(3_100)[0], Via::Hub);
     assert_eq!(paths.dial_together(3_100), 2);
+}
+
+/// huge-blue, 2026-11-27: `linkStats` showed 518 failed ssh attempts against 352 opened, but most
+/// "failed" rows were live links that ended (an 11 s stall of huge-blue's own dropped every link
+/// at once, and each redial opened within 1.5 s). A connection that had answered and then ended
+/// reads as `ended`; a dial that never answered stays `failed`.
+#[test]
+fn a_link_that_ended_is_not_counted_as_a_failed_dial() {
+    let mut paths = Paths::new(&[Via::Ssh, Via::Link]);
+    paths.failed(Via::Link, 10);
+    paths.pong(Via::Ssh, 40 * MS, 100);
+    paths.failed(Via::Ssh, 5_000);
+    let view = paths.stats().view(5_000);
+    let outcomes: Vec<_> = view["attempts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| {
+            (a["transport"].as_str().unwrap().to_owned(), a["outcome"].as_str().unwrap().to_owned())
+        })
+        .collect();
+    assert_eq!(
+        outcomes,
+        [("link".to_owned(), "failed".to_owned()), ("ssh".to_owned(), "ended".to_owned())]
+    );
 }

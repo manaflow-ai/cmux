@@ -32,11 +32,47 @@ pub(super) fn dispatch(
                 Value::Array(state.list(section).iter().map(|row| row.to_json()).collect())
             }))
         }
+        // `explain`: every layer's value, the winner and the last write (`cmux settings explain`).
+        ResourceOperation::SettingsGet if fields.get("explain") == Some(&Value::Bool(true)) => {
+            let target = target(fields)?;
+            let layer = match fields.contains_key("project") {
+                true => {
+                    let folder = project_folder(fields)?;
+                    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+                    cmux_config::project::find(&folder, home.as_deref()).map(|found| {
+                        cmux_config::project::ProjectLayer::read(
+                            &found,
+                            cmux_config::Schema::embedded(),
+                        )
+                    })
+                }
+                false => None,
+            };
+            let history = mux.settings_history();
+            Ok(mux.with_settings(|state| state.explain(&target, &history, layer.as_ref())))
+        }
+        ResourceOperation::SettingsGet if fields.contains_key("project") => {
+            let (folder, key) = (project_folder(fields)?, project_key(fields)?);
+            let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+            let schema = cmux_config::Schema::embedded();
+            let layer = cmux_config::project::find(&folder, home.as_deref())
+                .map(|found| cmux_config::project::ProjectLayer::read(&found, schema));
+            Ok(mux.with_settings(|state| {
+                cmux_config::project::get_json(state, &key, &folder, layer.as_ref())
+            }))
+        }
         ResourceOperation::SettingsGet => {
             let target = target(fields)?;
             Ok(mux.with_settings(|state| state.get(&target).to_json()))
         }
         ResourceOperation::SettingsSnapshot => Ok(mux.settings_snapshot()),
+        // Newest first, without each entry's file text.
+        ResourceOperation::SettingsHistory => {
+            let entries = mux.settings_history();
+            Ok(json!({
+                "entries": entries.iter().map(cmux_config::HistoryEntry::summary_json).collect::<Vec<_>>(),
+            }))
+        }
         ResourceOperation::SettingsEdit => {
             let file = edit_file(fields)?;
             let op = Op::Edit {
@@ -59,9 +95,29 @@ pub(super) fn dispatch(
                 Err(refusal) => Err(refusal_error(operation, &refusal)),
             }
         }
+        ResourceOperation::SettingsSet | ResourceOperation::SettingsReset
+            if fields.contains_key("project") =>
+        {
+            // A project write goes to `<project>/.cmux/cmux-next.json`, never the user's file
+            // (cmux_config::project); the owner's state answers the schema and managed checks.
+            let (folder, key) = (project_folder(fields)?, project_key(fields)?);
+            let value = (operation == ResourceOperation::SettingsSet)
+                .then(|| fields.get("value").cloned().unwrap_or(Value::Null));
+            let origin = meta(fields, None, &request.actor)?.origin;
+            let revision = mux
+                .with_settings(|state| {
+                    cmux_config::project::write(state, &folder, &key, value, origin)
+                        .map(|_| state.revision())
+                })
+                .map_err(|refusal| refusal_error(operation, &refusal))?;
+            mutation_result(mux, json!({"keys": [key]}), revision, false)
+        }
         ResourceOperation::SettingsSet
         | ResourceOperation::SettingsReset
-        | ResourceOperation::SettingsResetAll => {
+        | ResourceOperation::SettingsResetAll
+        | ResourceOperation::SettingsUndo
+        | ResourceOperation::SettingsRestore
+        | ResourceOperation::SettingsResetGroup => {
             let op = write_op(
                 operation,
                 fields,
@@ -142,6 +198,22 @@ fn target(fields: &Map<String, Value>) -> Result<Target, ResourceError> {
         .collect::<Option<Vec<_>>>()
         .ok_or_else(|| validation_error("path holds strings", json!({"field":"path"})))?;
     Ok(Target::Path(path))
+}
+
+/// `project`: the absolute folder a project read or write names.
+fn project_folder(fields: &Map<String, Value>) -> Result<std::path::PathBuf, ResourceError> {
+    let folder = fields.get("project").and_then(Value::as_str).map(std::path::PathBuf::from);
+    folder.filter(|folder| folder.is_absolute()).ok_or_else(|| {
+        validation_error("project is an absolute folder path", json!({"field":"project"}))
+    })
+}
+
+/// A project read or write names one settings key (`key`, never `path`).
+fn project_key(fields: &Map<String, Value>) -> Result<String, ResourceError> {
+    match target(fields)? {
+        Target::Key(key) => Ok(key),
+        Target::Path(path) => Ok(path.join(".")),
+    }
 }
 
 /// `settings.edit`'s optional `file`: the settings file the caller means. An
@@ -270,8 +342,41 @@ fn write_op(
         ResourceOperation::SettingsReset => {
             Op::Reset { target: target(fields)?, meta: meta(fields, key, actor)? }
         }
+        ResourceOperation::SettingsUndo => Op::Undo { meta: meta(fields, key, actor)? },
+        ResourceOperation::SettingsRestore => {
+            Op::Restore { revision: restore_revision(fields)?, meta: meta(fields, key, actor)? }
+        }
+        ResourceOperation::SettingsResetGroup => Op::ResetGroup {
+            group: fields
+                .get("group")
+                .and_then(Value::as_str)
+                .filter(|group| !group.is_empty())
+                .map(str::to_owned)
+                .ok_or_else(|| {
+                    validation_error(
+                        "settings.reset_group needs group (a section or section.group)",
+                        json!({"field":"group"}),
+                    )
+                })?,
+            meta: meta(fields, key, actor)?,
+        },
         _ => Op::ResetAll { meta: meta(fields, key, actor)? },
     })
+}
+
+/// `settings.restore`'s `revision`: a history entry's revision, a decimal string.
+fn restore_revision(fields: &Map<String, Value>) -> Result<u64, ResourceError> {
+    fields
+        .get("revision")
+        .cloned()
+        .and_then(|value| serde_json::from_value::<WireDecimal>(value).ok())
+        .map(WireDecimal::get)
+        .ok_or_else(|| {
+            validation_error(
+                "settings.restore needs revision, a decimal string (see settings.history)",
+                json!({"field":"revision"}),
+            )
+        })
 }
 
 /// `{command, key, when?}`; `default_command` fills a `replaces` that names

@@ -55,6 +55,8 @@ async fn main() -> anyhow::Result<()> {
                 generation,
                 issued_at_unix: now,
                 expires_at_unix,
+                grant: None,
+                region: None,
             };
             println!("{}", authority.issue(&claims)?);
             Ok(())
@@ -70,7 +72,7 @@ async fn main() -> anyhow::Result<()> {
                      or connect to any slot; development only"
                 );
             }
-            let relay = Relay::new(config)?;
+            let relay = Relay::new(*config)?;
             let cleanup = relay.spawn_cleanup();
             let (listener, router) = relay.server_parts(listener);
             eprintln!("cmux-relay listening on {address}");

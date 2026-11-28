@@ -16,7 +16,10 @@ import Testing
     @Test func theNoticeIsCriticalAndNoTrimRunsWithoutAHiddenPage() async {
         #expect(CEFHiddenPageTrim.level == "critical")
         var sent = 0
-        let trim = CEFHiddenPageTrim(hiddenPages: { [] }) { _ in sent += 1 }
+        let trim = CEFHiddenPageTrim(hiddenPages: { [] }) { _ in
+            sent += 1
+            return true
+        }
         await trim.trim()
         #expect(trim.notices == 0)
         #expect(sent == 0)

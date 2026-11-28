@@ -138,17 +138,17 @@ pub(super) fn join(dir: &Path, join: &machine::Join, unit: &dyn Unit) -> Res<Dev
         if (joined.is(home, credential) || unmarked) && account.hub == hub_url {
             let renewal = machine_renewal(credential.clone());
             let checked = Hub::with_renewal(hub_url, device.clone(), None, renewal)
-                .and_then(|hub| hub.session().map(|_| hub.user_id()));
+                .and_then(|hub| hub.session().map(|_| hub));
             match checked {
                 // The hub signs the join in as the recorded account: the host serves the join's.
-                Ok(Some(user)) if user == account.user_id => {
+                Ok(hub) if hub.user_id().as_deref() == Some(account.user_id.as_str()) => {
                     let marked = if unmarked {
                         machine::Joined::signed_in(Some(joined), home, credential).save(dir)
                     } else {
                         Ok(())
                     };
                     match marked {
-                        Ok(()) => return Ok(device.clone()),
+                        Ok(()) => return Ok(keep_join_name(dir, device, credential, hub_url)),
                         Err(e) => {
                             tear_down(dir, previous, unit)?;
                             return Err(e);
@@ -172,6 +172,38 @@ pub(super) fn join(dir: &Path, join: &machine::Join, unit: &dyn Unit) -> Res<Dev
         Err(e) => {
             tear_down(dir, Previous::load(dir)?, unit)?;
             Err(e)
+        }
+    }
+}
+
+/// The kept `device` under the name the join gave this machine (`credential.name`): a machine
+/// restored from a snapshot keeps the device its image was shared as, so a join under another
+/// name renames it, saves it and registers it again at `hub`, or the viewer's list shows the
+/// image's name and opening the joined name finds no device (hq#37008, run 46137496866: a
+/// machine joined as `probe-desktop-…-hub` listed as `lease-lease_…`). A join with no name, or
+/// the device's own, changes nothing. The host serves the join either way: a rename the hub
+/// refused keeps the device as it was (logged), and the next enable tries it again.
+pub(super) fn keep_join_name(
+    dir: &Path,
+    device: &Device,
+    credential: &machine::MachineCredential,
+    hub_url: &str,
+) -> Device {
+    let name = credential.name.trim();
+    if name.is_empty() || name == device.name {
+        return device.clone();
+    }
+    let mut renamed = device.clone();
+    renamed.name = name.to_owned();
+    let registered =
+        Hub::with_renewal(hub_url, renamed.clone(), None, machine_renewal(credential.clone()))
+            .and_then(|hub| hub.register("linux"))
+            .and_then(|_| renamed.save(dir));
+    match registered {
+        Ok(()) => renamed,
+        Err(e) => {
+            eprintln!("cmux-rd: the join's name {name:?} was not taken: {e}");
+            device.clone()
         }
     }
 }
@@ -267,24 +299,37 @@ pub(super) fn still_current(dir: &Path, unit: &dyn Unit) -> Res<()> {
     Err("this machine's join changed while its host was set up; the host is off".into())
 }
 
-/// The host this desktop serves at `run`'s start: a joined desktop's must be the current
-/// join's, signed in at that join's own hub, or it serves nothing (a unit started for an earlier
-/// join, or after a leave). A record from before joins were marked goes through [`join`]
+/// What [`current_join`] does with a join record from before joins were marked (#45369).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum OldRecord {
+    /// Signs it in again through [`join`], which rewrites it: only `run`, before it serves.
+    Heal,
+    /// Reads it as it is: any other command, which may run beside an older host serving it.
+    /// A rewrite would stop that host (it stops once its records change), and nothing but the
+    /// daemon's next start would start it again (review of #46477).
+    Keep,
+}
+
+/// The join this desktop serves: a joined desktop's must be the current join's, signed in at
+/// that join's own hub, or it serves nothing (a unit started for an earlier join, or after a
+/// leave). With [`OldRecord::Heal`] a record from before joins were marked goes through [`join`]
 /// instead, so an update heals the host at once rather than leaving it off until the daemon's
 /// next start. `read` is [`machine::Join::read`] (a seam for the tests' stub hub).
 pub(super) fn current_join(
     dir: &Path,
     joined: &machine::Joined,
     read: impl Fn(&Path) -> Res<Option<machine::Join>>,
+    old: OldRecord,
 ) -> Res<machine::Join> {
     let current = read(&joined.acpmux_home)?
         .ok_or_else(|| Fatal::needs("This machine's join was revoked or removed", Fatal::JOIN))?;
     if joined.unmarked_from(&joined.acpmux_home) {
-        // Nothing serves yet at `run`'s start, so there is no unit to stop first.
-        join(dir, &current, &ThisProcess)?;
-        return Ok(current);
-    }
-    if !joined.is(&joined.acpmux_home, &current.credential) {
+        if old == OldRecord::Heal {
+            // Nothing serves yet at `run`'s start, so there is no unit to stop first.
+            join(dir, &current, &ThisProcess)?;
+            return Ok(current);
+        }
+    } else if !joined.is(&joined.acpmux_home, &current.credential) {
         return Err(Fatal(format!(
             "This machine was joined again since this host signed in ({}). The host stopped and will not restart by itself; the acpmux daemon sets it up for the new join at its next start",
             dir.join(machine::JOINED_FILE).display()
@@ -551,8 +596,14 @@ fn save_pending(dir: &Path, pending: &[Pending]) -> Res<()> {
 fn add_pending(dir: &Path, entry: Pending) -> Res<()> {
     let now = cmux_hub_host::hub::now_ms();
     let mut pending = load_pending(dir).unwrap_or_default();
-    pending.retain(|p| p.device.id != entry.device.id && p.fresh(now));
-    pending.push(entry);
+    pending.retain(|p| p.fresh(now));
+    // Asked again for the same device: its age counts from the first time it was asked.
+    let since_ms = pending
+        .iter()
+        .filter(|p| p.device.id == entry.device.id)
+        .fold(entry.since_ms, |first, p| first.min(p.since_ms));
+    pending.retain(|p| p.device.id != entry.device.id);
+    pending.push(Pending { since_ms, ..entry });
     let extra = pending.len().saturating_sub(PENDING_KEPT);
     pending.drain(..extra);
     save_pending(dir, &pending)

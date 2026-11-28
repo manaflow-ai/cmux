@@ -26,14 +26,17 @@ import Testing
         #expect(switches.contains("use-mock-keychain"), "a release bundle read the real Chromium Safe Storage key")
         #expect(switches.contains("disable-background-networking"))
         #expect(switches.contains("disable-component-update"))
+        #expect(!switches.contains("disable-features=MacAppCodeSignClone"),
+                "the staged pre-warm keeps Chromium's clone enabled while Sparkle may replace the running bundle")
         #expect(!switches.contains { $0.hasPrefix("load-extension=") })
         #expect(!switches.contains { $0.hasPrefix("profile-directory=") })
         let app = CEFSwitches.current(forkAPIVersion: 7, bundleIdentifier: "com.cmuxterm.app.next", environment: [:]).arguments
-        #expect(app.allSatisfy { switches.contains($0) }, "the pre-warm left out an app switch: the first launch starts a different Chromium")
+        #expect(app.filter { $0 != "disable-features=MacAppCodeSignClone" }.allSatisfy { switches.contains($0) },
+                "the pre-warm left out an app switch: the first launch starts a different Chromium")
     }
 
     @Test func outcomesAreDistinctExitStatusesWithALoadAsSuccess() {
-        let all: [CEFStagedPrewarm.Outcome] = [.loaded, .notEmbedded, .loadFailed, .application, .initializeFailed, .browserRefused, .timedOut]
+        let all: [CEFStagedPrewarm.Outcome] = [.loaded, .notEmbedded, .loadFailed, .application, .initializeFailed, .browserRefused, .timedOut, .stalled]
         #expect(CEFStagedPrewarm.Outcome.loaded.rawValue == 0)
         #expect(Set(all.map(\.rawValue)).count == all.count)
     }
@@ -66,6 +69,21 @@ import Testing
         session.createEnded()  // a refused create call
         #expect(ready())
         withExtendedLifetime(session) {}
+    }
+
+    /// One round in five hung past 60 s outside both waits (hq run 46137037007, cmux8s): the whole run has a deadline
+    /// under the updater's 60 s stop, and its watchdog fires off the main thread the hang holds.
+    @MainActor @Test func theWholeRunHasADeadlineUnderTheUpdatersStop() async {
+        let prewarm = CEFStagedPrewarm()
+        #expect(prewarm.deadline == prewarm.timeout + prewarm.closeTimeout + CEFStagedPrewarm.callAllowance)
+        #expect(prewarm.deadline < .seconds(60), "the updater stops the run at 60 s (StagedUpdatePrewarm.runTimeout)")
+        #expect(CEFStagedPrewarm(deadline: .seconds(5)).deadline == .seconds(5))
+        let (ends, end) = AsyncStream.makeStream(of: Bool.self)
+        let source = CEFStagedPrewarm.watchdog(after: .milliseconds(20)) { end.yield(!Thread.isMainThread); end.finish() }
+        var fired = false
+        for await offMain in ends { fired = offMain }
+        withExtendedLifetime(source) {}
+        #expect(fired, "the watchdog ran on the main thread, which the hang it ends holds")
     }
 
     @MainActor @Test func aBundleWithNoRuntimeEndsBeforeChromium() {

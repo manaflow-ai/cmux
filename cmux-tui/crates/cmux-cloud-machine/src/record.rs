@@ -5,84 +5,14 @@
 //! timestamps in epoch milliseconds, statuses and reasons as their raw words. The app writes the
 //! same JSON back when it asks a rule about a record it holds.
 
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::json::{self, Strict, int, present};
 
-/// A machine's status. The in-between states stay their own (cloud-machine-ops.ts
-/// `CloudMachineStatus`): a pausing machine is not paused yet, and a deleting one is not gone.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Status {
-    Provisioning,
-    Running,
-    Failed,
-    Paused,
-    Destroyed,
-    Unknown,
-    /// A Pause Machine (or the idle auto-pause) the server accepted; the provider call has not
-    /// landed yet, so the machine is not paused.
-    Pausing,
-    /// A Resume Machine the server accepted; the VM is starting again.
-    Starting,
-    /// A Kill Machine the server accepted; the VM is not gone yet.
-    Deleting,
-}
-
-impl Status {
-    pub const ALL: [Status; 9] = [
-        Status::Provisioning,
-        Status::Running,
-        Status::Failed,
-        Status::Paused,
-        Status::Destroyed,
-        Status::Unknown,
-        Status::Pausing,
-        Status::Starting,
-        Status::Deleting,
-    ];
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Status::Provisioning => "provisioning",
-            Status::Running => "running",
-            Status::Failed => "failed",
-            Status::Paused => "paused",
-            Status::Destroyed => "destroyed",
-            Status::Unknown => "unknown",
-            Status::Pausing => "pausing",
-            Status::Starting => "starting",
-            Status::Deleting => "deleting",
-        }
-    }
-
-    /// The status a word names; `Unknown` for any other word.
-    pub fn from_word(word: &str) -> Status {
-        Status::ALL.into_iter().find(|status| status.as_str() == word).unwrap_or(Status::Unknown)
-    }
-
-    /// A machine whose daemon can be reached (or soon will be).
-    pub fn is_live(self) -> bool {
-        matches!(self, Status::Running | Status::Provisioning | Status::Starting)
-    }
-
-    /// A pause, resume or delete is on its way. Power actions wait until it ends.
-    pub fn is_changing(self) -> bool {
-        matches!(self, Status::Pausing | Status::Starting | Status::Deleting)
-    }
-}
-
-impl Serialize for Status {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(self.as_str())
-    }
-}
-
-impl<'de> Deserialize<'de> for Status {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Ok(Status::from_word(&String::deserialize(deserializer)?))
-    }
-}
+/// Shared lifecycle vocabulary. UI records may display `Unknown`; operation
+/// boundaries parse strictly before constructing a lifecycle capability.
+pub use cmux_lifeline::vm::Status;
 
 /// Why a paused machine is paused: cmux's idle auto-pause (`idle`) or a person or caller's Pause
 /// Machine (`user`).
@@ -353,6 +283,7 @@ pub struct Machine {
     pub id: String,
     #[serde(default)]
     pub provider: String,
+    #[serde(deserialize_with = "status_compat")]
     pub status: Status,
     #[serde(default)]
     pub display_name: Option<String>,
@@ -372,6 +303,8 @@ pub struct Machine {
     /// The team that owns the machine (the cmux-next record's `team`); nil on a classic record.
     #[serde(default)]
     pub team: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub environment_id: Option<String>,
     #[serde(default)]
     pub address: Option<Address>,
     #[serde(default)]
@@ -403,6 +336,17 @@ pub struct Machine {
     /// epoch ms); nil when the record does not say (an older server, or one not deleting yet).
     #[serde(default)]
     pub evict_at: Option<f64>,
+    /// The guest's root disk (cmux-platform's last `acpmux machine load` sample, the record's
+    /// `disk_health`): used, free and the system / project / caches split; nil when not reported.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disk: Option<cmux_cloud_disk::DiskReport>,
+    /// Each chat's bytes on that disk (`~/chats/<id>` and its worktrees), largest first; empty
+    /// when the guest does not report them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub disk_chats: Vec<cmux_cloud_disk::ChatDisk>,
+    /// What the guest cleared the last time its disk ran low (caches, idle build output).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disk_evicted: Option<cmux_cloud_disk::DiskEviction>,
     /// The auto-size pick a create with `autosize` answered (`{vcpus, memoryGb, pick, reason}`).
     #[serde(default)]
     pub size_pick: Option<Value>,
@@ -411,6 +355,7 @@ pub struct Machine {
     pub last_change_failure: Option<ChangeFailure>,
     /// The newest unresolved Pause, Resume or Kill sent from this app (never read from a server).
     #[serde(default)]
+    #[serde(deserialize_with = "optional_status_compat")]
     pub pending_change: Option<Status>,
     #[serde(default, rename = "pendingMutationID")]
     pub pending_mutation_id: Option<String>,
@@ -419,6 +364,25 @@ pub struct Machine {
     /// The cmux-next record's `desktop`: the machine serves its agent display over the link.
     #[serde(default)]
     pub serves_desktop: bool,
+}
+
+/// Presentation records are forward-compatible: an unknown provider word is
+/// retained as `Unknown`. Operation boundaries use `Status`'s strict parser and
+/// never deserialize through this compatibility adapter.
+fn status_compat<'de, D>(deserializer: D) -> Result<Status, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let word = String::deserialize(deserializer)?;
+    Ok(Status::from_word(&word))
+}
+
+fn optional_status_compat<'de, D>(deserializer: D) -> Result<Option<Status>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer)
+        .map(|word| word.map(|word| Status::from_word(&word)))
 }
 
 impl Machine {
@@ -436,6 +400,7 @@ impl Machine {
             created_at: None,
             created_by: None,
             team: None,
+            environment_id: None,
             address: None,
             size: None,
             declared_capabilities: None,
@@ -447,6 +412,9 @@ impl Machine {
             server_revision: None,
             running_since: None,
             evict_at: None,
+            disk: None,
+            disk_chats: Vec::new(),
+            disk_evicted: None,
             size_pick: None,
             last_change_failure: None,
             pending_change: None,
@@ -659,6 +627,8 @@ pub fn from_next(value: &Value) -> Option<Machine> {
     machine.serves_desktop = fields.get("desktop").and_then(Value::as_bool).unwrap_or(false);
     machine.created_by = json::text(fields.get("creator"));
     machine.team = json::text(fields.get("team"));
+    machine.environment_id = json::text(first(fields, &["environment_id", "environmentId"]))
+        .or_else(|| json::text(value.pointer("/environment/id")));
     // The contract's `created_at` (epoch ms); the classic `createdAt` is never in this record.
     machine.created_at = fields.get("created_at").and_then(Value::as_f64);
     // When a machine left paused is deleted (cmux-platform `evict_at`, epoch ms); null or absent
@@ -666,6 +636,11 @@ pub fn from_next(value: &Value) -> Option<Machine> {
     machine.evict_at = first(fields, &["evict_at", "evictAt"])
         .and_then(Value::as_f64)
         .filter(|at| at.is_finite() && *at > 0.0);
+    // The guest's disk use (cmux-platform `disk_health`); absent before the first sample.
+    let health = first(fields, &["disk_health", "diskHealth"]);
+    machine.disk = health.and_then(cmux_cloud_disk::DiskReport::from_health);
+    machine.disk_chats = health.map(cmux_cloud_disk::chats_from_health).unwrap_or_default();
+    machine.disk_evicted = health.and_then(cmux_cloud_disk::eviction_from_health);
     Some(machine)
 }
 

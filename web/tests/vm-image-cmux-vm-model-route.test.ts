@@ -31,7 +31,24 @@ describe("cmux VM image model route", () => {
     expect(claude!.mode).toBe(0o644);
   });
 
-  test("Codex's managed config selects the edge provider over any user config or auth.json", () => {
+  // Codex's managed layer outranks every -c flag and --profile (codex 0.172: "Overridden by legacy
+  // managed_config.toml"), so a model_provider there made acpmux's own mode (-c model_provider="openai") a no-op:
+  // a person's own ChatGPT sign-in ran the cmux provider with no key and failed on "Missing environment variable:
+  // `OPENAI_API_KEY`." (cloud-journey-prod codex stub reply, job 140491383987). The managed layer defines the
+  // provider; the system config, Codex's lowest layer, selects it by default.
+  test("Codex's managed config defines the edge provider and the system config selects it, so own mode can pick another", () => {
+    const files = bake.agentModelRouteFiles();
+    const managed = Bun.TOML.parse(files.find((f) => f.target === "/etc/codex/managed_config.toml")!.text) as Record<string, unknown>;
+    expect(managed.model_provider).toBeUndefined();
+    expect(managed.profile).toBeUndefined();
+    const fallback = files.find((f) => f.target === "/etc/codex/config.toml");
+    expect(fallback).toBeDefined();
+    expect(fallback!.mode).toBe(0o644);
+    const defaults = Bun.TOML.parse(fallback!.text) as Record<string, unknown>;
+    expect(defaults).toEqual({ model_provider: "cmux" });
+  });
+
+  test("Codex's managed config defines the edge provider no user config can repoint", () => {
     const codex = bake.agentModelRouteFiles().find((f) => f.target === "/etc/codex/managed_config.toml");
     expect(codex).toBeDefined();
     const config = Bun.TOML.parse(codex!.text) as {
@@ -40,7 +57,6 @@ describe("cmux VM image model route", () => {
       projects?: Record<string, { trust_level?: string }>;
       check_for_update_on_startup?: boolean;
     };
-    expect(config.model_provider).toBe("cmux");
     const provider = config.model_providers?.cmux;
     expect(provider?.base_url).toBe(`${ORIGIN}/v1`);
     expect(provider?.requires_openai_auth).toBe(false);
@@ -85,6 +101,12 @@ describe("cmux VM image model route", () => {
       rmSync(path.join(root, bake.AGENT_MODEL_ROUTE_DIR, "codex-managed_config.toml"));
       const missing = await runChild("sh", ["-c", bake.agentModelRouteCheckCommand(root)], { timeout: 20_000 });
       expect(missing.status).not.toBe(0);
+      // A managed layer that selects the provider again fails the bake: it would outrank own mode.
+      write();
+      const codexManaged = path.join(root, bake.AGENT_MODEL_ROUTE_DIR, "codex-managed_config.toml");
+      writeFileSync(codexManaged, `model_provider = "cmux"\n${readFileSync(codexManaged, "utf8")}`);
+      const pinned = await runChild("sh", ["-c", bake.agentModelRouteCheckCommand(root)], { timeout: 20_000 });
+      expect(pinned.status).not.toBe(0);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -126,13 +148,13 @@ describe("cmux VM image model route", () => {
         expect(run.stderr).toBe("");
         expect(run.status).toBe(0);
       };
-      const managed = ["/etc/claude-code/managed-settings.json", "/etc/codex/managed_config.toml"];
+      const managed = ["/etc/claude-code/managed-settings.json", "/etc/codex/managed_config.toml", "/etc/codex/config.toml"];
 
       // A staging or production machine: nothing in the agents' managed paths.
       await pass(false);
       for (const p of managed) expect(exists(p)).toBe(false);
 
-      // A dev pool machine: both route files, byte for byte.
+      // A machine with the edge: every route file, byte for byte.
       await pass(true);
       for (const file of bake.agentModelRouteFiles()) {
         expect(readFileSync(at(file.target), "utf8")).toBe(file.text);

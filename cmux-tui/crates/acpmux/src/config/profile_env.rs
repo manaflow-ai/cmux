@@ -26,6 +26,18 @@ pub fn file_secret(path: &str) -> Result<String, String> {
     Ok(text.to_owned())
 }
 
+/// The secret in `path` with every whitespace character taken out, line breaks too: a token a
+/// terminal wrapped over lines (`claude setup-token`), under the same owner-only checks as
+/// [`file_secret`]. Only for a kind whose value holds no whitespace of its own.
+pub fn file_secret_unwrapped(path: &str) -> Result<String, String> {
+    let text = read_owner_only(path)?;
+    let value: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+    if value.is_empty() {
+        return Err(format!("{path}: holds no secret"));
+    }
+    Ok(value)
+}
+
 /// The file's text after the owner-only checks (Unix: one O_NOFOLLOW open,
 /// every check on that descriptor).
 #[cfg(unix)]
@@ -171,6 +183,19 @@ pub fn has_keychain_refs(env: &BTreeMap<String, String>) -> bool {
 /// The value goes only to the caller; nothing is logged.
 pub fn keychain_lookup(service: &str, account: Option<&str>) -> Result<String, String> {
     use wait_timeout::ChildExt;
+    // A model key acpmux wrote trusts acpmux, not `security`: read it through the framework. One
+    // `security` wrote before (no acpmux kind) is read below, as before.
+    #[cfg(target_os = "macos")]
+    if let (crate::claude_token::store::SERVICE, Some(account)) = (service, account) {
+        use crate::claude_token::store::macos::{Read, read};
+        match read(account)? {
+            Read::Value(value) => return Ok(value.as_str().to_owned()),
+            Read::Missing => {
+                return Err("not found (add the key again in Settings > Models)".into());
+            }
+            Read::Legacy => {}
+        }
+    }
     let mut cmd = if std::env::consts::OS == "macos" {
         let mut c = std::process::Command::new("/usr/bin/security");
         c.args(["find-generic-password", "-s", service]);

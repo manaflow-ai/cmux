@@ -1,12 +1,15 @@
+/** @jsxImportSource ../../../../kit/closed */
+// A closed file (tsconfig.closed.json): no raw element, `style` or `className` compiles here.
 // Session Info for the App to draw (model.ts): the page's sections as plain rows, sent as
 // `pane.sessionInfo` whenever what they list changes, and none of the page's own panel. It takes
 // what ChatSessionInfo takes and derives the same lists the same way; the per-section mappers turn them
 // into rows. The person's choices the page's sections kept in their own state (a fold, Show more, a
 // Reconnect under way) are kept here, since the App's rows have none.
+import type { SessionInfoCloudControl } from "../../hybrid/SessionInfoCloud";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { usePaneLanguage, useT } from "../../i18n";
+import { useConnectionQuietKeys, useConnectionQuiet } from "../../../../ui/lasting";
 import type { AcpmuxRow } from "../../model";
-import { planDone, type SessionInfoPlan } from "../progressSectionModel";
 import { postNative } from "../../native";
 import { screenSharingKind, useScreenSharing } from "../screenSharing";
 import { opensProcessTerminal } from "../../processTerminal";
@@ -39,12 +42,7 @@ import { environmentSection } from "./environment";
 import { setNativeSessionInfoActions, setNativeSessionInfoHost } from "./host";
 import { useNativeOperations } from "./useNativeOperations";
 import { useNativeSourceFiles } from "./useNativeSourceFiles";
-import {
-  NativeInfoActions,
-  type NativeInfoRow,
-  type NativeInfoSection,
-  type NativeSessionInfo as NativeSessionInfoModel,
-} from "./model";
+import { NativeInfoActions, type NativeInfoSection, type NativeSessionInfo as NativeSessionInfoModel } from "./model";
 import { outputsSection } from "./outputs";
 import { useNativeOverlayReport } from "./overlays";
 import { useNativePinchReport } from "./pinch";
@@ -56,6 +54,7 @@ import { byUsage, compactingUsage, type UsageSort } from "../../usageStats";
 import { sourcesSection } from "./sources";
 import { subagentsSection } from "./subagents";
 import { tasksSection, useNativeWorkflowPhases } from "./tasks";
+import type { AgentSideRow } from "../agentSide";
 import { CloudRepositoryPicker } from "../CloudRepositoryPicker";
 import { chatMachine, type ChatPlace } from "../../chatMachine";
 import { useCloudRepositories } from "./useCloudRepositories";
@@ -64,6 +63,8 @@ import { copyText } from "../../conversation/clipboard";
 import { useSubagentLimitController } from "../subagentLimitStepperModel";
 import { useIMessage } from "../imessage";
 import { orderSections } from "./nativeSessionInfoModel";
+import { useSessionInfoHiddenSections } from "../../chatDisplay";
+import { useLiveSummary } from "../../liveSummary";
 
 const NO_SCHEDULED: readonly SummaryWakeup[] = [];
 
@@ -87,6 +88,7 @@ export type NativeSessionInfoProps = {
   grants?: readonly AccessGrant[];
   cloudRepositoryAvailable?: boolean;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
+  cloud?: SessionInfoCloudControl;
   onCompact?: () => void;
   /// Context's View Prompt (ContextSection.tsx).
   onViewPrompt?: () => void;
@@ -110,14 +112,14 @@ export type NativeSessionInfoProps = {
   artifacts: number;
   documents: readonly OutputArtifact[];
   rows: readonly AcpmuxRow[];
-  /// The agent's current plan, as the page's Progress draws it (ProgressSection.tsx).
-  plan?: SessionInfoPlan;
   agents: readonly Subagent[];
   waiting: ReadonlySet<string>;
   statuses: Readonly<Record<string, SessionInfoPullRequestStatus>>;
   processes: readonly SessionInfoProcess[];
   listed: boolean;
   transcriptTasks: readonly SummaryBackgroundTask[];
+  /// What waits on the agent's side (agentSide.ts), at the foot of Background tasks.
+  agentSide?: readonly AgentSideRow[];
   sessions: readonly StartedSession[];
   workflows: readonly WorkflowSummary[];
   agent?: Subagent;
@@ -131,6 +133,7 @@ export type NativeSessionInfoProps = {
   onStopProcess?: (id: string) => Promise<unknown>;
   onOpenOutput?: (path: string) => void;
   onOpenSourceFile?: (path: string) => unknown;
+  onRemoveFolder?: (path: string) => Promise<unknown> | unknown;
   onOpenUrl?: (url: string) => void;
   onOpenDocument?: (artifact: Artifact) => void;
   onOpenArtifacts?: () => void;
@@ -194,9 +197,13 @@ function usePostSessionInfo(info: NativeSessionInfoModel, actions: NativeInfoAct
 
 export function NativeSessionInfo(props: NativeSessionInfoProps) {
   const t = useT();
+  // A subagent's retry waits out the shared bound before its line says so (retryState.ts ``retryWords``).
+  const connectionQuiet = useConnectionQuietKeys();
   const language = usePaneLanguage();
   const state = useSessionInfoState();
-  const { shown, summary, onShowUsage } = props;
+  const { shown, onShowUsage } = props;
+  // A usage update reaches the panel without the pane (liveSummary.ts).
+  const summary = useLiveSummary(props.summary);
   const screenSharing = useScreenSharing(
     summary?.sessionId,
     screenSharingKind(chatMachine(summary, props.machineName, props.peerKinds, props.place)),
@@ -211,7 +218,12 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
   useEffect(() => {
     if (imessage?.expanded) setSessionInfoSection("connectors", true);
   }, [imessage?.expanded]);
-  const contextUsage = props.usage ?? compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
+  // The pane's usage (`props.usage`) is as of its last draw; a usage update since reached `summary`
+  // alone (liveSummary.ts).
+  const contextUsage =
+    summary !== props.summary || !props.usage
+      ? compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown)
+      : props.usage;
   const environmentEditor = useSyncExternalStore(subscribeCloudEnvironment, cloudEnvironmentRequest);
   const cloudSession =
     props.cloudRepositoryAvailable &&
@@ -238,6 +250,10 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
   const [openLists, setOpenLists] = useState<ReadonlySet<string>>(new Set());
   const [reconnecting, setReconnecting] = useState<Readonly<Record<string, "reconnecting" | "failed">>>({});
   const reconnectingServers = useRef(new Set<string>());
+  // A connector still connecting says so only once that has lasted the shared bound (connectors.ts).
+  const connectorsPendingShown = useConnectionQuiet(
+    (props.summary?.mcpServers ?? []).some((server) => server.status === "pending"),
+  );
   const [changesAll, setChangesAll] = useState(false);
   const [outputsAll, setOutputsAll] = useState(false);
   const [usageAll, setUsageAll] = useState(false);
@@ -256,6 +272,8 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
   const { phases, onPhase } = useNativeWorkflowPhases(shown && state.sections.tasks ? props.workflows : []);
   // Order follows a drag in any pane.
   useSectionOrder();
+  // The sections the person turned off in Settings (shownSections.ts).
+  const hiddenSections = useSessionInfoHiddenSections();
   useEffect(() => {
     if (shown) onShowUsage?.();
   }, [shown, onShowUsage]);
@@ -321,31 +339,6 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
       }),
     [onReconnectMcp],
   );
-  // The plan keeps its identity while tokens stream (liveProgress.ts): its rows are made once per
-  // checklist change, so other activity does not remap every step on every frame.
-  const progressRows = useMemo<NativeInfoRow[] | undefined>(
-    () =>
-      props.plan?.entries.map((entry, index) => {
-        const working = entry.status === "in_progress" && !props.plan?.ended;
-        // The web list's marks: a filled check when done, the spinner while working, a plain ring
-        // for a step left in progress when the turn ended, a dashed ring while pending.
-        const symbol = working
-          ? undefined
-          : entry.status === "completed"
-            ? "checkmark.circle.fill"
-            : entry.status === "in_progress"
-              ? "circle"
-              : "circle.dashed";
-        return {
-          id: `progress:${index}`,
-          title: entry.content,
-          ...(symbol ? { symbol } : {}),
-          tone: entry.status === "completed" ? "muted" : working ? "running" : "waiting",
-          working,
-        } satisfies NativeInfoRow;
-      }),
-    [props.plan],
-  );
   const actions = new NativeInfoActions();
   const sections: (NativeInfoSection | undefined)[] = [];
   if (shown) {
@@ -360,6 +353,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           repository: props.repository,
           grants: props.grants,
           remoteControl: props.remoteControl,
+          cloud: props.cloud,
           cloudRepositoryAvailable: props.cloudRepositoryAvailable,
           onAddCloudRepository: cloud.open,
           onOpenCloudEnvironment: () => openCloudEnvironment({ section: "overview" }),
@@ -382,7 +376,6 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           language,
           open: state.sections.context,
           onCompact: props.onCompact,
-          onViewPrompt: props.onViewPrompt,
           openLists,
           onToggleList: (id) =>
             setOpenLists((was) => {
@@ -394,19 +387,6 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
         actions,
         t,
       ),
-      props.plan && props.plan.entries.length > 0
-        ? {
-            id: "progress",
-            group: "running",
-            title: t("sessionInfo.progress"),
-            meta: t("sessionInfo.progress.count", { done: planDone(props.plan), total: props.plan.entries.length }),
-            meter: planDone(props.plan) / props.plan.entries.length,
-            open: state.sections.progress,
-            foldable: true,
-            reorderable: true,
-            rows: progressRows ?? [],
-          }
-        : undefined,
       connectorsSection(
         {
           servers: summary?.mcpServers ?? [],
@@ -414,6 +394,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           open: state.sections.connectors,
           reconnecting,
           imessage,
+          pendingShown: connectorsPendingShown,
         },
         actions,
         t,
@@ -437,6 +418,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           ...(summary?.additionalDirectories ? { folders: summary.additionalDirectories } : {}),
           cwd: summary?.cwd,
           onOpenFile: sourceFiles.open,
+          onRemoveFolder: props.onRemoveFolder,
           failures: sourceFiles.failures,
           onOpenBeside: props.onOpenUrl,
           expanded: state.sourcesAll,
@@ -494,6 +476,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           }),
           onOpenSession: props.onOpenSession,
           now,
+          connectionQuiet,
           showAll: subagentsAll,
           onShowAll: setSubagentsAll,
           endedOpen,
@@ -507,6 +490,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           open: state.sections.tasks,
           processes: props.processes,
           transcriptTasks: props.transcriptTasks,
+          agentSide: props.agentSide,
           listed: props.listed,
           scheduled: props.made?.scheduled ?? NO_SCHEDULED,
           language,
@@ -576,7 +560,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
     ...(props.title ? { title: props.title } : {}),
     ...(props.onBack ? { back: actions.add("scope.back", props.onBack), backLabel: props.backLabel } : {}),
     ...((props.revealed ?? localReveal) ? { reveal: props.revealed ?? localReveal } : {}),
-    sections: orderSections(sections, t),
+    sections: orderSections(sections, t, hiddenSections),
   };
   // The page's popups over the App's panel: it steps behind them (overlays.ts).
   useNativeOverlayReport(info.open);

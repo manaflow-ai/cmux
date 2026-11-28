@@ -625,6 +625,7 @@ fn posted(changes: &[Value]) -> Vec<Notice> {
     for change in changes.iter().flat_map(|change| [change, change]) {
         let mut next = Chat::of(change).expect("a local chat");
         next.notified_turn = before.as_ref().and_then(|chat| chat.notified_turn.clone());
+        next.notified_lost = before.as_ref().is_some_and(|chat| chat.notified_lost);
         next.keep_asks(before.as_ref());
         notices.extend(next.notices(before.as_ref()));
         before = Some(next);
@@ -727,8 +728,115 @@ fn a_failed_turn_says_why_it_failed() {
         summary("done", 10, false, Some(("t1", "failed")), false),
     ]);
     assert_eq!(notices.len(), 1);
-    assert_eq!(notices[0].title, "Review failed");
+    assert_eq!(notices[0].title, "Review hit a rate limit");
+    assert_eq!(notices[0].subtitle.as_deref(), Some("rate_limit"));
     assert_eq!(notices[0].body, "You've hit your usage limit");
+}
+
+#[test]
+fn a_lost_notice_suppresses_the_later_failed_summary() {
+    let lost = summary("lost", 10, false, None, false);
+    let failed = summary("done", 12, false, Some(("t1", "failed")), false);
+    let notices = posted(&[lost, failed]);
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0].key, "lost-10");
+    assert!(notices[0].title.ends_with("stopped responding"));
+}
+
+#[test]
+fn a_lost_notice_survives_an_intermediate_summary_until_failed() {
+    let lost = summary("lost", 10, false, None, false);
+    let intermediate = summary("idle", 11, false, None, false);
+    let failed = summary("done", 12, false, Some(("t1", "failed")), false);
+    let notices = posted(&[lost, intermediate, failed]);
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0].key, "lost-10");
+}
+
+#[test]
+fn a_new_lost_transition_after_a_new_turn_still_notifies() {
+    let first_lost = summary("lost", 10, false, None, false);
+    let new_turn = summary("working", 11, false, None, false);
+    let second_lost = summary("lost", 12, false, None, false);
+    let notices = posted(&[first_lost, new_turn, second_lost]);
+    assert_eq!(notices.len(), 2);
+    assert_eq!(notices[0].key, "lost-10");
+    assert_eq!(notices[1].key, "lost-12");
+}
+
+#[test]
+fn a_lost_active_turn_is_not_suppressed_by_a_previous_completed_turn() {
+    let mut before = Chat::of(&summary("working", 10, false, Some(("t1", "completed")), false))
+        .expect("a working chat");
+    before.notified_turn = Some("t1".into());
+    let mut lost = Chat::of(&summary("lost", 12, false, Some(("t1", "completed")), false))
+        .expect("a lost chat");
+    lost.notified_turn = before.notified_turn.clone();
+    let notices = lost.notices(Some(&before));
+    assert_eq!(notices.len(), 1);
+    assert!(notices[0].title.ends_with("stopped responding"));
+}
+
+#[test]
+fn a_later_lost_transition_is_not_suppressed_by_an_older_failed_turn() {
+    let mut before = Chat::of(&summary("done", 10, false, Some(("t1", "failed")), false))
+        .expect("a failed chat");
+    assert_eq!(before.notices(None).len(), 1);
+    let mut lost =
+        Chat::of(&summary("lost", 12, false, Some(("t1", "failed")), false)).expect("a lost chat");
+    lost.notified_turn = before.notified_turn.clone();
+    lost.notified_lost = before.notified_lost;
+    let notices = lost.notices(Some(&before));
+    assert_eq!(notices.len(), 1);
+    assert!(notices[0].title.ends_with("stopped responding"));
+}
+
+#[test]
+fn an_unclassified_failure_keeps_the_plain_title_and_never_folds() {
+    let mut failed = ended("t1", true, false);
+    failed.last_turn = Some(("t1".into(), "failed".into()));
+    failed.last_error = Some("something odd happened".into());
+    let notice = failed.notices(None).pop().expect("a failed notice");
+    assert_eq!(notice.title, "Review failed");
+    let mut folds = FailureFolds::default();
+    let now = Instant::now();
+    for _ in 0..3 {
+        let posted = fold_failure(&mut folds, &notice, now).expect("each posts");
+        assert_eq!(posted.title, "Review failed");
+    }
+}
+
+#[test]
+fn chats_failing_alike_within_a_minute_are_one_notice() {
+    let failed = |session: &str, text: &str| {
+        let mut chat = ended("t1", true, false);
+        chat.session = session.into();
+        chat.name = session.into();
+        chat.last_turn = Some(("t1".into(), "failed".into()));
+        chat.last_error = Some(text.into());
+        chat.notices(None).pop().expect("a failed notice")
+    };
+    let mut folds = FailureFolds::default();
+    let t = Instant::now();
+    let first = fold_failure(&mut folds, &failed("mango", "429 rate limit"), t).expect("own");
+    assert_eq!(first.title, "mango hit a rate limit");
+    let second =
+        fold_failure(&mut folds, &failed("kiwi", "API Error: 429"), t + Duration::from_secs(3))
+            .expect("the group");
+    assert_eq!(second.title, "2 chats hit a rate limit");
+    assert!(second.key.starts_with("failed-group-rate_limit-"));
+    assert!(
+        fold_failure(&mut folds, &failed("plum", "usage limit"), t + Duration::from_secs(9))
+            .is_none()
+    );
+    // Another class is its own notice.
+    let other = fold_failure(&mut folds, &failed("fig", "Prompt is too long"), t).expect("own");
+    assert_eq!(other.title, "fig ran out of context");
+    // A minute on, a new window starts with a notice of its own.
+    let later =
+        fold_failure(&mut folds, &failed("lime", "rate limit"), t + Duration::from_secs(61))
+            .expect("own");
+    assert_eq!(later.title, "lime hit a rate limit");
 }
 
 #[test]
@@ -747,6 +855,38 @@ fn a_second_ask_while_the_chat_waits_notifies_again() {
     assert_eq!(key(later.asked(&ask("p2", None, 12))), Some("input-12".into()));
     // The same ask heard again is not new.
     assert_eq!(key(later.asked(&ask("p2", None, 12))), None);
+}
+
+#[test]
+fn agent_delivery_classifies_each_ask_even_while_another_kind_is_waiting() {
+    for (first, first_kind, second_request, second_kind) in [
+        ("question", AgentEvent::Question, json!({}), AgentEvent::PermissionRequest),
+        (
+            "permission",
+            AgentEvent::PermissionRequest,
+            json!({"toolCall": {"_meta": {"acpmux": {"question": {"items": []}}}}}),
+            AgentEvent::Question,
+        ),
+        (
+            "permission",
+            AgentEvent::PermissionRequest,
+            json!({"toolCall": {"_meta": {"claude": {"tool": "AskUserQuestion"}}}}),
+            AgentEvent::Question,
+        ),
+    ] {
+        let mut waiting = Chat::of(&json!({
+            "sessionId": "chat-1", "indicator": "input", "waitingOn": first,
+        }))
+        .unwrap();
+        assert_eq!(waiting.notices(None)[0].event, Some(first_kind));
+        assert!(waiting.asked(&ask("p1", None, 10)).is_none());
+        let mut second = ask("p2", None, 11);
+        second["request"] = second_request;
+        assert_eq!(waiting.asked(&second).unwrap().event, Some(second_kind));
+        assert!(waiting.asked(&second).is_none());
+    }
+    assert_eq!(ended("turn", true, false).notices(None)[0].event, Some(AgentEvent::TaskComplete));
+    assert_eq!(chat("lost", 12).notices(None)[0].event, None);
 }
 
 #[test]
@@ -820,4 +960,17 @@ fn cache_ttl_queue_cancels_on_state_change_and_fires_once() {
     working.works_below = true;
     queue.observe(working, now + Duration::from_secs(1), 200);
     assert!(queue.take_due(now + Duration::from_secs(120)).is_empty());
+}
+
+#[test]
+fn a_given_handle_names_the_notice_before_the_task_title() {
+    let chat = Chat::of(&json!({
+        "sessionId": "chat-1",
+        "name": "claude-sr2-coord-old",
+        "displayName": "Mango",
+        "title": "Fleet and CI capacity",
+        "lastSeq": 1,
+    }))
+    .expect("a local chat");
+    assert_eq!(chat.name, "Mango");
 }

@@ -80,8 +80,6 @@ struct Update<'a> {
     #[serde(borrow)]
     state: Cow<'a, str>,
     #[serde(borrow)]
-    entries: Option<&'a RawValue>,
-    #[serde(borrow)]
     raw_input: Option<&'a RawValue>,
     #[serde(rename = "_meta", borrow)]
     meta: Meta<'a>,
@@ -133,6 +131,7 @@ pub(super) fn validate(bytes: &[u8]) -> Result<(), Error> {
     super::bounded(&msg.old_message_id)?;
     if let Some(params) = msg.params {
         super::bounded(&params.meta.acpmux.segment)?;
+        super::bounded(&params.meta.acpmux.recipient)?;
         if let Some(raw) = params.update {
             let update: Update<'_> = input::value(raw)?;
             super::bounded(&update.session_update)?;
@@ -239,9 +238,10 @@ fn mux(
                 state.claim(&prompt, from, out);
             }
         }
-        "turn_started" if state.turn_key.is_empty() => {
+        "turn_started" if state.turn_key.is_empty() || *state.turn_key == *msg.turn_id => {
             super::bounded(&msg.turn_id)?;
             state.turn_key = msg.turn_id.to_string();
+            state.turn_started(out);
         }
         "turn_result" => {
             if !msg.turn_id.is_empty()
@@ -411,6 +411,7 @@ fn agent(
                 ("kind", u.kind.as_ref()),
                 ("status", u.status.as_ref()),
                 ("tool", u.meta.claude.tool.as_ref()),
+                ("recipient", params.acpmux.recipient.as_ref()),
             ] {
                 if !v.is_empty() {
                     metadata.push((k, v));
@@ -437,20 +438,6 @@ fn agent(
                 kind == "tool_call",
                 out,
             )?;
-        }
-        "plan" => {
-            state.close_text(out);
-            if let Some(raw) = u.entries {
-                let mut row = if let Some(row) = state.plan.take() {
-                    row
-                } else {
-                    state.row(RowKind::Plan, out)?
-                };
-                row.fields.insert("hidden".into(), (raw.get() == "[]").to_string());
-                out.row(&row);
-                out.body(row.id, BodyField::Entries, false, raw);
-                state.plan = Some(row);
-            }
         }
         "compaction" => {
             let mut row = if let Some(row) = state.compaction.take() {

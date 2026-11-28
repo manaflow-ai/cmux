@@ -6,10 +6,10 @@ struct DaemonPrompts {
     let clipboardReads: TerminalClipboardReadService
     let pairings: DaemonPairingApprovalService
 
-    static func start(_ services: AppServices) -> DaemonPrompts {
+    static func start(_ services: AppServices, afterFrame: @MainActor (@escaping @MainActor () -> Void) -> Void) -> DaemonPrompts {
         let prompts = DaemonPrompts(clipboardReads: TerminalClipboardReadService(services: services),
                                     pairings: DaemonPairingApprovalService(services: services))
-        prompts.clipboardReads.start()
+        afterFrame { prompts.clipboardReads.start() } // its feed walks every workspace: after the first frame (launch piece 7)
         prompts.pairings.start()
         _ = services.daemon.store.sideEvents.subscribe { [weak services] event in
             guard let unclaimed = TerminalInputUnclaimed(event), let bytes = unclaimed.bytes else { return }

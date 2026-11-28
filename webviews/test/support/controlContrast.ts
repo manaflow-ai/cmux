@@ -20,6 +20,10 @@
 // failing reading, baselined or not, as a table (control-contrast-N.md) and the part's worst reading
 // per class as baseline lines (control-contrast-N.baseline.txt).
 //
+// The golden screen (looks.golden) is also read under each of its looks, in the default light and dark
+// schemes at rest: a look sets its own page and ink, so a look that drops a control under its minimum
+// fails like a theme does.
+//
 // Shipped themes (Resources/ghostty/themes and Resources/cmux-themes, over 600) are also read, at rest
 // with the theme's own accent, on the entries that hold the shared controls (SWEEP_ENTRIES): a theme
 // whose palette breaks a token breaks it on these. Every run reads SAMPLED_THEMES of them, spread
@@ -27,6 +31,10 @@
 // (about 4,400 more stages, an hour of one browser: an audit run, not every pull request's).
 //
 // Captures are at 2x, as the app draws on a Retina screen: thin strokes keep full-ink pixels.
+//
+// Stages load from test/support/galleryStageServer.ts: the run's built gallery when there is one, else a
+// Vite dev server. On the dev server each stage loads about 650 unbundled modules from one Vite thread,
+// and the 4 vCPU (at times 2) runners these shards moved to on 2026-11-18 made that the bound.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
@@ -35,6 +43,7 @@ import { readShippedThemes } from "../../dev-server/galleryHost";
 import { loadEntrySources } from "../../scripts/gallery/entries";
 import { hideInk, markControls, readControls, type Control, type Reading } from "./controlContrastScan";
 import { warmGalleryFrame } from "./galleryFrame";
+import { galleryStageServer, type GalleryStageServer } from "./galleryStageServer";
 import { requireBrowserLane } from "./requireBrowserLane";
 import { launchStageBrowser, type StageBrowser } from "./stageBrowser";
 
@@ -57,6 +66,18 @@ export const SCHEMES: Scheme[] = [
   { name: "light-over-light-picture", query: { colorScheme: "light", background: "light" }, states: ["rest"] },
   { name: "rose-pine-dawn-theme-accent", query: { theme: "Rose Pine Dawn", accent: "theme" }, states: ["rest"] },
   { name: "catppuccin-mocha-yellow-accent", query: { theme: "Catppuccin Mocha", accent: "yellow" }, states: ["rest"] },
+];
+
+/**
+ * The golden screen's entry, whose variants are the looks (src/gallery/golden/looks.json): its first
+ * variant (the default look) is read under every SCHEME like any entry; each other look is read in the
+ * default light and dark schemes at rest, as a look draws its own page and ink there (cmuxterm-hq
+ * docs/findings/2026-11-24-looks-text-contrast.md: tool rows under 4.5:1 in 21 look stages).
+ */
+export const LOOK_ENTRY = "looks.golden";
+const LOOK_SCHEMES: Scheme[] = [
+  { name: "dark", query: {}, states: ["rest"] },
+  { name: "light", query: { colorScheme: "light" }, states: ["rest"] },
 ];
 
 type State = "rest" | "hover" | "active";
@@ -116,6 +137,9 @@ const sweepSchemes = (every: boolean): Scheme[] => {
 export const MINIMUM = { text: 4.5, large: 3, icon: 3, disabled: 2.5 } as const;
 
 type Stage = { entry: string; variant: string; source: string; height: number; scheme: Scheme };
+/** How long a stage may take to say it is ready: the golden screen opens every fold before it does
+ * (16 to 35 s a look on a busy 32-core VM, 2026-11-24), every other entry far less. */
+const readyMs = (stage: Stage): number => (stage.entry === LOOK_ENTRY ? 90_000 : 20_000);
 const stageName = (stage: Stage): string => `${stage.entry}/${stage.variant}@${stage.scheme.name}`;
 
 /** One failing reading. */
@@ -159,17 +183,22 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
     const sources = (await loadEntrySources()).filter(({ entry }) => entry.host !== "native");
     const missing = SWEEP_ENTRIES.filter((id) => !sources.some(({ entry }) => entry.id === id));
     if (missing.length) throw new Error(`control contrast: sweep entries are gone: ${missing.join(", ")}`);
+    if (!sources.some(({ entry }) => entry.id === LOOK_ENTRY && Object.keys(entry.variants).length > 1))
+      throw new Error(`control contrast: ${LOOK_ENTRY} has no looks to read`);
     if (readShippedThemes().length < 500) throw new Error("control contrast: fewer than 500 shipped themes were read");
     const everyStage: Stage[] = sources
-      .flatMap(({ entry, path: source }) =>
-        (sweepEntries.has(entry.id) ? [...SCHEMES, ...sweep] : SCHEMES).map((scheme) => ({
+      .flatMap(({ entry, path: source }) => [
+        ...(sweepEntries.has(entry.id) ? [...SCHEMES, ...sweep] : SCHEMES).map((scheme) => ({
           entry: entry.id,
           variant: Object.keys(entry.variants)[0]!,
           source,
           height: entry.height ?? 720,
           scheme,
         })),
-      )
+        ...(entry.id === LOOK_ENTRY ? Object.keys(entry.variants).slice(1) : []).flatMap((variant) =>
+          LOOK_SCHEMES.map((scheme) => ({ entry: entry.id, variant, source, height: entry.height ?? 720, scheme })),
+        ),
+      ])
       .sort((a, b) => stageName(a).localeCompare(stageName(b)));
     // Local red/green runs may pick entries (CONTROL_CONTRAST_ENTRIES=a,b); CI always reads every one.
     const filter = process.env.CONTROL_CONTRAST_ENTRIES?.split(",").filter(Boolean);
@@ -185,30 +214,28 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
       return;
     }
 
-    const { createServer } = await import("vite");
-    let vite: Awaited<ReturnType<typeof createServer>> | undefined;
+    // The stages' server: the run's gallery build when it made one, else the dev server (test/support/galleryStageServer.ts).
+    let stageServer: GalleryStageServer | undefined;
     let shared: StageBrowser<Browser, Page> | undefined;
     beforeAll(async () => {
-      vite = await createServer({
-        configFile: path.join(webviews, viteConfig),
-        server: { port: 0, host: "127.0.0.1", strictPort: false },
-        logLevel: "error",
-      });
-      await vite.listen();
       shared = await launchStageBrowser<Browser, Page>({
         launch: () => chromium.launch({ headless: true }),
         open: (browser) =>
           browser.newPage({ viewport: { width: 760, height: 900 }, deviceScaleFactor: 2, reducedMotion: "reduce" }),
       });
       const first = stages[0]!;
-      await warmGalleryFrame(vite, first.entry, {
-        browser: shared.browser,
-        params: { variant: first.variant, frame: "component", ...first.scheme.query },
+      stageServer = await galleryStageServer({
+        configFile: path.join(webviews, viteConfig),
+        warm: (vite) =>
+          warmGalleryFrame(vite, first.entry, {
+            browser: shared!.browser,
+            params: { variant: first.variant, frame: "component", ...first.scheme.query },
+          }),
       });
     });
     afterAll(async () => {
       await shared?.close();
-      await vite?.close();
+      await stageServer?.close();
     });
 
     type Scanned = { stage: string; controls: number; failures: Failure[] } | { stage: string; error: string };
@@ -234,7 +261,6 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
 
     const scan = async (page: Page, cdp: CDPSession, stage: Stage): Promise<Scanned> => {
       const name = stageName(stage);
-      const port = (vite!.httpServer!.address() as { port: number }).port;
       const query = new URLSearchParams({
         entry: stage.entry,
         variant: stage.variant,
@@ -245,8 +271,10 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
       });
       try {
         await page.setViewportSize({ width: 760, height: Math.min(1100, Math.max(320, stage.height)) });
-        await page.goto(`http://127.0.0.1:${port}/gallery/frame.html?${query}`);
-        await page.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 20_000 });
+        await page.goto(`${stageServer!.origin}${stageServer!.framePath}?${query}`);
+        await page.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, {
+          timeout: readyMs(stage),
+        });
         if ((await page.evaluate(() => document.documentElement.dataset.galleryReady)) !== "1")
           return { stage: name, error: "the stage did not render" };
         await page.addStyleTag({
@@ -290,14 +318,14 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
 
     // A stage that never settles holds its worker; past its deadline it is not read and its worker
     // goes on with a new page (as accent-glass-invariants does).
-    const stageDeadlineMs = 60_000;
+    const stageDeadlineMs = (stage: Stage) => 40_000 + readyMs(stage);
     const scanWithin = async (page: Page, cdp: CDPSession, stage: Stage): Promise<Scanned> => {
       let timer: ReturnType<typeof setTimeout> | undefined;
       const late = new Promise<Scanned>((resolve) => {
         // fixed-wait: a deadline, not a wait; a stage that answers clears it and goes on at once.
         timer = setTimeout(
-          () => resolve({ stage: stageName(stage), error: `no answer in ${stageDeadlineMs / 1000} s` }),
-          stageDeadlineMs,
+          () => resolve({ stage: stageName(stage), error: `no answer in ${stageDeadlineMs(stage) / 1000} s` }),
+          stageDeadlineMs(stage),
         );
       });
       try {

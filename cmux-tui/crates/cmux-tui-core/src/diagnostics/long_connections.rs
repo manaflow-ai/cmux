@@ -69,7 +69,7 @@ impl std::fmt::Display for LongConnectionsFull {
         write!(
             formatter,
             "the terminals of this session hold too many long-lived connections (limit {}); \
-             end a `cmux` wait, an MCP watch or a nested cmux in a terminal, then try again",
+             end a `cmux` wait, an MCP watch or a nested cmux in a terminal",
             self.limit
         )
     }

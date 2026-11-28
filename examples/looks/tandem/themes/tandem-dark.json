@@ -7,14 +7,14 @@
 // accent (#271E1D sampled).
 {
   "name": "Tandem Dark",
-  "description": "An agent workspace, Dark: a warm near-black card, a warm-gray sidebar of chats and tabs, an orange policy accent.",
+  "description": "Dark: a warm near-black card, a warm gray sidebar, an orange accent.",
 
   // The terminal follows the workspace; the window, sidebar and pages take this theme.
   "appearance.theme": "Builtin Dark",
   "appearance.appTheme": "followTerminal",
   // background: the warm near-black (#141110 sampled). foreground: the ink (#EAE8E6 sampled).
   // selection: the orange at about 25% over the workspace. accent: the policy orange, brighter.
-  "colors": { "background": "#141110", "foreground": "#eae8e6", "selection": "#4d2c18", "accent": "#ec6420" },
+  "colors": { "background": "#141110", "foreground": "#eae8e6", "selection": "#8f6e5a", "accent": "#ec6420" },
   "appearance.accent": "theme",
   // The terminal: the page and ink above, the cursor in the accent, the selection, and all sixteen
   // ANSI colors at a warm chroma, each solved in OKLCH over the page (5.5:1, the bright ones 8.5:1;
@@ -24,7 +24,7 @@
     "foreground = #eae8e6",
     "cursor-color = #ec6420",
     "cursor-text = #141110",
-    "selection-background = #4d2c18",
+    "selection-background = #8f6e5a",
     "selection-foreground = #eae8e6",
     "palette = 0=#43474d",
     "palette = 1=#d36e60",
@@ -88,7 +88,7 @@
   // The sidebar: a warm gray a step over the workspace, opaque, no edge line; quiet gray
   // section headings ("Pinned", "Chats", "Tabs") over hairline breaks.
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#1d1b1a",
+  "appearance.surfaces.sidebar.color": "#151312",
   "appearance.surfaces.sidebar.opacity": 1,
   "sidebar.style": "standard",
   "sidebar.border": false,

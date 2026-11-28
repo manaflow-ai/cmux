@@ -480,3 +480,88 @@ fn six_levels_of_groups_nest_view_and_take_a_drop() {
     let table = accept::drag_begin(&doc, &rows, &["g_solo".to_string()]);
     assert!(table["g6"].into, "a group drops into the sixth level, making a seventh");
 }
+
+/// Pinned is its own tier, as in classic cmux (Lucas 2026-11-26: a drop near a pinned workspace
+/// pinned it too, and a pinned one dragged out lost its pin). A drag never pins or unpins: an
+/// unpinned row lands nowhere in Pinned, a pinned row reorders only among the pinned ones, and a
+/// drag of both lands nowhere.
+#[test]
+fn a_drag_never_crosses_the_pin_tier() {
+    let mut doc = doc();
+    apply_in_place(&mut doc, &[Op::Pin { items: vec![ws(A, "a1")] }], &mut minter()).unwrap();
+    apply_in_place(
+        &mut doc,
+        &[Op::Adopt { refs: vec![WorkspaceRef::new(A, "a3")], to: None }],
+        &mut minter(),
+    )
+    .unwrap();
+    apply_in_place(&mut doc, &[Op::Pin { items: vec![ws(A, "a3")] }], &mut minter()).unwrap();
+    check(&doc).expect("the pins pass the invariants");
+    let rows = view(&doc, &ViewRequest { live: rows_live(), ..ViewRequest::default() });
+    let sec = machine_section_id(A);
+
+    // An unpinned row: no gap beside a pinned row, Pinned's header takes nothing, its own section takes it.
+    let table = accept::drag_begin(&doc, &rows, &[ws(A, "a2")]);
+    for pinned in [ws(A, "a1"), ws(A, "a3")] {
+        let row = &table[&pinned];
+        assert!(
+            !row.before && !row.after && !row.into,
+            "an unpinned drop beside {pinned}: {row:?}"
+        );
+        assert_eq!(row.refusal.as_deref(), Some("pinned"));
+    }
+    if let Some(header) = table.get(PINNED_SECTION_ID) {
+        assert!(!header.into, "Pinned's header pins nothing: {header:?}");
+    }
+    assert!(table[&sec].into, "its machine section still takes it");
+
+    // The Top section above Pinned (Home's) draws as pinned too: no unpinned workspace lands there.
+    let top_doc = doc.clone();
+    let mut top = Section::new("sec_top", SectionKind::Custom, Region::Top);
+    top.order = "0".into();
+    let home = Item::new("itm_home", "sec_top", Body::Builtin { id: "home".into() });
+    let mut sections = top_doc.sections().to_vec();
+    sections.push(top);
+    let mut items: Vec<Item> = top_doc.items_unordered().cloned().collect();
+    items.push(home);
+    let top_doc = Doc::from_parts(1, sections, items);
+    let top_rows = view(&top_doc, &ViewRequest { live: rows_live(), ..ViewRequest::default() });
+    let table = accept::drag_begin(&top_doc, &top_rows, &[ws(A, "a2")]);
+    let row = &table["itm_home"];
+    assert!(!row.before && !row.after, "an unpinned drop beside Home: {row:?}");
+
+    // A live workspace the document does not place yet (its key matches no item and maybe no row): never pinned.
+    let table = accept::drag_begin(&doc, &rows, &["itm_w_unplaced_ws".to_string()]);
+    let row = &table[&ws(A, "a1")];
+    assert!(!row.before && !row.after, "an unplaced drop beside a pinned row: {row:?}");
+
+    // A pinned row: among the pinned ones only.
+    let table = accept::drag_begin(&doc, &rows, &[ws(A, "a1")]);
+    assert!(table[&ws(A, "a3")].before && table[&ws(A, "a3")].after, "reorders among the pinned");
+    assert!(!table[&ws(A, "a2")].before && !table[&ws(A, "a2")].after, "never leaves Pinned");
+    assert!(!table[&sec].into, "a machine section unpins nothing");
+
+    // A link is not in the tier: one in Pinned still moves to the list.
+    let link_doc = {
+        let mut items: Vec<Item> = doc.items_unordered().cloned().collect();
+        items.push(Item::new(
+            "itm_link",
+            PINNED_SECTION_ID,
+            Body::Url { url: "https://cmux.com".into(), title: None, icon_url: None },
+        ));
+        Doc::from_parts(1, doc.sections().to_vec(), items)
+    };
+    let link_rows = view(&link_doc, &ViewRequest { live: rows_live(), ..ViewRequest::default() });
+    let table = accept::drag_begin(&link_doc, &link_rows, &["itm_link".to_string()]);
+    assert!(table[&ws(A, "a2")].before, "a pinned link moves to the list");
+
+    // Both tiers in one drag: nowhere.
+    let table = accept::drag_begin(&doc, &rows, &[ws(A, "a1"), ws(A, "a2")]);
+    assert!(table.values().all(|row| !row.before && !row.after && !row.into));
+}
+
+fn rows_live() -> Vec<LiveWorkspace> {
+    ["a1", "a2", "a3"]
+        .map(|id| LiveWorkspace { session_id: A.into(), workspace_id: id.into(), title: None })
+        .to_vec()
+}

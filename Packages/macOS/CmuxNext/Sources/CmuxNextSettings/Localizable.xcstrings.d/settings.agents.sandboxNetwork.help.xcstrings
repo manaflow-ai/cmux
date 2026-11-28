@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agents.sandboxNetwork.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Allow lets Codex's workspace sandbox reach the network."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يتيح خيار «سماح» لبيئة عزل مساحة العمل في Codex الوصول إلى الشبكة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dozvoli omogućava Codexovom sandboxu radnog prostora pristup mreži."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tillad lader Codex' arbejdsområde-sandkasse nå netværket."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Erlauben lässt die Arbeitsbereich-Sandbox von Codex ins Netzwerk."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Permitir deja que el entorno aislado del espacio de trabajo de Codex acceda a la red."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Autoriser permet au bac à sable d’espace de travail de Codex d’accéder au réseau."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Consenti permette alla sandbox dell’area di lavoro di Codex di raggiungere la rete."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "「許可」にすると、Codex のワークスペースサンドボックスからネットワークに接続できます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "អនុញ្ញាត ឲ្យប្រអប់ខ្សាច់កន្លែងធ្វើការរបស់ Codex ភ្ជាប់បណ្ដាញបាន។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "허용하면 Codex의 작업 공간 샌드박스가 네트워크에 접근할 수 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tillat lar Codex' arbeidsområde-sandkasse nå nettverket."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zezwól pozwala piaskownicy obszaru roboczego Codex łączyć się z siecią."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Permitir deixa o sandbox do espaço de trabalho do Codex acessar a rede."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«Разрешить» даёт песочнице рабочей области Codex доступ к сети."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "อนุญาตจะให้แซนด์บ็อกซ์พื้นที่ทำงานของ Codex เข้าถึงเครือข่ายได้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "İzin Ver, Codex'in çalışma alanı korumalı alanının ağa erişmesini sağlar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«Дозволити» дає пісочниці робочої області Codex доступ до мережі."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cho phép giúp hộp cát không gian làm việc của Codex truy cập mạng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "“允许”可让 Codex 的工作区沙盒访问网络。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "「允許」可讓 Codex 的工作區沙盒存取網路。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

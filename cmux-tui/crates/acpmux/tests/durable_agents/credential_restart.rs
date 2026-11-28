@@ -66,7 +66,18 @@ fn chunk_starts(e: &Value, prefix: &str) -> bool {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_daemon_killed_and_restarted_starts_the_agent_again_on_its_launch_credential() {
-    let mut daemon = claude_family_daemon("cred", json!({}));
+    launch_credential_survives_adoption("cred", json!({})).await;
+}
+
+#[cfg(debug_assertions)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn adoption_recovers_a_launch_credential_from_a_base_version_host_hello() {
+    launch_credential_survives_adoption("cred-old", json!({"ACPMUX_TEST_LEGACY_HOST_HELLO": "1"}))
+        .await;
+}
+
+async fn launch_credential_survives_adoption(tag: &str, env: Value) {
+    let mut daemon = claude_family_daemon(tag, env);
     let mut rpc = daemon.rpc().await;
     let created = rpc
         .call(
@@ -131,4 +142,236 @@ async fn a_profile_cannot_mark_its_own_login_as_a_launch_credential() {
         "sk-ant-oat01-profile-login",
         "its own login stays"
     );
+}
+
+/// A fake Claude CLI for account status and manual approval, with a separate ACP test harness.
+fn claude_recovery_daemon(tag: &str) -> Daemon {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let mut daemon = Daemon::new(tag, "approve-all");
+    daemon.sigterm();
+    let config_dir = daemon.home.join("claude-config");
+    std::fs::create_dir(&config_dir).unwrap();
+    let cli = daemon.home.join("claude");
+    std::fs::write(
+        &cli,
+        format!(
+            r#"#!/bin/sh
+case "$1 $2" in
+    "auth status") echo '{{"loggedIn":true,"authMethod":"claude.ai"}}' ;;
+    "auth login")
+        echo 'visit: https://claude.com/cai/oauth/authorize?code=true&state=s1 '
+        read -r code
+        [ "$code" = fixture-code ] || exit 1
+        echo '{{"claudeAiOauth":{{}}}}' > "$CLAUDE_CONFIG_DIR/.credentials.json"
+        ;;
+    *) exec python3 "{FAKE}" "$@" ;;
+esac
+"#
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let env = json!({"CLAUDE_CONFIG_DIR": config_dir, "CMUX_CLAUDE_AUTH": "team"});
+    std::fs::write(
+        daemon.home.join("config.json"),
+        json!({
+            "harnesses": {
+                "claude-fake": {"argv": [cli], "family": "claude", "env": env},
+                "claude": {"argv": [cli], "kind": "claude-stdio", "env": env}
+            },
+            "defaultHarness": "claude-fake", "permissionPolicy": "approve-all"
+        })
+        .to_string(),
+    )
+    .unwrap();
+    daemon.start();
+    daemon
+}
+
+async fn saved_claude_chat(daemon: &Daemon, rpc: &mut Rpc, connection: &str) -> String {
+    let created = rpc.call("session/new", json!({
+        "cwd": daemon.home, "mcpServers": [],
+        "_meta": {"acpmux": {"credentials": {"env": {NAME: TOKEN}, "connection": connection}}}
+    })).await;
+    created["sessionId"].as_str().unwrap().to_owned()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn claude_finish_uses_the_recovery_chat_bound_at_start() {
+    let daemon = claude_recovery_daemon("recovery-bind");
+    let mut rpc = daemon.rpc().await;
+    let a = saved_claude_chat(&daemon, &mut rpc, "claude-token").await;
+    let b = saved_claude_chat(&daemon, &mut rpc, "claude-token-2").await;
+    let start = "_acpmux/agent_login/start";
+    let finish = "_acpmux/agent_login/finish";
+    let recover_start = "_acpmux/agent_login/recover_start";
+    let recover_finish = "_acpmux/agent_login/recover_finish";
+
+    let ordinary = rpc.call(start, json!({"agent": "claude"})).await;
+    let wrong = rpc
+        .reply(
+            recover_finish,
+            json!({
+                "loginId": ordinary["loginId"], "code": "fixture-code", "recoverySession": b
+            }),
+        )
+        .await;
+    assert_eq!(wrong["error"]["code"], -32602);
+    assert_eq!(
+        rpc.call(finish, json!({"loginId": ordinary["loginId"], "code": "fixture-code"})).await["signedIn"],
+        true
+    );
+    assert_eq!(agent_token(&daemon, &a, 1).await, TOKEN);
+    assert_eq!(agent_token(&daemon, &b, 1).await, TOKEN);
+
+    let scoped = rpc.call(recover_start, json!({"agent": "claude", "recoverySession": a})).await;
+    let wrong = rpc
+        .reply(
+            recover_finish,
+            json!({
+                "loginId": scoped["loginId"], "code": "fixture-code", "recoverySession": b
+            }),
+        )
+        .await;
+    assert_eq!(wrong["error"]["code"], -32602);
+    assert_eq!(
+        rpc.call(finish, json!({"loginId": scoped["loginId"], "code": "fixture-code"})).await["signedIn"],
+        true
+    );
+    assert_eq!(agent_token(&daemon, &a, 2).await, "");
+    assert_eq!(agent_token(&daemon, &b, 2).await, TOKEN);
+
+    let matched = rpc.call(recover_start, json!({"agent": "claude", "recoverySession": b})).await;
+    assert_eq!(
+        rpc.call(
+            recover_finish,
+            json!({"loginId": matched["loginId"], "code": "fixture-code", "recoverySession": b})
+        )
+        .await["signedIn"],
+        true
+    );
+    assert_eq!(agent_token(&daemon, &b, 3).await, "");
+}
+
+#[cfg(debug_assertions)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn recovery_reusing_a_login_before_adoption_restarts_the_old_host_before_the_next_turn() {
+    let mut daemon = claude_recovery_daemon("recovery-adopt");
+    let mut rpc = daemon.rpc().await;
+    let chat = saved_claude_chat(&daemon, &mut rpc, "claude-token").await;
+    let original_host = daemon.host_record(&chat)["host_pid"].clone();
+    assert!(original_host.is_number());
+    daemon.sigkill();
+    daemon.env.push(("ACPMUX_TEST_ADOPT_HOLD_MS".into(), "4000".into()));
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    let before = rpc.call("agent/credentials.update", json!({"sessionId": chat})).await;
+    assert_eq!(before["connection"], "claude-token");
+    assert_eq!(before["held"], false, "the old host has yet to be adopted");
+    let status = rpc
+        .call(
+            "_acpmux/agent_login/start",
+            json!({
+                "agent": "claude", "reuseExisting": true, "recoverySession": chat
+            }),
+        )
+        .await;
+    assert_eq!(status["signedIn"], true);
+    assert!(status["loginId"].is_null());
+    assert_eq!(agent_token(&daemon, &chat, 1).await, "");
+    assert_eq!(agent_env(&daemon, &chat, "CMUX_CLAUDE_AUTH", 2).await, "own");
+    assert_ne!(daemon.host_record(&chat)["host_pid"], original_host);
+    let meta: Value = serde_json::from_slice(
+        &std::fs::read(daemon.home.join("sessions").join(&chat).join("session.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(meta["claudeLoginRestartPending"], false);
+}
+
+/// The Cloud journey's order (resume-matrix run 45177970049): the daemon restarts and adopts the
+/// agent, the chat then sits idle past the idle period so the adopted agent hibernates, and the
+/// next message (the first after the machine paused and resumed) wakes a new agent. That agent
+/// must run on the launch credential too; Claude said "Not logged in" when it did not.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_adopted_agent_that_hibernates_wakes_on_its_launch_credential() {
+    let mut daemon = claude_family_daemon("cred-idle", json!({}));
+    let mut rpc = daemon.rpc().await;
+    let created = rpc
+        .call(
+            "session/new",
+            json!({"cwd": daemon.home, "mcpServers": [],
+                   "_meta": {"acpmux": {"credentials": {"env": {NAME: TOKEN}}}}}),
+        )
+        .await;
+    let session = created["sessionId"].as_str().unwrap().to_owned();
+    drop(rpc);
+    assert_eq!(agent_token(&daemon, &session, 1).await, TOKEN, "the first start has it");
+    let first = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+
+    // A crash, and a daemon whose idle period is short: it adopts the agent, which then hibernates.
+    daemon.sigkill();
+    daemon.env.push(("ACPMUX_IDLE_CHILD_SECS".into(), "1".into()));
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    assert!(
+        gone_within(first, Duration::from_secs(30)),
+        "the adopted agent did not hibernate while the chat sat idle"
+    );
+
+    // The next message wakes a new agent, which runs on the credential again.
+    assert_eq!(
+        agent_token(&daemon, &session, 2).await,
+        TOKEN,
+        "the agent woken after the adopted one hibernated runs on the launch credential"
+    );
+    let woken = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    assert_ne!(woken, first, "the message was not answered by a new agent");
+}
+
+/// cmux#52399: the same order, with an agent whose own env no longer names its credential (it
+/// started itself again through a wrapper that cleaned the env, so `/proc/PID/environ`, the env of
+/// its last exec, lacks the marker). The new daemon took the credential only from that env, held
+/// none, and the agent it woke after the adopted one hibernated ran with no login: "Not logged in".
+/// The agent's host, which launched it and outlives the daemon, says the credential instead.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_adopted_agent_whose_env_lost_the_marker_still_wakes_on_its_launch_credential() {
+    let mut daemon = claude_family_daemon(
+        "cred-reexec",
+        json!({"FAKE_REEXEC_WITHOUT": "ACPMUX_LAUNCH_CREDENTIAL"}),
+    );
+    let mut rpc = daemon.rpc().await;
+    let created = rpc
+        .call(
+            "session/new",
+            json!({"cwd": daemon.home, "mcpServers": [],
+                   "_meta": {"acpmux": {"credentials": {"env": {NAME: TOKEN}}}}}),
+        )
+        .await;
+    let session = created["sessionId"].as_str().unwrap().to_owned();
+    drop(rpc);
+    assert_eq!(agent_token(&daemon, &session, 1).await, TOKEN, "the first start has it");
+    let first = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    let environ = std::fs::read(format!("/proc/{first}/environ")).unwrap();
+    assert!(
+        !environ.split(|b| *b == 0).any(|v| v.starts_with(b"ACPMUX_LAUNCH_CREDENTIAL=")),
+        "the stand-in agent's env still names its credential, so this test proves nothing"
+    );
+
+    daemon.sigkill();
+    daemon.env.push(("ACPMUX_IDLE_CHILD_SECS".into(), "1".into()));
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    assert!(
+        gone_within(first, Duration::from_secs(30)),
+        "the adopted agent did not hibernate while the chat sat idle"
+    );
+
+    assert_eq!(
+        agent_token(&daemon, &session, 2).await,
+        TOKEN,
+        "the agent woken after the adopted one hibernated runs on the launch credential"
+    );
+    let woken = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    assert_ne!(woken, first, "the message was not answered by a new agent");
 }

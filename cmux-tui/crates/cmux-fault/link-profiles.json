@@ -1,0 +1,230 @@
+{
+  "version": 1,
+  "about": "Link profiles for the mobile network-conditions harness (cmux-fault shaper.rs, scripts/measure/ios-network-conditions.sh). Each row is named and versioned: change a number, bump that row's version, and the report carries name@version so a before/after never compares two different links. Rates in kbit/s (0: unlimited), rtt_ms is the round trip (half each way), jitter_ms a seeded extra in 0..=jitter_ms per segment, loss_percent per 1460-byte segment each way.",
+  "profiles": [
+    {
+      "name": "good-wifi",
+      "version": 1,
+      "down_kbit": 40000,
+      "up_kbit": 33000,
+      "rtt_ms": 2,
+      "source": "Apple Network Link Conditioner preset 'WiFi' (Additional Tools for Xcode): 40 Mbps down, 33 Mbps up, 1 ms delay each way, 0% loss. The control row."
+    },
+    {
+      "name": "lte",
+      "version": 1,
+      "down_kbit": 12000,
+      "up_kbit": 12000,
+      "rtt_ms": 70,
+      "loss_percent": 0.5,
+      "source": "WebPageTest connectivity profile 'LTE' (www/settings/connectivity.ini.sample, github.com/catchpoint/WebPageTest): 12 Mbps down, 12 Mbps up, 70 ms RTT. 0.5% loss per the lane brief (WebPageTest's row has 0 plr)."
+    },
+    {
+      "name": "5g-lte-handoff",
+      "version": 1,
+      "down_kbit": 12000,
+      "up_kbit": 12000,
+      "rtt_ms": 70,
+      "loss_percent": 0.5,
+      "disruption": { "kind": "address_change", "stall_ms": [1000, 3000] },
+      "source": "The 'lte' row's link (low-band 5G NSA anchors on LTE; its higher peak rate does not move time to first content at these sizes), plus an address change mid-stream and a 1-3 s stall drawn from the seed, per the lane brief. Live connections go silent for good (the peer's packets go to the old address); new ones flow after the stall."
+    },
+    {
+      "name": "lossy-3",
+      "version": 1,
+      "down_kbit": 12000,
+      "up_kbit": 12000,
+      "rtt_ms": 70,
+      "jitter_ms": 300,
+      "loss_percent": 3,
+      "source": "The 'lte' row's rate and RTT with 3% loss and 0-300 ms jitter per the lane brief."
+    },
+    {
+      "name": "lossy-10",
+      "version": 1,
+      "down_kbit": 1000,
+      "up_kbit": 1000,
+      "rtt_ms": 1000,
+      "jitter_ms": 300,
+      "loss_percent": 10,
+      "source": "Apple Network Link Conditioner preset 'Very Bad Network': 1 Mbps each way, 500 ms delay each way, 10% loss; plus 0-300 ms jitter per the lane brief."
+    },
+    {
+      "name": "satellite-600",
+      "version": 1,
+      "down_kbit": 25000,
+      "up_kbit": 3000,
+      "rtt_ms": 600,
+      "jitter_ms": 20,
+      "loss_percent": 0.5,
+      "source": "A geostationary satellite link (the scoreboard's 'satellite 600 ms' row; hq docs/design/ultra-connectivity.md section 8 names 600 ms, 20 ms jitter, 0.5 % loss). RTT: four hops of 35,786 km at c is 477 ms of propagation before any modem or gateway time, so 600 ms is a typical measured GEO round trip. Rates: the 25 Mbit/s down, 3 Mbit/s up tier consumer GEO plans advertise (HughesNet Gen5); an advertised tier, not a measurement. The shaper plays one rate per direction; the UDP model in cmux-mobile-link testing/shaped.rs uses the lower, 3 Mbit/s, for both."
+    },
+    {
+      "name": "airplane-wifi",
+      "version": 1,
+      "down_kbit": 5000,
+      "up_kbit": 1000,
+      "rtt_ms": 700,
+      "jitter_ms": 100,
+      "loss_percent": 2,
+      "source": "In-flight Wi-Fi (the scoreboard's 'airplane Wi-Fi' row; hq docs/design/ultra-connectivity.md section 8 names 700 ms and 2 % loss, section 3 '600+ ms, 1-5 % loss'): a cabin access point behind a shared GEO or air-to-ground backhaul. RTT and loss: the design's numbers. Rates: assumed, 5 Mbit/s down and 1 Mbit/s up for one passenger of a shared bearer (the order airlines quote per device); jitter 0-100 ms assumed for the shared queue. The 443-only and captive-portal parts of an airplane network are not in a shaper profile: see the scoreboard's captive-portal and proxy rows."
+    },
+    {
+      "name": "elevator-30s",
+      "version": 1,
+      "down_kbit": 12000,
+      "up_kbit": 12000,
+      "rtt_ms": 70,
+      "loss_percent": 0.5,
+      "disruption": { "kind": "blackout", "duration_ms": 30000 },
+      "source": "The 'lte' row's link, then 30 s with nothing through and the same link back, per the lane brief (the elevator). Bytes sent into the dark retransmit on TCP's doubling backoff (200 ms min RTO, RFC 6298), so recovery lands after the window, not at its end."
+    },
+    {
+      "name": "blackout-2s",
+      "version": 1,
+      "down_kbit": 12000,
+      "up_kbit": 12000,
+      "rtt_ms": 70,
+      "loss_percent": 0.5,
+      "disruption": { "kind": "blackout", "duration_ms": 2000 },
+      "source": "The 'lte' row's link, then 2 s with nothing through either way and the same addresses back, per the mobile failover lane's brief (time from the cut to the first frame each way, before and after a failover change). 'elevator-30s' is the 30 s row."
+    },
+    {
+      "name": "blackout-5s",
+      "version": 1,
+      "down_kbit": 12000,
+      "up_kbit": 12000,
+      "rtt_ms": 70,
+      "loss_percent": 0.5,
+      "disruption": { "kind": "blackout", "duration_ms": 5000 },
+      "source": "The 'lte' row's link, then 5 s with nothing through either way and the same addresses back, per the mobile failover lane's brief (time from the cut to the first frame each way, before and after a failover change). 'elevator-30s' is the 30 s row."
+    },
+    {
+      "name": "blackout-8s",
+      "version": 1,
+      "down_kbit": 12000,
+      "up_kbit": 12000,
+      "rtt_ms": 70,
+      "loss_percent": 0.5,
+      "disruption": { "kind": "blackout", "duration_ms": 8000 },
+      "source": "The 'lte' row's link, then 8 s with nothing through either way and the same addresses back, per the mobile failover lane's brief (time from the cut to the first frame each way, before and after a failover change). 'elevator-30s' is the 30 s row."
+    },
+    {
+      "name": "blackout-10s",
+      "version": 1,
+      "down_kbit": 12000,
+      "up_kbit": 12000,
+      "rtt_ms": 70,
+      "loss_percent": 0.5,
+      "disruption": { "kind": "blackout", "duration_ms": 10000 },
+      "source": "The 'lte' row's link, then 10 s with nothing through either way and the same addresses back, per the mobile failover lane's brief (time from the cut to the first frame each way, before and after a failover change). 'elevator-30s' is the 30 s row."
+    },
+    {
+      "name": "blackout-60s",
+      "version": 1,
+      "down_kbit": 12000,
+      "up_kbit": 12000,
+      "rtt_ms": 70,
+      "loss_percent": 0.5,
+      "disruption": { "kind": "blackout", "duration_ms": 60000 },
+      "source": "The 'lte' row's link, then 60 s with nothing through either way and the same addresses back, per the mobile failover lane's brief (time from the cut to the first frame each way, before and after a failover change). 'elevator-30s' is the 30 s row."
+    },
+    {
+      "name": "nat-rebind",
+      "version": 1,
+      "down_kbit": 12000,
+      "up_kbit": 12000,
+      "rtt_ms": 70,
+      "loss_percent": 0.5,
+      "disruption": { "kind": "address_change", "stall_ms": [0, 0] },
+      "source": "The 'lte' row's link, then a NAT rebinding: the same IP, a new source port, no event on the phone and no stall; live connections (TCP) or the old port (UDP) go silent for good, per the mobile failover lane's brief (time from the cut to the first frame each way, before and after a failover change)."
+    },
+    {
+      "name": "wifi-to-cell",
+      "version": 1,
+      "down_kbit": 40000,
+      "up_kbit": 33000,
+      "rtt_ms": 2,
+      "disruption": { "kind": "address_change", "stall_ms": [0, 0], "then": "cell-after-wifi" },
+      "source": "The 'good-wifi' row's link, then the phone moves to cellular: the Wi-Fi path goes dark at once and the new path is 'cell-after-wifi', per the mobile failover lane's brief (time from the cut to the first frame each way, before and after a failover change)."
+    },
+    {
+      "name": "cell-after-wifi",
+      "version": 1,
+      "down_kbit": 12000,
+      "up_kbit": 12000,
+      "rtt_ms": 42,
+      "loss_percent": 1,
+      "source": "The cellular path after 'wifi-to-cell': 'good-wifi''s 2 ms round trip plus 40 ms, 1% loss, at the 'lte' row's 12 Mbit/s each way, per the mobile failover lane's brief (time from the cut to the first frame each way, before and after a failover change)."
+    },
+    {
+      "name": "2g-trickle",
+      "version": 1,
+      "down_kbit": 50,
+      "up_kbit": 30,
+      "rtt_ms": 800,
+      "source": "Rate: WebPageTest connectivity profile '56K Dial-Up' (49 kbps down, 30 kbps up), which is GPRS-grade (four CS-2 timeslots, 3GPP TS 45.003, are 53.6 kbit/s raw). RTT: WebPageTest profile '2G' (800 ms)."
+    },
+    {
+      "name": "lan",
+      "version": 1,
+      "down_kbit": 300000,
+      "up_kbit": 300000,
+      "rtt_ms": 4,
+      "source": "Phone and Mac on one Wi-Fi 6 WLAN, direct path through the access point, no relay: two wireless hops (phone to AP, AP to Mac) on one channel. Rate: the 802.11ax PHY rate for 2 spatial streams, 80 MHz, MCS 11, 0.8 us GI (1201 Mbit/s, IEEE 802.11ax-2021), halved because the AP sends every packet again on the same channel (wiisfi.com, 'Understanding Wi-Fi 4/5/6/6E/7', relay through the AP), halved again for MAC and TCP overhead (a rule of thumb, not a measurement): 300 Mbit/s each way. RTT: 1 ms per AP-to-client hop each way (VDMA 'WLAN IEEE 802.11ax, Wi-Fi 6/6E' guide: typical 1 ms, RTT 2-20 ms), two hops each way: 4 ms. No jitter or loss: an idle home WLAN, the best case."
+    },
+    {
+      "name": "relay-80",
+      "version": 1,
+      "down_kbit": 12000,
+      "up_kbit": 12000,
+      "rtt_ms": 80,
+      "source": "The phone away from home reaching the Mac through a relay (no direct path): 80 ms round trip, the mobile hill climb's relay row (coordinator ruling, 2026-11-22). Rates: the 'lte' row's 12 Mbit/s each way (the phone's cell link bounds the path). No jitter or loss, so the row isolates the round trip's cost; 'lte' carries the loss."
+    },
+    {
+      "name": "internet-down-lan-up",
+      "version": 1,
+      "down_kbit": 300000,
+      "up_kbit": 300000,
+      "rtt_ms": 4,
+      "disruption": { "kind": "internet_down" },
+      "source": "The 'lan' row's link with the internet path dead (the home router's uplink is out): on Shaper::open_internet_path (TCP: signaling, token and ICE-config endpoints) live connections fall silent and new ones are refused, and on UdpShaper::open_internet_path (STUN, TURN) every datagram is dropped, while the LAN link keeps the 'lan' numbers and never drops."
+    },
+    {
+      "name": "relay-30",
+      "version": 1,
+      "down_kbit": 40000,
+      "up_kbit": 40000,
+      "rtt_ms": 30,
+      "source": "The relay hop between a signed-in Mac and its Cloud machine, for a Mac near the machine's region; used as the second hop (NETCOND_RELAY), behind a phone link. Rate: 5 MB/s, the low end of the relay throughput measured through the production relay (5 to 21 MB/s, RFD 0049 'What is our network', Measurements). RTT: assumed, about twice the 14.2 ms measured with the Mac side in the machine's own colo; no jitter or loss, the relay rides TCP inside a datacenter path."
+    },
+    {
+      "name": "relay-80",
+      "version": 1,
+      "down_kbit": 40000,
+      "up_kbit": 40000,
+      "rtt_ms": 80,
+      "source": "The 'relay-30' hop for a Mac a continent away from its Cloud machine (a machine lives in one region). RTT: assumed, a transcontinental round trip; rate as 'relay-30'."
+    },
+    {
+      "name": "satellite-600",
+      "version": 1,
+      "down_kbit": 25000,
+      "up_kbit": 3000,
+      "rtt_ms": 600,
+      "jitter_ms": 50,
+      "loss_percent": 0.5,
+      "source": "Geostationary satellite broadband: 35,786 km each way puts the round trip at 480 ms of propagation alone; consumer GEO service measures about 600 ms (FCC Measuring Broadband America, satellite results). Rates and loss [assumed]. Used by scoreboard_rows.rs's satellite row (RFD 0142 T4)."
+    },
+    {
+      "name": "airplane-wifi",
+      "version": 1,
+      "down_kbit": 5000,
+      "up_kbit": 1000,
+      "rtt_ms": 700,
+      "jitter_ms": 200,
+      "loss_percent": 1,
+      "source": "In-flight Wi-Fi over a GEO satellite backhaul: the satellite round trip plus the cabin's shared, congested hop [assumed]. Used by scoreboard_rows.rs's airplane row."
+    }
+  ]
+}

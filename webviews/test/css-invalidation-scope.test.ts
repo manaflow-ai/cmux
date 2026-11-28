@@ -72,7 +72,8 @@ function splitTop(text: string, separator: (ch: string) => boolean): string[] {
 
 /// The selector's compounds and the combinators between them (" ", ">", "+", "~").
 function compounds(selector: string): { parts: string[]; combinators: string[] } {
-  const spaced = selector.replace(/\s*([>+~])\s*/g, " $1 ");
+  // A selector split over lines (the formatter breaks long ones) is the same selector on one line.
+  const spaced = selector.replace(/\s+/g, " ").replace(/\s*([>+~])\s*/g, " $1 ");
   const tokens = splitTop(spaced, (ch) => ch === " ");
   const parts: string[] = [];
   const combinators: string[] = [];
@@ -110,7 +111,7 @@ function findings(file: string, selector: string): string[] {
     out.push(`a :has() rule whose subject (${subject}) names no class, id or attribute`);
   if (combinators.some((combinator) => combinator === "+" || combinator === "~") && anyElement(subject))
     out.push(`a sibling rule whose subject (${subject}) is any element`);
-  return out.filter(() => !ALLOWED.has(`${file} ${selector}`));
+  return out.filter(() => !ALLOWED.has(`${file} ${selector.replace(/\s+/g, " ")}`));
 }
 
 test("no selector restyles a whole subtree on a :has(), sibling or inline-style change", () => {
@@ -127,6 +128,8 @@ test("no selector restyles a whole subtree on a :has(), sibling or inline-style 
 test("the detector catches each kind", () => {
   expect(findings("x.css", ".a:has(.b) > :last-child")).toHaveLength(1);
   expect(findings("x.css", ".a:has(.b) button")).toHaveLength(1);
+  // Split over lines, as the formatter writes a long one (the Stop bump's rule hid this way).
+  expect(findings("x.css", ".a\n  .b:has(> .c)\n  > :not(.c)")).toHaveLength(1);
   expect(findings("x.css", ".md > * + *")).toHaveLength(1);
   expect(findings("x.css", ".c > :not(.d) ~ :not(.d)")).toHaveLength(1);
   expect(findings("x.css", '.ol[style*="--x"] > li')).toHaveLength(1);
@@ -136,4 +139,59 @@ test("the detector catches each kind", () => {
   expect(findings("x.css", ".a:has(.b)")).toEqual([]);
   expect(findings("x.css", '.icon[style*="background-image"]')).toEqual([]);
   expect(findings("x.css", ".tag > .x ~ svg[data-icon]")).toEqual([]);
+});
+
+// Wide `:has()` whose subject is a whole part (the composer form, its card, the dock, `body`) and whose
+// argument is focus or a descendant: Chromium checked it again for every node a keystroke or a streamed
+// chunk inserted under the part (transcript-motion-model step 7, invariant I8). The part's owner writes
+// the state as an attribute instead: `data-focused` (ComposerBox, Composer, App's dock, NewTabScreen),
+// `data-queue` (ComposerQueue), `data-strip` (Composer's location strip), `data-foot` (the forms, App's
+// dock). These forms may not come back in the agent pane's CSS.
+const WIDE_HAS: [RegExp, string][] = [
+  [/:has\(\s*>\s*\.acpmux-composer-box\s+:focus-visible/, "the form's card focus: [data-focused]"],
+  [/\.acpmux-composer-box:has\(\s*:focus-visible/, "the card's focus: [data-focused]"],
+  [/\.nt-box:has\(\s*:focus-visible/, "the New Tab box's focus: [data-focused]"],
+  [/\.nt-composer:has\([^)]*:focus-visible/, "the New Tab composer's focus: [data-focused]"],
+  [/\bbody:has\(/, "a body-wide :has(): the owner's class or attribute"],
+  [/\.acpmux-dock:has\(/, "the dock's focus or foot: [data-focused] / [data-foot]"],
+  [/:has\(\s*>\s*\.acpmux-composer-queue\s*\)/, "the form's queue: [data-queue]"],
+  [/:has\(\s*>\s*\.acpmux-composer-strip\s*\)/, "the form's strip: [data-strip]"],
+  [/:has\(\s*\.acpmux-composer-foot\b/, "the form's foot: [data-foot]"],
+];
+
+function wideHas(css: string): string[] {
+  const out: string[] = [];
+  for (const group of selectorTexts(css))
+    for (const selector of splitTop(group, (ch) => ch === ","))
+      for (const [pattern, instead] of WIDE_HAS) if (pattern.test(selector)) out.push(`${selector} (${instead})`);
+  return out;
+}
+
+test("the composer and dock read owner-set attributes, not a wide :has()", () => {
+  const found: string[] = [];
+  for (const full of cssFiles(path.join(src, "agent-session")))
+    for (const hit of wideHas(fs.readFileSync(full, "utf8"))) found.push(`${path.relative(src, full)}: ${hit}`);
+  expect(found).toEqual([]);
+});
+
+test("the wide :has() ban catches each replaced form", () => {
+  for (const css of [
+    ".acpmux-composer:has(> .acpmux-composer-box :focus-visible) { color: red }",
+    ".acpmux-composer-box:has(:focus-visible) { color: red }",
+    ".nt-box:has(:focus-visible) { color: red }",
+    "body:has(.nt-popover-open) .nt-popover { color: red }",
+    ".acpmux-dock:has(:focus-visible) { color: red }",
+    ".acpmux-composer:has(.acpmux-composer-foot) .x { color: red }",
+    ".acpmux-composer:has(> .acpmux-composer-queue) .x { color: red }",
+    ".acpmux-composer:not(:has(> .acpmux-composer-strip)) { color: red }",
+  ])
+    expect(wideHas(css)).toHaveLength(1);
+  expect(wideHas(".acpmux-composer[data-queue] .x { color: red }")).toEqual([]);
+  expect(wideHas("/* .acpmux-dock:has(x) */ .a { color: red }")).toEqual([]);
+  expect(wideHas(".acpmux-queue-row:has(+ .acpmux-queue-row) { color: red }")).toEqual([]);
+  // A mixed argument (any of several children) still needs `:has()`; the strip on New Tab is not streamed.
+  expect(
+    wideHas(".a + .acpmux-composer:not(:has(> .acpmux-composer-queue, > .acpmux-composer-strip)) { color: red }"),
+  ).toEqual([]);
+  expect(wideHas(".nt-composer:has(.acpmux-composer-strip) .nt-box { color: red }")).toEqual([]);
 });

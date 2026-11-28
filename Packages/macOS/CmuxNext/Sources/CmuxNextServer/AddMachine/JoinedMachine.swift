@@ -119,9 +119,14 @@ public nonisolated struct JoinedMachine: Identifiable, Hashable, Sendable {
 }
 
 extension JoinedMachine {
-    /// Whether it reported a Mac at join: only a Mac shows the consent card that answers New Workspace's
-    /// ask (``JoinedDialAnswer``), so only a Mac's row asks.
+    /// Whether it reported a Mac at join.
     public var isMac: Bool { ["macos", "darwin"].contains(platform?.lowercased() ?? "") }
+
+    /// Whether New Workspace on its row dials it over the hub (``SignedInMachineDial``): online, any
+    /// platform. A Mac signed in on itself answers with its consent card; a Mac or Linux box joined by a
+    /// line or a pair code from another device admits on that join (acpmux `session_service.rs`), and one
+    /// whose acpmux predates that answers `service.off` (the row's "Update cmux on …").
+    public var opensOverHub: Bool { state == .online }
 
     /// Its route among acpmux's (`_acpmux/machine_routes`' `machines`): the one whose hub `daemonId` is
     /// its `meshPeerId`; with no `meshPeerId`, the only one whose host is its host name or name. Nil: none,
@@ -134,8 +139,7 @@ extension JoinedMachine {
     }
 }
 
-/// Where New Workspace on a joined Mac reached through the hub stands, as the Machines page reads it
-/// (`cmux.machines.openJoined`, webviews/src/pages/machines/types.ts `JoinedDialAnswer`).
+/// Where New Workspace on a joined Mac reached through the hub stands (``SignedInMachineDial/open(_:)``).
 public nonisolated enum JoinedDialAnswer: Equatable, Sendable {
     /// The other Mac allowed it, and the workspace opened there.
     case opened
@@ -154,6 +158,21 @@ public nonisolated enum JoinedDialAnswer: Equatable, Sendable {
         default: self = .unavailable(reason ?? "machine.unreachable")
         }
     }
+
+    /// As ``init(refusal:)``, for a machine that reported `platform` at join. Only a Mac has the consent
+    /// card that answers `consent_required`; a Linux box whose acpmux still asks predates its join counting
+    /// as the consent (#51683), so it reads as `service.outdated`: the row's "Update cmux on …".
+    public init(refusal reason: String?, platform: String?) {
+        let mac = ["macos", "darwin"].contains(platform?.lowercased() ?? "")
+        if reason == "consent_required", !mac {
+            self = .unavailable(Self.outdated)
+        } else {
+            self.init(refusal: reason)
+        }
+    }
+
+    /// The reason a machine that cannot answer the ask gives (the page's update phase).
+    public static let outdated = "service.outdated"
 
     /// The page's form: `{state, reason?}`.
     public var json: JSONValue {

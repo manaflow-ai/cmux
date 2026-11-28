@@ -172,6 +172,7 @@ struct World {
 fn timing() -> KeeperTiming {
     KeeperTiming {
         check_every: Duration::from_millis(20),
+        join_poll: Duration::from_millis(5),
         sign_in_every: Duration::from_millis(40),
         restart_floor: Duration::from_millis(10),
         restart_ceiling: Duration::from_millis(40),
@@ -191,6 +192,16 @@ async fn world(joined: bool, signed_in: bool) -> World {
 
 /// A world whose platform answers every attach with `attach` (else mesh, then the enrollment).
 async fn world_attaching(joined: bool, signed_in: bool, attach: Option<Reply>) -> World {
+    world_timed(joined, signed_in, attach, timing()).await
+}
+
+/// [`world_attaching`] with the keeper's own `timing`.
+async fn world_timed(
+    joined: bool,
+    signed_in: bool,
+    attach: Option<Reply>,
+    timing: KeeperTiming,
+) -> World {
     let dir = tempfile::tempdir().unwrap();
     let (platform, vm) = (Arc::new(Fake::default()), Arc::new(Fake::default()));
     let platform_origin = serve(Arc::clone(&platform)).await;
@@ -250,7 +261,7 @@ async fn world_attaching(joined: bool, signed_in: bool, attach: Option<Reply>) -
         socket: socket.clone(),
         launcher: Arc::new(ListeningLauncher(Arc::clone(&hubs))),
         vm_api: Some(vm_origin),
-        timing: timing(),
+        timing,
         jitter: |d| d,
         on_event: Arc::new(move |event: &KeeperEvent| {
             let _ = tx.send(event.clone());
@@ -358,6 +369,25 @@ async fn nothing_starts_until_the_device_is_joined_and_someone_is_signed_in() {
 }
 
 #[tokio::test]
+async fn a_refused_sign_in_is_written_once_with_its_team_and_reason() {
+    let mut world = world(true, false).await;
+    let why = |e: &KeeperEvent| matches!(e, KeeperEvent::Unstarted(w) if w.contains("team_1") && w.contains("not_signed_in"));
+    world.until(why).await;
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    assert!(world.asks.load(Ordering::SeqCst) > 1, "the keeper keeps asking");
+    while let Ok(event) = world.events.try_recv() {
+        world.seen.push(event);
+    }
+    assert_eq!(world.seen.iter().filter(|e| why(*e)).count(), 1, "{:?}", world.seen);
+
+    world.other_team.store(true, Ordering::SeqCst);
+    world.until(|e| matches!(e, KeeperEvent::Unstarted(w) if w.contains("team_2"))).await;
+
+    world.signed_in.store(true, Ordering::SeqCst);
+    world.until(|e| *e == KeeperEvent::Ready).await;
+}
+
+#[tokio::test]
 async fn a_killed_hub_is_started_again() {
     let mut world = world(true, true).await;
     world.until(|e| *e == KeeperEvent::Ready).await;
@@ -400,6 +430,25 @@ async fn a_supervisor_that_gives_up_starts_again_after_a_doubling_wait() {
 }
 
 #[tokio::test]
+async fn a_retrying_supervisor_names_its_cause_once_per_reason() {
+    let refusal = json!({"code": "mesh.node.unavailable", "message": "the machine's device cleanup is pending"});
+    let mut world = world_attaching(true, true, Some((503, refusal))).await;
+    world.until(|e| matches!(e, KeeperEvent::Ended(TunnelStatus::Failed(_), _))).await;
+    let said: Vec<&String> = world
+        .seen
+        .iter()
+        .filter_map(|e| if let KeeperEvent::Retrying(why) = e { Some(why) } else { None })
+        .collect();
+    // Several attempts, one line: the reason did not change.
+    assert_eq!(
+        said,
+        ["attach answered 503 mesh.node.unavailable: the machine's device cleanup is pending"],
+        "{:?}",
+        world.seen
+    );
+}
+
+#[tokio::test]
 async fn a_team_without_a_provider_mesh_waits_long_and_joining_another_team_ends_the_wait() {
     let mut world = world_attaching(true, true, Some((200, json!({"mesh_id": null})))).await;
     let event = world.until(|e| matches!(e, KeeperEvent::Waiting(_))).await;
@@ -426,4 +475,18 @@ fn a_device_name_is_one_the_vm_api_takes() {
     assert_eq!(device_name("  -mac"), "mac");
     assert_eq!(device_name("💻"), "cmux-mac");
     assert_eq!(device_name(&"a".repeat(80)).len(), 63);
+}
+
+#[tokio::test]
+async fn a_new_join_after_a_refused_sign_in_is_asked_for_before_the_check_wait_ends() {
+    // A sign-in's enroll rewrites the join while the keeper waits out a refusal for the old
+    // one (the failover probe's fresh sign-ins: "no sign-in for team ...: forbidden", then
+    // the new team's join): the new join is asked for within the join poll, not check_every.
+    let mut timing = timing();
+    timing.check_every = Duration::from_secs(3600);
+    let mut world = world_timed(true, false, None, timing).await;
+    world.until(|e| matches!(e, KeeperEvent::Unstarted(w) if w.contains("team_1"))).await;
+    world.signed_in.store(true, Ordering::SeqCst);
+    world.other_team.store(true, Ordering::SeqCst);
+    world.until(|e| *e == KeeperEvent::Ready).await;
 }

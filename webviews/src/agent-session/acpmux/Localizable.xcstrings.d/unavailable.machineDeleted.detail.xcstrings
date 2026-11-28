@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "unavailable.machineDeleted.detail" : {
+      "comment" : "Agent pane: under a chat whose Cloud machine was deleted; {machine} is that machine's name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{machine} was deleted. You can still resume this chat from its saved transcript."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تم حذف {machine}. لا يزال بإمكانك استئناف هذه الدردشة من النص المحفوظ."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{machine} je izbrisana. Ovaj chat i dalje možete nastaviti iz sačuvanog transkripta."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{machine} blev slettet. Du kan stadig genoptage denne chat fra dens gemte udskrift."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{machine} wurde gelöscht. Du kannst diesen Chat weiterhin aus seinem gespeicherten Transkript fortsetzen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{machine} se eliminó. Aún puedes reanudar este chat desde su transcripción guardada."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{machine} a été supprimée. Vous pouvez toujours reprendre cette discussion depuis sa transcription enregistrée."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{machine} è stata eliminata. Puoi ancora riprendere questa chat dalla trascrizione salvata."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{machine} は削除されました。保存された会話履歴からこのチャットを再開できます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{machine} ត្រូវបានលុប។ អ្នកនៅតែអាចបន្តការជជែកនេះពីកំណត់ត្រាដែលបានរក្សាទុករបស់វា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{machine}이(가) 삭제되었습니다. 저장된 대화 기록에서 이 채팅을 계속할 수 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{machine} ble slettet. Du kan fortsatt gjenoppta denne chatten fra den lagrede transkripsjonen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{machine} została usunięta. Nadal możesz wznowić ten czat z jego zapisanej transkrypcji."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{machine} foi excluída. Você ainda pode retomar este chat a partir da transcrição salva."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{machine} был удалён. Вы всё ещё можете возобновить этот чат из сохранённой записи."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{machine} ถูกลบแล้ว คุณยังเริ่มแชทนี้ต่อจากบันทึกที่บันทึกไว้ได้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{machine} silindi. Bu sohbete kaydedilmiş dökümünden devam edebilirsiniz."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{machine} видалено. Ви все ще можете відновити цей чат із його збереженого транскрипту."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{machine} đã bị xóa. Bạn vẫn có thể tiếp tục cuộc trò chuyện này từ bản ghi đã lưu."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{machine} 已被删除。你仍可从其保存的记录中恢复此聊天。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{machine} 已被刪除。您仍可從其儲存的記錄中恢復此聊天。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

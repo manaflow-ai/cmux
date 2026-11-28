@@ -7,7 +7,7 @@
 // infinite length with flat or no growth in cpu/memory/even disk".
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import type { EventRecord } from "./direct";
+import type { EventRecord } from "./eventRecord";
 import { settleReact } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
@@ -302,7 +302,7 @@ test("a shed while the view's oldest drawn row is a fold the client holds under 
       return shedWhileKept;
     }
     if (pane.events.length < HELD_RECORDS - 100) return false;
-    const below = pane.events[pane.events.length - HELD_KEPT - 400]!.at;
+    const below = pane.events[pane.events.length - HELD_KEPT - HELD_KEPT / 5]!.at;
     const row = snapshot.rows.find((candidate) => Number(candidate.at) >= below && candidate.kind === "user");
     if (!row) return false;
     kept = { id: String(row.id), at: Number(row.at) };

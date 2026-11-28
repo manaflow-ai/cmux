@@ -1,14 +1,15 @@
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
+import { OFFLINE_GRACE_MS } from "../src/userDo";
 import { Device, approvedSession, auditEvents, hubEnv, setup, signIn } from "./helpers";
 
 const userStub = (userId: string) => hubEnv.USER_DO.get(hubEnv.USER_DO.idFromName(userId));
 
-/** Moves every pending offline mark 31 s into the past, then runs the alarm. */
+/** Moves every pending offline mark past the grace (and 1 s more) into the past, then runs the alarm. */
 async function expireGrace(userId: string) {
   const stub = userStub(userId);
   await runInDurableObject(stub, (_i, s) => {
-    s.storage.sql.exec("UPDATE offline SET since = since - 31000");
+    s.storage.sql.exec("UPDATE offline SET since = since - ?", OFFLINE_GRACE_MS + 1000);
   });
   return runDurableObjectAlarm(stub);
 }
@@ -64,6 +65,29 @@ describe("devices that go offline", () => {
     await expireGrace(account.userId);
     expect(await host.user!.none((f) => f.type === "session.ended")).toBe(true);
     expect(await auditEvents(viewer, s.sid)).toEqual(["requested", "approved"]);
+  });
+
+  it("sends a reconnecting host a fresh ticket for a session it was approved but never served", async () => {
+    const { host, viewer } = await setup();
+    const s = await approvedSession(host, viewer);
+    // The host's link drops (the first ticket went down with it) and comes back.
+    host.user!.ws.close(1000, "network");
+    await host.user!.waitClosed();
+    await host.connect();
+    const again = await host.user!.next((f) => f.type === "session.ticket" && f.sessionId === s.sid);
+    expect(again.role).toBe("host");
+    expect(again.peer.id).toBe(viewer.id);
+    expect(again.ticket).not.toBe(s.ht.ticket);
+    // Only the host: the viewer's socket gets no second ticket.
+    expect(await viewer.user!.none((f) => f.type === "session.ticket" && f.sessionId === s.sid)).toBe(true);
+  });
+
+  it("sends a reconnecting viewer no host ticket", async () => {
+    const { host, viewer } = await setup();
+    const s = await approvedSession(host, viewer);
+    await viewer.connect();
+    expect(await viewer.user!.none((f) => f.type === "session.ticket" && f.sessionId === s.sid)).toBe(true);
+    expect(await host.user!.none((f) => f.type === "session.ticket" && f.sessionId === s.sid)).toBe(true);
   });
 
   it("does not treat a replaced socket as offline", async () => {

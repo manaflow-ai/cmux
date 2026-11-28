@@ -40,10 +40,12 @@ extension ScreenContentView {
         // frame's step, as `travelLeft` is for the panes (New Column moves only the camera).
         if MotionTrace.isEnabled { MotionTrace.sample("layout.camera", Double(abs(scroll.target - scroll.value))) }
         applyPresentation()
+        // A transition settling (a split's, a sidebar's) moved in this frame: its commit is the settle so far.
+        if moving { noteTimedMotion() }
         if moving, let window { drawAhead(MotionClock.forWindow(window).nextFrameInterval, policy: policy) }
         // The key resize's spring landed (the hosts laid their content out at rest in this pass): the next motion
         // resizes content live again unless another key press holds it.
-        if !moving { holdsContentForKeyResize = false }
+        if !moving { holdsContentForKeyResize = false; releaseLanding = false }
         // The motion landed with no drag left: the pane views post again.
         if !moving { releasePaneFrameNoticesIfSettled() }
         return moving
@@ -85,6 +87,11 @@ extension ScreenContentView {
     /// The spring a pane or divider frame moves on: a keyboard resize press, the one layout change whose frames spring
     /// (`reconcile`). A structural change is one commit and springs nothing.
     static let frameSpring = MotionSpring.move
+    /// The spring a divider's release lands on (instant-splits gap row 4): the fixed motion length D every transition
+    /// moves on (`split`, about 100 ms), not `move`'s 166 ms, so a released drag settles inside the split budget.
+    static let releaseSpring = MotionSpring.split
+    /// The spring the frames move on now: the release's while a released divider lands (``releaseLanding``).
+    var currentFrameSpring: MotionSpring { releaseLanding ? Self.releaseSpring : Self.frameSpring }
 
     /// Steps every pane and divider spring by `dt`, no presentation (`step`'s first part). The panes and dividers are
     /// one motion: none settles on its own (an edge with a shorter travel would snap frames before the others and
@@ -92,7 +99,7 @@ extension ScreenContentView {
     /// True while any of them still moves.
     func advancePaneAndDividerSprings(_ dt: Double, policy: MotionPolicy) -> Bool { // perf-hot: 4ms motion-frame
         var moving = false
-        let frameSpring = policy.spring(Self.frameSpring), appear = policy.spring(.appear)
+        let frameSpring = policy.spring(currentFrameSpring), appear = policy.spring(.appear)
         // Each spring is read, stepped and written back: an in-place `dict[key]?.advance(...)` goes through
         // `Dictionary.subscript._modify`, whose coroutine frame the runtime allocates on the heap, one per spring.
         let panes = Array(paneFrames.keys), dividers = Array(dividerFrames.keys)
@@ -187,6 +194,11 @@ extension ScreenContentView {
         var changed = force
         let scale = self.scale
         let laysOutNow = window != nil && bounds.width >= 1 && bounds.height >= 1
+        // A person's live resize of the window: a pane out of this screen's viewport (a column scrolled past its edge)
+        // keeps its size and only moves, out of sight, and lays out once at the resize's end (`windowLiveResizeEnded`) or
+        // in the first presentation that brings any of it into view. Only the visible panes lay out in each tick (#50672).
+        let defersOffscreen = laysOutNow && windowResizeListeners != nil
+        let viewport = bounds
         if zoomDim.motion.acts { MotionTrace.begin("layout.place") } // a probe's time of this loop, in the pass that shows an act
         for (pane, frame) in paneFrames {
             guard let host = context.hosts[pane], host.superview === self else { continue }
@@ -195,7 +207,9 @@ extension ScreenContentView {
             // strip's, a row column's and a scroll area's are springs too: rounded before them, every edge sat
             // off the grid for the whole camera motion and its content was resampled). Two edges a whole number
             // of pixels apart (a pane and the divider beside it, both on the one spring) stay that far apart.
-            let placed = frame.rect.offsetBy(dx: (scrolls ? strip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane)).pixelEdges(scale)
+            // A lifted pane (a whole-pane drag) follows the pointer: the same frame plus the drag's offset, its size unchanged.
+            let carried = lift.flatMap { $0.pane == pane ? $0.offset : nil } ?? .zero
+            let placed = frame.rect.offsetBy(dx: (scrolls ? strip : 0) - areaOffset(of: pane) + carried.dx, dy: -rowOffset(of: pane) + carried.dy).pixelEdges(scale)
             // Before the frame moves: chrome that re-checks itself on the move reads the rest. On the pixel grid as the
             // placed frame is, so a pane at rest under a camera resting between pixels has a zero rest offset.
             let rest = frame.targetRect.offsetBy(dx: (scrolls ? restStrip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane))
@@ -219,7 +233,16 @@ extension ScreenContentView {
             // out first at the frame's size, which it leaves in the next frame.
             if restChanged, springing { host.announceRest() }
             if host.restOffset != restOffset { host.restOffset = restOffset }
-            if host.frame.size != placed.size {
+            if host.frame.size != placed.size, defersOffscreen, !springing, carried == .zero, !placed.intersects(viewport),
+               !CGRect(origin: placed.origin, size: host.frame.size).intersects(viewport) {
+                // Neither where it rests nor at its old size from there does any of it show (the screen's layer clips to
+                // its bounds): its strip, content and terminal grid wait for the end, not every tick.
+                if host.frame.origin != placed.origin {
+                    host.setFrameOrigin(placed.origin)
+                    changed = true
+                }
+                deferredOffscreenLayout = true
+            } else if host.frame.size != placed.size {
                 host.frame = placed
                 // Its tab strip and content lay out in this frame's step, with the frame: never a
                 // layout pass behind it (`PaneContentView.layout` sizes the strip). Only at a real size in a

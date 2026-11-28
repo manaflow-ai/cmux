@@ -6,20 +6,27 @@
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { userMessage } from "../shared/userMessage";
 import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
+// The theme route that carries Settings > Advanced > Experiments to this page (no agent bridge here):
+// `experiments.appStoreFeatures` turning on or off re-reads the Features list, which says whether the
+// tab shows.
+import "../../experiments/hostSettings";
+import { subscribeExperimentSwitches } from "../../experiments/switches";
 import { fromDetail, listCatalog, listInstalled, listUpdates, type WireDetail } from "./wire";
 import {
   categories,
-  featuredApps,
   filterApps,
+  keepUnchangedApps,
   listedInStore,
   parseRoute,
-  type BrowseStyle,
   type CardStyle,
+  type StoreLayout,
+  type StoreTab,
+  featuredApps,
+  type BrowseStyle,
   type DiscoverShelf,
   type ExamplesStyle,
   type ListingStyle,
-  type StoreLayout,
-  type StoreTab,
+  type FeaturesStyle,
 } from "./model";
 import {
   AppsOps,
@@ -29,11 +36,14 @@ import {
   type AppUpdate,
   type AppsChanged,
   type CatalogApp,
+  type FeatureRow,
+  type FeaturesList,
   type Grants,
   type InstalledApp,
   type LogLine,
   type WireAsset,
   type WireLogs,
+  CUSTOMIZE_ACTION,
 } from "./types";
 
 export type Connection = "connecting" | "connected" | "disconnected";
@@ -52,7 +62,17 @@ export interface AppsSnapshot {
   listing: ListingStyle;
   /** How Discover's home is laid out (`browse=`); `hero` unless a DEV route asks. */
   browse: BrowseStyle;
-  /** The owner offers the Examples shelf (developer mode, or a `cmux ext dev` app). */
+  /** How the Features tab lays out its switches (`features=`); `list` unless a DEV route asks. */
+  featuresStyle: FeaturesStyle;
+  /** Built-in features as switches (`cmux.apps.features.list`), each an existing setting. */
+  features: FeatureRow[];
+  featuresStatus: "idle" | "loading" | "ready" | "error";
+  /** `experiments.appStoreFeatures` is on (the daemon's `apps.features.list` says so): the toolbar
+   * shows the Features tab. Off by default (Leo's UI rule: a new look merges default-off). */
+  featuresEnabled: boolean;
+  /** The owner link answers no `apps.features.*` (an older daemon): the tab says so. */
+  featuresUnsupported?: boolean;
+  /** The owner link offers the Examples shelf (developer mode, or a `cmux ext dev` app). */
   examplesOffered: boolean;
   /** The shelf Discover shows; `store` whenever the owner does not offer Examples. */
   shelf: DiscoverShelf;
@@ -105,6 +125,7 @@ export class AppsStore {
   private readonly listeners = new Set<() => void>();
   private unwatch?: () => void;
   private unpage?: () => void;
+  private unswitches?: () => void;
   /**
    * Package files (icons, screenshots) as data URLs by `app\u0000path`; a failed load is "" so it
    * is not asked again.
@@ -118,12 +139,16 @@ export class AppsStore {
   private detailGeneration = 0;
   private grantsGeneration = 0;
   private logsGeneration = 0;
+  private featuresGeneration = 0;
   /**
    * The idempotency key of each action still in flight or failed with a retryable error, by op and
    * params: the person's next try of the same action sends the same key, so a retry after a
    * timeout never installs or toggles twice. Success, a refusal or a declined sheet ends it.
    */
   private readonly pendingKeys = new Map<string, string>();
+  // A mutation already waiting on its native confirmation: a second click on Install (or on any
+  // other mutation) while the first sheet loads joins that call instead of asking again.
+  private readonly inFlight = new Map<string, Promise<void>>();
 
   constructor(
     private readonly client: PageClient | null,
@@ -136,6 +161,10 @@ export class AppsStore {
       card: route.card,
       listing: route.listing,
       browse: route.browse,
+      featuresStyle: route.features,
+      features: [],
+      featuresStatus: "idle",
+      featuresEnabled: false,
       examplesStyle: route.examples,
       examplesOffered: false,
       shelf: route.shelf,
@@ -207,7 +236,14 @@ export class AppsStore {
         if (lifetime !== this.lifetime) return;
         this.set(failure(error));
       }
-      if (lifetime === this.lifetime) await this.reload();
+      if (lifetime === this.lifetime) {
+        // Whether the Features tab shows comes from the daemon's gate; a flip of the switch re-reads.
+        this.unswitches = subscribeExperimentSwitches(() => {
+          if (lifetime === this.lifetime) void this.loadFeatures();
+        });
+        void this.loadFeatures();
+        await this.reload();
+      }
     } finally {
       if (lifetime === this.lifetime) this.starting = false;
     }
@@ -230,8 +266,11 @@ export class AppsStore {
     ++this.detailGeneration;
     ++this.grantsGeneration;
     ++this.logsGeneration;
+    ++this.featuresGeneration;
     this.unpage?.();
     this.unpage = undefined;
+    this.unswitches?.();
+    this.unswitches = undefined;
     this.starting = false;
     this.unwatch?.();
     this.unwatch = undefined;
@@ -252,7 +291,15 @@ export class AppsStore {
           .catch((error: unknown) => ({ result: undefined, error })),
       ]);
       if (generation !== this.generation) return;
-      const listed = catalog.apps.filter(listedInStore);
+      // The icons already loaded go on first, so a listing that did not change keeps its object
+      // (and its memoized card) across the reload.
+      const listed = keepUnchangedApps(
+        this.snapshot.catalog,
+        catalog.apps.filter(listedInStore).map((app) => {
+          const icon = this.withIcon(app.id, app.icon);
+          return icon === app.icon ? app : { ...app, icon };
+        }),
+      );
       // Installed rows carry no icon: they take their listing's.
       const iconOf = new Map(listed.map((app) => [app.id, app.icon]));
       const installedRows = installed.apps
@@ -371,6 +418,7 @@ export class AppsStore {
     if (route.card !== this.snapshot.card) this.set({ card: route.card });
     if (route.listing !== this.snapshot.listing) this.set({ listing: route.listing });
     if (route.browse !== this.snapshot.browse) this.set({ browse: route.browse });
+    if (route.features !== this.snapshot.featuresStyle) this.set({ featuresStyle: route.features });
     if (route.app !== this.snapshot.selection) void this.select(route.app);
   }
 
@@ -548,9 +596,16 @@ export class AppsStore {
       return icon === app.icon ? app : { ...app, icon };
     };
     const { catalog, visible, installed, detail } = this.snapshot;
+    // A visible listing is its catalog object, patched once: the next reload keeps the same one.
+    const patched = new Map<CatalogApp, CatalogApp>();
+    const nextCatalog = catalog.map((app) => {
+      const next = patch(app);
+      if (next !== app) patched.set(app, next);
+      return next;
+    });
     this.set({
-      catalog: catalog.map(patch),
-      visible: visible.map(patch),
+      catalog: patched.size ? nextCatalog : catalog,
+      visible: patched.size ? visible.map((app) => patched.get(app) ?? patch(app)) : visible,
       installed: installed.map(patch),
       detail: detail ? patch(detail) : detail,
     });
@@ -641,8 +696,9 @@ export class AppsStore {
     if (generation === this.generation) this.showIcons();
   }
 
-  // Mutations. Install, uninstall, update and grant changes show a native confirmation in the
-  // host; the page waits for the owner's answer and re-reads.
+  // Mutations. The Install click is the consent (its required scopes only; the listing shows
+  // them before the click), so an install shows no card; uninstall, update and grant changes show
+  // a native confirmation in the host. The page waits for the owner's answer and re-reads.
 
   install(app: string): Promise<void> {
     return this.intent(AppsOps.install, { app, grant_optional: false });
@@ -677,6 +733,45 @@ export class AppsStore {
       : this.intent(AppsOps.grantRevoke, { app, scope });
   }
 
+  /**
+   * Re-reads the Features tab's switches. Each is an existing setting another surface (Settings,
+   * the CLI) can change too, so the tab reads on open and when the window comes back.
+   */
+  async loadFeatures(): Promise<void> {
+    if (!this.client) return;
+    const generation = ++this.featuresGeneration;
+    if (this.snapshot.features.length === 0) this.set({ featuresStatus: "loading" });
+    try {
+      const list = await this.client.call<FeaturesList>(AppsOps.featuresList, {});
+      if (generation !== this.featuresGeneration) return;
+      const enabled = list.enabled === true;
+      this.set({
+        features: enabled ? (list.features ?? []) : [],
+        featuresStatus: "ready",
+        featuresUnsupported: false,
+        featuresEnabled: enabled,
+      });
+    } catch (error) {
+      if (generation !== this.featuresGeneration) return;
+      const unsupported = isPageError(error) && error.code === "cmux.protocol.unknown_op";
+      this.set({
+        featuresStatus: "error",
+        featuresUnsupported: unsupported,
+        ...(unsupported ? { featuresEnabled: false } : {}),
+      });
+    }
+  }
+
+  /** Turns one built-in feature on or off: its own setting, written the way Settings writes it. A
+   * switch needs only the person's click (page-router.json `gesture`), never a sheet. */
+  async setFeature(id: string, on: boolean): Promise<void> {
+    const before = this.snapshot.features;
+    // The switch moves on the click; a refusal puts it back when the list is read again.
+    this.set({ features: before.map((row) => (row.id === id ? { ...row, on } : row)) });
+    await this.intent(AppsOps.featuresSet, { id, on }, { reread: false });
+    await this.loadFeatures();
+  }
+
   /** Opens the app's page: the host action `app.open` (a host verb, not a daemon op). */
   open(app: string): Promise<void> {
     return this.intent(
@@ -686,7 +781,32 @@ export class AppsStore {
     );
   }
 
-  private async intent(
+  /** Opens Settings > Customize, every customization one click each (the Customize cmux… card). */
+  openCustomize(): Promise<void> {
+    return this.intent(
+      CUSTOMIZE_ACTION.op,
+      { action: CUSTOMIZE_ACTION.action, args: CUSTOMIZE_ACTION.args },
+      { reread: false, mutation: false },
+    );
+  }
+
+  private intent(
+    op: string,
+    params: Record<string, unknown>,
+    options: { reread?: boolean; mutation?: boolean } = {},
+  ): Promise<void> {
+    if (options.mutation === false) return this.run(op, params, options);
+    const action = `${op}\u0000${JSON.stringify(params)}`;
+    const pending = this.inFlight.get(action);
+    if (pending) return pending;
+    const call = this.run(op, params, options).finally(() => {
+      if (this.inFlight.get(action) === call) this.inFlight.delete(action);
+    });
+    this.inFlight.set(action, call);
+    return call;
+  }
+
+  private async run(
     op: string,
     params: Record<string, unknown>,
     { reread = true, mutation = true }: { reread?: boolean; mutation?: boolean } = {},

@@ -7,13 +7,15 @@
 //!
 //! Bounded: at most [`ATTEMPTS`] tries, [`BACKOFF`] apart (or the hub's `retryAfterSeconds`, up
 //! to [`MAX_RETRY_AFTER`]), so a command waits at most a few seconds more than before before it
-//! says what failed. A refusal that does not pass (401, 403, 400, an unknown recipient) is never
+//! says what failed. A caller with a deadline of its own (a read's `READ_WAIT`) passes it to
+//! [`retry_within`], so no try runs past it. A refusal that does not pass (401, 403, 400, an unknown recipient) is never
 //! tried again. The relay's own loops (inbox, heartbeat) keep their own backoff and do not come
 //! through here.
 
 use crate::mesh::HubError;
 use std::future::Future;
 use std::time::Duration;
+use tokio::time::Instant;
 
 /// The most tries of one call.
 pub const ATTEMPTS: usize = 3;
@@ -42,26 +44,128 @@ pub fn transient(e: &HubError, not_found_passes: bool) -> bool {
 
 /// `call` until it succeeds, fails in a way that does not pass, or has been tried [`ATTEMPTS`]
 /// times; the last failure is returned as it came.
-pub async fn retry<T, F, Fut>(not_found_passes: bool, mut call: F) -> Result<T, HubError>
+pub async fn retry<T, F, Fut>(not_found_passes: bool, call: F) -> Result<T, HubError>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, HubError>>,
+{
+    tries(not_found_passes, None, call).await
+}
+
+/// [`retry`] within `deadline`: a try still waiting at the deadline ends there, as a hub that
+/// did not answer, and no try starts at or after it (a read's whole wait, `READ_WAIT`, bounds
+/// every try of it). Whether the deadline passed is the caller's to check.
+pub async fn retry_within<T, F, Fut>(
+    not_found_passes: bool,
+    deadline: Instant,
+    call: F,
+) -> Result<T, HubError>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, HubError>>,
+{
+    tries(not_found_passes, Some(deadline), call).await
+}
+
+/// The longest `retryAfterSeconds` a send waits out ([`retry_send`]): the hub's windows are one
+/// minute long, so its answer is never longer than this.
+pub const SEND_MAX_RETRY_AFTER: Duration = Duration::from_secs(60);
+
+/// A send to the hub (it carries an idempotency key, so posting it again is the same message),
+/// tried again as [`retry`] does, but a 429's `retryAfterSeconds` is waited out up to
+/// [`SEND_MAX_RETRY_AFTER`] instead of failing the send: before this, every send behind a full
+/// rate window failed at once with `the hub answered 429 mesh.rate_limited`, though the window
+/// reopened within the minute (2026-11-23, every relayed send to a busy host for two hours).
+pub async fn retry_send<T, F, Fut>(call: F) -> Result<T, HubError>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, HubError>>,
+{
+    tries_with(true, None, SEND_MAX_RETRY_AFTER, call).await
+}
+
+/// The spacing of [`ride_out`]'s tries.
+pub const OUTAGE_STEP: Duration = Duration::from_secs(2);
+
+/// A call whose caller already waits minutes for its answer (a session move's `move`,
+/// `move_out`, `move_forget` control, `hub/transfer_pull.rs`), tried again on every failure that
+/// passes, [`OUTAGE_STEP`] apart (or the hub's `retryAfterSeconds`), until `deadline`. [`retry`]'s
+/// few seconds do not cover a hub outage of minutes: on 2026-11-28 10:15..10:18Z the hub answered
+/// `503 mesh.unavailable` for about three minutes, and a move begun in it failed in 338 ms though
+/// it had ten minutes to land. The call must carry an idempotency key or be a read;
+/// `not_found_passes` as [`transient`] takes it (false for a receipt read: a 404 there is gone).
+pub async fn ride_out<T, F, Fut>(
+    not_found_passes: bool,
+    deadline: Instant,
+    mut call: F,
+) -> Result<T, HubError>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, HubError>>,
+{
+    loop {
+        let e = match tokio::time::timeout_at(deadline, call()).await {
+            Ok(Ok(value)) => return Ok(value),
+            Ok(Err(e)) => e,
+            Err(_) => return Err(HubError::unavailable("the mesh hub did not answer in time")),
+        };
+        if !transient(&e, not_found_passes) {
+            return Err(e);
+        }
+        let wait = e.retry_after.map_or(OUTAGE_STEP, |after| after.max(OUTAGE_STEP));
+        if Instant::now() + wait >= deadline {
+            return Err(e);
+        }
+        tracing::debug!(error = %e, "mesh hub call failed; riding it out to the caller's deadline");
+        tokio::time::sleep(wait).await;
+    }
+}
+
+async fn tries<T, F, Fut>(
+    not_found_passes: bool,
+    deadline: Option<Instant>,
+    call: F,
+) -> Result<T, HubError>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, HubError>>,
+{
+    tries_with(not_found_passes, deadline, MAX_RETRY_AFTER, call).await
+}
+
+async fn tries_with<T, F, Fut>(
+    not_found_passes: bool,
+    deadline: Option<Instant>,
+    max_retry_after: Duration,
+    mut call: F,
+) -> Result<T, HubError>
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<T, HubError>>,
 {
     let mut attempt = 0;
     loop {
-        let e = match call().await {
-            Ok(value) => return Ok(value),
-            Err(e) => e,
+        let answered = match deadline {
+            Some(deadline) => tokio::time::timeout_at(deadline, call()).await,
+            None => Ok(call().await),
+        };
+        let e = match answered {
+            Ok(Ok(value)) => return Ok(value),
+            Ok(Err(e)) => e,
+            Err(_) => return Err(HubError::unavailable("the mesh hub did not answer in time")),
         };
         let Some(wait) = BACKOFF.get(attempt).copied() else { return Err(e) };
         if !transient(&e, not_found_passes) {
             return Err(e);
         }
         let wait = match e.retry_after {
-            Some(after) if after > MAX_RETRY_AFTER => return Err(e),
+            Some(after) if after > max_retry_after => return Err(e),
             Some(after) => after.max(wait),
             None => wait,
         };
+        if deadline.is_some_and(|deadline| Instant::now() + wait >= deadline) {
+            return Err(e);
+        }
         tracing::debug!(attempt, error = %e, "mesh hub call failed; trying again");
         tokio::time::sleep(wait).await;
         attempt += 1;
@@ -69,104 +173,5 @@ where
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    fn status(status: u16, code: Option<&str>) -> HubError {
-        let mut e = HubError::refused(format!("the hub answered {status}"));
-        e.refused = !(status == 408 || status == 429 || status >= 500);
-        e.status = Some(status);
-        e.code = code.map(str::to_owned);
-        e
-    }
-
-    /// The failures seen in the field pass; a refusal of the request or the credential does not.
-    #[test]
-    fn only_failures_that_pass_are_tried_again() {
-        assert!(transient(&HubError::unavailable("the hub: error sending request"), false));
-        assert!(transient(&status(503, Some("mesh.unavailable")), false));
-        assert!(transient(&status(502, None), false));
-        assert!(transient(&status(429, Some("mesh.rate_limited")), false));
-        assert!(transient(&status(404, Some("mesh.not_found")), true));
-        assert!(!transient(&status(404, Some("mesh.not_found")), false));
-        assert!(!transient(&status(404, Some("mesh.unknown_recipient")), true));
-        assert!(!transient(&status(401, None), true));
-        assert!(!transient(&status(403, Some("mesh.forbidden")), true));
-        assert!(!transient(&status(400, Some("mesh.bad_request")), true));
-        assert!(!transient(&HubError::refused("no token command"), true));
-    }
-
-    /// Two blips then an answer: the caller sees the answer, after the two backoffs.
-    #[tokio::test(start_paused = true)]
-    async fn a_blip_then_an_answer_is_the_answer() {
-        let tries = AtomicUsize::new(0);
-        let started = tokio::time::Instant::now();
-        let got = retry(false, || async {
-            match tries.fetch_add(1, Ordering::SeqCst) {
-                0 => Err(HubError::unavailable("the hub: error sending request")),
-                1 => Err(status(503, Some("mesh.unavailable"))),
-                _ => Ok(7),
-            }
-        })
-        .await;
-        assert_eq!(got.unwrap(), 7);
-        assert_eq!(tries.load(Ordering::SeqCst), 3);
-        assert_eq!(started.elapsed(), BACKOFF[0] + BACKOFF[1]);
-    }
-
-    /// A hub that stays down is tried [`ATTEMPTS`] times and its last failure returned.
-    #[tokio::test(start_paused = true)]
-    async fn a_hub_that_stays_down_is_tried_a_bounded_number_of_times() {
-        let tries = AtomicUsize::new(0);
-        let got: Result<(), _> = retry(true, || async {
-            tries.fetch_add(1, Ordering::SeqCst);
-            Err(status(503, Some("mesh.unavailable")))
-        })
-        .await;
-        assert_eq!(got.unwrap_err().status, Some(503));
-        assert_eq!(tries.load(Ordering::SeqCst), ATTEMPTS);
-    }
-
-    /// A refusal is returned at once; a retryAfter past the cap fails now; one under it is waited.
-    #[tokio::test(start_paused = true)]
-    async fn a_refusal_or_a_long_retry_after_is_not_waited_on() {
-        let tries = AtomicUsize::new(0);
-        let got: Result<(), _> = retry(true, || async {
-            tries.fetch_add(1, Ordering::SeqCst);
-            Err(status(403, Some("mesh.forbidden")))
-        })
-        .await;
-        assert_eq!(got.unwrap_err().status, Some(403));
-        assert_eq!(tries.load(Ordering::SeqCst), 1);
-
-        let long = || {
-            let mut e = status(429, Some("mesh.rate_limited"));
-            e.retry_after = Some(Duration::from_secs(60));
-            e
-        };
-        let tries = AtomicUsize::new(0);
-        let got: Result<(), _> = retry(false, || async {
-            tries.fetch_add(1, Ordering::SeqCst);
-            Err(long())
-        })
-        .await;
-        assert_eq!(got.unwrap_err().retry_after, Some(Duration::from_secs(60)));
-        assert_eq!(tries.load(Ordering::SeqCst), 1);
-
-        let tries = AtomicUsize::new(0);
-        let started = tokio::time::Instant::now();
-        let got = retry(false, || async {
-            if tries.fetch_add(1, Ordering::SeqCst) == 0 {
-                let mut e = status(429, Some("mesh.rate_limited"));
-                e.retry_after = Some(Duration::from_secs(2));
-                Err(e)
-            } else {
-                Ok(())
-            }
-        })
-        .await;
-        assert!(got.is_ok());
-        assert_eq!(started.elapsed(), Duration::from_secs(2));
-    }
-}
+#[path = "mesh_retry_tests.rs"]
+mod tests;

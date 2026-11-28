@@ -1,11 +1,23 @@
 //! A verified copy of a signed macOS helper bundle, run from outside the app that carries it:
 //! the bundle's content digest (its executable, its seal and its Info.plist), its signature
-//! checked by `codesign` against a code requirement, one staged copy per digest under a
-//! private root (copied with `ditto`, checked again, renamed into place), and the old copies
-//! pruned. cmux Remote (`cmux-tui-core` `remote_host`) and the acpmux share host's Screen
-//! Sharing helper stage their helpers through it, each with its own bundle ids, names and
-//! requirement. The tools it runs exist on macOS only; elsewhere every call that runs one
-//! fails, and the rest (the digest, the slots, the pruning) is tested on any Unix.
+//! checked by `codesign` against a code requirement, and ONE copy per helper bundle id at a
+//! fixed path, [`helper_folder`] (`~/Library/Application Support/cmux-next/helper/<bundle
+//! id>/<bundle name>.app`).
+//!
+//! The path never changes between builds: macOS keeps a screen-capture approval per executable
+//! path (replayd's `ScreenCaptureApprovals.plist`), so a copy per build digest asked the person
+//! again after every update ("is requesting to bypass the system private window picker"). A
+//! build whose helper differs replaces the copy in place instead: a temporary copy is checked
+//! against the requirement and the digest, then swapped in with one `renamex_np(RENAME_SWAP)`.
+//! A process of the old build keeps its open files; the next start runs the new copy.
+//!
+//! Every stager of a folder (the cmux-tui daemon's Computer Use, the acpmux share host, the
+//! app's `SignedHelperStaging.swift`, the DEV files host) takes an exclusive `flock` on the
+//! folder's `.lock` first, so two never swap at once. The marker `.verified` holds the digest
+//! the copy was checked to have.
+//!
+//! The tools it runs exist on macOS only; elsewhere every call that runs one fails, and the
+//! rest (the digest, the folder, the swap, the lock, the old-copy cleanup) is tested on any Unix.
 
 use cmux_process::{Command, Stdio};
 use std::io::Read;
@@ -24,6 +36,65 @@ impl Staged {
     pub fn executable(&self, executable: &str) -> PathBuf {
         self.app.join("Contents/MacOS").join(executable)
     }
+}
+
+/// The names a channel's helper bundle ends with, preferred first: `<app> Helper.app` (`cmux
+/// NIGHTLY Helper.app`), then the name builds before it carried, `<app> Screen Sharing.app`
+/// (an older installed app). The bundle id, `<app id>.screen-sharing`, is the same in both.
+pub const HELPER_BUNDLE_SUFFIXES: [&str; 2] = [" Helper.app", " Screen Sharing.app"];
+/// The installed apps whose helper a daemon outside any app may run, in order.
+pub const INSTALLED_APPS: [&str; 2] = ["/Applications/cmux NIGHTLY.app", "/Applications/cmux.app"];
+
+/// The folder that holds the one copy of the helper with bundle id `bundle_id`:
+/// `~/Library/Application Support/cmux-next/helper/<bundle_id>`. The app's
+/// `SignedHelperStaging.screenSharing` names the same folder.
+pub fn helper_folder(user_home: &Path, bundle_id: &str) -> PathBuf {
+    user_home.join("Library/Application Support/cmux-next/helper").join(bundle_id)
+}
+
+/// The app bundle holding `executable` (`X.app/Contents/Resources/bin/acpmux` -> `X.app`).
+pub fn app_of(executable: &Path) -> Option<PathBuf> {
+    executable
+        .ancestors()
+        .find(|p| p.extension().is_some_and(|e| e == "app"))
+        .map(Path::to_path_buf)
+}
+
+/// The rank of a helper bundle name in [`HELPER_BUNDLE_SUFFIXES`], or None for another name.
+fn suffix_rank(name: &str) -> Option<usize> {
+    HELPER_BUNDLE_SUFFIXES.iter().position(|suffix| name.ends_with(suffix))
+}
+
+/// The helper bundles `app` carries in `Contents/Library` (names ending in one of
+/// [`HELPER_BUNDLE_SUFFIXES`] with `Contents/MacOS/<executable>` inside): the current name
+/// first, then sorted.
+pub fn helpers_in(app: &Path, executable: &str) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(app.join("Contents/Library")) else { return Vec::new() };
+    let mut found: Vec<(usize, PathBuf)> = entries
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.join("Contents/MacOS").join(executable).is_file())
+        .filter_map(|p| Some((suffix_rank(&p.file_name()?.to_string_lossy())?, p)))
+        .collect();
+    found.sort();
+    found.into_iter().map(|(_, path)| path).collect()
+}
+
+/// The apps to look in for a helper, in order: the app holding `exe`, then `installed`
+/// (without repeating one).
+pub fn search_apps(exe: &Path, installed: &[&str]) -> Vec<PathBuf> {
+    let mut apps: Vec<PathBuf> = app_of(exe).into_iter().collect();
+    for app in installed.iter().map(PathBuf::from) {
+        if !apps.contains(&app) {
+            apps.push(app);
+        }
+    }
+    apps
+}
+
+/// The first helper bundle found in `apps`, in order.
+pub fn first_helper(apps: &[PathBuf], executable: &str) -> Option<PathBuf> {
+    apps.iter().find_map(|app| helpers_in(app, executable).into_iter().next())
 }
 
 /// The parts of a bundle whose bytes make its digest, for an executable named `executable`:
@@ -120,7 +191,13 @@ pub fn verify(app: &Path, requirement: &str) -> Result<(), String> {
 
 /// Creates `dir` (and its parents) and makes it a 0700 directory; refuses a symlink or a file.
 pub fn private_dir(dir: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    // Every folder it makes is 0700, whatever the umask: the app's stager refuses a parent
+    // with group or world write.
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder.create(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let meta = std::fs::symlink_metadata(dir).map_err(|e| format!("{e}"))?;
     if !meta.is_dir() {
         return Err(format!("{} is not a directory", dir.display()));
@@ -148,185 +225,188 @@ pub fn ditto(source: &Path, copy: &Path) -> Result<(), String> {
 /// [`stage_with`] copying with [`ditto`].
 pub fn stage(
     source: &Path,
-    root: &Path,
+    folder: &Path,
     parts: &[String],
     check: impl Fn(&Path) -> Result<(), String>,
 ) -> Result<Staged, String> {
-    stage_with(source, root, parts, ditto, check)
+    stage_with(source, folder, parts, ditto, check)
 }
 
-/// A verified copy of `source` under `root/<first 16 hex of its digest>/<bundle name>`,
-/// reused while the source is the same (its `.verified` marker and its own digest say so);
-/// never followed through a symlink. A new copy is made beside it with `copy`, passes `check`
-/// (the signature) and the digest again, then is renamed into its slot. The two newest copies
-/// are kept ([`prune`]): a process of the previous build may still run from one.
+/// The lock every stager of a folder takes, and how long one waits for another.
+const LOCK: &str = ".lock";
+const LOCK_BUDGET: std::time::Duration = std::time::Duration::from_secs(120);
+/// The marker beside the copy: the digest it was checked to have.
+const MARKER: &str = ".verified";
+/// The prefix of a stager's temporary folder.
+const STAGING: &str = ".staging-";
+
+/// The one verified copy of `source` at `folder/<bundle name>` (a fixed path: see the crate's
+/// doc), under `folder`'s lock. Reused while its marker and its own digest say it is the
+/// source's; never followed through a symlink. Otherwise a new copy is made in a temporary
+/// folder beside it with `copy`, passes `check` (the signature) and the digest again, and is
+/// swapped in atomically. Copies of the old per-digest layout in `folder` are removed.
 pub fn stage_with(
     source: &Path,
-    root: &Path,
+    folder: &Path,
     parts: &[String],
     copy: impl Fn(&Path, &Path) -> Result<(), String>,
     check: impl Fn(&Path) -> Result<(), String>,
 ) -> Result<Staged, String> {
+    let name =
+        source.file_name().filter(|name| Path::new(name).extension().is_some_and(|e| e == "app"));
+    let name = name.ok_or("bad bundle name")?;
     let digest = digest_of(source, parts)?;
-    private_dir(root)?;
-    let name = source.file_name().ok_or("bad bundle name")?;
-    let slot = root.join(digest.get(..16).unwrap_or(&digest));
-    let app = slot.join(name);
-    let marker = slot.join(".verified");
-    let ready = std::fs::read_to_string(&marker).is_ok_and(|text| text.trim() == digest)
+    private_dir(folder)?;
+    let _lock = lock(folder)?;
+    remove_legacy_slots(folder);
+    let app = folder.join(name);
+    let marker = folder.join(MARKER);
+    let ready = std::fs::symlink_metadata(&app).is_ok_and(|meta| meta.is_dir())
+        && std::fs::read_to_string(&marker).is_ok_and(|text| text.trim() == digest)
         && digest_of(&app, parts).is_ok_and(|copied| copied == digest);
-    if !ready {
-        let temporary = root.join(format!(".staging-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&temporary);
-        std::fs::create_dir_all(&temporary).map_err(|e| format!("{e}"))?;
-        let copied = temporary.join(name);
-        if let Err(e) = copy(source, &copied) {
-            let _ = std::fs::remove_dir_all(&temporary);
-            return Err(e);
-        }
-        if let Err(e) = check(&copied).and_then(|()| {
-            (digest_of(&copied, parts)? == digest)
-                .then_some(())
-                .ok_or_else(|| "the copy differs from the source bundle".to_owned())
-        }) {
-            let _ = std::fs::remove_dir_all(&temporary);
-            return Err(e);
-        }
-        std::fs::write(temporary.join(".verified"), &digest).map_err(|e| format!("{e}"))?;
-        let _ = std::fs::remove_dir_all(&slot);
-        std::fs::rename(&temporary, &slot).map_err(|e| format!("{e}"))?;
+    if ready {
+        return Ok(Staged { app, digest });
     }
-    prune(root, &slot);
-    Ok(Staged { app, digest })
+    let temporary = folder.join(format!("{STAGING}{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temporary);
+    std::fs::create_dir_all(&temporary).map_err(|e| format!("{}: {e}", temporary.display()))?;
+    let copied = temporary.join(name);
+    let result = copy_checked(source, &copied, parts, &digest, &copy, &check)
+        .and_then(|()| replace(&copied, &app, &marker, &digest));
+    // After a swap the temporary folder holds the old copy: a process still running it keeps
+    // its open files.
+    let _ = std::fs::remove_dir_all(&temporary);
+    result.map(|()| Staged { app, digest })
 }
 
-/// Keeps `current` and the newest other copy under `root`; removes the rest. Names starting
-/// with `.` (a staging in progress) are left alone.
-pub fn prune(root: &Path, current: &Path) {
-    let Ok(entries) = std::fs::read_dir(root) else {
-        return;
-    };
-    let mut others: Vec<(std::time::SystemTime, PathBuf)> = entries
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path != current
-                && !path.file_name().is_some_and(|name| name.to_string_lossy().starts_with('.'))
-        })
-        .filter_map(|path| Some((std::fs::metadata(&path).ok()?.modified().ok()?, path)))
-        .collect();
-    others.sort();
-    others.pop();
-    for (_, path) in others {
-        let _ = std::fs::remove_dir_all(path);
+/// Copies `source` to `copied` and checks the copy: `check`, then its digest.
+fn copy_checked(
+    source: &Path,
+    copied: &Path,
+    parts: &[String],
+    digest: &str,
+    copy: &impl Fn(&Path, &Path) -> Result<(), String>,
+    check: &impl Fn(&Path) -> Result<(), String>,
+) -> Result<(), String> {
+    copy(source, copied)?;
+    check(copied)?;
+    if digest_of(copied, parts)? == digest {
+        Ok(())
+    } else {
+        Err("the copy differs from the source bundle".to_owned())
     }
+}
+
+/// Swaps the checked copy `copied` in at `app` and marks it with `digest`. The marker goes
+/// first: a stager that stops between the swap and the new marker leaves a copy the next one
+/// makes again, never a stale marker on a new copy.
+fn replace(copied: &Path, app: &Path, marker: &Path, digest: &str) -> Result<(), String> {
+    let _ = std::fs::remove_file(marker);
+    swap_into(copied, app).map_err(|e| format!("{}: {e}", app.display()))?;
+    let written = marker.with_extension(std::process::id().to_string());
+    std::fs::write(&written, digest).map_err(|e| format!("{}: {e}", written.display()))?;
+    std::fs::rename(&written, marker).map_err(|e| format!("{}: {e}", marker.display()))
+}
+
+/// Takes `folder`'s exclusive lock, waiting up to [`LOCK_BUDGET`] for another stager.
+fn lock(folder: &Path) -> Result<cmux_file_lock::FileLock, String> {
+    let path = folder.join(LOCK);
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true).write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+    }
+    let file = options.open(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    cmux_file_lock::FileLock::take_within(
+        file,
+        cmux_file_lock::Kind::Exclusive,
+        LOCK_BUDGET,
+        std::time::Duration::from_millis(50),
+    )
+    .map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// Puts the directory `new` at `dest`. A directory at `dest` is exchanged with `new` in one
+/// step (`renamex_np(RENAME_SWAP)` on macOS), so `new` then holds the old copy and a launch
+/// never meets a missing or half-written one; anything else there (a file, a symlink) is
+/// unlinked, never followed; nothing there is a plain rename.
+pub fn swap_into(new: &Path, dest: &Path) -> std::io::Result<()> {
+    match std::fs::symlink_metadata(dest) {
+        Ok(meta) if meta.is_dir() => exchange(new, dest),
+        Ok(_) => {
+            std::fs::remove_file(dest)?;
+            std::fs::rename(new, dest)
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => std::fs::rename(new, dest),
+        Err(e) => Err(e),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn exchange(a: &Path, b: &Path) -> std::io::Result<()> {
+    use std::os::unix::ffi::OsStrExt;
+    let a = std::ffi::CString::new(a.as_os_str().as_bytes())?;
+    let b = std::ffi::CString::new(b.as_os_str().as_bytes())?;
+    // SAFETY: two NUL-terminated paths that outlive the call.
+    let status = unsafe { libc::renamex_np(a.as_ptr(), b.as_ptr(), libc::RENAME_SWAP) };
+    if status == 0 { Ok(()) } else { Err(std::io::Error::last_os_error()) }
+}
+
+/// Elsewhere (the tests' platforms): the old copy moves into `a`'s place, then `a`'s into `b`'s.
+#[cfg(not(target_os = "macos"))]
+fn exchange(a: &Path, b: &Path) -> std::io::Result<()> {
+    let aside = a.with_extension("old");
+    std::fs::rename(b, &aside)?;
+    std::fs::rename(a, b)?;
+    std::fs::rename(&aside, a)
+}
+
+/// Whether `name` is a slot of the old per-digest layout (the first 16 hex of a digest).
+fn is_legacy_slot(name: &str) -> bool {
+    name.len() == 16 && name.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+/// Removes the old per-digest copies (`<16 hex>/`) and stale staging folders in `root`, a
+/// staging folder of ours, and nothing else; logs each. Under the folder's lock every staging
+/// folder in it is a dead stager's. Returns what it removed.
+pub fn remove_legacy_slots(root: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(root) else { return Vec::new() };
+    let mut removed = Vec::new();
+    for entry in entries.filter_map(Result::ok) {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let is_dir = entry.file_type().is_ok_and(|kind| kind.is_dir());
+        if is_dir && (is_legacy_slot(&name) || name.starts_with(STAGING)) {
+            let path = entry.path();
+            if std::fs::remove_dir_all(&path).is_ok() {
+                eprintln!("cmux-signed-bundle: removed the old helper copy {}", path.display());
+                removed.push(path);
+            }
+        }
+    }
+    removed
+}
+
+/// Removes an old per-digest staging root of ours (`legacy`: its `<16 hex>/` copies and staging
+/// folders, [`remove_legacy_slots`]), then `legacy` and each parent below `stop` once empty.
+/// Nothing else in them is touched. Returns the copies it removed.
+pub fn remove_legacy_root(legacy: &Path, stop: &Path) -> Vec<PathBuf> {
+    if !std::fs::symlink_metadata(legacy).is_ok_and(|meta| meta.is_dir()) {
+        return Vec::new();
+    }
+    let removed = remove_legacy_slots(legacy);
+    let mut dir = Some(legacy);
+    while let Some(path) = dir.filter(|path| path.starts_with(stop) && *path != stop) {
+        // Fails, and stops, on a folder that still holds anything.
+        if std::fs::remove_dir(path).is_err() {
+            break;
+        }
+        dir = path.parent();
+    }
+    removed
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A fake bundle `<dir>/<name>` whose executable holds `body`.
-    fn bundle(dir: &Path, name: &str, body: &str) -> PathBuf {
-        let app = dir.join(name);
-        std::fs::create_dir_all(app.join("Contents/MacOS")).unwrap();
-        std::fs::create_dir_all(app.join("Contents/_CodeSignature")).unwrap();
-        std::fs::write(app.join("Contents/MacOS/helper"), body).unwrap();
-        std::fs::write(app.join("Contents/_CodeSignature/CodeResources"), "seal").unwrap();
-        std::fs::write(app.join("Contents/Info.plist"), "plist").unwrap();
-        app
-    }
-
-    fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
-        std::fs::create_dir_all(to).map_err(|e| e.to_string())?;
-        for entry in std::fs::read_dir(from).map_err(|e| e.to_string())? {
-            let entry = entry.map_err(|e| e.to_string())?;
-            let target = to.join(entry.file_name());
-            if entry.file_type().map_err(|e| e.to_string())?.is_dir() {
-                copy_tree(&entry.path(), &target)?;
-            } else {
-                std::fs::copy(entry.path(), target).map_err(|e| e.to_string())?;
-            }
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn the_digest_covers_the_executable_seal_and_plist() {
-        let dir = tempfile::tempdir().unwrap();
-        let parts = digest_parts("helper");
-        let one = digest_of(&bundle(dir.path(), "A.app", "one"), &parts).unwrap();
-        let two = digest_of(&bundle(dir.path(), "B.app", "two"), &parts).unwrap();
-        assert_eq!(one.len(), 64);
-        assert_ne!(one, two);
-        assert!(digest_of(&dir.path().join("missing.app"), &parts).is_err());
-    }
-
-    #[test]
-    fn a_copy_is_staged_once_per_digest_and_old_ones_pruned() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().join("root");
-        let parts = digest_parts("helper");
-        let first = bundle(&dir.path().join("v1"), "Helper.app", "one");
-        let staged = stage_with(&first, &root, &parts, copy_tree, |_| Ok(())).unwrap();
-        assert!(staged.executable("helper").is_file());
-        assert!(staged.app.starts_with(&root));
-        // Reused: a copier that fails is never asked.
-        let again =
-            stage_with(&first, &root, &parts, |_, _| Err("copied".into()), |_| Ok(())).unwrap();
-        assert_eq!(again, staged);
-        // Two more builds: the oldest copy goes, the two newest stay.
-        for (n, body) in [(2, "two"), (3, "three")] {
-            std::thread::sleep(std::time::Duration::from_millis(20));
-            let next = bundle(&dir.path().join(format!("v{n}")), "Helper.app", body);
-            stage_with(&next, &root, &parts, copy_tree, |_| Ok(())).unwrap();
-        }
-        let slots = std::fs::read_dir(&root).unwrap().count();
-        assert_eq!(slots, 2);
-        assert!(!staged.app.exists());
-    }
-
-    #[test]
-    fn a_copy_that_fails_its_check_is_never_kept() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().join("root");
-        let parts = digest_parts("helper");
-        let source = bundle(dir.path(), "Helper.app", "one");
-        let refused = stage_with(&source, &root, &parts, copy_tree, |_| Err("unsigned".into()));
-        assert_eq!(refused, Err("unsigned".into()));
-        assert_eq!(std::fs::read_dir(&root).unwrap().count(), 0);
-        // A copier that changes the bytes is caught by the digest.
-        let tamper = |from: &Path, to: &Path| {
-            copy_tree(from, to)?;
-            std::fs::write(to.join("Contents/MacOS/helper"), "evil").map_err(|e| e.to_string())
-        };
-        let refused = stage_with(&source, &root, &parts, tamper, |_| Ok(()));
-        assert_eq!(refused, Err("the copy differs from the source bundle".into()));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_symlinked_root_is_refused() {
-        let dir = tempfile::tempdir().unwrap();
-        let real = dir.path().join("real");
-        std::fs::create_dir_all(&real).unwrap();
-        let link = dir.path().join("link");
-        std::os::unix::fs::symlink(&real, &link).unwrap();
-        assert!(private_dir(&link).is_err());
-        assert!(private_dir(&real).is_ok());
-    }
-
-    #[test]
-    fn requirements_read_and_write_as_codesign_does() {
-        assert_eq!(
-            team_requirement("com.cmuxterm.app.screen-sharing", "7WLXT3NR37"),
-            "identifier \"com.cmuxterm.app.screen-sharing\" and anchor apple generic and certificate leaf[subject.OU] = \"7WLXT3NR37\""
-        );
-        let printed = "Executable=/x/Helper.app/Contents/MacOS/helper\n# designated => cdhash H\"ab\"\ndesignated => identifier \"a.b\" and anchor apple generic\n";
-        assert_eq!(
-            parse_designated(printed).as_deref(),
-            Some("identifier \"a.b\" and anchor apple generic")
-        );
-        assert_eq!(parse_designated("Executable=/x\n"), None);
-    }
-}
+#[path = "tests.rs"]
+mod tests;

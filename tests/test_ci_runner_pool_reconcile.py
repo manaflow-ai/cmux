@@ -53,8 +53,27 @@ def secret_route_failures(workflow_text):
     return failures
 
 
+def old_route_labels():
+    """What the variable route a credentialed job read before it was frozen could select: the ephemeral mirror, then
+    the linux_8 or linux_4 pool (.github/runners.json)."""
+    pools = json.loads((WORKFLOW_ROOT / ".github/runners.json").read_text())["pools"]
+    return LINUX_EPHEMERAL | set(pools["linux_8"]["members"]) | set(pools["linux_4"]["members"])
+
+
+# A frozen route (scripts/ci/one_linux_label.py freeze_line): past its fork branch, the one label it resolved to
+# when it was frozen, as a literal, with no variable left to move it.
+FROZEN_ROUTE = re.compile(r"\|\| '([a-z0-9-]+)' }}")
+
+
 def secret_route_failure(route):
     """Why one route of a credentialed job can leave the ephemeral Linux mirror, or None."""
+    # Its fork branch collapses into the label when the two are the same, which leaves only the owner guard.
+    if "vars." not in route and ("github.event.pull_request.head.repo.full_name != github.repository" in route
+                                 or "github.repository_owner != 'manaflow-ai'" in route):
+        frozen = FROZEN_ROUTE.fullmatch(route.strip()[route.strip().rfind("|| '"):])
+        if frozen is not None and frozen[1] in old_route_labels():
+            return None
+        return "runs-on is frozen to a label its variable route never selected"
     match = re.search(r"contains\(fromJSON\('([^']+)'\), vars.LINUX_RUNNER\) && vars.LINUX_RUNNER", route)
     if "fromJSON(vars.RUNNER_POOLS)" not in route:
         return "runs-on does not read RUNNER_POOLS"
@@ -73,17 +92,15 @@ def secret_route_failure(route):
 class SecretRouteBoundary(unittest.TestCase):
     def test_routing_keys_never_follow_the_secretless_pool(self):
         root = WORKFLOW_ROOT
-        for name, job in (("ci.yml", "changes"), ("cmux-next-ios-kit.yml", "runner")):
+        # ci.yml's `changes` mints only a GitHub App token for API reads (no signing, notarization or release
+        # secret); Linux CI is one persistent pool (hq decisions/junctions.md 2026-11-20), so it names cmux-linux
+        # past its fork branch (test_changes_router_takes_the_persistent_linux_pool in tests/test_ci_runner_set.py).
+        for name, job in (("cmux-next-ios-kit.yml", "runner"),):
             with self.subTest(workflow=name, job=job):
                 text = (root / ".github/workflows" / name).read_text()
                 block = text.split(f"\n  {job}:\n", 1)[1]
                 route = next(line for line in block.splitlines() if line.startswith("    runs-on:"))
-                self.assertIn("fromJSON(vars.RUNNER_POOLS)", route)
-                self.assertIn("github.event.pull_request.head.repo.full_name != github.repository", route)
-                match = re.search(r"contains\(fromJSON\('([^']+)'\), vars.LINUX_RUNNER\) && vars.LINUX_RUNNER", route)
-                self.assertIsNotNone(match)
-                self.assertEqual(set(json.loads(match[1])), {SMALL, LARGE, "blacksmith-8vcpu-ubuntu-2404"})
-                self.assertTrue(route.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_8 }}"))
+                self.assertIsNone(secret_route_failure(route.split("runs-on:", 1)[1].split(" # ")[0].strip()), route)
 
     def test_backend_secret_jobs_use_only_the_ephemeral_linux_mirror(self):
         path = WORKFLOW_ROOT / ".github/workflows/backend.yml"
@@ -176,7 +193,7 @@ class SecretRouteBoundary(unittest.TestCase):
     def test_backend_migration_push_guard_keeps_the_secretless_fleet_route(self):
         path = WORKFLOW_ROOT / ".github/workflows/backend.yml"
         route = workflow_jobs.runs_on(workflow_jobs.jobs(path)["migrations-push-guard"])
-        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", route)
+        self.assertTrue(route.endswith("'cmux-linux' }}"), route)
 
 
 @unittest.skipUnless(POLICY_ROOT, "set RUNNER_POOL_POLICY_ROOT to main's checked-out policy")

@@ -5,9 +5,11 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { recoverStrings, useT } from "../src/agent-session/acpmux/i18n";
-import { useNt } from "../src/agent-session/acpmux/newtab/strings";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { recoverStrings, useT } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
+const { useNt } = await importWithDom(() => import("../src/agent-session/acpmux/newtab/strings"));
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();

@@ -395,6 +395,9 @@ fn a_page_of_newest_prompts_costs_the_newest_turns_whatever_its_copies() {
     let mut log = codex_chat(20, 200, 85, false);
     log.extend(codex_chat(17, 2, 10, false));
     let log_bytes = write_chat(&sessions, &mut log, 64 << 10);
+    // The appends copied each segment they filled (`store/segment_writer.rs`): a chat written
+    // before that, or one a cold archive took its copies from, has none.
+    std::fs::remove_dir_all(sessions.join("c").join(crate::store::KIND_INDEX_DIR)).unwrap();
     let all: Vec<_> = log.iter().filter(|r| r.kind == "user_message").cloned().collect();
     let newest = all[all.len() - 16..].to_vec();
     let hub = deferred_hub(&sessions, 64 << 10);
@@ -693,7 +696,7 @@ fn the_prompt_index_holds_every_prompt_cut_short_oldest_first() {
     for rec in &log {
         hub.store.append("c", rec).unwrap();
     }
-    let all = hub.prompt_index("c", None).unwrap();
+    let all = hub.prompt_index("c", None, 5000, None).unwrap().events;
     assert_eq!(all.len(), 32);
     assert!(all.windows(2).all(|pair| pair[0].seq < pair[1].seq), "oldest first");
     assert_eq!(all[0].msg, json!({"text": "prompt 0"}));
@@ -703,9 +706,81 @@ fn the_prompt_index_holds_every_prompt_cut_short_oldest_first() {
     assert!(cut.get("images").is_none() && cut.get("pasted").is_none());
     assert_eq!(all[31].msg["steer"], true);
     // `before` bounds it, as the pane asks for what precedes its open page.
-    let older = hub.prompt_index("c", Some(all[10].seq)).unwrap();
+    let older = hub.prompt_index("c", Some(all[10].seq), 5000, None).unwrap().events;
     assert_eq!(older.len(), 10);
     assert_eq!(older.last().unwrap().seq, all[9].seq);
+}
+
+/// The prompt index marks a prompt the person did not type `others` (a notice, another agent's
+/// message, a line Claude Code queued by itself), so the scroll rail ticks only the person's.
+/// Leo, 2026-11-27: "honestly non-user messages shouldnt appear in the scroll rail anymore."
+#[test]
+fn the_prompt_index_marks_prompts_the_person_did_not_type() {
+    let person =
+        json!({"text": "fix the rail", "_meta": {"origin": {"actor": "person", "verified": true}}});
+    let notice = json!({
+        "text": "[notice from glaeda-land · WARN] glaeda land: https://github.com/x",
+        "_meta": {"provenance": {"kind": "notice", "to": "c"}},
+    });
+    let agent = json!({"text": "done", "_meta": {"provenance": {"kind": "agent_message", "from": "a", "to": "c"}}});
+    let queued = json!({"text": "<task-notification>\n<task-id>t</task-id>"});
+    assert!(prompt_index_msg(&person).get("others").is_none());
+    assert!(prompt_index_msg(&json!({"text": "typed"})).get("others").is_none());
+    for other in [notice, agent, queued] {
+        assert_eq!(prompt_index_msg(&other)["others"], true, "{other}");
+    }
+}
+
+/// The prompt index goes in bounded pages, newest first and oldest first within each, so its
+/// cost is a page's however long the chat (goal infinite-chats: one reply of a 1 GB chat's 4,577
+/// prompts took 113 ms against 0.2 ms at 1 MB). Walking `hasMore` from each page's first prompt,
+/// as the rail does (direct.ts `readPromptIndex`), reads every prompt once.
+#[test]
+fn the_prompt_index_pages_newest_first_and_the_pages_hold_every_prompt() {
+    let hub = hub(Box::new(crate::store::MemoryStore::default()));
+    hub.store.save(&meta("c")).unwrap();
+    for rec in codex_chat(30, 4, 64, false) {
+        hub.store.append("c", &rec).unwrap();
+    }
+    let all = hub.prompt_index("c", None, 5000, None).unwrap();
+    assert!(!all.has_more);
+    assert_eq!(all.events.len(), 30);
+
+    // By count: the newest 7, oldest first.
+    let newest = hub.prompt_index("c", None, 7, None).unwrap();
+    assert!(newest.has_more);
+    let seqs = |page: &EventPage| page.events.iter().map(|r| r.seq).collect::<Vec<_>>();
+    assert_eq!(seqs(&newest), seqs(&all)[23..].to_vec());
+
+    // By size: a page past `maxBytes` stops before the prompt that would pass it, and always
+    // holds one.
+    let one = record_bytes(&all.events[29]);
+    let sized = hub.prompt_index("c", None, 5000, Some(one * 3 + one / 2)).unwrap();
+    assert!(sized.has_more);
+    assert_eq!(sized.events.len(), 3);
+    let tiny = hub.prompt_index("c", None, 5000, Some(1)).unwrap();
+    assert_eq!(tiny.events.len(), 1);
+    assert!(tiny.has_more);
+
+    // The rail's walk: each older page from the first prompt of the last, until `hasMore` ends.
+    let mut walked = Vec::new();
+    let mut before = None;
+    loop {
+        let page = hub.prompt_index("c", before, 4, None).unwrap();
+        let mut ids = seqs(&page);
+        ids.extend(walked);
+        walked = ids;
+        if !page.has_more {
+            break;
+        }
+        before = page.events.first().map(|r| r.seq);
+    }
+    assert_eq!(walked, seqs(&all));
+
+    // A page that ends exactly at the oldest prompt says there is no more.
+    let last = hub.prompt_index("c", Some(all.events[4].seq), 4, None).unwrap();
+    assert_eq!(seqs(&last), seqs(&all)[..4].to_vec());
+    assert!(!last.has_more);
 }
 
 /// The prompt index reads the log's copies of its prompts (`store/kind_index.rs`), not the log: a
@@ -725,7 +800,7 @@ fn the_prompt_index_reads_the_logs_copies_of_its_prompts() {
     }
     store.flush().unwrap();
     let hub = hub(Box::new(store));
-    let all = hub.prompt_index("c", None).unwrap();
+    let all = hub.prompt_index("c", None, 5000, None).unwrap().events;
     assert_eq!(all.len(), 40);
     // A daemon's log load makes the copies (`hub/log_load.rs`); this scan stands for it.
     hub.store.scan_kinds("c", &["user_message"], &mut |_| true).unwrap();
@@ -743,14 +818,14 @@ fn the_prompt_index_reads_the_logs_copies_of_its_prompts() {
             .write_all(blank.as_bytes())
             .unwrap();
     }
-    let read = hub.prompt_index("c", None).unwrap();
+    let read = hub.prompt_index("c", None, 5000, None).unwrap().events;
     assert_eq!(
         read.iter().map(|r| r.seq).collect::<Vec<_>>(),
         all.iter().map(|r| r.seq).collect::<Vec<_>>()
     );
     assert_eq!(read[0].msg, json!({"text": "prompt 0"}));
     // `before` still bounds it.
-    let older = hub.prompt_index("c", Some(all[10].seq)).unwrap();
+    let older = hub.prompt_index("c", Some(all[10].seq), 5000, None).unwrap().events;
     assert_eq!(older.len(), 10);
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -792,7 +867,7 @@ fn prompt_index_perf() {
         paged.push(started.elapsed().as_secs_f64() * 1000.0);
         pages_read = pages;
         let started = std::time::Instant::now();
-        assert_eq!(hub.prompt_index("c", None).unwrap().len(), 1000);
+        assert_eq!(hub.prompt_index("c", None, 5000, None).unwrap().events.len(), 1000);
         indexed.push(started.elapsed().as_secs_f64() * 1000.0);
     }
     let best = |runs: &[f64]| runs.iter().copied().fold(f64::INFINITY, f64::min);
@@ -913,6 +988,344 @@ fn subagent_page_perf() {
         println!(
             "subagent page after {later} later lines: median {:.1} ms (min {:.1})",
             runs[2], runs[0]
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+}
+
+/// The subagent pane's open as `readSubagentLog` makes it: the newest page of one subagent's own
+/// records, behind a long chat of the parent's and other subagents' lines. Before the newest read
+/// took the forward read's byte search it parsed every line back to the subagent's records. Prints
+/// p50 and p95 over `RUNS` opens per chat length and holds the newest open to its p95 budget. Run
+/// with `cargo test -p acpmux --release --lib -- --ignored --nocapture subagent_newest_page_perf`.
+#[test]
+#[ignore = "a measurement, not a check"]
+fn subagent_newest_page_perf() {
+    const RUNS: usize = 40;
+    // p95 budget for one newest-page open, ms: (later parent lines, budget). Release build, with
+    // headroom for a loaded runner (the PR's duress table: 100k lines p95 ~117 ms with every core busy).
+    const BUDGET_MS: [(usize, f64); 3] = [(2_000, 25.0), (20_000, 100.0), (100_000, 250.0)];
+    let pct = |runs: &[f64], p: f64| {
+        let rank = ((runs.len() as f64 * p).ceil() as usize).clamp(1, runs.len());
+        runs.get(rank.saturating_sub(1)).copied().unwrap_or(f64::NAN)
+    };
+    let mut over = Vec::new();
+    for (later, budget) in BUDGET_MS {
+        let root = std::env::temp_dir()
+            .join(format!("acpmux-subagent-newest-perf-{}", uuid::Uuid::now_v7()));
+        let sessions = root.join("sessions");
+        let mut seq = 0;
+        {
+            let writer = LocalStore::new(sessions.clone(), 8 << 20).unwrap();
+            writer.save(&meta("c")).unwrap();
+            for n in 0..40 {
+                seq += 1;
+                writer
+                    .append("c", &update_of(seq, (n % 2 == 1).then_some("sub-old"), "early"))
+                    .unwrap();
+            }
+            let text = "x".repeat(900);
+            for n in 0..later {
+                seq += 1;
+                let sub = (n % 7 == 0).then_some("sub-new");
+                writer.append("c", &update_of(seq, sub, &text)).unwrap();
+            }
+        }
+        let hub = hub(Box::new(LocalStore::new(sessions.clone(), 8 << 20).unwrap()));
+        let filter = transcript(true).of_subagent(Some("sub-old"));
+        let mut runs = Vec::new();
+        for _ in 0..RUNS {
+            let started = std::time::Instant::now();
+            let page = hub
+                .events_page("c", 0, Some(seq + 1), OPEN_LIMIT, Some(256 * 1024), true, &filter)
+                .unwrap();
+            runs.push(started.elapsed().as_secs_f64() * 1000.0);
+            assert_eq!(page.events.len(), 20);
+        }
+        runs.sort_by(f64::total_cmp);
+        let (p50, p95) = (pct(&runs, 0.50), pct(&runs, 0.95));
+        println!(
+            "subagent newest page after {later} later lines: p50 {p50:.1} ms p95 {p95:.1} ms (n {RUNS}, budget p95 {budget:.0} ms)"
+        );
+        if p95 > budget {
+            over.push(format!("{later} lines: p95 {p95:.1} ms > {budget:.0} ms"));
+        }
+        std::fs::remove_dir_all(&root).ok();
+    }
+    assert!(over.is_empty(), "subagent newest-page open over its p95 budget: {over:?}");
+}
+
+/// A subagent's newest page skips the chat's other lines unparsed and still holds exactly that
+/// subagent's records, oldest first, as the forward page does.
+#[test]
+fn subagent_newest_page_matches_forward_page() {
+    let root =
+        std::env::temp_dir().join(format!("acpmux-subagent-newest-{}", uuid::Uuid::now_v7()));
+    let sessions = root.join("sessions");
+    let mut seq = 0;
+    {
+        let writer = LocalStore::new(sessions.clone(), 8 << 20).unwrap();
+        writer.save(&meta("c")).unwrap();
+        for n in 0..200 {
+            seq += 1;
+            let sub = match n % 3 {
+                0 => Some("sub-a"),
+                1 => Some("sub-b"),
+                _ => None,
+            };
+            writer.append("c", &update_of(seq, sub, "t")).unwrap();
+        }
+    }
+    let hub = hub(Box::new(LocalStore::new(sessions.clone(), 8 << 20).unwrap()));
+    for omit in [false, true] {
+        let filter = transcript(omit).of_subagent(Some("sub-a"));
+        let forward = hub.events_page("c", 0, None, 5000, None, false, &filter).unwrap();
+        let parsed_before = PARSED_LINES.with(std::cell::Cell::get);
+        let newest = hub.events_page("c", 0, Some(seq + 1), 5000, None, true, &filter).unwrap();
+        let parsed = PARSED_LINES.with(std::cell::Cell::get) - parsed_before;
+        // Its own 67 lines, never the other subagent's or the parent's 133.
+        assert!(parsed <= 67, "the newest page parsed {parsed} lines for 67 records");
+        let seqs = |p: &EventPage| p.events.iter().map(|e| e.seq).collect::<Vec<_>>();
+        assert_eq!(seqs(&newest), seqs(&forward));
+        assert_eq!(newest.events.len(), 67);
+    }
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// A Codex chat as the app server logs it: per turn a prompt, an answer, and the app server's
+/// raw lines (`codex_app_server::tap_kind`): a `codex.response` of `raw_bytes` (a resumed
+/// thread's answer holds its whole history) and a notification.
+fn codex_raw_chat(turns: usize, raw_bytes: usize) -> Vec<EventRecord> {
+    let mut out = Vec::new();
+    let history = "h".repeat(raw_bytes);
+    for turn in 0..turns {
+        let seq = out.len() as u64;
+        out.push(EventRecord {
+            seq: seq + 1,
+            at: 0,
+            dir: "mux".into(),
+            kind: "user_message".into(),
+            msg: json!({"text": format!("prompt {turn}")}),
+            host_seq: None,
+        });
+        out.push(EventRecord {
+            seq: seq + 2,
+            at: 0,
+            dir: "in".into(),
+            kind: "codex.response".into(),
+            msg: json!({"id": turn, "result": {"thread": {"history": history}}}),
+            host_seq: None,
+        });
+        out.push(agent(seq + 3, "agent_message_chunk", json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": format!("answer {turn}")}})));
+        out.push(EventRecord {
+            seq: seq + 4,
+            at: 0,
+            dir: "in".into(),
+            kind: "codex.thread/tokenUsage/updated".into(),
+            msg: json!({"method": "thread/tokenUsage/updated", "params": {"total": turn}}),
+            host_seq: None,
+        });
+    }
+    out
+}
+
+/// A Codex chat's newest page parses its transcript records, never the app server's raw lines it
+/// drops: the open of a long Codex chat parsed 84 to 148 MB of `codex.response` lines for 200
+/// records, 0.5 to 12.6 s cold on a lane's daemon (Leo, 2026-11-19, ask-9720e28f94: why is it
+/// this slow).
+#[test]
+fn a_codex_chats_open_page_parses_no_raw_app_server_lines() {
+    let filter = transcript(true);
+    assert!(filter.surely_skips(b"in", b"codex.response"));
+    assert!(filter.surely_skips(b"in", b"codex.thread/tokenUsage/updated"));
+    assert!(!filter.surely_skips(b"in", b"agent_message_chunk"));
+    let root = std::env::temp_dir().join(format!("acpmux-codex-raw-{}", uuid::Uuid::now_v7()));
+    let sessions = root.join("sessions");
+    let mut log = codex_raw_chat(50, 4096);
+    write_chat(&sessions, &mut log, 64 << 10);
+    let hub = hub(Box::new(LocalStore::new(sessions.clone(), 64 << 10).unwrap()));
+    let parsed_before = PARSED_LINES.with(std::cell::Cell::get);
+    let page = hub.events_page("c", 0, None, OPEN_LIMIT, Some(OPEN_BYTES), true, &filter).unwrap();
+    let parsed = PARSED_LINES.with(std::cell::Cell::get) - parsed_before;
+    let want: Vec<u64> =
+        log.iter().filter(|r| !r.kind.starts_with("codex.")).map(|r| r.seq).collect();
+    assert_eq!(page.events.iter().map(|r| r.seq).collect::<Vec<_>>(), want);
+    assert!(
+        parsed <= want.len() as u64,
+        "the page parsed {parsed} lines for {} transcript records",
+        want.len()
+    );
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// The newest page of a long Codex chat (the PR's Performance table): run with
+/// `cargo test -p acpmux --release --lib -- --ignored --nocapture codex_raw_open_perf`.
+#[test]
+#[ignore = "a measurement, not a check"]
+fn codex_raw_open_perf() {
+    // 400 turns, each with a 256 KB raw answer: about 100 MB of raw lines behind 800 records,
+    // as the lane's slow chats hold.
+    let root = std::env::temp_dir().join(format!("acpmux-codex-raw-perf-{}", uuid::Uuid::now_v7()));
+    let sessions = root.join("sessions");
+    let mut log = codex_raw_chat(400, 256 << 10);
+    let bytes = write_chat(&sessions, &mut log, 8 << 20);
+    let hub = hub(Box::new(LocalStore::new(sessions.clone(), 8 << 20).unwrap()));
+    let mut runs = Vec::new();
+    let mut parsed = 0;
+    for _ in 0..5 {
+        let before = PARSED_LINES.with(std::cell::Cell::get);
+        let started = std::time::Instant::now();
+        let page = hub
+            .events_page("c", 0, None, OPEN_LIMIT, Some(OPEN_BYTES), true, &transcript(true))
+            .unwrap();
+        runs.push(started.elapsed().as_secs_f64() * 1000.0);
+        parsed = PARSED_LINES.with(std::cell::Cell::get) - before;
+        assert!(!page.events.is_empty());
+    }
+    runs.sort_by(f64::total_cmp);
+    println!(
+        "codex chat of {} MB: newest page median {:.1} ms (min {:.1}), {parsed} lines parsed",
+        bytes >> 20,
+        runs[2],
+        runs[0]
+    );
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// The turn opener an attach reads (`server/requests/turn_opener.rs`) costs the newest turn, not
+/// the 16 newest: it stops at the first prompt that opens a turn, with copies or without
+/// (goal infinite-chats, `chat_size_sweep` `/attachUs/p50` grew 1M→100M 1.59x).
+#[test]
+fn the_turn_opener_reads_one_turn_back_not_sixteen() {
+    let root = std::env::temp_dir().join(format!("acpmux-turn-opener-{}", uuid::Uuid::now_v7()));
+    let sessions = root.join("sessions");
+    let mut log = codex_chat(20, 200, 85, false);
+    let log_bytes = write_chat(&sessions, &mut log, 64 << 10);
+    let opener = log.iter().rev().find(|r| r.kind == "user_message").cloned().unwrap();
+    let before = log.last().unwrap().seq;
+    let hub = deferred_hub(&sessions, 64 << 10);
+    let opens = |r: &EventRecord| r.msg.get("steer") != Some(&Value::Bool(true));
+    let read = |state: &str| {
+        let r0 = read_bytes();
+        let found = hub.newest_prompt_where("c", before, 16, &opens).unwrap();
+        let read = read_bytes() - r0;
+        assert_eq!(found.as_ref(), Some(&opener), "{state}");
+        if cfg!(target_os = "linux") {
+            // A turn is a twentieth of the log; 16 of them were four fifths of it.
+            assert!(read < log_bytes / 6, "{state}: the opener read {read} of {log_bytes} bytes");
+        }
+    };
+    std::fs::remove_dir_all(sessions.join("c").join(crate::store::KIND_INDEX_DIR)).unwrap();
+    read("no copies");
+    hub.store.scan_kinds("c", crate::store::INDEXED_KINDS, &mut |_| true).unwrap();
+    read("good copies");
+    // None of the newest `read` opens a turn: none, and the read stops there.
+    assert_eq!(hub.newest_prompt_where("c", before, 16, &|_| false).unwrap(), None);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A chat of `before` parent lines of `text`, then a subagent `sub-late` that starts and writes
+/// every 7th of `span` more lines. Its last seq.
+fn late_subagent_chat(sessions: &std::path::Path, before: usize, span: usize, text: &str) -> u64 {
+    let writer = LocalStore::new(sessions.to_path_buf(), 8 << 20).unwrap();
+    writer.save(&meta("c")).unwrap();
+    let mut seq = 0;
+    for _ in 0..before {
+        seq += 1;
+        writer.append("c", &update_of(seq, None, text)).unwrap();
+    }
+    for n in 0..span {
+        seq += 1;
+        writer.append("c", &update_of(seq, (n % 7 == 0).then_some("sub-late"), text)).unwrap();
+    }
+    seq
+}
+
+/// The pane's read of a subagent (webviews `readSubagentLog`): its newest page, then its pages
+/// forward from the log's start. The seqs it got.
+fn read_pane(hub: &Hub, last: u64) -> Vec<u64> {
+    let filter = transcript(true).of_subagent(Some("sub-late"));
+    let newest =
+        hub.events_page("c", 0, Some(last + 1), 10, Some(OPEN_BYTES), true, &filter).unwrap();
+    let mut seqs: Vec<u64> = newest.events.iter().map(|e| e.seq).collect();
+    if newest.has_more {
+        let newest_start = seqs[0];
+        let mut after = 0;
+        let mut older = Vec::new();
+        loop {
+            let page = hub
+                .events_page("c", after, None, OPEN_LIMIT, Some(OPEN_BYTES), false, &filter)
+                .unwrap();
+            older.extend(page.events.iter().map(|e| e.seq).filter(|s| *s < newest_start));
+            match page.events.last() {
+                Some(last) if page.has_more && last.seq < newest_start => after = last.seq,
+                _ => break,
+            }
+        }
+        older.extend(seqs);
+        seqs = older;
+    }
+    seqs
+}
+
+/// Once a read proved where a subagent's records start, its next read starts there: a subagent
+/// that began late in a long chat reads its own span, not the chat before it, and gets the same
+/// records (ask-4646da8b19).
+#[test]
+fn a_late_subagents_second_read_starts_at_its_first_record() {
+    let root = std::env::temp_dir().join(format!("acpmux-subagent-late-{}", uuid::Uuid::now_v7()));
+    let sessions = root.join("sessions");
+    let last = late_subagent_chat(&sessions, 3_000, 700, "parent line");
+    let hub = hub(Box::new(LocalStore::new(sessions.clone(), 8 << 20).unwrap()));
+    let read = |hub: &Hub| {
+        crate::store::FORWARD_READ_BYTES.with(|n| n.set(0));
+        let seqs = read_pane(hub, last);
+        (seqs, crate::store::FORWARD_READ_BYTES.with(std::cell::Cell::get))
+    };
+    let (first, first_bytes) = read(&hub);
+    let (again, again_bytes) = read(&hub);
+    assert_eq!(first.len(), 100);
+    assert_eq!(first[0], 3_001);
+    assert_eq!(again, first, "the bounded read gets the same records");
+    assert!(
+        again_bytes * 4 < first_bytes,
+        "the second read read {again_bytes} bytes, the first {first_bytes}"
+    );
+    // A log whose lines read differently (a fork's history, a cut) is read whole again.
+    hub.store.bump_log_stamp("c", 1).unwrap();
+    let (stamped, stamped_bytes) = read(&hub);
+    assert_eq!(stamped, first);
+    assert!(stamped_bytes >= first_bytes / 2, "a changed log read {stamped_bytes} bytes");
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// A subagent that started late in a long chat, read as the pane reads it: its first read (no
+/// start known: as every read was before `subagent_starts.rs`) and a read after it. Run with
+/// `cargo test -p acpmux --release --lib -- --ignored --nocapture late_subagent_read_perf`.
+#[test]
+#[ignore = "a measurement, not a check"]
+fn late_subagent_read_perf() {
+    let text = "x".repeat(900);
+    for before in [20_000usize, 100_000, 200_000] {
+        let root = std::env::temp_dir()
+            .join(format!("acpmux-subagent-late-perf-{}", uuid::Uuid::now_v7()));
+        let sessions = root.join("sessions");
+        let last = late_subagent_chat(&sessions, before, 2_100, &text);
+        let (mut cold, mut warm) = (Vec::new(), Vec::new());
+        for _ in 0..5 {
+            let hub = hub(Box::new(LocalStore::new(sessions.clone(), 8 << 20).unwrap()));
+            let started = std::time::Instant::now();
+            assert_eq!(read_pane(&hub, last).len(), 300);
+            cold.push(started.elapsed().as_secs_f64() * 1000.0);
+            let started = std::time::Instant::now();
+            assert_eq!(read_pane(&hub, last).len(), 300);
+            warm.push(started.elapsed().as_secs_f64() * 1000.0);
+        }
+        cold.sort_by(f64::total_cmp);
+        warm.sort_by(f64::total_cmp);
+        println!(
+            "late subagent after {before} parent lines: unknown start median {:.1} ms, known start median {:.1} ms",
+            cold[2], warm[2]
         );
         std::fs::remove_dir_all(&root).ok();
     }

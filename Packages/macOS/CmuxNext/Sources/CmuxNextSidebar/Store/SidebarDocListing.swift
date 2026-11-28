@@ -74,7 +74,7 @@ extension SidebarDocProjection {
         let at = arranged.firstIndex { $0.machine != nil } ?? arranged.count
         arranged.insert(contentsOf: before, at: at)
         arranged += after
-        let marked = Self.markingArchived(Self.withMemberItems(arranged, projection, drag: drag), projection, drag: drag)
+        let marked = Self.markingDocMarks(Self.withMemberItems(arranged, projection, drag: drag), projection, drag: drag)
         return Self.sortingGroups(marked, projection, drag: drag)
     }
 
@@ -83,12 +83,18 @@ extension SidebarDocProjection {
     @MainActor private static func sortingGroups(_ sections: [SidebarSection], _ projection: SidebarDocProjection,
                                                  drag: SidebarDocDrag) -> [SidebarSection] {
         let pinned = projection.pinnedInGroup
+        // Every group, manual too: a list arranged before (a fold) may carry an old sort. One `sorts` call per pass.
+        var groupIDs: [String] = []
+        for section in sections { for case .group(let group) in section.nodes { groupIDs.append(group.id.rawValue) } }
+        let request = RustSidebarDocListing.SortsRequest(groups: groupIDs, group_sorts: projection.groupSorts.mapValues(\.rawValue))
+        let reply = RustSidebarClient.call(RustSidebarDocListing.op, request, as: RustSidebarDocListing.SortsReply.self)?.sorts
+        // When the op does not answer, every group manual (the stored order).
+        var sorts = (reply?.count == groupIDs.count ? reply ?? [] : []).map { SidebarGroupSort(rawValue: $0) ?? .manual }.makeIterator()
         return sections.map { section in
             var section = section
             section.nodes = section.nodes.map { node in
                 guard case .group(var group) = node else { return node }
-                // Every group, manual too: a list arranged before (a fold) may carry an old sort.
-                group.sort = projection.groupSorts[group.id.rawValue] ?? .manual
+                group.sort = sorts.next() ?? .manual
                 guard group.sort != .manual else { return .group(group) }
                 group.workspaces = group.sort.ordered(group.workspaces) { workspace in
                     drag.item(.workspace(workspace.id)).map { pinned.contains($0) } ?? false
@@ -99,19 +105,42 @@ extension SidebarDocProjection {
         }
     }
 
-    /// `sections` with each archived row marked (`isArchived`): it draws dimmed (archiving-DESIGN.md).
-    @MainActor private static func markingArchived(_ sections: [SidebarSection], _ projection: SidebarDocProjection,
+    /// `sections` with each archived row marked (`isArchived`): it draws dimmed (archiving-DESIGN.md); and each member
+    /// pinned in its group marked (`isPinnedInGroup`): it draws its pin mark (#56146).
+    @MainActor private static func markingDocMarks(_ sections: [SidebarSection], _ projection: SidebarDocProjection,
                                                    drag: SidebarDocDrag) -> [SidebarSection] {
-        // Every row, also with none archived: a list arranged before (a fold) may carry an old mark.
-        let archived = projection.archived
+        // Every row, also with none archived: a list arranged before (a fold) may carry an old mark. One `marks` call
+        // per pass over every row in list order: loose workspaces, list items, groups, their workspaces and items.
+        typealias Op = RustSidebarDocListing
+        var rows: [Op.MarksRequest.Row] = []
+        for section in sections {
+            for node in section.nodes {
+                switch node {
+                case .workspace(let workspace): rows.append(.init(item: drag.item(.workspace(workspace.id)), in_group: false))
+                case .item(let item): rows.append(.init(item: item.id, in_group: false))
+                case .group(let group):
+                    rows.append(.init(item: group.id.rawValue, in_group: false))
+                    rows += group.workspaces.map { .init(item: drag.item(.workspace($0.id)), in_group: true) }
+                    rows += group.items.map { .init(item: $0.item.id, in_group: false) }
+                }
+            }
+        }
+        let request = Op.MarksRequest(rows: rows, archived: projection.archived.sorted(), pinned: projection.pinnedInGroup.sorted())
+        let reply = RustSidebarClient.call(Op.op, request, as: Op.MarksReply.self)?.marks
+        // When the op does not answer, no row draws archived or pinned in its group.
+        var marks = (reply?.count == rows.count ? reply ?? [] : []).makeIterator()
+        func next() -> Op.MarksReply.Mark { marks.next() ?? .init(archived: false, pinned_in_group: false) }
         func mark(_ workspace: SidebarWorkspace) -> SidebarWorkspace {
             var workspace = workspace
-            workspace.isArchived = drag.item(.workspace(workspace.id)).map { archived.contains($0) } ?? false
+            let mark = next()
+            workspace.isArchived = mark.archived
+            // Only a member: a stale mark on a loose row is not a pin (`SidebarDocRecords.isPinned(item:)`).
+            workspace.isPinnedInGroup = mark.pinned_in_group
             return workspace
         }
         func mark(_ item: SidebarListItem) -> SidebarListItem {
             var item = item
-            item.isArchived = archived.contains(item.id)
+            item.isArchived = next().archived
             return item
         }
         return sections.map { section in
@@ -121,7 +150,7 @@ extension SidebarDocProjection {
                 case .workspace(let workspace): return .workspace(mark(workspace))
                 case .item(let item): return .item(mark(item))
                 case .group(var group):
-                    group.isArchived = archived.contains(group.id.rawValue)
+                    group.isArchived = next().archived
                     group.workspaces = group.workspaces.map(mark)
                     group.items = group.items.map { SidebarGroupItem(item: mark($0.item), after: $0.after) }
                     return .group(group)
@@ -132,11 +161,20 @@ extension SidebarDocProjection {
     }
 
     /// `sections` with each group's url, tab and app members (`SidebarGroup.items`): a member follows the
-    /// workspace member it follows in the document, else the nearest one before it that lists here.
+    /// workspace member it follows in the document, else the nearest one before it that lists here. A band group's
+    /// member that stores its group's space draws only in that space (`Listed.lists(inRoom:groupRoom:)`), as the same
+    /// link at Pinned's top level does (`scopedToWindow`).
     @MainActor private static func withMemberItems(_ sections: [SidebarSection], _ projection: SidebarDocProjection,
                                                    drag: SidebarDocDrag) -> [SidebarSection] {
         var byGroup: [String: Group] = [:]
-        for group in projection.bandGroups where !group.listed.isEmpty { byGroup[group.id] = group }
+        let bands = Dictionary(projection.bandGroups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        for var group in projection.bandGroups where !group.listed.isEmpty {
+            // A nested group's space is its top-level group's (`Group.followsParent`); the count stops a parent cycle.
+            var top = group
+            for _ in 0..<bands.count { guard let parent = top.parent.flatMap({ bands[$0] }) else { break }; top = parent }
+            group.listed.removeAll { !$0.lists(inRoom: drag.room, groupRoom: top.room, spaces: drag.spaces) }
+            byGroup[group.id] = group
+        }
         for nodes in projection.machines.values {
             for case .group(let group) in nodes where !group.listed.isEmpty { byGroup[group.id] = group }
         }
@@ -147,7 +185,11 @@ extension SidebarDocProjection {
                 guard case .group(var group) = node, let placed = byGroup[group.id.rawValue] else { return node }
                 var shown: [String: WorkspaceID] = [:]
                 for workspace in group.workspaces { if let item = drag.item(.workspace(workspace.id)) { shown[item] = workspace.id } }
-                group.items = placed.listed.map { listed in
+                group.items = placed.listed.compactMap { listed in
+                    // A link, tab or app nested in a Pinned group keeps the group's room filter. The reducer's
+                    // projection carries its record room, but dropping that field here leaked it into every space.
+                    if placed.pinned, let room = listed.item.room, let windowRoom = drag.room,
+                       SidebarDocItem.owningRoom(room, spaces: drag.spaces) != windowRoom { return nil }
                     var anchor: WorkspaceID?
                     if let after = listed.after, let index = placed.memberItems.firstIndex(of: after) {
                         anchor = placed.memberItems[...index].reversed().lazy.compactMap { shown[$0] }.first
@@ -228,13 +270,10 @@ extension SidebarDocProjection {
     /// or in a group under them: they leave this window. It changes with window ownership alone, so the App redraws
     /// when it does (`SidebarRows.show`'s `elsewhere`).
     @MainActor public func bandGroupsListedElsewhere(drag: SidebarDocDrag) -> Set<String> {
-        let parents = Dictionary(bandGroups.map { ($0.id, $0.parent) }, uniquingKeysWith: { first, _ in first })
-        var open = Set<String>()
-        for group in bandGroups where group.openMembers.contains(where: drag.listedElsewhere) {
-            var id: String? = group.id
-            while let current = id, open.insert(current).inserted { id = parents[current] ?? nil }
-        }
-        return open
+        let (groups, elsewhere) = RustSidebarDocListing.bandGroups(self, drag: drag)
+        let request = RustSidebarDocListing.ListedElsewhereRequest(groups: groups, elsewhere: elsewhere)
+        // When the op does not answer, none leaves (every group lists here, as with no other window).
+        return Set(RustSidebarClient.call(RustSidebarDocListing.op, request, as: RustSidebarDocListing.GroupsReply.self)?.groups ?? [])
     }
 
     /// The band groups whose header this window leaves out when it lists none of their workspaces: the ones another
@@ -242,26 +281,11 @@ extension SidebarDocProjection {
     /// the groups nested under those. `listedHere`: the groups this window lists a workspace of; they stay, and so do
     /// the groups above them. A nested group follows its parent (`Group.followsParent`).
     @MainActor public func bandGroupsNotListedHere(drag: SidebarDocDrag, listedHere: Set<String> = []) -> Set<String> {
-        let hidden = bandGroupsListedElsewhere(drag: drag)
-        guard drag.room != nil else { return hidden }
-        let byID = Dictionary(bandGroups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        var kept = Set<String>()
-        for id in listedHere {
-            var at: String? = id
-            while let current = at, kept.insert(current).inserted { at = byID[current].flatMap(\.parent) }
-        }
-        var shows: [String: Bool] = [:]
-        // Whether `group` lists here: kept, or under a parent that lists and of this space (or following that parent).
-        // `depth` stops a parent cycle the reducer would refuse anyway.
-        func lists(_ group: Group, depth: Int) -> Bool {
-            if let known = shows[group.id] { return known }
-            let parentLists = group.parent.flatMap { byID[$0] }.map { lists($0, depth: depth + 1) } ?? true
-            let result = kept.contains(group.id) || depth > bandGroups.count
-                || (parentLists && group.lists(inRoom: drag.room, spaces: drag.spaces))
-            shows[group.id] = result
-            return result
-        }
-        return hidden.union(bandGroups.filter { !lists($0, depth: 0) }.map(\.id))
+        let (groups, elsewhere) = RustSidebarDocListing.bandGroups(self, drag: drag)
+        let request = RustSidebarDocListing.NotListedHereRequest(groups: groups, elsewhere: elsewhere, room: drag.room,
+                                                                 spaces: drag.spaces?.sorted(), listed_here: listedHere.sorted())
+        // When the op does not answer, none is left out (every group lists here, as with no space filter).
+        return Set(RustSidebarClient.call(RustSidebarDocListing.op, request, as: RustSidebarDocListing.GroupsReply.self)?.groups ?? [])
     }
 
     /// A kept group with no open member (Pinned keeps it): its header alone.
@@ -292,6 +316,13 @@ extension SidebarModel {
             }
         }
         return nil
+    }
+
+    /// The built-ins the list draws as rows (in a group or a machine list), as layout items the App
+    /// describes with their band look (`itemInfo`).
+    public var listedBuiltIns: [LayoutItem] {
+        sections.flatMap { $0.nodes.flatMap(\.listedItems) }.filter { $0.ref.builtIn != nil }
+            .map { LayoutItem(id: LayoutItemID($0.id), ref: $0.ref, label: $0.title) }
     }
 }
 

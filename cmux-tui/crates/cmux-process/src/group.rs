@@ -27,9 +27,10 @@
 //! does not use this crate, in the instant between this crate's `pipe` and
 //! its `fcntl(FD_CLOEXEC)`, can inherit the write end and delay the
 //! watchdog until that child exits. Each group costs one idle `sh` process.
-//! Windows has no process groups here: [`Command::spawn_owned`] gives a
-//! child killed and reaped with its handle, not one that dies with this
-//! process (that needs a job object).
+//! Windows has no process groups here: [`Command::spawn_owned`] puts the
+//! child in a job with the kill-on-close limit (`crate::job`), so it and
+//! what it starts die with this process however it ends, and with the
+//! returned value. [`ChildGroup`] and [`GroupTether`] stay Unix-only.
 
 use std::io;
 use std::time::Duration;
@@ -137,6 +138,73 @@ impl Drop for ChildGroup {
     }
 }
 
+/// A watchdog that joins a process group another child already leads, so
+/// that group dies with this process (even by SIGKILL) and with this value.
+///
+/// For a child that must lead its own group (callers signal it by its pid
+/// with `killpg`): [`ChildGroup`] would move it into the watchdog's group.
+/// Join right after the spawn, while the leader is unreaped; the watchdog is
+/// a member from then on, so the group id stays this child's until the drop
+/// even after the leader is reaped. A child that dies before the join is
+/// refused (`setpgid` finds no such group), never mistaken for another's.
+#[derive(Debug)]
+pub struct GroupTether {
+    pgid: i32,
+    #[cfg(unix)]
+    watchdog: Child,
+    #[cfg(unix)]
+    _trigger: io::PipeWriter,
+}
+
+impl GroupTether {
+    /// Start a watchdog in group `pgid` (the pid of a child this process
+    /// started with `process_group(0)` and has not reaped).
+    ///
+    /// # Errors
+    ///
+    /// When the pipe or the watchdog cannot be made, or the group is gone
+    /// (Windows: unsupported).
+    pub fn join(pgid: i32) -> io::Result<Self> {
+        if pgid <= 1 {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "not a child's process group"));
+        }
+        #[cfg(unix)]
+        {
+            let (read, trigger) = io::pipe()?;
+            let watchdog = Command::new("/bin/sh")
+                .args(["-c", WATCHDOG])
+                .env_clear()
+                .stdin(Stdio::from(std::os::fd::OwnedFd::from(read)))
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .process_group(pgid)
+                .spawn()?;
+            Ok(Self { pgid, watchdog, _trigger: trigger })
+        }
+        #[cfg(not(unix))]
+        {
+            Err(io::Error::new(io::ErrorKind::Unsupported, "child groups need a Unix host"))
+        }
+    }
+
+    /// The group it holds.
+    pub fn id(&self) -> i32 {
+        self.pgid
+    }
+}
+
+impl Drop for GroupTether {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        {
+            // SAFETY: the watchdog is a member and unreaped until the wait
+            // below, so the group is still the one joined.
+            unsafe { libc::kill(-self.pgid, libc::SIGKILL) };
+            let _ = self.watchdog.wait();
+        }
+    }
+}
+
 /// A child in its own [`ChildGroup`]: it and every process it starts in its
 /// group die with this process, and with this value.
 ///
@@ -147,7 +215,7 @@ impl Drop for ChildGroup {
 #[derive(Debug)]
 pub struct OwnedChild {
     child: Child,
-    /// `None` on Windows (no groups).
+    /// `None` on Windows (no groups: the child's job holds its tree).
     group: Option<ChildGroup>,
 }
 
@@ -207,8 +275,8 @@ impl Drop for OwnedChild {
 
 impl Command {
     /// Start the child in a new [`ChildGroup`], so it and its descendants
-    /// die with this process (even by SIGKILL) and with the returned value
-    /// (Windows: with the returned value only).
+    /// die with this process (even by SIGKILL; Windows: by a kill-on-close
+    /// job) and with the returned value.
     /// Replaces an earlier [`Command::process_group`].
     ///
     /// # Errors
@@ -232,7 +300,15 @@ impl Command {
             self.process_group = earlier;
             Ok(OwnedChild { child: child?, group: Some(group) })
         }
-        #[cfg(not(unix))]
+        #[cfg(windows)]
+        {
+            // Only this spawn goes in a kill-on-close job.
+            self.owned = true;
+            let child = self.spawn();
+            self.owned = false;
+            Ok(OwnedChild { child: child?, group: None })
+        }
+        #[cfg(not(any(unix, windows)))]
         {
             Ok(OwnedChild { child: self.spawn()?, group: None })
         }

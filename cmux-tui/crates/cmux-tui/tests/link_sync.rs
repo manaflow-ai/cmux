@@ -242,6 +242,30 @@ fn a_dirty_repo_arrives_with_its_git_state_and_without_ignored_files_or_secrets(
     assert_eq!(git(&remote, &status), git(&repo, &status));
 }
 
+#[test]
+fn a_missing_source_root_keeps_the_cloud_copy_and_reports_next_step() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let folder = root.join("site");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("keep.txt"), "keep me\n").unwrap();
+    let (_sockets, socket, home) = machine_home(&root);
+    serve_fs(&socket, &home);
+    let remote = home.join("work/site");
+
+    let (ok, first, _) = push_output(&socket, &folder, &remote);
+    assert!(ok, "{first}");
+    std::fs::remove_dir_all(&folder).unwrap();
+
+    let (ok, answer, _) = push_output(&socket, &folder, &remote);
+    assert!(!ok, "{answer}");
+    assert_eq!(answer["error_code"], json!("source_folder_missing"), "{answer}");
+    let message = answer["error"].as_str().unwrap_or_default();
+    assert!(message.contains("Restore it locally or re-point the chat"), "{answer}");
+    assert!(message.contains("Cloud copy is still intact"), "{answer}");
+    assert_eq!(std::fs::read_to_string(remote.join("keep.txt")).unwrap(), "keep me\n");
+}
+
 /// A working copy whose objects live in other repositories, the way
 /// `git clone --shared` and worktree mirrors leave it: `app` borrows from
 /// `mid`, which borrows from `base` (by a relative path), and only `app`'s
@@ -564,11 +588,16 @@ fn a_pull_brings_back_the_machines_edits_and_commits_but_never_its_hooks() {
     assert_eq!(again["fast_forwarded"], false, "{again}");
 }
 
+/// RFD 0066 piece 8: Bring Back applies what merges. One conflict and two clean edits: the two
+/// are written, the conflict keeps this Mac's version with the machine's merge beside it, and the
+/// answer names all three. When both sides committed, the machine's commit is kept as a ref of
+/// ours outside `refs/heads` and the branch stays.
 #[test]
-fn a_pull_with_changes_on_both_sides_changes_nothing_and_names_them() {
+fn a_pull_with_one_conflict_writes_the_clean_files_and_keeps_the_machines_commit() {
     let (_root, _sockets, repo, remote, socket) = pushed_repo();
     std::fs::write(remote.join("notes.txt"), "notes\nfrom the machine\n").unwrap();
     std::fs::write(remote.join("other.txt"), "other\nfrom the machine\n").unwrap();
+    std::fs::write(remote.join("src/a.txt"), "one\nfrom the machine\n").unwrap();
     std::fs::write(repo.join("notes.txt"), "notes\nfrom the mac\n").unwrap();
     let head = git(&repo, &["rev-parse", "HEAD"]);
 
@@ -576,21 +605,52 @@ fn a_pull_with_changes_on_both_sides_changes_nothing_and_names_them() {
     assert!(!ok, "{answer}");
     assert_eq!(answer["error_code"], "sync_conflict", "{answer}");
     assert_eq!(answer["conflicts"], serde_json::json!(["notes.txt"]), "{answer}");
+    assert_eq!(answer["conflicted_files"], serde_json::json!(["notes.txt"]), "{answer}");
+    assert_eq!(answer["written_files"], serde_json::json!(["other.txt", "src/a.txt"]), "{answer}");
+    assert_eq!(answer["written"], 2, "{answer}");
+    assert_eq!(
+        answer["merge_files"],
+        serde_json::json!(["notes.txt.cmux-sync-conflict"]),
+        "{answer}"
+    );
     assert_eq!(std::fs::read_to_string(repo.join("notes.txt")).unwrap(), "notes\nfrom the mac\n");
-    assert_eq!(std::fs::read_to_string(repo.join("other.txt")).unwrap(), "other\n", "half applied");
+    let beside = std::fs::read_to_string(repo.join("notes.txt.cmux-sync-conflict")).unwrap();
+    assert!(beside.contains("from the machine") && beside.contains("from the mac"), "{beside}");
+    assert_eq!(
+        std::fs::read_to_string(repo.join("other.txt")).unwrap(),
+        "other\nfrom the machine\n"
+    );
+    assert_eq!(std::fs::read_to_string(repo.join("src/a.txt")).unwrap(), "one\nfrom the machine\n");
+    assert_eq!(git(&repo, &["rev-parse", "HEAD"]), head, "nothing was committed on the machine");
 
-    // Both sides commit: the branch is a conflict too, and stays here.
+    // Again: the clean files are settled, the conflict is still named, its merge file the same.
+    let (ok, again) = pull(&socket, &repo, &remote);
+    assert!(!ok, "{again}");
+    assert_eq!(again["conflicted_files"], serde_json::json!(["notes.txt"]), "{again}");
+    assert_eq!(again["written"], 0, "{again}");
+    assert_eq!(
+        again["merge_files"],
+        serde_json::json!(["notes.txt.cmux-sync-conflict"]),
+        "{again}"
+    );
+
+    // Both sides commit: the branch stays, and the machine's commit is kept as a ref of ours.
+    std::fs::remove_file(repo.join("notes.txt.cmux-sync-conflict")).unwrap();
     git(&remote, &["commit", "-q", "-am", "there"]);
     git(&repo, &["commit", "-q", "-am", "here"]);
     let here = git(&repo, &["rev-parse", "HEAD"]);
-    assert_ne!(here, head);
     let (ok, answer) = pull(&socket, &repo, &remote);
     assert!(!ok, "{answer}");
-    let conflicts = answer["conflicts"].as_array().cloned().unwrap_or_default();
+    let conflicts = answer["conflicted_files"].as_array().cloned().unwrap_or_default();
     assert!(conflicts.contains(&serde_json::json!(".git/HEAD")), "{answer}");
     assert!(conflicts.contains(&serde_json::json!("notes.txt")), "{answer}");
     assert_eq!(git(&repo, &["rev-parse", "HEAD"]), here, "the branch moved");
-    assert_eq!(std::fs::read_to_string(repo.join("other.txt")).unwrap(), "other\n", "half applied");
+    let there = git(&remote, &["rev-parse", "HEAD"]);
+    assert_eq!(answer["kept_refs"][0]["ref"], "refs/cmux/bring-back/app", "{answer}");
+    assert_eq!(answer["kept_refs"][0]["commit"], there.trim(), "{answer}");
+    assert_eq!(git(&repo, &["rev-parse", "refs/cmux/bring-back/app"]), there);
+    assert_eq!(git(&repo, &["log", "-1", "--format=%s", "refs/cmux/bring-back/app"]), "there\n");
+    assert!(!git(&repo, &["branch", "--list"]).contains("bring-back"), "a branch was made");
 }
 
 /// Every path below `dir`, relative to it, folders included.
@@ -749,6 +809,77 @@ fn a_pull_trusts_only_the_base_this_mac_kept() {
     assert_eq!(answer["error_code"], "sync_base_mismatch", "{answer}");
     assert_eq!(std::fs::read_to_string(repo.join(".env")).unwrap(), "SECRET=mac\n", "{answer}");
     assert_eq!(std::fs::read_to_string(repo.join("build/keep.o")).unwrap(), "mine\n", "{answer}");
+}
+
+/// The head file and revision of the one base kept in `state` (RFD 0140 item 5).
+fn kept_revision(state: &Path) -> (PathBuf, PathBuf) {
+    let dir = state.join("link-sync");
+    let heads: Vec<PathBuf> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "head"))
+        .collect();
+    assert_eq!(heads.len(), 1, "{heads:?}");
+    let id = std::fs::read_to_string(&heads[0]).unwrap().trim().to_owned();
+    (heads[0].clone(), dir.join("revisions").join(id))
+}
+
+#[test]
+fn a_delete_against_an_edit_is_a_conflict_both_ways() {
+    let (_root, _sockets, repo, remote, socket) = pushed_repo();
+    // This Mac deletes old.txt, the machine edits it; the machine deletes other.txt, this Mac
+    // edits it. The three-tree rule names both, and decides neither.
+    std::fs::remove_file(repo.join("old.txt")).unwrap();
+    std::fs::write(remote.join("old.txt"), "old\nedited there\n").unwrap();
+    std::fs::remove_file(remote.join("other.txt")).unwrap();
+    std::fs::write(repo.join("other.txt"), "other\nedited here\n").unwrap();
+
+    let (ok, answer) = pull(&socket, &repo, &remote);
+    assert!(!ok, "{answer}");
+    assert_eq!(answer["error_code"], "sync_conflict", "{answer}");
+    assert_eq!(answer["conflicts"], json!(["old.txt", "other.txt"]), "{answer}");
+    assert!(!repo.join("old.txt").exists(), "the pull brought the machine's file back");
+    assert_eq!(std::fs::read_to_string(repo.join("other.txt")).unwrap(), "other\nedited here\n");
+}
+
+#[test]
+fn the_base_is_a_content_addressed_revision_that_outlives_a_restart() {
+    let (_root, _sockets, repo, remote, socket) = pushed_repo();
+    let state = state_of(&socket);
+    let (head, revision) = kept_revision(&state);
+    let bytes = std::fs::read(&revision).unwrap();
+    assert_eq!(revision.file_name().unwrap().to_str().unwrap(), sha256_hex(&bytes));
+
+    // A new process (a daemon restart) reads the same base: the machine's edit comes back.
+    std::fs::write(remote.join("notes.txt"), "notes\nfrom the machine\n").unwrap();
+    let (ok, answer) = pull(&socket, &repo, &remote);
+    assert!(ok, "{answer}");
+    assert_eq!(
+        std::fs::read_to_string(repo.join("notes.txt")).unwrap(),
+        "notes\nfrom the machine\n"
+    );
+    // The pull moved the head to a new revision; the old one is still there.
+    let (_, moved) = kept_revision(&state);
+    assert_ne!(moved, revision);
+    assert!(revision.exists());
+
+    // A head left on an older revision than the machine's record is a mismatch, never trusted.
+    std::fs::write(&head, format!("{}\n", revision.file_name().unwrap().to_str().unwrap()))
+        .unwrap();
+    let (ok, answer) = pull(&socket, &repo, &remote);
+    assert!(!ok, "{answer}");
+    assert_eq!(answer["error_code"], "sync_base_mismatch", "{answer}");
+
+    // A damaged revision is an error, never an empty base that would bring everything back.
+    std::fs::write(&moved, b"{}").unwrap();
+    std::fs::write(&head, format!("{}\n", moved.file_name().unwrap().to_str().unwrap())).unwrap();
+    let (ok, answer) = pull(&socket, &repo, &remote);
+    assert!(!ok, "{answer}");
+    assert_ne!(answer["error_code"], "sync_no_base", "{answer}");
+    assert_eq!(
+        std::fs::read_to_string(repo.join("notes.txt")).unwrap(),
+        "notes\nfrom the machine\n"
+    );
 }
 
 /// Plants the files of a bare repository's shape in `folder` on the
@@ -1049,6 +1180,40 @@ fn outside_git_heavy_folders_secrets_and_links_stay_and_are_named() {
     assert_eq!(summary["skipped_counts"]["secret"], json!(4));
     assert_eq!(summary["skipped_counts"]["symlink"], json!(1));
     assert_eq!(summary["skipped_counts"]["special"], json!(1));
+}
+
+/// A missing input is visible to the receiver as missing. An outside link is
+/// named for the person, while a Git-ignored file remains silent today.
+#[test]
+fn missing_ignored_and_outside_files_are_absent_and_outside_name_is_reported() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let folder = root.join("chat");
+    std::fs::create_dir_all(&folder).unwrap();
+    git(&folder, &["init", "-q", "-b", "main"]);
+    std::fs::write(folder.join(".gitignore"), "ignored.txt\n").unwrap();
+    std::fs::write(folder.join("ignored.txt"), "needed build input\n").unwrap();
+    std::fs::write(folder.join("present.txt"), "arrived\n").unwrap();
+    git(&folder, &["add", ".gitignore", "present.txt"]);
+    git(&folder, &["commit", "-q", "-m", "fixture"]);
+    std::fs::write(root.join("outside.txt"), "needed source\n").unwrap();
+    std::os::unix::fs::symlink(root.join("outside.txt"), folder.join("outside-link")).unwrap();
+
+    let (_sockets, socket, home) = machine_home(&root);
+    serve_fs(&socket, &home);
+    let remote = home.join("work/chat");
+    let (ok, summary, _) = push_output(&socket, &folder, &remote);
+    assert!(ok, "{summary}");
+    assert_eq!(std::fs::read_to_string(remote.join("present.txt")).unwrap(), "arrived\n");
+    assert!(!remote.join("ignored.txt").exists(), "a Git-ignored input was synced");
+    assert!(std::fs::symlink_metadata(remote.join("outside-link")).is_err());
+
+    let named = skipped_by_path(&summary);
+    assert_eq!(
+        named.get("outside-link").map(String::as_str),
+        Some("a symlink (to a place outside the folder)")
+    );
+    assert!(!named.contains_key("ignored.txt"), "Git-ignored files are silent today: {summary}");
 }
 
 /// The `skipped_files` of an answer by path: why each was left out.
@@ -1493,7 +1658,7 @@ fn serve_fs_counted(
 
 /// A push of a repository with many loose objects through a link with a
 /// round trip of `CMUX_SYNC_BENCH_RTT_MS` (default 20): prints its wall
-/// time, requests, `fs.write`s and bytes sent. `cargo test --test link_sync
+/// time, requests, `fs.write`s and bytes sent. `cargo test --test it
 /// -- --ignored --nocapture loose_object_push_bench`.
 #[test]
 #[ignore = "a benchmark"]

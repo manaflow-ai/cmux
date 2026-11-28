@@ -3,7 +3,7 @@ import CmuxNextActions
 import CmuxNextIcons
 import CmuxNextPages
 
-extension InternalPageID {
+nonisolated extension InternalPageID {
     /// The Cloud page tab (`cmux-page://cmux.cloud/`): machines, snapshots, ports, files and plan.
     static let cloud = InternalPageID(rawValue: "cloud")
 }
@@ -28,7 +28,7 @@ final class CloudPageService: InternalPageProvider {
     }
 
     var page: InternalPageID { .cloud }
-    var title: String { String(localized: "cloud.page.title", defaultValue: "Cloud", table: "Cloud", bundle: .module) }
+    var title: String { String(localized: "cloud.page.title", defaultValue: "Cloud", table: "Cloud", bundle: .module.inAppLanguage) }
     var symbol: String { "cloud" }
     var icon: IconName? { .cloud }
 

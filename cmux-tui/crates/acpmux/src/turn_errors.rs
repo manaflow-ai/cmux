@@ -8,15 +8,10 @@
 //! onto, and a 529 overloaded is the provider's, whichever account asks. The session waits and
 //! goes on where it is (subsession-card, 2026-10-26).
 
-/// Whether `code` (three digits) is in `m` as a number of its own: "HTTP 503", not "2503s".
+/// Whether `code` (three digits) is in `m` as a number of its own: "HTTP 503", not "2503s"
+/// (the shared reading, `cmux_upstream_error::has_status`).
 pub(crate) fn has_status(m: &str, code: &str) -> bool {
-    let bytes = m.as_bytes();
-    m.match_indices(code).any(|(at, _)| {
-        let before = at.checked_sub(1).and_then(|i| bytes.get(i).copied());
-        let after = bytes.get(at + code.len()).copied();
-        !before.is_some_and(|b| b.is_ascii_alphanumeric())
-            && !after.is_some_and(|b| b.is_ascii_alphanumeric())
-    })
+    cmux_upstream_error::has_status(m, code)
 }
 
 /// Does an agent error mean the account cannot serve, not that the prompt
@@ -60,12 +55,8 @@ pub(crate) fn is_usage_limit_error(message: &str) -> bool {
 /// accounts", Codex's "Selected model is at capacity"? Usage limits and sign-in failures are
 /// not (`transient_cause` checks those first).
 pub fn is_capacity_error(message: &str) -> bool {
-    let m = message.to_lowercase();
-    has_status(&m, "503")
-        || has_status(&m, "529")
-        || m.contains("overloaded")
-        || m.contains("at capacity")
-        || (m.contains("no non-exhausted") && m.contains("account"))
+    // One reading for acpmux and OptChat's Chief turn and compactor (ask-616b73f6bc).
+    cmux_upstream_error::is_capacity(message)
 }
 
 /// An HTTP gateway failure is independent of account credentials.
@@ -125,11 +116,47 @@ pub fn says_connection_dropped(message: &str) -> bool {
         "unexpected eof",
         "unexpected end of file",
         "early eof",
+        // A TLS handshake that did not verify: on Freestyle lanes (2026-11-22) ~30 Claude
+        // turns failed with "API Error: Unable to connect to API: SSL certificate verification
+        // failed (UNABLE_TO_VERIFY_LEAF_SIGNATURE)" when the restarted daemon's egress proxy
+        // signed with a new CA the agent did not trust yet; restarting the agent on the new
+        // proxy (`end_stale_proxy_before_retry`) fixes it, so it is a transport error.
+        "unable to connect to api",
+        "ssl certificate verification failed",
+        "unable_to_verify_leaf_signature",
+        "self_signed_cert_in_chain",
+        "depth_zero_self_signed_cert",
+        "unable to get local issuer certificate",
+        "certificate verify failed",
+        "invalid peer certificate",
     ];
     is_gateway_error(message)
         || PHRASES.iter().any(|p| m.contains(p))
         || (m.contains("websocket")
             && (m.contains("handshake") || m.contains("closed") || m.contains("disconnect")))
+}
+
+/// A provider denied access to the selected model.
+pub(crate) fn model_not_available(message: &str) -> bool {
+    let text = message.to_ascii_lowercase();
+    ["model_not_found", "model not found"].into_iter().any(|phrase| text.contains(phrase))
+        || ["no access", "does not have access", "do not have access"].into_iter().any(|denial| {
+            text.split_once(denial).is_some_and(|(_, tail)| {
+                tail.starts_with(" to model") || tail.starts_with(" to the model")
+            })
+        })
+        || text.contains("model") && text.contains("does not exist or you do not have access")
+}
+
+/// Does an agent error say nobody listened where the model was: the connection was refused
+/// (`ECONNREFUSED`), as when the inference gateway is down? A dropped connection
+/// ([`says_connection_dropped`]) whose outage ends only when the gateway is back, so its
+/// continuation waits it out like a capacity one (`hub/auto_resume.rs` `waits_it_out`) instead
+/// of using up a transport error's attempts (2026-11-24: three fresh chats ended their first
+/// turn on "API Error: Connection refused (ECONNREFUSED)" and sat failed).
+pub fn is_refused_connection(message: &str) -> bool {
+    let m = message.to_lowercase();
+    m.contains("econnrefused") || m.contains("connection refused")
 }
 
 /// Does an agent error say the request itself was refused: a bad request (HTTP 400, 413 or
@@ -184,6 +211,14 @@ pub fn transient_cause(error: &str) -> Option<&'static str> {
     }
 }
 
+/// Whether `error` says the disk was full: `ENOSPC`, "No space left on device (os error 28)".
+pub fn is_disk_full(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    lower.contains("no space left on device")
+        || lower.contains("os error 28")
+        || lower.contains("enospc")
+}
+
 /// A process exit needs its stderr-enriched explanation; transport errors keep their raw cause.
 pub(crate) fn continuation_error<'a>(raw: Option<&'a str>, shown: &'a str) -> &'a str {
     match raw {
@@ -211,6 +246,11 @@ pub fn resume_cause(raw: &str, shown: &str) -> Option<&'static str> {
     {
         return None;
     }
+    // A full disk clears by itself (a build's output reclaimed, a cache pruned): the chat waits
+    // for free space, then goes on (`hub/auto_resume/disk_wait.rs`).
+    if is_disk_full(raw) || is_disk_full(shown) {
+        return Some("disk");
+    }
     // Before the refused requests: a prompt past the window is a 400 that compacting answers.
     if is_context_overflow(raw) || is_context_overflow(shown) {
         return Some("context");
@@ -231,243 +271,5 @@ pub fn resume_cause(raw: &str, shown: &str) -> Option<&'static str> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn transport_errors_are_told_from_limits_and_bugs() {
-        for m in [
-            "stream disconnected before completion: error sending request for url (https://chatgpt.com/backend-api/codex/responses)",
-            "API Error: Connection error.",
-            "request to https://api.anthropic.com failed, reason: socket hang up",
-            "WebSocket handshake failed: 502",
-            "upstream connect error or disconnect/reset before headers",
-            "read ECONNRESET",
-            "API Error: Connection lost mid-response. The response above may be incomplete.",
-            "API Error: 500 {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"Internal server error\"}}",
-        ] {
-            assert!(is_transport_error(m), "{m}");
-        }
-        for m in [
-            "You've reached your usage limit for this account",
-            "Selected model is at capacity. overloaded",
-            "simulated internal error",
-            "agent process closed",
-            "Invalid API key",
-        ] {
-            assert!(!is_transport_error(m), "{m}");
-        }
-    }
-
-    #[test]
-    fn claude_limit_texts_are_limits() {
-        for m in [
-            "You've hit your limit · resets 3pm (America/Los_Angeles)",
-            "Claude AI usage limit reached|1760000000",
-            "You have hit your usage limit for Opus.",
-            "API Error: 429 rate_limit_error",
-            // claude-sr2-coord-old, 2026-11-16: 207 of 400 turns failed with this one.
-            "API Error: Request rejected (429) · This request would exceed your account's rate limit",
-        ] {
-            assert!(is_limit_error(m), "{m}");
-            assert!(!is_transport_error(m), "{m}");
-            assert_eq!(resume_cause(m, m), Some("rate_limit"), "{m}");
-        }
-        assert!(!is_limit_error("agent process closed"));
-        assert!(!is_limit_error("You've hit the end of the file"));
-    }
-
-    #[test]
-    fn a_dead_agent_is_continued_unless_it_died_of_a_limit_or_sign_in() {
-        let raw = "agent process closed";
-        assert_eq!(resume_cause(raw, raw), Some("agent_exited"));
-        assert_eq!(
-            resume_cause(raw, "agent process closed (claude): Segmentation fault"),
-            Some("agent_exited")
-        );
-        assert_eq!(
-            resume_cause(raw, "agent process closed (claude): You've hit your limit"),
-            Some("rate_limit")
-        );
-        // An expired credential is a sign-in failure too (`recovery::auth_kind`: auth.expired).
-        assert_eq!(resume_cause(raw, "agent process closed (claude): credential expired"), None);
-        // An unreachable provider is still retried, whatever it says of a credential.
-        let dropped = "token expired? connection refused";
-        assert_eq!(resume_cause(dropped, dropped), Some("transport"));
-        assert_eq!(
-            resume_cause("HTTP 503: credential expired", "HTTP 503: credential expired"),
-            Some("capacity")
-        );
-        for m in ["HTTP 503: OAuth token has expired", "connection error: OAuth token has expired"]
-        {
-            assert!(resume_cause(m, m).is_some(), "{m}");
-        }
-        assert_eq!(
-            resume_cause(raw, "agent process closed (fake): Not logged in · Please run /login"),
-            None
-        );
-        assert_eq!(
-            resume_cause("API Error: Connection error.", "API Error: Connection error."),
-            Some("transport")
-        );
-        assert_eq!(resume_cause("simulated internal error", "simulated internal error"), None);
-    }
-
-    /// The gateway's and the provider's "try again in a moment" (subsession-card, 2026-10-26:
-    /// five helpers died on the first of these and sat failed until a person typed "continue").
-    const CAPACITY: &[&str] = &[
-        "API Error: 503 no non-exhausted claude accounts available. This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (sr2-gateway.tail137216.ts.net:4016). (error type server_error, HTTP 503 Service Unavailable)",
-        "API Error: 503 no non-exhausted claude accounts available, next account frees up in 50m (retry after 2401s). This is a server-side issue, usually temporary. Try again in a moment.",
-        "API Error: 503 no non-exhausted claude accounts available, next account frees up in 7m (retry after 429s).",
-        "API Error: 529 {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}",
-        "Selected model is at capacity.",
-        "Selected model is at capacity. overloaded",
-        "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}",
-    ];
-
-    #[test]
-    fn an_agent_that_died_of_a_refused_request_is_not_continued() {
-        let raw = "agent process closed";
-        let shown = "agent process closed (fake): HTTP 403 permission denied";
-        assert_eq!(resume_cause(raw, shown), None);
-        let shown = "agent process closed (claude): API Error: 400 invalid_request_error";
-        assert_eq!(resume_cause(raw, shown), None);
-        // Its last line naming its own process id or port is still a death to continue.
-        let shown = "agent process closed (claude): exited 4003";
-        assert_eq!(resume_cause(raw, shown), Some("agent_exited"));
-    }
-
-    #[test]
-    fn capacity_errors_are_continued_in_place() {
-        for m in CAPACITY {
-            assert!(!is_limit_error(m), "{m}");
-            assert!(is_capacity_error(m), "{m}");
-            assert_eq!(transient_cause(m), Some("capacity"), "{m}");
-            assert_eq!(resume_cause(m, m), Some("capacity"), "{m}");
-        }
-        // A status code is a number of its own, not digits inside another one.
-        assert!(!is_capacity_error("retry after 2503s"));
-        assert!(!is_limit_error("next account frees up in 4290s"));
-        assert!(!is_limit_error("session 7f401ab"));
-        assert!(is_limit_error("HTTP 401 Unauthorized"));
-        assert!(is_limit_error("API Error: 429 Too Many Requests"));
-    }
-
-    /// Every harness acpmux drives says its rate limit in its own words; each one holds the chat
-    /// until the reset (`hub/rate_hold.rs`) instead of retrying per prompt as capacity or a
-    /// dropped connection would.
-    #[test]
-    fn every_harness_rate_limit_holds_the_chat() {
-        for m in [
-            // Claude Code.
-            "API Error: Request rejected (429) · This request would exceed your account's rate limit",
-            // Codex.
-            "stream error: exceeded retry limit, last status: 429 Too Many Requests",
-            "exceeded retry limit, last status: 429",
-            // OpenCode.
-            "Rate limit exceeded. Please try again later.",
-            // Gemini CLI.
-            "[API Error: {\"error\":{\"code\":429,\"message\":\"Resource has been exhausted (e.g. check quota).\",\"status\":\"RESOURCE_EXHAUSTED\"}}]",
-            "RESOURCE_EXHAUSTED",
-            // Any harness that prints the status's words alone.
-            "Too Many Requests",
-        ] {
-            assert_eq!(resume_cause(m, m), Some("rate_limit"), "{m}");
-            assert!(!is_capacity_error(m) || is_usage_limit_error(m), "{m}");
-        }
-    }
-
-    #[test]
-    fn a_dropped_gateway_connection_is_continued() {
-        for m in [
-            "API Error: request to http://127.0.0.1:4016/v1/messages failed, reason: read ECONNRESET",
-            "error sending request: connection reset by peer",
-            "API Error: unexpected EOF while reading the response from the gateway",
-            "stream error: unexpected end of file",
-        ] {
-            assert_eq!(transient_cause(m), Some("transport"), "{m}");
-            assert_eq!(resume_cause(m, m), Some("transport"), "{m}");
-        }
-    }
-
-    /// Claude Code's own words when a chat outgrew its model's window (Leo, 2026-11-03: "this
-    /// should not have happened. this should have just started compacting"): a 400 that is
-    /// still worth going on from, once the chat is compacted (`auto_resume/compact_first.rs`).
-    const CONTEXT: &[&str] = &[
-        "API Error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"prompt is too long: 211234 tokens > 200000 maximum\"},\"request_id\":\"req_011CUx2\"}",
-        "Prompt is too long",
-        "API Error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"input length and `max_tokens` exceed context limit: 188000 + 32000 > 200000, decrease input length or `max_tokens` and try again\"}}",
-        "{\"error\":{\"code\":\"context_length_exceeded\",\"message\":\"This model's maximum context length is 128000 tokens.\"}}",
-    ];
-
-    #[test]
-    fn a_chat_that_outgrew_its_context_is_continued_after_compacting() {
-        for m in CONTEXT {
-            assert_eq!(resume_cause(m, m), Some("context"), "{m}");
-            // A dead agent's last line says so too.
-            let shown = format!("agent process closed (claude): {m}");
-            assert_eq!(resume_cause("agent process closed", &shown), Some("context"), "{m}");
-        }
-        // Any other bad request is still refused for good.
-        let other = "API Error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages.3: tool_use ids must be unique\"}}";
-        assert_eq!(resume_cause(other, other), None);
-        // A sign-in failure wins over the window's words.
-        let signed_out = "Not logged in · Please run /login (prompt is too long)";
-        assert_eq!(resume_cause(signed_out, signed_out), None);
-        // Not a transient error: nothing else retries it as one.
-        assert_eq!(transient_cause(CONTEXT[0]), None);
-    }
-
-    #[test]
-    fn limits_sign_in_bad_requests_and_refusals_are_never_continued() {
-        for m in [
-            "You've hit your limit · resets 3pm (America/Los_Angeles)",
-            "API Error: 429 {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"Rate limited\"}}",
-            "You've reached your usage limit for this account",
-            "API Error: 401 {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"invalid x-api-key\"}}",
-            "Not logged in · Please run /login",
-            "Invalid API key · Fix external API key",
-            "API Error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages.3: tool_use ids must be unique\"}}",
-            "The user doesn't want to proceed with this tool use. The tool use was rejected.",
-            "Permission denied: the person refused this command",
-            "simulated internal error",
-        ] {
-            assert_eq!(transient_cause(m), None, "{m}");
-            assert_eq!(
-                resume_cause(m, m),
-                if is_usage_limit_error(m) && !is_refused_request(m) {
-                    Some("rate_limit")
-                } else {
-                    None
-                },
-                "{m}"
-            );
-        }
-        // A limit, a sign-in failure or a refused request wins over a capacity or connection
-        // word in the same text.
-        for m in [
-            "API Error: 429 rate_limit_error: the service is at capacity for your plan",
-            "API Error: 400 invalid_request_error: unexpected EOF while parsing JSON",
-            "API Error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"overloaded_error is not a valid tool name\"}}",
-            "API Error: 403 {\"type\":\"error\",\"error\":{\"type\":\"permission_error\",\"message\":\"connection reset by policy\"}}",
-            "HTTP 413 request_too_large: the gateway closed the connection (connection reset)",
-            "Bad Request: stream disconnected",
-            "Not logged in · Please run /login (connection error)",
-        ] {
-            assert!(is_refused_request(m) || is_limit_error(m) || m.contains("/login"), "{m}");
-            assert_eq!(transient_cause(m), None, "{m}");
-            assert_eq!(
-                resume_cause(m, m),
-                if is_usage_limit_error(m) && !is_refused_request(m) {
-                    Some("rate_limit")
-                } else {
-                    None
-                },
-                "{m}"
-            );
-        }
-        // The gateway's address is no status: port 4016 is not a 401 nor a 403.
-        assert!(!is_refused_request("check your inference gateway (127.0.0.1:4016)"));
-        assert!(!is_refused_request("retry after 4003s"));
-    }
-}
+#[path = "turn_errors_tests.rs"]
+mod tests;

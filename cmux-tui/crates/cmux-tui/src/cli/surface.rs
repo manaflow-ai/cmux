@@ -30,6 +30,7 @@ pub(super) const CMUX_SCOPES: &[&str] = &[
     "space",
     "closed",
     "git",
+    "project",
 ];
 
 /// Which command-line surface this invocation exposes. The binary ships as
@@ -105,6 +106,17 @@ With the cmux app running, `machine ls` also lists its Cloud machines
 (`kind: cloud`, `target: vm:<id>`); without it a note says they are missing.
 ";
 
+/// `cmux machine ls --help` (and `machine list`): the catalog verb's own help, not the overview.
+pub(super) const MACHINE_LS_HELP: &str = "\
+usage: cmux machine ls [--catalog]
+       cmux machine list [--catalog]
+
+Lists the machine catalog: this machine and the machines it reaches, with the ids
+`cmux chat --on` takes. `--catalog` also lists the routes the app published.
+With the cmux app running it also lists its Cloud machines (`kind: cloud`,
+`target: vm:<id>`); without it a note on stderr says they are missing.
+";
+
 /// Where a `machine` help sends a person for VMs: `vm` is the one noun that makes them (CMUX-43).
 pub(super) const VM_POINTER: &str = "\
 Cloud VMs (new, run, show, pause, resume, rm, exec, key, access) are `cmux vm`:
@@ -122,17 +134,45 @@ Cloud VMs through the cmux VM API (vm.cmux.dev):
   resume    Resume a paused VM
   start     Start a stopped VM
   stop      Stop a VM; its disk stays
-  rm        Delete a VM for good
+  rm        Delete a VM for good (--wait: until it is gone; --with-snapshots:
+            its snapshots too)
   exec      Run a command on a VM
   fork      Fork a VM
   snapshot  Snapshots (new, show, ls, rm)
+  snapshots The team's snapshots and whether their VM still exists (--orphaned)
   access    Short-lived access to one VM (new, ls, revoke, exec)
   key       A VM-only agent key for any process (new, status, revoke)
   creation  Recover a create whose answer was lost (list, get, cancel, reconcile)
+  file      Read saved files without starting the VM (read, ls, stat)
   pool      The CI runner pool on Freestyle and GCP: up N, pause, watch,
             schedule (`cmux vm pool --help`; never deletes a machine)
+  runner    Your own Freestyle runner VM for one CI job: new, ls, park
+            (`cmux vm runner --help`; resumes a parked VM, never deletes)
 
 `cmux vm access new|exec --target vm:VM_ID` mints access through the
 cmux API instead, for the app's Cloud VMs. Use `cmux vm resize` to
 resize one.
+";
+
+/// Japanese VM API verb help for the locale selected by the CLI catalog.
+pub(super) const VM_VERBS_HELP_JA: &str = "\
+Cloud VM API を通じた cmux の VM 操作:
+  run       新しい VM でコマンドを実行し、終了時に削除 (--sync、--pull、--keep)
+  new       Cloud VM を作成
+  show      VM を表示 (`cmux vm show ID`)
+  pause     メモリを保持したまま VM を一時停止
+  resume    一時停止した VM を再開
+  start     停止した VM を開始
+  stop      VM を停止 (ディスクは保持)
+  rm        VM を完全に削除
+  exec      VM でコマンドを実行
+  fork      VM を複製
+  snapshot  スナップショット (new、show、ls、rm)
+  access    1 台の VM への短時間アクセス (new、ls、revoke、exec)
+  key       プロセス用の VM 専用エージェントキー (new、status、revoke)
+  creation  失われた作成結果を復旧 (list、get、cancel、reconcile)
+  file      VM を開始せずに保存ファイルを読む (read、ls、stat)
+
+`cmux vm access new|exec --target vm:VM_ID` は、アプリの Cloud VM 用に
+cmux API 経由のアクセスを作成します。VM のサイズ変更には `cmux vm resize` を使います。
 ";

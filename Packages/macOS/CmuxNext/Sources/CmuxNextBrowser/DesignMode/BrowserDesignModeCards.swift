@@ -22,6 +22,8 @@ public nonisolated struct BrowserDesignModeCards: Sendable {
         var edits: String
         var comment: String
         var number: Int
+        /// The card as last sent, for Send to agent (``card(at:)``).
+        var card: BrowserDesignModeCard
     }
 
     public init() {}
@@ -61,7 +63,7 @@ public nonisolated struct BrowserDesignModeCards: Sendable {
                 continue
             }
             let card = Self.card(selection, key: key, pageURL: pageURL, edits: mine, comment: comment, number: number)
-            next[key] = Sent(id: card.id, edits: mine, comment: comment, number: number)
+            next[key] = Sent(id: card.id, edits: mine, comment: comment, number: number, card: card)
             cards.append(card)
         }
         let removed = sent.filter { next[$0.key] == nil }.map(\.value.id).sorted()
@@ -73,6 +75,24 @@ public nonisolated struct BrowserDesignModeCards: Sendable {
     /// nil for a card this tab does not hold.
     public func selector(of id: String) -> String? {
         sent.first { $0.value.id == id }?.key
+    }
+
+    /// The card the latest snapshot holds for the pick at `selector`; nil for one this tab does not hold.
+    public func card(at selector: String) -> BrowserDesignModeCard? {
+        sent[selector]?.card
+    }
+
+    /// What a pick's thread asks of the app (comment threads, `diff-comments-threads-v1`): the page posts
+    /// `{type: "send_requested", selector}` for Command-Return in a pick's bubble, and
+    /// `{type: "thread_resolve", selector}` for its thread card's Resolve, each only for a real key
+    /// or click. Nil for any other message.
+    public static func threadRequest(_ message: Data) -> BrowserDesignModeThreadRequest? {
+        guard let body = object(message), let selector = body["selector"] as? String, !selector.isEmpty else { return nil }
+        switch body["type"] as? String {
+        case "send_requested": return .send(selector: selector)
+        case "thread_resolve": return .resolve(selector: selector)
+        default: return nil
+        }
     }
 
     /// The runtime call that completes a drawn region (`annotation_capture_requested`): cmux-next
@@ -136,7 +156,7 @@ public nonisolated struct BrowserDesignModeCards: Sendable {
             text = "Picked design variation \(picked)" + (stripped.isEmpty ? "" : ": \(stripped)") + "\n\n" + text
         }
         return BrowserDesignModeCard(
-            id: "design-" + stableHash(key + "|" + (pageURL?.absoluteString ?? "")),
+            id: BrowserDesignModeCard.id(selector: key, pageURL: pageURL),
             name: Strings.designModeCardName(number: number, comment: comment, tag: tag, host: host),
             text: text,
             bounds: CGRect(x: Self.number(bounds?["x"]), y: Self.number(bounds?["y"]),
@@ -144,7 +164,9 @@ public nonisolated struct BrowserDesignModeCards: Sendable {
             viewportWidth: Self.number(viewport?["width"]),
             pickedVariation: picked,
             comment: comment,
-            number: number
+            number: number,
+            selector: key,
+            quote: String(((selection["text_content"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(1000))
         )
     }
 
@@ -197,14 +219,12 @@ public nonisolated struct BrowserDesignModeCards: Sendable {
     private static func number(_ value: Any?) -> Double {
         (value as? NSNumber)?.doubleValue ?? 0
     }
+}
 
-    /// FNV-1a, stable across launches (Swift's `hashValue` is seeded per process).
-    private static func stableHash(_ text: String) -> String {
-        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
-        for byte in text.utf8 {
-            hash ^= UInt64(byte)
-            hash = hash &* 0x0000_0100_0000_01b3
-        }
-        return String(hash, radix: 16)
-    }
+/// A pick's thread request from the page (``BrowserDesignModeCards/threadRequest(_:)``).
+public nonisolated enum BrowserDesignModeThreadRequest: Sendable, Equatable {
+    /// Command-Return in the pick's bubble: send it to the agent as a comment thread.
+    case send(selector: String)
+    /// The thread card's Resolve: the thread is done.
+    case resolve(selector: String)
 }

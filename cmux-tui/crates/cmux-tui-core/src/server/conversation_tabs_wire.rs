@@ -115,7 +115,6 @@ pub(crate) const CONVERSATION_TAB_SPLIT_CAPABILITY: &str = "conversation-tab-spl
 /// `new-frontend-browser-tab {pane, split}` (`frontend-browser-tab-split-v1`)
 /// takes the same object.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(super) struct ConversationTabSplitParams {
     direction: String,
     #[serde(default)]
@@ -171,7 +170,6 @@ impl ConversationTabSplitParams {
 /// session (absent for a new chat), the agent kind and the display name of
 /// the host machine.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(super) struct AgentSessionParams {
     host: String,
     #[serde(default)]
@@ -475,11 +473,6 @@ pub(super) fn bind(
         harness.as_deref(),
     )?;
     Ok(json!({"surface": surface, "conversation": record.wire(), "replayed": replayed}))
-}
-
-/// The raw tree `kind` of a tab: `conversation` for a conversation tab.
-pub(super) fn raw_tab_kind(surface_kind: &'static str, conversation: bool) -> &'static str {
-    if conversation { CONVERSATION_KIND } else { surface_kind }
 }
 
 /// The conversation tab capabilities one connection negotiated.

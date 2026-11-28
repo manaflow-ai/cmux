@@ -1,0 +1,48 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/instrument-look",
+  "name": "Instrument",
+  "tagline": "Dense and quiet; color only shows status.",
+  "description": "A dense, quiet window with no accent color; color only appears to show status. Light and dark. Remove it and everything you had comes back.",
+  "version": "0.2.0",
+  "license": "MIT",
+  "repository": "https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/examples/looks/instrument",
+  "screenshots": ["screenshots/light.png", "screenshots/dark.png"],
+
+  "cmuxProfile": 1,
+  "settings": {
+    // The dark theme file; "instrument-light" is its light twin. Colour, chrome metrics and the
+    // pane corner live there, so each appearance carries the same ladder.
+    "appearance.themeFile": "instrument",
+
+    // The chat: 14 px prose on 20 px lines (14 x 1.4286), code at 12 px (14 x 0.857), and a column
+    // of 80 code characters plus two 12 px card insets: 80 x 7.2 + 24 = 600.
+    // The settings UI steps these by 0.05, 0.025 and 10; the stored values are exact.
+    "agentPane.display.font.size": 14,
+    "agentPane.display.font.lineHeight": 1.4286,
+    "agentPane.display.code.scale": 0.857,
+    "agentPane.display.width": 600,
+
+    // The Markdown viewer in the same hand.
+    "markdown.font.size": 14,
+    "markdown.font.lineHeight": 1.4286,
+    "markdown.code.scale": 0.857,
+
+    // Diffs in the theme's own red and green (the status hues).
+    "diff.colors": "theme",
+
+    // The sidebar: compact 28 px rows, plain section headings, grays for groups, a dot for status.
+    "sidebar.density": "compact",
+    "sidebar.sectionLook": "quiet",
+    "sidebar.groupPalette": "grayscale",
+    "workspaceColors.indicatorStyle": "dot",
+
+    // The address field takes the control corner.
+    "browser.omnibar.cornerRadius": 8,
+
+    // Focus is a 2 px ring in the ink, not a glow.
+    "focusRing.enabled": true,
+    "focusRing.style": "ring",
+    "focusRing.width": 2
+  }
+}

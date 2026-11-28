@@ -276,7 +276,7 @@ pub enum BlockReason {
 }
 
 /// Why an item whose title cannot be read is refused.
-pub const UNREADABLE_ITEM_REFUSAL: &str = "this menu item, or an item above it, cannot be read, so Computer Use cannot check where it leads and does not press it; try another item, or retry";
+pub const UNREADABLE_ITEM_REFUSAL: &str = "this menu item, or an item above it, cannot be read, so Computer Use cannot check where it leads and does not press it; use another item, or the app's own controls in the window";
 
 /// The refusal for a blocked item: `wanted` is the agent's own text, so a
 /// hidden item's title is never shown. Pure, for tests.
@@ -290,7 +290,7 @@ pub fn block_message(reason: BlockReason, wanted: Option<&str>) -> String {
 
 /// Why a pick fails while the installed app names are still being read
 /// (menu items are checked against them and stay hidden until then).
-pub const APP_NAMES_LOADING: &str = "the menu's items are still being checked against the installed apps (app names are loading); retry in a moment";
+pub const APP_NAMES_LOADING: &str = "the menu's items are checked against the installed apps, whose names were still loading after a 2 s wait (they are read once after cmux starts), so no item was chosen";
 
 /// Why a menu that opened was closed again: it could not be read.
 pub const MENU_UNREAD: &str = "the app showed a menu that could not be read, so it was closed again; try perform_action on an element's own actions, or delivery foreground";

@@ -192,7 +192,23 @@ fn enabled(global: &GlobalArgs) -> bool {
         super::super::app::READ_TIMEOUT,
         None,
     )
-    .is_ok_and(|reply| reply["value"].as_str().is_some_and(|mode| mode != "off"))
+    .is_ok_and(|reply| mode_on(&reply))
+}
+
+/// The mode the person set is on. `value` reads the row's default (fullAccess) when the file sets
+/// none, and an unset mode still needs the sheet, so `file_value` decides when the app sends it.
+fn mode_on(reply: &Value) -> bool {
+    let mode = reply.get("file_value").or_else(|| reply.get("value"));
+    mode.and_then(Value::as_str).is_some_and(|mode| mode != "off")
+}
+
+#[cfg(test)]
+#[test]
+fn an_unset_mode_is_not_on_though_its_default_is() {
+    assert!(!mode_on(&json!({"value": "fullAccess", "file_value": null})));
+    assert!(mode_on(&json!({"value": "fullAccess", "file_value": "fullAccess"})));
+    assert!(!mode_on(&json!({"value": "off", "file_value": "off"})));
+    assert!(mode_on(&json!({"value": "fullAccess"})), "an app without file_value: value decides");
 }
 
 /// Turns Computer Use on: the app asks the person on its sheet. Answers what

@@ -3,8 +3,10 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { effortLevel, openEffort } from "./support/effortDropdown";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { effortLevel, openEffort } = await importWithDom(() => import("./support/effortDropdown"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -83,6 +85,7 @@ async function openPicker(
   inline: boolean,
   effortPicks: string[] = [],
   effortsDeclared?: boolean,
+  reasoningMenu?: "column" | "separate",
 ) {
   const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
   const { PromptFocus } = await import("../src/agent-session/acpmux/promptFocus");
@@ -98,6 +101,7 @@ async function openPicker(
       <PromptFocus.Provider value={() => prompt?.focus()}>
         <ModelPicker
           catalog={[{ id: "claude", name: "Claude Code", models: [model] }]}
+          reasoningMenu={reasoningMenu}
           harness="claude"
           model={model.id}
           label={model.name}
@@ -171,4 +175,23 @@ test("the running model uses live session levels over stale catalog efforts", as
   await openPicker(["low"], true);
   expect(await openEffort(document)).toHaveLength(3);
   expect(document.querySelector('[aria-label="Opus 5.5 · High"]')).not.toBeNull();
+});
+
+test("the column opens beside model search and dispatches a live reasoning choice", async () => {
+  const picked: string[] = [];
+  await openPicker(["low", "high"], true, picked, true, "column");
+  const column = document.querySelector("[data-reasoning-column]");
+  const selected = column?.querySelector<HTMLInputElement>('.acpmux-picker-reasoning-options input[value="high"]');
+  expect(selected?.checked).toBe(true);
+  const low = column!.querySelector<HTMLInputElement>('.acpmux-picker-reasoning-options input[value="low"]')!;
+  await act(async () => low.click());
+  expect(picked).toEqual(["low"]);
+  expect(column?.isConnected).toBe(true);
+});
+
+test("the separate reasoning chip leaves the model dialog to its model list", async () => {
+  await openPicker(["low", "high"], true, [], true, "separate");
+  expect(document.querySelector(".acpmux-mp")).not.toBeNull();
+  expect(document.querySelector("[data-reasoning-column]")).toBeNull();
+  expect(host.querySelector('[data-menu="Reasoning"]')).not.toBeNull();
 });

@@ -175,6 +175,21 @@ pub(crate) const CARRIED_CONFIG_IDS: &[&str] = &[
     crate::claude_stdio::prompt_suggestions::OPTION,
 ];
 
+/// Config options the unix socket (the CLI, scripts, agents) may set to any value without the
+/// person: every one of [`FREE_CONFIG_IDS`] and [`CARRIED_CONFIG_IDS`], and Codex's
+/// `collaboration_mode` (`default` or `plan`, beside its approval modes, never what they copy:
+/// `hub/permission_modes.rs`). None decides what runs without asking; only a mode does
+/// (`session/set_mode`, the `mode` option), which still needs the person (`hub/person.rs`).
+/// A Web connection is still held to its own table (`config_value_asks`).
+pub(crate) const CLI_CONFIG_IDS: &[&str] = &["collaboration_mode"];
+
+/// Whether the unix socket may set config option `id` to any value (`CLI_CONFIG_IDS`).
+pub(crate) fn cli_config_id(id: &str) -> bool {
+    FREE_CONFIG_IDS.contains(&id)
+        || CARRIED_CONFIG_IDS.contains(&id)
+        || CLI_CONFIG_IDS.contains(&id)
+}
+
 fn non_asking(mode: &str) -> bool {
     NON_ASKING_MODES.iter().any(|(_, modes)| modes.contains(&mode))
 }
@@ -497,41 +512,5 @@ pub(crate) fn is_full_access(mode: &str) -> bool {
 }
 
 #[cfg(test)]
-mod remote_start_tests {
-    use super::*;
-
-    fn profile(value: serde_json::Value) -> HarnessProfile {
-        serde_json::from_value(value).unwrap()
-    }
-
-    /// opencode stays refused from a remote device, and the reason says why
-    /// precisely (its own config can turn the asks off); the codex-acp adapter
-    /// keeps the general reason, and Claude starts in its asking modes.
-    #[test]
-    fn opencode_is_refused_with_its_own_reason() {
-        let table = WebModeTable::default();
-        let opencode =
-            profile(serde_json::json!({"argv": ["opencode", "acp"], "family": "opencode"}));
-        assert_eq!(remote_start(&table, "opencode", &opencode), Err(OPENCODE_REFUSAL.to_string()));
-        // opencode under another family name is still opencode.
-        let renamed = profile(
-            serde_json::json!({"argv": ["/opt/homebrew/bin/opencode", "acp"], "family": "claude"}),
-        );
-        assert_eq!(remote_start(&table, "mine", &renamed), Err(OPENCODE_REFUSAL.to_string()));
-        let adapter = profile(serde_json::json!({"argv": ["codex-acp"], "family": "codex"}));
-        assert_eq!(remote_start(&table, "codex-acp", &adapter), Err(NO_ASKING_MODE.to_string()));
-        let claude = profile(serde_json::json!({"argv": ["claude"], "family": "claude"}));
-        assert_eq!(
-            remote_start(&table, "claude", &claude),
-            Ok(vec!["default".to_string(), "plan".to_string()])
-        );
-    }
-
-    /// A new Claude chat carries `prompt-suggestions` in its options (on by default), and a
-    /// chat brought back from another machine keeps it: it never decides what runs unasked.
-    #[test]
-    fn prompt_suggestions_is_carried_with_any_value() {
-        assert!(CARRIED_CONFIG_IDS.contains(&crate::claude_stdio::prompt_suggestions::OPTION));
-        assert!(!FREE_CONFIG_IDS.contains(&crate::claude_stdio::prompt_suggestions::OPTION));
-    }
-}
+#[path = "web_modes_remote_start_tests.rs"]
+mod remote_start_tests;

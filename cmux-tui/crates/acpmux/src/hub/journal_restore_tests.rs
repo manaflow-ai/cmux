@@ -1537,3 +1537,42 @@ async fn a_restore_that_dates_its_chat_moves_it_in_the_kept_order() {
     assert_eq!(session.read_meta(|m| m.updated_at), now + 2_000_000_000, "the restore dated it");
     assert_eq!(hub.kept_order_for_test(), sorted(&hub), "the kept order after the restore");
 }
+
+/// A restore's file path is the chat's own uploads folder's, as the platform spells it: on
+/// Windows that is drive-qualified, and its `Prefix` component is not a reason to refuse it.
+#[test]
+fn an_upload_path_in_the_chats_folder_is_accepted_as_the_platform_spells_it() {
+    let dir = super::file_uploads::session_dir("chat-1").unwrap();
+    let file = dir.join("a.txt");
+    let file = file.to_str().unwrap();
+    assert_eq!(super::journal_restore::upload_path("chat-1", file), Some(dir.join("a.txt")));
+    assert!(super::journal_restore::upload_path("chat-1", dir.to_str().unwrap()).is_none());
+    assert!(super::journal_restore::upload_path("chat-2", file).is_none());
+}
+
+/// A legacy background result has no outcome marker, including when it failed. Restore
+/// must preserve the old error until a record explicitly proves a later successful turn.
+#[tokio::test]
+async fn tab_recovery_restore_requires_a_successful_result() {
+    for (kind, result, recovered) in [
+        ("background_turn", json!({"state": "ended", "reason": "result"}), false),
+        ("background_turn", json!({"state": "ended", "reason": "result", "failed": true}), false),
+        ("background_turn", json!({"state": "ended", "reason": "result", "failed": false}), true),
+        ("background_turn", json!({"state": "ended", "reason": "prompt", "failed": false}), false),
+        ("turn_result", json!({"trigger": true, "status": "failed"}), false),
+        ("turn_result", json!({"trigger": true, "status": "completed"}), true),
+    ] {
+        let (hub, session) = hub_with_chat(false).await;
+        let last = session.seq.load(Ordering::SeqCst);
+        let records = json!([
+            {"seq": last + 1, "at": 100, "dir": "mux", "kind": "turn_result",
+             "msg": {"turnId": "failed-turn", "status": "failed", "error": "API error"}},
+            {"seq": last + 2, "at": 200, "dir": "mux", "kind": kind, "msg": result},
+        ]);
+        hub.journal_restore(&restore_params(&session, records)).await.unwrap();
+        let meta = session.meta();
+        let turn = meta.last_turn.as_ref().unwrap();
+        assert_eq!(turn.get("status"), Some(&json!("failed")), "{result}");
+        assert_eq!(turn.get("recoveredAt"), recovered.then_some(&json!(200)), "{result}");
+    }
+}

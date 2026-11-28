@@ -5,8 +5,14 @@
 //!                                                            prompt or stdin, never argv
 //!     cmux keys mint cloudflare-r2 --bucket B (--rw|--ro) [--ttl 90d] [--create-bucket]
 //!         [--expire-objects-days N] --store SPEC [--store SPEC]
+//!     cmux keys mint cloudflare-r2 --via MAC --bucket B (--rw|--ro) ... --store SPEC
+//!                                                            from a machine without the bootstrap (a Linux
+//!                                                            host): MAC's broker mints over the acpmux peer
+//!                                                            link and sends back only the scoped key
 //!     cmux keys ls                                           every provider and every key minted (the audit)
 //!     cmux keys revoke ID                                    delete a minted key at its provider
+//!     cmux keys rotate ID [--ttl 90d]                        mint the same scope again, store it under
+//!                                                            the same names, then revoke the old key
 //!
 //! A store SPEC is `gh-secret:OWNER/REPO:PREFIX` (repository secrets), `gh-secret:OWNER/REPO@ENV:PREFIX`
 //! (an environment's), or `keychain:PREFIX` / `keychain:OWNER/REPO:PREFIX` (this Mac's cloud secrets, the
@@ -17,7 +23,7 @@
 //! The bootstrap token lives in the login Keychain (service `cmux-key-provider`) and only this broker
 //! reads it: an agent asks for a key, never for the root credential. Values move only through stdin
 //! pipes (`gh secret set`, `security -i`) and are never printed, logged or put in argv.
-//! `~/.config/cmux/keys.json` (0600) is the audit: providers, and for each minted key its provider id,
+//! `~/.config/cmux-next/keys.json` (0600) is the audit: providers, and for each minted key its provider id,
 //! scope, expiry, where it was stored and who asked, never a value. docs/cmux-next/keys.md is the design.
 //!
 //! Keys from any other provider (one an agent got from an API or CLI, one the person pastes once, a
@@ -51,8 +57,9 @@ const R2_ITEM_WRITE: &str = "Workers R2 Storage Bucket Item Write";
 const R2_ITEM_READ: &str = "Workers R2 Storage Bucket Item Read";
 
 const USAGE: &str = "usage: cmux keys ls\n       cmux keys revoke ID|NAME\n       \
+cmux keys rotate ID [--ttl 90d]\n       \
 cmux keys connect cloudflare --account ACCOUNT_ID\n       \
-cmux keys mint cloudflare-r2 --bucket B (--rw|--ro) [--ttl 90d] [--create-bucket] [--expire-objects-days N] --store SPEC...\n\
+cmux keys mint cloudflare-r2 --bucket B (--rw|--ro) [--ttl 90d] [--create-bucket] [--expire-objects-days N] [--via MACHINE] --store SPEC...\n\
 SPEC: gh-secret:OWNER/REPO[@ENV]:PREFIX, keychain:[OWNER/REPO:]PREFIX or vault:PREFIX";
 
 /// `Some(exit code)` when `args` is `keys …`.
@@ -98,6 +105,9 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             &local::LiveApp(&global),
             &|name| acpmux::cli::harness_secret::read_value(name).map_err(|e| e.to_string()),
         ),
+        Command::MintR2(mint) if mint.via.is_some() => {
+            mint_via(mint, &paths, &LivePeerBroker, &LiveSinks)
+        }
         command => run(command, &paths, &Live::new()?, &LiveSinks, &local::OsVault),
     });
     Some(match result {
@@ -119,6 +129,12 @@ pub(super) enum Command {
     Revoke {
         id: String,
     },
+    /// Mint a minted key's scope again, store it under the same names, revoke the old one. `ttl`
+    /// is the old key's lifetime when not given.
+    Rotate {
+        id: String,
+        ttl: Option<Duration>,
+    },
     /// Keys from any provider: put, generate, request, use, write, fill.
     Local(local::Local),
 }
@@ -132,6 +148,22 @@ pub(super) struct MintR2 {
     create_bucket: bool,
     expire_objects_days: Option<u32>,
     stores: Vec<Store>,
+    /// `--via MACHINE`: the peer whose broker holds the bootstrap mints the key and sends back only
+    /// it, over the acpmux peer link (`acpmux` `server/keys_relay.rs`); this machine stores it.
+    via: Option<String>,
+    /// `--reply-to-machine NAME`: the key goes back to the asking machine on stdout (a pipe the
+    /// acpmux relay reads), stored nowhere here. Only the relay runs this.
+    reply_to: Option<String>,
+}
+
+/// A machine's name as the relay passes it: printable, at most 256 characters.
+fn valid_machine(name: &str) -> bool {
+    !name.is_empty() && name.len() <= 256 && !name.chars().any(char::is_control)
+}
+
+/// A minted key's provider id, or a stored key's NAME.
+fn valid_key_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 80 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 fn valid_account_id(id: &str) -> bool {
@@ -176,13 +208,10 @@ pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
     match (verb.as_str(), rest) {
         ("--help" | "-h" | "help", []) => Ok(Command::Help),
         ("ls" | "list", []) => Ok(Command::Ls),
-        // A minted key's provider id, or a stored key's NAME.
-        ("revoke" | "rm", [id])
-            if !id.is_empty()
-                && id.len() <= 80
-                && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') =>
-        {
-            Ok(Command::Revoke { id: id.clone() })
+        ("revoke" | "rm", [id]) if valid_key_id(id) => Ok(Command::Revoke { id: id.clone() }),
+        ("rotate", [id]) if valid_key_id(id) => Ok(Command::Rotate { id: id.clone(), ttl: None }),
+        ("rotate", [id, flag, ttl]) if valid_key_id(id) && flag == "--ttl" => {
+            Ok(Command::Rotate { id: id.clone(), ttl: Some(parse_ttl(ttl)?) })
         }
         ("connect", [provider, flag, account])
             if provider == "cloudflare" && flag == "--account" =>
@@ -210,6 +239,8 @@ fn parse_mint_r2(flags: &[String]) -> Result<MintR2, UsageError> {
         create_bucket: false,
         expire_objects_days: None,
         stores: Vec::new(),
+        via: None,
+        reply_to: None,
     };
     let mut access = None;
     let mut it = flags.iter();
@@ -244,6 +275,19 @@ fn parse_mint_r2(flags: &[String]) -> Result<MintR2, UsageError> {
                 mint.expire_objects_days = Some(days);
             }
             "--store" => mint.stores.push(Store::parse(&value()?)?),
+            "--via" | "--reply-to-machine" => {
+                let machine = value()?;
+                if !valid_machine(&machine) {
+                    return Err(UsageError::new(format!(
+                        "{flag} {machine:?} is not a machine name"
+                    )));
+                }
+                if flag == "--via" {
+                    mint.via = Some(machine);
+                } else {
+                    mint.reply_to = Some(machine);
+                }
+            }
             other => return Err(UsageError::new(format!("unknown flag {other:?}\n{USAGE}"))),
         }
     }
@@ -251,6 +295,14 @@ fn parse_mint_r2(flags: &[String]) -> Result<MintR2, UsageError> {
         return Err(UsageError::new("--bucket NAME is required: 3 to 63 of a-z, 0-9 and -"));
     }
     mint.write = access.ok_or_else(|| UsageError::new("give --rw or --ro"))?;
+    if mint.reply_to.is_some() {
+        if !mint.stores.is_empty() || mint.via.is_some() {
+            return Err(UsageError::new(
+                "--reply-to-machine sends the key back to the asking machine: no --store or --via",
+            ));
+        }
+        return Ok(mint);
+    }
     if mint.stores.is_empty() {
         return Err(UsageError::new(
             "give at least one --store: a minted key that is stored nowhere is lost",
@@ -292,7 +344,7 @@ impl Live {
             .enable_all()
             .build()
             .map_err(|e| format!("cannot start the HTTP runtime: {e}"))?;
-        let client = reqwest::Client::builder()
+        let client = cmux_egress::client_builder("cmux_tui::cli::key_broker")
             .timeout(Duration::from_secs(30))
             .user_agent(concat!("cmux-keys/", env!("CARGO_PKG_VERSION")))
             .build()
@@ -440,7 +492,8 @@ impl Paths {
         Self::from_env(|key| std::env::var_os(key).filter(|v| !v.is_empty()), other_app)
     }
 
-    /// `$CMUX_NEXT_KEYS_AUDIT_FILE`, else `$HOME/.config/cmux/keys.json`. A `cmux` bundled in another
+    /// `$CMUX_NEXT_KEYS_AUDIT_FILE`, else `$HOME/.config/cmux/keys.json` (`.config/cmux-next/` on
+    /// macOS, `cmux_config::NEXT_DIR`). A `cmux` bundled in another
     /// app than the terminal's (`other_app`) ignores the variable: it is that app's audit.
     pub(super) fn from_env(
         env: impl Fn(&str) -> Option<std::ffi::OsString>,
@@ -450,7 +503,12 @@ impl Paths {
             return Ok(Self { audit: PathBuf::from(path) });
         }
         let home = env("HOME").ok_or("HOME is not set")?;
-        Ok(Self { audit: PathBuf::from(home).join(".config/cmux/keys.json") })
+        Ok(Self {
+            audit: PathBuf::from(home)
+                .join(".config")
+                .join(cmux_config::NEXT_DIR)
+                .join("keys.json"),
+        })
     }
 }
 
@@ -539,6 +597,33 @@ fn rfc3339(secs: u64) -> String {
         rem % 3_600 / 60,
         rem % 60
     )
+}
+
+/// The seconds since the epoch of an `rfc3339` time; `None` for any other text.
+fn parse_rfc3339(text: &str) -> Option<u64> {
+    let b = text.as_bytes();
+    if b.len() != 20 || [b[4], b[7], b[10], b[13], b[16], b[19]] != *b"--T::Z" {
+        return None;
+    }
+    let num = |range: std::ops::Range<usize>| text.get(range)?.parse::<i64>().ok();
+    let (year, month, day) = (num(0..4)?, num(5..7)?, num(8..10)?);
+    let (hour, minute, second) = (num(11..13)?, num(14..16)?, num(17..19)?);
+    if !(1..=12).contains(&month)
+        || !(1..=31).contains(&day)
+        || hour > 23
+        || minute > 59
+        || second > 59
+    {
+        return None;
+    }
+    // Howard Hinnant's days_from_civil, the inverse of `rfc3339`.
+    let y = year - i64::from(month <= 2);
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * (month + if month > 2 { -3 } else { 9 }) + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    u64::try_from(days * 86_400 + hour * 3_600 + minute * 60 + second).ok()
 }
 
 /// Who asked for a key, for the audit: the agent session when one is known, else the user.
@@ -856,6 +941,18 @@ pub(super) fn run(
                     .collect::<String>(),
             );
             drop(key.value);
+            if let Some(machine) = &mint.reply_to {
+                // The asking machine stores it: here the audit records where it went, and the
+                // answer carries the pair to the relay's pipe. The bootstrap is not in it.
+                let record = key_record(&key.id, &account, &mint, access, created_at, expires_at)
+                    .with_stores(vec![format!("machine:{machine}")], format!("machine={machine}"));
+                append_audit(paths, &record, &key.id)?;
+                return Ok(json!({
+                    "minted": record,
+                    "bucket": bucket,
+                    "values": {"ACCESS_KEY_ID": key.id, "SECRET_ACCESS_KEY": secret.as_str()},
+                }));
+            }
             let mut stored = Vec::new();
             for store in &mint.stores {
                 for (suffix, value) in
@@ -883,31 +980,12 @@ pub(super) fn run(
                 }
             }
             drop(secret);
-            let record = json!({
-                "id": key.id,
-                "provider": "cloudflare",
-                "account": account,
-                "kind": "r2",
-                "bucket": mint.bucket,
-                "access": access,
-                "created_at": rfc3339(created_at),
-                "expires_at": rfc3339(expires_at),
-                "expires_at_s": expires_at,
-                "stores": stored,
-                "by": requester(),
-                "revoked_at": Value::Null,
-            });
-            let _lock = AuditLock::take(&paths.audit)?;
-            let mut audit = read_audit(&paths.audit)?;
-            audit["keys"].as_array_mut().ok_or("bad audit")?.push(record.clone());
-            write_audit(&paths.audit, &audit).map_err(|e| {
-                format!(
-                    "the key {} is minted and stored, but the audit was not written: {e}",
-                    key.id
-                )
-            })?;
+            let record = key_record(&key.id, &account, &mint, access, created_at, expires_at)
+                .with_stores(stored, requester());
+            append_audit(paths, &record, &key.id)?;
             Ok(json!({"minted": record, "bucket": bucket}))
         }
+        Command::Rotate { id, ttl } => rotate(&id, ttl, paths, http, sinks, vault),
         Command::Revoke { id } => {
             let _lock = AuditLock::take(&paths.audit)?;
             let mut audit = read_audit(&paths.audit)?;
@@ -925,6 +1003,231 @@ pub(super) fn run(
             Ok(json!({"revoked": id, "stored_copies_now_dead": stores}))
         }
     }
+}
+
+/// A minted key's audit record, before its stores and asker.
+fn key_record(
+    id: &str,
+    account: &str,
+    mint: &MintR2,
+    access: &str,
+    created_at: u64,
+    expires_at: u64,
+) -> Value {
+    json!({
+        "id": id,
+        "provider": "cloudflare",
+        "account": account,
+        "kind": "r2",
+        "bucket": mint.bucket,
+        "access": access,
+        "created_at": rfc3339(created_at),
+        "expires_at": rfc3339(expires_at),
+        "expires_at_s": expires_at,
+        "revoked_at": Value::Null,
+    })
+}
+
+trait WithStores {
+    fn with_stores(self, stores: Vec<String>, by: String) -> Value;
+}
+
+impl WithStores for Value {
+    fn with_stores(mut self, stores: Vec<String>, by: String) -> Value {
+        if let Some(fields) = self.as_object_mut() {
+            fields.insert("stores".to_owned(), json!(stores));
+            fields.insert("by".to_owned(), json!(by));
+        }
+        self
+    }
+}
+
+fn append_audit(paths: &Paths, record: &Value, id: &str) -> Result<(), String> {
+    let _lock = AuditLock::take(&paths.audit)?;
+    let mut audit = read_audit(&paths.audit)?;
+    audit.get_mut("keys").and_then(Value::as_array_mut).ok_or("bad audit")?.push(record.clone());
+    write_audit(&paths.audit, &audit).map_err(|e| {
+        format!("the key {id} is minted and stored, but the audit was not written: {e}")
+    })
+}
+
+/// Asks another machine's broker for a key over the acpmux peer link. A trait so tests answer
+/// without a daemon.
+pub(super) trait PeerBroker {
+    fn mint(&self, ask: Value) -> Result<Value, String>;
+}
+
+struct LivePeerBroker;
+
+impl PeerBroker for LivePeerBroker {
+    fn mint(&self, ask: Value) -> Result<Value, String> {
+        acpmux::computer_use::client::acpmux_request(acpmux::rpc::method::MUX_KEYS_MINT, ask)
+            .map_err(|e| e.to_string())
+    }
+}
+
+/// `cmux keys mint ... --via MACHINE`: that machine's broker mints with the bootstrap it keeps and
+/// sends back the scoped key alone; this machine stores it in its own `--store`s and audit. The
+/// bootstrap never comes here, and the pair is never printed.
+pub(super) fn mint_via(
+    mint: MintR2,
+    paths: &Paths,
+    broker: &dyn PeerBroker,
+    sinks: &dyn Sinks,
+) -> Result<Value, String> {
+    let machine = mint.via.clone().ok_or("--via names the minting machine")?;
+    let mut ask = serde_json::Map::new();
+    ask.insert("machine".to_owned(), json!(machine));
+    ask.insert("kind".to_owned(), json!("cloudflare-r2"));
+    ask.insert("bucket".to_owned(), json!(mint.bucket));
+    ask.insert("access".to_owned(), json!(if mint.write { "rw" } else { "ro" }));
+    ask.insert("ttl".to_owned(), json!(format!("{}m", mint.ttl.as_secs() / 60)));
+    if let Some(account) = &mint.account {
+        ask.insert("account".to_owned(), json!(account));
+    }
+    if mint.create_bucket {
+        ask.insert("create_bucket".to_owned(), json!(true));
+    }
+    if let Some(days) = mint.expire_objects_days {
+        ask.insert("expire_objects_days".to_owned(), json!(days));
+    }
+    let mut answer = broker
+        .mint(Value::Object(ask))
+        .map_err(|e| format!("{machine} did not mint the key: {e}"))?;
+    let mut record = answer.get("minted").cloned().ok_or("the answer has no key")?;
+    let id =
+        record.get("id").and_then(Value::as_str).ok_or("the answer's key has no id")?.to_owned();
+    let mut take = |name: &str| -> Result<Zeroizing<String>, String> {
+        match answer.pointer_mut(&format!("/values/{name}")).map(Value::take) {
+            Some(Value::String(v)) if !v.is_empty() => Ok(Zeroizing::new(v)),
+            _ => Err(format!("the answer has no {name}")),
+        }
+    };
+    let pair = [
+        ("ACCESS_KEY_ID", take("ACCESS_KEY_ID")?),
+        ("SECRET_ACCESS_KEY", take("SECRET_ACCESS_KEY")?),
+    ];
+    drop(answer);
+    let mut stored = Vec::new();
+    for store in &mint.stores {
+        for (suffix, value) in &pair {
+            if let Err(message) = sinks.put(store, &store.name(suffix), value) {
+                return Err(format!(
+                    "{message}\nthe new key {id} is live on {machine}: revoke it there (cmux keys revoke {id}); already stored: {}",
+                    if stored.is_empty() { "nothing".to_owned() } else { stored.join(", ") }
+                ));
+            }
+            stored.push(store.label(suffix));
+        }
+    }
+    drop(pair);
+    record
+        .as_object_mut()
+        .ok_or("the answer's key is not an object")?
+        .insert("via".to_owned(), json!(machine));
+    let record = record.with_stores(stored, requester());
+    append_audit(paths, &record, &id)?;
+    Ok(json!({"minted": record}))
+}
+
+/// `cmux keys rotate ID`: the old key's scope (account, bucket, access) minted again with its
+/// lifetime, stored under every name the old one was, then the old key revoked at the provider. The
+/// new key is stored before the old one is revoked, so the stored names are never left dead.
+fn rotate(
+    id: &str,
+    ttl: Option<Duration>,
+    paths: &Paths,
+    http: &dyn Http,
+    sinks: &dyn Sinks,
+    vault: &dyn local::KeyVault,
+) -> Result<Value, String> {
+    let audit = read_audit(&paths.audit)?;
+    let old = audit["keys"]
+        .as_array()
+        .and_then(|keys| keys.iter().find(|k| !local::is_local(k) && k["id"] == id))
+        .ok_or_else(|| {
+            if audit["keys"].as_array().into_iter().flatten().any(|k| {
+                local::is_local(k) && local::field(k, "name") == id
+            }) {
+                format!("{id} is a stored key, not a minted one: get a new value from its provider and `cmux keys put {id} --replace`")
+            } else {
+                format!("no minted key {id} in the audit (cmux keys ls)")
+            }
+        })?;
+    if old["provider"] != "cloudflare" || old["kind"] != "r2" {
+        return Err(format!("key {id} is not a Cloudflare R2 key: only those can be rotated"));
+    }
+    let text = |field: &str| {
+        old[field]
+            .as_str()
+            .map(str::to_owned)
+            .ok_or_else(|| format!("the audit record of {id} has no {field}"))
+    };
+    let stores = old["stores"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter_map(|label| Store::from_label(label, "ACCESS_KEY_ID"))
+        .collect::<Vec<_>>();
+    if stores.is_empty() {
+        return Err(format!("the audit record of {id} names no store to put a new key in"));
+    }
+    let ttl = ttl.unwrap_or_else(|| {
+        old["expires_at_s"]
+            .as_u64()
+            .zip(old["created_at"].as_str().and_then(parse_rfc3339))
+            .and_then(|(expires, created)| expires.checked_sub(created))
+            .map(Duration::from_secs)
+            .filter(|ttl| !ttl.is_zero() && *ttl <= MAX_TTL)
+            .unwrap_or(DEFAULT_TTL)
+    });
+    let access = text("access")?;
+    let mint = MintR2 {
+        account: Some(text("account")?),
+        bucket: text("bucket")?,
+        write: match access.as_str() {
+            "rw" => true,
+            "ro" => false,
+            other => return Err(format!("the audit record of {id} has access {other:?}")),
+        },
+        ttl,
+        create_bucket: false,
+        expire_objects_days: None,
+        stores,
+        via: None,
+        reply_to: None,
+    };
+    let already_revoked = !old["revoked_at"].is_null();
+    let account = text("account")?;
+    let minted = run(Command::MintR2(mint), paths, http, sinks, vault)?;
+    let new_id = minted["minted"]["id"].as_str().ok_or("the new key has no id")?.to_owned();
+    let revoked = if already_revoked {
+        Ok(())
+    } else {
+        sinks
+            .provider_token(&format!("cloudflare/{account}"))
+            .and_then(|bootstrap| delete_token(http, &account, &bootstrap, id))
+    };
+    let _lock = AuditLock::take(&paths.audit)?;
+    let mut audit = read_audit(&paths.audit)?;
+    for key in audit["keys"].as_array_mut().into_iter().flatten() {
+        if key["id"] == new_id.as_str() {
+            key["rotated_from"] = json!(id);
+        } else if key["id"] == id && !local::is_local(key) {
+            key["rotated_to"] = json!(new_id);
+            if revoked.is_ok() && !already_revoked {
+                key["revoked_at"] = json!(rfc3339(now_secs()));
+            }
+        }
+    }
+    write_audit(&paths.audit, &audit)?;
+    if let Err(message) = revoked {
+        return Err(format!(
+            "the new key {new_id} is stored under the same names, but the old key {id} was not revoked: {message}\nrevoke it with: cmux keys revoke {id}"
+        ));
+    }
+    Ok(json!({"rotated": id, "revoked": !already_revoked, "minted": minted["minted"]}))
 }
 
 #[cfg(test)]

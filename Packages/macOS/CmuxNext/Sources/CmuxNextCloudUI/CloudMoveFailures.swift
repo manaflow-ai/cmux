@@ -23,10 +23,16 @@ extension CloudMoveFailure {
         case "move_in_progress": Self(message: CloudMoveStrings.inProgress, retry: retry)
         case "agent_session.team_vm_blocked": Self(message: CloudMoveStrings.teamMachine(machine))
         case "agent_session.host_unverified": Self(message: CloudMoveStrings.unknownMachine(machine))
+        case "connections.not_cloud", "connections.move_unsupported":
+            Self(message: CloudMoveStrings.loginUnsupported, retry: retry)
         // This Mac's own daemon (the source) is never the machine to update.
         case CloudMoveStrings.outdatedCode where answer.side != "source":
             Self(message: CloudMoveStrings.outdatedMachine(machine), retry: retry.updating)
         case "source_unreachable", "target_unreachable": Self(message: CloudMoveStrings.unreachable(machine), retry: retry)
+        // The machine was restarting and the CLI gave the chat back at its deadline (cmux#54582).
+        case "agent_transfer.unavailable" where answer.side == "target": Self(message: CloudMoveStrings.restarting(machine), retry: retry)
+        // The folder's last changes did not copy (kill-mid-move drills: the machine did not answer): the chat stays where it was.
+        case "sync_failed": Self(message: CloudMoveStrings.lastChangesFailed, retry: retry)
         // A machine with no acpmux up yet (cmux#31198), too busy or too slow gave the chat back: the same move may work again.
         default: Self(message: CloudMoveStrings.moveFailed(answer.error ?? answer.errorCode ?? ""), retry: answer.errorCode.map { ["agent_transfer.unavailable", "agent_transfer.limit", "agent_transfer.timeout"].contains($0) } == true ? retry : nil)
         }
@@ -59,6 +65,8 @@ extension CloudMoveFailure {
         case "move_unresolved", CloudMoveCLI.badAnswer: return Self(message: CloudBringBackStrings.unresolved, retry: retry)
         case "move_in_progress": return Self(message: CloudMoveStrings.inProgress, retry: retry)
         case "source_unreachable", "target_unreachable": return Self(message: CloudMoveStrings.unreachable(machine), retry: retry)
+        case "agent_transfer.unavailable" where answer.side == "source": return Self(message: CloudMoveStrings.restarting(machine), retry: retry)
+        case "sync_failed": return Self(message: CloudMoveStrings.lastChangesFailed, retry: retry)
         // This Mac's own daemon (the target) is never the machine to update.
         case CloudMoveStrings.outdatedCode where answer.side != "target":
             return Self(message: CloudBringBackStrings.outdatedMachine(machine), retry: retry.updating)

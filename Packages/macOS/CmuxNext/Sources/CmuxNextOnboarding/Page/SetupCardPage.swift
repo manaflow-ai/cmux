@@ -9,7 +9,7 @@ import WebKit
 public import Observation
 
 extension PageDescriptor {
-    /// Home's Set Up cmux card (webviews/src/pages/setup-card, the React card home-messages/cards/setup), shown
+    /// Home's Set Up cmux card (webviews/src/pages/setup-card), shown
     /// in the native Home's Chief chat (``SetupCardHost``).
     public static let setupCard = PageDescriptor(
         id: "cmux.setup-card", resource: "setup-card", namespaces: [SetupCardPageProvider.prefix],
@@ -34,24 +34,24 @@ public struct SetupCardEnvironment {
     public var openAgents: @MainActor () -> Void
     /// Whether VoiceOver runs now.
     public var screenReader: @MainActor () -> Bool
-    /// The cmux Tools question (`agents.cmuxMcp` and `cmux setup mcp`'s report); nil: the card has no such row.
-    public var agentTools: (any AgentToolsSource)?
     /// The Text Size and Density row's reads and writer; nil: the card has no such row.
     public var look: SetupCardLook?
+    /// What the account row's Sign In signs in to ("Signs in to cmux.com"), the line under it; nil shows none.
+    public var signInBackend: String?
 
     public init(account: @escaping @MainActor () -> (signedIn: Bool, email: String?), signInAccount: @escaping @MainActor () -> Void,
                 cliState: @escaping @MainActor () async -> String, installCLI: @escaping @MainActor (_ replacing: Bool) async -> Void,
                 openAgents: @escaping @MainActor () -> Void,
                 screenReader: @escaping @MainActor () -> Bool = { NSWorkspace.shared.isVoiceOverEnabled },
-                agentTools: (any AgentToolsSource)? = nil, look: SetupCardLook? = nil) {
+                look: SetupCardLook? = nil, signInBackend: String? = nil) {
         self.account = account
         self.signInAccount = signInAccount
         self.cliState = cliState
         self.installCLI = installCLI
         self.openAgents = openAgents
         self.screenReader = screenReader
-        self.agentTools = agentTools
         self.look = look
+        self.signInBackend = signInBackend
     }
 }
 
@@ -76,7 +76,11 @@ public final class SetupCardHost {
         // The card floats on the chat's backdrop: a Chromium page cannot be transparent.
         guard let page = PageWebView(descriptor: .setupCard, routes: [PageRoute(prefix: SetupCardPageProvider.prefix, provider: provider)],
                                      options: PageEngineOptions(requiresWebKit: .transparentOverlay, acceptsFirstMouse: true),
-                                     overlayProcess: overlayProcess) else { return nil }
+                                     overlayProcess: overlayProcess) else {
+            // No page, no card: its provider stops, so a classic import asking on the row goes to the dialog.
+            provider.stop()
+            return nil
+        }
         self.page = page
         self.provider = provider
         provider.onSize = { [weak self] height in
@@ -119,8 +123,6 @@ public final class SetupCardPageProvider: PageProvider {
 
     @ObservationIgnored private let setup: FirstRunSetup
     @ObservationIgnored let agents: AgentsStepModel
-    /// The cmux Tools row: whether cmux may add its MCP server to the person's coding agents.
-    @ObservationIgnored let tools: AgentToolsStepModel
     @ObservationIgnored private let environment: SetupCardEnvironment
     /// The card's Chief form (first-run findings rows 1 and 4): only the agent Chief answers through, under a title
     /// that says Chief needs it (setupModel.ts `forChief`). Hide puts it away for this launch, and it never ends
@@ -139,17 +141,22 @@ public final class SetupCardPageProvider: PageProvider {
         self.setup = setup
         self.agents = setup.agents(source: agents)
         self.environment = environment
-        tools = AgentToolsStepModel(source: environment.agentTools)
-        tools.start()
+        // Only the whole card has the cmux Classic row, so only it can answer the launch's classic import.
+        if !forChief { setup.cardOpened() }
         self.agents.start()
         readCLI()
     }
 
     /// The card's own reads end; the shared agents model (``FirstRunSetup/agents(source:)``) and its install go on.
+    /// A classic import asking on this card's row goes back to the dialog when no other card is drawn.
     func stop() {
-        tools.stop()
         cliRead?.cancel()
+        guard !stopped, !forChief else { return }
+        stopped = true
+        setup.cardClosed()
     }
+
+    @ObservationIgnored private var stopped = false
 
     private func readCLI() {
         cliRead?.cancel()
@@ -179,26 +186,30 @@ public final class SetupCardPageProvider: PageProvider {
         let account = environment.account()
         var wire: [String: JSONValue] = ["signedIn": .bool(account.signedIn)]
         if account.signedIn, let email = account.email { wire["email"] = .string(email) }
-        return ["agents": .array(rows), "tools": toolsRow,
-                "account": .object(wire), "cli": .string(cliInstalling ? "installing" : cli ?? "missing"), "classic": .null,
+        // Signed out: what the row's Sign In signs in to ("Signs in to cmux.com"), the line under it.
+        if !account.signedIn, let backend = environment.signInBackend { wire["signInBackend"] = .string(backend) }
+        return ["agents": .array(rows),
+                "account": .object(wire), "cli": .string(cliInstalling ? "installing" : cli ?? "missing"), "classic": forChief ? .null : classicState,
                 "forChief": .bool(forChief), "look": forChief ? .null : environment.look?.wire ?? .null]
     }
 
-    /// The cmux Tools row (setupModel.ts `SetupState.tools`): shown while the question is open, or once
-    /// the person answered it on this card; null when nobody can be asked (no source, no coding agent
-    /// found) or it was answered elsewhere before.
-    var toolsRow: JSONValue {
-        guard environment.agentTools != nil, tools.loaded, !tools.agents.isEmpty, tools.choice == .ask || tools.answered else { return .null }
-        return ["agents": .array(tools.agents.map { .string($0.name) }), "choice": .string(tools.choice.rawValue),
-                "applying": .bool(tools.applying)]
+    /// The cmux Classic row (setupModel.ts `SetupState.classic`): what the launch's import would bring, and its answer.
+    private var classicState: JSONValue {
+        guard let offer = setup.classic else { return .null }
+        var wire: [String: JSONValue] = [
+            "workspaces": .number(Double(offer.workspaces)), "app": .string(offer.app), "savedAt": .number(offer.savedAt * 1000),
+            "running": .bool(offer.running), "resumes": .bool(offer.resumes),
+        ]
+        switch setup.classicAnswer {
+        case .accepted: wire["answered"] = .string(setup.classicImported.map { $0 ? "imported" : "failed" } ?? "importing")
+        case .declined: wire["answered"] = .string("declined")
+        case .unanswered, nil: break
+        }
+        return .object(wire)
     }
 
-    /// The cmux Tools row is done: answered, or not shown (read, and nothing to ask).
-    var toolsDone: Bool {
-        environment.agentTools == nil || (tools.loaded && (tools.agents.isEmpty || tools.choice != .ask))
-    }
-
-    /// Every row is done: an agent signed in, the account signed in, this app's `cmux` on PATH.
+    /// Every row is done: an agent signed in, the account signed in, this app's `cmux` on PATH, and the launch's
+    /// classic import answered (never before the migration decided whether it asks).
     var allDone: Bool {
         if forChief { return agents.agents.contains { $0.id == FirstRunSetup.chiefAgentID && agents.countsAsSignedIn($0) } }
         return agents.agents.contains { Self.agentIDs.contains($0.id) && agents.countsAsSignedIn($0) } && rowsBesideAgentsDone
@@ -206,7 +217,9 @@ public final class SetupCardPageProvider: PageProvider {
 
     /// The rows besides the agents' are done (``allDone``).
     var rowsBesideAgentsDone: Bool {
-        toolsDone && environment.account().signedIn && cli == "installed"
+        environment.account().signedIn && cli == "installed"
+            && !setup.awaitsClassic && (setup.classic == nil || setup.classicAnswer != nil)
+            && (setup.classicAnswer != .accepted || setup.classicImported != nil)
     }
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
@@ -257,9 +270,6 @@ public final class SetupCardPageProvider: PageProvider {
         case "signInAgent" where Self.agentIDs.contains(id): agents.signIn(id)
         case "confirmAgent" where Self.agentIDs.contains(id): agents.confirmLogin(id)
         case "signInAccount": environment.signInAccount()
-        // cmux Tools: Turn On answers yes, Not Now answers no; neither writes an agent's own config.
-        case "addTools" where toolsRow != .null: tools.add()
-        case "declineTools" where toolsRow != .null: tools.decline()
         // Text Size and Density: only sizes the setting takes and the built-in densities, written as Settings writes them.
         case "setTextSize":
             guard let look = environment.look, !forChief else { throw PageError.invalidParams("no text size row") }
@@ -275,6 +285,9 @@ public final class SetupCardPageProvider: PageProvider {
             guard let look = environment.look, !forChief else { throw PageError.invalidParams("no density row") }
             guard let id = action["id"]?.stringValue, DensityPreset(rawValue: id) != nil else { throw PageError.invalidParams("unknown density") }
             write(look, DensitySetting.configPath, .string(id))
+        // cmux Classic: Import or Not Now answers the launch's classic import, which asks here instead of its dialog.
+        case "importClassic" where !forChief: setup.answerClassic(.accepted)
+        case "declineClassic" where !forChief: setup.answerClassic(.declined)
         case "installCLI":
             // Only the row's own offer: Install when missing, Replace for another cmux app's CLI; never over a
             // `cmux` that is no cmux app's.

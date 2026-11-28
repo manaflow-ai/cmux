@@ -1,0 +1,133 @@
+{
+  "_comment": "The full tier feat-cmux-next's own head runs once an hour (scripts/ci/hourly_full_tier.py, cmux-next-hourly-full-tier.yml): each workflow here is dispatched with no inputs on feat-cmux-next. It lists the workflows whose full tier a landing head no longer runs (head_tier.py hourly full tier rule) and that neither run on a feat-cmux-next push nor sit in the post-merge batch (.github/post-merge-batch.json); cmux-next.yml's base tier has its own kick (cmux-next-base-tier-kick.yml). `paths` is the workflow's own pull_request paths filter (tests/test_ci_hourly_full_tier.py keeps them equal): a workflow none of whose paths the commits since its last hourly run touched is not dispatched; none means every change reaches it.",
+  "workflows": {
+    "ci.yml": {
+      "paths": [
+        "**",
+        "!**/*.md",
+        "!docs/**/*.png",
+        "!docs/**/*.jpg",
+        "!docs/**/*.gif",
+        "!docs/**/*.webp",
+        "!plans/**/*.png",
+        "!plans/**/*.jpg",
+        "!plans/**/*.gif",
+        "!plans/**/*.webp",
+        "**/AGENTS.md",
+        "**/CLAUDE.md",
+        "**/SKILL.md",
+        ".github/**",
+        "**/skills/**",
+        "**/references/**",
+        "**/templates/**",
+        "**/Resources/**",
+        "**/fixtures/**",
+        "**/testdata/**",
+        "**/test/**",
+        "**/tests/**",
+        "CHANGELOG.md",
+        "THIRD_PARTY_LICENSES.md",
+        "release-notes/**",
+        "docs/agent-hooks.md",
+        "docs/chief-setup-prompts.md",
+        "docs/configuration.md",
+        "docs/ci/node-product-cache-maintenance.md",
+        "plans/cmux-next/actions.md",
+        "docs/mdm/managed-preferences.md",
+        "cmux-tui/crates/cmux-app-host/generated/REFERENCE.md",
+        "docs/ci/health-report.md",
+        "docs/privacy.md",
+        "docs/network-requirements.md",
+        "**/notices/**",
+        "vendor/stack-auth-swift-sdk-prerelease/README.cmux.md",
+        "cmux-tui/README.md",
+        "docs/remote-agents-and-cloud.md",
+        "docs/cmux-next/customize-recipes.md",
+        "cmux-tui/crates/acpmux/README.md",
+        "cmux-tui/crates/acpmux/docs/**",
+        "cmux-tui/crates/cmux-browser-host/js/guide.md",
+        "cmux-tui/crates/cmux-extension-sdk/README.md",
+        "cmux-tui/vendor/terminput-crossterm/README.md",
+        "mux/packages/brain/conformance/README.md",
+        "Native/OptChat/chief-kernel/src/turn_checks.md"
+      ]
+    },
+    "auth-refresh-tests.yml": {
+      "paths": [
+        "Packages/Shared/CmuxAuthRuntime/**",
+        "Packages/macOS/CmuxPhonePush/**",
+        "vendor/stack-auth-swift-sdk-prerelease/**",
+        ".github/workflows/auth-refresh-tests.yml"
+      ]
+    },
+    "cloud-vm-guest-install.yml": {
+      "paths": [
+        "web/services/vms/drivers/**",
+        "web/services/vms/guestCli*.ts",
+        "web/services/vms/guestPrompt.ts",
+        "web/services/vms/workflows.ts",
+        "web/services/vms/repository.ts",
+        "web/services/vms/routeHelpers.ts",
+        "web/services/vms/vmErrorMessages.ts",
+        "web/messages/**",
+        "web/tests/vm-guest-*.test.ts",
+        "web/tests/fixtures/freestyleGuest.ts",
+        "web/tests/vm-workflows.test.ts",
+        "web/package.json",
+        "web/bun.lock",
+        ".github/workflows/cloud-vm-guest-install.yml"
+      ]
+    },
+    "cmux-cloud-cli.yml": {
+      "paths": [
+        "cmux-tui/crates/cmux-cloud-cli/**",
+        "cmux-tui/crates/cmux-cloud-wire/**",
+        "backend/catalog/cloud-operations.json",
+        "backend/catalog/cloud-vectors.json",
+        "cmux-tui/Cargo.*",
+        ".github/workflows/cmux-cloud-cli.yml"
+      ]
+    },
+    "cmux-vnc.yml": {
+      "paths": [
+        "Packages/Shared/CmuxVNC/**",
+        "scripts/select-ci-xcode.sh",
+        "scripts/ci/xcode-pins.txt",
+        ".xcode-version",
+        ".github/workflows/cmux-vnc.yml"
+      ]
+    },
+    "ios-e2e.yml": {},
+    "iroh-v2.yml": {
+      "paths": [
+        "workers/iroh-v2/**",
+        ".github/workflows/iroh-v2.yml"
+      ]
+    },
+    "measure-swift-typecheck.yml": {
+      "paths": [
+        "scripts/measure/*.swift",
+        ".github/workflows/measure-swift-typecheck.yml"
+      ]
+    },
+    "relay-tls.yml": {
+      "paths": [
+        "tests/relay_tls/**",
+        ".github/workflows/relay-tls.yml"
+      ]
+    },
+    "terminal-hang-diagnostics.yml": {
+      "paths": [
+        "Packages/Shared/CMUXMobileCore/**",
+        "Packages/Shared/CmuxSentryTelemetry/**",
+        "cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+        "scripts/select-ci-xcode.sh",
+        "scripts/ci/xcode-pins.txt",
+        ".xcode-version",
+        "scripts/terminal-hang-release-gate.py",
+        "tests/test_terminal_hang_release_gate.py",
+        ".github/workflows/terminal-hang-diagnostics.yml"
+      ]
+    }
+  }
+}

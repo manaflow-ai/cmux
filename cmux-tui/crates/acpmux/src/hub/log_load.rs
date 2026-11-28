@@ -20,6 +20,10 @@
 
 use super::*;
 
+/// Auto mode's import of a chat's Cloud copy: it settles an open turn as this file does.
+#[path = "auto_import.rs"]
+mod auto_import;
+
 /// What a deferred start read before its ready line, for the chat logs read after it.
 #[derive(Default)]
 pub(crate) struct LoadPlan {
@@ -290,6 +294,15 @@ impl Hub {
         let hosted =
             self.load_plan.lock().unwrap_or_else(|e| e.into_inner()).hosted.contains(&session.id);
         let quiet = self.recover_log(session, None, point.as_ref());
+        // Read here, off the first prompt's start (`seed_prompt_stops`). Records kept apart from
+        // the journal are left to that prompt's read, which reads them too.
+        if !Self::keeps_unstored(session) {
+            self.seed_prompt_stops(
+                session,
+                point.as_ref().map_or(0, |p| p.seq),
+                point.as_ref().and_then(|p| p.prompt_stops.as_deref()),
+            );
+        }
         // Quiet: every fold read through `read_to` and ended with nothing waiting, nothing was
         // appended meanwhile, and nothing is kept apart from the journal. The next load begins
         // there.
@@ -308,6 +321,7 @@ impl Hub {
                     ownership_epoch,
                     transfer_authority,
                     queue,
+                    prompt_stops: self.prompt_stops_carry(session),
                     ..Default::default()
                 },
             );
@@ -325,6 +339,11 @@ impl Hub {
             });
         }
         self.resume_loaded(session, hosted);
+        // Where the next adoption of a host started on it reads from; an adopted host's own
+        // adoption saves its own (`hosts.rs` `adopt_held`).
+        if !hosted {
+            self.checkpoint_after_load(session);
+        }
     }
 
     /// Whether `session` holds records apart from its journal (`kept_unstored`): a restore point
@@ -638,7 +657,7 @@ impl Hub {
                 self.save_meta(session);
             }
         } else if kept {
-            self.set_status(session, SessionStatus::Idle);
+            self.set_status(session, NotWaiting::Idle);
             self.save_meta(session);
         }
         // A log read before adoption kept its cut turn for the host: settle it now, and queue

@@ -139,15 +139,16 @@ public final class HomeDirectory {
         do {
             _ = try Self.value(try await call("v1/ops", body))
             return .archived
-        } catch FeedServiceError.owner(let code, let message) {
-            switch code {
-            case "revision.conflict": return .conflict
-            case "chief_is_default": return .isDefault
-            case "selector.not_found": return .notFound
-            default: return .refused(message)
-            }
         } catch {
-            return .unreachable
+            let outcome: Failure.Answer = HomeComposeRules().call("directory.archiveOutcome", Failure.Request(error),
+                                                                 fallback: Failure.Answer(kind: "unreachable"))
+            return switch outcome.kind {
+            case "conflict": .conflict
+            case "isDefault": .isDefault
+            case "notFound": .notFound
+            case "refused": .refused(outcome.reason ?? "")
+            default: .unreachable
+            }
         }
     }
 
@@ -351,21 +352,21 @@ public final class HomeDirectory {
     /// The cloud Chief with id `idOrName`, else the one whose name matches it (case and spacing
     /// do not matter); nil when none or several do.
     public func chiefNamed(_ idOrName: String) -> HomeChiefRecord? {
-        let wanted = idOrName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let byID = chiefs.first(where: { $0.id == wanted }) { return byID }
-        let key = { (s: String) in s.lowercased().split(whereSeparator: \.isWhitespace).joined(separator: " ") }
-        let named = chiefs.filter { key($0.name) == key(wanted) }
-        return named.count == 1 ? named[0] : nil
+        let request = ChiefRequest(chiefs: chiefs.map { .init(id: $0.id, name: $0.name) }, text: idOrName)
+        let id: String? = HomeComposeRules().call("directory.chiefNamed", request, fallback: nil)
+        return id.flatMap { id in chiefs.first { $0.id == id } }
     }
 
     /// The card's reason for an error of `call` or of the owner.
     public static func renameFailure(_ error: any Error) -> HomeChiefRenameFailure {
-        switch error {
-        case FeedServiceError.signedOut: .signedOut
-        case FeedServiceError.owner(code: "revision.conflict", _): .changedElsewhere
-        case FeedServiceError.owner(code: "validation.invalid", _): .invalidName
-        case FeedServiceError.owner(code: "selector.not_found", _), FeedServiceError.owner(code: "chief_archived", _): .notFound
-        case FeedServiceError.owner(let code, let message): .refused(message.isEmpty ? code : message)
+        let failure: Failure.Answer = HomeComposeRules().call("directory.renameFailure", Failure.Request(error),
+                                                             fallback: Failure.Answer(kind: "noConnection"))
+        return switch failure.kind {
+        case "signedOut": .signedOut
+        case "changedElsewhere": .changedElsewhere
+        case "invalidName": .invalidName
+        case "notFound": .notFound
+        case "refused": .refused(failure.reason ?? "")
         // No answer, or one that could not be read: the card's "try again in a moment".
         default: .noConnection
         }
@@ -377,7 +378,8 @@ public final class HomeDirectory {
     private func ensuringUser<T>(_ op: @MainActor () async throws -> T) async throws -> T {
         do {
             return try await op()
-        } catch FeedServiceError.owner(let code, let message) where code == "validation.invalid" && message.contains("user.ensure") {
+        } catch FeedServiceError.owner(let code, let message)
+            where HomeComposeRules().call("directory.needsEnsure", ["code": code, "message": message], fallback: false) {
             let ensure: [String: Any] = ["op": "user.ensure", "params": [String: Any](),
                                          "idempotency_key": "home-user-ensure-" + UUID().uuidString.lowercased(), "origin": "user"]
             _ = try Self.value(try await call("v1/ops", ensure))
@@ -411,4 +413,41 @@ public final class HomeDirectory {
         }
         .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
+}
+
+/// `compose.directory.*`'s failure request (`directory::Failure`) and its tagged answer.
+private nonisolated enum Failure {
+    struct Request: Encodable {
+        struct Error: Encodable {
+            var kind: String
+            var code: String?
+            var message: String?
+        }
+
+        var error: Error
+
+        init(_ error: any Swift.Error) {
+            self.error = switch error {
+            case FeedServiceError.signedOut: Error(kind: "signedOut")
+            case FeedServiceError.owner(let code, let message): Error(kind: "owner", code: code, message: message)
+            default: Error(kind: "other")
+            }
+        }
+    }
+
+    struct Answer: Decodable {
+        var kind: String
+        var reason: String?
+    }
+}
+
+/// `compose.directory.chiefNamed`'s request.
+private nonisolated struct ChiefRequest: Encodable {
+    struct Chief: Encodable {
+        var id: String
+        var name: String
+    }
+
+    var chiefs: [Chief]
+    var text: String
 }

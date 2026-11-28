@@ -5,6 +5,8 @@
 //! is armed when every part is healthy or hidden.
 
 mod daemon;
+mod host_reload;
+mod observer_stall;
 mod page;
 mod parts;
 mod scale;

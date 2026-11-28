@@ -73,7 +73,7 @@ pub async fn wake(config: &MachineWakeConfig, summary: &Value) -> Result<bool> {
         path_segment(&lease)
     );
     let client =
-        reqwest::Client::builder().default_headers(cmux_build_space::headers()?).build()?;
+        crate::happy_dial::http_client().default_headers(cmux_build_space::headers()?).build()?;
     let mut request = client.post(url);
     if let Some(token) = &config.token {
         request = request.bearer_auth(token);
@@ -90,7 +90,7 @@ pub async fn wake(config: &MachineWakeConfig, summary: &Value) -> Result<bool> {
 /// ended with all it started (the `Child`'s drop). The command keeps its own log.
 pub(crate) fn run_peer_wake(argv: &[String], limit: std::time::Duration) -> Result<(), String> {
     let (program, args) = argv.split_first().ok_or("no command")?;
-    let mut child = cmux_process::Command::new(program)
+    let mut child = cmux_process::Command::new(crate::config::user_program(program))
         .args(args)
         .env(crate::peer::WAKE_ENV, "1")
         .stdin(cmux_process::Stdio::null())
@@ -108,20 +108,5 @@ pub(crate) fn run_peer_wake(argv: &[String], limit: std::time::Duration) -> Resu
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn finds_paused_lease_in_host_record_or_tags() {
-        assert_eq!(
-            paused_lease(&json!({"host": {"lease": {"leaseId": "l1", "state": "paused"}}})),
-            Some("l1".into())
-        );
-        assert_eq!(
-            paused_lease(&json!({"host": {"lease": "l2", "state": "paused"}})),
-            Some("l2".into())
-        );
-        assert_eq!(paused_lease(&json!({"tags": {"lease": "l3"}, "status": "idle"})), None);
-    }
-}
+#[path = "machine_wake_tests.rs"]
+mod tests;

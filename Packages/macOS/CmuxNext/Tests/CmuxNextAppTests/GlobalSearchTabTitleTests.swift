@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDaemonService
+import CmuxNextPalette
 import Testing
 @testable import CmuxNextApp
 

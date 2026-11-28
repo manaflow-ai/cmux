@@ -38,6 +38,7 @@ struct TabHoverCardLines: Equatable {
     /// The tab's title; a blank page's address is no title (Leo 2026-10-19: "about:blank").
     static func title(_ item: TabItem) -> String {
         if item.title.isEmpty || (item.hover.kind == .browser && isBlank(item.title)) { return Strings.untitled }
+        if let former = item.hover.formerName, !former.isEmpty, former != item.title { return Strings.formerlyKnownAs(item.title, former: former) }
         return item.title
     }
 
@@ -119,13 +120,14 @@ struct TabHoverCardLines: Equatable {
         }
         guard item.hover.kind != .other else { return nil }
         // Nothing measured: the dash stays, never "Zero KB" or the app-side terminal estimate alone.
-        guard let tab, measured(tab) else { return Strings.hoverMemory("–") }
+        guard let tab, measured(tab), tab.usage.memoryBytes > 0 else { return Strings.hoverMemory("–") }
         let memory = ResourceFormat.memory(tab.usage.memoryBytes)
         if let cpu = tab.usage.cpu, cpu >= notableCPU { return Strings.hoverMemoryCPU(memory, ResourceFormat.cpu(cpu)) }
         return Strings.hoverMemory(memory)
     }
 
-    /// Whether a sample measured the tab's own processes (not only an app-side estimate).
+    /// Whether a sample measured the tab's own processes (not only an app-side estimate). A measured
+    /// tab with zero bytes (a remote daemon that could not read its tree) still reads as the dash.
     static func measured(_ tab: TabResourceReport) -> Bool { tab.available && tab.processCount > 0 }
 
     /// A page address's host ("cmux.com"); a local file's path from home ("~/Docs/a.html");

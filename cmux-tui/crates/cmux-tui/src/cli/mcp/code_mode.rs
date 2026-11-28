@@ -3,8 +3,9 @@
 //! full tool list (daemon operations, browser host, agents, app actions)
 //! stays the API: `cmux_docs` searches it and a `cmux_exec` script calls
 //! it through the same `Server::call` path, so a script has exactly the
-//! rights of a direct tool call and nothing else. 638 tool schemas were
-//! about 208k tokens in every agent turn; these two are about 1k.
+//! rights of a direct tool call and nothing else. When code mode came in,
+//! 638 tool schemas (well over a thousand now) were about 208k tokens in
+//! every agent turn; these two are about 1k.
 //!
 //! A script runs in an embedded QuickJS engine on its own thread. The engine
 //! has no file system, network, process or timer access: its only host
@@ -58,8 +59,6 @@ impl Default for Limits {
     }
 }
 
-/// Calls and docs searches in one script.
-const MAX_CALLS: usize = 2_000;
 /// Calls a result lists one by one; the rest are only counted.
 const MAX_CALL_RECORDS: usize = 200;
 /// The longest tool name a script may call (the longest real one is under 60).
@@ -107,6 +106,8 @@ pub(super) fn descriptors(tools: &[Value], computer_use_only: bool) -> Vec<Value
     // agent only through `cmux.docs`, and a Codex chat has no hook to steer its shell.
     let bg = if tools.iter().any(|t| t["name"] == BG_START) { BG_STEER } else { "" };
     let github = if tools.iter().any(|t| t["name"] == GITHUB_STATUS) { GITHUB_STEER } else { "" };
+    let settings =
+        if tools.iter().any(|t| t["name"] == SETTINGS_ASK) { SETTINGS_STEER } else { "" };
     let wrap_up = if tools.iter().any(|t| t.get("name").and_then(Value::as_str) == Some(WRAP_UP)) {
         WRAP_UP_STEER
     } else {
@@ -200,7 +201,7 @@ pub(super) fn descriptors(tools: &[Value], computer_use_only: bool) -> Vec<Value
              inputSchema}}], more: [names]}}; a tool's exact name finds it first. \
              app_* tools are the app's menu actions. A failed call throws an Error whose `cmux` \
              field has the error, its state and its idempotency key; its message names the fix. \
-             A failed script reports the calls that already ran. Families: {families}.{bg}{github}{wrap_up}{offers}{send}"
+             A failed script reports the calls that already ran. Families: {families}.{bg}{github}{settings}{wrap_up}{offers}{send}"
         ),
         "inputSchema": {
             "type": "object",
@@ -241,6 +242,17 @@ const GITHUB_STEER: &str = " When the person asks about their GitHub (can you se
     see for this chat and how cmux checked each, with no token. Answer with those logins and say \
     they are connected through cmux; an organization account is the one their cmux team \
     connected, not the person.";
+
+/// acpmux's `settings_ask` behind this server (acpmux `acpmux_mcp_settings_ask.rs`): a card or
+/// link that opens one setting or GitHub connection. Its steer was only in acpmux's server
+/// instructions, which a code-mode chat sees only after a `cmux.docs` search, so a NIGHTLY chat
+/// asked "Do you have a settings_ask tool (acpmux_settings_ask)?" said no (cmux ask
+/// c-073fa3e7ff, 2026-11-27).
+const SETTINGS_ASK: &str = "acpmux_settings_ask";
+const SETTINGS_STEER: &str = " To get a GitHub connection or any setting from the person, call \
+    `cmux.acpmux_settings_ask({target, why})` (target connection:github[:ORG[/REPO]], \
+    setting:SECTION[/KEY] or a cmux://settings/... link): it opens that one control as a card or \
+    link, instead of telling them to open Settings.";
 
 /// acpmux's `wrap_up` behind this server (acpmux `acpmux_mcp_wrap_up.rs`): the next-step box the
 /// person sees under the answer. Its `call_log` record carries what it showed (`shown`), which
@@ -465,6 +477,11 @@ fn search(tools: &[Value], query: &str, limit: usize) -> Value {
     if !guides.is_empty() {
         answer.set("guides", json!(guides));
     }
+    // The cmux NEXT guide pages that answer it, read in a terminal with `cmux docs guide SLUG`.
+    let pages = super::super::docs::guide_pages(query);
+    if !pages.is_empty() {
+        answer.set("pages", json!(pages));
+    }
     answer
 }
 
@@ -621,6 +638,15 @@ fn exec_mode(
     for message in &from_script {
         match message {
             ToServer::Request(request, reply) => {
+                // The wrap-up's box, for the agent pane to draw from the transcript: built from
+                // the call's own input, because its answer no longer echoes it back to the agent
+                // (`acpmux_mcp_wrap_up.rs`, RFD 0087).
+                let drawn = match &request {
+                    Request::Call { name, arguments } if name.as_str() == WRAP_UP => {
+                        acpmux::acpmux_mcp::wrap_up_box(&Value::Object(arguments.clone()))
+                    }
+                    _ => None,
+                };
                 let name = match &request {
                     Request::Call { name, .. } => Some(name.clone()),
                     Request::ActivityStart { kind, .. } => Some(kind.clone()),
@@ -641,13 +667,8 @@ fn exec_mode(
                         if let Some(key) = answered["error"]["idempotency_key"].as_str() {
                             record.set("idempotency_key", json!(key));
                         }
-                        // The wrap-up's box, for the agent pane to draw from the transcript.
-                        if ok
-                            && name == WRAP_UP
-                            && let Some(shown) =
-                                answered.get("value").filter(|value| value.is_object())
-                        {
-                            record.set("shown", shown.clone());
+                        if ok && let Some(shown) = drawn {
+                            record.set("shown", shown);
                         }
                         records.push(record);
                     }
@@ -984,26 +1005,16 @@ fn run_script(
         Ok(context) => context,
         Err(error) => return failed(format!("engine: {error}")),
     };
-    let calls = Rc::new(RefCell::new(0usize));
     let mut workflow_poll: Option<Persistent<Function<'static>>> = None;
     let evaluated = context.with(|ctx| -> Result<(), String> {
         let native = Object::new(ctx.clone()).map_err(|e| e.to_string())?;
-        let count = calls.clone();
         let request = {
             let to_server = to_server.clone();
             let progress = progress.clone();
             move |request: Request| -> String {
-                let mut used = count.borrow_mut();
-                // The workflow journal counts fresh activities after replay
-                // lookup. Its budget resets per resume; only internal waits are free.
-                if !workflow_mode && *used >= MAX_CALLS {
-                    return failure(
-                        "script.too_many_calls",
-                        &format!("a script makes at most {MAX_CALLS} calls and docs searches"),
-                    );
-                }
-                *used += 1;
-                drop(used);
+                // No count limit: a call waits for its answer before the next, so the
+                // script's time and memory limits bound it, and past MAX_CALL_RECORDS a
+                // call is only counted.
                 if !workflow_mode && started.elapsed() > limits.total {
                     return failure(
                         "script.timeout",

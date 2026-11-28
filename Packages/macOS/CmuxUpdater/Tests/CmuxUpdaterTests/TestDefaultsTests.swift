@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import Testing
+@testable import CmuxUpdaterTestSupport
 
 /// `removePersistentDomain(forName:)` alone leaves an empty `<suite>.plist` in ~/Library/Preferences;
 /// `TestDefaults.remove(_:)` must leave no file, also after cfprefsd has had time to write one back.

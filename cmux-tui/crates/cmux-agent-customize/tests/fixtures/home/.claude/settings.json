@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "model": "opus",
+  "futureKeyCmuxDoesNotKnow": {
+    "nested": [1, 2, {"deep": true}],
+    "flag": null
+  },
+  "permissions": {
+    "allow": ["Bash(git status)"],
+    "defaultMode": "default",
+    "unknownPermissionKnob": "kept"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "fixture-guard-bash",
+            "timeout": 10,
+            "someNewHandlerField": "kept"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "fixture-on-stop"
+          }
+        ]
+      }
+    ]
+  },
+  "alwaysThinkingEnabled": true,
+  "skillOverrides": {},
+  "zzLastUnknownKey": "stays last"
+}

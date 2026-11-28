@@ -9,15 +9,15 @@ import CmuxNextImportCards
 import CmuxNextImportSuggestions
 import CmuxNextOnboarding
 
-/// Import and default-app actions. Import from Browser opens the tool window
-/// (`OnboardingService`); Make cmux the Default Terminal asks macOS directly
+/// Import and default-app actions. Import from Browser and Make cmux Yours (on the current settings; Skip restores them) open
+/// the tool window (`OnboardingService`); Make cmux the Default Terminal asks macOS directly
 /// for each handler; Make cmux the Default Browser asks macOS directly
 /// (macOS shows its confirmation); Import Workspaces from Classic cmux opens
 /// classic's last saved session.
 enum OnboardingHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services; registry.bindEffect("home.showSetup") { invocation in services.onboarding.setup.reopen(); _ = registry.perform("home.show", invocation: invocation); _ = registry.perform("home.openChief", invocation: invocation); return .done }
-        registry.bind("importFromBrowser", run: { _ in services.onboarding.show(step: .importData) })
+        registry.bind("importFromBrowser", run: { _ in services.onboarding.show(step: .importData) }); registry.bindEffect("home.makeItYours") { _ in services.onboarding.show(step: .makeItYours); return .done }
         BrowserImportGate(host: services).install(into: registry) { BrowserImportOfferStrings.turnedOff }
         registry.bind("browserProfile.removeImportedData", run: { invocation in
             let record = try context.browserProfile(invocation), sync = services.onboarding.historySync
@@ -101,7 +101,7 @@ enum OnboardingHandlers {
     }
 
     /// What the import cards run through the App: the Import from Browser window's import run,
-    /// Import Workspaces from Classic cmux and Import from Conductor.
+    /// Import Workspaces from Classic cmux, Import from Conductor and Move this Mac to AutoCloud.
     static func importCardsHost(_ services: AppServices) -> ImportCardsHost {
         ImportCardsHost(
             runImport: { plan, keys, progress in try await AppOnboardingServices(owner: services.onboarding).runImport(plan, keys: keys, progress: progress) },
@@ -109,7 +109,11 @@ enum OnboardingHandlers {
             openSettings: { route in try? services.settingsWindow.show(section: nil, route: route) },
             importClassic: { progress in try await importClassic(services, in: nil, progress: progress)?.opened },
             importConductor: { progress in try await ConductorImport(host: services).run(progress: progress) },
-            classicWorkspaces: { try? await AppOnboardingServices(owner: services.onboarding).classicImportClient().plan(.manual, outline: true).plan?.workspaces.count })
+            classicAvailability: {
+                guard let reply = try? await AppOnboardingServices(owner: services.onboarding).classicImportClient().probe(.manual),
+                      reply.available else { return .unavailable }
+                return reply.alreadyImported ? .alreadyImported : .available
+            }, autoCloud: AutoCloudMove(cli: services.bundledCLI, settings: { services.settings }))
     }
 
     /// Import Workspaces from Classic cmux as every entrypoint runs it (the action, the cmux
@@ -140,46 +144,50 @@ enum ClassicImportStrings {
     static var inUseBefore: String {
         String(localized: "classicImport.toast.inUseBefore",
                defaultValue: "Classic cmux workspaces weren’t imported because this app already had its own. Import them any time from Settings › Import.",
-               bundle: .module)
+               bundle: .module.inAppLanguage)
     }
     /// The first launch's toast when the classic app named `app` is open, so nothing came over.
     static func classicOpen(_ app: String) -> String {
         let format = String(localized: "classicImport.toast.classicOpen",
                             defaultValue: "%@ (classic) is open, so its workspaces weren’t imported. Quit it and reopen this app, or import them from Settings › Import.",
-                            bundle: .module)
+                            bundle: .module.inAppLanguage)
         return String(format: format, app)
     }
     static var imported: String {
-        String(localized: "classicImport.toast.imported", defaultValue: "Workspaces from classic cmux are open.", bundle: .module)
+        String(localized: "classicImport.toast.imported", defaultValue: "Workspaces from classic cmux are open.", bundle: .module.inAppLanguage)
     }
     static var allHere: String {
-        String(localized: "classicImport.toast.allHere", defaultValue: "Every workspace from classic cmux is already open here.", bundle: .module)
+        String(localized: "classicImport.toast.allHere", defaultValue: "Every workspace from classic cmux is already open here.", bundle: .module.inAppLanguage)
     }
     static var nothingSaved: String {
-        String(localized: "classicImport.toast.none", defaultValue: "Classic cmux has no saved workspaces to import.", bundle: .module)
+        String(localized: "classicImport.toast.none", defaultValue: "Classic cmux has no saved workspaces to import.", bundle: .module.inAppLanguage)
+    }
+    static var settingsComplete: String {
+        String(localized: "classicImport.toast.settingsComplete", defaultValue: "Classic settings import complete.", bundle: .module.inAppLanguage)
     }
     static var failed: String {
-        String(localized: "classicImport.toast.failed", defaultValue: "Couldn’t import workspaces from classic cmux.", bundle: .module)
+        String(localized: "classicImport.toast.failed", defaultValue: "Couldn’t import workspaces from classic cmux.", bundle: .module.inAppLanguage)
     }
     static var cloudVMsStay: String {
         String(localized: "classicImport.toast.cloudVMsStay",
-               defaultValue: "Cloud VM workspaces stay in classic cmux; cmux-next can’t open them yet.", bundle: .module)
+               defaultValue: "Cloud VM workspaces stay in classic cmux; cmux-next can’t open them yet.", bundle: .module.inAppLanguage)
     }
     static var sshStays: String {
         String(localized: "classicImport.toast.sshStays",
-               defaultValue: "SSH workspaces whose host didn’t connect stay in classic cmux.", bundle: .module)
+               defaultValue: "SSH workspaces whose host didn’t connect stay in classic cmux.", bundle: .module.inAppLanguage)
     }
     static var sshScrollbackStays: String {
         String(localized: "classicImport.toast.sshScrollbackStays",
-               defaultValue: "SSH terminals open without their old scrollback.", bundle: .module)
+               defaultValue: "SSH terminals open without their old scrollback.", bundle: .module.inAppLanguage)
     }
     static var tabsStay: String {
         String(localized: "classicImport.toast.tabsStay",
-               defaultValue: "Markdown and file preview tabs stay in classic cmux.", bundle: .module)
+               defaultValue: "Markdown and file preview tabs stay in classic cmux.", bundle: .module.inAppLanguage)
     }
 
     /// What opened, then what stayed in classic and why.
     static func notice(_ summary: ClassicImportSummary) -> String {
+        if summary.settingsOnly { return settingsComplete }
         let stayed = (summary.leftCloudVMs ? [cloudVMsStay] : []) + (summary.leftSSH ? [sshStays] : [])
             + (summary.leftSSHScrollback ? [sshScrollbackStays] : []) + (summary.leftTabs ? [tabsStay] : [])
         let opened = summary.opened > 0 ? [imported] : summary.alreadyHere > 0 ? [allHere] : stayed.isEmpty ? [nothingSaved] : []

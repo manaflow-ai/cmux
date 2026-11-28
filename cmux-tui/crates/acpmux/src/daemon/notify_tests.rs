@@ -22,3 +22,13 @@ fn a_tool_permission_still_names_its_tool() {
     assert_eq!(permission_text("lane", &bash), "lane needs a permission: Run tests");
     assert_eq!(permission_text("lane", &json!({})), "lane needs a permission: tool");
 }
+
+#[test]
+fn a_stall_reminds_with_the_ask_and_its_wait() {
+    let msg = json!({"permissionId": "p1", "waitedS": 600,
+        "request": {"toolCall": {"title": "Run tests", "kind": "execute"}}});
+    assert_eq!(
+        stall_text("lane", &msg),
+        "Still waiting 10 min: lane needs a permission: Run tests"
+    );
+}

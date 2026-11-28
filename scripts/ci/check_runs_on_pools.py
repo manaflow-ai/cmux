@@ -50,10 +50,27 @@ EXCEPTIONS: dict[tuple[str, str], str] = {
     # .github/language-boundaries.toml: a PR that changes this workflow fails the check unless Leo labels it (the boundaries
     # are his call), so its fallback label moves only in a PR he approves.
     ("language-boundaries.yml", "language-boundaries"): "language-boundaries.yml is Leo's to change",
-    ("cmux-next-guards.yml", "signing-runner-variables"): "checks the runner variables, so it must not read one: "
-                                                          "rule 7 of tests/test_ci_signing_keychain_is_deleted_"
-                                                          "before_bundle_code.py pins its literal Blacksmith label",
 }
+
+# A runs-on line frozen to the literal it resolved to (scripts/ci/one_linux_label.py freeze_line, 2026-11-24: "no
+# runs-on line that reads a variable") keeps its reason in a comment: a credentialed, signing or write-token job on its
+# ephemeral vendor label, a provenance job on GitHub-hosted Ubuntu. MARK names which comment admits which kind.
+EPHEMERAL_MARK = re.compile(r"#.*\b(?:ephemeral-required|owned-pool-unfit|frozen-label):")
+HOSTED_MARK = re.compile(r"#.*\bgithub-hosted-required:")
+JOB_HEADER = re.compile(r"^  ([A-Za-z_][\w-]*):\s*(?:#.*)?$")
+RUNS_ON_LINE = re.compile(r"^    runs-on:")
+
+
+def marked_jobs(text: str, mark: re.Pattern[str]) -> set[str]:
+    """Job ids whose `runs-on:` line carries MARK's comment."""
+    found, job = set(), ""
+    for line in text.splitlines():
+        if header := JOB_HEADER.match(line):
+            job = header.group(1)
+        elif job and RUNS_ON_LINE.match(line) and mark.search(line):
+            found.add(job)
+    return found
+
 
 COMPARISON = re.compile(r"(?:==|!=)\s*$")
 COMPARED = re.compile(r"^\s*(?:==|!=)")
@@ -180,12 +197,15 @@ def hits(files: list[Path]) -> list[tuple[str, str, list[str]]]:
 
     found = []
     for path in files:
-        doc = yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader) or {}
+        text = path.read_text(encoding="utf-8")
+        doc = yaml.load(text, Loader=yaml.BaseLoader) or {}
         jobs = doc.get("jobs") if isinstance(doc, dict) else None
+        marked = marked_jobs(text, EPHEMERAL_MARK) | marked_jobs(text, HOSTED_MARK)
         for job_id, job in (jobs or {}).items():
             if not isinstance(job, dict) or (path.name, job_id) in EXCEPTIONS:
                 continue
-            labels = job_hits(job)
+            labels = [label for label in job_hits(job)
+                      if not (job_id in marked and (label.startswith("blacksmith-") or job_id in marked_jobs(text, HOSTED_MARK)))]
             if labels:
                 found.append((path.name, job_id, labels))
     return found

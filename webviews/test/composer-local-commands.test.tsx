@@ -7,12 +7,17 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { noChat, user } from "../src/gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import type { CmuxCommand } from "../src/agent-session/acpmux/cmuxCommands";
-import { localCommand, localCommandNames, type LocalCommand } from "../src/agent-session/acpmux/localCommands";
+import type { LocalCommand } from "../src/agent-session/acpmux/localCommands";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { noChat, user } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
+const { localCommand, localCommandNames } = await importWithDom(
+  () => import("../src/agent-session/acpmux/localCommands"),
+);
 
 const PNG = new Uint8Array(8);
 const scope = globalThis as Record<string, unknown>;
@@ -238,11 +243,13 @@ test("the set is per harness, and never holds a command that sends to the model"
       expect(localCommandNames(harness)).not.toContain(sends);
 });
 
-test("/help mid-turn opens the / menu at once: nothing is sent", async () => {
+// `/help` is cmux's own sheet now (HelpSheet.tsx, #50541), ahead of the harness's local commands.
+test("/help mid-turn opens the help sheet at once: nothing is sent", async () => {
   const run = await composer(working(), "/help");
   await enter(run.field);
   expect(run.sent).toEqual([]);
-  expect(run.field.textContent).toBe("/");
+  expect(run.field.textContent).toBe("");
+  expect(document.querySelector(".acpmux-help-sheet")).not.toBeNull();
 });
 
 test("Codex's /diff mid-turn runs at once: the chat's changes open, nothing is sent", async () => {

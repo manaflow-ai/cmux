@@ -33,7 +33,9 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/nightly.yml"
-JOBS = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+# nightly.yml's compilation-cache refreshers run in the workflow it calls; they compile, so they join the walk.
+CACHE_WORKFLOW = ROOT / ".github/workflows/nightly-compilation-cache.yml"
+JOBS = {**yaml.safe_load(WORKFLOW.read_text())["jobs"], **yaml.safe_load(CACHE_WORKFLOW.read_text())["jobs"]}
 SELECTOR = "scripts/select-ci-xcode.sh"
 SDK_STEP = "Select the SDK of the selected Xcode"
 # Compiles with Zig only and selects no Xcode (tests/test_ci_macos_xcode_selection.py EXEMPT):
@@ -170,7 +172,8 @@ class NightlyJobSdkroot(unittest.TestCase):
             "refresh-compilation-cache", "refresh-test-compilation-cache", "build-nightly-ghostty-cli-helper",
             "build-nightly-app", "build-sign-notarize-nightly", "verify-signed-nightly",
             "verify-final-dmg-nightly", "recover-nightly-next-notarization", "verify-recovered-nightly-next",
-            "visual-gate-nightly", "build-nightly-deltas", "generate-nightly-deltas", "nightly-next-one",
+            "visual-gate-nightly", "build-nightly-deltas", "generate-nightly-deltas", "nightly-next-one", "nightly-next-deltas", "nightly-next-pkg",
+            "build-live-code-variant", "sign-live-code-variant",
         ]))
 
     def test_a_link_in_each_compiling_job_takes_the_selected_xcodes_sdk(self) -> None:

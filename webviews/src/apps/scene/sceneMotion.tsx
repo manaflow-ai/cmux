@@ -5,8 +5,9 @@
 // last props, until it has left. CSS draws every movement (scene.css) behind the motion gate:
 // WebTheme's `data-cmux-motion` off draws the end state at once; reduced (Reduce Motion, calm
 // motion) turns each movement into a crossfade.
-import { createContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { MOTION_MS } from "../../motion/scale.generated";
+import { sceneMotionEnv, sceneTransitionKind, sceneTransitionLeaveMs, type SceneMotionEnv } from "./motionProps";
 import type { SceneNode, SceneStore } from "./store";
 
 /** How long a removed node stays to leave: the motion scale's `quick` step, as scene.css's leave animations. */
@@ -22,6 +23,21 @@ function leaveMs(): number {
   } catch {
     return SCENE_LEAVE_MS;
   }
+}
+
+/** The leave of a leaving set: the longest of its nodes' own `{kind, motion}` timings, at least the
+ * quick step, so no node is dropped before its exit ends. */
+function leavingSetMs(store: SceneStore, leaving: ReadonlyMap<string, number>): number {
+  let ms = leaveMs();
+  if (typeof document === "undefined") return ms;
+  let env: SceneMotionEnv | undefined;
+  for (const id of leaving.keys()) {
+    const transition = store.getDeparted(id)?.props.transition;
+    if (transition === undefined || typeof transition === "string") continue;
+    env ??= sceneMotionEnv(document);
+    ms = Math.max(ms, sceneTransitionLeaveMs(transition, env, document) ?? 0);
+  }
+  return ms;
 }
 
 export type SceneMotion = "full" | "reduced" | "off";
@@ -60,9 +76,12 @@ export function SceneAppeared({
   return <>{children}</>;
 }
 
-/** Whether the node animates in: it has a transition and came after the first frame. */
-export function useSceneEntering(store: SceneStore, node: SceneNode | undefined): boolean {
-  const [entering] = useState(() => store.hasDrawn() && typeof node?.props.transition === "string");
+/** Whether the node animates in: it has a transition and came after the first frame. `added` false: this
+ * mount did not come from a render adding the node (a windowed LazyVStack scrolled it in), so it does not. */
+export function useSceneEntering(store: SceneStore, node: SceneNode | undefined, added = true): boolean {
+  const [entering] = useState(
+    () => added && store.hasDrawn() && sceneTransitionKind(node?.props.transition) !== undefined,
+  );
   return entering;
 }
 
@@ -99,22 +118,29 @@ export function useSceneChildren(store: SceneStore, ids: readonly string[]): Sce
   const leavingNow = current.leaving;
   useEffect(() => {
     if (!leavingNow.size) return undefined;
-    const timer = setTimeout(() => {
-      for (const id of leavingNow.keys()) store.forgetDeparted(id);
-      setSeen((previous) => {
-        const leaving = new Map([...previous.leaving].filter(([id]) => !leavingNow.has(id)));
-        return { ...previous, leaving: leaving.size ? leaving : NONE_LEAVING };
-      });
-    }, leaveMs());
+    const timer = setTimeout(
+      () => {
+        for (const id of leavingNow.keys()) store.forgetDeparted(id);
+        setSeen((previous) => {
+          const leaving = new Map([...previous.leaving].filter(([id]) => !leavingNow.has(id)));
+          return { ...previous, leaving: leaving.size ? leaving : NONE_LEAVING };
+        });
+      },
+      leavingSetMs(store, leavingNow),
+    );
     return () => clearTimeout(timer);
   }, [leavingNow, store]);
 
-  const out: SceneChild[] = ids.map((id) => ({ id, leaving: false }));
-  if (!leavingNow.size) return out;
-  for (const [id, at] of [...leavingNow].sort((a, b) => a[1] - b[1])) {
-    out.splice(Math.min(at, out.length), 0, { id, leaving: true });
-  }
-  return out;
+  // One array per change of the children or the leaving set, so a windowed LazyVStack (which draws again per
+  // scroll step) does no pass over all its children per step.
+  return useMemo(() => {
+    const out: SceneChild[] = ids.map((id) => ({ id, leaving: false }));
+    if (!leavingNow.size) return out;
+    for (const [id, at] of [...leavingNow].sort((a, b) => a[1] - b[1])) {
+      out.splice(Math.min(at, out.length), 0, { id, leaving: true });
+    }
+    return out;
+  }, [ids, leavingNow]);
 }
 
 /** `text`'s user-perceived characters (an emoji or accented letter stays whole). */

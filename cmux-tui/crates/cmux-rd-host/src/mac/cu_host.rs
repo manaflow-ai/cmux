@@ -128,15 +128,116 @@ impl HostServices for ScreenCaptureKitHost {
     fn request_permission(&self, _which: &str) -> DResult<()> {
         Err(DesktopError::Unsupported("the engine asks macOS directly".into()))
     }
+
+    /// The `record` tool's encoder: VideoToolbox H.264 (`cu_record.rs`).
+    fn frame_encoder(
+        &self,
+        width: u32,
+        height: u32,
+        fps: u32,
+    ) -> DResult<Box<dyn cmux_computer_use::record::FrameEncoder>> {
+        super::cu_record::VideoToolboxFrames::new(width, height, fps)
+            .map(|encoder| Box::new(encoder) as Box<dyn cmux_computer_use::record::FrameEncoder>)
+            .map_err(DesktopError::Failed)
+    }
+
+    /// `computer-use status` reads the grant the person sees in System Settings, not this
+    /// process's old answer.
+    fn screen_capture_granted(&self) -> Option<bool> {
+        Some(screen_capture() != ScreenCapture::Missing)
+    }
+}
+
+/// Screen Recording for this worker process.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ScreenCapture {
+    Granted,
+    /// Granted in System Settings after this process first read no: macOS keeps a running
+    /// process's denial, so only a fresh worker can capture. This one is about to exit.
+    GrantedAfterStart,
+    Missing,
+}
+
+/// How long a worker that found a new grant keeps serving, so the answer it is writing reaches
+/// the daemon, before it exits. The daemon starts the next worker 200 ms after the exit
+/// (cmux-tui-core `computer_use_host`, a worker that ran 30 s or more).
+const RESTART_AFTER: Duration = Duration::from_millis(300);
+/// How long the fresh `permissions` read may take.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+
+fn screen_capture() -> ScreenCapture {
+    // SAFETY: no arguments; the framework loaded (computer_use_host_services checked it).
+    if unsafe { cgi::CGPreflightScreenCaptureAccess() } {
+        return ScreenCapture::Granted;
+    }
+    // Only on a no: one short-lived child of this same helper (`permissions`, the read the app
+    // already uses), so macOS checks the same identity and answers afresh.
+    if fresh_screen_recording() != Some(true) {
+        return ScreenCapture::Missing;
+    }
+    restart_for_new_grant();
+    ScreenCapture::GrantedAfterStart
 }
 
 fn require_grant() -> DResult<()> {
-    // SAFETY: no arguments; the framework loaded (computer_use_host_services checked it).
-    if unsafe { cgi::CGPreflightScreenCaptureAccess() } {
-        Ok(())
-    } else {
-        Err(DesktopError::PermissionMissing("screen_capture".into()))
+    match screen_capture() {
+        ScreenCapture::Granted => Ok(()),
+        ScreenCapture::GrantedAfterStart => Err(DesktopError::Failed(
+            "Screen Recording was just turned on; Computer Use is restarting to use it. Try again in a second."
+                .into(),
+        )),
+        ScreenCapture::Missing => Err(DesktopError::PermissionMissing("screen_capture".into())),
     }
+}
+
+/// `screen_recording` from a fresh `<this executable> permissions`, or None when it could not
+/// be read in time.
+fn fresh_screen_recording() -> Option<bool> {
+    use std::io::Read;
+    let exe = std::env::current_exe().ok()?;
+    // Owned here: a probe that outlives PROBE_TIMEOUT is killed and reaped below.
+    let mut child = cmux_process::Command::new(exe)
+        .arg("permissions")
+        .stdin(cmux_process::Stdio::null())
+        .stdout(cmux_process::Stdio::piped())
+        .stderr(cmux_process::Stdio::null())
+        .spawn()
+        .ok()?;
+    // The snapshot is one short JSON line, far below a pipe's buffer, so waiting first cannot
+    // block the child on a full pipe.
+    let Ok(Some(status)) = child.wait_timeout(PROBE_TIMEOUT) else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return None;
+    };
+    let mut stdout = Vec::new();
+    child.stdout.take()?.read_to_end(&mut stdout).ok()?;
+    if !status.success() {
+        return None;
+    }
+    parse_screen_recording(&stdout)
+}
+
+fn parse_screen_recording(stdout: &[u8]) -> Option<bool> {
+    let line = std::str::from_utf8(stdout).ok()?.lines().next()?;
+    serde_json::from_str::<serde_json::Value>(line).ok()?.get("screen_recording")?.as_bool()
+}
+
+/// Exits this worker once, [`RESTART_AFTER`] from now; the daemon starts a fresh one, which
+/// sees the grant. Nothing else restarts: not cmux, not the daemon.
+fn restart_for_new_grant() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        eprintln!(
+            "cmux Computer Use: Screen Recording was granted; restarting the worker to use it"
+        );
+        let _ = std::thread::Builder::new().name("cmux-cu-grant-restart".into()).spawn(|| {
+            std::thread::sleep(RESTART_AFTER);
+            // Only a fresh process can use the new grant; replies are flushed per line.
+            // crash-allow: a deliberate clean exit the daemon's supervisor restarts from
+            std::process::exit(0);
+        });
+    });
 }
 
 /// An Objective-C object this code owns (+1), released on drop.
@@ -410,3 +511,7 @@ fn rgba_of(image: sys::CGImageRef) -> DResult<(u32, u32, Vec<u8>)> {
     }
     Ok((width, height, rgba))
 }
+
+#[cfg(test)]
+#[path = "cu_host_grant_tests.rs"]
+mod grant_tests;

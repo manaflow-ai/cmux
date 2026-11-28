@@ -18,8 +18,8 @@ extension OmniboxConfiguration {
             engine = invalid ? .google : custom
         }
         let configuration = OmniboxConfiguration(searchEngine: engine, remoteSuggestions: setting.remoteSuggestions,
-                                                 inlineAutocomplete: setting.inlineAutocomplete, maxRows: setting.maxRows,
-                                                 calculator: setting.calculator, showFullURLs: setting.showFullURLs)
+                                                 inlineAutocomplete: setting.inlineAutocomplete, maxRows: setting.maxRows, calculator: setting.calculator,
+                                                 showFullURLs: setting.showFullURLs, quietIcons: setting.quietIcons)
         return (configuration, invalid)
     }
 }

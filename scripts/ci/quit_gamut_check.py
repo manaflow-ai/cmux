@@ -95,7 +95,7 @@ AFTER_RUN_S = 60.0
 KEEP_SESSIONS = ("update", "sparkle-update")
 # What a person who keeps automatic updates has in their own file (downloadAutomatically is user-only over the
 # socket): post-update-hitches.py's settings.
-SPARKLE_SETTINGS = {"app": {"quitBehavior": "keep"}, "updates": {"installOnQuit": True, "downloadAutomatically": True}}
+SPARKLE_SETTINGS = {"app": {"quitBehavior": "keep"}, "updates": {"installOnQuit": True, "automatic": "download"}}
 STAGE_S = 900.0
 PREWARM_S = 120.0
 INSTALL_S = 300.0
@@ -229,7 +229,25 @@ def press_cmd_q(app: App) -> str | None:
     done = subprocess.run(["osascript", "-l", "JavaScript", "-e", script], capture_output=True, text=True, timeout=20)
     if "posted" in done.stdout:
         return None
+    if "untrusted" in done.stdout and startup.cua_argv():
+        # A fleet measure step lacks the Accessibility grant (every cmdq row not run, startup-matrix gamut
+        # 2026-11-28); the console's CuaDriver holds it, as for the first-launch prompt's Open.
+        return cua_cmd_q(pid)
     return f"Cmd-Q could not be pressed: {(done.stdout + done.stderr).strip()[:200]} (this process lacks Accessibility)"
+
+
+def cua_cmd_q(pid: int) -> str | None:
+    """Cmd-Q through CuaDriver to the app's largest window, delivered with the app frontmost (as a person presses
+    it). None when pressed."""
+    area = lambda w: (w.get("bounds") or {}).get("width", 0) * (w.get("bounds") or {}).get("height", 0)
+    wins = startup.walk(startup.cua("list_windows", {"pid": pid}), lambda o: isinstance(o, dict) and "window_id" in o)
+    if not wins:
+        return "Cmd-Q could not be pressed: CuaDriver lists no window of the app (this process lacks Accessibility)"
+    reply = startup.cua("hotkey", {"pid": pid, "window_id": max(wins, key=area)["window_id"], "keys": ["cmd", "q"],
+                                   "delivery_mode": "foreground"})
+    if reply.get("error"):
+        return f"Cmd-Q could not be pressed: CuaDriver hotkey: {str(reply['error'])[:200]}"
+    return None
 
 
 # ---- chats -----------------------------------------------------------------------------------
@@ -244,7 +262,10 @@ def chat_items(app: App, chat: str) -> list[dict]:
             break
         items += page
         last = page[-1].get("id")
-        if len(page) < 200 or not isinstance(last, int) or last <= after:
+        # A short page is not the end: a page may stop at a byte budget before 200 items (the long chat's 4 KB
+        # turns read back as 19 of 40 answers in every pass, startup-matrix gamut 2026-11-28); only an empty
+        # page or no newer id ends it.
+        if not isinstance(last, int) or last <= after:
             break
         after = last
     return items
@@ -388,8 +409,13 @@ class Gamut:
                     raise RuntimeError(f"long chat turn {t}: {why}")
                 wait_for(quiet, 30, 0.05)
             if not wait_for(lambda: assistant_text(app, chat).count("long turn") >= self.args.long_turns, 60, 0.5):
+                items = chat_items(app, chat)
+                roles = {}
+                for item in items:
+                    roles[str(item.get("role"))] = roles.get(str(item.get("role")), 0) + 1
                 raise RuntimeError(f"the long chat has {assistant_text(app, chat).count('long turn')} of "
-                                   f"{self.args.long_turns} answers")
+                                   f"{self.args.long_turns} answers ({len(items)} items read, by role {roles}; "
+                                   f"state {json.dumps(chat_state(app, chat))[:200]})")
             case["long_messages"] = len(chat_items(app, chat))
         if state == "stream":
             why = send(app, chat, STREAM_PROMPT)
@@ -481,7 +507,7 @@ class Gamut:
         if state == "stream":
             # Still streaming: the reply grows over the next 2 s, then the turn is cancelled.
             before = assistant_text(app, chat).count("word")
-            time.sleep(2)
+            time.sleep(2)  # sleep-ok: the 2 s measurement window for stream_words_in_2s
             after = assistant_text(app, chat).count("word")
             row["stream_words_in_2s"] = after - before
             if after <= before:
@@ -549,10 +575,10 @@ class Gamut:
         if path == "after-run":
             # The condition is the app's age itself: it has run AFTER_RUN_S before it is quit.
             row["ran_s"] = round(max(AFTER_RUN_S, time.monotonic() - self.app.started_at), 1)
-            time.sleep(max(0.0, AFTER_RUN_S - (time.monotonic() - self.app.started_at)))
+            time.sleep(max(0.0, AFTER_RUN_S - (time.monotonic() - self.app.started_at)))  # sleep-ok: app age is the condition
         processes_before = set(smoke.own_pids(self.root))
         recorder = self.record_start(name)
-        time.sleep(0.5 if recorder else 0)
+        time.sleep(0.5 if recorder else 0)  # sleep-ok: the video's lead-in before the quit
         try:
             why, quit_ms = quit_app(self.app, path)
         except QuitFailed as error:
@@ -618,7 +644,7 @@ class Gamut:
             if row["prior_chat_live_ms"] and row["warm_switch_ms"]:
                 row["live_over_warm_switch"] = round(row["prior_chat_live_ms"] / max(row["warm_switch_ms"], 1), 1)
         if recorder:
-            time.sleep(8)
+            time.sleep(8)  # sleep-ok: the video's recording tail after the quit
             recorder.terminate()
             try:
                 _, err = recorder.communicate(timeout=10)
@@ -629,8 +655,9 @@ class Gamut:
         row["settled_ms"] = settled_at
         row["launch_snapshot_applied"] = "launch_snapshot_applied" in marks
         row["pop_in"] = sorted(k[:-len(".by_deadline")] for k in marks if k.endswith(".by_deadline"))
-        row["marks"] = {k: v for k, v in marks.items() if k.startswith(("first_", "reveal.", "agent_pane.", "daemon.",
-                                                                       "launch_", "main_start", "connecting_"))}
+        # Every launch mark: a gap between two kept marks (reveal.sidebar to reveal.tabs) names its step only with the
+        # window.*, dfl.*, frame.* and main.* marks between them (startup-matrix, 2026-11-28).
+        row["marks"] = dict(marks)
         if self.app.process.poll() is not None:
             failures.append(f"the reopened app exited (status {self.app.process.poll()})")
             return row
@@ -803,7 +830,7 @@ class SparkleUpdate:
             row["installed_build"] = bundle_build(self.bundle)
             row["install_s"] = round(time.monotonic() - started, 1)
             row["prewarm_log"] = self.prewarm_lines()
-            time.sleep(3)  # harness: a relaunch by Sparkle would show by now
+            time.sleep(3)  # sleep-ok: an absence window; no relaunch by Sparkle within it is the check
             executable = str(self.bundle / "Contents" / "MacOS") + "/"
             ps = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True, timeout=20).stdout
             relaunched = [line.split()[0] for line in ps.splitlines() if line.strip().split(None, 1)[-1].startswith(executable)]
@@ -916,14 +943,21 @@ def main(argv: list[str] | None = None) -> int:
         if args.paths:
             bundle_id, _ = smoke.bundle_info(bundle)
             with smoke.DefaultsAside(bundle_id, root):
-                env = smoke.fresh_env(root, root / "s.sock", -1)
+                # Only the sparkle-update path keeps the app's own updater on (it stages a real update); every
+                # other path's copy must never download one (fresh_env's UPDATER_OFF_VARIABLE).
+                env = smoke.fresh_env(root, root / "s.sock", -1, updater="sparkle-update" in args.paths)
                 env.pop("CMUX_NEXT_LAUNCH_MARKS_FD", None)
                 ui.login_keychain(env)
-                folder = Path(env["HOME"]) / ".config" / "cmux" / "harnesses"
-                folder.mkdir(parents=True, exist_ok=True)
-                (folder / f"{HARNESS}.toml").write_text(
-                    f'schema = 1\nid = "{HARNESS}"\nname = "Gamut test agent"\nprotocol = "acp"\n'
-                    f'command = "/usr/bin/python3"\nargs = [{json.dumps(str(gamut.fake))}]\n')
+                # A DEV build's acpmux reads harnesses from its own build home, not ~/.config/cmux, unless the run
+                # names its config root (acpmux ProfileSources::current): without this a tagged build (quit-gamut.sh
+                # head=) answered "unknown harness" to every round.
+                env["XDG_CONFIG_HOME"] = str(Path(env["HOME"]) / ".config")
+                for name in l5.HARNESS_DIRS:  # NEXT's own `cmux-next`, and `cmux` for builds before #56195
+                    folder = Path(env["XDG_CONFIG_HOME"]) / name / "harnesses"
+                    folder.mkdir(parents=True, exist_ok=True)
+                    (folder / f"{HARNESS}.toml").write_text(
+                        f'schema = 1\nid = "{HARNESS}"\nname = "Gamut test agent"\nprotocol = "acp"\n'
+                        f'command = "/usr/bin/python3"\nargs = [{json.dumps(str(gamut.fake))}]\n')
                 gamut.boot(bundle, env)
                 gamut.app.cli("setup", "trust", str(gamut.work))
                 gamut.run(bundle, env, newer, previous)

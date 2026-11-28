@@ -1,7 +1,7 @@
 import CmuxNextIcons
 import Foundation
 
-extension AppFeature {
+nonisolated extension AppFeature {
     /// Every feature the Features tab can list, in store order. A feature whose key the
     /// schema does not know yet (its PR has not landed) is hidden by
     /// ``AppFeatureSettings/isAvailable(_:)``, so an entry can be added with its key.
@@ -268,6 +268,6 @@ extension AppFeature {
     }
 
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .localizedModule)
     }
 }

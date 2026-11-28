@@ -73,9 +73,6 @@ for name, ctx in (("a push run", context(one_job="")), ("the loop's retry", cont
     group = substitute(top, ctx)
     if group != "nightly-build-nightly-next-push":
         failures.append(f"with the one job off, {name} must keep the workflow-level push group, got {group!r}")
-if substitute(top, context("workflow_dispatch", inputs__x="") | {"inputs.nightly_next_sign_stage": "true"}) \
-        != "nightly-build-nightly-next-sign":
-    failures.append("a sign stage keeps the sign group")
 if DOC.get("concurrency", {}).get("cancel-in-progress") is not False:
     failures.append("the workflow-level group never cancels in progress")
 
@@ -142,7 +139,7 @@ for values in itertools.product(*choices.values()):
     vars_ctx = {f"vars.{var}": value for var, value in zip(choices, values)}
     decide_env = {one_job_vars[var]: value for var, value in zip(choices, values)}
     for name, event, extra in (("a push run", "push", {}), ("the loop's retry", "workflow_dispatch", RETRY)):
-        env = {**decide_env, "LOOP_RETRY": extra.get("inputs.nightly_next_loop_retry", ""), "SIGN_STAGE": ""}
+        env = {**decide_env, "LOOP_RETRY": extra.get("inputs.nightly_next_loop_retry", "")}
         try:
             one_job = bool(decide_eval("oneJob", env, event))
         except LookupError as missing:
@@ -269,8 +266,10 @@ else:
     if "-f sha=" in runs:
         failures.append("wake-nightly-next-tick asks with no sha, so the tick applies its rolling rule")
     runs_on = workflow_jobs.single_runs_on(wake)
-    if "blacksmith" in runs_on.lower() or "CI_NIGHTLY_MINI" not in runs_on:
-        failures.append("wake-nightly-next-tick runs on the nightly mini, as the other loop control jobs")
+    # Both dispatch jobs hold App keys and now use the dedicated one-job JIT nightly VM.
+    # Keep the route assertion aligned with that isolation boundary, never Blacksmith.
+    if "blacksmith" in runs_on.lower() or "cmux-gcp-nightly-jit-x64" not in runs_on:
+        failures.append("wake-nightly-next-tick runs on the dedicated nightly JIT runner, never Blacksmith")
     # The wait for the promotion moved off the signing Mac: a nightly-next-one that left before nightly-next moved
     # (left_pending) gets the loop's retry of its commit from here, unless nightly-next moved meanwhile.
     retry_step = next((s for s in wake.get("steps", [])

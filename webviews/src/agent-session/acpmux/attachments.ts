@@ -2,9 +2,18 @@
 /// Images get a metadata-free preview as an ACP image block plus their original session path.
 /// Existing document/text chips remain readable for persisted drafts from older versions.
 import { base64 } from "./composer/imageWork";
+import type { localDraftShape, LocalDraftShape } from "./composer/draftMediaShape";
 import type { DictationRecording } from "./dictationText";
-import { decoded, keepThumb, prepareImageOffThread, thumbnailOffThread } from "./composer/imagePool";
+import {
+  decoded,
+  keepThumb,
+  localImagePreview,
+  prepareImageOffThread,
+  thumbnailOffThread,
+  type previewForFile,
+} from "./composer/imagePool";
 import { liftInlineImages } from "./inlineImages";
+import { pastedPlainText } from "./pasteText";
 import { PASTE_FILE_CHARS, pastedTextBlocks } from "./pastedText";
 
 import type { StringKey } from "./i18n";
@@ -13,6 +22,8 @@ import { videoFrameBlocks } from "./composer/videoPrompt";
 import type { VideoTranscript } from "./composer/videoTranscript";
 
 export type ComposerAttachment = {
+  [localDraftShape]?: LocalDraftShape;
+  [localImagePreview]?: ReturnType<typeof previewForFile>;
   id: string;
   /** `pasted`: a large paste kept as a chip (pastedText.ts), its `text` sent as a text block of its own. */
   kind: "image" | "text" | "document" | "link" | "audio" | "pasted";
@@ -509,6 +520,22 @@ export function promptText(text: string, attachments: ComposerAttachment[], opti
   return [visibleText, ...files, ...notes].filter(Boolean).join("\n\n");
 }
 
+/// One line `promptText` adds for a linked file: the agent's, never the person's words.
+const ATTACHED_FILE_NOTE = /^Attached file: .+ \([^\s(),]+, \d+ bytes\)\. Read the linked file with your tools\.$/;
+
+/// `text` without the notes `promptText` added for its linked files: the bubble, its Copy and its
+/// editor show what the person typed; the file draws as its chip or thumbnail.
+export function withoutAttachedFileNotes(text: string): string {
+  if (!text.includes("Attached file: ")) return text;
+  const lines = text.split("\n");
+  const kept = lines.filter((line) => !ATTACHED_FILE_NOTE.test(line));
+  if (kept.length === lines.length) return text;
+  return kept
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/^\n+|\n+$/g, "");
+}
+
 /// ACP prompt blocks: the text (with text files) first, then each pasted text (pastedText.ts), then
 /// each image, PDF, recording and file or folder link.
 /// A `data:` image written into the text goes as an image block, never as text (inlineImages.ts).
@@ -625,6 +652,8 @@ export function promptBlocks(
 
 /// A file or folder on this computer that a link chip names (``linkAttachment``).
 export type LinkItem = { path: string; folder: boolean };
+/// The host's paths for a gesture's files, by index: a file it named no path for has none.
+export type KnownPaths = readonly (LinkItem | undefined)[] & { dropId?: string };
 
 /// How files came in from the person's own gesture, for the host's record of where they are
 /// (`chat.attach.dropped`): a drop on the page, a paste, or the person's pick in the composer's
@@ -845,11 +874,14 @@ function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
 /// Whether a paste of files carries no text but their own names: files copied in a file manager
 /// also put each one's name (or path, or a file: URL list) on the clipboard as text, which the
 /// field must not take as a prompt. As the Home channel's composer decides (home-channels/Composer.tsx).
+/// Text WebKit withheld for the files beside it but kept in the HTML (a copy of text with an image
+/// in it, issue 59851) is the person's own: the paste carries more than the files.
 export function pasteIsOnlyFileNames(transfer: DataTransfer): boolean {
   if (transfer.files.length === 0) return false;
   const text = transfer.getData("text/plain");
+  if (!text) return !pastedPlainText(transfer).trim();
   const names = [...transfer.files].map((file) => file.name);
-  return !text || [...transfer.types].includes("text/uri-list") || names.some((name) => text.includes(name));
+  return [...transfer.types].includes("text/uri-list") || names.some((name) => text.includes(name));
 }
 
 /// Smaller than this is a page's spacer or icon, not an image someone copied.

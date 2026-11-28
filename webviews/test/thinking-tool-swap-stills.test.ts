@@ -15,7 +15,7 @@ import path from "node:path";
 import { chromium } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
-import { recordSwap, SWAP_PAGE, swapFrameGate } from "./support/thinkingToolSwap";
+import { recordSwap, SWAP_ARM_QUERY, SWAP_PAGE, swapFrameGate } from "./support/thinkingToolSwap";
 
 await requireBrowserLane("thinking-tool-swap-stills.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -56,7 +56,9 @@ await requireBrowserLane("thinking-tool-swap-stills.test.ts", async () => {
         await page.addInitScript(swapFrameGate);
         const theme = process.env.CMUX_SWAP_THEME ?? "dark";
         await page.emulateMedia({ colorScheme: theme === "light" ? "light" : "dark" });
-        await page.goto(`http://127.0.0.1:${port}${PAGE}?clock=frames&rows=1${look ? `&liveSwap=${look}` : ""}`);
+        await page.goto(
+          `http://127.0.0.1:${port}${PAGE}?clock=frames&rows=1${SWAP_ARM_QUERY}${look ? `&liveSwap=${look}` : ""}`,
+        );
         const shots: Buffer[] = [];
         const full: Buffer[] = [];
         let clipTop: number | undefined;

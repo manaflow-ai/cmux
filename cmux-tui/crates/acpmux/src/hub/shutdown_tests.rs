@@ -128,6 +128,46 @@ async fn a_turn_ending_after_a_shutdown_began_leaves_the_kept_agent_to_the_next_
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A restart left for the turn's end (a route switch, an update's `restart_harnesses`) waits
+/// while work runs below the chat: the turn's end keeps its agent, and the background subagents
+/// its exit would end, and marks it to restart once quiet (cosmic-gray, 2026-11-26: a
+/// coordinator lost about 15 background subagents at each of four NIGHTLY installs).
+#[tokio::test]
+async fn a_restart_left_for_the_turn_end_waits_while_work_runs_below() {
+    let dir = std::env::temp_dir().join(format!("acpmux-work-below-{}", uuid::Uuid::now_v7()));
+    let hub = hub_in(&dir);
+    let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let s = hub.new_session(req).await.unwrap();
+    let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+    let (release, release_rx) = tokio::sync::oneshot::channel();
+    *hub.finish_seam.lock().unwrap() = Some((arrived_tx, release_rx));
+    let blocks = vec![json!({"type": "text", "text": "hi"})];
+    let turn = {
+        let (hub, s) = (hub.clone(), s.clone());
+        tokio::spawn(async move {
+            hub.prompt_with(&s, blocks, "test", false, PromptOptions::default()).await
+        })
+    };
+    tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
+    s.route_switch.store(true, Ordering::SeqCst);
+    *s.work_below_since.lock().unwrap() = 1;
+    let child = s.child.lock().await.clone().expect("the turn's agent");
+    let _ = release.send(());
+    let answer = tokio::time::timeout(WAIT, turn).await.unwrap().unwrap();
+    assert!(answer.is_ok(), "{answer:?}");
+    let kept = s.child.lock().await.clone();
+    assert!(
+        kept.is_some_and(|c| Arc::ptr_eq(&c, &child)),
+        "the turn's end restarted an agent with work below it"
+    );
+    assert!(child.is_alive().await, "the turn's end ended an agent with work below it");
+    assert!(s.respawn_when_quiet.load(Ordering::SeqCst), "not marked to restart once quiet");
+    assert!(s.route_switch.load(Ordering::SeqCst), "a later quiet turn end no longer restarts it");
+    *s.work_below_since.lock().unwrap() = 0;
+    child.kill().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// What the old daemon writes once its shutdown is done can land after the next daemon read the
 /// log (it lets go of `daemon.lock` before its process exits; Sol review of #28503), so it
 /// writes nothing then: a turn whose answer came after is cut, and the next daemon continues it.
@@ -562,6 +602,40 @@ async fn a_stop_during_a_cache_write_that_does_not_finish_ends_within_its_bound(
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A handover with many peers: the shutdown stops every peer at once, and each one's last-known
+/// sessions are saved once more. Those saves ran one after another on the notice loop, so with
+/// forty peers on Leo's NIGHTLY Mac every handover waited out the agents' whole budget ("agents
+/// did not stop within 1s") with its socket dark. They run at once now: eight peers whose save
+/// takes 150 ms each cost the shutdown about one save, not eight, and every one is written.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_handover_saves_every_peers_cache_at_once() {
+    const PEERS: u64 = 8;
+    let dir = std::env::temp_dir().join(format!("acpmux-shutdown-peers-{}", uuid::Uuid::now_v7()));
+    let hub = hub_in(&dir);
+    for n in 0..PEERS {
+        let peer = crate::peer::Peer::new(
+            &format!("builder-{n}"),
+            "ws://127.0.0.1:9",
+            None,
+            None,
+            hub.peer_notices.clone(),
+        );
+        hub.peers.lock().unwrap().insert(peer.name.clone(), peer.clone());
+        peer.cache_dirty_seq.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+    let writes = hub.cache_test_writes.load(std::sync::atomic::Ordering::SeqCst);
+    hub.cache_test_write_delay_ms.store(150, std::sync::atomic::Ordering::SeqCst);
+    let started = tokio::time::Instant::now();
+    hub.shutdown_all().await;
+    let took = started.elapsed();
+    eprintln!("a_handover_saves_every_peers_cache_at_once: {PEERS} peer saves took {took:?}");
+    hub.cache_test_write_delay_ms.store(0, std::sync::atomic::Ordering::SeqCst);
+    let wrote = hub.cache_test_writes.load(std::sync::atomic::Ordering::SeqCst) - writes;
+    assert!(wrote >= PEERS, "{wrote} of {PEERS} peers' last saves ran");
+    assert!(took < Duration::from_millis(700), "the shutdown took {took:?} for {PEERS} saves");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Twenty-two hub tasks once ignored cancellation and serialized Restart to Update behind their
 /// remote work. The owner aborts all of them at one absolute one-second deadline, so a peer count
 /// cannot turn the handoff into one wait per task.
@@ -725,11 +799,15 @@ async fn a_cut_terminate_still_kills_an_agent_that_ignores_sigterm() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Waits up to a second for every process of the agent's group `group` to be gone (no
-/// signal reaches the group): the agent's own process, and any it started under it.
+/// Waits, bounded by `WAIT`, for every process of the agent's group `group` to be gone (no
+/// signal reaches the group): the agent's own process, and any it started under it. A killed
+/// agent stays in its group as a zombie until its exit watcher reaps it, and that watcher reaps
+/// only after the agent's stdout closes and its stderr drains (up to `STDERR_DRAIN`, a second),
+/// so a one-second bound here failed under a loaded full suite with the SIGKILL already sent.
+/// Nothing else kills the group inside the wait, so it still proves the agent's end.
 #[cfg(unix)]
 async fn until_group_gone(group: i32, what: &str) {
-    let by = tokio::time::Instant::now() + Duration::from_secs(1);
+    let by = tokio::time::Instant::now() + WAIT;
     loop {
         let gone = unsafe { libc::killpg(group, 0) } != 0
             && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);

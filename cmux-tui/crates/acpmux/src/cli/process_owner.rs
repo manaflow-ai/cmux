@@ -233,12 +233,20 @@ fn read_record(hosts: &Path, session: &str) -> Record {
 /// the Bash hook.
 pub fn is_acpmux_own(argv: &[String]) -> bool {
     let own = [agent_host::HOST_ARG, crate::bg_run::RUN_ARG, crate::bg_hook::HOOK_ARG];
-    argv.iter().skip(1).any(|a| own.contains(&a.as_str())) || is_daemon_run(argv)
+    argv.iter().skip(1).any(|a| own.contains(&a.as_str()) || is_pipe_host(a)) || is_daemon_run(argv)
 }
 
-/// Whether `argv` runs `daemon run` (the acpmux daemon).
-fn is_daemon_run(argv: &[String]) -> bool {
-    argv.windows(2).any(|w| matches!(w, [a, b] if a == "daemon" && b == "run"))
+pub(crate) use super::is_daemon_run;
+
+/// The held pipes' host (`hub_carrier_pipe_host.rs`).
+fn is_pipe_host(arg: &str) -> bool {
+    #[cfg(all(unix, feature = "hub-carrier"))]
+    return arg == crate::hub_carrier_pipe_host::PIPE_HOST_ARG;
+    #[cfg(not(all(unix, feature = "hub-carrier")))]
+    {
+        let _ = arg;
+        false
+    }
 }
 
 /// Whether the nearest acpmux process above `proc` is the daemon itself, not an agent host or a
@@ -274,7 +282,7 @@ fn same_home(home: Option<&str>) -> bool {
 }
 
 /// The pid `<acpmux home>/daemon.pid` names.
-fn daemon_pid() -> Option<u32> {
+pub(crate) fn daemon_pid() -> Option<u32> {
     std::fs::read_to_string(crate::config::home().join("daemon.pid")).ok()?.trim().parse().ok()
 }
 
@@ -287,11 +295,11 @@ pub struct Owned {
     pub argv: Option<Vec<String>>,
 }
 
-fn caller_session() -> Option<String> {
+pub(crate) fn caller_session() -> Option<String> {
     std::env::var(SESSION_ID).ok().filter(|v| !v.is_empty())
 }
 
-fn own(proc: &tree::Started, table: &[tree::Started], caller: Option<&str>) -> Owned {
+pub(crate) fn own(proc: &tree::Started, table: &[tree::Started], caller: Option<&str>) -> Owned {
     let argv = tree::argv(proc.pid);
     let marks = tree::environ(proc.pid).map(|env| Marks::from_env(&env));
     // acpmux's own processes first: a daemon a chat's shell started carries that chat's marks
@@ -354,11 +362,11 @@ pub fn left_behind() -> Vec<Owned> {
 }
 
 /// Session name, status and the next step for a verdict, from the daemon when it answers.
-async fn session_status(client: Option<&Client>, id: &str) -> Option<String> {
+pub(crate) async fn session_status(client: Option<&Client>, id: &str) -> Option<String> {
     let client = client?;
     match client.request(method::MUX_INFO, json!({"sessionId": id})).await {
         Ok(v) => v.get("status").and_then(Value::as_str).map(str::to_owned),
-        Err(e) if e.to_string().contains("no_session") => Some("gone".to_owned()),
+        Err(e) if crate::cli::process_census::refused_as_no_session(&e) => Some("gone".to_owned()),
         Err(_) => None,
     }
 }
@@ -380,7 +388,7 @@ fn row(o: &Owned, status: Option<&str>) -> Value {
     })
 }
 
-fn next_step(o: &Owned) -> String {
+pub(crate) fn next_step(o: &Owned) -> String {
     let name =
         o.marks.as_ref().and_then(|m| m.session_name.clone().or_else(|| m.session_id.clone()));
     let name = name.unwrap_or_else(|| "-".to_owned());
@@ -404,7 +412,7 @@ fn next_step(o: &Owned) -> String {
     }
 }
 
-fn one_line_argv(o: &Owned) -> String {
+pub(crate) fn one_line_argv(o: &Owned) -> String {
     let s = o.argv.as_ref().map(|a| a.join(" ")).unwrap_or_else(|| "?".to_owned());
     if s.chars().count() > 120 {
         format!("{}…", s.chars().take(120).collect::<String>())
@@ -471,6 +479,35 @@ pub async fn kill_pid(pid: u32, json_out: bool) -> Result<()> {
     if !o.verdict.may_end() {
         return Err(anyhow!("refused: pid {pid} is {}: {}", o.verdict.word(), next_step(&o)));
     }
+    let entry = end_owned(&o, &spared, caller_session(), None).await;
+    if json_out {
+        print_json(&entry);
+    } else {
+        let killed = entry.get("sigkill").and_then(Value::as_array).is_some_and(|a| !a.is_empty());
+        let under = entry.get("processes").and_then(Value::as_array).map_or(1, Vec::len) - 1;
+        let how = if killed { "SIGTERM, then SIGKILL" } else { "SIGTERM" };
+        println!(
+            "ended {pid} ({}) and {under} under it with {how}; logged in {}",
+            o.verdict.word(),
+            kills_log().display()
+        );
+    }
+    Ok(())
+}
+
+/// End `o` (already judged `may_end`) and what runs under it that is the same session's and
+/// may end too, SIGTERM then SIGKILL after `bg_run::GRACE`, and log it in
+/// `process-kills.jsonl` as done `by` (a session id, or `acpmux gc`). The one kill path for
+/// `process kill --pid` and `acpmux gc --apply`.
+/// Ends `o` and what runs under it in the same session, then logs the entry, with `reason` when
+/// the caller has one (gc's), in `process-kills.jsonl`.
+pub(crate) async fn end_owned(
+    o: &Owned,
+    spared: &[u32],
+    by: Option<String>,
+    reason: Option<String>,
+) -> Value {
+    let pid = o.proc.pid;
     // What runs under it goes too, each only when its own answer allows it and it is the same
     // session's: never acpmux's own processes or another session's that happen to sit below.
     let table = tree::all();
@@ -503,9 +540,9 @@ pub async fn kill_pid(pid: u32, json_out: bool) -> Result<()> {
     if killed {
         tree::kill_still_running(&left);
     }
-    let entry = json!({
+    let mut entry = json!({
         "at": crate::store::now_ms(),
-        "by": caller_session(),
+        "by": by,
         "pid": pid,
         "started": o.proc.start(),
         "owner": o.verdict.word(),
@@ -514,167 +551,29 @@ pub async fn kill_pid(pid: u32, json_out: bool) -> Result<()> {
         "processes": procs.iter().map(|p| p.pid).collect::<Vec<_>>(),
         "sigkill": left.iter().map(|p| p.pid).collect::<Vec<_>>(),
     });
-    log_kill(&entry);
-    if json_out {
-        print_json(&entry);
-    } else {
-        let how = if killed { "SIGTERM, then SIGKILL" } else { "SIGTERM" };
-        println!(
-            "ended {pid} ({}) and {} under it with {how}; logged in {}",
-            o.verdict.word(),
-            procs.len() - 1,
-            kills_log().display()
-        );
+    if let Some(reason) = reason
+        && let Some(fields) = entry.as_object_mut()
+    {
+        fields.insert("reason".into(), json!(reason));
     }
-    Ok(())
+    log_kill(&entry);
+    entry
 }
 
 pub fn kills_log() -> PathBuf {
     crate::config::home().join("process-kills.jsonl")
 }
 
-fn log_kill(entry: &Value) {
+/// Appends one line to `process-kills.jsonl`, through the held home (`home_fs`), owner-only.
+pub(crate) fn log_kill(entry: &Value) {
     use std::io::Write as _;
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(kills_log()) {
+    if let Ok(mut f) =
+        crate::home_fs::OpenOptions::new().create(true).append(true).mode(0o600).open(kills_log())
+    {
         let _ = writeln!(f, "{entry}");
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn marks(session: &str, nonce: Option<&str>, task: Option<&str>) -> Marks {
-        Marks {
-            session_id: Some(session.to_owned()),
-            session_name: Some("n".to_owned()),
-            host_nonce: nonce.map(str::to_owned),
-            task_mark: task.map(str::to_owned),
-            home: None,
-        }
-    }
-
-    #[test]
-    fn the_callers_own_process_is_yours_whatever_its_host() {
-        let m = marks("s1", Some("abc"), None);
-        assert_eq!(judge(Some(&m), Some("s1"), None, Some(Liveness::Dead)), Verdict::Yours);
-        assert_eq!(judge(Some(&m), Some("s1"), None, Some(Liveness::Live)), Verdict::Yours);
-    }
-
-    #[test]
-    fn another_sessions_process_under_a_live_host_is_never_ended() {
-        let m = marks("s2", Some("abc"), None);
-        let v = judge(Some(&m), Some("s1"), None, Some(Liveness::Live));
-        assert_eq!(v, Verdict::Live);
-        assert!(!v.may_end());
-    }
-
-    #[test]
-    fn a_process_whose_host_ended_is_left_behind_and_may_end() {
-        let m = marks("s2", Some("abc"), None);
-        let v = judge(Some(&m), Some("s1"), None, Some(Liveness::Dead));
-        assert_eq!(v, Verdict::LeftBehind);
-        assert!(v.may_end());
-        // No caller session (a person's terminal): the same.
-        assert_eq!(judge(Some(&m), None, None, Some(Liveness::Dead)), Verdict::LeftBehind);
-    }
-
-    #[test]
-    fn a_running_task_outlives_its_hibernated_host() {
-        let m = marks("s2", Some("abc"), Some("123-456"));
-        assert_eq!(
-            judge(Some(&m), Some("s1"), Some(Liveness::Live), Some(Liveness::Dead)),
-            Verdict::Task
-        );
-        assert!(!Verdict::Task.may_end());
-        // Its runner gone too: left behind.
-        assert_eq!(
-            judge(Some(&m), Some("s1"), Some(Liveness::Dead), Some(Liveness::Dead)),
-            Verdict::LeftBehind
-        );
-        assert_eq!(
-            judge(Some(&m), Some("s1"), Some(Liveness::Unknown), Some(Liveness::Dead)),
-            Verdict::Unknown
-        );
-    }
-
-    #[test]
-    fn nothing_unreadable_or_unproven_may_end() {
-        assert_eq!(judge(None, Some("s1"), None, None), Verdict::Unknown);
-        let m = marks("s2", Some("abc"), None);
-        assert_eq!(judge(Some(&m), Some("s1"), None, Some(Liveness::Unknown)), Verdict::Unknown);
-        assert_eq!(judge(Some(&Marks::default()), Some("s1"), None, None), Verdict::NotAnAgents);
-        for v in [Verdict::Task, Verdict::Live, Verdict::NotAnAgents, Verdict::Unknown] {
-            assert!(!v.may_end(), "{v:?}");
-        }
-    }
-
-    #[test]
-    fn acpmuxs_own_processes_are_known_by_argv() {
-        let v = |a: &[&str]| a.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
-        assert!(is_acpmux_own(&v(&["/x/acpmux", "daemon", "run", "--ready-fd", "3"])));
-        assert!(is_acpmux_own(&v(&["/x/acpmux", "__agent-host"])));
-        assert!(is_acpmux_own(&v(&["/x/acpmux", "__bg-run"])));
-        assert!(!is_acpmux_own(&v(&["/usr/bin/python3", "server.py", "--daemon"])));
-        assert!(!is_acpmux_own(&v(&["__bg-run"])));
-        assert!(!Verdict::Acpmux.may_end());
-    }
-
-    #[test]
-    fn a_task_whose_runner_ended_with_no_host_is_left_behind() {
-        let m = marks("s2", None, Some("123-456"));
-        assert_eq!(judge(Some(&m), Some("s1"), Some(Liveness::Dead), None), Verdict::LeftBehind);
-        assert_eq!(judge(Some(&m), Some("s1"), Some(Liveness::Live), None), Verdict::Task);
-    }
-
-    #[test]
-    fn the_callers_own_running_task_is_stopped_through_its_runner() {
-        let m = marks("s1", None, Some("123-456"));
-        assert_eq!(judge(Some(&m), Some("s1"), Some(Liveness::Live), None), Verdict::Task);
-        assert_eq!(judge(Some(&m), Some("s1"), Some(Liveness::Dead), None), Verdict::Yours);
-    }
-
-    #[test]
-    fn a_daemon_drops_every_mark_this_module_reads() {
-        let dropped = crate::daemon::STARTER_SESSION_MARKS;
-        for k in [SESSION_ID, SESSION_NAME, agent_host::HOST_MARK, crate::bg_run::TASK_MARK] {
-            assert!(dropped.contains(&k), "{k}");
-        }
-    }
-
-    #[test]
-    fn marks_read_the_last_value_and_skip_empty_ones() {
-        let env = vec![
-            (SESSION_ID.to_owned(), "old".to_owned()),
-            (SESSION_ID.to_owned(), "s1".to_owned()),
-            (agent_host::HOST_MARK.to_owned(), String::new()),
-        ];
-        let m = Marks::from_env(&env);
-        assert_eq!(m.session_id.as_deref(), Some("s1"));
-        assert_eq!(m.host_nonce, None);
-    }
-
-    #[test]
-    fn only_a_process_of_this_home_can_be_left_behind() {
-        let here = crate::config::home();
-        assert!(same_home(here.to_str()));
-        assert!(!same_home(None));
-        assert!(!same_home(Some("/nonexistent/other-acpmux-home")));
-    }
-
-    #[test]
-    fn a_host_whose_lock_is_gone_from_every_place_of_this_home_is_dead() {
-        // A session id no host ever had: no record, no lock anywhere.
-        assert_eq!(host_liveness(Some("no-such-session-0000"), "00ff"), Liveness::Dead);
-        assert_eq!(host_liveness(None, "00ff"), Liveness::Unknown);
-    }
-
-    #[test]
-    fn a_live_process_of_this_test_is_read_with_its_marks() {
-        // This test process: never ended, and `owners` reads it.
-        let me = std::process::id();
-        let found = owners(&[me]);
-        assert_eq!(found.len(), 1);
-        assert!(found[0].1.is_some());
-    }
-}
+#[path = "process_owner_tests.rs"]
+mod tests;

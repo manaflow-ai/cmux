@@ -134,19 +134,54 @@ impl OpRouter for MuxRouter {
             mux.close_backend_terminal(surface);
         }
     }
+
+    fn setting_get(&self, key: &str) -> Option<Value> {
+        let mux = self.mux.upgrade()?;
+        let root = mux.settings_effective_root();
+        let mut value = &root;
+        for part in cmux_config::Target::Key(key.to_string()).path() {
+            value = value.get(&part)?;
+        }
+        Some(value.clone())
+    }
+
+    fn setting_set(&self, key: &str, value: Value) -> Result<(), super::supervisor::ApiError> {
+        let mux = self.mux.upgrade().ok_or_else(|| {
+            super::supervisor::ApiError::new("apps.setting.unavailable", "the daemon is stopping")
+        })?;
+        // The person's own switch in the App Store: the store admitted only origin user.
+        let meta = cmux_config::WriteMeta {
+            origin: cmux_config::Origin::User,
+            idempotency_key: None,
+            if_revision: None,
+        };
+        mux.settings_apply(cmux_config::Op::Set {
+            target: cmux_config::Target::Key(key.to_string()),
+            value,
+            meta,
+        })
+        .map(|_| ())
+        .map_err(|refusal| super::supervisor::ApiError::new("apps.setting", refusal.to_string()))
+    }
 }
 
 /// The first App Store chat read (scope `agent_chat:read`), kept for the apps and templates
 /// that call it: the daemon answers it from the same chat index as `chat.list`
-/// (`mux/chat_index.rs`), in its first shape `{chats}` with times as numbers.
+/// (`mux/chat_index.rs`), in its first shape `{chats}` with times as numbers. It takes
+/// `chat.list`'s fields (`limit`, `state`, `before_ms`, `before_id`, `before_machine`), newest first.
 const AGENT_CHAT_LIST: &str = "agent_chat.list";
 
 fn agent_chat_list(mux: &Mux, params: &Value) -> Result<Value, Value> {
-    if !(params.is_null() || params.as_object().is_some_and(serde_json::Map::is_empty)) {
-        return Err(error("validation.invalid", "agent_chat.list takes no params"));
-    }
+    let empty = serde_json::Map::new();
+    let fields = match params {
+        Value::Null => &empty,
+        Value::Object(fields) => fields,
+        _ => return Err(error("validation.invalid", "agent_chat.list takes an object of fields")),
+    };
+    let query = crate::mux::chat_index::ChatQuery::from_fields(fields)
+        .map_err(|(field, reason)| error("validation.invalid", format!("{field}: {reason}")))?;
     let chats = mux
-        .chat_rows()
+        .chat_rows_matching(&query)
         .into_iter()
         .map(|mut row| {
             if let Some(fields) = row.as_object_mut() {
