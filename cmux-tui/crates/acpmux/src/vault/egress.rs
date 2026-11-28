@@ -165,7 +165,7 @@ fn live_port() -> Option<u16> {
 /// [`stale_proxy_env`] judges). The CA can outlive a port: when another process
 /// holds the kept port, [`bind_stable`] takes a new one (`vault.egress_port_moved`)
 /// under the same CA and epoch, and every agent on the old port is refused on
-/// every turn. On fs-agent-lane-38 (2026-11-28) the port moved 41591 -> 32881 at
+/// every turn. On a Freestyle lane (2026-11-28) the port moved 41591 -> 32881 at
 /// 11:01Z and three chats sat `harness_unavailable` on `ECONNREFUSED` for 11 h,
 /// auto resume at attempt 55, because only the epoch was compared.
 pub(crate) fn moved_proxy_env(env: &[(String, String)], node_ca: &Path, live: Option<u16>) -> bool {
