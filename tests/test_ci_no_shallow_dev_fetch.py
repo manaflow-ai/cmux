@@ -90,6 +90,7 @@ OWN_REPOSITORY = {
     "scripts/measure/tab-switch.sh":
         "require_submodule_refs fetches only into its own `git init --bare` probe under the step's temp directory",
     "scripts/measure/screen-stream-eval/rd-netem-linux.py": "build fetches each commit into a fresh `git init` temp directory",
+    "scripts/measure/screen-stream-eval/rate-sweep.py": "build_all fetches into its own work/src, which it `git init`s on its first run",
     "scripts/cmux-next/swift-logic-pr-status.py":
         "merge_base and swift_trees fetch only into `git init --bare` repositories partial_repo just made in its work dir",
     "scripts/ci/ci_receipt.py": "the compare read fetches only into a `git init --bare` temporary repository it just made",

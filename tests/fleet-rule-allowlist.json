@@ -5,6 +5,8 @@
     "cmux-tui/crates/cmux-tui/src/cli/vault.rs": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): this device's vault key (service from cloud_secret::service())"},
     "cmux-tui/crates/cmux-tui/src/cli/key_broker.rs": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): a key provider's bootstrap token (service cmux-key-provider)"},
     "plans/cmux-next/swift-logic-classes.tsv": {"count": 4, "reason": "safe: plan table rows that name SecItemCopyMatching in prose; it reads no keychain item"},
+    "scripts/measure/screen-stream-eval/vnc_url.py": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): the fleet login manaflow-fleet-login for Apple's vnc viewer, as stage-table.sh does"},
+    "scripts/measure/tests/screen-stream-eval-vnc-login.test.py": {"count": 1, "reason": "safe: a test fixture asserting vnc_url.py's argv for the manaflow-fleet-login item; its run is a fake, it reads no keychain item"},
     "tests/test_check_main_actor_work.py": {"count": 1, "reason": "safe: a test fixture string naming SecItemCopyMatching for the main-actor ratchet; it reads no keychain item"},
     "Native/OptChat/optchat-chief/src/toolpacks.rs": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): a tool pack's own keychain service"},
     "scripts/measure/screen-stream-eval/stage-table.sh": {"count": 1, "reason": "safe: reads its own named item (not the fleet sudo item): the fleet login manaflow-fleet-login for Apple's vnc viewer leg, into a 0600 file the step removes"},
