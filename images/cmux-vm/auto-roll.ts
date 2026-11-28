@@ -4,7 +4,9 @@
 // commit, and taken back out by one when the production smoke after that commit's deploy is red.
 //
 //   bun images/cmux-vm/auto-roll.ts plan --event dispatch|build|push [--commit <40-hex>] [--before <sha>]
-//       [--dry-run auto|true|false] [--tip <ref>] [--repo <checkout>]
+//       [--dry-run auto|true|false] [--tip <ref>] [--repo <checkout>] [--channel <url|file>]
+//     A push roll pins the commit the Cloud machine channel serves (RFD 0224 phase 4: the image carries the binary
+//     running VMs take), else the newest published build when the channel is unreadable or its commit fails a guard.
 //     Prints what to roll as JSON: roll (true|false), reason, pin (the cmux-tui commit to pin, or ""),
 //     dryRun, and the fix commits (sha, merged-at, subject) the roll carries. Reads git and files.cmux.com only.
 //     Fails closed (exits non-zero) on a shallow checkout or a pinned commit the checkout lacks: the guard that
@@ -629,7 +631,42 @@ async function publishedOnTip(pinned: string, tip: string, lock: string): Promis
   return { commit: "", unchanged: false, why: `none of the ${commits.length} newest commits after the pin has a published build` };
 }
 
-async function plan(opts: { event: string; commit: string; before: string; dryRun: string; tip: string; lock: string }): Promise<Plan> {
+/** Where plan() reads the Cloud machine channel: --channel, else CMUX_CLOUD_MACHINE_CHANNEL, else files.cmux.com. A URL or a file. */
+async function readChannel(where: string): Promise<string> {
+  if (!/^https?:\/\//u.test(where)) return readFileSync(where, "utf8");
+  const res = await fetch(`${where}${where.includes("?") ? "&" : "?"}plan=${Date.now()}`, { signal: AbortSignal.timeout(30_000) });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.text();
+}
+
+/**
+ * RFD 0224 phase 4, images from the binary's SHA: a push roll pins the commit the Cloud machine channel serves running
+ * VMs, so a new VM boots the same cmux-tui the in-VM updater would install. 2026-11-28 17:48Z: the lock pinned
+ * c6cd14b5 while the channel served 632a901e, 629 commits newer (`auto-roll.ts skew`). The same guards as
+ * newestPublished: on TIP, never older than the pin, published for the image. The channel's commit equal to the pin
+ * keeps the pin (the image already carries the channel's binary). null when the channel is unreadable or its commit
+ * fails a guard, and the caller falls back to the newest published build, as before.
+ */
+async function channelPin(pinned: string, tip: string, lock: string, where: string): Promise<{ pin: string; why: string } | null> {
+  let commit: string;
+  try {
+    commit = channelCommit(await readChannel(where));
+  } catch {
+    return null;
+  }
+  const short = commit.slice(0, 12);
+  if (commit === pinned) return { pin: "", why: `cmux-tui stays ${pinned.slice(0, 12)} (the Cloud machine channel serves it)` };
+  if (gitOut(["rev-parse", "--is-shallow-repository"]) !== "false") return null;
+  if (!gitOk(["cat-file", "-e", `${commit}^{commit}`]) || !gitOk(["cat-file", "-e", `${pinned}^{commit}`])) return null;
+  if (!gitOk(["merge-base", "--is-ancestor", commit, tip])) return null;
+  if (gitOk(["merge-base", "--is-ancestor", commit, pinned])) return null;
+  const published = await probePublished(commit, lock);
+  if (published === null) return null;
+  if (published.unchanged) return { pin: "", why: `cmux-tui stays ${pinned.slice(0, 12)} (the Cloud machine channel's ${short} carries the pinned binaries)` };
+  return { pin: commit, why: `cmux-tui ${short}, the commit the Cloud machine channel serves (pinned ${pinned.slice(0, 12)})` };
+}
+
+async function plan(opts: { event: string; commit: string; before: string; dryRun: string; tip: string; lock: string; channel: string }): Promise<Plan> {
   const mode = modeOf(readFileSync(MODE_FILE, "utf8"));
   const dryRun = opts.dryRun === "true" ? true : opts.dryRun === "false" ? false : mode !== "live";
   const pinned = pinnedCmuxTui(readFileSync(opts.lock, "utf8"));
@@ -645,7 +682,7 @@ async function plan(opts: { event: string; commit: string; before: string; dryRu
     const range = /^[0-9a-f]{40}$/u.test(opts.before) && !/^0+$/u.test(opts.before) ? `${opts.before}..${opts.commit}` : `${opts.commit}~1..${opts.commit}`;
     const fixes = fixCommits(range, IMAGE_PATHS);
     if (fixes.length === 0) return none(`no commit in ${range} changes the image inputs`);
-    const newer = await newestPublished(pinned, opts.tip, opts.lock);
+    const newer = (await channelPin(pinned, opts.tip, opts.lock, opts.channel)) ?? (await newestPublished(pinned, opts.tip, opts.lock));
     const reason = `image inputs changed in ${range}; ${newer.why}`;
     return { roll: true, reason, pin: newer.pin, cmuxTui: newer.pin || pinned, dryRun, fixes, fixesTruncated: fixes.length >= FIX_LIMIT };
   }
@@ -715,6 +752,7 @@ async function main(argv: string[]): Promise<number> {
       dryRun: arg(rest, "--dry-run", "auto"),
       tip: arg(rest, "--tip", "HEAD"),
       lock,
+      channel: arg(rest, "--channel", process.env.CMUX_CLOUD_MACHINE_CHANNEL || CLOUD_MACHINE_CHANNEL),
     });
     console.log(JSON.stringify(result, null, 2));
     return 0;

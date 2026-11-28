@@ -848,6 +848,27 @@ fn a_peer_row_says_when_it_cannot_be_reached() {
     assert!(c.unreachable.unwrap().contains("scp: Connection closed"));
 }
 
+/// A lane host, 2026-11-28: room for 6 by its reading, but it refused every start. A
+/// refused start passes it over for the next pick; the other host takes the work.
+#[test]
+fn a_host_that_refused_a_start_takes_no_pick_while_another_has_room() {
+    let now = reach::STALE_MS;
+    let row = |name: &str| {
+        json!({"name": name, "connected": true, "state": "connected",
+        "health": health(40.0, 12, 1.0, 300.0, 1), "healthAt": now})
+    };
+    let mut refused = reach::Failures::default();
+    refused.record_refused("big", "session_new.invalid_params: chats is not a directory", now);
+    let cands: Vec<_> = ["big", "small"]
+        .iter()
+        .map(|n| Candidate::peer_at(&row(n), now, &refused).unwrap())
+        .collect();
+    let v = place(&cands, Some(&registry()), Work::Agent);
+    assert_eq!(v["pick"], "small", "{v:#}");
+    let why = host(&v, "big")["refused"].as_str().unwrap_or_default().to_owned();
+    assert!(why.starts_with("start refused: session_new.invalid_params"), "{why}");
+}
+
 #[test]
 fn a_hub_only_host_with_a_pushed_reading_is_weighed_not_unknown() {
     // The row `mesh_book_hosts` builds from the address book: via the hub, health pushed.
