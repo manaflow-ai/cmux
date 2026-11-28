@@ -6,7 +6,26 @@ import sys
 
 # The hidden cmux blocks' sources, shared with the product: `context_inventory::RULE_SOURCES`, whose
 # test fails when this file drifts from it. Each goes out as `<SOURCE-context>`.
-with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "guidance_sources.json")) as _f:
+# Harnesses copy this fake out of the repository (a bench folder, a temp ROOT): the file is looked for
+# beside it, then at $CMUX_GUIDANCE_SOURCES, then in the checkout above the working directory.
+def _guidance_sources_path():
+    rel = os.path.join("cmux-tui", "crates", "acpmux", "tests", "guidance_sources.json")
+    here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "guidance_sources.json")
+    tried = [here, os.environ.get("CMUX_GUIDANCE_SOURCES") or ""]
+    d = os.getcwd()
+    while True:
+        tried.append(os.path.join(d, rel))
+        if os.path.dirname(d) == d:
+            break
+        d = os.path.dirname(d)
+    for path in tried:
+        if path and os.path.isfile(path):
+            return path
+    sys.exit("fake agent: guidance_sources.json not found (copy it beside this file or set CMUX_GUIDANCE_SOURCES): "
+             + ", ".join(p for p in tried[:3] if p))
+
+
+with open(_guidance_sources_path()) as _f:
     GUIDANCE_SOURCES = frozenset(json.load(_f))
 GUIDANCE_TAGS = tuple(sorted(f"<{s}-context>" for s in GUIDANCE_SOURCES))
 

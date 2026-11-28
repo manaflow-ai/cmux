@@ -324,6 +324,7 @@ class Soak:
         os.makedirs(self.acpmux_home)
         agent = os.path.join(self.work, "fake_agent.py")
         shutil.copy(FAKE_AGENT, agent)
+        shutil.copy(os.path.join(os.path.dirname(FAKE_AGENT), "guidance_sources.json"), self.work)
         with open(os.path.join(self.acpmux_home, "config.json"), "w") as handle:
             json.dump({"harnesses": {FAKE_HARNESS: {"argv": [sys.executable, agent]}}}, handle)
         self.config = os.path.join(self.work, "cmux.json")

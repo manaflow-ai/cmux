@@ -339,6 +339,9 @@ class Gamut:
         (agents / "scripts" / "cmux-next").mkdir(parents=True)
         (agents / "cmux-tui" / "crates" / "acpmux" / "tests").mkdir(parents=True)
         shutil.copyfile(args.fake_agent, agents / "cmux-tui" / "crates" / "acpmux" / "tests" / "fake_agent.py")
+        # fake_agent.py reads the hidden blocks' sources from the file beside it (#62040).
+        shutil.copyfile(Path(args.fake_agent).parent / "guidance_sources.json",
+                        agents / "cmux-tui" / "crates" / "acpmux" / "tests" / "guidance_sources.json")
         shutil.copyfile(HERE.parent / "cmux-next" / "idle_cost_agent.py",
                         agents / "scripts" / "cmux-next" / "idle_cost_agent.py")
         # quit_gamut_agent.py wraps it: it finds the fixture command in a delivery the mailbox framed.

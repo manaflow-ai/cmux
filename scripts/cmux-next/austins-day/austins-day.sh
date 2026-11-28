@@ -24,10 +24,11 @@ if [ -z "${AUSTINS_DAY_COPY:-}" ]; then
   src_repo=$(cd "$src/../../.." && pwd)
   # The harness commit (its tree must be clean: a result names the harness it came from).
   git -C "$src_repo" diff --quiet HEAD -- scripts/cmux-next/austins-day scripts/cmux-next/build_names.py \
-    cmux-tui/crates/acpmux/tests/fake_agent.py || { echo "uncommitted harness edits: commit them first" >&2; exit 2; }
+    cmux-tui/crates/acpmux/tests/fake_agent.py cmux-tui/crates/acpmux/tests/guidance_sources.json || { echo "uncommitted harness edits: commit them first" >&2; exit 2; }
   copy=$(mktemp -d "${TMPDIR:-/tmp}/austins-day.XXXXXX")
   cp -p "$src"/*.py "$src"/*.sh "$src"/*.json "$src"/*.md "$copy"/ && cp -p "$src/../build_names.py" "$copy"/ &&
-    cp -p "$src_repo/cmux-tui/crates/acpmux/tests/fake_agent.py" "$copy"/ || { rm -rf "$copy"; exit 2; }
+    cp -p "$src_repo/cmux-tui/crates/acpmux/tests/fake_agent.py" \
+      "$src_repo/cmux-tui/crates/acpmux/tests/guidance_sources.json" "$copy"/ || { rm -rf "$copy"; exit 2; }
   AUSTINS_DAY_COPY=$copy AUSTINS_DAY_REPO=$src_repo AUSTINS_DAY_SHA=$(git -C "$src_repo" rev-parse HEAD) \
     exec bash "$copy/austins-day.sh" "$@"
 fi
@@ -208,7 +209,7 @@ run_arm() {
     fi
     echo '$commit' > '$stage/capture-commit'" || { echo "staging job $job on $host failed" >&2; return 1; }
   scp -q "$here/driver.py" "$here/fake_claude.py" "$here/hog.py" "$here/packs.py" "$here/build_names.py" \
-    "$here/fake_agent.py" "$host:$run/" || { echo "copy to $host failed" >&2; return 1; }
+    "$here/fake_agent.py" "$here/guidance_sources.json" "$host:$run/" || { echo "copy to $host failed" >&2; return 1; }
   ssh -o BatchMode=yes "$host" "nice -n 5 python3 -I '$run/packs.py' build '$fixture'" | tee "$dir/fixture.txt"
   # set -e does not act inside run_arm (it is called in && and ||): each step that must work says so.
   [ "${PIPESTATUS[0]}" = 0 ] || { echo "fixture build failed on $host" >&2; return 1; }

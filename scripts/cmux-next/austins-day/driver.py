@@ -778,6 +778,7 @@ def agent_records():
 
 def main():
     shutil.copy(os.path.join(HERE, "fake_agent.py"), os.path.join(opts.out, "fake_agent.py"))
+    shutil.copy(os.path.join(HERE, "guidance_sources.json"), os.path.join(opts.out, "guidance_sources.json"))
     hog = None
     threads = [threading.Thread(target=sampler, daemon=True), threading.Thread(target=person_cli_probe, daemon=True),
                threading.Thread(target=acpmux_watch, daemon=True)]
