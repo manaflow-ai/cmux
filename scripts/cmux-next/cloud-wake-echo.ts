@@ -65,6 +65,13 @@ export type WakeCycle = {
   start_attempts?: StartAttempt[];
 };
 
+/**
+ * The runner's clock: epoch ms that only move forward (performance.timeOrigin + performance.now()), so an NTP step or
+ * slew on the runner during a cycle cannot shift wake_at against the answer, the first exec or the offset samples.
+ * Date.now() is the wall clock, which can step backwards: every runner-side mark in a cycle comes from here instead.
+ */
+export const runnerNow = (): number => performance.timeOrigin + performance.now();
+
 /** Phases from marks already on the runner clock, as ms after wake_at (null: not marked). */
 export function phasesOf(m: WakeCycle["marks_ms"]): { phases: Partial<Record<Phase, number>>; warnings: string[] } {
   const phases: Partial<Record<Phase, number>> = {};
@@ -93,10 +100,23 @@ export function earlyResume(resumed: number | undefined, rttMs: number | null | 
   return resumed < -bound ? `the probe's gap ended ${-resumed} ms before wake_at, past the clock offset's ${bound} ms error: not this wake` : "";
 }
 
+/**
+ * A cycle whose phases cannot be real (a phase under 0: the guest's marks went through a clock offset that was off by
+ * more than the round trip said, or the guest's clock stepped) times nothing: it fails as invalid timing, so it never
+ * counts as an echo or enters a percentile. Runs 46179135080 and 46183663043 counted such cycles (cycle #2 there:
+ * restore -1282 ms, ok) because a negative phase was only a warning. earlyResume runs first, so a resume past the
+ * offset's error stays "guest ran before the start".
+ */
+export function invalidTiming(phases: Partial<Record<Phase, number>>): string {
+  const bad = PHASES.filter((p) => typeof phases[p] === "number" && (phases[p]! < 0 || !Number.isFinite(phases[p]!)));
+  return bad.length ? `invalid timing: ${bad.map((p) => `${p} ${Math.round(phases[p]!)} ms`).join(", ")} (guest marks through the clock offset)` : "";
+}
+
 /** A failed cycle's cause, so failures group by it: a lost terminal is the daemon's (product), the rest the run's. */
 export function causeOf(c: Pick<WakeCycle, "error" | "guest">): string {
   const e = c.error;
   if (c.guest?.surface_lost || /unknown surface/.test(e)) return c.guest?.surface_lost?.same_daemon === false ? "daemon restarted across the wake (product)" : "daemon lost the terminal across the wake (product)";
+  if (/^invalid timing:/.test(e)) return "invalid timing (clock)";
   if (/before the cycle|not_paused|pause did not land|operation_in_flight|did not settle/.test(e)) return "machine state";
   if (/the pause did not hold/.test(e)) return "pause did not hold (machine)";
   if (/before wake_at\b.*not this wake/.test(e)) return "guest ran before the start (machine or clock)";
@@ -113,7 +133,7 @@ export function causeOf(c: Pick<WakeCycle, "error" | "guest">): string {
  * Run 46176743563 stopped after 3 of 50 cycles on two pauses that did not hold and one early run, so it measured
  * nothing; a run of them still stops at `IDLE_STREAK` in a row.
  */
-export const NO_WAKE_CAUSES = new Set(["pause did not hold (machine)", "guest ran before the start (machine or clock)"]);
+export const NO_WAKE_CAUSES = new Set(["pause did not hold (machine)", "guest ran before the start (machine or clock)", "invalid timing (clock)"]);
 export const IDLE_STREAK = 8;
 
 /** Whether the run stops after these cycles: `streakMax` counting failures in a row, or IDLE_STREAK of any failure. */
@@ -295,9 +315,9 @@ export function wakeEchoMarkdown(cycles: WakeCycle[], meta: Record<string, unkno
 export async function clockOffset(exec: Exec, n = 4): Promise<{ offset: number; rtt: number } | null> {
   let best: { offset: number; rtt: number } | null = null;
   for (let k = 0; k < n; k++) {
-    const t0 = Date.now();
+    const t0 = runnerNow();
     const r = await exec("date +%s%3N", 30_000).catch(() => null);
-    const t1 = Date.now();
+    const t1 = runnerNow();
     const g = r && /^\d{13}$/m.exec(r.stdout)?.[0];
     if (!g) continue;
     const s = { offset: Number(g) - (t0 + t1) / 2, rtt: t1 - t0 };
@@ -339,7 +359,7 @@ export async function pauseWithReconciliation(
   status: () => Promise<string>,
   startedAt: number,
   deadlineMs: number,
-  now: () => number = Date.now,
+  now: () => number = runnerNow,
   wait: (ms: number) => Promise<void> = sleepMs,
 ): Promise<{ pausedMs: number; warnings?: string[] }> {
   const answer = await request();
@@ -398,7 +418,7 @@ export async function startWithRetry(
   status: () => Promise<string>,
   deadlineMs: number,
   sleep: (ms: number) => Promise<void>,
-  now: () => number = Date.now,
+  now: () => number = runnerNow,
 ): Promise<string[]> {
   const notes: string[] = [];
   const t0 = now();
@@ -425,19 +445,19 @@ export async function startWithRetry(
 
 /** Runs an exec until it answers (the guest can be unreachable for a moment after the machine reads running). */
 async function execAnswered(d: WakeEchoDeps, command: string, deadlineMs: number, sleep: (ms: number) => Promise<void>) {
-  const end = Date.now() + deadlineMs;
+  const end = runnerNow() + deadlineMs;
   for (;;) {
     try {
       return await d.exec(command, 60_000);
     } catch (e) {
-      if (Date.now() >= end) throw e;
+      if (runnerNow() >= end) throw e;
       await sleep(1_000);
     }
   }
 }
 
 /** Polls the machine's status until it reads running or paused (out of pausing, starting, ...), by a deadline. */
-export async function settle(status: (timeoutMs?: number) => Promise<string>, deadlineMs: number, sleep: (ms: number) => Promise<void>, now: () => number = Date.now): Promise<string> {
+export async function settle(status: (timeoutMs?: number) => Promise<string>, deadlineMs: number, sleep: (ms: number) => Promise<void>, now: () => number = runnerNow): Promise<string> {
   const end = now() + deadlineMs;
   let last = "unread";
   for (;;) {
@@ -483,9 +503,9 @@ export async function runWakeEcho(d: WakeEchoDeps, n: number): Promise<WakeCycle
         c.warnings.push(...(pause.warnings ?? []));
       }
       await sleep(d.holdMs);
-      const wakeAt = Date.now();
+      const wakeAt = runnerNow();
       const retries = await d.wake((attempt) => (c.start_attempts ??= []).push(attempt));
-      c.answered_ms = Date.now() - wakeAt;
+      c.answered_ms = Math.round(runnerNow() - wakeAt);
       if (retries && retries.length) { c.start_retries = retries; c.warnings.push(`start retried: ${retries.join("; ")}`); }
       // Read the result back: exec polls (the guest may not answer yet) until the probe's file is there.
       const end = wakeAt + 150_000;
@@ -493,11 +513,11 @@ export async function runWakeEcho(d: WakeEchoDeps, n: number): Promise<WakeCycle
       let heldChecked = false;
       for (;;) {
         const r = await d.exec(`cat ${WAKE_DIR}/result.${i}.json 2>/dev/null; echo; echo "@@done"`, 20_000).catch(() => null);
-        if (r && c.first_exec_ms === null) c.first_exec_ms = Date.now() - wakeAt;
+        if (r && c.first_exec_ms === null) c.first_exec_ms = Math.round(runnerNow() - wakeAt);
         if (r && r.stdout.includes("{")) { out = r.stdout; break; }
         // The guest answers but no result yet: once it has run 15 s (a 50 ms tick logs any gap at once), a log with
         // no held gap since the arm means the guest never stopped, and waiting out the 150 s finds nothing more.
-        if (r && !heldChecked && c.first_exec_ms !== null && Date.now() - wakeAt > c.first_exec_ms + 15_000) {
+        if (r && !heldChecked && c.first_exec_ms !== null && runnerNow() - wakeAt > c.first_exec_ms + 15_000) {
           heldChecked = true;
           const gl = await d.exec(`${d.guest}tail -n 50 ${WAKE_DIR}/gaps.log 2>/dev/null; echo "@@gaps"`, 20_000).catch(() => null);
           const again = await d.exec(`cat ${WAKE_DIR}/result.${i}.json 2>/dev/null; echo`, 20_000).catch(() => null);
@@ -505,7 +525,7 @@ export async function runWakeEcho(d: WakeEchoDeps, n: number): Promise<WakeCycle
           const held = gl && gl.stdout.includes("@@gaps") ? pauseHeld(gl.stdout, armedAt, minGap, c.offset_pre_ms === null ? undefined : { offset: c.offset_pre_ms, wakeAt }) : "";
           if (held) throw new Error(`${held} (machine read paused in ${c.paused_ms ?? "?"} ms, start answered in ${c.answered_ms} ms)`);
         }
-        if (Date.now() > end) break;
+        if (runnerNow() > end) break;
         await sleep(1000);
       }
       if (!out) {
@@ -538,6 +558,8 @@ export async function runWakeEcho(d: WakeEchoDeps, n: number): Promise<WakeCycle
         c.state_wake = sj?.wake ?? null;
       } catch { c.state_json = false; }
       if (early) throw new Error(early);
+      const invalid = invalidTiming(c.phases);
+      if (invalid) throw new Error(invalid);
       if (g.error) throw new Error(`guest probe: ${g.error}`);
       if (g.echo_at === undefined) throw new Error("the probe marked no echo");
       c.ok = true;
