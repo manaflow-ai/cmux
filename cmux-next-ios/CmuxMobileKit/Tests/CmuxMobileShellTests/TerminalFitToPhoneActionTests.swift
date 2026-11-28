@@ -20,7 +20,11 @@ import Testing
         source.sessionProvider = { _, _ in FitActionSession(programName: program) }
         let workspace = try #require(AppStore.mock().workspaces.first { $0.tabs.contains { $0.kind == .terminal } })
         let tab = try #require(workspace.tabs.first { $0.kind == .terminal })
+        // The title action is for an open (live) page: a card alone is no live tab.
+        let context = TerminalTabContext(safeAreaInsets: .init(), isInteractive: true,
+                                         isZoomGestureActive: false, reportScroll: { _ in })
         source.prepareCard(for: tab, in: workspace)
+        _ = source.page(for: tab, in: workspace, context: context)
         let direct = try #require(source.titleAction(for: tab, in: workspace))
         #expect(!direct.isSelected)
         #expect(source.model(forTabID: tab.id)?.session is TerminalProjectingSession)
@@ -33,6 +37,7 @@ import Testing
         // reverses the same action without its own preference or mutation path.
         source.reset()
         source.prepareCard(for: tab, in: workspace)
+        _ = source.page(for: tab, in: workspace, context: context)
         #expect(source.model(forTabID: tab.id)?.session is FitActionSession)
         let menu = try #require(source.actions(for: tab, in: workspace).first { $0.title == direct.title })
         menu.perform()
