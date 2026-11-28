@@ -1,18 +1,19 @@
-#!/usr/bin/env python3
-"""Read the cmux crash reports a fleet Mac holds, in a form a Linux lane can symbolicate.
-
-A walk that loses its app names only the report's file and its top symbols. Those are often the nearest
-exported symbol of a stripped image (Chromium Embedded Framework frames read "ChromeWebAppShortcutCopierMain"),
-which says nothing. This prints, per cmux*.ips modified since `since=`, the exception, termination and asi
-lines, every image's name, UUID and load address, and each frame of the crashed thread and of
-lastExceptionBacktrace as image + offset, so the CEF `-debug` asset or the app's dSYM can name it. It also
-prints the FATAL / Check failed lines of every recent cef.log and cef.previous.log under
-~/Library/Application Support (Chromium writes a CHECK's message there, not to stdout).
-
-Read only: it launches, kills and deletes nothing. Paths under the home folder print as ~.
-  cmux-ci run --class light --label measure --target-worker HOST \
-    --script scripts/measure/crash-report-read.py --ref <sha> --arg=since=2026-11-28T20:00:00Z [--arg=name=cmux-2026-11-28-123712]
-"""
+#!/bin/bash
+# Read the cmux crash reports a fleet Mac holds, in a form a Linux lane can symbolicate.
+#
+# A walk that loses its app names only the report's file and its top symbols. Those are often the nearest
+# exported symbol of a stripped image (Chromium Embedded Framework frames read "ChromeWebAppShortcutCopierMain"),
+# which says nothing. This prints, per cmux*.ips modified since `since=`, the exception, termination and asi
+# lines, every image's name, UUID and load address, and each frame of the crashed thread and of
+# lastExceptionBacktrace as image + offset, so the CEF `-debug` asset or the app's dSYM can name it. It also
+# prints the FATAL / Check failed lines of every recent cef.log and cef.previous.log under
+# ~/Library/Application Support (Chromium writes a CHECK's message there, not to stdout).
+#
+# Read only: it launches, kills and deletes nothing. Paths under the home folder print as ~.
+#   cmux-ci run --class light --label measure --target-worker HOST \
+#     --script scripts/measure/crash-report-read.sh --ref <sha> --arg=since=2026-11-28T20:00:00Z [--arg=name=cmux-2026-11-28-123712]
+# Python 3.9 (a Mac's /usr/bin/python3) runs the body below.
+exec "${CRR_PYTHON:-/usr/bin/python3}" -I - "$@" <<'PY'
 import datetime as dt
 import json
 import os
@@ -130,3 +131,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+PY
