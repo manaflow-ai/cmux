@@ -88,8 +88,9 @@ jobs:
           # installation REST budget runs dry on busy hours (v0.2.10's first run
           # died on a 403 rate limit at the create, its third on four retries
           # inside 7 minutes of one dry hour), so the create waits for the
-          # budget's reset (GET /rate_limit costs no budget) and retries; any
-          # other error fails the job.
+          # budget's reset (GET /rate_limit costs no budget) and retries. A
+          # server error (5xx) retries too: its fourth run waited out the dry
+          # hour, then got one HTTP 502 and failed. Any other error fails the job.
           remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           found="$(git ls-remote --tags "$remote" "refs/tags/$tag")"
           if [[ -n "$found" ]]; then
@@ -118,10 +119,10 @@ jobs:
             if [[ -n "$(git ls-remote --tags "$remote" "refs/tags/$tag")" ]]; then
               made=1; break
             fi
-            if ! grep -qiE 'rate limit|HTTP 429|secondary' <<<"$out" || [[ "$wait" == 0 ]]; then
+            if ! grep -qiE 'rate limit|HTTP 429|secondary|HTTP 5[0-9][0-9]|Server Error' <<<"$out" || [[ "$wait" == 0 ]]; then
               break
             fi
-            echo "rate limited; retrying after the budget's reset (at least ${wait}s)"
+            echo "rate limited or server error; retrying in at least ${wait}s"
             sleep "$wait"
             wait_for_budget
           done
