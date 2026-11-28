@@ -176,7 +176,6 @@
     "ui/FeatureTip.tsx": "the feature tip: page glass in the agent pane, a flat-reading box beside host-glass menus",
     "agent-session/acpmux/EmojiMenu.tsx": "the emoji list: page glass",
     "agent-session/acpmux/PaletteMenu.tsx": "the in-pane palette menu: page glass",
-    "agent-session/acpmux/steerQueue/SteerQueue.tsx": "the steer queue: page glass",
-    "agent-session/acpmux/subagents/AgentsPill.tsx": "the agents list: page glass"
+    "agent-session/acpmux/steerQueue/SteerQueue.tsx": "the steer queue: page glass"
   }
 }

@@ -2,10 +2,8 @@
 // bolt icon ... I don't want it to be like a sharp one. I think the slightly blobby one is a bit
 // nice, but I don't think we want as blobby as ChatGPT does it." A filled bolt whose corners a
 // round-joined stroke of the same ink rounds off, inside the same 16 px box, and every surface that
-// draws a bolt (model button, `/` menu, FastToggle) uses this one glyph.
+// draws a bolt (model button, `/` menu) uses this one glyph.
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { BoltIcon } from "../src/agent-session/acpmux/BoltIcon";
 
@@ -56,10 +54,4 @@ test("the stroke keeps the bolt inside its 16 px box", () => {
   expect(Math.min(...ys) - pad).toBeGreaterThanOrEqual(0);
   expect(Math.max(...xs) + pad).toBeLessThanOrEqual(16);
   expect(Math.max(...ys) + pad).toBeLessThanOrEqual(16);
-});
-
-test("FastToggle draws the shared bolt, not a private copy", () => {
-  const src = readFileSync(join(import.meta.dir, "../src/agent-session/acpmux/FastToggle.tsx"), "utf8");
-  expect(src).toContain('from "./BoltIcon"');
-  expect(src).not.toMatch(/function BoltIcon\(/);
 });

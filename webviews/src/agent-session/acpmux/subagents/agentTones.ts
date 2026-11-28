@@ -1,6 +1,5 @@
-// Each subagent's color, after Codex's phone app: a dot in the agents list (AgentsPill.tsx) and its
-// name and mark in the transcript (SubagentGroup.tsx), the tray and Session Info share it, so an
-// agent reads as the same one anywhere.
+// Each subagent's color, after Codex's phone app: its name and mark in the transcript
+// (SubagentGroup.tsx), the tray and Session Info share it, so an agent reads as the same one anywhere.
 //
 // Leo, 2026-11-04: "Each subagent gets its own colour (medium). Today three Claude subagents look
 // identical. Keep the harness mark and add a stable colour per subagent, used everywhere it shows."
