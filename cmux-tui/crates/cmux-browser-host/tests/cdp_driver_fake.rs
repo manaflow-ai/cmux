@@ -1442,7 +1442,8 @@ fn headless_tabs_get_the_hidden_tab_viewport() {
 }
 
 /// RequestKind (5c): a main-frame document is Document, an iframe's document
-/// SubframeDocument, everything else Subresource.
+/// SubframeDocument, a named passive asset Asset, everything else
+/// Subresource.
 #[test]
 fn request_kinds_tell_main_frame_documents_from_iframes() {
     use cmux_browser_host::driver::RequestKind;
@@ -1461,19 +1462,25 @@ fn request_kinds_tell_main_frame_documents_from_iframes() {
         ("r1", main.as_str(), "Document"),
         ("r2", "CROSS", "Document"),
         ("r3", main.as_str(), "Script"),
+        ("r4", main.as_str(), "XHR"),
     ] {
         h._conn.receive(&json!({"sessionId": session, "method": "Fetch.requestPaused", "params": {
             "requestId": id, "frameId": frame, "request": {"url": "https://a.test/x", "method": "GET", "headers": {}},
             "resourceType": kind}}).to_string());
     }
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    while seen.lock().unwrap().len() < 3 {
+    while seen.lock().unwrap().len() < 4 {
         assert!(std::time::Instant::now() < deadline, "the filter saw {:?}", seen.lock().unwrap());
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
     assert_eq!(
         *seen.lock().unwrap(),
-        vec![RequestKind::Document, RequestKind::SubframeDocument, RequestKind::Subresource]
+        vec![
+            RequestKind::Document,
+            RequestKind::SubframeDocument,
+            RequestKind::Asset,
+            RequestKind::Subresource
+        ]
     );
 }
 

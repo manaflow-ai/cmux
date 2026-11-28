@@ -3313,7 +3313,7 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
 
 
 # ci.yml's legacy lanes skip PRs into feat-cmux-next, which cmux-next.yml covers.
-FEAT_CMUX_NEXT_PR_SKIP = "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next'))"
+FEAT_CMUX_NEXT_PR_SKIP = "(github.event_name != 'pull_request' || !(startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || startsWith(github.event.pull_request.base.ref, 'lane/')))"
 
 
 def test_feat_next_route_keeps_one_compile_for_webview_resources() -> None:
@@ -4443,7 +4443,7 @@ def test_unchanged_build_inputs_skip_mac_compile_before_runner_allocation() -> N
         in changes
     )
     assert (
-        "ghosttykit_release: ${{ (steps.unchanged_inputs.outputs.compile_admitted == 'true' || (github.event_name == 'pull_request' && startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') && "
+        "ghosttykit_release: ${{ (steps.unchanged_inputs.outputs.compile_admitted == 'true' || (github.event_name == 'pull_request' && (startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || startsWith(github.event.pull_request.base.ref, 'lane/')) && "
         "!(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) && steps.ghosttykit_provenance.outputs.changed == 'false')) && 'false' || steps.linux_guards.outputs.ghosttykit_release }}"
         in changes
     )
@@ -5649,8 +5649,8 @@ def test_r2_transport_is_an_explicit_optional_remote_broker() -> None:
 PR_LANE_XCODE_PIN = (
     "${{ github.event_name == 'pull_request' "
     "&& (inputs.pr_xcode_app || contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) "
-    "&& vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15) "
-    "|| vars.CMUX_CI_XCODE_APP_MACOS_15 }}"
+    "&& vars.CMUX_CI_XCODE_APP_PR || (vars.CI_PAID_MACOS_OVERFLOW != '1' && endsWith(fromJSON(vars.RUNNER_POOLS).macos_15, 'vcpu-macos-26') && vars.CMUX_CI_XCODE_APP_MACOS_26 || vars.CMUX_CI_XCODE_APP_MACOS_15)) "
+    "|| (vars.CI_PAID_MACOS_OVERFLOW != '1' && endsWith(fromJSON(vars.RUNNER_POOLS).macos_15, 'vcpu-macos-26') && vars.CMUX_CI_XCODE_APP_MACOS_26 || vars.CMUX_CI_XCODE_APP_MACOS_15) }}"
 )
 
 
@@ -5682,7 +5682,10 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
     ]:
         block = workflow_job_block(job_name, MACOS_WORKFLOW)
         assert f"CMUX_CI_XCODE_APP: {pin}" in block, job_name
-        assert "vars.CMUX_CI_XCODE_APP_MACOS_26" not in block, job_name
+        # The macOS 26 pin appears only where the macos_15 pool has failed over to macOS 26.
+        assert block.count("vars.CMUX_CI_XCODE_APP_MACOS_26") == block.count(
+            "endsWith(fromJSON(vars.RUNNER_POOLS).macos_15, 'vcpu-macos-26') && vars.CMUX_CI_XCODE_APP_MACOS_26"
+        ), job_name
         assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in block
 
     # swift-package-tests links the Release Ghostty CLI helper with Zig, which
@@ -5693,6 +5696,10 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
     # which takes the lane's pin.
     package_block = workflow_job_block("swift-package-tests", MACOS_WORKFLOW)
     assert "vars.MACOS_RUNNER_PR" not in package_block
+    # The macos_15 pool can fail over to macOS 26 (.github/runners.json), which has no SDK 15 helper Xcode, so this
+    # job names the macOS 15 label itself, never the pool (2026-11-28).
+    assert "RUNNER_POOLS).macos_15" not in package_block
+    assert "|| 'blacksmith-6vcpu-macos-15') }}" in package_block
     assert (
         "CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && "
         "(github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) || "
