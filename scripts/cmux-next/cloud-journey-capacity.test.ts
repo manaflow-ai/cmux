@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { CAPACITY_PREFLIGHT_STEP, capacityHeadroom, capacityPreflight } from "./cloud-journey";
+import { CAPACITY_PREFLIGHT_STEP, capacityHeadroom, capacityPreflight, quotaHolders } from "./cloud-journey";
 import { runJourney } from "./cloud-journey-fake";
 
 // cmux-platform journey-after-deploy.sh's capacity pattern: a preflight red must read as capacity (verdict not-run).
@@ -52,5 +52,18 @@ describe("capacity preflight names what is short before any create", () => {
     expect(pre?.detail).toContain("quota_cap:");
     expect(full.log).not.toContain("create");
     expect(full.steps.some((s) => s.step === "create machine")).toBe(false);
+  });
+});
+
+describe("a full cap names the machines that hold it", () => {
+  test("live machines newest first, with name, state, age and idle time; deleted ones left out", () => {
+    const now = Date.UTC(2026, 10, 27, 10, 0);
+    const rows = [
+      { id: "vm_old", name: "probe keep", status: "paused", created_at: now - 26 * 3_600_000, last_active_at: now - 25 * 3_600_000 },
+      { id: "vm_new", name: "cloud journey auto jr-x", status: "running", created_at: now - 5 * 60_000 },
+      { id: "vm_gone", name: "x", status: "deleted", created_at: now },
+    ];
+    expect(quotaHolders(rows, now)).toBe('2 live: vm_new "cloud journey auto jr-x" running, age 5 min, no activity time; vm_old "probe keep" paused, age 26 h, idle 25 h');
+    expect(quotaHolders(rows, now, 1)).toContain("; +1 more");
   });
 });
