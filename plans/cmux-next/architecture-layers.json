@@ -19,6 +19,7 @@
     "CmuxNextProcessEnvironment": {"layer": "core"},
     "CmuxNextRemoteLayer": {"layer": "core"},
     "CmuxNextMallocZone": {"layer": "core"},
+    "CmuxNextLinkOrder": {"layer": "core", "note": "the link order probe: empty outside a CMUX_LINK_ORDER_PROBE build"},
     "CmuxNextWorkspaceNaming": {"layer": "core"},
     "CmuxNextAgentPanePlacement": {"layer": "core", "note": "the right-column placement rule and subagent pane tracker, out of AgentPane"},
 
