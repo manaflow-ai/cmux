@@ -60,7 +60,7 @@ pub(super) fn run(global: &GlobalArgs) -> i32 {
 
 /// One reason automatic updates do not run as set: a stable `code`, who
 /// decided it (`person`, `build`, `organization`, `network`, `app`) and a line.
-fn reason(code: &str, by: &str, text: String) -> Value {
+fn reason(code: &str, by: &str, text: &str) -> Value {
     json!({ "code": code, "by": by, "text": text })
 }
 
@@ -80,32 +80,29 @@ pub(super) fn report(status: &Value, messages: &UpdateStatusMessages) -> Value {
     let mut reasons = Vec::new();
     if !sparkle_enabled {
         let why = status.get_nonempty_str("sparkle_disabled_reason").unwrap_or("?");
-        reasons.push(reason("updater_off", "build", messages.updater_off.replace("{reason}", why)));
+        let text = messages.updater_off.replace("{reason}", why);
+        reasons.push(reason("updater_off", "build", &text));
     }
     match facts {
         None => {
             if sparkle_enabled && !(checks_running && automatic_downloads) {
-                reasons.push(reason("unknown", "app", messages.unknown.to_owned()));
+                reasons.push(reason("unknown", "app", messages.unknown));
             }
         }
         Some(facts) => {
             let facts = Some(facts);
             if flag(facts, "paused_by_build") == Some(true) {
-                reasons.push(reason("build_pause", "build", messages.build_pause.to_owned()));
+                reasons.push(reason("build_pause", "build", messages.build_pause));
             }
             if flag(facts, "managed_policy_disables") == Some(true) {
-                reasons.push(reason(
-                    "managed_policy",
-                    "organization",
-                    messages.managed_policy.to_owned(),
-                ));
+                reasons.push(reason("managed_policy", "organization", messages.managed_policy));
             }
             let builds_pause = !reasons.is_empty();
             if flag(facts, "settings_applied") == Some(false) {
-                reasons.push(reason("starting", "app", messages.starting.to_owned()));
+                reasons.push(reason("starting", "app", messages.starting));
             }
             if sparkle_enabled && !builds_pause && check_interval.is_none() {
-                reasons.push(reason("checks_off", "person", messages.checks_off.to_owned()));
+                reasons.push(reason("checks_off", "person", messages.checks_off));
             }
             if sparkle_enabled && !builds_pause && !automatic_downloads {
                 reasons.extend(download_reasons(facts, messages));
@@ -147,36 +144,28 @@ fn download_reasons(facts: Option<&Value>, messages: &UpdateStatusMessages) -> V
     // Update When Idle downloads found updates too, whatever the download setting says.
     let idle = facts.and_then(|f| f.get("install_when_idle_seconds")).is_some_and(|v| !v.is_null());
     if facts.and_then(|f| f.get_bool("download_setting")) == Some(false) && !idle {
-        reasons.push(reason(
-            "downloads_by_click",
-            "person",
-            messages.downloads_by_click.to_owned(),
-        ));
+        reasons.push(reason("downloads_by_click", "person", messages.downloads_by_click));
         return reasons;
     }
     if flag("off_managed_channel") {
-        reasons.push(reason(
-            "off_managed_channel",
-            "organization",
-            messages.off_managed_channel.to_owned(),
-        ));
+        reasons.push(reason("off_managed_channel", "organization", messages.off_managed_channel));
     }
     let metered =
         facts.and_then(|f| f.get_nonempty_str("metered_mode")).unwrap_or("defer-low-data");
     if metered != "download" {
         if flag("network_pending") {
-            reasons.push(reason("network_pending", "network", messages.network_pending.to_owned()));
+            reasons.push(reason("network_pending", "network", messages.network_pending));
         } else if flag("network_constrained") {
-            reasons.push(reason("low_data", "network", messages.low_data.to_owned()));
+            reasons.push(reason("low_data", "network", messages.low_data));
         } else if metered == "defer-expensive" && flag("network_expensive") {
-            reasons.push(reason("expensive_link", "network", messages.expensive_link.to_owned()));
+            reasons.push(reason("expensive_link", "network", messages.expensive_link));
         }
     }
     if flag("download_held_for_deltas") {
-        reasons.push(reason("held_for_deltas", "app", messages.held_for_deltas.to_owned()));
+        reasons.push(reason("held_for_deltas", "app", messages.held_for_deltas));
     }
     if reasons.is_empty() {
-        reasons.push(reason("downloads_off", "app", messages.downloads_off.to_owned()));
+        reasons.push(reason("downloads_off", "app", messages.downloads_off));
     }
     reasons
 }
