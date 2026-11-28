@@ -10,6 +10,7 @@ import importlib.util
 import contextlib
 import io
 from pathlib import Path
+import subprocess
 import tempfile
 from unittest import mock
 import unittest
@@ -83,6 +84,87 @@ class FlagLinterScopeTests(unittest.TestCase):
              contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(self.linter.main(), 0)
         discover.assert_called_once_with()
+
+    def test_main_searches_the_tree_once_not_once_per_flag(self):
+        """One git grep for all keys, not one whole-repo search per flag.
+
+        The lint spawned a full `git grep` per declared flag (and per retired
+        key), so its cost grew with the flag count. 30 flags must not mean 30+
+        searches.
+        """
+        flags = [
+            {"key": f"flag-{i}-release", "source": "Example.swift", "owner": "o",
+             "reviewBy": "2030-01-01", "hasDefault": True, "lines": None}
+            for i in range(30)
+        ]
+        real_run = self.linter.subprocess.run
+        grep_calls = []
+
+        def counting_run(args, *a, **kw):
+            if args[:2] == ["git", "grep"]:
+                grep_calls.append(args)
+            return real_run(args, *a, **kw)
+
+        with mock.patch.object(self.linter, "parse_web_registry", return_value=flags), \
+             mock.patch.object(self.linter, "swift_registry_files", return_value=[]), \
+             mock.patch.object(self.linter.subprocess, "run", side_effect=counting_run), \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.linter.main([])
+        self.assertLessEqual(
+            len(grep_calls), 2,
+            f"expected one batched search, got {len(grep_calls)} git grep calls",
+        )
+
+    def test_one_search_still_finds_each_keys_files(self):
+        """The batched search must still give both checks every file a key is in.
+
+        A count of searches alone passes a lint that finds no usage at all.
+        """
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            for rel, text in {
+                "web/a.ts": "isEnabled('two-files-release')\n",
+                "web/b.ts": "isEnabled('two-files-release')\n",
+                "Sources/Old.swift": 'let key = "gone-release"\n',
+            }.items():
+                (root / rel).parent.mkdir(parents=True, exist_ok=True)
+                (root / rel).write_text(text)
+            retired = root / "retired.txt"
+            retired.write_text("# retired keys\ngone-release\n")
+            flags = [{"key": "two-files-release", "source": "Example.swift", "owner": "o",
+                      "reviewBy": "2030-01-01", "hasDefault": True, "lines": None}]
+            with mock.patch.object(self.linter, "REPO", root), \
+                 mock.patch.object(self.linter, "RETIRED", retired), \
+                 mock.patch.object(self.linter, "parse_web_registry", return_value=flags), \
+                 mock.patch.object(self.linter, "swift_registry_files", return_value=[]), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(self.linter.main([]), 1)
+        self.assertEqual(sorted(self.linter.errors), [
+            "'two-files-release' evaluated in multiple web files: ['web/a.ts', 'web/b.ts']",
+            "retired flag key 'gone-release' still referenced in Sources/Old.swift",
+        ])
+
+    def test_a_key_in_a_non_ascii_path_is_found(self):
+        """git grep quotes a non-ASCII path unless -z, and the lint opens each hit."""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            (root / "web").mkdir()
+            (root / "web" / "caf\u00e9.ts").write_text("isEnabled('gone-release')\n")
+            retired = root / "retired.txt"
+            retired.write_text("gone-release\n")
+            flags = [{"key": "unused-release", "source": "Example.swift", "owner": "o",
+                      "reviewBy": "2030-01-01", "hasDefault": True, "lines": None}]
+            with mock.patch.object(self.linter, "REPO", root), \
+                 mock.patch.object(self.linter, "RETIRED", retired), \
+                 mock.patch.object(self.linter, "parse_web_registry", return_value=flags), \
+                 mock.patch.object(self.linter, "swift_registry_files", return_value=[]), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(self.linter.main([]), 1)
+        self.assertEqual(self.linter.errors, [
+            "retired flag key 'gone-release' still referenced in web/caf\u00e9.ts",
+        ])
 
     def test_prose_flag_references_are_not_declarations(self):
         """Discovery and parsing must agree on what a declaration is.
