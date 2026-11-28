@@ -5,10 +5,11 @@
 import { keptPrefix } from "../conversation/prefixFlatMap";
 import { createContext, useSyncExternalStore } from "react";
 import { isEditCard, type AcpmuxRow } from "../model";
+import { RowMemo } from "../../shared/rowMemo";
 
 export const SessionEditsContext = createContext<readonly AcpmuxRow[] | undefined>(undefined);
 
-const editRows = new WeakMap<AcpmuxRow, boolean>();
+const editRows = new RowMemo<AcpmuxRow, boolean>();
 
 /// A session's edit rows (`edits`, oldest first) and where each is in `rows`.
 export type SessionEdits = { rows: readonly AcpmuxRow[]; at: number[]; edits: readonly AcpmuxRow[] };

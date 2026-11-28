@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.sidebar.folderlessUngrouped.help" : {
+      "comment" : "Settings row help for settings.sidebar.folderlessUngrouped.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Under Group by Folder, rows with no folder sit at the end of the list with no No Folder header."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "عند التجميع حسب المجلد، تظهر الصفوف التي لا مجلد لها في نهاية القائمة بلا عنوان «بلا مجلد»."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pri grupisanju po mapi, redovi bez mape stoje na kraju liste bez zaglavlja Bez mape."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ved gruppering efter mappe står rækker uden mappe sidst i listen uden overskriften Ingen mappe."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bei Gruppierung nach Ordner stehen Zeilen ohne Ordner am Ende der Liste, ohne Überschrift „Kein Ordner“."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Al agrupar por carpeta, las filas sin carpeta quedan al final de la lista sin el encabezado Sin carpeta."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Avec le regroupement par dossier, les lignes sans dossier restent en fin de liste, sans en-tête Aucun dossier."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Con il raggruppamento per cartella, le righe senza cartella restano in fondo all’elenco senza l’intestazione Nessuna cartella."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "フォルダでグループ化するとき、フォルダのない行は「フォルダなし」の見出しなしでリストの最後に表示されます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ពេលដាក់ជាក្រុមតាមថត ជួរដែលគ្មានថតនៅខាងចុងបញ្ជី ដោយគ្មានក្បាល គ្មានថត។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "폴더별로 그룹화할 때 폴더 없는 행은 폴더 없음 머리글 없이 목록 끝에 표시됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ved gruppering etter mappe står rader uten mappe sist i listen uten overskriften Ingen mappe."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Przy grupowaniu według folderu wiersze bez folderu są na końcu listy, bez nagłówka Bez folderu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ao agrupar por pasta, as linhas sem pasta ficam no fim da lista, sem o cabeçalho Sem pasta."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "При группировке по папкам строки без папки стоят в конце списка без заголовка «Без папки»."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เมื่อจัดกลุ่มตามโฟลเดอร์ แถวที่ไม่มีโฟลเดอร์จะอยู่ท้ายรายการโดยไม่มีหัวข้อ ไม่มีโฟลเดอร์"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Klasöre göre gruplamada klasörü olmayan satırlar, Klasör Yok başlığı olmadan listenin sonunda durur."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Під час групування за папками рядки без папки стоять у кінці списку без заголовка «Без папки»."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Khi nhóm theo thư mục, các hàng không có thư mục nằm ở cuối danh sách, không có tiêu đề Không có thư mục."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "按文件夹分组时，无文件夹的行位于列表末尾，不显示“无文件夹”标题。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "依資料夾分組時，無資料夾的列位於清單末尾，不顯示「無資料夾」標題。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

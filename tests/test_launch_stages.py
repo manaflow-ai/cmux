@@ -42,12 +42,14 @@ class SpansTests(unittest.TestCase):
         "main_start": 41.25, "did_finish_launching_start": 120.5, "daemon_connected": 180, "dfl.windows": 300,
         "launch_snapshot_shown": 260.04, "first_window_frame_committed": 512.04, "cef.ready": 700,
         "home.first_page": 830.66, "agent_pane.painted": 790, "window_usable": 900, "terminal_echo": 640,
+        "browser_pane.first_paint": 760,
     }
 
     def test_each_stage_is_the_earliest_of_its_marks(self):
         self.assertEqual({
             "premain": 41.2, "did_finish_launching": 120.5, "daemon_connected": 180, "first_window_shown": 260.0,
-            "first_frame": 512.0, "webview_ready": 700, "first_chat_paint": 790, "first_interaction": 640,
+            "first_frame": 512.0, "webview_ready": 700, "first_chat_paint": 790, "first_browser_paint": 760,
+            "first_interaction": 640,
         }, launch_stages.spans(self.MARKS))
 
     def test_a_stage_no_mark_reached_is_absent_and_bad_marks_are_skipped(self):

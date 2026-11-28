@@ -1,0 +1,59 @@
+name: Leo session archive bucket
+
+# Leo's session archive (ask-a7a0aa9b7b). Leo: "let's go ahead we already have access to the keys and such. it...
+# should probably be under the cmux cloudflare account. just isolate it to me and we can compress stuff so we can
+# read it later". The R2 bucket cmux-leo-session-archive in the cmux account, private, nothing expires; only the
+# fleet controller holds its key (cmuxterm-hq build-fleet/cmd/controller/session_archive.go, FLEET-HEALTH.md
+# "Session archive store credential"). The push trigger (this file or its script) registers it and checks only. A
+# dispatch from feat-cmux-next with seal_pubkey creates the bucket if missing, keeps it private, mints a
+# bucket-scoped token and uploads its S3 credential sealed to that key (artifact leo-sessions-credential.sealed). The
+# credential is never printed. Same environment and named-secret pattern as platform-billing-test-secrets.yml.
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths: [.github/workflows/leo-session-archive-bucket.yml, scripts/ci/leo-session-archive-bucket.py]
+  workflow_dispatch:
+    inputs:
+      seal_pubkey:
+        description: "Base64 DER RSA public key (4096-bit) the credential is sealed to; its private key lives on the controller"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: leo-session-archive-bucket
+  cancel-in-progress: false
+
+jobs:
+  bucket:
+    if: github.ref == 'refs/heads/feat-cmux-next'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    environment: billing-e2e
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci/leo-session-archive-bucket.py
+          sparse-checkout-cone-mode: false
+      - name: Check, or create and seal
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 0c1675e0def6de1ab3a50a4e17dc5656
+          SEAL_PUBKEY: ${{ inputs.seal_pubkey }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = workflow_dispatch ]; then
+            python3 scripts/ci/leo-session-archive-bucket.py create "$RUNNER_TEMP/leo-sessions-credential.sealed"
+          else
+            python3 scripts/ci/leo-session-archive-bucket.py check
+          fi
+      - if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: leo-sessions-credential.sealed
+          path: ${{ runner.temp }}/leo-sessions-credential.sealed
+          retention-days: 1
+          if-no-files-found: error

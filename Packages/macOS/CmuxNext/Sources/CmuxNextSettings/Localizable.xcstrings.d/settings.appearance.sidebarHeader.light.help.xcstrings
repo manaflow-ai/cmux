@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.sidebarHeader.light.help" : {
+      "comment" : "Settings row help for the light sidebar header picture.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The sidebar header picture in the light appearance. Unset, the dark picture."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "صورة رأس الشريط الجانبي في المظهر الفاتح. إذا لم تُحدَّد، تُستخدم الصورة الداكنة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slika zaglavlja bočne trake u svijetlom izgledu. Ako nije postavljeno, tamna slika."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sidepanelets overskriftsbillede i det lyse udseende. Hvis det ikke er angivet, bruges det mørke billede."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Kopfbild der Seitenleiste im hellen Erscheinungsbild. Nicht gesetzt: das dunkle Bild."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La imagen de cabecera de la barra lateral en la apariencia clara. Sin definir, la imagen oscura."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L'image d'en-tête de la barre latérale en apparence claire. Non définie : l'image sombre."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L'immagine d'intestazione della barra laterale nell'aspetto chiaro. Se non impostata, l'immagine scura."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ライト表示でのサイドバーのヘッダー画像です。未設定ならダークの画像を使います。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "រូបភាពក្បាលរបារចំហៀងក្នុងរូបរាងភ្លឺ។ ពេលមិនបានកំណត់ ប្រើរូបភាពងងឹត។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "라이트 모드에서의 사이드바 헤더 그림입니다. 설정하지 않으면 다크 그림을 씁니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sidepanelets overskriftsbilde i det lyse utseendet. Hvis det ikke er angitt, brukes det mørke bildet."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Obraz nagłówka paska bocznego w jasnym wyglądzie. Gdy nie ustawiono, obraz ciemny."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A imagem do cabeçalho da barra lateral na aparência clara. Se não definido, a imagem escura."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Изображение шапки боковой панели в светлом оформлении. Если не задано, тёмное изображение."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ภาพส่วนหัวแถบด้านข้างในลักษณะที่ปรากฏแบบสว่าง หากไม่ได้ตั้งค่า จะใช้ภาพของโหมดมืด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Açık görünümde kenar çubuğu üst görseli. Ayarlanmazsa koyu görsel kullanılır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Зображення шапки бічної панелі у світлому вигляді. Якщо не задано, темне зображення."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ảnh đầu thanh bên trong giao diện sáng. Khi chưa đặt, dùng ảnh tối."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "浅色外观中的侧边栏顶部图片。未设置时使用深色的图片。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "淺色外觀中的側邊欄頂部圖片。未設定時使用深色的圖片。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

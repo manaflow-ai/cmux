@@ -2,7 +2,7 @@
 public import CryptoKit
 #else
 // Linux: swift-crypto serves the same API (Package.swift adds it under CMUX_SWIFTPM_TARGET_LINUX).
-public import Crypto
+@preconcurrency public import Crypto // swift-crypto marks its key types Sendable only on Apple platforms
 #endif
 public import Foundation
 #if canImport(Security)

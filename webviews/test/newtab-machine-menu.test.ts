@@ -8,7 +8,7 @@
 // - Click: a real pointer click at the permission button's center reaches the button and opens its
 //   menu (nothing over it eats the click).
 // - Rows: the Where menu's first rows are its settled rows, signed in, signed out, and opened before
-//   the app's Cloud answer; Cloud and Sign in for Cloud never show together.
+//   the app's Cloud answer, signed in or out; Cloud and Sign in for Cloud never show together.
 // Numbers land in webviews/artifacts/newtab-machine-menu/.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -222,7 +222,11 @@ await requireBrowserLane("newtab-machine-menu.test.ts", async () => {
       }
     });
 
-  test("a signed-out answer that lands while Where is open changes the Cloud row in place", async () => {
+  // A new chat's Cloud row is where it runs, and Send signs in when it has to (EnvironmentPicker's
+  // `runMode`; the where-signed-out variant since #37656): a signed-out answer that lands while Where is
+  // open leaves its rows and height as they were. It once turned the row into Sign in for Cloud, which
+  // only a chat with no `runMode` still draws.
+  test("a signed-out answer that lands while Where is open leaves its rows and height", async () => {
     const page = await open("where-signed-out-late", 760, false);
     try {
       await page.waitForSelector('.acpmux-env-popover [role="option"]', { timeout: 60_000 });
@@ -230,14 +234,11 @@ await requireBrowserLane("newtab-machine-menu.test.ts", async () => {
         page.evaluate(() => document.querySelector(".acpmux-env-popover")!.getBoundingClientRect().height);
       const first = await whereRows(page);
       const before = await height();
-      await page.waitForFunction(
-        () =>
-          [...document.querySelectorAll('.acpmux-env-popover [role="option"] .acpmux-menu-label')].some(
-            (label) => label.textContent === "Sign in for Cloud",
-          ),
-        undefined,
-        { timeout: 10_000 },
-      );
+      await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay), undefined, {
+        timeout: 60_000,
+      });
+      // fixed-wait: past the fixture's 1.5 s Cloud answer; the behavior is that the rows do not change.
+      await page.waitForTimeout(2_000);
       const settled = await whereRows(page);
       log.push(
         ["where-signed-out-late", "rows", JSON.stringify(first), JSON.stringify(settled), before, await height()].join(
@@ -245,7 +246,7 @@ await requireBrowserLane("newtab-machine-menu.test.ts", async () => {
         ),
       );
       expect(first).toEqual(["This Mac", "Cloud", "Other devices"]);
-      expect(settled).toEqual(["This Mac", "Sign in for Cloud", "Other devices"]);
+      expect(settled).toEqual(first);
       expect(await height()).toBe(before);
     } finally {
       await page.close();

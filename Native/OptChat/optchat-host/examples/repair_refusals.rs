@@ -193,8 +193,7 @@ fn plan(args: &[String]) {
         calls: AtomicUsize::new(0),
     };
     let main_model = cli(&flag(args, "--model").unwrap_or(optchat_host::DEFAULT_MODEL.into()));
-    let fallback =
-        cli(&flag(args, "--fallback").unwrap_or(optchat_host::DEFAULT_FALLBACK_MODEL.into()));
+    let fallback = cli(&flag(args, "--fallback").expect("--fallback MODEL"));
     let count = |p: &PathBuf| lines(p).iter().filter(|(_, t)| holds_refusal(t)).count();
     println!("lines holding a refusal before: {}", count(&db_path));
     let before = targets(&db_path, &store);

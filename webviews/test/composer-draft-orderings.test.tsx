@@ -4,7 +4,7 @@
 // mount or an earlier one, or a write still on its way), the prompt is the draft and acpmux's is
 // never merged in; text typed before the page ever read the chat's draft is kept beside acpmux's;
 // an untouched prompt shows acpmux's draft.
-import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, createRef } from "react";
 import type { Root } from "react-dom/client";
@@ -154,9 +154,19 @@ const page = () =>
     cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
   };
 
+/// The person types `text` and pauses: a typed change's draft writes run just after its keys
+/// (Composer.tsx `flushTyped`, 150 ms), so each step after an edit sees its write out, as it did
+/// when the key's own task wrote it. composer-typed-flush.test.tsx covers the keys before that.
+/// The pause is on a fake clock: the key's timers run on it, not on the runner's wall clock.
 async function type(text: string) {
   await act(async () => markdownField()!.setCaret(Number.MAX_SAFE_INTEGER));
-  await act(async () => markdownField()!.insertTyped(text));
+  jest.useFakeTimers();
+  try {
+    await act(async () => markdownField()!.insertTyped(text));
+    await act(async () => void jest.advanceTimersByTime(1_000));
+  } finally {
+    jest.useRealTimers();
+  }
 }
 
 /// acpmux's drafts for one chat, with reads and writes the steps can hold and answer.

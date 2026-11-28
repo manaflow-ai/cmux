@@ -162,6 +162,17 @@ public nonisolated struct ColorTransition: Sendable, Hashable {
         blend(layer, .backgroundColor, from: shown, to: color)
     }
 
+    /// ``animate(_:to:)`` for a shape layer's stroke (a glyph whose color follows the pointer).
+    @MainActor
+    public func animateStroke(_ layer: CAShapeLayer, to color: CGColor?) {
+        let shown = LayerColor.strokeColor.shown(in: layer)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.strokeColor = color
+        CATransaction.commit()
+        blend(layer, .strokeColor, from: shown, to: color)
+    }
+
     /// Blends `property` of `layer`, whose model value is already `color`, from `shown` (what the
     /// screen showed before the change) on the render server: keyframes at even times, each the
     /// color at the curve's progress there (cmux-motion), so the render server only steps

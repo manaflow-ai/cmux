@@ -56,7 +56,7 @@ final class BrowserPromptDialogs {
         let cancel = CmuxDialogButton(id: "cancel", title: Strings.cancel, role: .cancel)
         let identifier = "browser.dialog.javascript"
         switch prompt.kind {
-        case .permission, .openExternalApp, .savePassword, .verificationOffer:
+        case .permission, .openExternalApp, .noAppForScheme, .savePassword, .verificationOffer:
             return nil
         case .credentials(let host, let realm):
             return BrowserHTTPAuth.spec(host: host, realm: realm, isSecure: true, failedBefore: false, user: nil)
