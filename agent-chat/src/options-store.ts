@@ -144,6 +144,11 @@ export function writeStoredProviderOptions(
 
 export function persistOptionsSnapshot(provider: string, options: SessionOption[], storage: StorageLike = preferenceStorage) {
   const values: Record<string, OptionValue> = {};
-  for (const option of options) values[option.id] = option.value;
+  for (const option of options) {
+    // A dimmed capability (fast mode on a model that cannot use it) must not
+    // overwrite the preference saved for a model that can.
+    if (option.disabled && isModelScopedOption(option.id)) continue;
+    values[option.id] = option.value;
+  }
   writeStoredProviderOptions(provider, values, options, storage);
 }
