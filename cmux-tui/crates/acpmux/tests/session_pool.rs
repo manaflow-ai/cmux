@@ -547,8 +547,11 @@ async fn one_pool_record(daemon: &Daemon) -> Value {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_claude_setup_token_is_withdrawable_after_its_bound_start() {
     let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
-    let fakeb =
-        json!({"kind": "claude-stdio", "family": "claude", "argv": ["python3", fake_claude]});
+    // `system/init` only when a turn starts, as Claude Code sends it: the fake's default sends it
+    // at `initialize`, a turn that never ends, which holds the withdrawal `host_pending` whenever
+    // it lands first.
+    let fakeb = json!({"kind": "claude-stdio", "family": "claude", "argv": ["python3", fake_claude],
+        "env": {"FAKE_CLAUDE_INIT_ON_TURN": "1"}});
     let daemon = Daemon::with_fakeb_proven("cred", &fakeb);
     let mut rpc = daemon.rpc().await;
     rpc.prove().await;
