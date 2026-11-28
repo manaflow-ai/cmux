@@ -2105,16 +2105,18 @@ inputs = [
 run = "python3 -I tests/test_bench_relevance_map.py && python3 -I tests/test_bench_baselines.py"
 
 # What a pull request's paths need: the areas, benches, targeted tests and check templates the relevance map names
-# for them, in the advisory log, and the Linux benches those areas name (`run`), each against its area's budget_s.
-# Fail open: an unmapped path is a warning, a base with no for-paths, a broken map or a missing or failing bench is
-# a notice; only a measured result over budget_s turns this (non-blocking) check red.
+# for them (Leo, 2026-11-27: "targetted tests per type of situation that things touch based off relevance. like we
+# can have fast retrieval of bench reference per product area"), in the advisory log and the job summary. Plan
+# only: this job runs the base's checkout, so the benches themselves run in bench-relevance-pr.yml on the merge
+# commit against the areas' nightly baselines. Fail open: a base with no for-paths, no paths list or a broken map
+# is a notice and the step passes; it never turns the check red.
 [step.bench-relevance]
 job = "advisory"
 blocks = false
 class = "idle"
-timeout = 300
+timeout = 120
 title = "Benches and tests for these paths"
-about = "cmux-bench for-paths --run on the pull request's paths: areas, benches, targeted tests, check templates, and the areas' Linux benches against budget_s; unmapped paths warn"
+about = "cmux-bench for-paths on the pull request's paths: areas, benches, targeted tests, check templates; plan only (bench-relevance-pr.yml measures); unmapped paths warn; fails open"
 run = '''
 if ! grep -q "for-paths" scripts/bench/cmux-bench 2>/dev/null; then
   echo "::notice::The base branch has no cmux-bench for-paths yet; nothing to report."
@@ -2125,29 +2127,16 @@ if [ ! -s "$paths" ]; then
   echo "::notice::No changed-paths list; for-paths has nothing to read."
   exit 0
 fi
-if ! grep -q -- "--run" scripts/bench/cmux-bench 2>/dev/null; then
-  python3 -I scripts/bench/cmux-bench for-paths --stdin --markdown < "$paths" || echo "::notice::for-paths failed; fail open"
-  exit 0
+out="$RUNNER_TEMP/bench-relevance.md"
+if timeout 60 python3 -I scripts/bench/cmux-bench for-paths --stdin --markdown < "$paths" > "$out"; then
+  cat "$out"
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    cat "$out" >> "$GITHUB_STEP_SUMMARY" || true
+  fi
+else
+  echo "::notice::for-paths failed; fail open"
 fi
-# --run also runs the benches the matched areas name (`run`) and exits 1 only on a measured result over the
-# area's budget_s. A missing or failing bench, a timeout with no budget, or a broken map warns and passes.
-# --baselines (Leo, 2026-11-27: "A PR fetches only the baselines for its own areas"): each bench runs 3 times
-# against its areas' nightly baseline on this runner class (bench-baselines-nightly.yml, R2); it is red only when
-# all 3 repeats are more than 15% over. A missing baseline or an unreachable store warns and passes.
-extra=""
-if grep -q -- "--baselines" scripts/bench/cmux-bench 2>/dev/null; then
-  extra="--repeats 3 --baselines"
-fi
-set +e
-python3 -I scripts/bench/cmux-bench for-paths --stdin --markdown --run --timeout 120 $extra < "$paths"
-code=$?
-set -e
-if [ "$code" -eq 1 ]; then
-  echo "::error::A bench for these paths is over its budget_s, or 3 of 3 repeats are >15% over its area's nightly baseline (docs/benches/relevance-map.toml); see the Bench runs above."
-  exit 1
-elif [ "$code" -ne 0 ]; then
-  echo "::notice::for-paths --run exited $code; fail open"
-fi
+exit 0
 '''
 
 # A missing table is an ::error annotation on the run and never a red check. A perf label event re-runs
@@ -4785,6 +4774,87 @@ case "$word" in
   superseded) echo "a newer head of this pull request replaced $head; its own run reads its compile" ;;
   *) fallback ;;
 esac
+'''
+
+# The test targets a landing head's Swift change reaches compile (`swift build --build-tests` on the build fleet's Linux
+# pool) before it merges. The swift-canary step above reads the fleet's app compile, which links no test target, and
+# since 2026-11-21 nothing compiled a pull request's test targets into feat-cmux-next: fleet-test-compile.yml was cut
+# from pull requests ("id rather we simply cut shit now and revisit later", Leo, 2026-11-21) and retired (#61890),
+# swift test skips them (2026-11-26-mac-jobs-after-merge), and land gates start only linux jobs. The tip test compile
+# (cmux-next-tip-test-compile.yml) then found each break after the merge: 11-21..11-28, 10 base-red fix-forwards of a
+# CmuxNext test target that stopped compiling (#54622 -> #56067, #55279 -> #55472, #53109, #47075, #57013, #57696,
+# IdleChatRelease, GoBackOneSession, GooStrip, CoalescingFileWriter), the largest compile slip group not already
+# gated (fix_causes, cause compile-or-lint-slip). This is that check again, on landing heads only (about one per
+# merge, not one per push), read on a Linux runner as the old workflow did since 2026-11-25: the read submits the
+# controller's test-target compile of the planned packages (scripts/ci/compile_test_plan.py: the macOS package lane
+# and the CmuxNext test targets the target graph reaches; iOS packages build in their own jobs) and waits for it.
+# CmuxNext with every test target took 490 s on the pool, another lane package 26-47 s.
+# Red only for a test target that does not compile here and does at the base: on a fail it reads the base's own
+# compile (HEAD^1), and a base that is red too or gives no verdict warns and passes (its tip test compile issue
+# names the culprit). No verdict (the fleet down, a fork's head) warns and passes, as the canary does.
+[step.swift-test-compile]
+job = "linux"
+land_gate = true
+timeout = 1800
+# `alone`, as the canary: a 30 min bound in a shared wave would set every wave's length (test_the_job_timeout_covers_setup_and_every_wave).
+alone = true
+title = "Swift test targets compile (build fleet)"
+about = "the build fleet's test-target compile (swift build --build-tests) of the macOS packages and CmuxNext test targets the change reaches (compile_test_plan.py, fleet_compile_result.py --phase test-compile), red only when the base compiles them"
+inputs = [
+  "Packages/**/*.swift",
+  "Packages/**/Package.resolved",
+  "Packages/macOS/CmuxNext/ci-target-graph.json",
+  "vendor/stack-auth-swift-sdk-prerelease/**",
+  "scripts/ci/compile_test_plan.py",
+  "scripts/ci/cmux_next_route.py",
+  "scripts/ci/select_package_tests.py",
+  "scripts/ci/package-test-lane.sh",
+  "scripts/ci/fleet_compile_result.py",
+]
+run = '''
+base="$(git rev-parse HEAD^1)"
+git diff --no-renames --name-only "$base" HEAD > "$CI_TOOLS/test-compile-changed.txt"
+python3 -I scripts/ci/compile_test_plan.py --changed-files "$CI_TOOLS/test-compile-changed.txt" > "$CI_TOOLS/test-compile-plan.txt"
+if ! [ -s "$CI_TOOLS/test-compile-plan.txt" ]; then
+  echo "the change reaches no macOS Swift test target: nothing to compile"
+  exit 0
+fi
+cat "$CI_TOOLS/test-compile-plan.txt"
+packages="$(awk 'NF { n = split($1, part, "/"); printf "%s%s", sep, part[n]; sep = "," }' "$CI_TOOLS/test-compile-plan.txt")"
+read -r head pr fork < <(python3 -I - "${GITHUB_EVENT_PATH:-}" <<'PY'
+import json, sys
+try:
+    e = json.load(open(sys.argv[1]))
+except (OSError, ValueError, IndexError):
+    e = {}
+pr = e.get("pull_request") or {}
+head = (pr.get("head") or {})
+repo = (head.get("repo") or {}).get("full_name") or ""
+base = (e.get("repository") or {}).get("full_name") or ""
+print(head.get("sha") or "-", pr.get("number") or "-", "1" if repo and base and repo != base else "0")
+PY
+)
+if [ "$fork" = "1" ]; then
+  echo "::warning title=Swift test compile::a fork's head: the build fleet compiles only same-repository heads"
+  exit 0
+fi
+[ "$head" = "-" ] && head="$(git rev-parse -q --verify 'HEAD^2' 2>/dev/null || git rev-parse HEAD)"
+args=(--repo "${GITHUB_REPOSITORY:-manaflow-ai/cmux}" --phase test-compile --packages "$packages" --wait 1500 --no-record 600)
+pr_args=()
+[ "$pr" = "-" ] || pr_args=(--pr "$pr")
+word="$(python3 -I scripts/ci/fleet_compile_result.py --sha "$head" ${pr_args[@]+"${pr_args[@]}"} "${args[@]}")" || word=none
+case "$word" in
+  pass) echo "every planned test target compiled at $head ($packages)"; exit 0 ;;
+  fail) ;;
+  *) echo "::warning title=Swift test compile::no verdict ($word) at $head; the tip test compile checks it after the merge"; exit 0 ;;
+esac
+base_word="$(python3 -I scripts/ci/fleet_compile_result.py --sha "$base" "${args[@]}")" || base_word=none
+if [ "$base_word" = pass ]; then
+  echo "::error title=Swift test compile::a test target this change reaches does not compile at $head ($packages), and the base ${base:0:12} compiles it"
+  exit 1
+fi
+echo "::warning title=Swift test compile (base not green)::$head does not compile a test target, and the base ${base:0:12} said $base_word: its fix lands on feat-cmux-next"
+exit 0
 '''
 
 # Slice 16 (ci-v2 step 11): router callees and the Linux test halves of deploy workflows.
