@@ -2951,30 +2951,34 @@ fn make_room_deletes_the_offered_machine_and_starts_again_once() {
 }
 
 /// The offered machine is already gone (deleted in the meantime, or the fault drill's id no machine has): the room is
-/// made all the same, so the start runs again.
+/// made all the same, so the start runs again. Both shapes: the Cloud app's own code, and the app action's `not_found`
+/// that `cloud kill-machine` answers for an id no machine has (app-chat-fault-production `machine_cap`, 2026-11-28
+/// 11:10Z: "could not free vm_drill… to make room: … No Cloud machine has the id vm_drill…").
 #[test]
 fn make_room_whose_offered_machine_is_already_gone_starts_again() {
-    let free = json!({"machine": "vm-gone", "name": "web", "reason": "failed_create"});
-    let gone = Ran {
-        code: 1,
-        stderr:
-            json!({"code": "cloud.machine.not_found", "message": "no such machine in this team"})
-                .to_string(),
-        ..Ran::default()
-    };
-    let sent = exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n");
-    let mut fake = Fake::new(vec![
-        three_machines(),
-        held_refusal(free),
-        gone,
-        three_machines(),
-        started(),
-        sent,
-    ]);
-    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "hi", "--make-room"])) else {
-        panic!("{:?}", fake.ran)
-    };
-    assert_eq!(answer["session_id"], "sess-1");
+    let shapes = [
+        json!({"code": "cloud.machine.not_found", "message": "no such machine in this team"}),
+        json!({"code": "not_found", "message": "No Cloud machine has the id vm-gone.",
+               "data": {"action": "cloudKillMachine", "reason": "No Cloud machine has the id vm-gone."}}),
+    ];
+    for refused in shapes {
+        let free = json!({"machine": "vm-gone", "name": "web", "reason": "failed_create"});
+        let gone = Ran { code: 1, stderr: refused.to_string(), ..Ran::default() };
+        let sent = exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n");
+        let mut fake = Fake::new(vec![
+            three_machines(),
+            held_refusal(free),
+            gone,
+            three_machines(),
+            started(),
+            sent,
+        ]);
+        let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "hi", "--make-room"]))
+        else {
+            panic!("{refused}: {:?}", fake.ran)
+        };
+        assert_eq!(answer["session_id"], "sess-1", "{refused}");
+    }
 }
 
 #[test]
