@@ -112,6 +112,7 @@ from xml.etree import ElementTree
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from state_wait import StateWaitTimeout, wait_stable, wait_until  # noqa: E402
+import look_page_log  # noqa: E402
 ROOT = HERE.parents[1]
 BASE_BRANCH = "feat-cmux-next"
 NO_APP = "/nonexistent/hot-verify-no-app"
@@ -896,6 +897,10 @@ def launch_seconds(env=None) -> float:
 
 LAUNCH_LOG_LINES = 80
 LAUNCH_LINE_CHARS = 240
+# The line of a copy's own output that says why it ended: a Swift trap, an assertion, dyld, an uncaught
+# exception or a signal.
+CRASH_LINE = re.compile(r"Fatal error:|Assertion failed|Precondition failed|dyld(?:\[\d+\])?:|Terminating app due to|"
+                        r"uncaught exception|EXC_[A-Z_]+|SIG(?:ABRT|SEGV|BUS|ILL|TRAP|KILL)\b")
 
 
 def error_chars(error: object) -> int:
@@ -926,14 +931,21 @@ def launch_failure(pid: int, logs: list[str], most: int = LAUNCH_LOG_LINES) -> s
     except OSError:
         alive = True
     said = [f"app launch: running {alive}"]
+    crash = None
     for path in logs:
         try:
             lines = Path(path).read_text(errors="replace").splitlines()
         except OSError:
             continue
         lines = [line[:LAUNCH_LINE_CHARS] for line in lines if line.strip()][-most:]
+        crash = next((line for line in reversed(lines) if CRASH_LINE.search(line)), crash)
         if lines:
             said.append(f"{Path(path).name} (last {len(lines)} lines):\n" + redact_log("\n".join(lines)))
+    if crash:
+        # First, so the console line and the proof record's note (both cut near 500 characters) keep the why:
+        # cmux#64397's look said only "running False" and the head of a 2 KB ignored-env line, while its
+        # stderr ended "HostedChiefRules.swift:15: Fatal error: ... unknownOp".
+        said.insert(1, "crash: " + redact_log(crash.strip()))
     if len(said) == 1:
         said.append("no output from the copy")
     return "\n".join(said)
@@ -1694,7 +1706,7 @@ def squash_landed(repo: Path, pr: object) -> bool:
 
 
 def apply_web(repo: Path, planned: dict, src_tree: Path | None, side: Side, scratch: Path,
-              settle: bool = True) -> dict:
+              settle: bool = True, page_log: look_page_log.Sink | None = None) -> dict:
     """The head's web into the copy: published bundles as its overlay, else a dev server of the head. web-overlay.sh
     server returns once the server answers the agent pane. A look (SETTLE, whose after shot follows) then waits for
     the copy's window to repaint (Repaint, in look); a run takes no shot, so it waits for nothing more (cmux app
@@ -1710,11 +1722,22 @@ def apply_web(repo: Path, planned: dict, src_tree: Path | None, side: Side, scra
         key = None if settle else tree_web_key(src_tree)
     if key:
         bundles = fetch_bundles(key)
+        if page_log is not None:
+            # PAGE_LOG (a look's): its sink is the copy's server before the bundles go in, and the bundles carry its
+            # probe, so the first load of the head's pane already reports (look_page_log.py).
+            page_log.start()
+            served = subprocess.run([str(HERE / "web-overlay.sh"), "server", page_log.url], env=env,
+                                    capture_output=True, text=True, timeout=60)
+            if served.returncode != 0:
+                raise LookError(f"web-overlay.sh server {page_log.url}: {why_exited(served)}")
+            bundles = look_page_log.stage(bundles, scratch / "page-log-bundles")
         done = subprocess.run([str(HERE / "web-overlay.sh"), "install", str(bundles), "--commit", head], env=env,
                               capture_output=True, text=True, timeout=300)
         if done.returncode != 0:
             raise LookError(f"web-overlay.sh install: {why_exited(done)}")
         applied = {"how": "published bundles", "key": key}
+        if page_log is not None:
+            applied["page_log"] = page_log.url
         if src_tree is not None:
             applied["dev_server_starter_pid"] = start_dev_server_behind(src_tree, side, env)
         return applied
@@ -2061,6 +2084,7 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began, built:
     video = None
     prepared = None
     step_env = None
+    page_log = None
 
     def copy_of(app: Path):
         """A fresh side copy of APP, launched: its pid, control socket and repaint watch."""
@@ -2148,7 +2172,10 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began, built:
                                else None)
                 applied["rust"] = apply_rust(rules, planned, src_tree, side, scratch, given, head_binary)
             if (built_app is None or swapped) and "web" in planned["layers"]:
-                applied["web"] = apply_web(rules, planned, src_tree, side, scratch)
+                if not getattr(args, "no_page_log", False):
+                    config = Path(side.env()["CMUX_NEXT_CONFIG_FILE"])
+                    page_log = look_page_log.Sink(out, config.parent / "web-dev.json")
+                applied["web"] = apply_web(rules, planned, src_tree, side, scratch, page_log=page_log)
                 # The copy's pages reload on the new overlay: wait for the window to change from the before shot
                 # and settle (a change the main window does not show waits out the bound).
                 dev = applied["web"].get("how") == "dev server"
@@ -2181,6 +2208,19 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began, built:
     finally:
         if video is not None and video.running:
             video.abandon()
+        if page_log is not None and page_log.server is not None:
+            # Before the copy stops: each shot takes the DOM snapshot that was live when it was written.
+            try:
+                receipt["page_log"] = page_log.attach(out)
+            except OSError as error:
+                receipt["errors"].append(f"page log: {error}")
+            page_log.stop()
+            if args.watch:
+                # The copy keeps running with no sink: web-dev.json names no server again, so its pages load the
+                # overlay with the app's own start check, as a look without a page log leaves them.
+                with contextlib.suppress(OSError, subprocess.SubprocessError, LookError):
+                    subprocess.run([str(HERE / "web-overlay.sh"), "server", "off"], env={**os.environ, **side.env()},
+                                   capture_output=True, text=True, timeout=60)
         if not args.watch:
             with phases("stop"):
                 receipt["errors"] += side.stop()
@@ -2880,6 +2920,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--kit")
     p.add_argument("--state")
     p.add_argument("--no-video", action="store_true")
+    p.add_argument("--no-page-log", action="store_true",
+                   help="no page/ (the agent pane's console and a DOM snapshot with each shot) for published web")
     p.add_argument("--rust-binary", help="the cmux-tui built from the plan's daemon_from (the change applied onto "
                    "the app's commit), when no CI build of it is published")
     p.add_argument("--rust-binary-head", help="the cmux-tui built from the head itself, for a plan with no "

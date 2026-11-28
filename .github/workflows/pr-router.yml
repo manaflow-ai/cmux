@@ -728,6 +728,7 @@ jobs:
             scripts/ci/gh_http.py
             scripts/ci/deadline_http.py
             ci/steps.toml
+            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - name: Post the verdict
@@ -796,6 +797,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/ui_proof_verdict.py
             scripts/ci/proof_record.py
+            .gitmodules
             scripts/ci/gh_http.py
             scripts/ci/deadline_http.py
           sparse-checkout-cone-mode: false
