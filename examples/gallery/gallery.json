@@ -34,6 +34,8 @@
     {"kind": "look", "path": "looks/workbench", "surfaces": ["settings", "theme-file", "view", "agent-pane-css"]},
     {"kind": "look", "path": "looks/hearth", "surfaces": ["settings", "theme-file", "view", "agent-pane-css"]},
     {"kind": "look", "path": "looks/halo", "surfaces": ["settings", "theme-file", "view", "agent-pane-css"]},
+    {"kind": "look", "path": "looks/muse", "surfaces": ["settings", "theme-file", "view", "agent-pane-css", "keybindings"]},
+    {"kind": "look", "path": "looks/grok", "surfaces": ["settings", "theme-file", "view", "agent-pane-css", "keybindings"]},
     {"kind": "look", "path": "looks/prism", "surfaces": ["settings", "theme-file", "view", "agent-pane-css", "markdown-css"]},
     {"kind": "look", "path": "looks/shadcn", "surfaces": ["settings", "theme-file", "view", "agent-pane-css", "markdown-css"]},
     {"kind": "look", "path": "looks/studio", "surfaces": ["settings", "theme-file", "view", "agent-pane-css"]},

@@ -1,0 +1,9 @@
+[
+  {
+    "args": {
+      "harness": "grok"
+    },
+    "command": "palette.newAgentChat",
+    "key": "cmd+n"
+  }
+]

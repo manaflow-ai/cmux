@@ -1,0 +1,33 @@
+// Muse: a deep ink page (#0b0f1a), a darker navy sidebar (#070a12), soft white ink and Meta blue
+// (#0866ff) as the one accent, kept for marks. Picked to evoke the Muse / Meta AI app, not measured.
+{
+  "name": "Muse",
+  "description": "A deep ink page, a navy sidebar, soft white ink, Meta blue for marks.",
+
+  "appearance.theme": "Builtin Dark",
+  "appearance.appTheme": "followTerminal",
+  "colors": { "background": "#0b0f1a", "foreground": "#e8ecf4", "selection": "#2a3550", "accent": "#0866ff" },
+  "appearance.accent": "theme",
+
+  "appearance.background": "none",
+  "appearance.borders": "none",
+  "appearance.chromeStyle": "flat",
+  "appearance.titleAreaTone": "oneColor",
+  "appearance.density": "spacious",
+
+  "appearance.metrics.sidebarWidth": 260,
+  "appearance.metrics.sidebarRowHeight": 36,
+
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#070a12",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "appearance.surfaces.agentPane.color": "#0b0f1a",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "appearance.surfaces.tabBar.color": "#0b0f1a",
+  "appearance.surfaces.tabBar.opacity": 1,
+  "appearance.surfaces.newTabPage.color": "#0b0f1a",
+  "appearance.surfaces.newTabPage.opacity": 1,
+  "sidebar.sectionLook": "quiet",
+  "appearance.statusIndicator.style": "dot",
+  "appearance.statusIndicator.color": "#0866ff"
+}
