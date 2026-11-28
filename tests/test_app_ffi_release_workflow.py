@@ -1086,8 +1086,8 @@ class RePinPublication(unittest.TestCase):
         self.assertEqual(job["concurrency"], {"group": "app-ffi-repin-v2", "cancel-in-progress": False})
         self.assertEqual(job["permissions"], {"actions": "write", "contents": "read", "checks": "read", "statuses": "read"})
         self.assertEqual(release["permissions"], job["permissions"])
-        self.assertEqual(pin_step(job)["env"]["READ_TOKEN"], "${{ github.token }}")
-        self.assertEqual(pin_step(release)["env"]["READ_TOKEN"], "${{ github.token }}")
+        self.assertEqual(pin_step(job)["env"]["READ_TOKEN"], "${{ steps.bot-token.outputs.token || github.token }}")
+        self.assertEqual(pin_step(release)["env"]["READ_TOKEN"], "${{ steps.bot-token.outputs.token || github.token }}")
         cells = workflow_jobs.runs_on_cells(job)
         self.assertTrue(cells, "repin: runs-on reads a matrix value nothing resolves, or is missing")
         for runs_on in cells:
