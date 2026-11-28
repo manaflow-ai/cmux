@@ -107,3 +107,9 @@ extension DaemonError {
         return false
     }
 }
+
+/// A machine's refusal of a request that carries the reason code its far daemon gave (acpmux's `data.reason`, such as
+/// `daemon.restarting`), for callers below the module that names the refusal (``CloudWait/linkDropped(_:)``).
+public protocol DaemonRefusalReason: Error {
+    var refusalReason: String? { get }
+}

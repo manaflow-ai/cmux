@@ -273,7 +273,8 @@ extension CloudWait {
     /// Whether a start's failure is its link dropping under it, which a relink and one more try can help (``retriedOnce``'s
     /// `closed`): the connection closed (an EOF right after a resume), or the link socket was gone or refused while its
     /// carrier rebound it (`connect …/cmux-link-….sock failed: No such file or directory`, start matrix run 42125025387),
-    /// or a fresh connection's first request got no reply (Rust `wait::link_dropped` decides from the timed-out request).
+    /// or a fresh connection's first request got no reply (Rust `wait::link_dropped` decides from the timed-out request),
+    /// or the machine's acpmux refused it as restarting (`daemon.restarting`, Cloud chat proof run 46167191461).
     public nonisolated static func linkDropped(_ error: any Error) -> Bool {
         struct Reply: Decodable { var dropped: Bool }
         return CloudMoveCore().call("link_dropped", StartFailure(error), as: Reply.self)?.dropped ?? false
@@ -305,12 +306,14 @@ extension CloudWait {
 
     /// A start's failure as Rust's `wait::StartFailure` reads it.
     private struct StartFailure: Encodable {
-        var kind: String, code: Int32?, what: String?
+        var kind: String, code: Int32?, what: String?, reason: String?
         init(_ error: any Error) {
+            reason = nil
             switch error {
             case DaemonError.connectionClosed: (kind, code, what) = ("connectionClosed", nil, nil)
             case DaemonError.connectFailed(_, let errno): (kind, code, what) = ("connectFailed", errno, nil)
             case DaemonError.timedOut(let request): (kind, code, what) = ("timedOut", nil, request)
+            case let refused as any DaemonRefusalReason: (kind, code, what, reason) = ("refused", nil, nil, refused.refusalReason)
             default: (kind, code, what) = ("other", nil, nil)
             }
         }
