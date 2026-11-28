@@ -952,8 +952,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// builds in the new mode when it is shown next.
     private func setFitToPhone(_ fit: Bool, program: String, tab: WorkspaceTab, in workspace: Workspace) {
         fitToPhoneMemory.set(fit, for: program)
-        for (id, other) in hosts where id != tab.id && other.model.session.programName == program
-            && (other.model.session is TerminalProjectingSession) == fit {
+        for (id, other) in hosts where id != tab.id && other.model.session.programName == program {
             cool(id)
         }
         guard let old = hosts[tab.id], liveTabs.contains(tab.id) else { return }
