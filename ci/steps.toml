@@ -300,6 +300,27 @@ inputs = [
 ]
 run = "python3 tests/test_vendored_cmux_agent_cursor.py"
 
+# Native split detector fixtures exercise the same acceptance command used on dev captures.
+[step.new-tab-split-acceptance]
+job = "linux"
+timeout = 120
+title = "New Tab split first-frame acceptance"
+about = "reject late or blank split content against an independently settled frame"
+inputs = [
+  "scripts/cmux-next/new_tab_split_acceptance.py",
+  "scripts/cmux-next/fixtures/new-tab-split-baseline/**",
+  "tests/test_new_tab_split_acceptance.py",
+]
+run = '''
+if ! python3 -c 'from PIL import Image, ImageChops' 2>/dev/null; then
+  detector_python="$CI_TOOLS/new-tab-split-python"
+  python3 -m venv --system-site-packages "$detector_python"
+  "$detector_python/bin/python" -m pip install --disable-pip-version-check --no-input --quiet Pillow==11.3.0
+  export PATH="$detector_python/bin:$PATH"
+fi
+python3 tests/test_new_tab_split_acceptance.py
+'''
+
 [step.r2-upload]
 job = "linux"
 timeout = 300
@@ -956,28 +977,42 @@ exit "$status"
 # retired-keys.json. The cmux_next_persisted_* Rust tests load the fixtures through the real readers and check every
 # published settings key is a row or retired (the cmux_next_ daemon tests step); this step runs the same settings
 # row/ledger check on the pull request before a publisher can serve it. Seconds.
+# land_gate: under --pr-scope only the named inputs (the script, its test) routed it, so the pull request that added a
+# key never ran it and the base went red: #57474's cmux.acpmux.modelPickerOrder (fixed by #57861 and #57979), a
+# duplicate cmux.acpmux.detail entry (#59350), #62806's two newTab keys and #54956's localPickerHeight (red at
+# be9d5135, registered here). It now keeps its whole route, on the pull request and the landing head. The registry
+# check takes about 20 s; its fixture tests (about 105 s) run only when the checker or its test changes.
+# new_red_only.sh: a red the base already has warns, so one base red does not fail every source change.
 [step.persisted-formats]
 job = "linux"
+land_gate = true
 timeout = 300
 title = "Persisted formats ship their migration"
 about = "every stored-format version constant (cmux-tui Rust, app Swift, webviews) and webviews storage key is registered; a migrate format keeps every old fixture byte for byte and has one for its current version; no version goes down; an unreviewed format changes only with a policy; a storage key the code stops naming is migrated or retired; every live settings row is published, and every published key is live or retired; published settings keys and retired-keys entries are never removed"
+# The files scripts/ci/persisted_formats.py reads (its version-constant, storage-key and settings scans), so a
+# Cargo.lock or a test-only change does not start it.
 inputs = [
-  "cmux-tui/**",
+  "cmux-tui/crates/*/src/**/*.rs",
+  "cmux-tui/persisted-formats/**",
   "persisted-formats/**",
-  "Packages/**",
-  "cmux-next-ios/**",
-  "webviews/src/**",
+  "Packages/*/*/Sources/**/*.swift",
+  "cmux-next-ios/*/Sources/**/*.swift",
+  "webviews/src/**/*.ts",
+  "webviews/src/**/*.tsx",
   "schemas/settings/**",
   "scripts/ci/persisted_formats.py",
   "tests/test_ci_persisted_formats.py",
   "tests/git_fixture_env.py",
+  "scripts/ci/new_red_only.sh",
 ]
 run = '''
 base="$(git rev-parse HEAD^1)"
 git cat-file -e "$base^{commit}"
 status=0
-python3 -I scripts/ci/persisted_formats.py --base "$base" || status=1
-python3 -I tests/test_ci_persisted_formats.py || status=1
+scripts/ci/new_red_only.sh "Persisted formats registry" -- python3 -I scripts/ci/persisted_formats.py --base "$base" || status=1
+if ! git diff --quiet "$base" HEAD -- scripts/ci/persisted_formats.py tests/test_ci_persisted_formats.py tests/git_fixture_env.py; then
+  python3 -I tests/test_ci_persisted_formats.py || status=1
+fi
 exit "$status"
 '''
 
@@ -1464,6 +1499,7 @@ if want tt-asc-developer-id-app; then python3 tests/test_asc_developer_id_app.py
 if want tt-fixture-dates-2101; then CMUX_NOW_EPOCH=4133980800 python3 tests/test_asc_developer_id_app.py && CMUX_NOW_EPOCH=4133980800 python3 -m unittest tests/test_lint_feature_flags_scope.py tests/test_lint_feature_flags_review_date.py || status=1; fi
 if want tt-cmux-now-epoch; then python3 -I tests/test_cmux_now_epoch.py || status=1; fi
 if want tt-tooling-tests-batch; then python3 tests/test_ci_tooling_tests_batch.py || status=1; fi
+if want tt-pool-checkout-reuse-sparse; then python3 tests/test_ci_pool_checkout_reuse_sparse.py || status=1; fi
 if want tt-cmux-tui-republish; then python3 tests/test_cmux_tui_republish_same_commit.py || status=1; fi
 if want tt-verify-cmux-tui-hosted; then python3 tests/test_verify_cmux_tui_hosted.py || status=1; fi
 if want tt-crash-ratchet; then python3 tests/test_crash_ratchet_compare.py || status=1; fi
@@ -1806,18 +1842,20 @@ python3 scripts/ci/pr_capture_check.py --body-file "$RUNNER_TEMP/capture-body.md
 job = "linux"
 timeout = 180
 title = "Bench relevance map"
-about = "cmux-bench for-paths: the index matches the scan (model-based), a 2,000-path lookup under 1 s and flat at 10x, joined with the coverage map, fails open"
+about = "cmux-bench for-paths: the index matches the scan (model-based), a 2,000-path lookup under 1 s and flat at 10x, joined with the coverage map, fails open; per-area baselines: only own areas fetched, 3-of-3 >15% rule, fail open"
 inputs = [
   "docs/benches/*",
   "docs/benches/templates/*",
   "scripts/bench/cmux-bench",
   "scripts/bench/benchlib/relevance.py",
+  "scripts/bench/benchlib/baselines.py",
   "tests/test_bench_relevance_map.py",
+  "tests/test_bench_baselines.py",
   "cmux-tui/crates/*/Cargo.toml",
   "cmux-next-ios/rust/crates/*/Cargo.toml",
   "Packages/*/*/Package.swift",
 ]
-run = "python3 -I tests/test_bench_relevance_map.py"
+run = "python3 -I tests/test_bench_relevance_map.py && python3 -I tests/test_bench_baselines.py"
 
 # What a pull request's paths need: the areas, benches, targeted tests and check templates the relevance map names
 # for them, in the advisory log, and the Linux benches those areas name (`run`), each against its area's budget_s.
@@ -1846,12 +1884,19 @@ if ! grep -q -- "--run" scripts/bench/cmux-bench 2>/dev/null; then
 fi
 # --run also runs the benches the matched areas name (`run`) and exits 1 only on a measured result over the
 # area's budget_s. A missing or failing bench, a timeout with no budget, or a broken map warns and passes.
+# --baselines (Leo, 2026-11-27: "A PR fetches only the baselines for its own areas"): each bench runs 3 times
+# against its areas' nightly baseline on this runner class (bench-baselines-nightly.yml, R2); it is red only when
+# all 3 repeats are more than 15% over. A missing baseline or an unreachable store warns and passes.
+extra=""
+if grep -q -- "--baselines" scripts/bench/cmux-bench 2>/dev/null; then
+  extra="--repeats 3 --baselines"
+fi
 set +e
-python3 -I scripts/bench/cmux-bench for-paths --stdin --markdown --run --timeout 120 < "$paths"
+python3 -I scripts/bench/cmux-bench for-paths --stdin --markdown --run --timeout 120 $extra < "$paths"
 code=$?
 set -e
 if [ "$code" -eq 1 ]; then
-  echo "::error::A bench for these paths is over its budget_s (docs/benches/relevance-map.toml); see the Bench runs above."
+  echo "::error::A bench for these paths is over its budget_s, or 3 of 3 repeats are >15% over its area's nightly baseline (docs/benches/relevance-map.toml); see the Bench runs above."
   exit 1
 elif [ "$code" -ne 0 ]; then
   echo "::notice::for-paths --run exited $code; fail open"
@@ -3265,6 +3310,47 @@ python3 -I tests/test_ci_daemon_pr_member_steps.py
 scripts/ci/cmux-next-member-tests.sh crates/cmux-tui
 '''
 
+# The idle daemon tests of the post-merge gate (cmux-tui tests/idle_wakeups.rs, `idle_wakeups::cmux_next_*`), on the
+# pull request and on its landing head. cmux#47027 (2026-11-26) added a git HEAD watch in cmux-tui-core whose inotify
+# events woke the idle daemon: it changed only cmux-tui-core, so cmux-next-tui above did not route, and as a landing
+# head of the affected tier it started no pr-pipeline.yml job at all (`cheap tier: starts when ready-to-land`). The
+# gate (cmux-next-daemon-tests, cmux-tui-artifacts.yml) found it after the merge, and the feat-cmux-next channel held
+# until #62585. Leo, 2026-11-27: "shouldn't a build check fail beforehand fast like fast-fail is useful ci all stuff".
+# land_gate: it runs on a landing head whose change reaches the daemon's idle paths (every input kept, `**` too): the
+# daemon and its core, the settings and usage-pattern watchers the tests name, and the workspace manifests (a notify
+# bump). The `it` binary only, from the gate's saved target (cmux-next-member-tests.sh), so only what the change
+# touched compiles; nothing on a change that reaches none of these.
+[step.cmux-next-idle-wakeups]
+job = "linux"
+tier = "push"
+land_gate = true
+alone = true
+timeout = 2700
+title = "cmux_next_ idle daemon tests (idle_wakeups)"
+about = "an idle cmux-tui daemon does not wake up (the post-merge gate's idle_wakeups::cmux_next_ tests) on the pull request's merge commit"
+needs = ["rust", "zig"]
+inputs = [
+  "cmux-tui/Cargo.toml",
+  "cmux-tui/Cargo.lock",
+  "cmux-tui/rust-toolchain.toml",
+  "scripts/ci/cmux-next-member-tests.sh",
+  "scripts/ci/cmux-next-daemon-test-packages.sh",
+  "scripts/ci/cmux-tui-test-target.sh",
+  "tests/test_ci_daemon_pr_member_steps.py",
+  "cmux-tui/crates/cmux-tui/**",
+  "cmux-tui/crates/cmux-tui-core/**",
+  "cmux-tui/crates/cmux-tui-platform/**",
+  "cmux-tui/crates/cmux-config/**",
+  "cmux-tui/crates/cmux-usage-patterns/**",
+]
+ignore = [
+  "cmux-tui/crates/**/*.md",
+]
+run = '''
+python3 -I tests/test_ci_daemon_pr_member_steps.py
+scripts/ci/cmux-next-member-tests.sh crates/cmux-tui it idle_wakeups::cmux_next_
+'''
+
 # cmux-tui-artifacts.yml's `cmux_next_ daemon tests` job, which ran after the branch push only (its pass writes the
 # tree's daemon-tests marker, which that workflow keeps). The same cargo test, on the pull request's merge commit:
 # only the workspace members whose sources name cmux_next_, retried only on a recognized Cargo fetch failure.
@@ -3971,7 +4057,15 @@ ignore = ["cmux-next-ios/verify/**", "**/*.md", "!cmux-next-ios/verify/agent-cli
           "!cmux-next-ios/scripts/instant_perf_table.py", "!cmux-next-ios/scripts/generate-launch-mark.swift",
           "!cmux-next-ios/scripts/check-notification-extension.sh", "!cmux-next-ios/scripts/check-production-binary.sh",
           "!cmux-next-ios/CmuxMobileKit/**/Resources/**",
-          "!Packages/Shared/**/Resources/**", "!Packages/iOS/**/Resources/**"]
+          "!Packages/Shared/**/Resources/**", "!Packages/iOS/**/Resources/**",
+          # A Rust crate's tests/, benches/ and examples/ sources are their own Cargo targets: the FFI's release build
+          # (ios_link_ffi.sh) never compiles them and this step runs no cargo test. Each took a 12-15 min kit and app
+          # build on a Mac (cmux-mobile-link/tests/roaming.rs alone, 2026-11-27). Fixtures stay in: the kit's Swift
+          # tests read rust/crates/*/tests/fixtures/*.json. tests/test_ios_kit_rust_test_sources.py guards src/ reaches.
+          "cmux-tui/crates/*/tests/**/*.rs", "cmux-tui/crates/*/benches/**/*.rs", "cmux-tui/crates/*/examples/**/*.rs",
+          "cmux-tui/vendor/*/tests/**/*.rs", "cmux-tui/vendor/*/benches/**/*.rs", "cmux-tui/vendor/*/examples/**/*.rs",
+          "cmux-next-ios/rust/crates/*/tests/**/*.rs", "cmux-next-ios/rust/crates/*/benches/**/*.rs",
+          "cmux-next-ios/rust/crates/*/examples/**/*.rs"]
 needs = ["rust"]
 run = '''
 (cd cmux-next-ios/rust && rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal)
@@ -4104,7 +4198,15 @@ ignore = ["cmux-next-ios/verify/**", "**/*.md", "!cmux-next-ios/verify/agent-cli
           "!cmux-next-ios/scripts/instant_perf_table.py", "!cmux-next-ios/scripts/generate-launch-mark.swift",
           "!cmux-next-ios/scripts/check-notification-extension.sh", "!cmux-next-ios/scripts/check-production-binary.sh",
           "!cmux-next-ios/CmuxMobileKit/**/Resources/**",
-          "!Packages/Shared/**/Resources/**", "!Packages/iOS/**/Resources/**"]
+          "!Packages/Shared/**/Resources/**", "!Packages/iOS/**/Resources/**",
+          # A Rust crate's tests/, benches/ and examples/ sources are their own Cargo targets: the FFI's release build
+          # (ios_link_ffi.sh) never compiles them and this step runs no cargo test. Each took a 12-15 min kit and app
+          # build on a Mac (cmux-mobile-link/tests/roaming.rs alone, 2026-11-27). Fixtures stay in: the kit's Swift
+          # tests read rust/crates/*/tests/fixtures/*.json. tests/test_ios_kit_rust_test_sources.py guards src/ reaches.
+          "cmux-tui/crates/*/tests/**/*.rs", "cmux-tui/crates/*/benches/**/*.rs", "cmux-tui/crates/*/examples/**/*.rs",
+          "cmux-tui/vendor/*/tests/**/*.rs", "cmux-tui/vendor/*/benches/**/*.rs", "cmux-tui/vendor/*/examples/**/*.rs",
+          "cmux-next-ios/rust/crates/*/tests/**/*.rs", "cmux-next-ios/rust/crates/*/benches/**/*.rs",
+          "cmux-next-ios/rust/crates/*/examples/**/*.rs"]
 needs = ["rust"]
 run = '''
 (cd cmux-next-ios/rust && rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal)
@@ -4374,4 +4476,34 @@ if [ ${#selected[@]} -eq 0 ] && [ "${CI_FAST_TIER_PR_SCOPE:-1}" != 0 ] && [ -n "
 fi
 python3 -I scripts/cmux-next/fast-tier.py --root "${CMUX_MAC_ROOT:-$PWD}" --kind swift ${selected[@]+"${selected[@]}"} \
   --receipt "${RUNNER_TEMP:-$CI_TOOLS}/cmux-next-fast-tier.json"
+'''
+
+[step.phone-speed-icount]
+job = "linux"
+pr_scope = false
+timeout = 300
+title = "Phone terminal instruction budgets"
+about = "Callgrind counts production phone terminal echo, streaming and rotation at 100 and 10000 seeded terminal lines"
+needs = ["rust", "valgrind"]
+inputs = [
+  "scripts/bench/phone-speed/**",
+  "scripts/bench/benches/phone_speed.py",
+  "scripts/bench/tests/test_phone_speed.py",
+  "scripts/bench/tests/fixtures/phone-speed/**",
+  "cmux-tui/crates/cmux-terminal-projection/**",
+  "cmux-tui/Cargo.toml",
+  "cmux-tui/Cargo.lock",
+  "cmux-tui/rust-toolchain.toml",
+]
+run = '''
+set -euo pipefail
+python3 scripts/bench/phone-speed/check_lock.py
+export CARGO_TARGET_DIR="$PWD/scripts/bench/phone-speed/target"
+if [ -d "$CI_TOOLS/valgrind-root/usr/include" ]; then
+  export VALGRIND_INCLUDE="$CI_TOOLS/valgrind-root/usr/include"
+fi
+channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' cmux-tui/rust-toolchain.toml)"
+cargo +"$channel" test --release --locked --manifest-path scripts/bench/phone-speed/Cargo.toml
+cargo +"$channel" run --release --locked --manifest-path scripts/bench/phone-speed/Cargo.toml -- check
+python3 scripts/bench/tests/test_phone_speed.py
 '''
