@@ -22,11 +22,18 @@ import UIKit
                               for: AgentSessionDirectory.key(id: summary.id, macID: summary.macID))
         // A replay source reads no recording: the protocol's default throws AgentFeatureUnavailable.
         let store = AgentChatStore(source: ReplaySource(summary: summary))
-        let host = UIHostingController(rootView: NavigationStack { ReplayConversationScreen(store: store) })
+        // Loaded here, not by the screen's .task: a test host has no scene on screen to run it.
+        let player = ChatReplayPlayer()
+        await player.load(store)
+        player.pause()
+        if player.state == .ready { player.seek(to: player.duration) } // every kept prompt on screen
+        let host = UIHostingController(rootView: NavigationStack { ReplayConversationScreen(store: store, player: player) })
+        host.view.backgroundColor = .black
         let scene = UIApplication.shared.connectedScenes.lazy.compactMap { $0 as? UIWindowScene }.first
         let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
         window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
         window.overrideUserInterfaceStyle = .dark
+        window.backgroundColor = .black
         window.rootViewController = host
         window.makeKeyAndVisible()
         defer { window.isHidden = true }
@@ -36,6 +43,8 @@ import UIKit
         for _ in 0 ..< 50 { await Task.yield() }
         try? await Task.sleep(for: .milliseconds(500)) // test: the settled screen
         window.layoutIfNeeded()
+        host.view.setNeedsLayout()
+        host.view.layoutIfNeeded()
         CATransaction.flush()
         let image = UIGraphicsImageRenderer(bounds: window.bounds).image { context in
             if !window.drawHierarchy(in: window.bounds, afterScreenUpdates: true) {

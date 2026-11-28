@@ -345,8 +345,14 @@ struct EventInspectorDetail: View {
 /// Previous and Next tool call. Nothing is sent to the agent.
 struct ReplayConversationScreen: View {
     let store: AgentChatStore
-    @State private var player = ChatReplayPlayer()
+    @State private var player: ChatReplayPlayer
     @State private var autoRetry = AutoRetry()
+
+    /// `player` is one already loaded (a read-back draws the screen in the state it settled in).
+    init(store: AgentChatStore, player: ChatReplayPlayer = ChatReplayPlayer()) {
+        self.store = store
+        _player = State(initialValue: player)
+    }
 
     var body: some View {
         Group {
