@@ -69,6 +69,7 @@ import PackageDescription
 //     Stashed Tabs page's restore and delete; the App answers StashHost)
 //   CmuxNextAppInstallLink -> Compat, Daemon, Design (cmux.com's Open in cmux link: forwards it to the bundled
 //     `cmux apps install-link`, shows its consent card and runs Install only on the person's yes)
+//   CmuxNextBrowserAutomation -> Browser, Compat, Wakeups, CCmuxAppFFI (the WebKit driver; its rules in Rust, cmux-browser-rules)
 //   CmuxNextHistoryPages -> BrowserAutomation, DaemonService, Design, Pages, Settings, Stash, Wakeups (the React
 //     History and Stashed Tabs pages' native ops: Cookie Backups, stash restore and delete with Undo)
 //   CmuxNextAppHealth -> Compat, Control, Daemon, DaemonService, Design, Pages, Server, Settings, Wakeups (app health's
@@ -196,7 +197,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: affaa2a00e14670b3a694e889fb203293b6758c079bd7888783bfd9adf29a89a
+// app-ffi-pin-checksum: ae36652223da5797f74c53884d53e824992bf25a30a31f0b164a408b71bd6a9c
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -1415,10 +1416,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         // Phone tabs (plans/cmux-next/phone.md): simulators through simctl, real
         // iPhones through devicectl, recordings and feedback clips. No daemon,
-        // no UI framework beyond AppKit; the App supplies the page and the sink.
+        // no UI framework beyond AppKit; the App supplies the page and the sink. The rules
+        // (tool output parsing, key usages, touches, adb calls) are cmux-phone-core's, over CCmuxAppFFI.
         .target(
             name: "CmuxNextPhone",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
                 "CmuxNextCompat",
                 "CmuxNextWakeups",
             ],
@@ -1640,6 +1643,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextPhoneAccess",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextDaemonService",
@@ -2816,6 +2820,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextBrowserAutomation",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                // the driver's rules: params, deadlines, tab place, frame tree (cmux-browser-rules)
+                "CCmuxAppFFI",
                 "CmuxNextBrowser",
                 "CmuxNextCompat",
                 "CmuxNextWakeups",
