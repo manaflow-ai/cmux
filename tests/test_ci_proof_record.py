@@ -175,6 +175,60 @@ class Plan(unittest.TestCase):
         for t in ("K1", "K2", "U1", "U2", "U3"):
             self.assertIn(t, joined)
 
+    def test_default_shards_and_pair_let_the_fleet_choose_workers(self):
+        # A default host hint hit a reservation and refused the proof before entering the queue.
+        steps = ios_verify.plan(self.selection(), [], ios_verify.workers_from(""), "always")
+        explicit = ios_verify.plan(self.selection(), [], ["cmux22", "cmux23"], "always")
+        self.assertEqual([s["args"] for s in steps], [s["args"] for s in explicit])
+        self.assertEqual(len(steps), 3)
+        keys = []
+        for step in steps:
+            result = ios_verify.subprocess.CompletedProcess([], 0, stdout="step abc12345", stderr="")
+            with mock.patch.object(ios_verify.subprocess, "run", return_value=result) as run:
+                receipt = ios_verify.run_step(step, HEAD, 7, False)
+            cmd = run.call_args.args[0]
+            self.assertNotIn("--target-worker", cmd)
+            self.assertNotIn("--pin-strict", cmd)
+            self.assertEqual(receipt["step"], "abc12345")
+            key = cmd[cmd.index("--key") + 1]
+            self.assertEqual(key, ios_verify.step_key(step, HEAD, 7))
+            self.assertNotEqual(key, ios_verify.step_key(step, OTHER, 7))
+            keys.append(key)
+        self.assertEqual(len(set(keys)), len(keys))
+
+    def test_explicit_worker_hint_and_strict_pin_reach_dispatch(self):
+        step = {"name": "sim 1/1", "mode": "test", "args": ["test"], "worker": "cmux23"}
+        for strict in (False, True):
+            with self.subTest(strict=strict):
+                result = ios_verify.subprocess.CompletedProcess([], 0, stdout="", stderr="")
+                with mock.patch.object(ios_verify.subprocess, "run", return_value=result) as run:
+                    ios_verify.run_step(step, HEAD, 7, strict)
+                cmd = run.call_args.args[0]
+                self.assertEqual(cmd[cmd.index("--target-worker") + 1], "cmux23")
+                self.assertEqual("--pin-strict" in cmd, strict)
+
+    def test_cli_worker_defaults_environment_and_override(self):
+        for env, args, expected in (({}, [], ""),
+                                    ({"CMUX_IOS_VERIFY_WORKERS": "cmux23"}, [], "cmux23"),
+                                    ({"CMUX_IOS_VERIFY_WORKERS": "cmux23"},
+                                     ["--workers", "cmux22"], "cmux22")):
+            with self.subTest(env=env, args=args), \
+                    mock.patch.dict(ios_verify.os.environ, env, clear=True), \
+                    mock.patch.object(ios_verify, "workers_from", wraps=ios_verify.workers_from) as workers, \
+                    mock.patch.object(ios_verify, "pr_view", side_effect=RuntimeError("stop before GitHub")):
+                with self.assertRaisesRegex(RuntimeError, "stop before GitHub"):
+                    ios_verify.main(args)
+                workers.assert_called_once_with(expected)
+
+    def test_strict_pin_without_workers_stops_before_github(self):
+        with mock.patch.dict(ios_verify.os.environ, {}, clear=True), \
+                mock.patch.object(ios_verify, "pr_view") as view, \
+                mock.patch("sys.stderr"):
+            with self.assertRaises(SystemExit) as raised:
+                ios_verify.main(["--pin-strict"])
+        self.assertEqual(raised.exception.code, 2)
+        view.assert_not_called()
+
     def test_pair_e2e_follows_the_flows(self):
         flows = [{"id": "pairing", "pair_e2e": True}]
         sel = self.selection(flows=["pairing"])
