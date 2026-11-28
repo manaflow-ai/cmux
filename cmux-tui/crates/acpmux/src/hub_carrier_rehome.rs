@@ -30,6 +30,18 @@ pub(crate) fn candidates(answer: &CarrierAnswer) -> Vec<String> {
     out
 }
 
+/// How long a relay that answered busy is left alone: its `Retry-After` (at most a minute) plus
+/// up to half again of jitter, else 1 to 1.5 s. `jitter` is in `0.0..1.0`.
+pub(crate) fn busy_wait(
+    retry_after: Option<std::time::Duration>,
+    jitter: f64,
+) -> std::time::Duration {
+    let base = retry_after
+        .unwrap_or(std::time::Duration::from_secs(1))
+        .clamp(std::time::Duration::from_secs(1), std::time::Duration::from_secs(60));
+    base.mul_f64(1.0 + jitter.clamp(0.0, 1.0) / 2.0)
+}
+
 /// The next relay a host moves to after `current` failed: the one after it, wrapping round.
 pub(crate) fn next_home(candidates: &[String], current: &str) -> Option<String> {
     if candidates.len() < 2 {

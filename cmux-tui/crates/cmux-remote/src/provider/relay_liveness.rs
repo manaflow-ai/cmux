@@ -238,11 +238,18 @@ impl Backoff {
     }
 }
 
+/// The wait after a relay answers 503 or 429 (full, or rate limiting), before the first retry.
+pub(crate) const FIRST_BUSY_BACKOFF: Duration = Duration::from_secs(1);
+/// The longest wait between two registration attempts on a relay that keeps answering busy.
+pub(crate) const MAX_BUSY_BACKOFF: Duration = Duration::from_secs(60);
+
 /// How an attempt to register ended, for [`Retry::wait`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Ended {
     /// The relay refused or the socket failed.
     Relay,
+    /// The relay answered the upgrade 503 or 429, with its `Retry-After` when it sent one.
+    Busy { retry_after: Option<Duration> },
     /// The credential source (the ticket command) failed.
     Credential,
     /// The machine resumed: the registration from before the pause is gone.
@@ -255,17 +262,23 @@ pub(crate) enum Ended {
 #[derive(Debug)]
 pub(crate) struct Retry {
     relay: Backoff,
+    busy: Backoff,
     credential: Backoff,
 }
 
 impl Retry {
     pub(crate) fn new() -> Self {
-        Self { relay: Backoff::new(), credential: Backoff::credential() }
+        Self {
+            relay: Backoff::new(),
+            busy: Backoff::with_bounds(FIRST_BUSY_BACKOFF, MAX_BUSY_BACKOFF),
+            credential: Backoff::credential(),
+        }
     }
 
     /// A registration got ready (and may have ended since).
     pub(crate) fn ready(&mut self) {
         self.relay.reset();
+        self.busy.reset();
         self.credential.reset();
     }
 
@@ -275,6 +288,19 @@ impl Retry {
         match ended {
             Ended::Relay => self.relay.next(unit),
             Ended::Credential => self.credential.next(unit),
+            Ended::Busy { retry_after } => {
+                // Never under the relay's own word, and never in step with the other daemons
+                // it told the same: the jitter is on top of it, up to half again. Without a
+                // word, a doubling wait from 1 s to 60 s, at least half its ceiling (not the
+                // full jitter's near-zero draws, which kept a full relay full).
+                let ceiling = self.busy.ceiling;
+                self.busy.next(unit);
+                let own = ceiling / 2 + ceiling.mul_f64(unit.clamp(0.0, 1.0) / 2.0);
+                let told = retry_after.map_or(Duration::ZERO, |after| {
+                    after.min(super::RETRY_AFTER_MAX).mul_f64(1.0 + unit.clamp(0.0, 1.0) / 2.0)
+                });
+                own.max(told)
+            }
             Ended::Resumed => {
                 self.ready();
                 Duration::ZERO

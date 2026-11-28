@@ -2509,3 +2509,17 @@ fn retryable_allocation_error_carries_the_relays_reason() {
         );
     }
 }
+
+#[test]
+fn retry_after_is_read_in_seconds_and_capped() {
+    let mut headers = http::HeaderMap::new();
+    assert_eq!(retry_after_of(&headers), None);
+    headers.insert(http::header::RETRY_AFTER, "1".parse().unwrap());
+    assert_eq!(retry_after_of(&headers), Some(Duration::from_secs(1)));
+    headers.insert(http::header::RETRY_AFTER, " 7 ".parse().unwrap());
+    assert_eq!(retry_after_of(&headers), Some(Duration::from_secs(7)));
+    headers.insert(http::header::RETRY_AFTER, "86400".parse().unwrap());
+    assert_eq!(retry_after_of(&headers), Some(RETRY_AFTER_MAX));
+    headers.insert(http::header::RETRY_AFTER, "Wed, 21 Oct 2026 07:28:00 GMT".parse().unwrap());
+    assert_eq!(retry_after_of(&headers), None);
+}
