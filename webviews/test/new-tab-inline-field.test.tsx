@@ -75,6 +75,9 @@ beforeAll(() => {
     ...proseMirrorGlobals(window as unknown as Window & typeof globalThis),
   });
   host = window.document.getElementById("root")!;
+  // The default has been the strip since #55723, and since #61287 the strip places nothing in the field;
+  // these tests are the inline field's (each resets to it after).
+  setComposerSettings({ attachmentView: "inline" });
 });
 
 afterEach(() => {
@@ -175,14 +178,6 @@ test("a file pasted on the field draws in the field with its remove control, not
   await act(async () => editor.dispatchEvent(paste));
   const failed = ".nt-input .acpmux-md-inline-chip .acpmux-attachment-failed";
   await until(() => !!host.querySelector(failed));
-  // DIAG (removed before landing)
-  console.log(`DIAG input=${host.querySelector(".nt-input")?.outerHTML.slice(0, 4000)}`);
-  console.log(
-    `DIAG box=${host
-      .querySelector(".nt-box")
-      ?.outerHTML.replace(/<svg.*?<\/svg>/g, "")
-      .slice(0, 4000)}`,
-  );
   const chip = host.querySelector<HTMLElement>(failed);
   expect(chip).not.toBeNull();
   expect(chip!.getAttribute("title")).toContain("notes.txt");

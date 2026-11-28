@@ -239,17 +239,6 @@ async function streamedRows(count: number): Promise<AcpmuxRow[]> {
     }
     for (let index = 0; index < 20; index += 1) await tick();
     flush();
-    // DIAG (removed before landing)
-    {
-      const kinds: Record<string, number> = {};
-      for (const row of rows) kinds[row.kind] = (kinds[row.kind] ?? 0) + 1;
-      const tools = rows.filter((row) => (row.items ?? []).some((item) => item.tool));
-      console.log(`DIAG count=${count} kinds=${JSON.stringify(kinds)} toolRows=${tools.length}`);
-      console.log(
-        `DIAG first40=${JSON.stringify(rows.slice(0, 40).map((row) => [row.id, row.kind, (row.items ?? []).map((item) => item.tool?.title ?? item.kind)]))}`,
-      );
-      console.log(`DIAG last=${JSON.stringify(rows.slice(-3)).slice(0, 3000)}`);
-    }
     return rows;
   } finally {
     client.close?.();
@@ -261,35 +250,15 @@ async function streamedRows(count: number): Promise<AcpmuxRow[]> {
 async function mounted(rows: AcpmuxRow[]) {
   const { turnView } = await import("../src/agent-session/acpmux/conversation/turns");
   const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
-  const shown = turnView(rows, new Set(), { working: true, now: 1_700_000_000_000 + rows.length * 10 });
-  // DIAG (removed before landing)
-  {
-    const kinds: Record<string, number> = {};
-    for (const row of shown) kinds[row.kind] = (kinds[row.kind] ?? 0) + 1;
-    console.log(`DIAG shown kinds=${JSON.stringify(kinds)}`);
-    const brief = (row: AcpmuxRow) => [
-      row.id,
-      row.kind,
-      (row.items ?? []).map((item) => `${item.tool?.title ?? item.kind}:${item.tool?.status ?? ""}`).join("|"),
-      row.foldOpen,
-      (row as { workedFor?: unknown }).workedFor !== undefined,
-    ];
-    console.log(`DIAG shown first30=${JSON.stringify(shown.slice(0, 30).map(brief))}`);
-    console.log(`DIAG shown last30=${JSON.stringify(shown.slice(-30).map(brief))}`);
-    const rowsWithAgent = rows.filter((row) =>
-      (row.items ?? []).some((item) => item.tool?.title === "Agent" && item.tool.status === "in_progress"),
-    );
-    console.log(
-      `DIAG source running-agent rows=${rowsWithAgent.length} sample=${JSON.stringify(rowsWithAgent.slice(-2)).slice(0, 1500)}`,
-    );
-    const users = rows.filter((row) => row.kind === "user").slice(0, 3);
-    console.log(`DIAG users=${JSON.stringify(users).slice(0, 1500)}`);
-  }
+  // Since #50987 a running turn's calls draw under a closed "Working for", one live line; the reader who
+  // opened it sees every card, the case this bounds.
+  const expanded = new Set(["worked-user-1"]);
+  const shown = turnView(rows, expanded, { working: true, now: 1_700_000_000_000 + rows.length * 10 });
   const host = dom.window.document.getElementById("root")!;
   const root = createRoot(host);
   try {
     await act(async () =>
-      root.render(<VirtualTranscript rows={shown} working onToggleActivity={() => {}} expanded={new Set()} />),
+      root.render(<VirtualTranscript rows={shown} working onToggleActivity={() => {}} expanded={expanded} />),
     );
     // The follow pass and the deferred warm rows settle over a few frames.
     for (let frame = 0; frame < 6; frame += 1) await act(async () => void (await tick()));
@@ -444,8 +413,17 @@ test("the summary card mounts only the subagents its body shows, and scrolls to 
       ({ x: 0, y: top, top, left: 0, right: 288, bottom: top + height, width: 288, height, toJSON() {} }) as DOMRect;
     if (this === body) return rect(0, BODY);
     const list = this.parentElement;
-    if (body && this.tagName === "LI" && list?.classList.contains("acpmux-summary-list") && body.contains(list))
-      return rect(Array.prototype.indexOf.call(list.children, this) * ROW - body.scrollTop, ROW);
+    // A row sits under the rows and boxes before it (a box as tall as its height, none while hidden).
+    if (body && this.tagName === "LI" && list?.classList.contains("acpmux-summary-list") && body.contains(list)) {
+      const tall = (node: Element) => {
+        const style = (node as HTMLElement).style;
+        if (!node.hasAttribute("data-rows-rest")) return ROW;
+        return style.display === "none" ? 0 : Number.parseFloat(style.height) || 0;
+      };
+      let top = 0;
+      for (let at = this.previousElementSibling; at; at = at.previousElementSibling) top += tall(at);
+      return rect(top - body.scrollTop, tall(this));
+    }
     return laidOut.call(this);
   };
   const host = dom.window.document.getElementById("root")!;
@@ -464,15 +442,20 @@ test("the summary card mounts only the subagents its body shows, and scrolls to 
         );
         drawn[n] = { lines: lines(), elements: host.getElementsByTagName("*").length };
         expect(host.querySelector(".acpmux-summary-more")).toBeNull();
-        const spacer = host.querySelector<HTMLElement>("[data-rows-rest]");
+        // Since #46128 a windowed list holds the rows left out in a box above its window and one under it,
+        // and lets go of the rows a scroll leaves.
+        const above = () => host.querySelector<HTMLElement>("[data-rows-rest]:first-child");
+        const under = () => host.querySelector<HTMLElement>('[data-rows-rest][data-rows-next="end"]');
         if (lines() < n) {
           // The rest's box is as tall as their rows, so the body's scroll takes its whole height at once.
-          expect(spacer?.style.height).toBe(`${(n - lines()) * ROW}px`);
-          // Scrolled to the end, the body draws its last subagent.
+          expect(under()?.style.height).toBe(`${(n - lines()) * ROW}px`);
+          // Scrolled to the end, the body draws its last subagent, over a box as tall as the rows above.
           body!.scrollTop = n * ROW - BODY;
           await act(async () => void body!.dispatchEvent(new dom.window.Event("scroll")));
-          expect(await settle(() => lines() === n, 5_000)).toBe(true);
-          expect(host.querySelector("[data-rows-rest]")).toBeNull();
+          expect(await settle(() => !!host.textContent?.includes(`reviewer-${n - 1}`), 5_000)).toBe(true);
+          expect(under()?.style.display).toBe("none");
+          expect(above()?.style.height).toBe(`${(n - lines()) * ROW}px`);
+          expect(lines()).toBeLessThanOrEqual(firstRowCount(1_024));
         }
         expect(host.textContent).toContain(`reviewer-${n - 1}`);
       } finally {
