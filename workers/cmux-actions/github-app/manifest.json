@@ -1,0 +1,18 @@
+{
+  "name": "cmux Actions (experiment)",
+  "url": "https://github.com/manaflow-ai/cmux/tree/main/workers/cmux-actions",
+  "description": "Experiment: runs allowlisted GitHub Actions jobs of manaflow-ai/cmux on cmux VMs in shadow mode and reports commit statuses.",
+  "public": false,
+  "hook_attributes": {
+    "url": "https://cmux-actions.invalid/github/webhook",
+    "active": false
+  },
+  "redirect_url": "http://127.0.0.1:17421/callback",
+  "default_permissions": {
+    "statuses": "write",
+    "contents": "read",
+    "metadata": "read",
+    "checks": "write"
+  },
+  "default_events": ["push", "pull_request", "workflow_dispatch"]
+}
