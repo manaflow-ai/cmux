@@ -182,7 +182,7 @@ final class LandscapeUITests: XCTestCase {
         app.launch()
         defer { app.terminate() }
 
-        let bar = app.buttons["Reply to Claude"]
+        let bar = app.buttons["agentChat.composer.collapsed"].firstMatch
         XCTAssertTrue(bar.waitForExistence(timeout: 30), "the agent chat's composer bar\n\(app.debugDescription)")
         bar.tap()
         let field = app.textViews["chat.composer.field"]
