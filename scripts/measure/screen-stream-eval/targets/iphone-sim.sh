@@ -178,7 +178,6 @@ case "$verb" in
     touch "$raw.launched"
     SIMCTL_CHILD_CMUX_MOBILE_SS_LINK="$link" SIMCTL_CHILD_CMUX_MOBILE_SS_MARKER="$marker" \
       SIMCTL_CHILD_CMUX_MOBILE_SS_INPUT="$kind" SIMCTL_CHILD_CMUX_MOBILE_SS_SAMPLES="$samples" \
-      SIMCTL_CHILD_CMUX_MOBILE_SS_RENDERER="${EVAL_IPHONE_RENDERER:-}" \
       simctl launch --terminate-running-process --stdout="$raw.app" --stderr="$raw.app.err" "$udid" "$bundle" >/dev/null
     # Bounded: 30 s to the first marker, then at most 1.2 s an input (1 s loss deadline, 160 ms gap).
     limit=$((60 + samples * 12 / 10))

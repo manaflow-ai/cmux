@@ -24,7 +24,7 @@ public final class ScreenVideoView: UIView, @preconcurrency RTCVideoViewDelegate
         switch ProcessInfo.processInfo.environment["CMUX_MOBILE_SS_RENDERER"] {
         case "layer": true
         case "metal": false
-        default: UserDefaults.standard.bool(forKey: "cmux.screenShare.sampleBufferLayer")
+        default: true // MEASUREMENT BRANCH ONLY: layer renderer by default
         }
     }
 
