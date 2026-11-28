@@ -130,7 +130,8 @@ def fresh(log):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--study", action="store_true", help="explicitly record baseline and mutation receipts in a fresh target")
-    parser.add_argument("--output", type=Path, default=Path("/tmp/phone-default-speed-receipt"))
+    parser.add_argument("--output", type=Path,
+                        default=Path(os.environ.get("FAST_CHECKS_OUT", "/tmp/phone-default-speed-receipt")))
     args = parser.parse_args()
     if os.uname().sysname != "Linux" or os.uname().machine != "x86_64":
         raise RuntimeError("instruction baseline requires Linux x86_64")
