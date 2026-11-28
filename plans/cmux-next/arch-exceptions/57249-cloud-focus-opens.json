@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-27",
+  "row": "app_lines",
+  "allow": 118,
+  "why": "cmux #57249: every person's new terminal or browser from a focused Cloud chat (pane toolbar, keys, palette, menu bar, Cmd-D splits, Split Browser, New Tab picks) opens on the chat's Cloud machine. The decision rules are pure in CmuxNextCloud (CloudChatFocus.resolve and CloudChatFocus.pick, tested there); the App keeps only adapters: CloudFrontedChats.cloudChat/openOnCloud reading AppServices (machines, fronts, panes, strip selection) into CloudChatFocus.Shown, one call in each existing handler (TabLifecycle, PaneHandlers, BrowserHandlers, NewTabPage), the per-page origin map and the typing hand-off to the header's openTool route from #55490.",
+  "author": "issue-57249 cloud toolbar lane (claude opus 5.5)",
+  "owner": "issue-57249 cloud toolbar lane (claude opus 5.5)",
+  "receipt": "Review (claude opus subagent af5fb91368535773a): SHIP at 5e7c136cb89712f1a63029c4c0193191f814799b",
+  "expiry": "2026-12-27"
+}

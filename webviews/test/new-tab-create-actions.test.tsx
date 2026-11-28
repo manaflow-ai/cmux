@@ -153,10 +153,10 @@ test("Minimal's searchable create rows open a terminal, a browser tab and a chat
       // A terminal in the tab's folder, with nothing typed.
       {
         method: "tab.open",
-        params: { kind: "terminal", text: "", run: false, inPlace: true, cwd: "/Users/you/src/app" },
+        params: { kind: "terminal", text: "", run: false, inPlace: true, pick: true, cwd: "/Users/you/src/app" },
       },
       // A browser tab on the new tab page (`browser.newTabPage`), with nothing to load.
-      { method: "tab.open", params: { kind: "browser", text: "", inPlace: true } },
+      { method: "tab.open", params: { kind: "browser", text: "", inPlace: true, pick: true } },
       // The page becomes a chat with the agent Return would ask, sending nothing.
       { method: "chat.new", params: expect.objectContaining({ harness: "claude" }) },
     ]);

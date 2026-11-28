@@ -71,6 +71,10 @@ enum PaneHandlers {
     /// that side. A shown workspace focuses the new pane.
     static func split(_ ctx: AppActionContext, _ invocation: ActionInvocation, direction: PaneDirection, insertion: DividerInsertion? = nil) {
         guard let pane = ctx.daemonPane(invocation) else { return }
+        // A person's split of a Cloud chat is a terminal on its machine, never a split of this Mac's pane (cmux#57249);
+        // a divider's Insert New names its place.
+        if CloudFrontedChats.openOnCloud(.terminal, pane: pane, invocation: invocation, namesPlace: insertion != nil, cwd: invocation["cwd"]?.stringValue,
+                                         services: ctx.services) { return }
         // The pane's own daemon: a CLI run can target a pane of a machine
         // other than the active window's.
         let daemon = ctx.services.daemon(for: pane)

@@ -89,7 +89,7 @@ test("every pick from the field opens in the page's tab, never a split; Option-R
   actions.onOpenInProfile?.("https://example.com/", "work");
   actions.onOpenInNewProfile?.("https://example.com/", "Work");
   expect(opens).toEqual([
-    { kind: "terminal", text: "git status", run: true, inPlace: true, cwd: "/tmp/widget" },
+    { kind: "terminal", text: "git status", run: true, inPlace: true, pick: true, cwd: "/tmp/widget" },
     { kind: "browser", text: "https://example.com/", inPlace: true },
     { kind: "browser", text: "cmux docs", search: true, inPlace: true },
     { kind: "browser", text: "https://example.com/", profile: "work", inPlace: true },

@@ -27,9 +27,13 @@ public nonisolated struct AgentPaneOpenTab: Equatable, Sendable {
     /// omnibox), so the address opens where links go and the page stays. Without it a browser pick is a
     /// navigation: it takes the page's tab (``navigatesInPlace``).
     public var beside: Bool
+    /// Typed in the page's own field (its Terminal or Browser pick), not one of its setup actions (Sign In, Install, Log
+    /// In): only these follow a Cloud chat the page was opened from to its machine (cmux#57249).
+    public var picked: Bool
 
     public init(kind: AgentPaneTabKind, text: String, cwd: String? = nil, search: Bool = false, run: Bool = true, keep: Bool = false,
-                profile: AgentPaneOpenTabProfile? = nil, inPlace: Bool = false, beside: Bool = false) {
+                profile: AgentPaneOpenTabProfile? = nil, inPlace: Bool = false, beside: Bool = false, picked: Bool = false) {
+        self.picked = picked
         self.profile = profile
         self.inPlace = inPlace
         self.beside = beside

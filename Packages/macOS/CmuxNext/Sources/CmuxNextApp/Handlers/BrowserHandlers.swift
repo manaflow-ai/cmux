@@ -139,7 +139,9 @@ enum BrowserHandlers {
     private static func bindSplits(into registry: ActionRegistry, context: AppActionContext) {
         for (id, direction) in [("splitBrowserRight", SplitDirection.right), ("splitBrowserDown", .down)] {
             registry.bindEffect(ActionID(rawValue: id), requires: DaemonCapability.frontendBrowserTabs.rawValue, daemon: context.daemon, effect: { invocation in
-                try splitBrowser(from: try context.pane(invocation), direction: direction, byPerson: invocation.origin == .user,
+                // A person's from a Cloud chat: its machine's desktop (cmux#57249).
+                if let pane = context.daemonPane(invocation), CloudFrontedChats.openOnCloud(.browser, pane: pane, invocation: invocation, services: context.services) { return .done }
+                return try splitBrowser(from: try context.pane(invocation), direction: direction, byPerson: invocation.origin == .user,
                                  context: context)
             })
         }
