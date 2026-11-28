@@ -2575,5 +2575,9 @@ path = "tests/test_debug_labs_keys_dispatch.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_app_host_cache_measure.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_publication_guard_release_read.py"
 lane = "linux-guard"
