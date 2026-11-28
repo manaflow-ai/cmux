@@ -532,10 +532,8 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/app-platform.yml",  # feat-cmux-next only
     ".github/workflows/cmux-next-base-autofix.yml",  # feat-cmux-next only
     ".github/workflows/cmux-next-batch.yml",  # feat-cmux-next only
-    ".github/workflows/cmux-next-fast-tier-batch.yml",  # feat-cmux-next only; swift-fleet names a glaeda-* label
     # feat-cmux-next only; their ios job takes the pool picker's output (the second calls pr-pipeline.yml).
     ".github/workflows/cmux-next-pr-pipeline-ios-batch.yml",
-    ".github/workflows/cmux-next-split-table.yml",  # feat-cmux-next only; measure-fleet names a glaeda-* label
     ".github/workflows/ios-fast-verdict-dispatch.yml",
     # feat-cmux-next only; its Computer Use helper check takes the side label on attempt 1.
     ".github/workflows/cmux-next-cua-helper-identity.yml",
@@ -624,6 +622,7 @@ _GATEWAY_ONLY = (
     "feat-cmux-next only; its job runs on the frozen glaeda gateway label (cmux#54437: CI_COMPILE_CHECK_GATEWAY or CI_EVAL_STEP_GATEWAY written out as 'glaeda-gateway-xcode-26.6'), a thin cmux-ci client the gateway hook admits by job name (glaeda-cmux-runner-hook GATEWAY_JOBS) and no other runner may take, so no move off it exists: a person re-runs it"
 )
 UNRESCUED_WORKFLOW_PATHS = {
+    ".github/workflows/cmux-next-agent-conn-chaos.yml": _GATEWAY_ONLY,  # chaos-fleet
     ".github/workflows/cmux-next-fast-tier-batch.yml": _GATEWAY_ONLY,  # swift-fleet, only when the public route cannot serve
     ".github/workflows/cmux-next-head-compile.yml": _GATEWAY_ONLY,
     ".github/workflows/cmux-next-ios-energy-nightly.yml": _GATEWAY_ONLY,
@@ -631,7 +630,7 @@ UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/cmux-next-iphone-clips.yml": _GATEWAY_ONLY,
     ".github/workflows/cmux-next-perf-bench.yml": _GATEWAY_ONLY,
     ".github/workflows/cmux-next-split-table.yml": _GATEWAY_ONLY,
-    ".github/workflows/cmux-next-stress-bench.yml": _GATEWAY_ONLY,
+    ".github/workflows/cmux-next-web-perf.yml": _GATEWAY_ONLY,  # stress-measure (was cmux-next-stress-bench.yml, #61915)
     ".github/workflows/cmux-next-tab-switch.yml": _GATEWAY_ONLY,
     ".github/workflows/fleet-compile-check.yml": _GATEWAY_ONLY,
     ".github/workflows/ios-base-bisect.yml": _GATEWAY_ONLY,
@@ -699,10 +698,10 @@ UNRESCUED_WORKFLOW_PATHS = {
         "feat-cmux-next only; its bench job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
         "so a re-run would not move it; a dispatched perf bench whose numbers mean owned hardware; a person "
         "re-runs it",
-    ".github/workflows/cmux-next-stress-bench.yml":
-        "feat-cmux-next only; its measure job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
-        "so a re-run would not move it; a dispatched stress bench whose numbers mean owned hardware; a person "
-        "re-runs it",
+    ".github/workflows/cmux-next-web-perf.yml":
+        "feat-cmux-next only; its stress-measure job (the stress bench, merged in from cmux-next-stress-bench.yml "
+        "by cmux#61915) names the literal glaeda-gateway-xcode-26.6 label on every attempt, so a re-run would not "
+        "move it; a stress bench whose numbers mean owned hardware; a person re-runs it",
     ".github/workflows/cmux-next-tab-switch.yml":
         "feat-cmux-next only; its frames job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
         "so a re-run would not move it; a tab-switch frame bench whose numbers mean owned hardware; the next push "
