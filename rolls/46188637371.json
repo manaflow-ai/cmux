@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/46188637371",
+  "recorded_at": "2026-11-28T21:30:03Z",
+  "reason": "image inputs changed in d08c052997766b6c5e1d5ec7fe8215bc9a5dbef5..c53f4d07ec9b21e574653e4b9783e06acc694f8b; cmux-tui stays 0d1e69fa1ee6 (the Cloud machine channel serves it)",
+  "dry_run": false,
+  "cmux_tui": "0d1e69fa1ee6a4d254a2eb689c1abb753b8a72c0",
+  "fixes": [
+    {
+      "sha": "c53f4d07ec9b21e574653e4b9783e06acc694f8b",
+      "mergedAt": "2026-11-28T20:51:47Z",
+      "subject": "cmux-vm bake: a step whose exec answer is lost reads its recorded result back from the guest (roll 46181977393) (#65505)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-28T21:30:03Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
