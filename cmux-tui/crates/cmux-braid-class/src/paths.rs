@@ -86,10 +86,12 @@ pub fn paths_for<Id: Copy>(class: Class, paths: &[PathView<Id>]) -> Pick<Id> {
         let best = paths
             .iter()
             .enumerate()
-            .filter(|(i, p)| p.alive && !taken[..round].contains(i))
+            .filter(|(i, p)| p.alive && !taken.iter().take(round).any(|t| t == i))
             .min_by_key(|(_, p)| key(p));
         let Some((i, path)) = best else { break };
-        taken[round] = i;
+        if let Some(slot) = taken.get_mut(round) {
+            *slot = i;
+        }
         pick.push(path.id);
     }
     pick
