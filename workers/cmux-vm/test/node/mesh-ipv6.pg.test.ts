@@ -14,6 +14,7 @@ import overlayPolicy from "../../migrations/0013_cmux_vm_device_overlay_policy.s
  * purpose; and the schema gate naming 0009 when it was not applied.
  */
 import { PGlite } from "@electric-sql/pglite";
+import { freshPg } from "./fresh-pglite.ts";
 import { Effect, Layer, Option } from "effect";
 import { beforeEach, describe, expect, it } from "vitest";
 import ownership from "../../migrations/0001_cmux_vm_ownership.sql?raw";
@@ -58,7 +59,7 @@ const device = (meshId: string, n: number) => ({
 });
 
 beforeEach(async () => {
-  pg = new PGlite();
+  pg = await freshPg();
   for (const migration of ALL) await pg.exec(migration);
   layer = sqlMeshStoreLayer.pipe(Layer.provide(sqlOver(pg)));
 });
