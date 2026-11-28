@@ -2,7 +2,7 @@
 // deep blue for the send button and links.
 {
   "name": "Studio Light",
-  "description": "Light: off-white chat, a pale gray sidebar, a deep blue.",
+  "description": "Off-white with a deep blue.",
 
   "appearance.theme": "Builtin Light",
   // The window, sidebar and pages take that theme too, over an App Theme of your own.

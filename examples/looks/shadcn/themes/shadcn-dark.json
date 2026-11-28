@@ -4,7 +4,7 @@
 // tokens (globals.css .dark) or one of its component sizes, named on its line.
 {
   "name": "shadcn Dark",
-  "description": "Dark: near-black, thin lines, light buttons.",
+  "description": "Black with thin outlines.",
 
   "appearance.theme": "Builtin Dark",
   // The window, sidebar and pages take that theme too, over an App Theme of your own.

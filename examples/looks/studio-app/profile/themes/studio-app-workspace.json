@@ -1,6 +1,6 @@
 {
   "name": "Thread workspace",
-  "description": "Black conversation canvas with a quiet sidebar and compact project rows.",
+  "description": "Black page, quiet sidebar, compact rows.",
   "appearance.sidebarSurface": "separate",
   "sidebar.border": true,
   "sidebar.borderWidth": 1,

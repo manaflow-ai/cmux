@@ -4,7 +4,7 @@
 // the worse tone for dark ink.
 {
   "name": "Duotone",
-  "description": "Light: two shades of gray, white and near-white.",
+  "description": "Two light grays, no color.",
 
   "appearance.theme": "Builtin Light",
   "appearance.appTheme": "followTerminal",

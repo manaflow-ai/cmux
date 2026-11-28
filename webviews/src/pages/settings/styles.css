@@ -3925,6 +3925,16 @@ button.menu-disclosure {
   -webkit-line-clamp: 2;
 }
 
+/* Look Descriptions `tagged`: the look's traits as one quiet line under its tagline. */
+.looks-traits {
+  overflow: hidden;
+  font-size: var(--ds-font-size-xs, 11px);
+  letter-spacing: 0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.75;
+}
+
 .looks-controls {
   display: inline-flex;
   flex: none;

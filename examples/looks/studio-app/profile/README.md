@@ -1,4 +1,4 @@
-# Thread workspace, keys and motion
+# Onyx
 
 The [thread workspace](../whole) look with the app's feature set: its keyboard flows, its sidebar rows,
 its composer chips and centered empty thread, its minimap and its instant panels. It carries the

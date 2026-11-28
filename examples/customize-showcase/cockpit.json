@@ -1,7 +1,7 @@
 {
   "cmuxProfile": 1,
   "name": "cockpit",
-  "description": "Mission control: your own New Tab page (what needs you, your PRs, your workspaces), a Needs You section on top of the sidebar, the session tree, Priority View, and a docked Chief on the right.",
+  "description": "What needs you, up front.",
   "created_ms": 0,
   "settings": {
     "tabs.newTabApp": "local/customize",
