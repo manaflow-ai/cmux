@@ -1497,8 +1497,10 @@ export function judgeLoss(input: { n: number; journal: SeqEvent[]; client: SeqEv
   if (!client.length) return { ok: false, text: "the client received no events for the turn" };
   if (reached === 0) return { ok: false, text: "the turn produced no counting steps" };
   const injection = input.injection;
+  let missedArm = "";
   if (injection && (!injection.running || injection.step < Math.ceil(input.n / 3) || injection.step >= input.n)) {
-    problems.push(`the fault was not armed during counting output (step ${injection.step} of ${input.n}, running=${injection.running})`);
+    // A fault that missed the turn is the probe's miss, not lost output: it is named apart so a red reads for what it is.
+    missedArm = `probe miss: the fault was not armed during counting output (step ${injection.step} of ${input.n}, running=${injection.running})`;
   }
   // The machine's journal.
   const bySeq = new Map<number, SeqEvent>();
@@ -1565,10 +1567,11 @@ export function judgeLoss(input: { n: number; journal: SeqEvent[]; client: SeqEv
   };
   steps(journal, "the journal");
   steps(client, "the client");
-  if (problems.length) return { ok: false, text: `lost or doubled output: ${problems.join("; ")}` };
+  const miss = missedArm ? `${missedArm}; ` : "";
+  if (problems.length) return { ok: false, text: `${miss}lost or doubled output: ${problems.join("; ")}` };
   const back = input.reconnects?.length ? `, ${input.reconnects.length} reconnect(s) each resumed at the next seq` : "";
   const covered = input.interrupted ? `steps 1..${n} of ${input.n} (the turn was cut short)` : `all ${n} steps`;
-  return { ok: true, text: `no lost output: seq ${client[0].seq}..${cLast} contiguous, ${covered} once on both sides${back}` };
+  return { ok: !missedArm, text: `${miss}no lost output: seq ${client[0].seq}..${cLast} contiguous, ${covered} once on both sides${back}` };
 }
 
 /** One `terminal.output_read` answer: the offset asked for and what came back. */
