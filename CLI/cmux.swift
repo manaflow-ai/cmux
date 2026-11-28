@@ -342,6 +342,11 @@ final class ClaudeHookSessionStore {
         let accepted: Bool
         /// The prior surface when this session moved away from its live owner.
         let previousOwnedSurface: PreviousOwnedSurface?
+        /// The active owner that kept the surface when this start disclaimed
+        /// terminal ownership and was recorded without claiming the pane
+        /// (#62857). Non-nil means the pane's ownership slots and the
+        /// owner's cached lifecycle were left untouched.
+        var preservedActiveOwnerSessionId: String? = nil
     }
     typealias CursorShellApprovalResolution = (
         matched: Bool,
@@ -1569,7 +1574,8 @@ final class ClaudeHookSessionStore {
         pid: Int? = nil,
         launchCommand: AgentHookLaunchCommandRecord? = nil,
         hookEventName: String? = nil,
-        turnId: String? = nil
+        turnId: String? = nil,
+        claimsSurfaceOwnership: Bool = true
     ) throws -> AuthoritativeSessionStartResult {
         let normalizedSessionId = normalizeSessionId(sessionId)
         guard !normalizedSessionId.isEmpty,
@@ -1595,6 +1601,51 @@ final class ClaudeHookSessionStore {
                 || incomingProcessIsNewer
             guard accepted else {
                 return AuthoritativeSessionStartResult(accepted: false, previousOwnedSurface: nil)
+            }
+
+            // A start that disclaims terminal ownership (the nested headless
+            // child's suppress environment, #62857) must not displace the
+            // pane's active interactive owner. Its record is still installed
+            // so its own hooks route and its SessionEnd consumes the child
+            // alone instead of falling back to the owner, but the pane's
+            // ownership slots and the owner's cached lifecycle stay with the
+            // interactive owner.
+            if !claimsSurfaceOwnership,
+               let activeOwner = active,
+               activeOwner.sessionId != normalizedSessionId {
+                let now = Date().timeIntervalSince1970
+                var record = makeSessionRecord(
+                    state: state,
+                    sessionId: normalizedSessionId,
+                    workspaceId: normalizedWorkspaceId,
+                    surfaceId: normalizedSurfaceId,
+                    now: now
+                )
+                update(
+                    &record,
+                    workspaceId: normalizedWorkspaceId,
+                    surfaceId: normalizedSurfaceId,
+                    cwd: cwd,
+                    transcriptPath: transcriptPath,
+                    pid: pid,
+                    launchCommand: launchCommand,
+                    isRestorable: false,
+                    agentLifecycle: .idle,
+                    hookEventName: hookEventName,
+                    lastSubtitle: nil,
+                    lastBody: nil,
+                    lastNotificationStatus: nil,
+                    updateLastNotificationStatus: false,
+                    runtimeStatus: nil,
+                    updateRuntimeStatus: false,
+                    now: now
+                )
+                state.sessions[normalizedSessionId] = record
+                return AuthoritativeSessionStartResult(
+                    accepted: true,
+                    previousOwnedSurface: nil,
+                    preservedActiveOwnerSessionId: activeOwner.sessionId
+                )
             }
 
             let previousOwnedSurface: AuthoritativeSessionStartResult.PreviousOwnedSurface? =
@@ -31512,6 +31563,13 @@ struct CMUXCLI {
                 currentAgentPID: liveHookAgentPID,
                 env: ProcessInfo.processInfo.environment
             )
+            // The wrapper's nested-headless contract: a process launched with
+            // the explicit suppress marker does not own its terminal, so its
+            // SessionStart must not move the pane's active owner binding or
+            // generation (#62857).
+            let disclaimsSurfaceOwnership = hookEnvironmentDisclaimsSurfaceOwnership(
+                env: ProcessInfo.processInfo.environment
+            )
             let launchCommand = agentLaunchCommandFromEnvironment(
                 ProcessInfo.processInfo.environment,
                 fallbackPID: claudePid,
@@ -31550,7 +31608,8 @@ struct CMUXCLI {
                     pid: claudePid,
                     launchCommand: launchCommand,
                     hookEventName: reportedHookEventName(from: parsedInput) ?? "SessionStart",
-                    turnId: parsedInput.turnId
+                    turnId: parsedInput.turnId,
+                    claimsSurfaceOwnership: !disclaimsSurfaceOwnership
                 )
             }
             let acceptedSessionId = sessionStartResult?.accepted == true ? parsedInput.sessionId : nil
@@ -31588,7 +31647,11 @@ struct CMUXCLI {
                 // binding; the first prompt or stop binds the fork (#20186).
                 let forkTranscriptIsPending = isForkSessionLaunch
                     && hookTranscriptPath.map { !FileManager.default.fileExists(atPath: $0) } == true
-                if !forkTranscriptIsPending {
+                // A start that kept the pane's active owner must not rewrite
+                // what the pane resumes: the binding belongs to that owner
+                // (#62857).
+                if !forkTranscriptIsPending,
+                   sessionStartResult?.preservedActiveOwnerSessionId == nil {
                     publishAgentSurfaceResumeBinding(
                         client: client,
                         workspaceId: workspaceId,
@@ -35324,6 +35387,21 @@ struct CMUXCLI {
             transcriptSubagentSession: transcriptSubagentSession,
             env: env
         )
+    }
+
+    /// The launcher's nested-headless contract (#62857): an explicit
+    /// `CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS=1` marks a process that
+    /// does not own its terminal — the wrapper launches nested `claude -p`
+    /// children that way. Beyond suppressing visible mutations, such a
+    /// process's SessionStart must not move the pane's active owner binding
+    /// or process generation away from the interactive owner. Only the
+    /// explicit environment marker counts here; heuristic ancestry detection
+    /// stays limited to visible mutations.
+    func hookEnvironmentDisclaimsSurfaceOwnership(env: [String: String]) -> Bool {
+        guard let override = normalizedHookValue(env["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"])?.lowercased() else {
+            return false
+        }
+        return Self.parseHookBoolean(override) == true
     }
 
     /// Pure nested-session detection, independent of the user's
