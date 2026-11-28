@@ -371,6 +371,8 @@ pub struct State {
 /// The run's next step: one exec to run (its answer goes to [`advance`]), or its answer.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "step", rename_all = "camelCase")]
+// One Step per exec round trip, never stored in bulk: the size gap costs nothing.
+#[allow(clippy::large_enum_variant)]
 pub enum Step {
     #[serde(rename_all = "camelCase")]
     Exec {
