@@ -40,4 +40,4 @@ zeroize.workspace = true
 cmux-link.workspace = true
 
 [dev-dependencies]
-tempfile = "3"
+cmux-egress = { workspace = true, features = ["capture"] }

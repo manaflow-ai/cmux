@@ -181,14 +181,24 @@ struct HomeWindowControlsTests {
     @Test(arguments: [1, 2, 3] as [CGFloat])
     func theChatButtonsCentreOnAHalfPointLine(_ scale: CGFloat) {
         let row = CGRect(x: 7, y: 700 - 25, width: 52, height: 15)
-        let frames = HomeChatColumnView.buttonFrames(height: 700, row: row, over: nil, scale: scale)
+        let frames = HomeChatColumnView.buttonFrames(height: 700, row: row, over: row, scale: scale)
         let pixel = 1 / scale
         #expect(abs(frames.chats.midY - row.midY) < pixel / 2 + 0.001, "Chats is off the lights' line by more than half a pixel")
         #expect(frames.chats.minY * scale == (frames.chats.minY * scale).rounded(), "Chats is off the pixel grid")
         #expect(frames.compose.minY == frames.chats.minY)
         #expect(frames.compose.minX - frames.chats.maxX == HomeChatColumnView.buttonGap)
-        #expect(frames.chats.minX == HomeChatColumnView.composeInset)
+        #expect(frames.chats.minX == row.maxX + HomeChatColumnView.buttonGap)
         if scale == 2 { #expect(frames.chats.midY == row.midY) }
+    }
+
+    /// Away from the lights (the chat right of the list) the buttons are centred in the header's
+    /// band, 11 pt from the top, not on the lights' line 6 pt from it (the person, 2026-11-26).
+    @Test func theChatButtonsCentreInTheBandAwayFromTheLights() {
+        let row = CGRect(x: 7, y: 700 - 25, width: 52, height: 15)
+        let frames = HomeChatColumnView.buttonFrames(height: 700, row: row, over: nil, scale: 2)
+        #expect(frames.chats.midY == 700 - HomeSidebarHeaderLayout.band / 2)
+        #expect(700 - frames.chats.maxY == (HomeSidebarHeaderLayout.band - HomeChatComposeButton.side) / 2)
+        #expect(frames.chats.minX == HomeChatColumnView.composeInset)
     }
 
     // MARK: The layout alone
@@ -227,19 +237,14 @@ struct HomeWindowControlsTests {
         #expect(h.search.maxX == h.filter.minX)
     }
 
-    /// The avatar-only list's search and filter circles sit under the lights, the list under them;
-    /// an open search sits under them too.
+    /// The avatar-only list under the lights is Messages' strip: no buttons, the first row 43 pt down, clear of
+    /// the lights; an open search sits under them, the list under it.
     @Test func theAvatarListUnderTheLights() {
         let closed = HomeSidebarHeaderLayout(width: 90, searchOpen: false, windowControls: Self.lightsFrame)
-        #expect(!closed.filter.isEmpty && !closed.searchIcon.isEmpty)
-        #expect(!closed.filter.intersects(Self.lightsFrame) && !closed.searchIcon.intersects(Self.lightsFrame))
-        #expect(closed.listTop >= closed.filter.maxY)
+        #expect(closed.filter.isEmpty && closed.searchIcon.isEmpty)
+        #expect(closed.listTop == HomeSidebarHeaderLayout.stripListTop && closed.listTop > Self.lightsFrame.maxY)
         let open = HomeSidebarHeaderLayout(width: 90, searchOpen: true, windowControls: Self.lightsFrame)
         #expect(!open.search.intersects(Self.lightsFrame))
         #expect(open.listTop >= open.search.maxY)
-        // Opening the search moves nothing: the list starts where it did, the field centred where
-        // the circles were (the user, 2026-11-23: "make the height not shift").
-        #expect(open.listTop == closed.listTop)
-        #expect(abs(open.search.midY - closed.filter.midY) <= 0.5 && abs(open.search.midY - closed.searchIcon.midY) <= 0.5)
     }
 }

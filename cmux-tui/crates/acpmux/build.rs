@@ -99,4 +99,15 @@ fn main() {
         };
         println!("cargo:rustc-link-arg-bin=acpmux={flag}");
     }
+    // The shipped Linux build is a static PIE (musl), which relocates itself before main: every
+    // short-lived acpmux (each hook, each CLI call) walks one 24-byte RELA entry per pointer in
+    // its data, and a cold start first pages that table in. Packed relative relocations (DT_RELR)
+    // store the same pointers as a bitmap of about one bit each. musl reads them since 1.2.4 (Rust
+    // 1.95 ships 1.2.5); glibc only since 2.36, so the glibc builds keep RELA for older hosts.
+    // Both linkers the Linux legs use take the flag (GNU ld 2.38+, lld 15+ through zig).
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux")
+        && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("musl")
+    {
+        println!("cargo:rustc-link-arg-bin=acpmux=-Wl,-z,pack-relative-relocs");
+    }
 }

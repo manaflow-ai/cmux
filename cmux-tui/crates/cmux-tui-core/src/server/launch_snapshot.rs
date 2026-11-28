@@ -18,8 +18,17 @@
 //! session whose snapshot is megabytes and whose tabs change state every few
 //! seconds then costs a bounded number of bytes an hour, not one whole file
 //! per change.
+//!
+//! Two things write the file at once, with no settle, delay or byte-budget
+//! wait: the close of a connection that wrote a native frontend projection
+//! (the app quit, was force quit, crashed or was killed), and an explicit
+//! `flush-launch-snapshot` (`launch-snapshot-flush-v1`). The writer wakes and
+//! writes on that pass, so a quick relaunch on the same daemon draws the
+//! window records the app saved last, not the write before them. Everything
+//! else keeps the timing above.
 
 use crate::panic_free::RecoverPoison;
+use std::sync::Condvar;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::RecvTimeoutError;
 use std::thread::JoinHandle;
@@ -27,15 +36,110 @@ use std::thread::JoinHandle;
 use super::*;
 use crate::MuxEventReceiver;
 
-/// The file name inside the session's state directory.
-pub const LAUNCH_SNAPSHOT_FILE: &str = "launch-snapshot.json";
+pub(crate) use crate::server_protocol::LAUNCH_SNAPSHOT_FILE;
 const LAUNCH_SNAPSHOT_SCHEMA_VERSION: u32 = 1;
-/// A snapshot larger than this drops its projections, then is not written.
-/// The app reads the file before it connects (`LaunchSnapshot.maximumBytes`).
-pub(crate) const MAX_LAUNCH_SNAPSHOT_BYTES: usize = 8 * 1024 * 1024;
+pub(crate) use crate::server_protocol::MAX_LAUNCH_SNAPSHOT_BYTES;
 /// Failed writes back off (a full disk must not turn into a write loop).
 const WRITE_RETRY_INITIAL: Duration = Duration::from_secs(1);
 const WRITE_RETRY_MAX: Duration = Duration::from_secs(60);
+/// How long `flush-launch-snapshot` waits for its write before it answers
+/// `flushed:false` (the write still happens; a quit does not wait for it).
+pub(crate) const LAUNCH_SNAPSHOT_FLUSH_WAIT: Duration = Duration::from_secs(1);
+
+/// Requests for an immediate write (`flush-launch-snapshot`) and their
+/// answers. The Mux holds it while the writer runs.
+pub(crate) struct LaunchSnapshotFlush {
+    /// The writer's events, to wake it (replaced in place when it resubscribes).
+    events: Arc<Mutex<MuxEventReceiver>>,
+    state: Mutex<FlushState>,
+    answered: Condvar,
+}
+
+#[derive(Default)]
+struct FlushState {
+    /// The newest request, and the newest one a write pass answered.
+    requested: u64,
+    answered: u64,
+    /// Whether that pass left the file holding the current snapshot.
+    current: bool,
+    /// The writer stopped: nothing answers a later request.
+    stopped: bool,
+    /// Open connections that wrote a native frontend projection.
+    writers: HashSet<u64>,
+}
+
+impl LaunchSnapshotFlush {
+    fn new(events: Arc<Mutex<MuxEventReceiver>>) -> Self {
+        Self { events, state: Mutex::new(FlushState::default()), answered: Condvar::new() }
+    }
+
+    /// Asks the writer to write now and waits up to `wait` for it. True once
+    /// the file holds the snapshot as of this request (written now, or
+    /// already the same); false when the write failed, the writer stopped or
+    /// `wait` passed.
+    pub(crate) fn flush(&self, wait: Duration) -> bool {
+        let Some(ticket) = self.request() else { return false };
+        let deadline = Instant::now() + wait;
+        let mut state = self.state.lock().recover_poison();
+        while state.answered < ticket && !state.stopped {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return false;
+            };
+            state = self.answered.wait_timeout(state, remaining).recover_poison().0;
+        }
+        state.answered >= ticket && state.current
+    }
+
+    /// Asks for an immediate write and wakes the writer; its ticket, or None
+    /// once the writer stopped.
+    fn request(&self) -> Option<u64> {
+        let ticket = {
+            let mut state = self.state.lock().recover_poison();
+            if state.stopped {
+                return None;
+            }
+            state.requested += 1;
+            state.requested
+        };
+        self.events.lock().recover_poison().wake();
+        Some(ticket)
+    }
+
+    /// `client` wrote a native frontend projection (`put-frontend-projection`):
+    /// it is the frontend whose window records the snapshot carries.
+    pub(crate) fn projection_writer(&self, client: u64) {
+        self.state.lock().recover_poison().writers.insert(client);
+    }
+
+    /// A connection closed. When it wrote a native frontend projection (the
+    /// app quit, was force quit, crashed or was killed: each closes its
+    /// socket), the writer writes at once, as on `flush-launch-snapshot`,
+    /// so a relaunch draws the records it saved last. Nothing waits for it.
+    pub(crate) fn client_left(&self, client: u64) {
+        let wrote = self.state.lock().recover_poison().writers.remove(&client);
+        if wrote {
+            let _ = self.request();
+        }
+    }
+
+    /// The newest unanswered request, if any.
+    fn pending(&self) -> Option<u64> {
+        let state = self.state.lock().recover_poison();
+        (state.requested > state.answered).then_some(state.requested)
+    }
+
+    fn answer(&self, ticket: u64, current: bool) {
+        let mut state = self.state.lock().recover_poison();
+        state.answered = state.answered.max(ticket);
+        state.current = current;
+        self.answered.notify_all();
+    }
+
+    fn stop(&self) {
+        self.state.lock().recover_poison().stopped = true;
+        self.answered.notify_all();
+    }
+}
 
 /// When the writer writes after a change.
 #[derive(Debug, Clone, Copy)]
@@ -73,6 +177,7 @@ pub struct LaunchSnapshotWriter {
     writes: Arc<AtomicU64>,
     bytes: Arc<AtomicU64>,
     mux: Weak<Mux>,
+    flush: Arc<LaunchSnapshotFlush>,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -102,8 +207,10 @@ impl LaunchSnapshotWriter {
     fn signal_stop(&self) {
         self.stop.store(true, Ordering::Release);
         self.events.lock().recover_poison().close();
+        self.flush.stop();
         if let Some(mux) = self.mux.upgrade() {
             mux.set_launch_snapshot_path(None);
+            mux.set_launch_snapshot_flush(None);
         }
     }
 }
@@ -142,6 +249,8 @@ pub fn start_launch_snapshot_writer_with(
     let thread_bytes = bytes.clone();
     let shared_events = events.clone();
     let mut thread_events = events.lock().recover_poison().clone();
+    let flush = Arc::new(LaunchSnapshotFlush::new(events.clone()));
+    let thread_flush = flush.clone();
     let thread =
         std::thread::Builder::new().name("mux-launch-snapshot".into()).spawn(move || {
             // Write once at start, so a relaunch finds the current layout even
@@ -159,6 +268,14 @@ pub fn start_launch_snapshot_writer_with(
                 if thread_stop.load(Ordering::Acquire) {
                     break;
                 }
+                // A flush request writes on this pass: what is queued is in
+                // the snapshot it computes, and no settle, delay, retry or
+                // byte-budget wait holds it back.
+                let urgent = thread_flush.pending();
+                if urgent.is_some() {
+                    while thread_events.try_recv().is_ok() {}
+                    dirty_since.get_or_insert_with(Instant::now);
+                }
                 let now = Instant::now();
                 let due = dirty_since.map(|first| {
                     let settled = last_change + timing.settle;
@@ -167,11 +284,13 @@ pub fn start_launch_snapshot_writer_with(
                     let due = retry_at.map_or(due, |retry_at| due.max(retry_at));
                     budget_at.map_or(due, |budget_at| due.max(budget_at))
                 });
-                if let Some(due) = due
-                    && now >= due
-                {
+                if urgent.is_some() || due.is_some_and(|due| now >= due) {
                     let Some(mux) = weak.upgrade() else { break };
-                    match write_launch_snapshot(&mux, &thread_path) {
+                    let result = write_launch_snapshot(&mux, &thread_path);
+                    if let Some(ticket) = urgent {
+                        thread_flush.answer(ticket, result.is_ok());
+                    }
+                    match result {
                         Ok((dropped, written)) => {
                             if written > 0 {
                                 budget_at = Some(
@@ -235,8 +354,10 @@ pub fn start_launch_snapshot_writer_with(
                 thread_bytes.fetch_add(written as u64, Ordering::AcqRel);
                 thread_writes.fetch_add(1, Ordering::AcqRel);
             }
+            thread_flush.stop();
         })?;
     mux.set_launch_snapshot_path(Some(path.clone()));
+    mux.set_launch_snapshot_flush(Some(flush.clone()));
     Ok(Some(LaunchSnapshotWriter {
         path,
         stop,
@@ -244,8 +365,16 @@ pub fn start_launch_snapshot_writer_with(
         writes,
         bytes,
         mux: Arc::downgrade(mux),
+        flush,
         thread: Some(thread),
     }))
+}
+
+/// `flush-launch-snapshot`: writes the launch snapshot now and answers once it
+/// landed (`flushed:true`), or after [`LAUNCH_SNAPSHOT_FLUSH_WAIT`], or at
+/// once without a writer (`flushed:false`).
+pub(super) fn flush_command(mux: &Mux) -> anyhow::Result<Value> {
+    Ok(json!({"flushed": mux.flush_launch_snapshot(LAUNCH_SNAPSHOT_FLUSH_WAIT)}))
 }
 
 /// How long the writer waits after it wrote `written` bytes.
@@ -253,64 +382,196 @@ fn budget_wait(written: usize, max_bytes_per_second: u64) -> Duration {
     Duration::from_secs_f64(written as f64 / max_bytes_per_second.max(1) as f64)
 }
 
-fn launch_snapshot_value(mux: &Mux, include_projections: bool) -> anyhow::Result<Value> {
+/// What the snapshot holds, read once a write. It is serialized straight from
+/// these parts, never through a whole-file `serde_json::Value` (at 1,000 items
+/// that tree of values, and the two parses that compared it with the file,
+/// were tens of MB of transient heap the allocator kept: goal infinite-items-flat).
+struct LaunchSnapshotParts {
+    registry_id: String,
+    generation: String,
+    tree: Value,
+    personal: Option<crate::workspace_registry::PersonalSnapshot>,
+    projections: Vec<crate::workspace_registry::FrontendProjection>,
+    sidebar_doc: Value,
+}
+
+fn launch_snapshot_parts(
+    mux: &Mux,
+    include_projections: bool,
+) -> anyhow::Result<LaunchSnapshotParts> {
     let tree = list_workspaces_reply(mux)?;
     let (registry_id, generation) = mux.registry_identity();
-    // Rooms, pins and personal groups filter and group the sidebar, so a
-    // provisional sidebar drawn without them regroups when live data lands.
-    // Room default env can hold credentials; the sidebar does not need it.
-    // A session's capability list (up to `MAX_SESSION_CAPABILITIES_BYTES`
-    // each) is not drawn either, and the file has its own size bound.
     let personal = match mux.personal_snapshot() {
-        Ok(personal) => {
-            let mut personal = serde_json::to_value(personal)?;
-            for profile in
-                personal.get_mut("profiles").and_then(Value::as_array_mut).into_iter().flatten()
-            {
-                if let Some(defaults) = profile.get_mut("defaults").and_then(Value::as_object_mut) {
-                    defaults.remove("env");
-                }
-            }
-            for session in
-                personal.get_mut("sessions").and_then(Value::as_array_mut).into_iter().flatten()
-            {
-                if let Some(session) = session.as_object_mut() {
-                    session.remove("capabilities");
-                }
-            }
-            personal
-        }
+        Ok(personal) => Some(personal),
         Err(error) => {
             eprintln!("cmux-tui: launch snapshot without personal state: {error:#}");
-            Value::Null
+            None
         }
     };
-    let projections = if include_projections {
-        serde_json::to_value(mux.launch_snapshot_frontend_projections()?)?
-    } else {
-        json!([])
-    };
+    let projections =
+        if include_projections { mux.launch_snapshot_frontend_projections()? } else { Vec::new() };
     // The sidebar document (`sidebar.get`'s reply): its Pinned band draws in
     // the app's first frame, not after this daemon's restore and handshake
     // (seconds on a large registry). A pin bumps `personal_revision`, so a
     // pin change rewrites the snapshot. Left out of the smaller retry.
     let sidebar_doc = if include_projections { launch_sidebar_doc(mux) } else { Value::Null };
-    Ok(json!({
-        "schema_version": LAUNCH_SNAPSHOT_SCHEMA_VERSION,
-        "app": "cmux-tui",
-        "version": env!("CARGO_PKG_VERSION"),
-        "session": mux.session,
-        "registry_id": registry_id,
-        "generation": generation,
-        "written_at_ms": std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
-            .unwrap_or_default(),
-        "tree": tree,
-        "personal": personal,
-        "frontend_projections": projections,
-        "sidebar_doc": sidebar_doc,
-    }))
+    Ok(LaunchSnapshotParts { registry_id, generation, tree, personal, projections, sidebar_doc })
+}
+
+/// A native projection as the file holds it: its keys in the sorted order a
+/// `serde_json::Value` object gives them, so the bytes are those of the
+/// `Value` form the file had before.
+#[derive(Serialize)]
+struct SortedProjection<'a> {
+    frontend: &'a str,
+    projection: &'a Value,
+    projection_revision: u64,
+    schema_version: u32,
+    scope: &'a str,
+    subject_key: &'a str,
+}
+
+impl<'a> From<&'a crate::workspace_registry::FrontendProjection> for SortedProjection<'a> {
+    fn from(projection: &'a crate::workspace_registry::FrontendProjection) -> Self {
+        Self {
+            frontend: &projection.frontend,
+            projection: &projection.projection,
+            projection_revision: projection.projection_revision,
+            schema_version: projection.schema_version,
+            scope: &projection.scope,
+            subject_key: &projection.subject_key,
+        }
+    }
+}
+
+/// The key that ends the file: everything before its value is the snapshot's
+/// contents, and a write that would change only it is skipped.
+const WRITTEN_AT_KEY: &[u8] = b"\"written_at_ms\":";
+
+fn write_key(out: &mut Vec<u8>, first: bool, key: &str) -> anyhow::Result<()> {
+    if !first {
+        out.push(b',');
+    }
+    serde_json::to_writer(&mut *out, key)?;
+    out.push(b':');
+    Ok(())
+}
+
+/// One array, an element at a time: each element goes through a `Value`
+/// (sorted keys, and `fixup` drops what the file leaves out), never the
+/// whole array at once.
+fn write_sorted_array<T: Serialize>(
+    out: &mut Vec<u8>,
+    items: &[T],
+    fixup: impl Fn(&mut Value),
+) -> anyhow::Result<()> {
+    out.push(b'[');
+    for (index, item) in items.iter().enumerate() {
+        if index > 0 {
+            out.push(b',');
+        }
+        let mut value = serde_json::to_value(item)?;
+        fixup(&mut value);
+        serde_json::to_writer(&mut *out, &value)?;
+    }
+    out.push(b']');
+    Ok(())
+}
+
+/// `list-personal`'s reply as the file holds it. Rooms, pins and personal
+/// groups filter and group the sidebar, so a provisional sidebar drawn
+/// without them regroups when live data lands. Room default env can hold
+/// credentials; the sidebar does not need it. A session's capability list
+/// (up to `MAX_SESSION_CAPABILITIES_BYTES` each) is not drawn either, and
+/// the file has its own size bound. Keys sorted, as the `Value` form had them.
+fn write_personal(
+    out: &mut Vec<u8>,
+    personal: &crate::workspace_registry::PersonalSnapshot,
+) -> anyhow::Result<()> {
+    let keep = |_: &mut Value| {};
+    out.push(b'{');
+    write_key(out, true, "browser_profiles")?;
+    write_sorted_array(out, &personal.browser_profiles, keep)?;
+    write_key(out, false, "groups")?;
+    write_sorted_array(out, &personal.groups, keep)?;
+    write_key(out, false, "personal_revision")?;
+    serde_json::to_writer(&mut *out, &personal.personal_revision)?;
+    write_key(out, false, "pins")?;
+    write_sorted_array(out, &personal.pins, keep)?;
+    write_key(out, false, "profiles")?;
+    write_sorted_array(out, &personal.profiles, |profile| {
+        if let Some(defaults) = profile.get_mut("defaults").and_then(Value::as_object_mut) {
+            defaults.remove("env");
+        }
+    })?;
+    write_key(out, false, "sessions")?;
+    write_sorted_array(out, &personal.sessions, |session| {
+        if let Some(session) = session.as_object_mut() {
+            session.remove("capabilities");
+        }
+    })?;
+    write_key(out, false, "terminals")?;
+    write_sorted_array(out, &personal.terminals, keep)?;
+    write_key(out, false, "workspaces")?;
+    write_sorted_array(out, &personal.workspaces, keep)?;
+    out.push(b'}');
+    Ok(())
+}
+
+/// The file's bytes up to and including [`WRITTEN_AT_KEY`], keys in sorted
+/// order (`written_at_ms` last), the projections whose `keep` is true. The
+/// same bytes the `serde_json::Value` form serialized to, built without it.
+fn launch_snapshot_body(
+    mux: &Mux,
+    parts: &LaunchSnapshotParts,
+    keep: &[bool],
+) -> anyhow::Result<Vec<u8>> {
+    let mut out = Vec::new();
+    out.push(b'{');
+    write_key(&mut out, true, "app")?;
+    serde_json::to_writer(&mut out, "cmux-tui")?;
+    write_key(&mut out, false, "frontend_projections")?;
+    out.push(b'[');
+    let mut first = true;
+    for (projection, _) in parts.projections.iter().zip(keep).filter(|(_, keep)| **keep) {
+        if !first {
+            out.push(b',');
+        }
+        first = false;
+        serde_json::to_writer(&mut out, &SortedProjection::from(projection))?;
+    }
+    out.push(b']');
+    write_key(&mut out, false, "generation")?;
+    serde_json::to_writer(&mut out, &parts.generation)?;
+    write_key(&mut out, false, "personal")?;
+    match &parts.personal {
+        Some(personal) => write_personal(&mut out, personal)?,
+        None => out.extend_from_slice(b"null"),
+    }
+    write_key(&mut out, false, "registry_id")?;
+    serde_json::to_writer(&mut out, &parts.registry_id)?;
+    write_key(&mut out, false, "schema_version")?;
+    serde_json::to_writer(&mut out, &LAUNCH_SNAPSHOT_SCHEMA_VERSION)?;
+    write_key(&mut out, false, "session")?;
+    serde_json::to_writer(&mut out, &mux.session)?;
+    write_key(&mut out, false, "sidebar_doc")?;
+    serde_json::to_writer(&mut out, &parts.sidebar_doc)?;
+    write_key(&mut out, false, "tree")?;
+    serde_json::to_writer(&mut out, &parts.tree)?;
+    write_key(&mut out, false, "version")?;
+    serde_json::to_writer(&mut out, env!("CARGO_PKG_VERSION"))?;
+    out.push(b',');
+    out.extend_from_slice(WRITTEN_AT_KEY);
+    Ok(out)
+}
+
+/// The write time and the closing brace that end the file after its body.
+fn launch_snapshot_tail() -> Vec<u8> {
+    let written_at_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or_default();
+    format!("{written_at_ms}}}").into_bytes()
 }
 
 /// The sidebar document, or null before its migration or on a read error
@@ -331,45 +592,67 @@ fn launch_sidebar_doc(mux: &Mux) -> Value {
     }
 }
 
-/// Whether the snapshot at `path` holds what `bytes` holds, apart from `written_at_ms`.
-fn same_snapshot_on_disk(path: &Path, bytes: &[u8]) -> bool {
-    let parse = |bytes: &[u8]| {
-        serde_json::from_slice::<Value>(bytes).ok().map(|mut value| {
-            if let Some(object) = value.as_object_mut() {
-                object.remove("written_at_ms");
-            }
-            value
-        })
-    };
-    let Ok(stored) = std::fs::read(path) else { return false };
-    matches!((parse(&stored), parse(bytes)), (Some(stored), Some(next)) if stored == next)
+/// Whether the file at `path` holds `body` (a [`launch_snapshot_body`]),
+/// apart from the `written_at_ms` that ends it: a byte compare, streamed
+/// from the file, with no parse of either side.
+fn same_snapshot_on_disk(path: &Path, body: &[u8]) -> bool {
+    let Ok(file) = std::fs::File::open(path) else { return false };
+    let mut reader = BufReader::with_capacity(64 * 1024, file);
+    let mut offset = 0;
+    while offset < body.len() {
+        let chunk = match reader.fill_buf() {
+            Ok([]) | Err(_) => return false,
+            Ok(chunk) => chunk,
+        };
+        let take = chunk.len().min(body.len() - offset);
+        let want = body.get(offset..).and_then(|rest| rest.get(..take));
+        if want.is_none() || chunk.get(..take) != want {
+            return false;
+        }
+        offset += take;
+        reader.consume(take);
+    }
+    // What is left is the write time and the closing brace.
+    let mut tail = Vec::new();
+    if reader.take(24).read_to_end(&mut tail).is_err() {
+        return false;
+    }
+    matches!(tail.split_last(), Some((b'}', digits))
+        if !digits.is_empty() && digits.iter().all(u8::is_ascii_digit))
 }
 
 /// Writes the snapshot; returns the projections left out to fit its bound
 /// (`frontend/scope/subject`), empty when all fit, and the bytes written
 /// (0 when the file already holds this snapshot).
 fn write_launch_snapshot(mux: &Mux, path: &Path) -> anyhow::Result<(Vec<String>, usize)> {
-    let mut value = launch_snapshot_value(mux, true)?;
-    let mut bytes = serde_json::to_vec(&value)?;
+    let parts = launch_snapshot_parts(mux, true)?;
+    let tail = launch_snapshot_tail();
+    let mut keep = vec![true; parts.projections.len()];
+    let mut body = launch_snapshot_body(mux, &parts, &keep)?;
+    let finished = |body: &[u8]| body.len() + tail.len();
     let mut dropped = Vec::new();
-    if bytes.len() > MAX_LAUNCH_SNAPSHOT_BYTES {
-        dropped = drop_largest_projections(&mut value, bytes.len());
-        bytes = serde_json::to_vec(&value)?;
+    if finished(&body) > MAX_LAUNCH_SNAPSHOT_BYTES {
+        dropped = drop_largest_projections(&parts.projections, &mut keep, finished(&body));
+        body = launch_snapshot_body(mux, &parts, &keep)?;
     }
-    if bytes.len() > MAX_LAUNCH_SNAPSHOT_BYTES {
+    drop(parts);
+    if finished(&body) > MAX_LAUNCH_SNAPSHOT_BYTES {
         // The tree and personal state alone: the smaller form, as before.
-        bytes = serde_json::to_vec(&launch_snapshot_value(mux, false)?)?;
+        drop(body);
+        body = launch_snapshot_body(mux, &launch_snapshot_parts(mux, false)?, &[])?;
         dropped.push("sidebar_doc".to_string());
     }
     anyhow::ensure!(
-        bytes.len() <= MAX_LAUNCH_SNAPSHOT_BYTES,
+        finished(&body) <= MAX_LAUNCH_SNAPSHOT_BYTES,
         "launch snapshot exceeds {MAX_LAUNCH_SNAPSHOT_BYTES} bytes"
     );
     // Most wakeups change nothing the snapshot holds: the same contents (its write time aside)
     // are not written and synced again.
-    if same_snapshot_on_disk(path, &bytes) {
+    if same_snapshot_on_disk(path, &body) {
         return Ok((dropped, 0));
     }
+    let mut bytes = body;
+    bytes.extend_from_slice(&tail);
     let directory = path.parent().context("launch snapshot path has no directory")?;
     let temporary = directory.join(format!("{LAUNCH_SNAPSHOT_FILE}.{}.tmp", std::process::id()));
     let result = (|| -> anyhow::Result<()> {
@@ -393,18 +676,39 @@ fn write_launch_snapshot(mux: &Mux, path: &Path) -> anyhow::Result<(Vec<String>,
     result.map(|()| (dropped, bytes.len()))
 }
 
-/// Removes native projections from `value`, largest first, until the
-/// snapshot fits [`MAX_LAUNCH_SNAPSHOT_BYTES`]; returns their names. The
-/// registry keeps them: the app reads them after it connects.
-fn drop_largest_projections(value: &mut Value, mut bytes: usize) -> Vec<String> {
-    let Some(projections) = value.get_mut("frontend_projections").and_then(Value::as_array_mut)
-    else {
-        return Vec::new();
-    };
+/// Counts what a serializer writes, keeping none of it.
+#[derive(Default)]
+struct ByteCount(usize);
+
+impl Write for ByteCount {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0 += bytes.len();
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Clears `keep` for native projections, largest first, until a snapshot of
+/// `bytes` fits [`MAX_LAUNCH_SNAPSHOT_BYTES`]; returns their names, last
+/// index first. The registry keeps them: the app reads them after it
+/// connects.
+fn drop_largest_projections(
+    projections: &[crate::workspace_registry::FrontendProjection],
+    keep: &mut [bool],
+    mut bytes: usize,
+) -> Vec<String> {
     let mut sized: Vec<(usize, usize)> = projections
         .iter()
         .enumerate()
-        .map(|(index, projection)| (serde_json::to_vec(projection).map_or(0, |b| b.len()), index))
+        .map(|(index, projection)| {
+            let mut count = ByteCount::default();
+            let size = serde_json::to_writer(&mut count, &SortedProjection::from(projection))
+                .map_or(0, |()| count.0);
+            (size, index)
+        })
         .collect();
     sized.sort_unstable_by(|a, b| b.cmp(a));
     let mut removed = Vec::new();
@@ -413,17 +717,17 @@ fn drop_largest_projections(value: &mut Value, mut bytes: usize) -> Vec<String> 
             break;
         }
         bytes = bytes.saturating_sub(size + 1);
+        if let Some(slot) = keep.get_mut(index) {
+            *slot = false;
+        }
         removed.push(index);
     }
     removed.sort_unstable_by(|a, b| b.cmp(a));
     removed
         .into_iter()
-        .map(|index| {
-            let projection = projections.remove(index);
-            let field = |key: &str| {
-                projection.get(key).and_then(Value::as_str).unwrap_or_default().to_string()
-            };
-            format!("{}/{}/{}", field("frontend"), field("scope"), field("subject_key"))
+        .filter_map(|index| projections.get(index))
+        .map(|projection| {
+            format!("{}/{}/{}", projection.frontend, projection.scope, projection.subject_key)
         })
         .collect()
 }

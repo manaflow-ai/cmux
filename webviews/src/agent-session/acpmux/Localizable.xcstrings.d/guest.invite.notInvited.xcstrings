@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "guest.invite.notInvited" : {
+      "comment" : "Guest page, account invite: the signed-in cmux account is not one the owner invited to this chat",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This cmux account isn't invited to this chat."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses cmux-Konto ist nicht zu diesem Chat eingeladen."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce compte cmux n’est pas invité à cette discussion."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "حساب cmux هذا غير مدعو إلى هذه المحادثة."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta cuenta de cmux no está invitada a este chat."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "這個 cmux 帳號未受邀加入此聊天。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此 cmux 账号未受邀加入此聊天。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 cmux 계정은 이 채팅에 초대되지 않았습니다."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この cmux アカウントはこのチャットに招待されていません。"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ovaj cmux račun nije pozvan u ovaj chat."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne cmux-konto er ikke inviteret til denne chat."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Questo account cmux non è invitato a questa chat."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "គណនី cmux នេះមិនត្រូវបានអញ្ជើញឱ្យចូលការជជែកនេះទេ។"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne cmux-kontoen er ikke invitert til denne chatten."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "To konto cmux nie zostało zaproszone do tego czatu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Esta conta do cmux não foi convidada para este chat."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Этот аккаунт cmux не приглашён в этот чат."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "บัญชี cmux นี้ไม่ได้รับเชิญให้เข้าร่วมแชทนี้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu cmux hesabı bu sohbete davet edilmedi."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Цей обліковий запис cmux не запрошено до цього чату."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tài khoản cmux này không được mời vào cuộc trò chuyện này."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

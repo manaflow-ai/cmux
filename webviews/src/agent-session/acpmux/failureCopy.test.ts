@@ -8,7 +8,8 @@ import {
   isAuthenticationFailure,
   isTeamMachineSignIn,
   limitResetsAt,
-  offersOwnRoute,
+  isAccountLimit,
+  limitResetWords,
 } from "./failureCopy";
 import { currentLanguage, STRING_TABLES, type Translate, translatorFor } from "./i18n";
 import { resetTime } from "./usageLimits";
@@ -46,6 +47,24 @@ test("capacity, a quit agent and a typed exit keep their own kind", () => {
   expect(failureKind("503 Service Unavailable: stream disconnected")).toBe("rate-limited");
   expect(failureKind("agent process closed: broken pipe")).toBe("agent-exited");
   expect(failureKind("stream disconnected", undefined, "agent_exited")).toBe("agent-exited");
+});
+
+// cmux#57823: the sr2 gateway's own first-byte deadline is a 503 `overloaded_error`, and the card
+// said "rate limited or out of capacity" while the gateway, not the model, was stuck. It says what
+// happened, with the wait the gateway names; a deadline after the model was called stays capacity.
+test("the gateway's own deadline before calling the model is not a rate limit", () => {
+  const t = translatorFor("en");
+  const sr2 = { name: "Claude Code (sr2 internal)", harness: "claude-sr2" };
+  const stalled =
+    "API Error: 503 subrouter gateway had no response within 1m0s (before the upstream call); retry. This is a server-side issue, usually temporary \u2014 try again in a moment. If it persists, check your inference gateway (127.0.0.1:58741).";
+  expect(failureKind(stalled, sr2)).toBe("gateway-stalled");
+  expect(failureCopy(t, stalled, sr2)).toBe(
+    "Claude Code (sr2 internal)'s gateway did not answer within 1m0s and never reached the model. This is the gateway, not a rate limit: try again, or switch model.",
+  );
+  expect(failureRecovery("gateway-stalled")).toBe("retry");
+  const upstream =
+    "API Error: 503 subrouter gateway had no response within 1m30s (waiting for the upstream's response headers); retry";
+  expect(failureKind(upstream, sr2)).toBe("rate-limited");
 });
 
 // A team Cloud machine takes no personal login (CloudHarnessLoginDecision `guest-not-owner`, guest
@@ -127,10 +146,13 @@ test("a usage limit that names its reset says when it resets", () => {
   const claude = { name: "Claude Code", harness: "claude" };
   const at = (seconds: number) =>
     t("turn.failure.usageLimitResets", { harness: "Claude Code", time: resetTime(seconds, currentLanguage()) });
+  // Claude Code's used-up subscription is the account's own usage limit (cmux#55066), its reset a time.
   const subscription = "Claude AI usage limit reached|1764003600";
-  expect(failureKind(subscription, claude)).toBe("rate-limited");
+  expect(failureKind(subscription, claude)).toBe("usage-limit");
   expect(limitResetsAt(subscription)).toBe(1764003600);
-  expect(failureCopy(t, subscription, claude)).toBe(at(1764003600));
+  expect(failureCopy(t, subscription, claude)).toBe(
+    t("turn.failure.usageLimitUntil", { harness: "Claude Code", time: resetTime(1764003600, currentLanguage()) }),
+  );
   expect(failureCopy(t, subscription, claude)).not.toContain("in a moment");
   const included =
     'API Error: 402 Payment Required {"error":{"code":"usage.included_reached","message":"You used the AI amount included in your plan for this month.","type":"insufficient_quota","details":{"resets_at":"2026-12-01T00:00:00.000Z"}}}';
@@ -138,14 +160,14 @@ test("a usage limit that names its reset says when it resets", () => {
   expect(failureCopy(t, included, claude)).toBe(at(Date.parse("2026-12-01T00:00:00.000Z") / 1000));
   expect(limitResetsAt('{"error":{"message":"limit","resetsAt":1764003600}}')).toBe(1764003600);
   // No time named, or one that is not a time: the rate-limit sentence as before.
-  for (const message of [
-    "usage limit reached, resets in 3h",
-    "API Error: 529 overloaded_error",
-    '{"error":{"message":"usage limit reached","resets_at":"soon"}}',
-  ]) {
+  for (const message of ["API Error: 529 overloaded_error", '{"error":{"message":"rate limit","resets_at":"soon"}}']) {
     expect(limitResetsAt(message), message).toBeUndefined();
     expect(failureCopy(t, message, claude), message).toBe(t("turn.failure.rateLimited", { harness: "Claude Code" }));
   }
+  // A used-up usage limit whose reset is words, not a time, says them.
+  expect(failureCopy(t, "usage limit reached, resets in 3h", claude)).toBe(
+    t("turn.failure.usageLimitUntil", { harness: "Claude Code", time: "in 3h" }),
+  );
 });
 
 test("an own key's account out of credit reads as no-credit, not a rate limit", () => {
@@ -158,6 +180,9 @@ test("an own key's account out of credit reads as no-credit, not a rate limit", 
     '{"error":{"message":"Billing hard limit has been reached","type":"invalid_request_error","code":"billing_hard_limit_reached"}}',
     "AI_APICallError: Insufficient credits. Add more using https://example.com/credits",
     "402 Payment Required",
+    "HTTP 429: Insufficient balance",
+    "HTTP 429: No resource package",
+    'HTTP 429: {"error":{"code":"1113"}}',
   ]) {
     expect(failureKind(message, claude), message).toBe("no-credit");
     expect(failureCopy(t, message, claude), message).toBe(t("turn.failure.noCredit", { harness: "Claude Code" }));
@@ -165,7 +190,6 @@ test("an own key's account out of credit reads as no-credit, not a rate limit", 
   }
   expect(failureKind(undefined, claude, "insufficient_quota")).toBe("no-credit");
   expect(failureRecovery("no-credit")).toBe("switch-model");
-  expect(offersOwnRoute("no-credit", claude)).toBe(true);
   expect(t("turn.failure.noCredit", { harness: "Claude Code" })).toContain("Add credit and retry");
   // The cmux model router's free-tier and daily limits are 429s typed `insufficient_quota`
   // (backend inference/free.ts, Router.ts): they are rate limits, waiting helps.
@@ -213,13 +237,27 @@ test("an own key's account out of credit reads as no-credit, not a rate limit", 
     "429 Too Many Requests",
     "API Error: 429 rate_limit_error: This request would exceed your account's rate limit.",
     "unexpected status 429 Too Many Requests: Rate limit reached for gpt-5.5",
-    "usage limit reached, resets in 3h",
     "API Error: 529 overloaded_error",
   ])
     expect(failureKind(message, claude), message).toBe("rate-limited");
   expect(failureKind(undefined, claude, "rate_limited")).toBe("rate-limited");
   expect(failureKind("Not enough cmux credits for this call. Add credits or use your own API key.")).toBe(
     "needs-credits",
+  );
+});
+
+test("a removed model and a connection without access offer a model switch", () => {
+  const t = translatorFor("en");
+  expect(failureCopy(t, "Model not found (HTTP 404)")).toBe(t("turn.failure.modelNotFound"));
+  expect(failureCopy(t, "You do not have access to the model (HTTP 403)")).toBe(t("turn.failure.modelAccess"));
+  expect(failureKind("The model `x` does not exist or you do not have access to it.")).toBe("model-not-found");
+  expect(failureRecovery("model-not-found")).toBe("switch-model");
+});
+
+test("the first SuperGrok plan refusal names the required plans", () => {
+  const t = translatorFor("en");
+  expect(failureCopy(t, "HTTP 403", undefined, "subscription.no_supergrok_access")).toBe(
+    t("turn.failure.noSuperGrokAccess"),
   );
 });
 
@@ -368,7 +406,6 @@ test("the team's spending cap on a model call reads as its own kind, never the c
   // acpmux's typed reason alone would read as the key's credit: the message names the cap first.
   expect(failureKind(body, undefined, "insufficient_quota")).toBe("team-cap");
   expect(failureRecovery("team-cap")).toBe("switch-model");
-  expect(offersOwnRoute("team-cap")).toBe(false);
   const copy = failureCopy(translatorFor("en"), body, { name: "Claude Code" });
   expect(copy).toContain("spending cap");
   expect(copy).toContain("Ask an admin to raise it");
@@ -386,4 +423,61 @@ test("a provider's expired API key is a key failure, not a sign-in", () => {
   }
   // Claude Code's own sign-in still reads as its login.
   expect(failureKind("Invalid API key · Please run /login")).toBe("subscription-login");
+});
+
+// cmux#55066: a Cloud Claude chat whose account used up its weekly limit failed with Claude's bare
+// "You've hit your weekly limit · resets Nov 27, 7am (UTC)", which no rule read: the card said only
+// that the turn failed. It names the agent's account, the reset, and the two ways on; Retry, which
+// fails the same way until then, never leads.
+test("an account out of usage or turned off says so, with its reset and the ways on", () => {
+  const t = translatorFor("en");
+  const claude = { name: "Claude Code", harness: "claude", hostKind: "cloud" as const };
+  const weekly = "You've hit your weekly limit · resets Nov 27, 7am (UTC)";
+  expect(failureKind(weekly, claude)).toBe("usage-limit");
+  expect(limitResetWords(weekly)).toBe("Nov 27, 7am (UTC)");
+  expect(failureCopy(t, weekly, claude)).toBe(
+    t("turn.failure.usageLimitUntil", { harness: "Claude Code", time: "Nov 27, 7am (UTC)" }),
+  );
+  expect(failureCopy(t, weekly, claude)).toContain(
+    "Claude Code's account hit its usage limit; it resets Nov 27, 7am (UTC)",
+  );
+  // As acpmux wraps it, and as a session limit with no date.
+  expect(limitResetWords(`(turn failed: ${weekly})`)).toBe("Nov 27, 7am (UTC)");
+  expect(limitResetWords("You've hit your session limit · resets 3am")).toBe("3am");
+  expect(failureKind("You've hit your limit · resets 3pm", claude)).toBe("usage-limit");
+  // A rate or token limit is not the account's allowance.
+  expect(failureKind("You've hit your rate limit, slow down", claude)).not.toBe("usage-limit");
+  expect(failureKind("You've hit your context token limit", claude)).not.toBe("usage-limit");
+  // Codex's own words.
+  const codex = { name: "Codex", harness: "codex" };
+  const codexLimit =
+    "You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 6:43 PM.";
+  expect(failureKind(codexLimit, codex)).toBe("usage-limit");
+  expect(failureCopy(t, codexLimit, codex)).toBe(
+    t("turn.failure.usageLimitUntil", { harness: "Codex", time: "6:43 PM" }),
+  );
+  expect(failureCopy(t, "Claude AI usage limit reached", claude)).toBe(
+    t("turn.failure.usageLimit", { harness: "Claude Code" }),
+  );
+  // acpmux's typed kinds (recovery.rs).
+  expect(failureKind("anything", claude, "usage.limit")).toBe("usage-limit");
+  expect(failureKind("anything", claude, "account.disabled")).toBe("account-disabled");
+  // A turned-off account.
+  for (const message of ["API Error: 400 This organization has been disabled.", "Your account has been suspended."])
+    expect(failureKind(message, claude), message).toBe("account-disabled");
+  expect(failureCopy(t, "This organization has been disabled.", claude)).toBe(
+    t("turn.failure.accountDisabled", { harness: "Claude Code" }),
+  );
+  for (const kind of ["usage-limit", "account-disabled"] as const) {
+    expect(isAccountLimit(kind)).toBe(true);
+    expect(failureRecovery(kind)).toBe("switch-model");
+  }
+  // The router's own limits stay its rate limits.
+  expect(failureKind('{"error":{"code":"usage.included_reached","message":"usage limit reached"}}', claude)).toBe(
+    "rate-limited",
+  );
+  // A moment's rate limit is not an account out of usage.
+  expect(failureKind("API Error: 429 rate_limit_error: This request would exceed your account's rate limit.")).toBe(
+    "rate-limited",
+  );
 });

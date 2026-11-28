@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use serde_json::json;
 
 use super::{
-    AfterLostStart, Request, apply, ended, install_target, lost_start_began, machine_is_older,
-    parse, route_args,
+    AfterLostStart, Failed, Request, apply, ended, install_target, lost_start_began,
+    machine_is_older, parse, retry_busy, route_args,
 };
 
 fn args(line: &str) -> Vec<String> {
@@ -142,4 +142,23 @@ fn the_in_place_flag_goes_only_with_the_explicit_ask_on_the_store_route() {
     for (to_bundled, if_older) in [(true, false), (true, true), (false, false)] {
         assert!(route_args(apply::Route::Work, &request(to_bundled, if_older)).is_empty());
     }
+}
+
+#[test]
+fn a_busy_machine_is_waited_for_and_other_failures_end_at_once() {
+    let mut tries = 0;
+    let out = retry_busy(std::time::Duration::from_secs(30), || {
+        tries += 1;
+        if tries < 2 { Err(Failed::new("machine_update_busy", "another update")) } else { Ok(7) }
+    });
+    assert_eq!(out.ok(), Some(7));
+    assert_eq!(tries, 2);
+
+    let mut tries = 0;
+    let out: Result<(), Failed> = retry_busy(std::time::Duration::from_secs(30), || {
+        tries += 1;
+        Err(Failed::new("machine_update_failed", "no"))
+    });
+    assert_eq!(out.err().map(|failed| failed.code), Some("machine_update_failed"));
+    assert_eq!(tries, 1);
 }

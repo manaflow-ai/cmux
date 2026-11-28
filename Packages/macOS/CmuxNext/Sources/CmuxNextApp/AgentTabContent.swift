@@ -26,12 +26,10 @@ struct AgentTabContent {
         let focused = pane.workspace?.focus.state.pane
         // A Mac tab that shows a Cloud chat in place (CloudFrontedChats) draws that chat's page, and its files and machine are the chat's.
         let front = services.agentTabs.frontedChats.front(of: AgentTabKey(machine: pane.daemon.machineID, key: key)), chat = front?.key ?? key, machine = front?.machine ?? pane.daemon.machineID
-        let deferred = services.agentTabs.deferAtLaunch(
+        let deferred = (services.agentTabs.existingView(chat, machine: machine) == nil && pane.defersPageUntilFrame(key)) || services.agentTabs.deferAtLaunch( // no page before the first frame: its last frame until then
             chat, machine: machine, reveal: services.launchReveal, focusedPane: focused, pane: pane.paneKey,
             focusedDraws: focused.flatMap { key in pane.workspace?.panes.values.first { $0.paneKey == key } }?.showsLiveTerminal ?? false
-        ) { [weak pane] in
-            if let pane, pane.currentTabKey == key { pane.showSelected() }
-        }
+        ) { [weak pane] in if let pane, pane.currentTabKey == key { pane.showSelected() } }
         if deferred {
             drawLastPage(key, until: nil)
             return nil
@@ -62,7 +60,7 @@ struct AgentTabContent {
             return pane.services.registry.openAgentPreview(url, pane: pane.paneKey, machineID: machine)
         }; view.model.onOpenCloudPreview = { [weak pane, weak view] port in guard let pane, let view, let remote = pane.services.agentTabs.remoteMachineID(of: chat, machine: machine), let session = pane.services.machines.session(remote) else { return false }; let inventory = try await CloudHandlers.refreshPreviews(session, CloudPortNames(session, port: port), AppActionContext(services: pane.services)); guard let preview = inventory.previews.first(where: { $0.port == port }), pane.services.agentTabs.remoteMachineID(of: chat, machine: machine) == remote else { return false }; return view.model.onOpenPreview?(try preview.browserURL(path: "/")) ?? false }
         // A Cloud chat's Claude sign-in page, in a tab whose localhost is the chat's machine.
-        view.model.onOpenSignInOnMachine = { [weak pane] url in pane.flatMap { ChatMachineSignInTab.opener(for: url, agentTab: chat, from: $0) } }
+        view.model.onOpenSignInOnMachine = { [weak pane] url in pane.flatMap { $0.services.chatSignIn.opener(for: url, callbackPort: AgentPaneSignInPage.callbackPort(url), agentTab: chat, from: $0) } }
         if !view.model.hasPainted { drawLastPage(key, until: view) }
         // A hold that gives up on the page before it paints (a workspace switch's two frames) asks for its picture again.
         view.drawsLastPage = { [weak pane, weak view] in guard let pane, let view, pane.currentTabKey == key else { return false }; if pane.view.launchImageView == nil { AgentTabContent(pane: pane).drawLastPage(key, until: view) }; return pane.view.launchImageView != nil }
@@ -91,7 +89,7 @@ struct AgentTabContent {
             images.whenReadEnds(images.slot(key, machine: pane.daemon.machineID)) { [weak pane] in guard let pane, pane.currentTabKey == key, pane.view.launchImageView == nil else { return }; let view = pane.services.agentTabs.existingView(key, machine: pane.daemon.machineID); if view?.model.hasPainted != true { AgentTabContent(pane: pane).drawLastPage(key, until: view) } }
         }
         guard let imageView = paneView.launchImageView, let view else { return }
-        view.standOverPicture(); view.holdChromiumPageUntilPainted() // a Chromium New Tab page draws over the picture only whole, once it painted
+        view.standOverPicture(); view.holdChromiumPageUntilPainted(rebuilt: pane.services.agentTabs.rebuiltAway.remove(key) != nil) // a Chromium New Tab page, or a chat built again for its renderer, draws over the picture only whole, once it painted
         // The image's limit takes it only once the page has drawn. A chat read at launch can take
         // longer than that limit (acpmux's attach, and the page holds its first frame until the
         // chat is read), and the frame it would hand the pane to is empty.

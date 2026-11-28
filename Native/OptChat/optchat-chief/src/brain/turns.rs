@@ -28,7 +28,9 @@ use optchat_host::{Appended, NewMessage};
 /// did not answer under load, a 5xx, an exhausted route) is a quiet wait,
 /// logged and retried by the host: no notice. It said "a request error"
 /// for such timeouts (https://github.com/manaflow-ai/cmux/issues/36026).
-pub fn stuck_notice(status: &optchat_host::Status) -> Option<String> {
+/// `turn_harness` is the harness the Chief's turns run on: a line stuck
+/// because that one is not installed is the Set Up card's to show.
+pub fn stuck_notice(status: &optchat_host::Status, turn_harness: &str) -> Option<String> {
     let error = |node: &optchat_core::NodeId| {
         status
             .failures
@@ -36,9 +38,11 @@ pub fn stuck_notice(status: &optchat_host::Status) -> Option<String> {
             .find(|f| f.node == *node)
             .map(|f| f.error.as_str())
     };
+    // The turns' own agent not installed is the Set Up card's to say, not a memory notice.
     let lasting = |e: &str| {
-        e.starts_with(optchat_host::SETUP_ERROR)
-            || optchat_host::error_class(e).is_some_and(|c| c.permanent())
+        !crate::harness_gate::turn_agent_missing(e, turn_harness)
+            && (e.starts_with(optchat_host::SETUP_ERROR)
+                || optchat_host::error_class(e).is_some_and(|c| c.permanent()))
     };
     let node = status
         .stuck
@@ -112,10 +116,11 @@ impl Brain {
             self.interrupt.clone(),
             self.marker_refused.clone(),
         );
-        let (ttl_refused, ttl_stale, session_dir) = (
+        let (ttl_refused, ttl_stale, session_dir, turn_harness) = (
             self.ttl_refused.clone(),
             self.ttl_stale.clone(),
             self.settings.session_dir.clone(),
+            self.turn_harness().to_owned(),
         );
         let spawned = std::thread::Builder::new()
             .name("turn".into())
@@ -170,7 +175,7 @@ impl Brain {
                     // retracted once no such line is left, even while
                     // another line waits out timeouts (issue 36026).
                     let status = chat.status();
-                    let notice = stuck_notice(&status);
+                    let notice = stuck_notice(&status, &turn_harness);
                     let cleared = notice.is_none();
                     let _ = tx.send(Input::CompactorStuck(notice));
                     // Every stuck node built: the compactor works, which
@@ -190,6 +195,7 @@ impl Brain {
                 let Ok(Some(start)) = start.recv() else {
                     return;
                 };
+                let engine = start.engine_override.clone().unwrap_or(engine);
                 let outcome = match &engine {
                     Engine::Acpmux => {
                         let progress = |session_id: &str, after: u64| {
@@ -398,7 +404,21 @@ impl Brain {
         let family = self.family_of(&engine.harness);
         // The cached layout on a Claude harness whose acpmux takes a preset
         // system prompt; else the view and the messages as blocks.
-        let (cached, plain_preset) = self.harness_presets(&engine.harness, family);
+        let engine_override = self.gateway.as_ref().and_then(|gateway| {
+            gateway.refresh();
+            matches!(
+                gateway.route(),
+                crate::gateway::GatewayRoute::DirectAnthropic
+            )
+            .then(|| self.fallback_engine.clone())
+            .flatten()
+        });
+        self.turn_gateway_fallback = engine_override.is_some();
+        let (cached, plain_preset) = if engine_override.is_some() {
+            (None, None)
+        } else {
+            self.harness_presets(&engine.harness, family)
+        };
         let marker = self.marker_refused.take();
         let ttl = self.turn_cache_ttl();
         // Our marks (spec 5a.2): the `<chat>` header, the frozen view's end and
@@ -682,22 +702,26 @@ impl Brain {
             ),
         };
         // The kept session, when this turn has the same session shape and
-        // keeps the frozen view: only what it has not read goes to it. The
+        // keeps the frozen view's prefix: only what it has not read goes to it. The
         // policy is part of the shape: an approve-all session never serves a
         // turn another person started. An `ask` one serves only `ask` turns:
         // one that carries another person's text, or a Manual owner turn,
         // which sets `default` on it again before its prompt (turn.rs).
+        let view_identity = view_identity(&input.frozen);
+        let kept = self.kept.take();
+        let view_prefix = kept.as_ref().map_or(view_identity.as_slice(), |k| {
+            common_view_prefix(&k.view_identity, &view_identity)
+        });
         let sig = keep.then(|| {
             keep_sig(
                 &engine,
                 &preset,
                 system_prompt.as_deref(),
-                &view.text,
+                view_prefix,
                 ttl,
                 &policy,
             )
         });
-        let kept = self.kept.take();
         let stale = self
             .state
             .kept_session
@@ -705,10 +729,7 @@ impl Brain {
             .filter(|s| kept.as_ref().is_none_or(|k| &k.kept.session != s));
         let reuse = match (&kept, sig) {
             (Some(k), Some(sig))
-                if k.sig == sig
-                    && !input.rerendered
-                    && first_new >= k.seen_end
-                    && k.tokens < KEEP_MAX_TOKENS =>
+                if k.sig == sig && first_new >= k.seen_end && k.tokens < KEEP_MAX_TOKENS =>
             {
                 crate::prompt::delta_from(&input.delta, k.seen_end).map(|text| {
                     let mut blocks = vec![serde_json::json!({"type": "text", "text": text})];
@@ -743,7 +764,7 @@ impl Brain {
             _ => None,
         }
         .or(stale);
-        self.keep_pending = sig.map(|sig| (key.clone(), sig));
+        self.keep_pending = sig.map(|sig| (key.clone(), sig, view_identity));
         let image_count = image_blocks.len();
         if self.settings.turn_preset.is_some() && family == crate::acpmux::Family::Claude {
             // The system prompt carries the instructions in the cached
@@ -799,6 +820,21 @@ impl Brain {
         }
         if let Some(block) = &home {
             layout["home_workspace"] = serde_json::json!(block);
+        }
+        // The rest of the tail, in the order it was sent (open items and held
+        // news after the subagents-at-work line, the turn-start digest and
+        // the turn checks last), so the inspector sends the same bytes again.
+        if let Some(block) = &open_items {
+            layout["open_items"] = serde_json::json!(block);
+        }
+        if let Some(block) = &held_news {
+            layout["held_news"] = serde_json::json!(block);
+        }
+        if let Some(block) = &turn_start {
+            layout["turn_start"] = serde_json::json!(block);
+        }
+        if let Some(block) = &checks {
+            layout["turn_checks"] = serde_json::json!(block);
         }
         if keep {
             layout["kept"] = serde_json::json!({
@@ -872,6 +908,8 @@ impl Brain {
             keep,
             retire,
             permission_mode: permission_mode.map(str::to_owned),
+            gateway: self.gateway.clone(),
+            engine_override,
         })
     }
 
@@ -1350,11 +1388,13 @@ impl Brain {
         // Who ended a cancelled turn: the Chief itself (`stop`, `sleep`, after
         // it replied by send), the owner, or neither (a lost session).
         let by_chief = self.tool_stopped || self.denial_stopped.is_some();
+        // An accepted tool stop owns the outcome even if the harness's
+        // normal completion wins the race with the cancellation request.
         let status = if superseded {
             "superseded"
         } else if outcome.refused && outcome.reply.is_none() {
             "refused"
-        } else if outcome.cancelled && by_chief {
+        } else if by_chief {
             "stopped"
         } else if outcome.cancelled && self.owner_stopped {
             "owner_stopped"
@@ -1509,6 +1549,25 @@ impl Brain {
 
     pub(super) fn turn_ended(&mut self, key: &str, mut outcome: TurnOutcome) {
         self.price_unpriced(&mut outcome);
+        let claude_turn = self
+            .turn_engine
+            .as_ref()
+            .is_some_and(|engine| self.family_of(&engine.harness) == crate::acpmux::Family::Claude);
+        if claude_turn
+            && !self.turn_gateway_fallback
+            && outcome
+                .error
+                .as_deref()
+                .is_some_and(crate::gateway::is_refusal)
+            && let Some(gateway) = &self.gateway
+        {
+            let _ = gateway.record_refusal(key, outcome.error.as_deref().unwrap_or_default());
+        }
+        if let Some(gateway) = &self.gateway
+            && let Some(text) = gateway.take_notice()
+        {
+            self.notice("gateway-wide".into(), text);
+        }
         // A failed turn on an open-source brain is cut and runs again on the default harness
         // (turn_engine_choice), so the person's message still gets its answer.
         // A lost acpmux link is no fault of the brain: that cut runs again on the brain.
@@ -2677,6 +2736,9 @@ pub(super) struct KeptTurn {
     pub kept: turn::Kept,
     /// The session's shape (`keep_sig`): a turn of another shape starts fresh.
     pub sig: u64,
+    /// The stable identity of the frozen view's parts at the end of the turn.
+    /// A later view may append parts without changing this prefix.
+    pub view_identity: Vec<(optchat_core::NodeId, bool)>,
     /// The log length when the kept turn ended: the session has read
     /// everything before it.
     pub seen_end: u64,
@@ -2702,13 +2764,139 @@ const KEEP_MAX_TOKENS: u64 = 160_000;
 /// Code's caching off (a pooled process started for our marks): not kept.
 const UNCACHED_LIMIT: u64 = 10_000;
 
+type ViewPart = (optchat_core::NodeId, bool);
+
+/// The stable identity of a frozen view. Node ids do not change when a view is
+/// rebuilt, while the unbuilt bit distinguishes a placeholder from its built
+/// content.
+fn view_identity(frozen: &optchat_core::Frozen) -> Vec<ViewPart> {
+    frozen
+        .parts
+        .iter()
+        .map(|part| (*part, frozen.unbuilt.contains(part)))
+        .collect()
+}
+
+fn common_view_prefix<'a>(previous: &[ViewPart], current: &'a [ViewPart]) -> &'a [ViewPart] {
+    let len = previous
+        .iter()
+        .zip(current)
+        .take_while(|(a, b)| a == b)
+        .count();
+    &current[..len]
+}
+
+#[cfg(test)]
+mod keep_sig_tests {
+    use super::{common_view_prefix, keep_sig};
+    use crate::engine::TurnEngine;
+    use crate::prompt::CacheTtl;
+    use optchat_core::NodeId;
+
+    fn part(n: u64) -> (NodeId, bool) {
+        (NodeId::new(1, n), false)
+    }
+
+    #[test]
+    fn a_rebuilt_view_keeps_the_previous_prefix_when_only_the_tail_changes() {
+        let previous = vec![part(1), part(2)];
+        let current = vec![part(1), part(2), part(3)];
+        assert_eq!(common_view_prefix(&previous, &current), previous);
+    }
+
+    #[test]
+    fn a_changed_view_prefix_is_shorter_and_cannot_keep_the_session_shape() {
+        let previous = vec![part(1), part(2)];
+        let current = vec![part(1), part(9), part(3)];
+        assert_eq!(common_view_prefix(&previous, &current), vec![part(1)]);
+    }
+
+    #[test]
+    fn a_changed_view_prefix_changes_the_keep_signature() {
+        let engine = TurnEngine {
+            harness: "claude-sr".into(),
+            model: Some("model".into()),
+            effort: Some("medium".into()),
+            speed: None,
+        };
+        let preset = Some("preset".into());
+        let previous = vec![part(1), part(2)];
+        let appended = vec![part(1), part(2), part(3)];
+        let changed = vec![part(1), part(9), part(3)];
+        let same = |view: &[super::ViewPart]| {
+            keep_sig(
+                &engine,
+                &preset,
+                Some("system"),
+                view,
+                CacheTtl::OneHour,
+                "approve-all",
+            )
+        };
+        assert_eq!(
+            same(&previous),
+            same(common_view_prefix(&previous, &appended))
+        );
+        assert_ne!(
+            same(&previous),
+            same(common_view_prefix(&previous, &changed))
+        );
+    }
+
+    #[test]
+    fn a_part_rebuilt_unbuilt_by_compaction_shortens_the_prefix() {
+        // Compaction rewrites a part's content; its unbuilt bit flips, so the
+        // identity no longer matches the kept view and the prefix stops there.
+        let previous = vec![part(1), part(2), part(3)];
+        let compacted = vec![part(1), (NodeId::new(1, 2), true), part(3)];
+        assert_eq!(common_view_prefix(&previous, &compacted), vec![part(1)]);
+    }
+
+    #[test]
+    fn a_changed_system_prompt_or_preset_retires_the_kept_session() {
+        let engine = TurnEngine {
+            harness: "claude-sr".into(),
+            model: Some("model".into()),
+            effort: Some("medium".into()),
+            speed: None,
+        };
+        let view = vec![part(1), part(2)];
+        let base = keep_sig(
+            &engine,
+            &Some("preset".into()),
+            Some("system"),
+            &view,
+            CacheTtl::OneHour,
+            "approve-all",
+        );
+        let other_system = keep_sig(
+            &engine,
+            &Some("preset".into()),
+            Some("system changed"),
+            &view,
+            CacheTtl::OneHour,
+            "approve-all",
+        );
+        let other_preset = keep_sig(
+            &engine,
+            &Some("other-preset".into()),
+            Some("system"),
+            &view,
+            CacheTtl::OneHour,
+            "approve-all",
+        );
+        assert_ne!(base, other_system, "a system prompt change must retire");
+        assert_ne!(base, other_preset, "a preset change must retire");
+    }
+}
+
 /// The shape of a turn session: a kept one serves only a turn of the same
-/// harness, model, effort, preset, system prompt, frozen view and TTL.
+/// harness, model, effort, preset, system prompt, view prefix and TTL.
 fn keep_sig(
     engine: &crate::engine::TurnEngine,
     preset: &Option<String>,
     system: Option<&str>,
-    view: &str,
+    view_prefix: &[ViewPart],
     ttl: CacheTtl,
     policy: &str,
 ) -> u64 {
@@ -2720,7 +2908,7 @@ fn keep_sig(
         &engine.effort,
         preset,
         system,
-        view,
+        view_prefix,
         ttl.as_str(),
         policy,
     )
@@ -2733,7 +2921,7 @@ impl Brain {
     /// it should not serve one (its first request ran uncached, or its
     /// context is too large).
     fn keep_turn_session(&mut self, key: &str, outcome: &mut TurnOutcome) {
-        let pending = self.keep_pending.take().filter(|(k, _)| k == key);
+        let pending = self.keep_pending.take().filter(|(k, _, _)| k == key);
         let Some(kept) = outcome.kept.take() else {
             return;
         };
@@ -2768,11 +2956,14 @@ impl Brain {
         // ending the session would kill that work and its promised report.
         let moved = self.moved.as_deref() == Some(key);
         match pending {
-            Some((_, sig)) if !uncached && !steer_left && tokens < KEEP_MAX_TOKENS => {
+            Some((_, sig, view_identity))
+                if !uncached && !steer_left && tokens < KEEP_MAX_TOKENS =>
+            {
                 self.state.kept_session = Some(kept.session.clone());
                 self.kept = Some(KeptTurn {
                     kept,
                     sig,
+                    view_identity,
                     seen_end: self.chat.status().messages,
                     tokens,
                     conversation,

@@ -1,11 +1,29 @@
 use super::*;
 
 fn proc(pid: u32, comm: &str, ticks: u64) -> ProcStat {
-    ProcStat { pid, comm: comm.to_owned(), start: 1_000 + u64::from(pid), ticks, kthread: false }
+    ProcStat {
+        pid,
+        ppid: 1,
+        comm: comm.to_owned(),
+        start: 1_000 + u64::from(pid),
+        ticks,
+        kthread: false,
+    }
+}
+
+fn child(pid: u32, ppid: u32, comm: &str, ticks: u64) -> ProcStat {
+    ProcStat { ppid, ..proc(pid, comm, ticks) }
 }
 
 fn snap(mono_ms: u64, procs: Vec<ProcStat>) -> Snapshot {
-    Snapshot { mono_ms, clk_tck: 100, procs, listeners: Vec::new(), timers: Vec::new() }
+    Snapshot {
+        mono_ms,
+        clk_tck: 100,
+        procs,
+        listeners: Vec::new(),
+        timers: Vec::new(),
+        net_bytes: None,
+    }
 }
 
 #[test]
@@ -17,6 +35,7 @@ fn stat_reads_comm_with_spaces_and_parens_ticks_and_kernel_threads() {
     assert_eq!(p.comm, "a (b) c");
     assert_eq!(p.ticks, 40, "utime + stime + reaped children's");
     assert_eq!(p.start, 5555);
+    assert_eq!(p.ppid, 1);
     assert!(!p.kthread);
     let kthread = "2 (kthreadd) S 0 0 0 0 -1 2129984 0 0 0 0 0 0 0 0 20 0 1 0 1 0 0";
     assert!(parse_stat(2, kthread).unwrap().kthread);
@@ -129,6 +148,7 @@ fn user_timers_count_and_the_systems_do_not() {
     s.timers = [
         "systemd:apt-daily.timer",
         "systemd:cmux-machine-health.timer",
+        "systemd:cmux-chief-update.timer",
         "cron.d:e2scrub_all",
         "cron:cmux",
         "cron.d:nightly-backup",
@@ -301,4 +321,94 @@ fn acpmux_running_reads_the_process_list() {
     assert!(snap(0, vec![proc(1, "systemd", 0), proc(7, "acpmux", 0)]).acpmux_running());
     let kthread = ProcStat { kthread: true, ..proc(9, "acpmux", 0) };
     assert!(!snap(0, vec![kthread]).acpmux_running());
+}
+
+const NET_DEV: &str = "Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo: 9000000    100    0    0    0     0          0         0  9000000     100    0    0    0     0       0          0
+  eth0: 1000    10    0    0    0     0          0         0     200      2    0    0    0     0       0          0
+tailscale0: 30    1    0    0    0     0          0         0     40      1    0    0    0     0       0          0
+";
+
+#[test]
+fn net_dev_sums_every_interface_but_loopback() {
+    assert_eq!(parse_net_dev(NET_DEV), Some(1000 + 200 + 30 + 40));
+    assert_eq!(parse_net_dev("Inter-|\n face |\n"), None);
+}
+
+#[test]
+fn a_download_reads_busy_and_a_trickle_does_not() {
+    let quiet = |ms, bytes| Snapshot { net_bytes: Some(bytes), ..snap(ms, Vec::new()) };
+    let mut t = Tracker::default();
+    assert!(t.observe(&quiet(0, 1_000_000), 1).is_none());
+    // 1.7 Mbit/s for 30 s: about 6.4 MB, no process using CPU.
+    let w = t.observe(&quiet(30_000, 1_000_000 + 6_375_000), 2).unwrap();
+    assert_eq!(w.busy_processes, vec![NETWORK_BUSY.to_owned()]);
+    assert!(w.busy());
+    // Keepalives: well under the line over the next 30 s.
+    let w = t.observe(&quiet(60_000, 7_375_000 + NET_BUSY_BYTES_PER_S), 3).unwrap();
+    assert!(w.busy_processes.is_empty());
+    // A counter that went down is no transfer.
+    let w = t.observe(&quiet(90_000, 10), 4).unwrap();
+    assert!(w.busy_processes.is_empty());
+    // No /proc/net/dev: the network never counts.
+    let none = |ms| Snapshot { net_bytes: None, ..snap(ms, Vec::new()) };
+    assert!(t.observe(&none(120_000), 5).unwrap().busy_processes.is_empty());
+}
+
+/// A chat's agent (acpmux, its adapter, the agent) idling above CPU_BUSY_PERCENT does not make
+/// the machine busy; the same agent in a terminal, under a shell or under another agent does, and
+/// so does what a chat's agent started (a build). The fleet's idle machines read busy from `claude`
+/// and `opencode` alone every 3 to 5 minutes (2026-11-27, 109 of 211 kept lines).
+#[test]
+fn a_chats_own_agent_is_judged_by_its_chat_not_its_cpu() {
+    let busy_after = |procs: Vec<ProcStat>| {
+        let mut t = Tracker::default();
+        let idle: Vec<ProcStat> =
+            procs.iter().map(|p| ProcStat { ticks: 0, ..p.clone() }).collect();
+        t.observe(&snap(0, idle), 1_000);
+        t.observe(&snap(30_000, procs), 31_000).unwrap().busy_processes
+    };
+    let chat = || {
+        vec![
+            proc(1, "systemd", 0),
+            child(10, 1, "acpmux", 0),
+            child(11, 10, "node", 0),
+            child(12, 11, "claude", 500),
+            child(13, 10, "opencode", 500),
+        ]
+    };
+    assert!(busy_after(chat()).is_empty(), "the chat says whether its agent works");
+
+    let mut build = chat();
+    build.push(child(14, 12, "bash", 0));
+    build.push(child(15, 14, "cargo", 500));
+    assert_eq!(busy_after(build), vec!["cargo".to_owned()], "what the agent runs still counts");
+
+    let terminal = vec![
+        proc(1, "systemd", 0),
+        child(10, 1, "acpmux", 0),
+        child(20, 10, "__terminal_host", 0),
+        child(21, 20, "bash", 0),
+        child(22, 21, "claude", 500),
+    ];
+    assert_eq!(busy_after(terminal), vec!["claude".to_owned()], "an agent in a terminal counts");
+
+    let scripted = vec![proc(1, "systemd", 0), child(30, 1, "sh", 0), child(31, 30, "codex", 500)];
+    assert_eq!(busy_after(scripted), vec!["codex".to_owned()], "an agent no chat started counts");
+
+    let nested = vec![
+        proc(1, "systemd", 0),
+        child(10, 1, "acpmux", 0),
+        child(12, 10, "claude", 0),
+        child(40, 12, "claude", 500),
+    ];
+    assert_eq!(
+        busy_after(nested),
+        vec!["claude".to_owned()],
+        "an agent another agent started counts"
+    );
+
+    let orphan = vec![proc(1, "systemd", 0), child(50, 999, "claude", 500)];
+    assert_eq!(busy_after(orphan), vec!["claude".to_owned()], "a parent not found is not a chat");
 }

@@ -15,25 +15,24 @@ use serde_json::Value;
 /// (`CmuxConfigFile.overrideKey`), so test launches never read the user's.
 pub const CONFIG_OVERRIDE: &str = "CMUX_NEXT_CONFIG_FILE";
 
-/// The app's settings file (`CmuxConfigFile.defaultURL`), under the home.
-const NEXT_FILE: &str = ".config/cmux/cmux-next.json";
-/// Classic cmux's file, which the app copies to [`NEXT_FILE`] at its first
-/// launch.
-const CLASSIC_FILE: &str = ".config/cmux/cmux.json";
+/// The app's settings file (`CmuxConfigFile.defaultURL`), under the home:
+/// `.config/cmux/cmux-next.json`, in `.config/cmux-next/` on macOS
+/// (`cmux_config::location`).
+fn next_file(home: &Path) -> PathBuf {
+    home.join(".config").join(cmux_config::NEXT_DIR).join(cmux_config::location::NEXT_FILE_NAME)
+}
 
 /// The settings file the app reads and writes: `CMUX_NEXT_CONFIG_FILE`,
-/// else `<home>/.config/cmux/cmux-next.json`; while that file does not exist
-/// yet (the app never ran), classic `cmux.json`, which the app would seed it
-/// from.
+/// else `<home>/.config/cmux/cmux-next.json` (`cmux-next/` on macOS). Classic
+/// is imported by the app only after the person consents.
 pub fn config_path() -> PathBuf {
     let env = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty());
     if env(CONFIG_OVERRIDE).is_some() {
         return path_from(env);
     }
+    cmux_config::location::migrate_legacy_once();
     let home = crate::platform::home_dir().unwrap_or_default();
-    let next = home.join(NEXT_FILE);
-    let classic = home.join(CLASSIC_FILE);
-    if !next.exists() && classic.exists() { classic } else { next }
+    next_file(&home)
 }
 
 /// `CMUX_NEXT_CONFIG_FILE` (a leading `~` is the home), else the app's file
@@ -49,7 +48,7 @@ pub fn path_from(env: impl Fn(&str) -> Option<std::ffi::OsString>) -> PathBuf {
         return path;
     }
     let home = env("HOME").map(PathBuf::from).unwrap_or_default();
-    home.join(NEXT_FILE)
+    next_file(&home)
 }
 
 /// Settings-file `workspaces.newPlacement`: where a new workspace goes in
@@ -500,94 +499,8 @@ impl AgentsCmuxMcp {
     }
 }
 
-/// JSONC to JSON: drops `//` and `/* */` comments, then trailing commas,
-/// outside strings (the dialect the app's `JSONC` parser reads).
-pub fn strip_jsonc(text: &str) -> String {
-    drop_trailing_commas(&drop_comments(text))
-}
-
-/// The text without comments; strings are copied unchanged.
-fn drop_comments(text: &str) -> String {
-    let bytes = text.as_bytes();
-    let mut output = String::with_capacity(text.len());
-    let (mut index, mut start, mut in_string) = (0, 0, false);
-    while index < bytes.len() {
-        let byte = bytes[index];
-        if in_string {
-            match byte {
-                b'\\' => index += 2,
-                b'"' => {
-                    in_string = false;
-                    index += 1;
-                }
-                _ => index += 1,
-            }
-            continue;
-        }
-        match (byte, bytes.get(index + 1)) {
-            (b'"', _) => {
-                in_string = true;
-                index += 1;
-            }
-            (b'/', Some(b'/')) => {
-                output.push_str(&text[start..index]);
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-                start = index;
-            }
-            (b'/', Some(b'*')) => {
-                output.push_str(&text[start..index]);
-                index += 2;
-                while index < bytes.len()
-                    && !(bytes[index] == b'*' && bytes.get(index + 1) == Some(&b'/'))
-                {
-                    index += 1;
-                }
-                index = (index + 2).min(bytes.len());
-                start = index;
-            }
-            _ => index += 1,
-        }
-    }
-    output.push_str(&text[start.min(bytes.len())..]);
-    output
-}
-
-/// Removes a comma whose next non-space byte closes an object or array.
-fn drop_trailing_commas(text: &str) -> String {
-    let bytes = text.as_bytes();
-    let mut output = String::with_capacity(text.len());
-    let (mut index, mut start, mut in_string) = (0, 0, false);
-    while index < bytes.len() {
-        let byte = bytes[index];
-        if in_string {
-            match byte {
-                b'\\' => index += 2,
-                b'"' => {
-                    in_string = false;
-                    index += 1;
-                }
-                _ => index += 1,
-            }
-            continue;
-        }
-        if byte == b'"' {
-            in_string = true;
-        } else if byte == b','
-            && matches!(
-                bytes[index + 1..].iter().find(|byte| !byte.is_ascii_whitespace()),
-                Some(b'}' | b']')
-            )
-        {
-            output.push_str(&text[start..index]);
-            start = index + 1;
-        }
-        index += 1;
-    }
-    output.push_str(&text[start.min(bytes.len())..]);
-    output
-}
+/// JSONC to JSON (`cmux_json::strip_jsonc`, shared with the phone host).
+pub use cmux_json::strip_jsonc;
 
 #[cfg(test)]
 mod tests {

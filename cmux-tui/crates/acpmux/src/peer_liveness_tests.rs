@@ -123,6 +123,42 @@ async fn a_silent_peer_still_loses_the_link_within_8_s() {
     assert!(started.elapsed() <= Duration::from_secs(8), "{:?}", started.elapsed());
 }
 
+/// A 5G/LTE handoff: the peer's last frame came 0.5 s after the link opened, then nothing. Its
+/// link was dropped at the first ping tick past the 6 s budget, open + 8 s, 1.5 s after the
+/// budget ran out; most of a direct handoff's 8 s was this wait. It is dropped at the budget.
+#[tokio::test(start_paused = true)]
+async fn a_dead_link_drops_at_its_budget_not_the_next_ping_tick() {
+    use futures_util::SinkExt;
+    use tokio_tungstenite::tungstenite::Message as Frame;
+    let (tx, _rx) = mpsc::channel(8);
+    let mut peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+    Arc::get_mut(&mut peer).expect("only this test holds it").timings.handshake =
+        Duration::from_secs(3_600);
+    let (ours, theirs) = tokio::io::duplex(1 << 16);
+    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+    let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let link = peer.clone();
+    let opened = tokio::time::Instant::now();
+    let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    server.send(Frame::Pong(Vec::new().into())).await.unwrap();
+    let ended = tokio::time::timeout(Duration::from_secs(10), serving)
+        .await
+        .expect("the link ends")
+        .unwrap()
+        .expect_err("the link ends with why");
+    assert!(ended.contains("stopped answering"), "{ended}");
+    let budget = peer.timings.silence_budget();
+    let took = opened.elapsed();
+    assert!(took >= budget + Duration::from_millis(500), "dropped before its budget: {took:?}");
+    assert!(
+        took <= budget + Duration::from_millis(600),
+        "dropped {took:?} after open, past its budget"
+    );
+    drop(server);
+}
+
 /// Run 43783279032: the network went for 10 s without a reset and a request went out on the
 /// link. It is dropped within `NETWORK_PROBE` of that request, not after the silence budget.
 #[tokio::test(start_paused = true)]
@@ -157,8 +193,12 @@ async fn a_request_on_a_link_that_answers_keeps_it() {
     use futures_util::StreamExt;
     let (tx, _rx) = mpsc::channel(8);
     let mut peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
-    Arc::get_mut(&mut peer).expect("only this test holds it").timings.handshake =
-        Duration::from_secs(3_600);
+    let timings = &mut Arc::get_mut(&mut peer).expect("only this test holds it").timings;
+    timings.handshake = Duration::from_secs(3_600);
+    // A budget past the 3 s of silence (one a slow peer already earned), so only the request's
+    // probe is under test: under the 2 s floor the silence alone would end the link first.
+    timings.ping_every = Duration::from_secs(2);
+    timings.ping_misses = 3;
     let (ours, theirs) = tokio::io::duplex(1 << 16);
     let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
     let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
@@ -195,7 +235,11 @@ fn own_network(peer: &Peer) -> tokio::sync::watch::Sender<u64> {
 #[tokio::test(start_paused = true)]
 async fn a_network_change_drops_a_link_that_stopped_answering_within_2_s() {
     let (tx, _rx) = mpsc::channel(8);
-    let peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+    let mut peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+    // A 6 s budget, so the drop is the network change's probe and not the 2 s silence floor.
+    let timings = &mut Arc::get_mut(&mut peer).expect("only this test holds it").timings;
+    timings.ping_every = Duration::from_secs(2);
+    timings.ping_misses = 3;
     let changes = own_network(&peer);
     let (ours, _theirs) = tokio::io::duplex(1 << 16);
     let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
@@ -486,4 +530,394 @@ async fn a_link_held_by_a_full_hub_queue_is_not_dropped_for_the_peers_silence() 
     assert!(started.elapsed() <= Duration::from_secs(9), "{:?}", started.elapsed());
     busy.abort();
     answering.abort();
+}
+
+/// A peer that reads this side's writes at 64 bytes a second, and a frame that takes about
+/// 30 s to go out: the transport over `Heard` and the frame write under a 5 s send budget.
+async fn send_a_frame_to_a_reader(reads: bool) -> (Result<LinkEnd, String>, usize, Duration) {
+    let (tx, _rx) = mpsc::channel(8);
+    let mut peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+    let timings = &mut Arc::get_mut(&mut peer).expect("only this test holds it").timings;
+    timings.send = Duration::from_secs(5);
+    timings.handshake = Duration::from_secs(3_600);
+    let heard = Heard::default();
+    let (ours, mut theirs) = tokio::io::duplex(64);
+    let client = WebSocketStream::from_raw_socket(heard.wrap(ours), Role::Client, None).await;
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let link = peer.clone();
+    let started = tokio::time::Instant::now();
+    let serving =
+        tokio::spawn(async move { link.serve_heard(client, &mut out_rx, Some(heard)).await });
+    let draining = tokio::spawn(async move {
+        let mut got = 0usize;
+        let mut chunk = [0u8; 64];
+        loop {
+            if !reads {
+                // Holds its end open and reads nothing: a peer that stopped reading.
+                tokio::time::sleep(Duration::from_secs(3_600)).await;
+                return got;
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            match theirs.read(&mut chunk).await {
+                Ok(0) | Err(_) => return got,
+                Ok(n) => got += n,
+            }
+        }
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let line = format!("{{\"pad\":\"{}\"}}", "x".repeat(2_000));
+    peer.out.try_send(Outbound { epoch: peer.link_epoch(), key: None, line }).unwrap();
+    let ended = tokio::time::timeout(Duration::from_secs(600), serving)
+        .await
+        .expect("the link ends")
+        .unwrap();
+    let took = started.elapsed();
+    let got = if reads {
+        draining.await.unwrap()
+    } else {
+        draining.abort();
+        0
+    };
+    (ended, got, took)
+}
+
+/// Leo, 2026-11-24: "if it's making good progress, it shiukd be allowed to keep going?" A
+/// frame that needs about 30 s on a slow uplink went out in full; before, a fixed send budget
+/// from the write's start cut it off and dropped the link.
+#[tokio::test(start_paused = true)]
+async fn a_slow_frame_write_that_keeps_moving_is_not_cut_off() {
+    let (ended, got, took) = send_a_frame_to_a_reader(true).await;
+    assert!(got >= 2_000, "the whole frame went out ({got} bytes in {took:?}; link: {ended:?})");
+    assert!(took > Duration::from_secs(25), "{took:?}");
+    if let Err(error) = &ended {
+        assert!(!error.contains("stopped reading"), "{error}");
+    }
+}
+
+/// A peer that takes no byte of a frame is still let go at the send budget of silence.
+#[tokio::test(start_paused = true)]
+async fn a_frame_write_that_moves_nothing_still_drops_the_link_at_the_send_budget() {
+    let (ended, _, took) = send_a_frame_to_a_reader(false).await;
+    let error = ended.expect_err("the link ends with why");
+    assert!(error.contains("stopped reading"), "{error}");
+    assert!(took <= Duration::from_secs(12), "{took:?}");
+}
+
+/// A silent link served under `start_paused` with a long silence budget (a peer whose budget
+/// grew), so only a wake probe can end it in time; the lid closes for an hour `before` in. Gives
+/// the time from the wake to the end and why it ended.
+async fn wake_on_a_dead_link(before: Duration, slow: bool) -> (Duration, String) {
+    use crate::store::test_clock;
+    test_clock::follow_tokio();
+    let (tx, _rx) = mpsc::channel(8);
+    let mut peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+    let timings = &mut Arc::get_mut(&mut peer).expect("only this test holds it").timings;
+    timings.ping_misses = 60;
+    timings.handshake = Duration::from_secs(3_600);
+    if slow {
+        // A short probe once dropped a link that reopened at once: the peer proved slow.
+        peer.with_silence(|b| {
+            b.probe_dropped();
+            b.opened(tokio::time::Instant::now());
+        });
+    }
+    let (ours, _theirs) = tokio::io::duplex(1 << 16);
+    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let link = peer.clone();
+    let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+    tokio::time::sleep(before).await;
+    let woke = tokio::time::Instant::now();
+    test_clock::advance(60 * 60 * 1_000);
+    let ended = tokio::time::timeout(Duration::from_secs(100), serving).await;
+    test_clock::reset();
+    let ended = ended.expect("the link ends").unwrap().expect_err("the link ends with why");
+    (woke.elapsed(), ended)
+}
+
+/// The audit of 2026-11-19 (Leo: "i wonder if there's more places we can apply this
+/// principle"): after a wake a link had 30 s to answer, so opening the lid froze a remote chat
+/// for up to 35 s. It now gets the 2 s network probe: dropped and redialed within one clock check
+/// and `NETWORK_PROBE`, whenever in the ping cycle the lid opens.
+#[tokio::test(start_paused = true)]
+async fn a_wake_drops_a_dead_link_within_the_network_probe() {
+    let bound =
+        SleepWatch::EVERY + crate::peer::network::NETWORK_PROBE + Duration::from_millis(100);
+    let mut worst = Duration::ZERO;
+    for before in [500, 1_300, 2_100, 3_900] {
+        let (took, why) = wake_on_a_dead_link(Duration::from_millis(before), false).await;
+        assert!(why.contains("after this computer woke"), "{why}");
+        assert!(took <= bound, "woke {before} ms in: dropped {took:?} after the wake");
+        worst = worst.max(took);
+    }
+    eprintln!("wake to drop, worst of 4: {} ms", worst.as_millis());
+}
+
+/// The stop condition of the short probe: a peer that proved slow (a short probe dropped a link
+/// that reopened at once) keeps the 30 s wake probe, so a slow link is not redialed on every
+/// wake.
+#[tokio::test(start_paused = true)]
+async fn a_peer_that_proved_slow_keeps_the_long_wake_probe() {
+    let (took, why) = wake_on_a_dead_link(Duration::from_millis(500), true).await;
+    assert!(why.contains("after this computer woke"), "{why}");
+    assert!(took >= crate::peer_link::WAKE_PROBE, "{took:?}");
+}
+
+/// A link that answers the wake ping is kept: the short probe costs a live link nothing.
+#[tokio::test(start_paused = true)]
+async fn a_wake_keeps_a_link_that_answers() {
+    use crate::store::test_clock;
+    use futures_util::StreamExt;
+    test_clock::follow_tokio();
+    let (tx, _rx) = mpsc::channel(8);
+    let mut peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+    Arc::get_mut(&mut peer).expect("only this test holds it").timings.handshake =
+        Duration::from_secs(3_600);
+    let (ours, theirs) = tokio::io::duplex(1 << 16);
+    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+    let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+    // Reading answers each ping with a pong.
+    let answering = tokio::spawn(async move { while server.next().await.is_some() {} });
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let link = peer.clone();
+    let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    test_clock::advance(60 * 60 * 1_000);
+    tokio::time::sleep(Duration::from_secs(12)).await;
+    test_clock::reset();
+    assert!(!serving.is_finished(), "a link that answers the wake probe is kept");
+    serving.abort();
+    answering.abort();
+}
+
+#[test]
+fn the_wake_probe_is_the_network_probe_unless_the_peer_proved_slow() {
+    use crate::peer_link::{WAKE_PROBE, wake_probe};
+    let net = crate::peer::network::NETWORK_PROBE;
+    assert_eq!(wake_probe(true, net), Duration::from_secs(2));
+    assert_eq!(wake_probe(false, net), WAKE_PROBE);
+    assert_eq!(wake_probe(true, Duration::from_secs(90)), WAKE_PROBE, "never longer than before");
+}
+
+/// A ready link to `url` that hears nothing, with a 600 ms silence budget: how it ended, how
+/// long it took, and whether a replacement waits for the next connect.
+async fn a_ready_link_that_goes_silent(url: &str) -> (Result<LinkEnd, String>, Duration, bool) {
+    // The peer's end stays open and says nothing: dropping it would reset the link.
+    a_ready_link_that_goes_silent_then(url, |theirs| async move {
+        let _held = theirs;
+        std::future::pending::<()>().await;
+    })
+    .await
+}
+
+/// `a_ready_link_that_goes_silent`, with the peer's end of the link handed to `peer`.
+async fn a_ready_link_that_goes_silent_then<F, Fut>(
+    url: &str,
+    peer_end: F,
+) -> (Result<LinkEnd, String>, Duration, bool)
+where
+    F: FnOnce(tokio::io::DuplexStream) -> Fut,
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+{
+    a_ready_link_pinging_each_that_goes_silent(url, Duration::from_millis(200), peer_end).await
+}
+
+/// `a_ready_link_that_goes_silent_then`, pinging each `ping_every` (its budget three of them).
+async fn a_ready_link_pinging_each_that_goes_silent<F, Fut>(
+    url: &str,
+    ping_every: Duration,
+    peer_end: F,
+) -> (Result<LinkEnd, String>, Duration, bool)
+where
+    F: FnOnce(tokio::io::DuplexStream) -> Fut,
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+{
+    let (tx, _rx) = mpsc::channel(8);
+    let mut peer = Peer::new("p", url, None, None, tx);
+    {
+        let timings = &mut Arc::get_mut(&mut peer).expect("only this test holds it").timings;
+        timings.ping_every = ping_every;
+        timings.handshake = Duration::from_secs(3_600);
+    }
+    peer.set_serving(Some(crate::peer_paths::Via::Url));
+    peer.with_link(|l| {
+        let now = crate::store::now_ms();
+        l.opened(now);
+        l.ready(now);
+    });
+    let (ours, theirs) = tokio::io::duplex(1 << 16);
+    let peer_side = tokio::spawn(peer_end(theirs));
+    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let started = tokio::time::Instant::now();
+    let ended = tokio::time::timeout(Duration::from_secs(10), peer.serve(client, &mut out_rx))
+        .await
+        .expect("a silent link ends within 10 s");
+    peer_side.abort();
+    let replaced = peer.replacement.lock_or_recover().is_some();
+    (ended, started.elapsed(), replaced)
+}
+
+/// Regression 1 after #54052: a 4 s blackout on an idle relay link. A ping sent in its first
+/// second is retransmitted at +6.2 s, and every later byte waits behind it, so the link heard
+/// nothing for its whole 6 s budget while the peer was fine. It was dropped, then waited its
+/// backoff and a handshake: 3.6 to 5.6 s to resume instead of 2.3 s. A link silent past its
+/// budget now dials a replacement while it still reads; the one that opens first carries the
+/// link, with no drop.
+#[tokio::test]
+async fn a_silent_link_whose_peer_still_answers_a_dial_moves_to_it_without_a_drop() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    // Every connection is served, and one that is not a WebSocket upgrade (a dial's probe) is
+    // let go: the listener stays up for the dial itself.
+    let server = tokio::spawn(async move {
+        let mut held = Vec::new();
+        while let Ok((stream, _)) = listener.accept().await {
+            if let Ok(ws) = crate::server::accept_ws(stream).await {
+                held.push(ws);
+            }
+        }
+    });
+    let (ended, took, replaced) =
+        a_ready_link_that_goes_silent(&format!("ws://127.0.0.1:{port}")).await;
+    server.abort();
+    assert_eq!(ended, Ok(LinkEnd::Switching), "a silent link with a reachable peer was dropped");
+    assert!(replaced, "the replacement that opened is not kept for the next connect");
+    assert!(took >= Duration::from_millis(600), "moved before its budget ran out: {took:?}");
+}
+
+/// The peer does not answer a dial either: the link still drops, by twice its budget.
+#[tokio::test]
+async fn a_silent_link_whose_replacement_does_not_open_still_drops() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
+    let (ended, took, replaced) =
+        a_ready_link_that_goes_silent(&format!("ws://127.0.0.1:{port}")).await;
+    let error = ended.expect_err("the link drops");
+    assert!(error.contains("stopped answering"), "{error}");
+    assert!(!replaced);
+    assert!(took <= Duration::from_millis(1_500), "{took:?}");
+}
+
+/// fleet-recovery-bench, a host whose daemon stopped (SIGSTOP; a dead VM is the same to a dial):
+/// its kernel still takes a dial's TCP connection, but nothing answers the upgrade. The
+/// replacement waited for twice the budget, so the host read down at 12 s, not 6 to 8
+/// (N=100: detect 10.4 s, resume p50 12.4 s against 7.06 s before #56587). Past the budget it
+/// gets a probe's wait (2 s): with a 3 s budget the link drops by 5 s, not 6.
+#[tokio::test]
+async fn a_replacement_a_stopped_host_never_answers_drops_the_link_a_probe_after_its_budget() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    // Taken, held and never answered, as by a stopped process's kernel.
+    let server = tokio::spawn(async move {
+        let mut held = Vec::new();
+        while let Ok((stream, _)) = listener.accept().await {
+            held.push(stream);
+        }
+    });
+    let (ended, took, replaced) = a_ready_link_pinging_each_that_goes_silent(
+        &format!("ws://127.0.0.1:{port}"),
+        Duration::from_secs(1),
+        |theirs| async move {
+            let _held = theirs;
+            std::future::pending::<()>().await;
+        },
+    )
+    .await;
+    server.abort();
+    let error = ended.expect_err("the link drops");
+    assert!(error.contains("did not open"), "{error}");
+    assert!(!replaced);
+    assert!(
+        took >= Duration::from_millis(4_500),
+        "dropped before its budget and a probe: {took:?}"
+    );
+    assert!(took < Duration::from_millis(5_800), "waited out twice its budget: {took:?}");
+}
+
+/// The peer's end of a blacked-out link: silent for `quiet`, then the backlog it wrote into the
+/// blackout arrives a frame each 100 ms, and no ping is answered (every pong waits behind it).
+async fn a_backlog_after(theirs: tokio::io::DuplexStream, quiet: Duration) {
+    use futures_util::SinkExt;
+    use tokio_tungstenite::tungstenite::Message as Frame;
+    let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+    tokio::time::sleep(quiet).await;
+    loop {
+        let line = r#"{"jsonrpc":"2.0","method":"session/update","params":{"backlog":true}}"#;
+        if server.send(Frame::Text(line.into())).await.is_err() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// Job ce049556 (duress, a 5 s blackout): the first backlog frame after the blackout dropped the
+/// replacement dial, so the link stayed on a pipe still draining the 1.5 to 2.6 s of stream the
+/// peer wrote into it, ahead of the content the person waited for. A backlog frame is not an
+/// answer: the dial goes on, and the link moves to the replacement that opens.
+#[tokio::test]
+async fn a_backlog_frame_does_not_drop_the_replacement_dial() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    // The dial opens only after the backlog started: the case the old rule lost.
+    let server = tokio::spawn(async move {
+        let mut held = Vec::new();
+        while let Ok((stream, _)) = listener.accept().await {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            if let Ok(ws) = crate::server::accept_ws(stream).await {
+                held.push(ws);
+            }
+        }
+    });
+    let (ended, took, replaced) =
+        a_ready_link_that_goes_silent_then(&format!("ws://127.0.0.1:{port}"), |theirs| {
+            a_backlog_after(theirs, Duration::from_millis(700))
+        })
+        .await;
+    server.abort();
+    assert_eq!(ended, Ok(LinkEnd::Switching), "a backlog frame dropped the replacement dial");
+    assert!(replaced, "the replacement that opened is not kept for the next connect");
+    assert!(took >= Duration::from_millis(600), "moved before its budget ran out: {took:?}");
+}
+
+/// The link talks again while its replacement fails to open: it is kept, not dropped.
+#[tokio::test]
+async fn a_link_that_talks_again_stays_when_its_replacement_does_not_open() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    // The dial reaches the peer but never opens: each connection is held 800 ms, then closed
+    // before the upgrade, so the backlog (from 650 ms) arrives while it still dials.
+    let server = tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(800)).await;
+                drop(stream);
+            });
+        }
+    });
+    let (tx, _rx) = mpsc::channel(8);
+    let mut peer = Peer::new("p", &format!("ws://127.0.0.1:{port}"), None, None, tx);
+    {
+        let timings = &mut Arc::get_mut(&mut peer).expect("only this test holds it").timings;
+        timings.ping_every = Duration::from_millis(200);
+        timings.handshake = Duration::from_secs(3_600);
+    }
+    peer.set_serving(Some(crate::peer_paths::Via::Url));
+    peer.with_link(|l| {
+        let now = crate::store::now_ms();
+        l.opened(now);
+        l.ready(now);
+    });
+    let (ours, theirs) = tokio::io::duplex(1 << 16);
+    let peer_side = tokio::spawn(a_backlog_after(theirs, Duration::from_millis(650)));
+    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let link = peer.clone();
+    let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert!(!serving.is_finished(), "a link that talks again was dropped: {:?}", serving.await);
+    serving.abort();
+    peer_side.abort();
+    server.abort();
 }

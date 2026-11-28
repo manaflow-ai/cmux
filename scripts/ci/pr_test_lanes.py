@@ -57,8 +57,11 @@ SKIPPED = "<skipped jobs>"
 class Unknown:
     """A value the pull request event does not fix (a label, a vars.*, a needs output)."""
 
+    def __init__(self, truth: bool | None = None):
+        self.truth = truth
+
     def __repr__(self) -> str:
-        return "UNKNOWN"
+        return "UNKNOWN" if self.truth is None else f"UNKNOWN(truth={self.truth!r})"
 
 
 UNKNOWN = Unknown()
@@ -67,7 +70,7 @@ LABELS = Unknown()
 # A job scripts/ci/affected-jobs.json pull_request_skip lists (affected_jobs.PR_SKIP_IF): a pull request skips it,
 # and the feat-cmux-next push that lands the pull request runs it, its red naming the pull requests in its range.
 # That push is the job's lane (the fix-forward the replay measured), so the guard reads as true here.
-PR_SKIP_IF = "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))"
+PR_SKIP_IF = "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')))"
 
 
 # --- GitHub Actions expressions, three-valued -------------------------------------------
@@ -94,7 +97,7 @@ def tokenize(text: str) -> list[tuple[str, str]]:
 
 def truthy(value: object) -> object:
     if isinstance(value, Unknown):
-        return UNKNOWN
+        return UNKNOWN if value.truth is None else value.truth
     if isinstance(value, float) and math.isnan(value):
         return False
     return bool(value)
@@ -150,28 +153,30 @@ class Expression:
         return value
 
     def disjunction(self) -> object:
-        values = [self.conjunction()]
+        value = self.conjunction()
         while self.peek() == "||":
             self.take()
-            values.append(self.conjunction())
-        if len(values) == 1:
-            return values[0]
-        truths = [truthy(v) for v in values]
-        if any(t is True for t in truths):
-            return True
-        return UNKNOWN if any(t is UNKNOWN for t in truths) else False
+            right = self.conjunction()  # Consume even when the left operand wins.
+            left_truth = truthy(value)
+            if left_truth is False:
+                value = right
+            elif left_truth is UNKNOWN:
+                # Either operand may win. Preserve only the truth we can prove;
+                # replacing an unknown truthy value with True breaks comparisons.
+                value = Unknown(True) if truthy(right) is True else UNKNOWN
+        return value
 
     def conjunction(self) -> object:
-        values = [self.comparison()]
+        value = self.comparison()
         while self.peek() == "&&":
             self.take()
-            values.append(self.comparison())
-        if len(values) == 1:
-            return values[0]
-        truths = [truthy(v) for v in values]
-        if any(t is False for t in truths):
-            return False
-        return UNKNOWN if any(t is UNKNOWN for t in truths) else True
+            right = self.comparison()
+            left_truth = truthy(value)
+            if left_truth is True:
+                value = right
+            elif left_truth is UNKNOWN:
+                value = Unknown(False) if truthy(right) is False else UNKNOWN
+        return value
 
     def comparison(self) -> object:
         left = self.unary()
@@ -292,7 +297,10 @@ def value_of(raw: object, context: dict[str, object]) -> object:
 def load_yaml(path: Path) -> dict:
     import yaml  # PyYAML: the guard venv and the Linux runners have it.
 
-    loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+    # libyaml's loader when the wheel has it: the pure-Python one took 16 of the registry check's 31 s over 465
+    # workflow files (2026-11-24), on every tooling-tests run. Both build the same documents (tests/test_pr_test_lanes.py).
+    loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+    loaded = yaml.load(path.read_text(encoding="utf-8"), Loader=loader)
     return loaded if isinstance(loaded, dict) else {}
 
 

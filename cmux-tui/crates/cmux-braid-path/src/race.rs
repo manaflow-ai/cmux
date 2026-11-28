@@ -1,19 +1,27 @@
 //! A staggered race over candidate targets: start one attempt, start another every
 //! [`RacePolicy::stagger`] while none has connected (rotating through the targets), keep at
 //! most [`RacePolicy::max_in_flight`] in flight, give each but the last
-//! [`RacePolicy::attempt_timeout`], and return the first that connects. The losers are
-//! dropped. A fast failure starts the next attempt at once.
+//! [`RacePolicy::attempt_timeout`], and return the first that connects. [`race`] drops the
+//! losers; [`race_keeping_losers`] hands them back still running ([`Losers`]), so a caller can
+//! keep the ones that connect after the winner as warm standbys ([`crate::Standby`], RFD 0164
+//! slice B3). A fast failure starts the next attempt at once.
 //!
-//! The last attempt has no timeout of its own: on a saturated uplink where every connect is
-//! slower than the timeout it still connects inside the caller's own budget.
+//! The last attempt gets the longer [`RacePolicy::last_attempt_timeout`]: on a saturated uplink
+//! where every connect is slower than [`RacePolicy::attempt_timeout`] it still connects slowly.
+//! It is still bounded, because a caller with no budget of its own (the direct TCP dialer under
+//! the terminal client) would otherwise wait out the operating system's connect timeout, over a
+//! minute, on a black-holed address. A caller with a shorter budget (the relay's 10 s connect)
+//! ends the race first.
 
 use std::future::Future;
 use std::io;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use std::time::Duration;
 
 use futures_util::StreamExt;
 use futures_util::stream::FuturesUnordered;
-use tokio::time::Instant;
+use tokio::time::{Instant, Sleep};
 
 /// When to start another attempt and how many to keep.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -22,6 +30,8 @@ pub struct RacePolicy {
     pub stagger: Duration,
     /// How long one attempt but the last may take before it is dropped.
     pub attempt_timeout: Duration,
+    /// How long the last attempt may take, unless the caller's own budget ends the race first.
+    pub last_attempt_timeout: Duration,
     /// Attempts in flight at once.
     pub max_in_flight: usize,
     /// Attempts in all; the last one's failure is the answer once they ran out.
@@ -30,10 +40,13 @@ pub struct RacePolicy {
 
 impl RacePolicy {
     /// For a host that connects in 10 to 50 ms: a second attempt after 400 ms, at most three
-    /// at a time, each but the last given 3 s, six in all.
+    /// at a time, each but the last given 3 s, six in all. When every one is black-holed the
+    /// sixth starts after about 3.8 s and gets 8 s, so a race with no other budget fails after
+    /// about 11.8 s; the relay's 10 s connect budget ends sooner.
     pub const INTERNET: Self = Self {
         stagger: Duration::from_millis(400),
         attempt_timeout: Duration::from_secs(3),
+        last_attempt_timeout: Duration::from_secs(8),
         max_in_flight: 3,
         max_attempts: 6,
     };
@@ -77,12 +90,144 @@ pub struct Won<T> {
 /// Races `connect` over `targets` by `policy` (module docs). Attempt `n` dials
 /// `targets[n % targets.len()]`. The error is the last attempt's (one that ran out of time is
 /// `TimedOut`).
-pub async fn race<A, T, F, Fut>(
+pub async fn race<A, T, F, Fut>(targets: &[A], policy: RacePolicy, connect: F) -> io::Result<Won<T>>
+where
+    A: Clone,
+    F: FnMut(A) -> Fut,
+    Fut: Future<Output = io::Result<T>>,
+{
+    run(targets, policy, connect, &mut |_, _| {}).await.map(|(won, _)| won)
+}
+
+/// [`race`], with the attempts still in flight when the winner answered handed back as
+/// [`Losers`] instead of dropped. Each keeps its policy timeout, including
+/// [`RacePolicy::last_attempt_timeout`] for the final attempt.
+///
+/// # Errors
+/// The race's error: the last attempt's.
+pub async fn race_keeping_losers<A, T, F, Fut>(
+    targets: &[A],
+    policy: RacePolicy,
+    connect: F,
+) -> io::Result<(Won<T>, Losers<A, Fut>)>
+where
+    A: Clone,
+    F: FnMut(A) -> Fut,
+    Fut: Future<Output = io::Result<T>>,
+{
+    race_keeping_losers_observed(targets, policy, connect, |_, _| {}).await
+}
+
+/// [`race_keeping_losers`], telling `on_failure` each attempt that failed before the race
+/// ended: the index of its target in `targets`, and its error (`TimedOut` for one that ran
+/// out of time). The feed for broken-route marks and the per-leg record ([`crate::legs`]).
+///
+/// # Errors
+/// The race's error: the last attempt's.
+pub async fn race_keeping_losers_observed<A, T, F, Fut, O>(
+    targets: &[A],
+    policy: RacePolicy,
+    connect: F,
+    mut on_failure: O,
+) -> io::Result<(Won<T>, Losers<A, Fut>)>
+where
+    A: Clone,
+    F: FnMut(A) -> Fut,
+    Fut: Future<Output = io::Result<T>>,
+    O: FnMut(usize, &io::Error),
+{
+    let (won, running) = run(targets, policy, connect, &mut on_failure).await?;
+    Ok((won, Losers { targets: targets.to_vec(), running }))
+}
+
+/// A loser that connected after the winner.
+#[derive(Debug)]
+pub struct Lost<A, T> {
+    /// The target it dialed.
+    pub target: A,
+    /// What it returned.
+    pub value: T,
+}
+
+/// The attempts of a [`race_keeping_losers`] still in flight when the winner answered.
+pub struct Losers<A, Fut> {
+    targets: Vec<A>,
+    running: FuturesUnordered<Attempt<Fut>>,
+}
+
+impl<A: Clone, Fut> Losers<A, Fut> {
+    /// No loser is still in flight.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.running.is_empty()
+    }
+
+    /// The targets still in flight, one per attempt.
+    #[must_use]
+    pub fn in_flight(&self) -> Vec<A> {
+        self.running
+            .iter()
+            .filter_map(|attempt| self.targets.get(attempt.target_index).cloned())
+            .collect()
+    }
+
+    /// The next loser that connects; `None` once every one has connected, failed or run out of
+    /// time. Failures are skipped.
+    pub async fn next<T>(&mut self) -> Option<Lost<A, T>>
+    where
+        Fut: Future<Output = io::Result<T>>,
+    {
+        while let Some((_, target_index, _, result)) = self.running.next().await {
+            if let (Ok(value), Some(target)) = (result, self.targets.get(target_index)) {
+                return Some(Lost { target: target.clone(), value });
+            }
+        }
+        None
+    }
+}
+
+/// One attempt: its index, its target's index, its start, the connect and its deadline.
+struct Attempt<Fut> {
+    index: usize,
+    target_index: usize,
+    begun: Instant,
+    connect: Pin<Box<Fut>>,
+    deadline: Option<(Duration, Pin<Box<Sleep>>)>,
+}
+
+impl<T, Fut: Future<Output = io::Result<T>>> Future for Attempt<Fut> {
+    type Output = (usize, usize, Duration, io::Result<T>);
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        // Every field is Unpin (the futures are boxed).
+        let this = self.get_mut();
+        let result = match this.connect.as_mut().poll(cx) {
+            Poll::Ready(result) => result,
+            Poll::Pending => {
+                let Some((timeout, sleep)) = &mut this.deadline else { return Poll::Pending };
+                if sleep.as_mut().poll(cx).is_pending() {
+                    return Poll::Pending;
+                }
+                Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    format!("no answer within {} ms", timeout.as_millis()),
+                ))
+            }
+        };
+        Poll::Ready((this.index, this.target_index, this.begun.elapsed(), result))
+    }
+}
+
+// Generic in `on_failure` (not `&mut dyn FnMut`): the race's future is `Send` exactly when the
+// caller's closure is, so a race spawned on a multi-thread runtime still compiles.
+async fn run<A, T, F, Fut, O>(
     targets: &[A],
     policy: RacePolicy,
     mut connect: F,
-) -> io::Result<Won<T>>
+    on_failure: &mut O,
+) -> io::Result<(Won<T>, FuturesUnordered<Attempt<Fut>>)>
 where
+    O: FnMut(usize, &io::Error),
     A: Clone,
     F: FnMut(A) -> Fut,
     Fut: Future<Output = io::Result<T>>,
@@ -105,23 +250,20 @@ where
             let Some(target) = targets.get(target_index).cloned() else {
                 return Err(io::Error::new(io::ErrorKind::NotFound, "no addresses to connect to"));
             };
-            let attempt = connect(target);
-            // The last attempt may connect slowly: only the caller's budget ends it.
-            let timeout = (launched + 1 < max_attempts).then_some(policy.attempt_timeout);
-            let index = launched;
-            running.push(async move {
-                let begun = Instant::now();
-                let result = match timeout {
-                    None => attempt.await,
-                    Some(timeout) => match tokio::time::timeout(timeout, attempt).await {
-                        Ok(result) => result,
-                        Err(_) => Err(io::Error::new(
-                            io::ErrorKind::TimedOut,
-                            format!("no answer within {} ms", timeout.as_millis()),
-                        )),
-                    },
-                };
-                (index, target_index, begun.elapsed(), result)
+            // Give the last attempt its longer bounded timeout; the caller's own
+            // budget may still end the race earlier.
+            let timeout = if launched + 1 < max_attempts {
+                policy.attempt_timeout
+            } else {
+                policy.last_attempt_timeout
+            };
+            let deadline = Some((timeout, Box::pin(tokio::time::sleep(timeout))));
+            running.push(Attempt {
+                index: launched,
+                target_index,
+                begun: Instant::now(),
+                connect: Box::pin(connect(target)),
+                deadline,
             });
             launched += 1;
             next_launch = Instant::now() + policy.stagger;
@@ -136,9 +278,16 @@ where
             biased;
             Some((attempt, target_index, connect, result)) = running.next() => match result {
                 Ok(value) => {
-                    return Ok(Won { value, attempt, target_index, elapsed: started.elapsed(), connect });
+                    let won = Won { value, attempt, target_index, elapsed: started.elapsed(), connect };
+                    return Ok((won, running));
                 }
-                Err(error) => last_error = Some(error),
+                // A failed attempt frees its place: the next starts at once (RFC 8305 section
+                // 5), not when the stagger since the last start runs out.
+                Err(error) => {
+                    on_failure(target_index, &error);
+                    last_error = Some(error);
+                    next_launch = Instant::now();
+                }
             },
             () = tokio::time::sleep_until(next_launch), if may_launch => {}
         }

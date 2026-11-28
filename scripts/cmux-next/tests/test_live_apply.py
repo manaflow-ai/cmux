@@ -42,6 +42,12 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(self.verdict([("M", "examples/extensions/activity/src/main.ts")]), "no-app")
         self.assertEqual(self.verdict([("M", "design/terminal-chat-toggle-gallery.html")]), "no-app")
         self.assertEqual(self.verdict([("M", ".gitattributes")]), "no-app")
+        # design/ holds generator sources and design pages; the generated files the app reads are elsewhere.
+        self.assertEqual(self.verdict([("M", "design/live-wallpapers-gallery/aurora.js")]), "no-app")
+        self.assertEqual(self.verdict([("M", "design/icons/source/widgets.json")]), "no-app")
+        # vault/ is a Go service the app never builds; capture-scratch/ is screenshot replay output.
+        self.assertEqual(self.verdict([("M", "vault/internal/syncer/redact.go")]), "no-app")
+        self.assertEqual(self.verdict([("A", "capture-scratch/replay/manifest.json")]), "no-app")
         self.assertEqual(self.verdict([("D", "dogfood/scenarios/copy-actions-tour.json")]), "no-app")
         self.assertEqual(self.verdict([("M", "evals/computer-use/tasks/finder-new-folder.json")]), "no-app")
         self.assertEqual(self.verdict([("A", "Native/OptChat/optchat-chief/evals/cases/upsell-a675-cloud-plan-required.json")]),
@@ -71,6 +77,11 @@ class ClassifyTests(unittest.TestCase):
         result = live_apply.classify([("M", VIEW)], {VIEW: [("+", "    var isPinned = false")]})
         self.assertEqual(result["verdict"], "rebuild")
         self.assertEqual(result["reasons"], {"stored property": [VIEW]})
+
+    def test_a_one_line_function_whose_body_changed_is_not_a_signature_change(self):
+        changed = {VIEW: [("-", "    func on(_ e: [String: String]) -> Bool { e[\"k\"] == \"1\" }"),
+                          ("+", "    func on(_ e: [String: String]) -> Bool { e[\"k\"] != \"0\" }")]}
+        self.assertEqual(self.verdict([("M", VIEW)], changed), "swift-live")
 
     def test_a_changed_signature_needs_a_rebuild_and_a_new_function_does_not(self):
         changed = {VIEW: [("-", "    func draw(_ a: Int) {"), ("+", "    func draw(_ a: Int, b: Int) {")]}
@@ -167,6 +178,14 @@ class ClassifyTests(unittest.TestCase):
     def test_a_deleted_swift_file_is_live_and_ios_alone_leaves_the_mac_app(self):
         self.assertEqual(self.verdict([("D", VIEW)]), "swift-live")
         self.assertEqual(self.verdict([("M", "cmux-next-ios/App/Root.swift")]), "ios-only")
+
+    def test_a_deleted_file_of_no_known_kind_changes_nothing_in_the_running_app(self):
+        # 3a7431d83d2 deleted the root strays OUTPUT and summary: the running app read neither.
+        self.assertEqual(self.verdict([("D", "OUTPUT"), ("D", "summary")]), "no-app")
+        self.assertEqual(self.verdict([("M", "summary")]), "rebuild")
+        # A deleted resource or manifest still needs the new app.
+        self.assertEqual(self.verdict([("D", "Packages/macOS/CmuxNext/Sources/CmuxNextIcons/Resources/cmux-icons.json")]),
+                         "rebuild")
 
     def test_the_heaviest_file_wins(self):
         diffs = {VIEW: [("+", "    var x = 1")]}

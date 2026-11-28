@@ -13,6 +13,7 @@ on:
   # These jobs only check generated clients; they never deploy the Worker.
   workflow_dispatch:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
     paths:
       - workers/cmux-vm/openapi.json
       - workers/cmux-vm/cli/**
@@ -43,13 +44,18 @@ on:
       - .github/workflows/cmux-vm-clients.yml
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 env:
+  # Style guards (lint, format, size, drift) warn everywhere but main and release tags, which stay strict (Leo
+  # 2026-10-19, #22396). Keyed on the strict refs, not on feat-cmux-next, so a stacked pull request (base: another
+  # lane branch) warns like its parent instead of failing on findings feat-cmux-next already has (#54185).
+  # Steps read it as CMUX_NEXT_STYLE_GUARDS; tests/test_style_guards_level.py evaluates it.
+  CMUX_NEXT_STYLE_GUARDS_LEVEL: ${{ (github.base_ref == 'main' || github.event.merge_group.base_ref == 'refs/heads/main' || (!github.base_ref && !github.event.merge_group && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')))) && 'fail' || 'warn' }}
   # Warnings never fail a pull request's compile (Leo, 2026-11-19); pushes, dispatches, nightly and release
   # keep them errors. scripts/ci/warnings_policy.py.
   CI_WARNINGS: ${{ github.event_name == 'pull_request' && 'soft' || 'deny' }}
@@ -58,13 +64,16 @@ env:
 
 jobs:
   rust:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    # A feat-cmux-next pull request runs this job's commands as the ci/steps.toml step `cmux-vm-clients-rust`
+    # (pr-pipeline.yml); a push and a pull request into any other base still run them here.
+    if: ${{ (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 30
     defaults:
       run:
         working-directory: workers/cmux-vm/cli
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -81,6 +90,9 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # The lockfile and toolchain name the entry: with the environment hash off, a bare key never changed, so the first save
+          # was restored forever and its stale third-party crates rebuilt on every run (ci-min-per-pr-1500, 2026-11-25).
+          key: ${{ hashFiles('workers/cmux-vm/cli/rust-toolchain.toml', 'workers/cmux-vm/cli/Cargo.lock', '.cargo/config.toml') }}
           save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
           add-rust-environment-hash-key: false
@@ -91,7 +103,7 @@ jobs:
       - name: cargo fmt
         if: ${{ !cancelled() }}
         env:
-          CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
+          CMUX_NEXT_STYLE_GUARDS: ${{ env.CMUX_NEXT_STYLE_GUARDS_LEVEL }}
         run: |
           if ! cargo fmt --all --check; then
             echo "::warning title=cmux-vm cli rustfmt::not rustfmt-clean; run cargo fmt --all in workers/cmux-vm/cli"
@@ -100,7 +112,7 @@ jobs:
 
       - name: cargo clippy
         if: ${{ !cancelled() }}
-        run: python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- cargo clippy --locked --workspace --all-targets -- -D warnings
+        run: python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- cargo clippy --locked --workspace --all-targets --keep-going -- -D warnings
 
       - name: cargo test
         if: ${{ !cancelled() }}
@@ -111,7 +123,7 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
-          ./scripts/regenerate.sh
+          CMUX_VM_REGEN_SKIP_CALLERS=1 ./scripts/regenerate.sh
           if [[ -n "$(git status --porcelain -- .)" ]]; then
             git --no-pager diff --stat -- .
             echo "::error::the generated client (crates/cmux-vm-client/src/generated*.rs) is stale: run workers/cmux-vm/cli/scripts/regenerate.sh and commit the result"
@@ -138,21 +150,26 @@ jobs:
   sdk:
     # A feat-cmux-next pull request runs this job's commands as the ci/steps.toml step `cmux-vm-sdk`
     # (pr-pipeline.yml); a push and a pull request into any other base still run them here.
-    if: ${{ github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    if: ${{ (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     defaults:
       run:
         working-directory: workers/cmux-vm/sdk
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
       - id: install
         run: bun install --frozen-lockfile

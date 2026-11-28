@@ -12,9 +12,10 @@
 //! not a regex is a substring; all case-insensitive): `prompt_any`, `prompt_none`, `draft_any`,
 //! `draft_none` (the turn's final message; end rules only), `tools_any`, `tools_none` (the
 //! turn's tool calls: title and command; end rules only), `min_tools`, `min_prompt_chars`,
-//! `session_any` (the session's name) and `host_any`. At most one rule fires per boundary, the
-//! first in order that matches and is not cooling down (`cooldown`, in turns of that session,
-//! default 6); none when none matches.
+//! `session_any` (the session's name), `host_any`, and `chief` (`true`: only a Chief session,
+//! one tagged `cmux.chief` or an optchat; `false`: every session but those). At most one rule
+//! fires per boundary, the first in order that matches and is not cooling down (`cooldown`, in
+//! turns of that session, default 6); none when none matches.
 //!
 //! A start rule is said in the outgoing prompt. An end rule never re-prompts the session: it is
 //! said at the session's next prompt, with that prompt's start rule if one fires too.
@@ -22,14 +23,18 @@
 //!
 //! Same path for every harness. On by default, nothing happens with no rules; off switch
 //! `agents.harnessMagic.turnRules.enabled`, kill switch `ACPMUX_HM_TURNRULES=0`. Counters on the
-//! `turn_result`: `harnessMagic.turnRules.fired` and `.suppressedByCooldown`. A firing is logged
+//! `turn_result`: `harnessMagic.turnRules.fired`, `.suppressedByCooldown` and `.saidChars` (the
+//! characters said into the turn's prompt: its token cost, measured at about 0.4 input tokens a
+//! character with the line's framing, 2026-11-25). A firing is logged
 //! with its rule id, boundary and session, never its text. Any error leaves the turn as vanilla.
 
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 
 use regex::RegexBuilder;
-use serde_json::{Value, json};
+use serde_json::Value;
+#[cfg(test)]
+use serde_json::json;
 
 use super::{Hub, Session};
 
@@ -57,6 +62,7 @@ struct Cond {
     tools_none: Vec<String>,
     session_any: Option<Vec<String>>,
     host_any: Option<Vec<String>>,
+    chief: Option<bool>,
     min_tools: usize,
     min_prompt_chars: usize,
 }
@@ -78,6 +84,7 @@ pub(crate) struct Facts<'a> {
     pub tools: &'a [String],
     pub session: &'a str,
     pub host: &'a str,
+    pub chief: bool,
 }
 
 fn strings(v: Option<&Value>) -> Option<Vec<String>> {
@@ -125,6 +132,7 @@ impl Rule {
                 tools_none: list("tools_none"),
                 session_any: strings(c.get("session_any")),
                 host_any: strings(c.get("host_any")),
+                chief: c.get("chief").and_then(Value::as_bool),
                 min_tools: num("min_tools"),
                 min_prompt_chars: num("min_prompt_chars"),
             },
@@ -174,6 +182,9 @@ fn matches(rule: &Rule, f: &Facts) -> bool {
     {
         return false;
     }
+    if c.chief.is_some_and(|want| want != f.chief) {
+        return false;
+    }
     // A rule with no condition at all says its line at every boundary its cooldown allows.
     true
 }
@@ -187,12 +198,15 @@ struct State {
     pending_end: Option<(String, String)>,
     fired: u64,
     suppressed: u64,
+    said_chars: u64,
 }
 
 static STATES: LazyLock<Mutex<HashMap<String, State>>> = LazyLock::new(Default::default);
 
+/// Tests only: rules by session id, so a test's rules reach only its own session and a test that
+/// runs beside it never replaces or clears them (cmux#41350).
 #[cfg(test)]
-static TEST_RULES: Mutex<Option<(String, Vec<Rule>)>> = Mutex::new(None);
+static TEST_RULES: LazyLock<Mutex<HashMap<String, Vec<Rule>>>> = LazyLock::new(Default::default);
 
 /// The first rule of `at` that matches and is not cooling down; `suppressed` counts the matching
 /// ones that were.
@@ -223,12 +237,11 @@ fn log_firing(rule_id: &str, at: &str, session: &str) {
 
 /// The rules now: the settings' array, then the file's. `None` when the feature is off or there
 /// are none.
+#[cfg_attr(not(test), allow(unused_variables))]
 fn rules_now(key: &str) -> Option<Vec<Rule>> {
     // Tests only: rules for one session id, so no other test's turns see them.
     #[cfg(test)]
-    if let Some((id, r)) = TEST_RULES.lock().unwrap_or_else(|e| e.into_inner()).clone()
-        && id == key
-    {
+    if let Some(r) = TEST_RULES.lock().unwrap_or_else(|e| e.into_inner()).get(key).cloned() {
         return Some(r);
     }
     let doc = match crate::user_settings::read() {
@@ -285,6 +298,7 @@ pub(crate) fn start_with(
     name: &str,
     prompt: &str,
     host: &str,
+    chief: bool,
 ) -> Option<String> {
     let mut map = STATES.lock().unwrap_or_else(|e| e.into_inner());
     if map.len() > MAX_SESSIONS && !map.contains_key(key) {
@@ -298,12 +312,14 @@ pub(crate) fn start_with(
         lines.push(said(&id, &say));
     }
     let tools = Vec::new();
-    let facts = Facts { prompt, draft: "", tools: &tools, session: name, host };
+    let facts = Facts { prompt, draft: "", tools: &tools, session: name, host, chief };
     if let Some(rule) = pick(rules, At::Start, &facts, st) {
         log_firing(&rule.id, "start", key);
         lines.push(said(&rule.id, &rule.say));
     }
-    (!lines.is_empty()).then(|| lines.join("\n"))
+    let text = (!lines.is_empty()).then(|| lines.join("\n"))?;
+    st.said_chars = st.said_chars.saturating_add(text.chars().count() as u64);
+    Some(text)
 }
 
 /// A tool call of the running turn of `key`.
@@ -331,6 +347,7 @@ pub(crate) fn note_tool(key: &str, update: &Value) {
 
 /// The turn of `key` ends with `draft` as its final message: matches its end rule, if any, to be
 /// said at the next prompt; puts the turn's counters on `msg`.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn end_with(
     rules: &[Rule],
     key: &str,
@@ -338,21 +355,25 @@ pub(crate) fn end_with(
     prompt_hint: &str,
     draft: &str,
     host: &str,
+    chief: bool,
     msg: &mut Value,
 ) {
     let mut map = STATES.lock().unwrap_or_else(|e| e.into_inner());
     let Some(st) = map.get_mut(key) else { return };
     let tools = std::mem::take(&mut st.tools);
     if !draft.is_empty() && st.pending_end.is_none() {
-        let facts = Facts { prompt: prompt_hint, draft, tools: &tools, session: name, host };
+        let facts = Facts { prompt: prompt_hint, draft, tools: &tools, session: name, host, chief };
         if let Some(rule) = pick(rules, At::End, &facts, st) {
             log_firing(&rule.id, "end", key);
             st.pending_end = Some((rule.id.clone(), rule.say.clone()));
         }
     }
     let (fired, suppressed) = (std::mem::take(&mut st.fired), std::mem::take(&mut st.suppressed));
+    let said_chars = std::mem::take(&mut st.said_chars);
     drop(map);
-    for (counter, n) in [("fired", fired), ("suppressedByCooldown", suppressed)] {
+    for (counter, n) in
+        [("fired", fired), ("suppressedByCooldown", suppressed), ("saidChars", said_chars)]
+    {
         if n > 0 {
             super::harness_magic::add_counter(msg, FEATURE, counter, n);
         }
@@ -363,7 +384,8 @@ impl Hub {
     /// The text to add to `session`'s outgoing prompt, if a rule says one.
     pub(super) fn turn_rules_start(&self, session: &Session, prompt: &str) -> Option<String> {
         let rules = rules_now(&session.id)?;
-        start_with(&rules, &session.id, &session.meta().name, prompt, host())
+        let meta = session.meta();
+        start_with(&rules, &session.id, &meta.name, prompt, host(), super::is_chief(&meta))
     }
 
     /// A tool call of the running turn.
@@ -381,7 +403,8 @@ impl Hub {
         let rules = rules_now(&session.id).unwrap_or_default();
         let completed = msg.get("status").and_then(Value::as_str) == Some("completed");
         let draft = if completed { draft.as_str() } else { "" };
-        end_with(&rules, &session.id, &session.meta().name, "", draft, host(), msg);
+        let meta = session.meta();
+        end_with(&rules, &session.id, &meta.name, "", draft, host(), super::is_chief(&meta), msg);
     }
 }
 
@@ -394,7 +417,7 @@ mod tests {
     }
 
     fn start(r: &[Rule], key: &str, prompt: &str) -> Option<String> {
-        start_with(r, key, "s", prompt, "h")
+        start_with(r, key, "s", prompt, "h", false)
     }
 
     #[test]
@@ -434,6 +457,7 @@ mod tests {
             tools,
             session,
             host,
+            chief: false,
         };
         let tools: &'static [String] = Box::leak(tools.into_boxed_slice());
         assert!(matches(&r[0], &f("it is fixed", tools, "lane-1", "mybox")));
@@ -448,10 +472,25 @@ mod tests {
         let r = rules(json!([{"id": "e", "at": "end", "say": "E", "if": {"draft_any": ["done"]}}]));
         assert_eq!(start(&r, "t3", "p"), None);
         let mut msg = json!({});
-        end_with(&r, "t3", "s", "", "all done", "h", &mut msg);
+        end_with(&r, "t3", "s", "", "all done", "h", false, &mut msg);
         assert_eq!(msg["harnessMagic"]["turnRules"]["fired"], 1);
+        // Nothing was said into this turn's prompt yet: no saidChars.
+        assert!(msg["harnessMagic"]["turnRules"].get("saidChars").is_none());
         assert_eq!(start(&r, "t3", "p").as_deref(), Some("[turn rule e] E"));
         assert_eq!(start(&r, "t3", "p"), None);
+    }
+
+    #[test]
+    fn a_chief_condition_splits_chief_from_every_other_session() {
+        let r = rules(json!([
+            {"id": "c", "at": "start", "say": "C", "cooldown": 0, "if": {"chief": true}},
+            {"id": "o", "at": "start", "say": "O", "cooldown": 0, "if": {"chief": false}},
+        ]));
+        assert_eq!(start_with(&r, "t5", "n", "p", "h", true).as_deref(), Some("[turn rule c] C"));
+        assert_eq!(start_with(&r, "t6", "n", "p", "h", false).as_deref(), Some("[turn rule o] O"));
+        let mut msg = json!({});
+        end_with(&r, "t5", "n", "", "", "h", true, &mut msg);
+        assert_eq!(msg["harnessMagic"]["turnRules"]["saidChars"], 15);
     }
 
     #[test]
@@ -474,13 +513,13 @@ mod tests {
         .unwrap();
         hub.store.save(&meta).unwrap();
         let session = hub.make_session(meta);
-        *TEST_RULES.lock().unwrap() = Some((
+        TEST_RULES.lock().unwrap().insert(
             "tr-hub".into(),
             rules(json!([
                 {"id": "s", "at": "start", "say": "S", "cooldown": 0},
                 {"id": "e", "at": "end", "say": "E", "if": {"draft_any": ["fixed"], "tools_any": ["cargo"]}},
             ])),
-        ));
+        );
         let said = hub.turn_rules_start(&session, "go").unwrap();
         assert_eq!(said, "[turn rule s] S");
         hub.turn_rules_tool(
@@ -496,7 +535,7 @@ mod tests {
             hub.turn_rules_start(&session, "next").as_deref(),
             Some("[turn rule e] E\n[turn rule s] S")
         );
-        *TEST_RULES.lock().unwrap() = None;
+        TEST_RULES.lock().unwrap().remove("tr-hub");
         hub.shutdown_all().await;
     }
 }

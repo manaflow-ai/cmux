@@ -21,6 +21,9 @@ the code, which belongs on the pull request), each with a reason. This test fail
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import tempfile
 import re
 import sys
 import unittest
@@ -218,11 +221,43 @@ class PostMergeOnlyMatcherTest(unittest.TestCase):
         self.assertEqual(post_merge_only(workflows, table=""), set(workflows))
 
 
+# Workflows whose pull-request leg moved into steps of ci/steps.toml in other words (a runner picker, caches and
+# uploads stayed behind), so no command matches line for line: the workflow keeps the push, and these steps run
+# its checks on a pull request (CI v2 step 11).
+FOLDED: dict[str, tuple[str, ...]] = {
+    # The push run restores the pinned Bun from the CI cache bucket first (toolchain-r2.sh, #53053).
+    "app-platform.yml": ("app-platform",),
+    "app-store-shelf.yml": ("app-store-shelf",),
+    "cmux-next-ios-kit.yml": ("ios-kit",),
+}
+# ios-reliability-matrix.yml has no push left (its phone and protocol cells run in the post-merge batch, suites
+# pr-pipeline-ios and pr-pipeline-linux); cmux-next-ios-kit.yml's push names only its own file (registration).
+
+
+def folded(workflows: dict[str, dict]) -> set[str]:
+    """The FOLDED workflows whose steps are in the table, in a job a pull request's pipeline runs."""
+    sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+    import ci_steps  # noqa: PLC0415
+
+    steps = ci_steps.load().steps
+    jobs = {m.group("job") for doc in workflows.values() for line in run_commands(doc)
+            for m in TABLE_JOB_RUN.finditer(line)}
+    return {name for name, wanted in FOLDED.items() if all(s in steps and steps[s].job in jobs for s in wanted)}
+
+
 class PostMergeChecksListTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.found = post_merge_only(load_workflows())
+        workflows = load_workflows()
+        self.found = post_merge_only(workflows) - folded(workflows)
         self.listed = load_list()
         self.entries = self.listed["workflows"]
+
+    def test_each_folded_workflow_still_runs_on_the_push(self) -> None:
+        workflows = load_workflows()
+        self.assertEqual(folded(workflows), set(FOLDED), "a folded step is gone or left the pipeline's jobs")
+        for name in FOLDED:
+            with self.subTest(workflow=name):
+                self.assertIn(name, post_merge_only(workflows), "it runs on a pull request again: drop it from FOLDED")
 
     def test_every_post_merge_only_workflow_is_listed(self) -> None:
         for name in sorted(self.found - set(self.entries)):
@@ -247,6 +282,62 @@ class PostMergeChecksListTest(unittest.TestCase):
             with self.subTest(workflow=name):
                 self.assertIn(entry.get("kind"), KINDS)
                 self.assertGreaterEqual(len(entry.get("why", "").split()), 4, "say why in a few words")
+
+
+class CloudProbeRequestRoutingTest(unittest.TestCase):
+    """Dry-run the dispatcher shell without credentials, network or cloud machines."""
+
+    def test_dispatch_and_multi_commit_push_routes(self) -> None:
+        workflow = yaml.safe_load((WORKFLOWS / "cloud-probes.yml").read_text())
+        route = next(step["run"] for step in workflow["jobs"]["probes"]["steps"]
+                     if step.get("id") == "route")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            def git(*args: str) -> str:
+                return subprocess.check_output(["git", *args], cwd=root, text=True).strip()
+            git("init", "-q")
+            git("config", "user.email", "test@example.invalid")
+            git("config", "user.name", "test")
+            git("config", "commit.gpgsign", "false")
+            git("config", "core.hooksPath", "/dev/null")
+            git("commit", "--allow-empty", "-qm", "base")
+            base = git("rev-parse", "HEAD")
+            request = root / ".github/cloud-machine-count-probe/request"
+            request.parent.mkdir(parents=True)
+            request.write_text("count requested")
+            git("add", ".")
+            git("commit", "-qm", "count request")
+            count = git("rev-parse", "HEAD")
+            request = root / ".github/cloud-surge-proof/request"
+            request.parent.mkdir(parents=True)
+            request.write_text("surge requested")
+            git("add", ".")
+            git("commit", "-qm", "surge request")
+            both = git("rev-parse", "HEAD")
+            cases = [
+                ("workflow_dispatch", "machine-count", base, both, "true", "false"),
+                ("workflow_dispatch", "surge", base, both, "false", "true"),
+                ("push", "", base, count, "true", "false"),
+                ("push", "", count, both, "false", "true"),
+                ("push", "", base, both, "true", "true"),
+                ("push", "", both, both, "false", "false"),
+            ]
+            output = root / "outputs"
+            for event, operation, before, head, want_count, want_surge in cases:
+                with self.subTest(event=event, operation=operation, before=before, head=head):
+                    output.write_text("")
+                    env = dict(os.environ, EVENT_NAME=event, OPERATION=operation, BEFORE=before,
+                               GITHUB_SHA=head, GITHUB_OUTPUT=str(output), GH_TOKEN="")
+                    env.pop("BASH_ENV", None)
+                    subprocess.run(["bash", "-c", route], cwd=root, env=env, check=True)
+                    self.assertEqual(output.read_text(), f"count={want_count}\nsurge={want_surge}\n")
+            env["EVENT_NAME"], env["OPERATION"] = "workflow_dispatch", "typo"
+            result = subprocess.run(["bash", "-c", route], cwd=root, env=env, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            env["EVENT_NAME"], env["BEFORE"] = "push", "0" * 40
+            result = subprocess.run(["bash", "-c", route], cwd=root, env=env, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(b"dispatch one explicit probe", result.stderr)
 
 
 if __name__ == "__main__":

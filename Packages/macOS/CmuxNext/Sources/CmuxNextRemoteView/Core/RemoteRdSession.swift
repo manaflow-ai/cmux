@@ -15,7 +15,9 @@ public nonisolated final class RemoteRdSession {
     public let carrier: RemoteRdCore.Carrier
     private let handle: OpaquePointer
 
-    /// Nil only when the core cannot allocate a session.
+    /// `deadlineMicros` caps the wait for a NACKed frame; the core sizes the wait from the
+    /// measured round trip (two windows of RTT plus 10 ms). Nil only when the core cannot
+    /// allocate a session.
     public init?(carrier: RemoteRdCore.Carrier, deadlineMicros: UInt64 = 200_000, nackAfterMicros: UInt64 = 5_000) {
         guard let handle = cmux_rd_session_new(carrier.raw, deadlineMicros, nackAfterMicros) else { return nil }
         self.carrier = carrier
@@ -94,6 +96,28 @@ public nonisolated final class RemoteRdSession {
     /// Frame `frame` reached the glass at `presentedAtMicros` (this core's clock).
     public func noteFramePresented(stream: UInt16, frame: UInt32, presentedAtMicros: UInt64) throws(RemoteRdCoreError) {
         _ = try RemoteRdCoreError.check(cmux_rd_session_note_frame_presented(handle, stream, frame, presentedAtMicros))
+    }
+
+    /// The viewer began connecting at `atMicros` (this core's clock): the session report's first
+    /// frame time counts from the first call.
+    public func noteConnectStarted(atMicros: UInt64) {
+        _ = cmux_rd_session_note_connect_started(handle, atMicros)
+    }
+
+    /// The session report so far (`cmux.rd-session-report/1` JSON: first frame ms and the whole
+    /// session's display-to-glass and Present p50/p95, numbers only), nil on an error.
+    public func sessionReport() -> String? {
+        var length = 0
+        var buffer = [UInt8](repeating: 0, count: 1024)
+        for _ in 0..<2 {
+            let code = buffer.withUnsafeMutableBufferPointer { buf in
+                cmux_rd_session_report(handle, buf.baseAddress, buf.count, &length)
+            }
+            if code >= 0 { return String(decoding: buffer.prefix(length), as: UTF8.self) }
+            guard RemoteRdCoreError(code: code) == .buffer else { return nil }
+            buffer = [UInt8](repeating: 0, count: length)
+        }
+        return nil
     }
 
     /// The stage ledger so far (`cmux.rd-stage-ledger/1` JSON), nil on an error.

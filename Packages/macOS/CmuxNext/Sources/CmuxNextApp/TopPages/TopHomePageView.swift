@@ -10,13 +10,11 @@ import CmuxNextHomeModel
 import CmuxNextHomeEngine
 import Observation
 
-/// The Home top page, two columns: MessagesLab's conversation list
-/// (`HomeSidebarView` over `HomeSidebarSource`: search, the pinned grid with
-/// the Chiefs, then conversations newest first) on the left, and the chosen conversation's native transcript
-/// (`HomeHostView`, MessagesLab's code) on the right. The page opens on the
-/// Chief conversation when there is one, else on the newest conversation.
-/// The store's home workspace and its chief tab stay as they are (other
-/// clients read them); this page reads the same store.
+/// The Home top page, two columns: MessagesLab's conversation list (`HomeSidebarView` over
+/// `HomeSidebarSource`: search, the pinned grid with the Chiefs, then conversations newest first) on the left,
+/// and the chosen conversation's native transcript (`HomeHostView`, MessagesLab's code) on the right. The page
+/// opens on the Chief conversation when there is one, else on the newest conversation. The store's home
+/// workspace and its chief tab stay as they are (other clients read them); this page reads the same store.
 @MainActor
 final class TopHomePageView: NSView {
     private weak var services: AppServices?
@@ -30,6 +28,7 @@ final class TopHomePageView: NSView {
     var lines: [HomeConversationLine] { rows.homeLines }
     private(set) var host: HomeHostView?
     private(set) var shown: ConversationID?
+    private lazy var chats = HomeChatStack<ConversationID, HomeHostView>(column: transcriptColumn)
     /// New Chief's create is running: another click waits for it (one Chief per click, not per bounce).
     private var creatingChief = false
     /// The New Message page (Messages' New Message: a page, not a sheet).
@@ -57,6 +56,8 @@ final class TopHomePageView: NSView {
         sidebar = services.home.makeSidebarSource()
         split = HomeSidebarSplitView(sidebar: list, content: transcriptColumn)
         super.init(frame: .zero)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
         setAccessibilityIdentifier("cmux.topPage.home")
         split.windowKey = windowKey
         split.frame = bounds
@@ -74,12 +75,8 @@ final class TopHomePageView: NSView {
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
     nonisolated deinit {
-        rowsObservation?.cancel()
-        selectionObservation?.cancel()
-        chiefObservation?.cancel()
-        accountObservation?.cancel()
-        requestsObservation?.cancel()
-        unreadColorObservation?.cancel()
+        let observations = [rowsObservation, selectionObservation, chiefObservation, accountObservation, requestsObservation]
+        for observation in observations + [unreadColorObservation] { observation?.cancel() }
     }
 
     /// Redraws the list after a pin change (`home.togglePin`).
@@ -192,6 +189,7 @@ final class TopHomePageView: NSView {
                     home.refreshChiefAvatars()
                 }
                 rows = HomeArchivedChiefs(archived, me: store.me?.id).visible(all)
+                chats.keep { id in rows.contains { $0.id == id } }  // a kept chat that left the list goes
                 // A conversation came or went (a lease arrived, a request was accepted): requests may have changed.
                 if Set(all.map(\.id)) != listed { listed = Set(all.map(\.id)); home.requests.refresh() }
                 list.update(sidebar.model())
@@ -367,13 +365,10 @@ final class TopHomePageView: NSView {
         }
         shown = id
         launchHost.run(after: host == nil ? services.launchReveal.firstFrame : nil) { [weak self] in guard let self, let id = shown, let services = self.services else { return }
-            host?.removeFromSuperview(); DebugTimings.markLaunch("home.page_host_made")
-            let view = HomeHostView(services: services, conversation: id.rawValue)
-            view.isHidden = isComposingNewMessage
-            view.frame = transcriptColumn.bounds
-            view.autoresizingMask = [.width, .height]
-            transcriptColumn.addSubview(view)
-            host = view
+            // The chat left stays made, hidden: switching back to it draws at once (HomeChatStack).
+            host = chats.show(id, hidden: isComposingNewMessage) {
+                DebugTimings.markLaunch("home.page_host_made"); return HomeHostView(services: services, conversation: id.rawValue)
+            }
             services.home.homeDidOpen(asked: true)
             if window.map({ ($0.firstResponder === $0 || $0.firstResponder == nil) && !$0.pendingCreationOwnsKeyboard }) ?? true { focusPrimaryInput() } // unasked
         }
@@ -541,7 +536,7 @@ final class TopHomePageView: NSView {
         guard let services else { return }
         let home = services.home, sheet = HomeNewChiefSheet()
         sheet.onCreate = { name, backend in await home.createChief(named: name, backend: backend) }
-        sheet.onCreateOnMachine = HomeMachineChiefStart(cli: services.bundledCLI, auth: services.cloud.auth, socket: { [weak services] in await services?.machines.local.connection?.endpoint?.socketPath }).create(opened: { [weak home] in home?.pendingSelection = $0 })
+        sheet.onCreateOnMachine = HomeMachineChiefStart(cli: services.bundledCLI, auth: services.cloud.auth, socket: { [weak services] in await services?.machines.local.connection?.endpoint?.socketPath }, credentials: services.cloud.agentCredentials).create(opened: { [weak home] in home?.pendingSelection = $0 })
         sheet.onCreateOnThisMac = { name, backend in await home.createChief(named: name, backend: backend, onThisMac: true) }
         present(sheet)
     }

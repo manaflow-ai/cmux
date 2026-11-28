@@ -93,6 +93,28 @@ impl RttSummary {
     }
 }
 
+/// Counters from the hop/1 leg, included only while the selected path is hop.
+/// Values are bounded before they enter a link-stat frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HopStats {
+    pub srtt_ms: u64,
+    pub loss_permille: u16,
+    pub resent: u64,
+    pub repaired: u64,
+}
+
+impl HopStats {
+    fn bounded(self) -> Self {
+        Self {
+            srtt_ms: self.srtt_ms.min(u64::from(MAX_MS)),
+            loss_permille: self.loss_permille.min(1_000),
+            resent: self.resent.min(100_000),
+            repaired: self.repaired.min(100_000),
+        }
+    }
+}
+
 /// One `link_stat` frame.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -111,6 +133,8 @@ pub struct LinkStat {
     pub marks: BTreeMap<&'static str, u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rtt: Option<RttSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hop: Option<HopStats>,
     /// Pings sent since the last stat.
     pub pings: u32,
     /// Pings lost since the last stat (sent, never answered, no longer waiting).
@@ -126,6 +150,14 @@ pub struct LinkStat {
     pub end: Option<&'static str>,
     /// The link library's version.
     pub lib: &'static str,
+    /// `proxy` or `inspected` when this network's link connections leave
+    /// through a proxy (one that inspects TLS); absent when direct.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub egress: Option<&'static str>,
+    /// The Mac offered a NAT-mapped endpoint (PROTOCOL.md "Mapped
+    /// endpoints"): which protocol mapped it and whether the route uses it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub portmap: Option<PortmapStat>,
     /// Keys typed since the last stat: tap to first echo ([`crate::key_echo`]).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub echo: Option<key_echo::Summary>,
@@ -142,6 +174,21 @@ pub struct LinkStat {
 
 fn is_zero(n: &u32) -> bool {
     *n == 0
+}
+
+/// `link_stat` `portmap`: `{"by":"pcp","used":true}`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct PortmapStat {
+    /// `pcp`, `nat-pmp`, `upnp` or `unknown`.
+    pub by: &'static str,
+    /// The link's direct route goes to the mapped endpoint.
+    pub used: bool,
+}
+
+impl From<crate::dial::portmap::PortmapUse> for PortmapStat {
+    fn from(use_: crate::dial::portmap::PortmapUse) -> Self {
+        Self { by: use_.protocol, used: use_.used }
+    }
 }
 
 impl LinkStat {
@@ -272,6 +319,7 @@ impl Reporter {
             setup_ms,
             marks,
             rtt: RttSummary::of(&pings.samples),
+            hop: None,
             pings: clamp(sent),
             lost: clamp(lost),
             switches: self.switches.min(10_000),
@@ -281,6 +329,8 @@ impl Reporter {
                 .min(30 * 86_400),
             end: end.map(end_kind),
             lib: env!("CARGO_PKG_VERSION"),
+            egress: crate::egress::seen().map(crate::egress::PathKind::as_str),
+            portmap: None,
             echo: None,
             ack: None,
             spike_count: 0,
@@ -291,8 +341,13 @@ impl Reporter {
 
 /// Send `stat` on the current signaling socket. `false` when that socket's Worker refused stats
 /// (no more go out), or there is none.
-async fn send(signaling: &SignalingSource, stat: &LinkStat) -> bool {
-    let Some(client) = signaling().await else { return true };
+async fn send(signaling: &SignalingSource, session_id: &str, mut stat: LinkStat) -> bool {
+    if stat.path == LinkPath::Hop.as_str() {
+        stat.hop = crate::dial::wireguard::hop_stats(session_id, true).map(HopStats::bounded);
+    }
+    let Some(client) = signaling().await else {
+        return true;
+    };
     if !client.sends_link_stats() {
         return false;
     }
@@ -309,9 +364,15 @@ pub fn spawn(
     mut path: watch::Receiver<LinkPath>,
     timeline: Timeline,
     signaling: SignalingSource,
+    session_id: String,
 ) -> JoinHandle<()> {
+    // The Mac's mapped endpoint and whether the route uses it, read at each stat.
+    let hop_session = session_id.clone();
+    let portmap = move || crate::dial::wireguard::portmap_use(&session_id).map(PortmapStat::from);
     tokio::spawn(async move {
-        let mut reporter = Reporter::new(transport, *path.borrow_and_update(), Instant::now());
+        let first_path = *path.borrow_and_update();
+        crate::key_paint::set_route(first_path.as_str());
+        let mut reporter = Reporter::new(transport, first_path, Instant::now());
         let mut closed = link.closed_state();
         let cellular = crate::dial::wireguard::cellular_path;
         // The first stat waits for the first pong (its setup time), at most FIRST_WAIT.
@@ -331,10 +392,11 @@ pub fn spawn(
                     cellular(),
                 )
                 .map(|stat| stat.with_keys(&key_echo::take(), reporter.up_at));
-            if let Some(stat) = stat
-                && !send(&signaling, &stat).await
-            {
-                return;
+            if let Some(mut stat) = stat {
+                stat.portmap = portmap();
+                if !send(&signaling, &hop_session, stat).await {
+                    return;
+                }
             }
         }
         // The dialer's path watch can end before the link (then the link's close ends the report).
@@ -347,7 +409,10 @@ pub fn spawn(
                     if changed.is_err() {
                         path_open = false;
                         continue;
-                    } else if reporter.path_changed(*path.borrow_and_update(), Instant::now()) {
+                    } else if reporter.path_changed(
+                        crate::key_paint::route_changed(*path.borrow_and_update()),
+                        Instant::now(),
+                    ) {
                         Reason::Path
                     } else {
                         continue;
@@ -367,8 +432,9 @@ pub fn spawn(
                 cellular(),
             );
             let Some(stat) = stat else { return };
-            let stat = stat.with_keys(&key_echo::take(), reporter.up_at);
-            if !send(&signaling, &stat).await || reason == Reason::End {
+            let mut stat = stat.with_keys(&key_echo::take(), reporter.up_at);
+            stat.portmap = portmap();
+            if !send(&signaling, &hop_session, stat).await || reason == Reason::End {
                 return;
             }
         }
@@ -495,7 +561,8 @@ mod tests {
             reporter.path_changed(LinkPath::TurnTls, up);
         }
         let huge = pings(u64::MAX, 0, 0, &vec![u32::MAX; PingStats::MAX_SAMPLES]);
-        let stat = reporter
+        reporter.path_changed(LinkPath::Hop, up);
+        let mut stat = reporter
             .build(
                 Reason::End,
                 up + Duration::from_secs(10 * 365 * 86_400),
@@ -505,8 +572,14 @@ mod tests {
                 true,
             )
             .unwrap();
+        stat.hop = Some(
+            HopStats { srtt_ms: u64::MAX, loss_permille: u16::MAX, resent: u64::MAX, repaired: u64::MAX }
+                .bounded(),
+        );
+        stat.portmap = Some(PortmapStat { by: "nat-pmp", used: false });
         let text = stat.to_text();
         assert!(text.len() <= MAX_FRAME_BYTES, "{} bytes: {text}", text.len());
+        assert!(text.contains(r#""portmap":{"by":"nat-pmp","used":false}"#), "{text}");
         assert_eq!(stat.marks.len(), MARKS.len());
         assert_eq!(stat.end, Some("keepalive"));
         assert!(stat.lost <= stat.pings);

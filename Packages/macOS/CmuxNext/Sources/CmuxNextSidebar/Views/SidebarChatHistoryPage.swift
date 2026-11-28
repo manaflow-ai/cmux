@@ -9,10 +9,11 @@ public extension PageDescriptor {
     /// The sidebar's chat history blocks: cmux-page://cmux.sidebar-chats/, built by
     /// scripts/cmux-next/build-pages-web.sh from webviews/src/pages/sidebar-chats. One page per block the list
     /// shows (Pinned, Earlier; ``SidebarChatHistoryHost``). The page owns no data: the host streams the block,
-    /// and every click comes back as a call the host checks. It takes the first click, as the native rows did.
+    /// and every click comes back as a call the host checks. It takes the first click, as the native rows did. It
+    /// hears the block's part on screen (``PageVisibleSlices``).
     static let sidebarChats = PageDescriptor(id: "cmux.sidebar-chats", resource: "sidebar-chats",
-                                             namespaces: [SidebarChatHistoryProvider.prefix], commands: [],
-                                             acceptsFirstMouse: true)
+                                             namespaces: [SidebarChatHistoryProvider.prefix], nativeOps: [PageVisibleSlices.stream],
+                                             commands: [], acceptsFirstMouse: true)
 }
 
 /// What one chat history block's page draws (`cmux.sidebarChats.block`, webviews/src/pages/sidebar-chats/model.ts):
@@ -122,10 +123,18 @@ struct SidebarChatHistoryBlock: Equatable {
 ///   that click while VoiceOver runs (`PageAccessibilityPress`), as the native rows' `accessibilityPerformPress()` did.
 ///   `chat` must be a row the host sent, so a page can open or pin only the chats it was shown.
 /// - `ready {revision, height}`: the page drew `revision` at `height` CSS px (the host shows the page then).
+///
+/// The block's part on screen goes out on the page's generic `cmux.page.visibleSlice` (``slices``, surface
+/// `sidebar-chats:pinned` or `sidebar-chats:earlier`, revision the block's).
 @MainActor
 final class SidebarChatHistoryProvider: PageProvider {
     static let prefix = "cmux.sidebarChats."
     static let blockStream = prefix + "block"
+
+    /// The page's visible-slice stream (the host measures and pushes).
+    let slices = PageVisibleSlices()
+    /// The routes the block's page serves: this provider's calls and streams, and the visible slices.
+    var routes: [PageRoute] { [PageRoute(prefix: Self.prefix, provider: self), slices.route] }
 
     enum Call: Equatable {
         case open(String)

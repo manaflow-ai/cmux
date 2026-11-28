@@ -11,7 +11,11 @@ mod initial_route_budget;
 #[cfg(unix)]
 mod last_good_route;
 #[cfg(unix)]
+mod ssh_auth_budget;
+#[cfg(unix)]
 mod ssh_forced_command;
+#[cfg(unix)]
+mod warm_standby;
 
 /// Binds a stream socket at `path` that never listens, as a crashed
 /// client leaves it. A connect to it is refused even while the returned
@@ -1575,6 +1579,7 @@ fn client_startup_timeout_returns_while_the_socket_path_lock_is_held() {
             providers,
             identity: StaticIdentity::generate().unwrap(),
             expected_daemon: None,
+            daemon_took_ik: false,
             auth: ClientAuthMode::Carrier,
             device_name: "client-startup-lock-test".into(),
             session: SessionId([31; 16]),
@@ -2198,6 +2203,7 @@ fn reconnect_test_options(routes: Vec<ResolvedRouteCandidate>) -> ClientRuntimeO
         providers: test_providers(ssh.clone()),
         identity: StaticIdentity::generate().unwrap(),
         expected_daemon: None,
+        daemon_took_ik: false,
         auth: ClientAuthMode::Enrolled,
         device_name: "test".into(),
         session: SessionId([10; 16]),
@@ -2342,6 +2348,7 @@ fn client_shutdown_cancels_reconnect_ssh_bootstrap_and_kills_child() {
         providers,
         identity: StaticIdentity::generate().unwrap(),
         expected_daemon: None,
+        daemon_took_ik: false,
         auth: ClientAuthMode::Carrier,
         device_name: "shutdown-cancel-test".into(),
         session: SessionId([21; 16]),
@@ -2511,6 +2518,7 @@ async fn initial_client_connection_retries_transient_carrier_failure() {
         providers,
         identity: StaticIdentity::generate().unwrap(),
         expected_daemon: None,
+        daemon_took_ik: false,
         auth: ClientAuthMode::Carrier,
         device_name: "startup-retry-test".into(),
         session: SessionId([22; 16]),
@@ -2591,6 +2599,7 @@ async fn invitation_approval_outlives_the_route_attempt_timeout() {
         providers,
         identity: StaticIdentity::generate().unwrap(),
         expected_daemon: Some(daemon_key),
+        daemon_took_ik: false,
         auth: ClientAuthMode::Invitation {
             id: invitation.id.clone(),
             secret: zeroize::Zeroizing::new(invitation.secret_bytes().unwrap()),
@@ -2679,6 +2688,7 @@ async fn a_network_change_during_the_invitation_wait_still_enrolls() {
         providers,
         identity: StaticIdentity::generate().unwrap(),
         expected_daemon: Some(daemon_key),
+        daemon_took_ik: false,
         auth: ClientAuthMode::Invitation {
             id: invitation.id.clone(),
             secret: zeroize::Zeroizing::new(invitation.secret_bytes().unwrap()),
@@ -2936,6 +2946,7 @@ async fn reconnect_bootstraps_an_ssh_candidate_not_attempted_initially() {
         providers: test_providers(ssh.clone()),
         identity: StaticIdentity::generate().unwrap(),
         expected_daemon: None,
+        daemon_took_ik: false,
         auth: ClientAuthMode::Enrolled,
         device_name: "test".into(),
         session: SessionId([9; 16]),
@@ -3197,6 +3208,7 @@ async fn reconnect_source_cycles_candidates_with_sanitized_descriptions() {
         providers: test_providers(ssh.clone()),
         identity: StaticIdentity::generate().unwrap(),
         expected_daemon: None,
+        daemon_took_ik: false,
         auth: ClientAuthMode::Enrolled,
         device_name: "test".into(),
         session: SessionId([3; 16]),

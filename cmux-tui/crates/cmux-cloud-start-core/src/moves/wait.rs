@@ -156,18 +156,48 @@ pub const ECONNREFUSED: i32 = 61;
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum StartFailure {
     ConnectionClosed,
-    ConnectFailed { code: i32 },
+    ConnectFailed {
+        code: i32,
+    },
+    /// A request with no reply in time; `what` is the app's `"<cmd> (no reply within …)"`.
+    TimedOut {
+        what: String,
+    },
     Other,
 }
 
+/// The requests a fresh connection sends before anything else: no reply to one of them means
+/// the link carries nothing, not that the machine refused.
+const FIRST_REQUESTS: [&str; 2] = ["identify", "set-client-info"];
+
 /// Whether a start's failure is its link dropping under it, which a relink and one more try can
-/// help: the connection closed (an EOF right after a resume), or the link socket was gone or
-/// refused while its carrier rebound it (start matrix run 42125025387).
+/// help: the connection closed (an EOF right after a resume), the link socket was gone or
+/// refused while its carrier rebound it (start matrix run 42125025387), or a fresh connection's
+/// first request got no reply: a link left from before the machine's daemon restarted takes
+/// the bytes and answers nothing (NIGHTLY 743185fa3, 2026-11-10: "started but its agent didn't
+/// (timed out: identify (no reply within 10.0 seconds))" on 4 of 4 starts). A timeout on any
+/// later request, the start itself included, may have run on the machine and stays a failure.
 pub fn link_dropped(failure: &StartFailure) -> bool {
     match failure {
         StartFailure::ConnectionClosed => true,
         StartFailure::ConnectFailed { code } => *code == ENOENT || *code == ECONNREFUSED,
+        StartFailure::TimedOut { .. } => link_stale(failure),
         StartFailure::Other => false,
+    }
+}
+
+/// Whether a start's failure says the link the app holds is stale: a fresh connection's first
+/// request got no reply, so the link takes the bytes and answers nothing (one left from before
+/// the machine's daemon restarted). The app still holds that link as connected, so waiting for
+/// "a link is up" answers at once with the same dead link and the one more try timed out again
+/// (cosmic-gray 2026-11-27 21:xxZ, 2 AutoCloud starts: "started but its agent didn't (timed out:
+/// identify (no progress for 10.0 s))"). Its relink drops that link and waits for a new one.
+pub fn link_stale(failure: &StartFailure) -> bool {
+    match failure {
+        StartFailure::TimedOut { what } => {
+            what.split_whitespace().next().is_some_and(|cmd| FIRST_REQUESTS.contains(&cmd))
+        }
+        _ => false,
     }
 }
 

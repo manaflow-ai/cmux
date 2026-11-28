@@ -45,6 +45,7 @@ pub(super) const ENGLISH: SessionResetMessages = SessionResetMessages {
     non_empty_name_required: "session reset-state requires a non-empty name",
     no_state_root: "cannot determine durable state directory; pass --state <path>",
     confirmation_required: "session reset-state --force requires a confirmation token from preview",
+    // retry-prompt-ok: the reset deletes saved state; the person reviews the preview and confirms with its token.
     confirmation_recovery: "rerun without --force, review the scoped targets, then retry with the printed --confirm-reset token",
     routing_options_unsupported: "session reset-state does not accept global routing options: {options}; use --state <path> to select the saved-state root",
     reset_failed: "could not complete saved-state reset for session \"{session}\"",
@@ -59,11 +60,12 @@ pub(super) const ENGLISH: SessionResetMessages = SessionResetMessages {
     reason_invalid_state_path: "the state path is not a directory",
     recovery_invalid_state_path: "rerun the preview with the intended --state path",
     reason_state_changed: "the scoped session state changed during reset",
+    // retry-prompt-ok: the state changed under the reset; the person decides whether the new targets are still the ones to delete.
     recovery_state_changed: "rerun the preview, then retry the reset if the targets are still correct",
     reason_state_too_large: "the scoped session state is too large to confirm safely",
-    recovery_state_too_large: "reduce the scoped saved state or retry after a compatible cmux stops the session cleanly",
+    recovery_state_too_large: "reduce the scoped saved state, or stop the session cleanly with a compatible cmux first",
     reason_filesystem: "the filesystem refused the scoped reset",
-    recovery_filesystem: "check permissions and available disk, then retry the reset",
+    recovery_filesystem: "check the state directory's permissions and free disk space",
     retry_after_preview: "rerun without --force to inspect the scoped reset plan",
 };
 
@@ -73,6 +75,7 @@ pub(super) const JAPANESE: SessionResetMessages = SessionResetMessages {
     non_empty_name_required: "session reset-state には空でない名前が必要です",
     no_state_root: "永続状態ディレクトリを特定できません。--state <path> を指定してください",
     confirmation_required: "session reset-state --force にはプレビューで表示された確認トークンが必要です",
+    // retry-prompt-ok: see the English entry (confirmed deletion).
     confirmation_recovery: "--force なしで再実行し、スコープ付き対象を確認してから、表示された --confirm-reset トークンを付けて再試行してください",
     routing_options_unsupported: "session reset-state ではグローバルルーティングオプション {options} を使用できません。保存状態のルートを選択するには --state <path> を使用してください",
     reset_failed: "セッション \"{session}\" の保存状態リセットを完了できませんでした",
@@ -87,10 +90,11 @@ pub(super) const JAPANESE: SessionResetMessages = SessionResetMessages {
     reason_invalid_state_path: "状態パスがディレクトリではありません",
     recovery_invalid_state_path: "意図した --state パスでプレビューを再実行してください",
     reason_state_changed: "スコープ付きセッション状態がリセット中に変更されました",
+    // retry-prompt-ok: see the English entry (the person re-checks the targets).
     recovery_state_changed: "プレビューを再実行し、対象が正しければリセットを再試行してください",
     reason_state_too_large: "スコープ付きセッション状態が大きすぎるため安全に確認できません",
-    recovery_state_too_large: "スコープ付き保存状態を減らすか、互換性のある cmux でセッションを正常に停止してから再試行してください",
+    recovery_state_too_large: "スコープ付き保存状態を減らすか、先に互換性のある cmux でセッションを正常に停止してください",
     reason_filesystem: "ファイルシステムがスコープ付きリセットを拒否しました",
-    recovery_filesystem: "権限と空きディスク容量を確認してからリセットを再試行してください",
+    recovery_filesystem: "状態ディレクトリの権限と空きディスク容量を確認してください",
     retry_after_preview: "--force なしで再実行してスコープ付きリセット計画を確認してください",
 };

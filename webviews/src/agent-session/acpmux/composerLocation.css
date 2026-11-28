@@ -96,7 +96,7 @@
 .acpmux-composer-context:has(> .acpmux-folder-choice) {
   flex-wrap: wrap;
 }
-.acpmux-composer-context:has(> .acpmux-folder-choice) > .acpmux-location-picker:last-child {
+.acpmux-composer-context:has(> .acpmux-folder-choice) > .acpmux-location-picker[data-kind="branch"] {
   order: 2;
 }
 .acpmux-composer-context > .acpmux-folder-choice {
@@ -114,13 +114,14 @@
    bounds a long host name. */
 .acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker:first-child { flex-shrink: 100; }
 .acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker[data-kind="computer"] { flex-shrink: 0; }
-/* The branch keeps its name: it shrinks only past half the strip. */
-.acpmux-composer-context > .acpmux-location-picker:last-child { flex: 0 0 auto; max-width: 50%; margin-left: auto; }
+/* The branch keeps its name: it shrinks only past half the strip. The chat composer draws it in its
+   bottom row instead (ComposerBranch, below), so this is New Tab's and the galleries' strip. */
+.acpmux-composer-context > .acpmux-location-picker[data-kind="branch"] { flex: 0 0 auto; max-width: 50%; margin-left: auto; }
 /* The folder and the branch cut only when the strip runs out of room (the rules above), never at
    the controls' fixed cap (190 px, 145 px in a narrow pane, below), which cut a long name beside
    empty strip. The computer keeps the cap. */
 .acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker:not([data-kind="computer"]) :is(.acpmux-location-button, .acpmux-location-readonly),
-.acpmux-composer-context > .acpmux-location-picker:last-child .acpmux-location-button { max-width: none; }
+.acpmux-composer-context > .acpmux-location-picker[data-kind="branch"] .acpmux-location-button { max-width: none; }
 .acpmux-location-picker {
   position: relative;
   display: inline-flex;
@@ -246,13 +247,13 @@
 }
 /* The same steps beside the branch (the context's last control, a plain picker with no rows). */
 @container acpmux-strip (width < 472px) {
-  .acpmux-composer-context:has(> .acpmux-location-picker:last-child:not([data-rows])) .acpmux-location-leading:has(> [data-rows="where"]) > .acpmux-location-picker[data-rows="machines"] .acpmux-location-label { display: none; }
+  .acpmux-composer-context:has(> .acpmux-location-picker[data-kind="branch"]) .acpmux-location-leading:has(> [data-rows="where"]) > .acpmux-location-picker[data-rows="machines"] .acpmux-location-label { display: none; }
 }
 @container acpmux-strip (width < 416px) {
-  .acpmux-composer-context:has(> .acpmux-location-picker:last-child:not([data-rows])) .acpmux-location-leading:has(> [data-rows="machines"]) > .acpmux-location-picker[data-rows="where"] .acpmux-location-label { display: none; }
+  .acpmux-composer-context:has(> .acpmux-location-picker[data-kind="branch"]) .acpmux-location-leading:has(> [data-rows="machines"]) > .acpmux-location-picker[data-rows="where"] .acpmux-location-label { display: none; }
 }
 @container acpmux-strip (width < 314px) {
-  .acpmux-composer-context:has(> .acpmux-location-picker:last-child:not([data-rows])) .acpmux-location-leading .acpmux-location-picker[data-kind="computer"] .acpmux-location-label { display: none; }
+  .acpmux-composer-context:has(> .acpmux-location-picker[data-kind="branch"]) .acpmux-location-leading .acpmux-location-picker[data-kind="computer"] .acpmux-location-label { display: none; }
 }
 /* At 340: the folder takes a short cap and cuts in the middle (its head takes the ellipsis, its
    last word stays; splitForMiddleTruncation never splits a character), so the branch keeps its
@@ -345,6 +346,13 @@
   border-radius: var(--ui-popup-radius);
   color: var(--agent-text);
   transform-origin: var(--transform-origin);
+}
+/* An agent reports as many modes as it has: a list taller than this scrolls inside, as the + menu's
+   does (styles.css), and only its rows near view draw (menuWindow.tsx). --popup-scroll-cap is the
+   bound for popupHost.ts. Claude Code's and Codex's few modes never reach it. */
+.ui-popup.acpmux-access-menu {
+  --popup-scroll-cap: 420px;
+  max-height: min(420px, var(--available-height, 420px));
 }
 .ui-menu-item.acpmux-access-item {
   display: grid;
@@ -514,11 +522,29 @@
   height: var(--acpmux-composer-trail-glyph);
   stroke-width: var(--acpmux-composer-trail-stroke);
 }
-/* Continue's ▶ (SendSlotGlyph media.play, 14 px) draws at 14/16 of the trailing glyph, so it grows and shrinks with
-   the density as Send's ↑ does (Lucas 2026-11-14: it stayed 14 px at Spacious). */
+/* Resume's ▶ is a plain line glyph beside the mic, never a filled disc (cmux#51039; the person,
+   2026-11-22: "i dont like how jarring this button is here for resuming the session? we should make
+   it sure it matches the other icons here"): the mic's size, stroke, colour, box and quiet hover pill,
+   in every look and at every density. test/composer-resume-quiet.test.ts measures it. */
+:is(.acpmux-composer, .nt-composer) .acpmux-composer-actions .acpmux-send.acpmux-resume {
+  border-radius: 50%;
+  background: transparent;
+  color: var(--agent-muted);
+}
 :is(.acpmux-composer, .nt-composer) .acpmux-send.acpmux-resume svg {
-  width: calc(var(--acpmux-composer-trail-glyph) * 14 / 16);
-  height: calc(var(--acpmux-composer-trail-glyph) * 14 / 16);
+  width: var(--acpmux-composer-trail-glyph);
+  height: var(--acpmux-composer-trail-glyph);
+  stroke-width: var(--acpmux-composer-trail-stroke);
+}
+/* Keyboard focus draws the mic's pill, beside the send slot's outline. */
+:is(.acpmux-composer, .nt-composer) .acpmux-composer-actions .acpmux-send.acpmux-resume:focus-visible {
+  background: var(--acpmux-row-hover);
+}
+/* Its hover is the mic's pill (the quiet controls' rule below). A press keeps the pill; it changes the
+   background only, the ink staying the hover's. */
+:is(.acpmux-composer, .nt-composer) .acpmux-composer-actions .acpmux-send.acpmux-resume:not(:disabled):active {
+  background: var(--acpmux-row-hover);
+  transition-duration: 0s;
 }
 /* Interrupt (or Steer) and Plan: the chips' inset and radius. */
 .acpmux-composer-bar .acpmux-steer,
@@ -581,6 +607,7 @@
   :is(.acpmux-composer-bar, .nt-pickers) .acpmux-plan:hover,
   :is(.acpmux-composer-bar, .nt-pickers) .acpmux-steer:hover,
   :is(.acpmux-composer-bar, .nt-pickers) .acpmux-mic:not([data-state="starting"], [data-state="listening"], [data-state="finalizing"]):hover,
+  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-send.acpmux-resume:not(:disabled):hover,
   :is(.acpmux-composer-bar, .nt-pickers) .acpmux-fast:hover {
     background: var(--acpmux-row-hover);
     color: var(--agent-text);
@@ -891,10 +918,10 @@
    Its fill and blur are the glass's (.ui-glass, composerStates.css's tokens); this sheet loads after
    glass.css, so the card's own ring and shadow stand in for the glass's box-shadow. */
 .acpmux-composer-box {
-  box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-halo, 0 0 transparent), var(--acpmux-composer-shadow, var(--elevation-1));
+  box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
 }
 .acpmux-composer-box[data-focused] {
-  box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-halo, 0 0 transparent), var(--acpmux-composer-shadow, var(--elevation-1));
+  box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
 }
 /* A running/background tray is already a glass surface immediately above the card. Its join owns
    one hairline (the card ring); remove the material's second top-lit line and keep only the quiet
@@ -1014,7 +1041,7 @@
      ChatGPT desktop's Codex tray (cg-design-judge, 2026-10-15). */
 :root[data-top-strip] .acpmux-composer:is([data-strip], [data-queue]) > .acpmux-composer-box,
 :root[data-top-strip] .nt-composer:has(.acpmux-composer-strip) .nt-box {
-  box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-halo, 0 0 transparent), var(--acpmux-composer-shadow, var(--elevation-1));
+  box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
 }
 :root[data-top-strip] .acpmux-composer:is([data-strip], [data-queue]) > .acpmux-composer-box::before,
 :root[data-top-strip] .nt-composer:has(.acpmux-composer-strip) .nt-box::before {
@@ -1446,9 +1473,11 @@
 }
 /* The row's margin is all the room under it: the chat composer's own 16 px bottom padding stacked
    on it (26 px, Claude Code leaves about 8) is dropped while the quiet row ends the composer (Leo
-   2026-10-21: "WE HAVE TOO MUCH STUPID SPACE AT THE BOTTOM COMPAREDE TO CLAUDE CODE"). Only
-   the floating chat dock: a fresh chat's hero layout keeps its padding. */
-.acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-composer[data-foot] { padding-bottom: 0; }
+   2026-10-21: "WE HAVE TOO MUCH STUPID SPACE AT THE BOTTOM COMPAREDE TO CLAUDE CODE"). The open
+   chat's dock, floating or in flow (`data-dock="flow"`: a handoff review, the inspector), drops it
+   alike, so the composer does not jump 16 px as the stage over it switches (Leo, 2026-11-24: "we need
+   to have more things decoupled from posisble shifts"); a fresh chat's hero layout keeps its padding. */
+.acpmux-main:is([data-dock="float"], [data-dock="flow"]) > .acpmux-dock > .acpmux-composer[data-foot] { padding-bottom: 0; }
 /* The chips lay out as the row's own items, so the mode goes left and the rest right (right too
    before a chat has a mode, as on a fresh New Tab page). */
 .acpmux-composer-foot .acpmux-chips { display: contents; }
@@ -1486,7 +1515,7 @@
    (a menu closed with Esc hands focus back here) draws the same pill and a hairline in the row's
    own ink, never the bright shared ring; Increase Contrast keeps the shared ring. The step back is 88%, the
    most it can be and keep 4.5:1 (68% drew "High" at 3.03:1 light, 3.99:1 dark). */
-.acpmux-composer-foot .acpmux-model .acpmux-model-detail { color: color-mix(in srgb, currentcolor 88%, transparent); }
+.acpmux-composer-foot .acpmux-model .acpmux-model-detail { color: color-mix(in srgb, currentcolor var(--instrument-ink-effort-label, 88%), transparent); }
 /* The shared ring (pages/shared/desktop.css) draws from these two tokens with !important, so the
    button narrows them on itself. */
 @media not (prefers-contrast: more) {
@@ -1556,10 +1585,12 @@
   --acpmux-density-text: var(--cmux-density-text-scale, var(--cmux-interface-scale, 1));
   /* The grid steps the composer reads, restated at its density: a token computed on :root keeps the
      page scale, so the composer redeclares the ones it uses. */
-  --grid-composer-inset: calc(8px * var(--acpmux-density));
+  /* A look's `appearance.metrics.composerPadding` and `composerMinHeight` (the host sets --cmux-composer-inset and
+     --cmux-composer-box only when a look sets them; Leo 2026-11-19: "the layout and proportions as well"). */
+  --grid-composer-inset: var(--cmux-composer-inset, calc(8px * var(--acpmux-density)));
   --grid-composer-control: calc(28px * var(--acpmux-density));
   --grid-composer-block-inset: calc(10px * var(--acpmux-density));
-  --grid-composer-box: calc(48px * var(--acpmux-density));
+  --grid-composer-box: var(--cmux-composer-box, calc(48px * var(--acpmux-density)));
   /* Claude Code's modest corner, concentric with the + chip in it: the chip's 8 corner plus the inset, 16 at
      Default (layout-grid.json composer-radius; ask-7e26f58612, Leo 2026-11-23: "now the composer is a bit too
      round i think"; ask-bfa9b41590: "just do the claude code roundedness"). The hat over it (the running tray),
@@ -1802,6 +1833,14 @@
   --acpmux-shell-inset-bottom: calc(var(--acpmux-prompt-inset) - var(--acpmux-prompt-drop));
   --acpmux-shell-inset-left: var(--acpmux-composer-lead-gap);
 }
+/* A subagent's relay composer draws no + (Composer.tsx `useRelayProps`), so its text starts where +'s
+   glyph would: under the subagent's mark in the header over it, which is centred in +'s box. With
+   the plain lead gap the text stood on the box's edge. */
+.acpmux-composer[data-composer-relay] .acpmux-composer-box[data-composer-grid] {
+  --acpmux-composer-lead-gap: calc(
+    var(--acpmux-composer-inset) + (var(--acpmux-composer-control) - var(--acpmux-composer-glyph)) / 2
+  );
+}
 /* Under the attachments' band the prompt starts one gap down, as in the other look
    (composerAttachments.css), at this look's specificity. Shell mode takes the band there, through
    the one inset it draws from, for this look too. */
@@ -1837,6 +1876,11 @@
 .acpmux-menu.acpmux-location-menu.acpmux-folder-popover.acpmux-env-popover {
   max-width: min(calc(360 * var(--ui-px, 1px)), calc(100vw - 32px));
   max-height: min(360px, calc(100dvh - 36px), var(--available-height, 360px));
+}
+/* A list long enough to mount only the rows in view (EnvironmentPicker `windowed`): its rows no
+   longer size the popover, so it takes its widest size rather than the 200 px floor. */
+.acpmux-menu.acpmux-location-menu.acpmux-folder-popover.acpmux-env-popover.acpmux-env-windowed {
+  width: min(calc(360 * var(--ui-px, 1px)), calc(100vw - 32px));
 }
 /* Its rows as the model picker's and every other menu's (design/menus.md, popupSurface.css): the
    neutral menu wash (--acpmux-menu-hover, as .acpmux-quick-item), no accent tint and no focus bar,
@@ -1918,7 +1962,7 @@
 }
 /* The cloud toggle (stripLayout cloud-toggle) stands at the strip's end, before the branch. */
 .acpmux-composer-context > .acpmux-location-picker[data-rows="run"] { flex: none; margin-left: auto; }
-.acpmux-composer-context > .acpmux-location-picker[data-rows="run"] + .acpmux-location-picker:last-child { margin-left: var(--acpmux-location-gap, 4px); }
+.acpmux-composer-context > .acpmux-location-picker[data-rows="run"] + .acpmux-location-picker[data-kind="branch"] { margin-left: var(--acpmux-location-gap, 4px); }
 /* Its menu's question, as ChatGPT's "Where should this chat run?": one quiet line over the rows. */
 .acpmux-env-popover .acpmux-env-heading {
   padding: 4px calc(var(--cmux-menu-icon-x) - var(--ui-popup-padding)) 4px;
@@ -1986,11 +2030,12 @@
   font-weight: inherit;
   line-height: 16px;
 }
-/* The GitHub group's placeholder while its repositories load (FolderPopover GITHUB_LOADING): a row of
-   a repository's height in the muted ink, so the repositories take its place with no jump. */
-.acpmux-location-row[data-github-loading] { color: var(--agent-muted); }
-/* A machine's ⌥⌘ key, and Other devices' count of machines a chat can start on now: quiet, before the check or chevron. */
-.acpmux-env-row :is(.acpmux-env-key, .acpmux-env-count) {
+/* A machine's ⌥⌘ key (ui/KeyHint), and Other devices' count of machines a chat can start on now: quiet, before the check or chevron. */
+.acpmux-env-row .acpmux-env-key {
+  flex: none;
+  margin-left: auto;
+}
+.acpmux-env-row .acpmux-env-count {
   flex: none;
   margin-left: auto;
   padding: 0;
@@ -2042,10 +2087,31 @@
 .acpmux-env-row:not([data-ready]) .acpmux-env-state { color: var(--agent-muted); }
 /* A ready machine at its CPU or memory budget says so in the warning colour, as the plain menu does. */
 .acpmux-env-row .acpmux-env-state[data-warning="true"] { color: var(--acpmux-warning); }
+/* The warning is the row's status, never the row: the machine's name keeps its room and a long
+   warning ("High load: 15/4 cores busy") shortens with an ellipsis instead of squeezing the name out. */
+.acpmux-env-row:has(> .acpmux-env-state[data-warning="true"]) > .acpmux-location-name { flex: 1 0 auto; max-width: 60%; }
+.acpmux-env-row .acpmux-env-state[data-warning="true"] {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* A machine list's Unavailable row (Leo, 2026-11-09: "drop retired and unreachable machines from the
    list, or group them at the bottom"): muted like the machines it holds, its chevron turning down
    while the group is open, as a Mac outline's disclosure does. */
 .acpmux-env-row.acpmux-env-unavailable { color: var(--agent-muted); }
+/* Cloud rows of the list kept from the last launch (EnvironmentPicker `lastSeenLook`): dimmed under
+   their "Last seen" caption (the row's data-section heading), or a notice with Retry over the list. */
+/* The row's children, not the row: its "Last seen" caption (a data-section heading) stays readable. */
+.acpmux-env-row[data-last-seen="dimmed-header"] > * { opacity: .55; }
+.acpmux-env-popover .acpmux-env-last-seen-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.acpmux-env-last-seen-text { flex: 1; min-width: 0; white-space: normal; line-height: 1.3; }
+.acpmux-env-last-seen-retry { flex: none; font-size: var(--text-caption); }
 .acpmux-env-unavailable-chevron { transition: transform var(--cmux-motion-quick, 80ms) var(--cmux-ease-out); }
 .acpmux-env-unavailable[data-expanded] .acpmux-env-unavailable-chevron { transform: rotate(90deg); }
 /* A new chat's extra folders (ExtraFolderList.tsx), under the folder menu's list: a quiet heading,
@@ -2143,9 +2209,6 @@
   max-height: 100%;
   overflow: auto;
 }
-/* A resizable Cloud environment menu scrolls its rows in the menu's scroller, not the popup, so the
-   grips on the popup's edges stay put while the rows scroll. */
-.acpmux-menu.acpmux-location-menu.acpmux-cloud-env-menu[data-resizable] { overflow: visible; }
 /* A popup that clips (overflow hidden) keeps its grips wholly inside its edges. */
 .acpmux-folder-popover,
 .acpmux-location-menu[data-resized-height]:not(.ui-menu) { --ui-popup-resize-out: 0px; }
@@ -2188,6 +2251,20 @@
   margin-inline-start: auto;
 }
 
+/* The chat composer's branch, in the quiet row under the draft (ComposerBranch, Composer.tsx): the
+   row is bottom-anchored, so the branch holds still as the draft grows, as +, the mic and Send do
+   (ask-f87d5d43b4: "this still being at the top of the composer as it grows is the same issue").
+   It keeps the strip's chip and gives up width before the mode and model do. */
+.acpmux-composer-branch {
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 40%;
+  flex-shrink: 100;
+}
+.acpmux-composer-branch > .acpmux-location-picker { min-width: 0; }
+.acpmux-composer-branch .acpmux-location-button { max-width: 100%; }
+
 .acpmux-folder-popover .acpmux-source-status {
   max-inline-size: 54%;
   text-align: end;
@@ -2217,3 +2294,7 @@
 .acpmux-env-popover .acpmux-env-back:hover { color: var(--agent-text); background: color-mix(in srgb, var(--agent-text) 8%, transparent); }
 .acpmux-env-popover .acpmux-env-back-chevron { display: inline-flex; rotate: 180deg; }
 .acpmux-env-popover .acpmux-env-back-chevron:dir(rtl) { rotate: 0deg; }
+/* The agent machines' row while their list is open to the side: highlighted, as a Mac menu's open submenu row. */
+.acpmux-env-popover .acpmux-menu-item:has(> [data-action="agentMachines"][data-expanded]) {
+  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+}

@@ -415,9 +415,17 @@ impl Endpoint {
             entry.unanswered_sends = 0;
             entry.unanswered_datagrams = 0;
         }
+        let had_rtt = self.selector.path(path).is_some_and(|view| view.rtt_us.is_some());
         let outcome = ProbeOutcome::Answered { rtt_us: now_us.saturating_sub(sent).max(1) };
-        if let Ok(Some(switch)) = self.selector.on_probe(path, outcome) {
-            self.report_switch(switch.to);
+        match self.selector.on_probe(path, outcome) {
+            Ok(Some(switch)) => self.report_switch(switch.to),
+            // The handshake's route became current with no RTT (`on_opened`,
+            // braid paths): its first measured RTT is reported on the same
+            // path, or callers that size by path RTT never learn it.
+            Ok(None) if !had_rtt && self.selector.current() == Some(path) => {
+                self.report_switch(Some(path));
+            }
+            _ => {}
         }
     }
 
@@ -520,10 +528,12 @@ impl Endpoint {
                 .map(|(id, _)| *id)
                 .collect();
             for path in due {
-                // A suspect path is probed as fast as a new one, so it
-                // proves itself alive (or dead) quickly.
+                // Only an alive path is probed slowly. A suspect path is probed as fast as
+                // a new one, so it proves itself alive (or dead) quickly, and so is a dead
+                // one: it still has an RTT, and at the slow rate the link took up to a
+                // second past an outage's end to hear it was back.
                 let alive = self.selector.path(path).is_some_and(|v| {
-                    v.rtt_us.is_some() && v.state != cmux_transport::PathState::Suspect
+                    v.rtt_us.is_some() && v.state == cmux_transport::PathState::Alive
                 });
                 let id = self.next_probe_id;
                 self.next_probe_id += 1;

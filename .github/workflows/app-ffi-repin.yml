@@ -37,7 +37,7 @@ jobs:
     # The release's LINUX ROUTE (app-ffi-release.yml): the nightly lane's reserved label first, attempts 1 and 2.
     # On vars.LINUX_RUNNER this job waited behind all PR CI on a saturated Blacksmith pool (run 44645693256, 40 min
     # pending, 2026-11-20) while the published release cmux-app-ffi-789a832a sat unpinned.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_RELEASE_PIN_SLOT != 'off' && github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # 20, not 10 (2026-11-20): checkout alone took about 1.5 min and one healthy re-pin about 8 (run 44655157417),
     # so runs 44660432819, 44661713537, 44662970467 and 44664319551 hit the 10 min bound and re-dispatched. 30, not
     # 20: publish-app-ffi-repin.sh may also wait up to 10 min (REPIN_RATE_LIMIT_WAIT_S) for GitHub's rate limit, and
@@ -69,6 +69,28 @@ jobs:
           repositories: ${{ github.event.repository.name }}
           permission-contents: write
           permission-workflows: write
+
+      # Reads and the fallback dispatch on cmux-bot's own installation budget, not the GITHUB_TOKEN every
+      # workflow in the repository shares (cmux-next-post-merge.yml does the same). 2026-11-28 00:25Z: re-pin
+      # jobs 140796642381 and 140800301756 both stopped on "API rate limit exceeded for installation" reading
+      # commits/7a8a55bf with GITHUB_TOKEN (reset 00:54:57Z, past the 600 s wait), and their fallback dispatch
+      # got the same 403 five times, so "Check the app FFI pin" stayed red on feat-cmux-next. Falls back to
+      # GITHUB_TOKEN when the mint fails.
+      - name: Mint the cmux-bot read and dispatch token
+        id: bot-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-actions: write
+          permission-checks: read
+          permission-contents: read
+          permission-statuses: read
 
       - name: Mint the release App token for the pull request
         id: pr-token
@@ -111,7 +133,7 @@ jobs:
             rm -rf "$GITHUB_WORKSPACE/.git"
           fi
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: refs/heads/feat-cmux-next
           token: ${{ steps.app-token.outputs.token }}
@@ -123,12 +145,12 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.pr-token.outputs.token }}
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
-          READ_TOKEN: ${{ github.token }}
+          READ_TOKEN: ${{ steps.bot-token.outputs.token || github.token }}
           BASE_TOKEN: ${{ steps.base-token.outputs.token }}
           BASE_PIN_ENABLED: ${{ vars.CMUX_NEXT_BASE_AUTOFIX == '1' }}
           # A stalled git transfer (a lazy tree fetch of this treeless clone, or `git fetch origin $previous`) aborts
-          # after 60 s under 1 KB/s instead of hanging the job to its timeout; the script treats a failed read as before.
-          GIT_HTTP_LOW_SPEED_LIMIT: "1000"
+          # after 60 s with no byte instead of hanging the job to its timeout; the script treats a failed read as before.
+          GIT_HTTP_LOW_SPEED_LIMIT: "1"
           GIT_HTTP_LOW_SPEED_TIME: "60"
         shell: bash
         run: bash scripts/cmux-next/publish-app-ffi-repin.sh
@@ -140,7 +162,11 @@ jobs:
       - name: Start the re-pin workflow when this re-pin failed
         if: (failure() || cancelled()) && github.event_name != 'workflow_dispatch'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.bot-token.outputs.token || github.token }}
           GH_REPO: ${{ github.repository }}
         shell: bash
-        run: gh workflow run app-ffi-repin.yml --ref feat-cmux-next
+        # The run's installation token shares a rate limit with every other job: run 45792260236's
+        # dispatch got "HTTP 403: API rate limit exceeded for installation" (2026-11-26 09:33Z) and the
+        # pin stayed behind until the next push. A fixed 9 min backoff then spent all five tries inside one spent
+        # hour (run 46086089622, 2026-11-28 00:25Z), so the script waits for the reset instead.
+        run: bash scripts/cmux-next/dispatch-app-ffi-repin.sh

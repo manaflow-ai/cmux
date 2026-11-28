@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.cloudEnvironments.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تُبنى مرة واحدة لتبدأ أجهزة السحابة الجديدة جاهزة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Izgrađeno jednom, nove Cloud mašine počinju spremne."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bygget én gang, så nye Cloud-maskiner starter klar."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einmal gebaut, damit neue Cloud-Maschinen bereit starten."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Built once, so new Cloud machines start ready."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se crea una vez y las máquinas nuevas arrancan listas."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Construit une fois : les machines Cloud démarrent prêtes."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Creato una volta: le nuove macchine partono pronte."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一度ビルドすれば、新しい Cloud マシンが準備済みで起動します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "សាងសង់ម្តង ម៉ាស៊ីន Cloud ថ្មីចាប់ផ្តើមរួចរាល់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "한 번 빌드하면 새 Cloud 머신이 준비된 상태로 시작합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bygget én gang, så nye Cloud-maskiner starter klare."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zbudowane raz, nowe maszyny Cloud startują gotowe."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Criado uma vez: novas máquinas do Cloud iniciam prontas."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Собирается один раз: новые машины Cloud готовы сразу."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "สร้างครั้งเดียว เครื่อง Cloud ใหม่เริ่มพร้อมใช้งาน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir kez derlenir, yeni Cloud makineleri hazır başlar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Збирається один раз: нові машини Cloud готові одразу."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dựng một lần, máy Cloud mới khởi động sẵn sàng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "构建一次，新的 Cloud 机器即可就绪启动。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "建置一次，新的 Cloud 機器即可就緒啟動。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

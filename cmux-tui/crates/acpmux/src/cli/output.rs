@@ -36,15 +36,86 @@ pub(crate) async fn before_deadline<T>(
     }
 }
 
+/// When a prompt path that saw its daemon go away now stops dialing the next one.
+pub(crate) fn update_reconnect_deadline() -> tokio::time::Instant {
+    tokio::time::Instant::now() + UPDATE_RECONNECT_BUDGET
+}
+
 pub(crate) async fn reconnect_after_update() -> Result<Arc<Client>> {
     reconnect_after_update_with_budget(UPDATE_RECONNECT_BUDGET).await
 }
 
 pub(crate) async fn reconnect_after_update_with_budget(budget: Duration) -> Result<Arc<Client>> {
     let budget = budget.min(UPDATE_RECONNECT_BUDGET);
-    tokio::time::timeout(budget, crate::daemon::connect(true))
+    let deadline = tokio::time::Instant::now() + budget;
+    until_daemon_answers(deadline, || crate::daemon::connect(true))
         .await
-        .map_err(|_| anyhow!("daemon did not come back within {budget:?}"))?
+        .map_err(|e| anyhow!("daemon did not come back within {budget:?}: {e:#}"))
+}
+
+/// Dial `socket` again until a daemon there answers initialize, or `deadline`: the next daemon
+/// of an update or restart. A dial that finds no listener yet, or the old daemon still draining
+/// (it answers `daemon.restarting`), is tried again, not the sender's failure.
+pub(crate) async fn redial(
+    socket: &std::path::Path,
+    deadline: tokio::time::Instant,
+) -> Result<Arc<Client>> {
+    until_daemon_answers(deadline, || Client::connect(socket)).await
+}
+
+/// The first daemon `dial` reaches by `deadline`, dialing again on any failure with a pause of
+/// 50 ms doubling to 1 s (an update's gap is a few seconds: RFD 0082).
+pub(crate) async fn until_daemon_answers<F, Fut>(
+    deadline: tokio::time::Instant,
+    dial: F,
+) -> Result<Arc<Client>>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = Result<Arc<Client>>>,
+{
+    let mut pause = Duration::from_millis(50);
+    loop {
+        let error = match tokio::time::timeout_at(deadline, dial()).await {
+            Ok(Ok(client)) => return Ok(client),
+            Ok(Err(e)) => e,
+            Err(_) => anyhow!("no daemon answered by the deadline"),
+        };
+        if tokio::time::Instant::now() + pause >= deadline {
+            return Err(error);
+        }
+        tokio::time::sleep(pause).await;
+        pause = (pause * 2).min(Duration::from_secs(1));
+    }
+}
+
+/// Run `attempt` on `client`, and again on a redialed client while the daemon goes away under it
+/// ([`daemon_closed_error`]) until `deadline`. Each later attempt is told it is a resend, so it
+/// sends the same prompt id with `resend: true`: the outbox runs an id once
+/// (`hub::outbox::Outbox::add`), so a message the old daemon took before it closed is not
+/// delivered twice. Returns the client that answered, for the caller's next request.
+pub(crate) async fn through_restart<T, F, Fut>(
+    client: &Arc<Client>,
+    deadline: tokio::time::Instant,
+    mut attempt: F,
+) -> Result<(Arc<Client>, T)>
+where
+    F: FnMut(Arc<Client>, bool) -> Fut,
+    Fut: std::future::Future<Output = Result<T>>,
+{
+    let mut client = client.clone();
+    let mut resend = false;
+    loop {
+        match attempt(client.clone(), resend).await {
+            Ok(value) => return Ok((client, value)),
+            Err(e) if daemon_closed_error(&e) && tokio::time::Instant::now() < deadline => {
+                client = redial(client.socket(), deadline).await.map_err(|again| {
+                    e.context(format!("reconnecting after daemon restart: {again:#}"))
+                })?;
+                resend = true;
+            }
+            Err(e) => return Err(e),
+        }
+    }
 }
 
 async fn reconnect_prompt(
@@ -190,6 +261,12 @@ pub(crate) struct PromptId {
     /// inbox would hold without waking it is refused at once (`send.not_woken`) instead of
     /// leaving the send waiting for a turn that does not come (`hub/inbox.rs`).
     pub wake_or_fail: bool,
+    /// `--gather`: the message waits for the receiver's cold batch (`_meta.acpmux.gather`,
+    /// `hub/cold_wake.rs`).
+    pub gather: bool,
+    /// `--within`: the sender's own delivery deadline in ms (`_meta.acpmux.within`,
+    /// `prompt_class::due_at`), which can only tighten the class's.
+    pub within: Option<u64>,
 }
 
 impl PromptId {
@@ -212,6 +289,8 @@ impl PromptId {
                 subagent: None,
                 sender_token: None,
                 wake_or_fail: false,
+                gather: false,
+                within: None,
             },
             None => Self {
                 id: uuid::Uuid::now_v7().to_string(),
@@ -230,6 +309,8 @@ impl PromptId {
                 subagent: None,
                 sender_token: None,
                 wake_or_fail: false,
+                gather: false,
+                within: None,
             },
         }
     }
@@ -288,6 +369,12 @@ impl PromptId {
         }
         if self.wake_or_fail {
             mux.set(WAKE_OR_FAIL_META, json!(true));
+        }
+        if self.gather {
+            mux.set(crate::hub::cold_wake::GATHER_META, json!(true));
+        }
+        if let Some(within) = self.within {
+            mux.set(crate::prompt_class::WITHIN_META, json!(within));
         }
         if let Some(token) = &self.sender_token {
             mux.set(crate::sender_token::META_KEY, token.to_value());
@@ -389,6 +476,17 @@ async fn queue_prompt_once(
     }
 }
 
+/// A held message's deadline (`hub/inbox.rs` "Deadlines") as `send` and `send --status` print
+/// it: "due in 14m" (the receiver is woken for it by then), or "due 3m ago" past it.
+pub(crate) fn due_words(due_ms: u64, now_ms: u64) -> String {
+    let mins = |ms: u64| ms.div_ceil(60_000);
+    if due_ms > now_ms {
+        format!("due in {}m", mins(due_ms - now_ms))
+    } else {
+        format!("due {}m ago", mins(now_ms - due_ms))
+    }
+}
+
 /// What `acpmux send --no-wait` prints for its acceptance.
 /// With `--supersede`, a second line says how many of the sender's queued prompts it replaced.
 pub(crate) fn sent_lines(accepted: &Value, supersede: bool) -> Vec<String> {
@@ -401,6 +499,11 @@ pub(crate) fn sent_lines(accepted: &Value, supersede: bool) -> Vec<String> {
         "queued"
     };
     let mut lines = vec![first.to_owned()];
+    if first == HELD_LINE
+        && let Some(due) = accepted.get("dueAt").and_then(Value::as_u64)
+    {
+        lines.push(due_words(due, crate::store::now_ms()));
+    }
     if supersede {
         // An older daemon (or a peer running one) ignores the key and says nothing.
         lines.push(match accepted.get("replaced").and_then(Value::as_u64) {
@@ -660,7 +763,12 @@ async fn stream_prompt_once(
     )
     .await?;
     let c = client.clone();
-    let params = prompt.params(id, text, steer, None);
+    let mut params = prompt.params(id, text, steer, None);
+    // It waits for the reply and prints it, as `collect_once` does: an inbox message's request
+    // waits for the notice's answer only for such a caller (`hub/inbox.rs`).
+    if let Some(mux) = params.pointer_mut("/_meta/acpmux") {
+        mux.set(READS_REPLY_META, json!(true));
+    }
     let turn = tokio::spawn(async move { c.request(method::SESSION_PROMPT, params).await });
     let mut steered = crate::cli::steer_reply::SteerReply::new(&prompt.id, steer);
     let mut end_wait: Option<crate::cli::steer_reply::EndWait> = None;
@@ -951,12 +1059,6 @@ pub(crate) fn print_item(item: &Item) {
         Item::Tool { title, kind, status, .. } => {
             println!("\x1b[2m[{kind} {status}] {title}\x1b[0m")
         }
-        Item::Plan { entries } => {
-            println!("\x1b[35mplan:\x1b[0m");
-            for (s, c) in entries {
-                println!("  [{s}] {c}");
-            }
-        }
         Item::Permission { title, decided, .. } => match decided {
             Some(d) => println!("\x1b[33mpermission {title}: {d}\x1b[0m"),
             None => println!("\x1b[33mpermission needed: {title}\x1b[0m"),
@@ -1228,9 +1330,39 @@ async fn collect_once(
                 .unwrap_or_default(),
         };
     }
+    if !prompt.resend
+        && steered.turn().is_none()
+        && let Some(why) = ran_no_turn(&result, activity, &reply)
+    {
+        return Err(crate::cli::errors::AppError::new(
+            crate::cli::errors::Code::Runtime,
+            "no_turn",
+            format!("the daemon answered the prompt without running a turn: {why}"),
+        )
+        .with_session(id)
+        .into());
+    }
     let stop_reason =
         result.get("stopReason").and_then(Value::as_str).unwrap_or("end_turn").to_owned();
     Ok(CollectResult { reply, stop_reason, permissions_asked: asked, permissions_denied: denied })
+}
+
+/// Why a `--wait` answer ran no turn, or `None` when it did: the answer names no turn id, the
+/// agent sent nothing while it waited, and no reply came. Such an answer (a delivery to the
+/// inbox, a withdrawn queue entry, a bridge reply nobody answered) used to read as an empty
+/// `end_turn`, so `send --wait --quiet` printed nothing and exited 0 (the offload probe's
+/// return leg, 2026-11-28 12:55Z). The words name the answer, so a caller sees which path took it.
+fn ran_no_turn(result: &Value, activity: bool, reply: &str) -> Option<String> {
+    if activity || !reply.is_empty() || result.pointer("/_meta/acpmux/turnId").is_some() {
+        return None;
+    }
+    let mut shown = result.to_string();
+    if shown.len() > 300 {
+        let cut = (0..=300).rev().find(|&i| shown.is_char_boundary(i)).unwrap_or(0);
+        shown.truncate(cut);
+        shown.push('…');
+    }
+    Some(format!("no turn id, no agent output; its answer: {shown}"))
 }
 
 /// The end of the turn a steer went into, once `end_wait` is armed; never before.
@@ -1352,6 +1484,25 @@ fn reply_of_turn(events: &[Value], turn: &str) -> Option<String> {
 
 /// The last `count` assistant replies of a session, oldest first (`cli/last_reply.rs`).
 pub(crate) use super::last_reply::last_replies;
+
+#[cfg(test)]
+mod no_turn_tests {
+    use super::ran_no_turn;
+    use serde_json::json;
+
+    #[test]
+    fn an_answer_without_a_turn_or_output_is_named_not_an_empty_success() {
+        let inbox = json!({"stopReason": null, "_meta": {"acpmux": {"delivered": "inbox"}}});
+        let why = ran_no_turn(&inbox, false, "").expect("no turn ran");
+        assert!(why.contains("delivered"), "{why}");
+        let ran = json!({"stopReason": "end_turn", "_meta": {"acpmux": {"turnId": "t1"}}});
+        assert_eq!(ran_no_turn(&ran, false, ""), None, "a turn that said nothing is still a turn");
+        assert_eq!(ran_no_turn(&inbox, true, ""), None, "the agent streamed while it waited");
+        assert_eq!(ran_no_turn(&json!({}), false, "hi"), None, "a reply came");
+        let long = json!({"x": "y".repeat(1000)});
+        assert!(ran_no_turn(&long, false, "").unwrap().len() < 400);
+    }
+}
 
 #[cfg(test)]
 mod prompt_tests {

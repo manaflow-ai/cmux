@@ -256,7 +256,7 @@
   },
   {
    "name": "agent.fork",
-   "meaning": "Fork the agent conversation into a new chat (to the right/left/above/below).",
+   "meaning": "Fork the agent conversation into a new chat (to the right/left/above/below): the split arrow Claude and Codex draw for branching a chat, a stem that runs on up and right while a detached arm peels off down and right.",
    "sf": "arrow.branch",
    "family": "agent",
    "overrides": [
@@ -1764,6 +1764,12 @@
    "family": "space"
   },
   {
+   "name": "sparkles",
+   "meaning": "Sparkles (Chief Activity and other AI actions).",
+   "sf": "sparkles",
+   "family": "sparkles"
+  },
+  {
    "name": "state.changed",
    "meaning": "Changed (debug)",
    "sf": "pencil.circle",
@@ -1878,6 +1884,13 @@
   {
    "name": "status.progress",
    "meaning": "Busy with known progress: ring",
+   "sf": "questionmark.square.dashed",
+   "family": "status",
+   "denseStyle": "solid"
+  },
+  {
+   "name": "status.question",
+   "meaning": "An agent's question waits for your answer (Needs your input)",
    "sf": "questionmark.square.dashed",
    "family": "status",
    "denseStyle": "solid"

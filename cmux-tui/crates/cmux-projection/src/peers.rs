@@ -6,9 +6,11 @@
 //! 1. the tailnet peers that hold it (`CMUX_PROJECTION_PEER_INDEX`: a file, or an `http(s)` URL
 //!    such as the controller's `GET /v1/seeds?repo=R&zone=Z&format=text`, of one seed base URL per
 //!    line, nearest first; a URL's answer is kept for a minute, so back-to-back checkouts ask once);
-//!    the nearest two at most, each asked for the whole missing set in one `POST <base>/objects`
-//!    whose first byte must come within 250 ms ([`batch_request`]); a seed that does not take
-//!    batches is asked per blob;
+//!    the nearest two that answer at most, each asked for the whole missing set in one
+//!    `POST <base>/objects` whose first byte must come within 250 ms ([`batch_request`]); a seed
+//!    that does not take batches is asked per blob. A seed that answers busy does not use up
+//!    those two: the next seed in the index is asked, up to [`PEERS_ASKED_MAX`] in all, and a
+//!    seed that just answered busy is asked after the others for [`BUSY_BACKOFF`];
 //! 2. the controller SSD (`CMUX_PROJECTION_CACHE_URL`, read token in
 //!    `CMUX_PROJECTION_CACHE_TOKEN_FILE`);
 //! 3. R2 (`CMUX_PROJECTION_R2_URL`);
@@ -33,18 +35,22 @@
 //! [`heartbeat`] tells the controller's seed index what the seed holds, every minute.
 
 use std::collections::HashMap;
+use std::fs::OpenOptions;
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs as _};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Mutex, PoisonError};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use sha1collisiondetection::Sha1CD;
 use sha2::Digest as _;
 
 /// The flag that turns the chain off (`0`).
 pub const FLAG: &str = "CMUX_PROJECTION_PEERS";
+
+/// Maximum body retained from an optional peer or cache response.
+pub const MAX_HTTP_BODY_BYTES: usize = 16 * 1024 * 1024;
 
 /// The git object id of a blob with these bytes: sha1 for a 40-hex id, sha256 for a 64-hex id.
 /// Bytes that carry a SHA-1 collision attack hash to no id (an empty string), so they never match.
@@ -127,6 +133,7 @@ pub trait Get: Send + Sync {
 /// never a stall.
 pub struct Http {
     client: reqwest::blocking::Client,
+    body_limit: usize,
 }
 
 impl Http {
@@ -137,7 +144,39 @@ impl Http {
             .timeout(Duration::from_secs(20))
             .pool_max_idle_per_host(PARALLEL)
             .build()?;
-        Ok(Self { client })
+        Ok(Self { client, body_limit: MAX_HTTP_BODY_BYTES })
+    }
+}
+
+/// Check the advertised length before allocating, but also count streamed bytes: lengths may
+/// be absent or untrustworthy. Probe one byte past the limit to distinguish a complete body at
+/// the boundary from a truncated one. Neither a read failure nor an oversize returns any bytes.
+fn bounded_body(mut response: reqwest::blocking::Response, limit: usize) -> Answer {
+    if response.content_length().is_some_and(|length| length > limit as u64) {
+        return Answer::Failed;
+    }
+    let mut bytes = Vec::new();
+    let mut chunk = [0_u8; 8192];
+    loop {
+        let remaining = limit - bytes.len();
+        let read_limit = chunk.len().min(remaining.saturating_add(1));
+        let Some(window) = chunk.get_mut(..read_limit) else { return Answer::Failed };
+        let read = match response.read(window) {
+            Ok(0) => return Answer::Found(bytes),
+            Ok(read) if read <= remaining => read,
+            _ => return Answer::Failed,
+        };
+        let needed = bytes.len() + read;
+        if needed > bytes.capacity() {
+            // Grow geometrically without reserving beyond the cap or trusting a remote's
+            // length. Allocation pressure is another optional-source failure, not a panic.
+            let capacity = needed.max(bytes.capacity().saturating_mul(2)).min(limit);
+            if bytes.try_reserve_exact(capacity - bytes.len()).is_err() {
+                return Answer::Failed;
+            }
+        }
+        let Some(read) = chunk.get(..read) else { return Answer::Failed };
+        bytes.extend_from_slice(read);
     }
 }
 
@@ -151,7 +190,7 @@ impl Get for Http {
             Ok(response) if response.status().as_u16() == 404 => Answer::Absent,
             Ok(response) if matches!(response.status().as_u16(), 429 | 503) => Answer::Busy,
             Ok(response) if response.status().is_success() => {
-                response.bytes().map_or(Answer::Failed, |bytes| Answer::Found(bytes.to_vec()))
+                bounded_body(response, self.body_limit)
             }
             _ => Answer::Failed,
         }
@@ -280,8 +319,13 @@ impl Remote {
 
 /// Requests in flight per checkout.
 const PARALLEL: usize = 8;
-/// Peers asked for one blob before the controller SSD.
+/// Peers that answer (anything but busy) asked for one blob before the controller SSD.
 const PEERS_PER_BLOB: usize = 2;
+/// Peers asked for one blob or one batch at most, busy ones included: a busy seed does not use up
+/// [`PEERS_PER_BLOB`], so the next one in the index is asked, but never more than this many.
+const PEERS_ASKED_MAX: usize = 6;
+/// How long a peer that answered busy is asked after the peers that did not.
+const BUSY_BACKOFF: Duration = Duration::from_secs(5);
 /// How long a peer may take to start answering a batch before the next source is asked.
 const BATCH_FIRST_BYTE: Duration = Duration::from_millis(250);
 /// Failures in a row (unreachable, timed out, busy, error status, wrong bytes) after which a
@@ -295,6 +339,31 @@ pub struct Chain {
     get: Box<dyn Get>,
     /// The object stores ([`crate::s3`]) among `remotes`, found by their `base`.
     stores: Vec<crate::s3::Store>,
+    /// Per remote, until when (ms since `epoch`, 0 for never) it is asked after the others
+    /// because it answered busy.
+    busy_until: Vec<AtomicU64>,
+    epoch: Instant,
+}
+
+/// The peers one blob or batch asks: those that answer use up [`PEERS_PER_BLOB`], busy ones only
+/// the hard bound [`PEERS_ASKED_MAX`].
+#[derive(Default)]
+struct PeerBudget {
+    answered: usize,
+    asked: usize,
+}
+
+impl PeerBudget {
+    fn open(&self) -> bool {
+        self.answered < PEERS_PER_BLOB && self.asked < PEERS_ASKED_MAX
+    }
+
+    fn spend(&mut self, busy: bool) {
+        self.asked += 1;
+        if !busy {
+            self.answered += 1;
+        }
+    }
 }
 
 /// What [`Chain::fill`] did, for the mount's timing line.
@@ -319,13 +388,31 @@ pub fn enabled(flag: Option<&str>) -> bool {
 impl Chain {
     #[must_use]
     pub fn new(remotes: Vec<Remote>, get: Box<dyn Get>) -> Self {
-        Self { remotes, get, stores: Vec::new() }
+        let busy_until = remotes.iter().map(|_| AtomicU64::new(0)).collect();
+        Self { remotes, get, stores: Vec::new(), busy_until, epoch: Instant::now() }
+    }
+
+    fn now_ms(&self) -> u64 {
+        u64::try_from(self.epoch.elapsed().as_millis()).unwrap_or(u64::MAX)
+    }
+
+    /// Whether remote `at` answered busy within [`BUSY_BACKOFF`].
+    fn recently_busy(&self, at: usize, now_ms: u64) -> bool {
+        self.busy_until.get(at).is_some_and(|until| until.load(Ordering::Relaxed) > now_ms)
+    }
+
+    fn mark_busy(&self, at: usize) {
+        if let Some(until) = self.busy_until.get(at) {
+            let backoff = u64::try_from(BUSY_BACKOFF.as_millis()).unwrap_or(u64::MAX);
+            until.store(self.now_ms().saturating_add(backoff), Ordering::Relaxed);
+        }
     }
 
     /// The chain with `stores` asked after its other sources, in order.
     #[must_use]
     pub fn with_stores(mut self, stores: Vec<crate::s3::Store>) -> Self {
         self.remotes.extend(stores.iter().map(crate::s3::Store::remote));
+        self.busy_until.extend(stores.iter().map(|_| AtomicU64::new(0)));
         self.stores.extend(stores);
         self
     }
@@ -366,16 +453,30 @@ impl Chain {
         Some(Self::new(remotes, Box::new(get)).with_stores(stores))
     }
 
-    /// The peers asked, as indexes: the nearest [`PEERS_PER_BLOB`] in index order (the
-    /// controller's index lists the same zone first, then the same region, then the rest).
+    /// The peers that may be asked, as indexes: the nearest [`PEERS_ASKED_MAX`] in index order
+    /// (the controller's index lists the same zone first, then the same region, then the rest),
+    /// those that just answered busy after the others. One pass that stops at the bound.
     fn nearest_peers(&self) -> Vec<usize> {
-        self.remotes
-            .iter()
-            .enumerate()
-            .filter(|(_, remote)| remote.tier == "peer")
-            .map(|(at, _)| at)
-            .take(PEERS_PER_BLOB)
-            .collect()
+        let now = self.now_ms();
+        let (mut ready, mut busy) = (Vec::new(), Vec::new());
+        for (at, remote) in self.remotes.iter().enumerate() {
+            if remote.tier != "peer" {
+                continue;
+            }
+            if self.recently_busy(at, now) {
+                if busy.len() < PEERS_ASKED_MAX {
+                    busy.push(at);
+                }
+            } else {
+                ready.push(at);
+                if ready.len() == PEERS_ASKED_MAX {
+                    break;
+                }
+            }
+        }
+        ready.extend(busy);
+        ready.truncate(PEERS_ASKED_MAX);
+        ready
     }
 
     /// The remotes one blob is asked of, as indexes: `peers` (the nearest peers that take no
@@ -393,8 +494,9 @@ impl Chain {
     }
 
     /// The batch phase: each of the nearest peers in turn is asked for every blob still missing
-    /// in one stream; a verified record is kept, a wrong one is counted and stops that peer. The
-    /// peers that take no batches are returned, to be asked per blob.
+    /// in one stream; a verified record is kept, a wrong one is counted and stops that peer. A busy
+    /// peer spills to the next one ([`PeerBudget`]). The peers that take no batches are returned,
+    /// to be asked per blob.
     fn batches(
         &self,
         oids: &[String],
@@ -406,7 +508,11 @@ impl Chain {
         let mut per_blob = Vec::new();
         let at_of: HashMap<&str, usize> =
             oids.iter().enumerate().map(|(at, oid)| (oid.as_str(), at)).collect();
+        let mut budget = PeerBudget::default();
         for peer in self.nearest_peers() {
+            if !budget.open() {
+                break;
+            }
             let (Some(remote), Some(failed)) = (self.remotes.get(peer), failures.get(peer)) else {
                 continue;
             };
@@ -440,13 +546,24 @@ impl Chain {
             if wrong {
                 rejected.fetch_add(1, Ordering::Relaxed);
                 failed.fetch_add(1, Ordering::Relaxed);
+                budget.spend(false);
                 continue;
             }
             match answer {
-                BatchAnswer::Streamed | BatchAnswer::Busy => failed.store(0, Ordering::Relaxed),
+                BatchAnswer::Streamed => {
+                    failed.store(0, Ordering::Relaxed);
+                    budget.spend(false);
+                }
+                BatchAnswer::Busy => {
+                    failed.store(0, Ordering::Relaxed);
+                    self.mark_busy(peer);
+                    budget.spend(true);
+                }
+                // Asked per blob next, under that phase's own budget.
                 BatchAnswer::Unsupported => per_blob.push(peer),
                 BatchAnswer::Failed => {
                     failed.fetch_add(1, Ordering::Relaxed);
+                    budget.spend(false);
                 }
             }
         }
@@ -462,11 +579,22 @@ impl Chain {
         failures: &[AtomicUsize],
         rejected: &AtomicUsize,
     ) -> Option<(&'static str, Vec<u8>)> {
-        for &at in order {
+        // Peers that just answered busy go after the other peers (still before the controller
+        // SSD); `order` lists the peers first and holds at most PEERS_ASKED_MAX of them.
+        let now = self.now_ms();
+        let is_peer = |at: usize| self.remotes.get(at).is_some_and(|remote| remote.tier == "peer");
+        let mut order = order.to_vec();
+        order.sort_by_key(|&at| (!is_peer(at), is_peer(at) && self.recently_busy(at, now)));
+        let mut budget = PeerBudget::default();
+        for at in order {
             let (Some(failed), Some(remote)) = (failures.get(at), self.remotes.get(at)) else {
                 continue;
             };
             if failed.load(Ordering::Relaxed) >= DEAD_AFTER {
+                continue;
+            }
+            let peer = remote.tier == "peer";
+            if peer && !budget.open() {
                 continue;
             }
             let url = format!("{}/objects/{oid}", remote.base.trim_end_matches('/'));
@@ -486,6 +614,7 @@ impl Chain {
                     }
                 },
             };
+            let busy = matches!(answer, Answer::Busy);
             match answer {
                 Answer::Found(bytes) if verify(oid, &bytes) => {
                     failed.store(0, Ordering::Relaxed);
@@ -495,10 +624,17 @@ impl Chain {
                     rejected.fetch_add(1, Ordering::Relaxed);
                     failed.fetch_add(1, Ordering::Relaxed);
                 }
-                Answer::Absent | Answer::Busy => failed.store(0, Ordering::Relaxed),
+                Answer::Absent => failed.store(0, Ordering::Relaxed),
+                Answer::Busy => failed.store(0, Ordering::Relaxed),
                 Answer::Failed => {
                     failed.fetch_add(1, Ordering::Relaxed);
                 }
+            }
+            if peer {
+                if busy {
+                    self.mark_busy(at);
+                }
+                budget.spend(busy);
             }
         }
         None
@@ -597,6 +733,24 @@ pub fn peers_in(get: &dyn Get, index: &str) -> Vec<Remote> {
 /// How long a URL index's answer is reused (the controller forgets a seed after three minutes).
 const INDEX_FRESH: Duration = Duration::from_secs(60);
 
+/// How old a URL index's last answer may be and still stand in when the index can't be read (the
+/// controller restarting, or its tailnet identity lookup stalling past the 2 s deadline: on
+/// one lane VM, 2026-11-26, every mount from 07:44Z to 12:17Z sent all its missing blobs to
+/// git, while 14 of 25 seeds would have served them). A peer is untrusted transport and every
+/// answer is checked against its git id, so an old list costs a deadline per seed that has since
+/// gone, never a wrong byte.
+const INDEX_STALE_MAX: Duration = Duration::from_secs(6 * 60 * 60);
+
+/// The text and age of the answer kept at `cache` when it is younger than `max`.
+fn cached_index(cache: Option<&Path>, max: Duration) -> Option<(Duration, String)> {
+    let cache = cache?;
+    let age = std::fs::metadata(cache).ok()?.modified().ok()?.elapsed().ok()?;
+    if age >= max {
+        return None;
+    }
+    std::fs::read_to_string(cache).ok().map(|text| (age, text))
+}
+
 /// Where a URL index's last answer is kept: the user cache dir, one file per index URL.
 fn index_cache(index: &str) -> Option<PathBuf> {
     let dir = std::env::var_os("XDG_CACHE_HOME")
@@ -611,14 +765,11 @@ fn index_cache(index: &str) -> Option<PathBuf> {
 
 /// [`peers_in`] with the answer cache at `cache`: a URL index answered under [`INDEX_FRESH`] ago
 /// is read from it, so back-to-back checkouts ask the controller once a minute.
+/// When the index can't be read, an answer kept under [`INDEX_STALE_MAX`] ago stands in.
 #[must_use]
 pub fn peers_in_cached(get: &dyn Get, index: &str, cache: Option<&Path>) -> Vec<Remote> {
     let text = if index.starts_with("http://") || index.starts_with("https://") {
-        let fresh = cache.and_then(|cache| {
-            let age = std::fs::metadata(cache).ok()?.modified().ok()?.elapsed().ok()?;
-            (age < INDEX_FRESH).then(|| std::fs::read_to_string(cache).ok()).flatten()
-        });
-        if let Some(text) = fresh {
+        if let Some((_, text)) = cached_index(cache, INDEX_FRESH) {
             text
         } else {
             match get.get(index, None, Duration::from_secs(2)) {
@@ -634,8 +785,16 @@ pub fn peers_in_cached(get: &dyn Get, index: &str, cache: Option<&Path>) -> Vec<
                     text
                 }
                 _ => {
-                    eprintln!("cmux-projection: peer index {index} unreadable; no peers");
-                    String::new()
+                    if let Some((age, text)) = cached_index(cache, INDEX_STALE_MAX) {
+                        eprintln!(
+                            "cmux-projection: peer index {index} unreadable; using its answer from {} s ago",
+                            age.as_secs()
+                        );
+                        text
+                    } else {
+                        eprintln!("cmux-projection: peer index {index} unreadable; no peers");
+                        String::new()
+                    }
                 }
             }
         }
@@ -657,31 +816,60 @@ pub fn peer_list(text: &str) -> Vec<String> {
 }
 
 /// Writes a verified blob into `git_dir` as a loose object (what `git hash-object -w` writes),
-/// through a temporary file and a rename, so a reader never sees half an object.
+/// through a private temporary file and an atomic link, so a reader never sees half an object and
+/// concurrent writers never replace one another's complete object.
 pub fn write_loose(git_dir: &Path, oid: &str, bytes: &[u8]) -> anyhow::Result<()> {
     anyhow::ensure!(verify(oid, bytes), "{oid}: bytes do not hash to it");
-    // `verify` checked `oid` is 40 or 64 ASCII hex, so these splits always succeed.
-    let (Some(fan), Some(name), Some(short)) = (oid.get(..2), oid.get(2..), oid.get(2..10)) else {
-        anyhow::bail!("{oid}: not an object id");
-    };
-    let dir = git_dir.join("objects").join(fan);
-    let file = dir.join(name);
+    let prefix: String = oid.chars().take(2).collect();
+    let suffix: String = oid.chars().skip(2).collect();
+    let dir = git_dir.join("objects").join(prefix);
+    let file = dir.join(&suffix);
     if file.exists() {
         return Ok(());
     }
     std::fs::create_dir_all(&dir)?;
-    let temp = dir.join(format!("tmp_obj_{}_{}", std::process::id(), short));
-    {
-        let mut encoder = flate2::write::ZlibEncoder::new(
-            std::fs::File::create(&temp)?,
-            flate2::Compression::fast(),
-        );
+    let (temp, temp_file) = unique_temp(&dir, &suffix)?;
+    let result = (|| -> anyhow::Result<()> {
+        let mut encoder = flate2::write::ZlibEncoder::new(temp_file, flate2::Compression::fast());
         encoder.write_all(format!("blob {}\0", bytes.len()).as_bytes())?;
         encoder.write_all(bytes)?;
         encoder.finish()?.sync_all()?;
+        // A replacing `rename` could overwrite an object another writer installed after the
+        // existence check. A hard link is atomic and refuses to replace it.
+        match std::fs::hard_link(&temp, &file) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+            Err(error) => Err(error.into()),
+        }
+    })();
+    let cleanup = std::fs::remove_file(&temp);
+    match result {
+        Ok(()) => match cleanup {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error.into()),
+        },
+        Err(error) => {
+            let _ = cleanup;
+            Err(error)
+        }
     }
-    std::fs::rename(&temp, &file)?;
-    Ok(())
+}
+
+static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
+
+fn unique_temp(dir: &Path, suffix: &str) -> anyhow::Result<(PathBuf, std::fs::File)> {
+    let pid = std::process::id();
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
+    loop {
+        let sequence = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
+        let temp = dir.join(format!("tmp_obj_{pid}_{now:x}_{sequence:x}_{suffix}"));
+        match OpenOptions::new().write(true).create_new(true).open(&temp) {
+            Ok(file) => return Ok((temp, file)),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error.into()),
+        }
+    }
 }
 
 /// A token bucket over an injected clock: [`Bucket::take`] says how long to wait before sending
@@ -726,6 +914,17 @@ pub struct SeedLimits {
     /// job-started hook takes for a nightly or CI job. While one is held the seed answers 503,
     /// so the host's own builds never wait on seeding.
     pub yield_locks: Vec<PathBuf>,
+}
+
+const MAX_CHUNK_DELAY: Duration = Duration::from_secs(5);
+const MAX_CHUNK_BYTES: usize = 64 * 1024;
+
+/// Keep each token-bucket reservation within the delay the seed is willing to impose. Holding
+/// the bucket lock while sleeping serializes reservations, so concurrent connections cannot build
+/// unbounded debt and then bypass the configured rate.
+fn rate_chunk_size(rate: u64) -> usize {
+    let bytes = rate.saturating_mul(MAX_CHUNK_DELAY.as_secs()).min(MAX_CHUNK_BYTES as u64).max(1);
+    usize::try_from(bytes).unwrap_or(MAX_CHUNK_BYTES)
 }
 
 impl Default for SeedLimits {
@@ -776,8 +975,8 @@ pub fn serve(git_dir: &Path, listen: &str, limits: SeedLimits) -> anyhow::Result
     Ok(())
 }
 
-/// [`serve`] on a listener already bound, so a caller that needs the port (a test) has it before
-/// the first connection and no other socket can take it in between.
+/// [`serve`] on a listener already bound, so callers that need the port have it before the first
+/// connection and no other socket can take it in between.
 pub fn serve_on(git_dir: &Path, listener: TcpListener, limits: &SeedLimits) {
     let bucket = Mutex::new(Bucket::new(limits.rate, Instant::now()));
     let active = AtomicUsize::new(0);
@@ -811,7 +1010,7 @@ pub fn serve_on(git_dir: &Path, listener: TcpListener, limits: &SeedLimits) {
             active.fetch_add(1, Ordering::Relaxed);
             let (bucket, active) = (&bucket, &active);
             scope.spawn(move || {
-                let _ = connection(git_dir, stream, bucket);
+                let _ = connection(git_dir, stream, bucket, limits.rate);
                 active.fetch_sub(1, Ordering::Relaxed);
             });
         }
@@ -819,23 +1018,58 @@ pub fn serve_on(git_dir: &Path, listener: TcpListener, limits: &SeedLimits) {
 }
 
 fn respond(stream: &mut TcpStream, status: &str, body: &[u8], close: bool) -> std::io::Result<()> {
-    let connection = if close { "close" } else { "keep-alive" };
-    let mut out = format!(
-        "HTTP/1.1 {status}\r\nContent-Length: {}\r\nContent-Type: application/octet-stream\r\nConnection: {connection}\r\n\r\n",
-        body.len()
-    )
-    .into_bytes();
+    // One write: a 503 that closes without reading the request must reach the client before the
+    // close can reset the connection.
+    let mut out = headers(status, body.len(), close).into_bytes();
     out.extend_from_slice(body);
     stream.write_all(&out)
 }
 
-fn connection(git_dir: &Path, stream: TcpStream, bucket: &Mutex<Bucket>) -> anyhow::Result<()> {
-    // A client's idle pooled connection holds one of the seed's few slots, so an idle one is
-    // closed after 5 s, not held open for other checkouts to be answered busy.
+fn respond_headers(
+    stream: &mut TcpStream,
+    status: &str,
+    length: usize,
+    close: bool,
+) -> std::io::Result<()> {
+    stream.write_all(headers(status, length, close).as_bytes())
+}
+
+fn headers(status: &str, length: usize, close: bool) -> String {
+    let connection = if close { "close" } else { "keep-alive" };
+    format!(
+        "HTTP/1.1 {status}\r\nContent-Length: {length}\r\nContent-Type: application/octet-stream\r\nConnection: {connection}\r\n\r\n"
+    )
+}
+
+fn write_rate_limited<W: std::io::Write>(
+    writer: &mut W,
+    bytes: &[u8],
+    bucket: &Mutex<Bucket>,
+    rate: u64,
+) -> std::io::Result<()> {
+    for chunk in bytes.chunks(rate_chunk_size(rate)) {
+        let mut bucket = bucket.lock().unwrap_or_else(PoisonError::into_inner);
+        let wait = bucket.take(chunk.len() as u64, Instant::now());
+        if !wait.is_zero() {
+            std::thread::sleep(wait);
+        }
+        drop(bucket);
+        writer.write_all(chunk)?;
+    }
+    Ok(())
+}
+
+fn connection(
+    git_dir: &Path,
+    stream: TcpStream,
+    bucket: &Mutex<Bucket>,
+    rate: u64,
+) -> anyhow::Result<()> {
+    // An idle pooled connection should not hold one of the seed's few slots indefinitely.
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
     let mut writer = stream.try_clone()?;
     let mut reader = BufReader::new(stream);
-    let mut objects = crate::git::ObjectReader::spawn(git_dir)?;
+    let mut objects = crate::git::ObjectReader::spawn_local(git_dir)?;
     loop {
         let mut line = String::new();
         if reader.read_line(&mut line)? == 0 {
@@ -873,15 +1107,8 @@ fn connection(git_dir: &Path, stream: TcpStream, bucket: &Mutex<Bucket>) -> anyh
         };
         match objects.blob(oid) {
             Some(bytes) => {
-                let wait = bucket
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .take(bytes.len() as u64, Instant::now());
-                if !wait.is_zero() {
-                    // The rate limit's intentional, bounded delay.
-                    std::thread::sleep(wait.min(Duration::from_secs(5)));
-                }
-                respond(&mut writer, "200 OK", &bytes, false)?;
+                respond_headers(&mut writer, "200 OK", bytes.len(), false)?;
+                write_rate_limited(&mut writer, &bytes, bucket, rate)?;
             }
             None => respond(&mut writer, "404 Not Found", b"", false)?,
         }
@@ -956,7 +1183,14 @@ pub fn beat_repo(git_dir: &Path, repo: &str) -> BeatRepo {
             entries
                 .flatten()
                 .filter_map(|entry| {
-                    entry.file_name().to_str()?.strip_suffix(".pack").map(str::to_owned)
+                    if !entry.file_type().ok()?.is_file() {
+                        return None;
+                    }
+                    let name = entry.file_name();
+                    let pack = name.to_str()?.strip_suffix(".pack")?;
+                    // Mirrors also hold loose-*.pack and temporary packs. The index accepts
+                    // only checksum-named packs; one other name rejects the whole heartbeat.
+                    valid_id(pack.strip_prefix("pack-")?).then(|| pack.to_owned())
                 })
                 .collect()
         })
@@ -985,33 +1219,109 @@ pub fn beat_repo(git_dir: &Path, repo: &str) -> BeatRepo {
     BeatRepo { repo: repo.to_owned(), packs, tips }
 }
 
+/// How a heartbeat posts: each try's bound, the beat period, and the first retry's backoff.
+#[derive(Debug, Clone, Copy)]
+pub struct BeatPolicy {
+    /// One try's bound. The index has answered in anywhere from 0.13 s to more than 15 s, so a
+    /// 10 s bound failed a beat the index would have taken.
+    pub attempt: Duration,
+    /// Time from one beat's start to the next.
+    pub period: Duration,
+    /// The first retry's backoff. Each retry doubles it, up to `period / 4`, jittered to 50-150%.
+    pub backoff: Duration,
+}
+
+impl BeatPolicy {
+    /// Production: try for up to 30 s, beat every minute, retry from 2 s.
+    pub const DEFAULT: Self = Self {
+        attempt: Duration::from_secs(30),
+        period: Duration::from_secs(60),
+        backoff: Duration::from_secs(2),
+    };
+}
+
+/// A factor in [0.5, 1.5) from the std hasher's random keys, so seeds that fail together
+/// don't all retry at once.
+fn jitter() -> f64 {
+    use std::hash::{BuildHasher as _, Hasher as _};
+    let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+    hasher.write_u128(Instant::now().elapsed().as_nanos());
+    0.5 + (hasher.finish() % 1000) as f64 / 1000.0
+}
+
+/// Posts one beat's `body` to `url`, retrying with jittered backoff until it lands or the next
+/// beat is due (`start + policy.period`). Returns the number of tries it took, or the last error.
+/// A 4xx other than 408 and 429 is the index refusing the beat itself, so it is not retried.
+pub fn post_beat(
+    client: &reqwest::blocking::Client,
+    url: &str,
+    token: Option<&str>,
+    body: &[u8],
+    policy: BeatPolicy,
+    start: Instant,
+) -> Result<usize, String> {
+    let deadline = start + policy.period;
+    let mut backoff = policy.backoff;
+    let mut tries = 0;
+    loop {
+        tries += 1;
+        let left = deadline.saturating_duration_since(Instant::now());
+        let mut request = client
+            .post(url)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .timeout(policy.attempt.min(left).max(Duration::from_millis(100)))
+            .body(body.to_vec());
+        if let Some(token) = token {
+            request = request.bearer_auth(token);
+        }
+        let error = match request.send() {
+            Ok(response) if response.status().is_success() => return Ok(tries),
+            Ok(response) => {
+                let status = response.status();
+                if status.is_client_error()
+                    && status != reqwest::StatusCode::REQUEST_TIMEOUT
+                    && status != reqwest::StatusCode::TOO_MANY_REQUESTS
+                {
+                    return Err(format!("{status} (not retried)"));
+                }
+                status.to_string()
+            }
+            Err(error) => format!("{error:#}"),
+        };
+        let wait = backoff.mul_f64(jitter());
+        if Instant::now() + wait >= deadline {
+            return Err(format!("{error} after {tries} tries"));
+        }
+        eprintln!("cmux-projection seed: heartbeat {url}: {error}; retry in {wait:?}");
+        // The retry's backoff, not a synchronization wait.
+        std::thread::sleep(wait);
+        backoff = (backoff * 2).min(policy.period / 4);
+    }
+}
+
 /// Posts `beat()` to `url` now and every minute after, never returning, so the controller's
 /// index (which forgets a seed after three minutes) lists this host while it seeds. Run it on a
-/// thread of the seed's scope. A failed post is logged and the next minute tries again; it never
+/// thread of the seed's scope. A failed try is retried with jittered backoff until the next beat
+/// is due ([`post_beat`]), so one slow or failed answer never costs the seed its listing; it never
 /// stops the seed.
 pub fn heartbeat(url: &str, token: Option<&str>, beat: &dyn Fn() -> Beat) {
     let _ = rustls::crypto::ring::default_provider().install_default();
+    let policy = BeatPolicy::DEFAULT;
     let Ok(client) = cmux_egress::blocking_client_builder("cmux_projection::peers")
-        .timeout(Duration::from_secs(10))
+        .connect_timeout(Duration::from_secs(5))
         .build()
     else {
         eprintln!("cmux-projection seed: no HTTP client; no heartbeat");
         return;
     };
     loop {
-        let mut request = client.post(url).json(&beat());
-        if let Some(token) = token {
-            request = request.bearer_auth(token);
-        }
-        match request.send() {
-            Ok(response) if response.status().is_success() => {}
-            Ok(response) => {
-                eprintln!("cmux-projection seed: heartbeat {url}: {}", response.status());
-            }
-            Err(error) => eprintln!("cmux-projection seed: heartbeat {url}: {error}"),
+        let start = Instant::now();
+        let body = serde_json::to_vec(&beat()).unwrap_or_default();
+        if let Err(error) = post_beat(&client, url, token, &body, policy, start) {
+            eprintln!("cmux-projection seed: heartbeat {url}: {error}");
         }
         // The heartbeat's period, not a synchronization wait.
-        std::thread::sleep(Duration::from_secs(60));
+        std::thread::sleep(policy.period.saturating_sub(start.elapsed()));
     }
 }
 

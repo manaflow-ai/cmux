@@ -39,18 +39,31 @@ permissions:
 
 concurrency:
   group: executor-journey-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: false
+  # A newer push to the pull request ends the older head's journey: a machine the cancel cut off is swept by the next
+  # run, the newer head's (header). Dispatches and the daily run are never cancelled.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # A workflow sweep that reaches this only through workflow files skips its heavy jobs (self-edit-sweep.yml,
+  # scripts/ci/self_edit_sweep.py); a pull request under 10 changed files or with full-ci never starts the gate.
+  self-edit:
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.changed_files >= 10 && !(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
+    uses: ./.github/workflows/self-edit-sweep.yml
+    with:
+      workflow: .github/workflows/executor-journey.yml
+    permissions:
+      contents: read
+
   journey:
-    if: github.repository == 'manaflow-ai/cmux' && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository)
+    needs: self-edit
+    if: ${{ !cancelled() && needs.self-edit.outputs.run != 'false' && (github.repository == 'manaflow-ai/cmux' && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository)) }}
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout-cone-mode: false
@@ -58,10 +71,20 @@ jobs:
             /scripts/cmux-next/
             /tests/fixtures/model-stub/
             /Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials/
+            scripts/ci/toolchain-r2.sh
+            scripts/ci/toolchain-archives.sha256
+            scripts/ci/r2-cache.sh
+            scripts/ci/lan_cache_fetch.py
+            .gitmodules
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Unit tests
         run: bun test scripts/cmux-next/executor-journey.test.ts
       - name: Executor in a staging machine

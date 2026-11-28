@@ -11,6 +11,7 @@ import type { Env } from "../env.ts"
 
 import { effectCall, failed, form, json, MAX_LINKED_REPOS, ProviderError, rateLimitMessage, rateLimitWait, type Credential, type Http, type ProviderImpl } from "./provider-core.ts"
 import { grantOf } from "./github-user-tokens.ts"
+import { verifyActionsOidc } from "./github-actions-connect.ts"
 
 import { gmail } from "./gmail.ts"
 import { googleCalendar } from "./google-calendar.ts"
@@ -41,6 +42,45 @@ export const appJwt = async (env: Env) => {
   // Only the signed string is shared, never a pending promise: Workers keep I/O per request context.
   appJwts.set(issuer, { jwt, expires_at: (now + 540) * 1000, key: pem })
   return jwt
+}
+
+/**
+ * The product App's slug as GitHub names it now: `GET /app` with the App's own JWT, so renaming the App in GitHub's
+ * settings (which changes the slug, the install URL github.com/apps/<slug> and the bot login <slug>[bot]) needs no
+ * secret change. Cached per isolate for GITHUB_APP_SLUG_TTL_MS per App (a rename shows within that), a failed read
+ * for GITHUB_APP_SLUG_MISS_TTL_MS; any failure answers the `GITHUB_APP_SLUG` secret, the fallback. Tests
+ * (ENVIRONMENT=test) read the secret unless they pass `http`, so no test reaches GitHub.
+ */
+export const GITHUB_APP_SLUG_TTL_MS = 60 * 60_000
+export const GITHUB_APP_SLUG_MISS_TTL_MS = 60_000
+export const GITHUB_APP_SLUG_TIMEOUT_MS = 2_000
+const GITHUB_SLUG = /^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/
+const appSlugs = new Map<string, { slug: string | null; until: number; key: string }>()
+export const resetGithubAppSlugCache = () => appSlugs.clear()
+export const githubAppSlug = async (env: Env, http?: Http, now = Date.now()): Promise<string | null> => {
+  const fallback = env.GITHUB_APP_SLUG?.trim() || null
+  const h = http ?? (env.ENVIRONMENT === "test" ? undefined : (r: Request) => fetch(r))
+  if (!h || !env.GITHUB_APP_CLIENT_ID || !env.GITHUB_APP_PRIVATE_KEY) return fallback
+  const id = env.GITHUB_APP_CLIENT_ID
+  const hit = appSlugs.get(id)
+  if (hit && hit.key === env.GITHUB_APP_PRIVATE_KEY && hit.until > now) return hit.slug ?? fallback
+  let slug: string | null = null
+  try {
+    const res = await h(new Request(`${GH_API}/app`, { headers: ghHeaders(await appJwt(env)), signal: AbortSignal.timeout(GITHUB_APP_SLUG_TIMEOUT_MS) }))
+    const body = res.ok ? ((await res.json()) as { slug?: unknown }) : null
+    if (typeof body?.slug === "string" && GITHUB_SLUG.test(body.slug)) slug = body.slug
+  } catch {
+    // Unreachable GitHub or a bad key: the secret answers until the next try.
+  }
+  appSlugs.set(id, { slug, until: now + (slug ? GITHUB_APP_SLUG_TTL_MS : GITHUB_APP_SLUG_MISS_TTL_MS), key: env.GITHUB_APP_PRIVATE_KEY })
+  return slug ?? fallback
+}
+
+/** The App's install page (`/installations/new`), from the slug GitHub names now; unavailable when no slug is known. */
+export const githubInstallBase = async (env: Env): Promise<string> => {
+  const slug = await githubAppSlug(env)
+  if (!slug) throw new ProviderError("integration.unavailable", "the cmux GitHub App's name is unknown on this deployment (GET /app failed and GITHUB_APP_SLUG is unset)")
+  return `https://github.com/apps/${slug}/installations/new`
 }
 
 /**
@@ -162,12 +202,14 @@ export const githubScopesOf = (permissions: Readonly<Record<string, unknown>>): 
   Object.entries(permissions).filter((e): e is [string, string] => typeof e[1] === "string").map(([k, v]) => `${k}:${v}`).sort()
 
 export const github: ProviderImpl = {
-  configured: (env) => Boolean(env.GITHUB_APP_SLUG && env.GITHUB_APP_CLIENT_ID && env.GITHUB_APP_CLIENT_SECRET && env.GITHUB_APP_PRIVATE_KEY),
+  // The slug is read from GitHub (githubAppSlug); GITHUB_APP_SLUG is only its fallback, so it is not required here.
+  configured: (env) => Boolean(env.GITHUB_APP_CLIENT_ID && env.GITHUB_APP_CLIENT_SECRET && env.GITHUB_APP_PRIVATE_KEY),
   defaultScopes: [],
   scopesFor: (op) => op === "github.issue.comment" ? ["issues:write"] : undefined,
   // App permissions are set on the App, not per request; the install page carries our state back.
-  authorizeUrl: (env, state) => `https://github.com/apps/${env.GITHUB_APP_SLUG}/installations/new?state=${encodeURIComponent(state)}`,
+  authorizeUrl: async (env, state) => `${await githubInstallBase(env)}?state=${encodeURIComponent(state)}`,
   complete: async (env, http, p) => {
+    if (p.actions_oidc !== undefined) return completeFromActions(env, http, p)
     const installation = Number(p.installation_id)
     // An organization member's install is a request until an owner approves it: GitHub comes back with
     // `setup_action=request` and no installation yet. Nothing to link; say what happens next.
@@ -284,6 +326,31 @@ export const github: ProviderImpl = {
       throw error
     }
     return commentReceipt(params, await json(res))
+  }
+}
+
+/**
+ * A GitHub completion signed by an allowed GitHub Actions run instead of a person's OAuth code (staging and
+ * development only, github-actions-connect.ts). The App's own key reads the installation: it must be on the run's
+ * repository owner, and the connection covers that one repository. No person's token: effects post as the App.
+ */
+const completeFromActions: ProviderImpl["complete"] = async (env, http, p) => {
+  const run = await verifyActionsOidc(env, http, p.actions_oidc!)
+  const installation = Number(p.installation_id)
+  if (!Number.isSafeInteger(installation)) throw new ProviderError("integration.state_invalid", "the connection attempt names no GitHub installation")
+  // The installation scope would give every repository of the account: this completion grants only the run's own.
+  if (p.policy.githubScope !== "linking_user_repos" || p.policy.requireOrgAdmin) throw new ProviderError("integration.state_invalid", "the team policy needs a person to link GitHub")
+  const res = await http(new Request(`${GH_API}/app/installations/${installation}`, { headers: ghHeaders(await appJwt(env)) }))
+  if (!res.ok) throw failed("github", res, "installation check")
+  const inst = (await json(res)) as { id?: number; account?: { login?: string; html_url?: string }; permissions?: Record<string, string> }
+  const login = inst.account?.login ?? ""
+  if (inst.id !== installation || login.toLowerCase() !== run.owner.toLowerCase()) throw new ProviderError("integration.state_invalid", "the installation is not on the run's repository owner")
+  console.log(JSON.stringify({ msg: "github.connect.actions", installation, repository: run.repository, workflow: run.workflow, run: run.run }))
+  return {
+    account: { key: `github:installation:${installation}`, name: login, ...(inst.account?.html_url ? { url: inst.account.html_url } : {}) },
+    scopes_granted: githubScopesOf(inst.permissions ?? {}),
+    credential: { kind: "github_installation", installation_id: installation },
+    resources: { repos: [run.repository] }
   }
 }
 

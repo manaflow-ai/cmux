@@ -60,16 +60,18 @@ impl Hub {
             return Err(not_idle(session, what));
         }
         // Nothing it did not report may end with it (`idle_census.rs`).
-        let sidecars = self.sidecars(&child).await;
+        let sidecars = self.sidecars(session, &child).await;
         let census = self.idle_census(child.pid, sidecars).await;
         if !matches!(census, super::idle_census::Census::Clear) {
             self.note_refusal(session, &census);
             return Err(not_idle(session, "process"));
         }
+        // The folder's work leaves this machine before the agent does (`wip_ref.rs`).
+        session.save_wip().await;
         let began = std::time::Instant::now();
         let link_lost = child.host_record().is_some() && !child.is_alive().await;
         drop(child);
-        if !self.hibernate_held(session, link_lost, None).await {
+        if !self.hibernate_held(session, link_lost, None, None).await {
             return Ok(not_paused("stopped"));
         }
         let exit_ms = u64::try_from(began.elapsed().as_millis()).unwrap_or(u64::MAX);

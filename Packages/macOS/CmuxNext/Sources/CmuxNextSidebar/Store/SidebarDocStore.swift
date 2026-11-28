@@ -372,14 +372,24 @@ public final class SidebarDocStore {
     /// into Pinned (`roomOps`, spaces.md), in the same change; nil when it stores none (a plain `sidebar.move`).
     func spaceKeepingMove(_ items: [String], to target: SidebarDocTarget) -> [[String: Any]]? {
         let stamps = Self.roomOps(moving: items, into: target.section, room: newItemRoom(), records: settledRecords)
-        // main-actor-ok: one SidebarDocTarget (section, parent, before, after, index), fixed size.
-        guard !stamps.isEmpty, let to = try? JSONSerialization.jsonObject(with: JSONEncoder().encode(target)) else { return nil }
-        return [["op": "move", "items": items, "to": to]] + stamps
+        guard !stamps.isEmpty else { return nil }
+        return [["op": "move", "items": items, "to": target.jsonObject]] + stamps
     }
 
     /// Pin: the items move to the end of Pinned.
     public func pin(_ items: [String], title: String) {
         guard !items.isEmpty else { return } // nothing placed yet to move (an adopt is on the way)
+        // Pin keeps a group member in its group. Only a top-level item entering Pinned takes the acting
+        // window’s Space. An already pinned item still belongs to the window that pinned it.
+        if let room = newItemRoom() {
+            let records = settledRecords
+            let entering = items.filter { id in
+                guard let record = records.items[id] else { return false }
+                return record.parent == nil && record.section != Self.pinnedSection
+            }
+            let stamps = Self.roomOps(moving: entering, into: Self.pinnedSection, room: room, records: records)
+            if !stamps.isEmpty { return send(ops: [["op": "pin", "items": items]] + stamps, title: title) }
+        }
         send(.pin(items, key: Self.newKey()), title: title) { remote, key, _ in
             try await remote.pin(items, key: key)
         }

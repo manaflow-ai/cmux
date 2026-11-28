@@ -49,9 +49,17 @@
 //!   but its input still streams (`crate::hub::tool_start`: Claude's block started, so a tool
 //!   will run within seconds: the early wake; the Cloud reads any phase but `model-wait` as
 //!   awake, so a sleep never starts under it and a resume can start before the call lands);
+//!   A session whose every open call is a parked wait (`crate::parked_wait`: a `sleep` handed
+//!   to the platform under the aggressive pause policy) is `parked` instead, with
+//!   `"wake": [{"kind": "timer", "at": ms}]`, one per parked call: no local work runs, so the
+//!   platform may pause the machine and wake it at the earliest `at` (RFD 0063 step 2). Today's
+//!   Cloud reads `parked` as awake, like any phase but `model-wait`;
 //!   else `pinned` while processes the agent left running (a
-//!   background shell or task) or a background subagent or sub-session work, or while it is at
-//!   work with no turn; else `person` while a permission or question waits; else `model-wait`.
+//!   background shell or task) or a background subagent or sub-session work; else `timer` while
+//!   no turn runs and a timer its agent set has not fired (`hub/agent_timer.rs`: a /loop's wakeup
+//!   or cron, with `wake_at`, its next due time in Unix ms, where known); else `pinned` while it
+//!   is at work with no turn; else `person` while a permission or question waits; else
+//!   `model-wait`.
 //! - `since`: when this daemon first saw it in that phase (Unix ms).
 //! - `processes`: how many processes it left running; `attached`: an attached client shows it.
 //! - `relayed`: whether every turn's model stream ends outside this machine. No relay exists
@@ -124,9 +132,15 @@ pub(super) struct Tracker {
     restarted: bool,
     /// Each session at work's phase and since when, once [`Self::observe`] ran.
     phases: Option<BTreeMap<String, TurnPhase>>,
+    /// Each session's calls handed to the platform ([`Self::set_parked`]).
+    parked: crate::parked_wait::ParkedMap,
     /// The phases the agent last got, by session: (phase, since).
-    sent_phases: Option<Vec<(String, &'static str, u64)>>,
+    sent_phases: Option<Vec<PhaseKey>>,
 }
+
+/// A session's phase as the agent got it: by session id, phase, since, a `parked` session's
+/// wakes and a `timer` phase's due time.
+type PhaseKey = (String, &'static str, u64, Vec<crate::parked_wait::Wake>, Option<u64>);
 
 /// What one session at work waits on (the module doc's `phases`).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -135,6 +149,10 @@ pub(super) struct TurnPhase {
     pub since: u64,
     pub processes: usize,
     pub attached: bool,
+    /// A `parked` session's wakes, one per parked call.
+    pub wake: Vec<crate::parked_wait::Wake>,
+    /// A `timer` phase's next due time (Unix ms), where known.
+    pub wake_at: Option<u64>,
 }
 
 impl Tracker {
@@ -221,6 +239,22 @@ impl Tracker {
         }
     }
 
+    /// Before each look: the calls each session handed to the platform (`Hub::parked`).
+    pub(super) fn set_parked(&mut self, parked: crate::parked_wait::ParkedMap) {
+        self.parked = parked;
+    }
+
+    /// The wakes of session `sid` when every call it has open is parked and none is starting,
+    /// else None.
+    fn parked_wakes(&self, sid: &str) -> Option<Vec<crate::parked_wait::Wake>> {
+        let open = self.open_tools.get(sid)?;
+        if self.starting.contains_key(sid) {
+            return None;
+        }
+        let parked = self.parked.get(sid)?;
+        open.iter().map(|call| parked.get(call).cloned()).collect()
+    }
+
     /// The sessions at work as read at `now_ms`: each one's phase, its since kept while the
     /// phase holds. A session no longer at work forgets its open calls.
     pub(super) fn observe(&mut self, at_work: &[SessionAtWork], now_ms: u64) {
@@ -234,13 +268,26 @@ impl Tracker {
         let before = self.phases.take().unwrap_or_default();
         let mut phases = BTreeMap::new();
         for s in at_work {
+            let mut wake = Vec::new();
             let phase = if self.uncertain.contains(&s.id) {
                 "unknown"
+            } else if let Some(wakes) = self.parked_wakes(&s.id) {
+                // A parked wait is not local work, but a process or subagent of its own is.
+                if s.processes > 0 || s.below {
+                    "pinned"
+                } else {
+                    wake = wakes;
+                    "parked"
+                }
             } else if self.open_tools.contains_key(&s.id) {
                 "tool"
             } else if self.starting.contains_key(&s.id) {
                 "tool-starting"
-            } else if s.processes > 0 || s.below || !s.turn {
+            } else if s.processes > 0 || s.below {
+                "pinned"
+            } else if !s.turn && s.timer.is_some() {
+                "timer"
+            } else if !s.turn {
                 "pinned"
             } else if s.person {
                 "person"
@@ -248,16 +295,29 @@ impl Tracker {
                 "model-wait"
             };
             let since = before.get(&s.id).filter(|p| p.phase == phase).map_or(now_ms, |p| p.since);
-            let entry = TurnPhase { phase, since, processes: s.processes, attached: s.shown };
+            let wake_at = s.timer.and_then(|t| t.wake_at).filter(|_| phase == "timer");
+            let entry = TurnPhase {
+                phase,
+                since,
+                processes: s.processes,
+                attached: s.shown,
+                wake,
+                wake_at,
+            };
             phases.insert(s.id.clone(), entry);
         }
         self.phases = Some(phases);
     }
 
-    /// The phases as the agent gets them: by session id, phase and since.
-    fn phase_key(&self) -> Option<Vec<(String, &'static str, u64)>> {
+    /// The phases as the agent gets them: by session id, phase, since and wake times.
+    fn phase_key(&self) -> Option<Vec<PhaseKey>> {
         let phases = self.phases.as_ref()?;
-        Some(phases.iter().map(|(id, p)| (id.clone(), p.phase, p.since)).collect())
+        Some(
+            phases
+                .iter()
+                .map(|(id, p)| (id.clone(), p.phase, p.since, p.wake.clone(), p.wake_at))
+                .collect(),
+        )
     }
 
     /// The line to send with `turns` sessions at work observed at `now_ms`, or None: on a
@@ -299,8 +359,16 @@ impl Tracker {
             let turns: Vec<Value> = phases
                 .values()
                 .map(|p| {
-                    json!({"phase": p.phase, "since": p.since, "processes": p.processes,
-                        "attached": p.attached})
+                    let mut turn = json!({"phase": p.phase, "since": p.since,
+                        "processes": p.processes, "attached": p.attached});
+                    if !p.wake.is_empty() {
+                        let wake: Vec<Value> = p.wake.iter().map(|w| w.to_json()).collect();
+                        turn.set("wake", json!(wake));
+                    }
+                    if let Some(at) = p.wake_at {
+                        turn.set("wake_at", json!(at));
+                    }
+                    turn
                 })
                 .collect();
             activity.set("phases", json!({"relayed": false, "turns": turns}));
@@ -374,6 +442,16 @@ async fn agent_socket_appears(path: &Path) {
     }
 }
 
+/// Auto mode's machine side (`auto_session/machine.rs`), once the agent's Auto mode socket is
+/// there (an agent older than Auto mode has none). It waits for the store to assign this
+/// machine a chat; until then it changes nothing.
+async fn auto_mode(hub: Arc<Hub>) {
+    use crate::auto_session::machine;
+    let cloud = machine::MachineCloud::here();
+    agent_socket_appears(cloud.socket()).await;
+    machine::serve(hub, Arc::new(cloud), machine::chats_root()).await
+}
+
 /// Follows this daemon's own sessions and reports how many are at work while the Cloud agent's
 /// socket is there.
 pub(super) async fn activity_loop(hub: Arc<Hub>) {
@@ -381,9 +459,23 @@ pub(super) async fn activity_loop(hub: Arc<Hub>) {
     // Off a Cloud machine nothing reads the report: no renew tick and no resume subscription (it
     // keeps the hub's resume tick running) until the agent's socket appears (cmux-ad m9).
     agent_socket_appears(&path).await;
+    // The agent is here. On a Cloud machine, Auto mode's side starts with it.
+    if crate::cloud_host::is_cloud_vm() {
+        hub.scope.spawn_until_cancelled("auto-mode-machine", auto_mode(hub.clone()));
+        // ~/README.md: what this machine is and how to get more capacity (`cloud_readme.rs`).
+        if let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty()) {
+            let home = std::path::PathBuf::from(home);
+            tokio::task::spawn_blocking(move || {
+                if let Err(e) = crate::cloud_readme::ensure(&home) {
+                    tracing::warn!(error = %e, "cloud README not written");
+                }
+            });
+        }
+    }
     let mut events = hub.subscribe();
     let mut resumes = hub.subscribe_resumes();
     let mut person_prompts = hub.subscribe_person_prompts();
+    let mut parked = hub.parked.subscribe();
     let mut tracker = Tracker::new(crate::config::socket_path().to_string_lossy().into_owned());
     let mut tick = tokio::time::interval(RENEW);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -423,6 +515,8 @@ pub(super) async fn activity_loop(hub: Arc<Hub>) {
             Ok(()) = resumes.changed() => true,
             // A person's prompt: its time goes at once (the line sees it changed).
             Ok(()) = person_prompts.changed() => false,
+            // A call parked or unparked: its phase goes at once.
+            Ok(()) = parked.changed() => false,
         };
         if !path.exists() {
             continue;
@@ -436,6 +530,9 @@ pub(super) async fn activity_loop(hub: Arc<Hub>) {
         let now = crate::store::now_ms();
         let at_work = match &detail {
             Some(detail) => {
+                let ids = detail.iter().map(|s| s.id.as_str()).collect();
+                hub.parked.retain_sessions(&ids);
+                tracker.set_parked(hub.parked.snapshot());
                 tracker.startup(settled);
                 tracker.observe(detail, now);
                 detail.len()
@@ -523,3 +620,9 @@ async fn send(path: &Path, line: &Value) -> bool {
 #[cfg(test)]
 #[path = "cloud_activity_tests.rs"]
 mod tests;
+
+/// The report a fresh daemon sends for `at_work` at `now_ms`, for scenarios outside this module
+/// (`hub/agent_timer_tests.rs`).
+#[cfg(test)]
+#[path = "cloud_activity_probe_tests.rs"]
+pub(crate) mod probe;

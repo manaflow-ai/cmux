@@ -113,6 +113,12 @@ pub(crate) async fn execute(cmd: ForkRunCmd, env: &Env) -> Result<Value> {
     match cmd {
         ForkRunCmd::Start(a) => {
             let key = a.key.unwrap_or_else(new_key);
+            let source = a.machine.clone();
+            // `--session`: each fork continues that chat, a copy of its transcript.
+            let mut spec = crate::fork_spec::ForkSpec::preset(crate::fork_spec::Preset::ForkRun);
+            if a.session.is_some() {
+                spec.context = crate::fork_spec::Context::Copy;
+            }
             let mut args = json!({
                 "verb": "start", "workspace": a.cloud.workspace, "clientKey": key,
                 "sourceMachine": a.machine, "harnesses": a.harnesses,
@@ -125,6 +131,7 @@ pub(crate) async fn execute(cmd: ForkRunCmd, env: &Env) -> Result<Value> {
             // A start whose answer was lost may still have made the run: the error names the
             // key, so a retry with it answers that run instead of making a second one.
             let mut answer = call(&a.cloud, args, env).await.map_err(|e| with_key(e, &key))?;
+            crate::fork_spec::log(&spec, &source, &key);
             if let Some(answer) = answer.as_object_mut() {
                 answer.insert("clientKey".to_owned(), json!(key));
             }

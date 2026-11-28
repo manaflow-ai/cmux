@@ -362,6 +362,14 @@ pub(super) fn detail_code(detail: &str) -> Option<String> {
     if let Some(code) = digits_after("(close ") {
         return Some(code);
     }
+    // How an ssh run exited when its link ended (`the ssh link ended (ssh
+    // exit 255)`): 255 is ssh's own failure, any other the remote command's.
+    if let Some(code) = digits_after("(ssh exit ") {
+        return Some(format!("exit_{code}"));
+    }
+    if let Some(signal) = digits_after("(ssh signal ") {
+        return Some(format!("signal_{signal}"));
+    }
     if let Some(status) = digits_after("http status ").or_else(|| digits_after("answered ")) {
         return Some(format!("http_{status}"));
     }
@@ -377,6 +385,21 @@ pub(super) fn detail_code(detail: &str) -> Option<String> {
         return Some(if token { code } else { "other".into() });
     }
     let word = [
+        // The session's own resume errors (`ConnectionError`, `SessionError`):
+        // a resume that ends on one names it, not `other`.
+        ("reconnect deadline expired", "resume_deadline"),
+        ("stale connection generation", "stale_generation"),
+        ("connection generation changed", "generation_changed"),
+        ("generation exhausted", "generation_exhausted"),
+        ("no longer has the requested logical session", "session_gone"),
+        ("too many connected clients", "daemon_full"),
+        ("replay buffer is full", "replay_full"),
+        ("delivery window is full", "window_full"),
+        ("outbound queue is full", "queue_full"),
+        ("sequence gap", "sequence_gap"),
+        ("frame belongs to another session", "wrong_session"),
+        ("outbound scheduler closed", "scheduler_closed"),
+        ("invalid session frame", "invalid_frame"),
         ("ssh bootstrap failed", "ssh_bootstrap"),
         ("does not support", "unsupported_auth"),
         ("no reconnect routes", "no_routes"),
@@ -384,6 +407,8 @@ pub(super) fn detail_code(detail: &str) -> Option<String> {
         ("no transport provider handles", "no_provider"),
         ("ssh connection group is closed", "ssh_group_closed"),
         ("could not start ssh", "ssh_spawn"),
+        ("closed the link before its welcome", "no_welcome"),
+        ("closed the link before link-ready", "no_link_ready"),
         ("link closed during handshake", "handshake_closed"),
         ("link is closed", "link_closed"),
         ("did not finish within", "open_timeout"),
@@ -533,6 +558,7 @@ pub(super) fn routes_line_on(
 /// is its [`detail_code`], after the route it failed on when the route
 /// runner named one ([`route_of`]). A captured ssh
 /// stderr tail is left out: it has its own quoted field.
+#[cfg(test)]
 pub(super) fn why_codes(detail: &str) -> Option<String> {
     why_codes_on(detail, None)
 }

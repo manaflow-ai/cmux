@@ -62,13 +62,13 @@ pub struct Session {
     pub(super) child: Mutex<Option<Arc<ChildAgent>>>,
     /// Held while a child is spawned and initialized, so concurrent
     /// requests for a stopped session start one agent, not several.
-    pub(super) spawn_lock: Mutex<()>,
+    pub(super) spawn_lock: Arc<Mutex<()>>,
     pub(super) fork_lock: Mutex<()>,
     /// Serializes close/purge with transfer retirement before an ID can be reused.
     pub(super) close_lock: Mutex<()>,
     /// Held shared by a request that reaches the harness outside a turn (a start, a mode
     /// change); the idle pass takes it exclusively while it lists and ends the harness.
-    pub(super) harness_use: tokio::sync::RwLock<()>,
+    pub(super) harness_use: Arc<tokio::sync::RwLock<()>>,
     /// The hub clock's time of the last log of why the idle harness stays up (`idle_census.rs`).
     pub(super) idle_refusal_logged: AtomicU64,
     pub(super) seq: AtomicU64,
@@ -118,7 +118,7 @@ pub struct Session {
     pub(super) protected_hold: AtomicBool,
     /// A retry task may outlive an imported replacement with the same durable id. Its mark
     /// belongs to this instance, so its wake and cleanup cannot consume the replacement's.
-    pub(super) auto_resume: auto_resume::Pending,
+    pub(super) auto_resume: OnFirstUse<auto_resume::Pending>,
     /// The account's rate limit holds every turn until its reset (`rate_hold.rs`).
     pub(super) rate_hold: rate_hold::RateHold,
     /// A continuation folded into the queue's next turn at a reset leaves its words here
@@ -186,10 +186,8 @@ pub struct Session {
     pub(super) turn: StdMutex<Option<TurnInfo>>,
     /// When the person left it and the recap made meanwhile (`away_recap.rs`).
     pub(super) away: StdMutex<super::away_recap::Away>,
-    /// Whether a person started the running turn, and the summary request (`rolling_summary.rs`).
-    pub(super) rolling: StdMutex<super::rolling_summary::Rolling>,
     /// The person's corrections and the prompt coach's offer (`prompt_coach.rs`).
-    pub(super) coach: StdMutex<crate::prompt_coach::Coach>,
+    pub(super) coach: OnFirstUse<StdMutex<crate::prompt_coach::Coach>>,
     /// The turn `finish_turn` took and has not ended yet: a shutdown settles it if its end does
     /// not land within the grace (`shutdown.rs` `settle_ends`).
     pub(super) ending: StdMutex<Option<TurnInfo>>,
@@ -204,7 +202,7 @@ pub struct Session {
     pub(super) prepared_done: StdMutex<std::collections::VecDeque<PreparedTurn>>,
     pub(super) cloud_generation: AtomicU64,
     /// Durable team notices, indexed once per session; receiving one never queues a turn.
-    pub(super) team_information: StdMutex<Option<super::team_information::State>>,
+    pub(super) team_information: OnFirstUse<StdMutex<Option<super::team_information::State>>>,
     /// Fired when the queue's head may have changed (a prompt left the queue,
     /// a turn ended): queued prompts wait on it for their turn (`queue.rs`).
     pub(super) queue_moved: Notify,
@@ -231,8 +229,8 @@ pub struct Session {
     /// section that moves the messages, so a new prompt always sees them in one place or the
     /// other (`DigestTurn::charge`, `DigestTurn::release`).
     pub(super) digest_bytes: AtomicU64,
-    pub(super) stream: StdMutex<StreamState>,
-    pub(super) permissions: StdMutex<permission_groups::PermissionState>,
+    pub(super) stream: OnFirstUse<StdMutex<StreamState>>,
+    pub(super) permissions: OnFirstUse<StdMutex<permission_groups::PermissionState>>,
     /// Bumped (under the `permissions` lock) whenever pending
     /// permissions are cancelled; a request that started before the bump
     /// is answered `cancelled` instead of being registered.
@@ -248,6 +246,11 @@ pub struct Session {
     /// background subagent, a working sub-session), in ms; 0 while none does
     /// (`work_below.rs`).
     pub(super) work_below_since: StdMutex<u64>,
+    /// The timers of the /loops its live agent armed, as that agent last said
+    /// (`agent_timer.rs`): `(due time, recurring)` each. Kept beside the goal, not in it: a
+    /// `goal_set` replaces the goal and left the timers unseen, and the saved goal outlives a
+    /// reboot that ended the agent holding them. Memory only, cleared with the agent.
+    pub(super) loop_timers: StdMutex<Option<Vec<(Option<u64>, bool)>>>,
     /// How many open sub-sessions below it wait on the person, and since when in ms; (0, 0)
     /// while none does (`asks_below.rs`).
     pub(super) asks_below: StdMutex<(u32, u64)>,
@@ -315,8 +318,13 @@ pub struct Session {
     /// period instead of the idle one; its next prompt starts it on what is installed then.
     /// Cleared with `profile_respawn`, when its agent ends or starts.
     pub(super) respawn_when_quiet: AtomicBool,
-    pub(super) inbound_tx: mpsc::Sender<Inbound>,
-    pub(super) inbound_rx: Mutex<Option<mpsc::Receiver<Inbound>>>,
+    /// Whether a retry must wait for the replacement environment before sending. Stale binary
+    /// and profile refreshes are opportunistic; credential, route and proxy changes are required
+    /// so a continuation must not reuse the old child for them.
+    pub(super) respawn_required: AtomicBool,
+    /// The chat's inbound channel, made at its first use ([`Session::inbound_channel`]): a chat
+    /// loaded from the store that no agent ever started holds none (goals/infinite-items-flat).
+    pub(super) inbound: std::sync::OnceLock<InboundChannel>,
     /// True while the chat is closed: its inbound loop hands `inbound_rx` back and ends once
     /// it closes, and the start that reopens it starts the loop again (`permissions.rs`).
     pub(super) closed: tokio::sync::watch::Sender<bool>,
@@ -336,17 +344,20 @@ pub struct Session {
     pub(super) wait_start: AtomicBool,
     /// Steers into the running turn by prompt id (`steer_end.rs`): Send now stops the agent's
     /// step for one that waits (`queue_edit.rs`).
-    pub(super) steer_now: StdMutex<SteerNow>,
+    pub(super) steer_now: OnFirstUse<StdMutex<SteerNow>>,
     /// The answer of a steer that ended its turn, with the turn's id: the
     /// turn's other prompts take it (`steer_end.rs`, codex-acp).
     pub(super) steer_end: tokio::sync::watch::Sender<Option<(String, Value)>>,
     /// Set on a freshly forked Claude session: the parent's agent session id
     /// to pass as `--resume <id> --fork-session` on first spawn.
     pub(super) fork_from: StdMutex<Option<String>>,
+    /// Set on a fresh OpenCode fork: the parent's agent session its own agent forks at its
+    /// first start, in place of a load (`fork_own_process.rs`).
+    pub(super) agent_fork: StdMutex<Option<super::fork_own_process::AgentFork>>,
     /// The model and the effort acpmux last set on this session (its own
     /// start values or a client's set), so a repeated set is no new pick
     /// (`start_defaults.rs`).
-    pub(super) applied: StdMutex<Applied>,
+    pub(super) applied: OnFirstUse<StdMutex<Applied>>,
     /// Set once the session is purged, so late events do not recreate its
     /// files while the directory is being removed. Shared with the audit writer, which drops an
     /// entry of this copy that reaches it after the purge, even once a new chat took the id.
@@ -424,6 +435,9 @@ pub struct Session {
     pub(super) stop_respawn: AtomicU64,
     /// How many taps `Hub::session_tap` made for it; each tap knows its number.
     pub(super) taps: AtomicU64,
+    /// The number of the last tap that logged a line the agent wrote (a `claude.*` line):
+    /// a sandboxed agent that writes none fails its start (`remote_start_bound.rs`).
+    pub(super) raw_line_tap: AtomicU64,
     /// Taps numbered up to this one belong to an agent a Stop ended (`cancel.rs`): what they
     /// still log is no sign of work (no `heard`, no unstick, no tool state).
     pub(super) muted_taps: AtomicU64,
@@ -432,7 +446,7 @@ pub struct Session {
     /// The person's Stop's hold, by its number (`Hub::stop_hold_number`); 0: none.
     pub(super) stop_hold: AtomicU64,
     /// `stop_hold` when the running turn started: only a turn started under the hold ends it
-    /// (`turns.rs` `finish_turn`), never one that was ending as the Stop came.
+    /// (`turns/finish.rs` `finish_turn`), never one that was ending as the Stop came.
     pub(super) turn_hold: AtomicU64,
     /// Claude Code reported that its active turn is compacting. This is kept
     /// on the session as hosted agents have their translator in the host.
@@ -487,6 +501,20 @@ pub struct Session {
     /// of the same prompt id is answered as a duplicate, and that answer names the same kept
     /// message, so every send of one prompt id hears the one acceptance (`turns.rs`).
     pub(super) kept_messages: StdMutex<std::collections::VecDeque<(String, String, String)>>,
+    /// The acceptance each recent client prompt id's first run gave (its queue place, its turn,
+    /// its inbox receipt), newest last, at most `turns::KEPT_ACCEPTS`: a resend of the id answers
+    /// with it (`turns.rs`). Before, a resend whose first run had no turn yet (an inbox message
+    /// has none) heard a turnless duplicate the outbox could not count as taken, and waited for
+    /// the first run's end: every redelivery of an inbox message timed out, forever (2026-11-25).
+    pub(super) accepted_prompts:
+        StdMutex<std::collections::VecDeque<(String, usize, serde_json::Value)>>,
+    /// Pending first-run acceptances that fell out of the bounded receipt ring. They live only
+    /// while the matching prompt outcome is pending, so a burst cannot evict a live inbox receipt
+    /// and cannot grow this map after the prompt settles (`turns.rs`).
+    pub(super) pending_acceptances:
+        StdMutex<std::collections::HashMap<String, (usize, serde_json::Value)>>,
+    /// Bumped as a first run is accepted, for a resend waiting on it.
+    pub(super) accepted_seq: tokio::sync::watch::Sender<u64>,
     /// Bumped when a record failed to reach the store; an agent host entry
     /// is acknowledged only when its record was stored.
     pub(super) append_errors: AtomicU64,
@@ -497,6 +525,12 @@ pub struct Session {
     /// requests, its harness's model lines; not its own bookkeeping, `tap.rs`
     /// `from_the_model`); a turn that hears none is silent (`silent_turn.rs`).
     pub(super) heard: AtomicU64,
+    /// `heard` when the running turn's prompt was written (`stalled_turn.rs`
+    /// `watch_stalled_turn`): equal to it while the model has not answered that prompt. codex-acp
+    /// takes a steer then as a new prompt that cancels the running one (`inbox_admit.rs`).
+    pub(super) prompt_heard: AtomicU64,
+    /// A stop-condition chat's open goal left idle (`goal_watch.rs`).
+    pub(super) goal_watch: StdMutex<super::goal_watch::GoalWatch>,
     /// The hub clock's time (`Hub::clock_now`, ns) of the running turn's last sign of its model,
     /// or of its prompt going out if none since; an adopted turn's comes from its log, so it may
     /// be before this daemon started (negative). A turn that hears nothing for `stalledTurnEndMs`
@@ -515,10 +549,12 @@ pub struct Session {
     pub(super) unclosed_tools: StdMutex<std::collections::HashSet<String>>,
     /// Bounded completed tool attempts used to identify a repeated failing call
     /// (`loop_detector.rs`).
-    pub(super) loop_detector: StdMutex<super::loop_detector::LoopDetector>,
+    pub(super) loop_detector: OnFirstUse<StdMutex<super::loop_detector::LoopDetector>>,
     /// The running turn's finished command calls, bounded, that its last reply's claims are
     /// checked against when it ends (`claim_check.rs`).
     pub(super) claim_runs: StdMutex<super::claim_check::ClaimRuns>,
+    /// The running turn's prefetched files and the reads of them since (`prefetch.rs`).
+    pub(super) prefetch: StdMutex<Option<super::prefetch::PrefetchTurn>>,
     /// Its command calls while its harness's sandbox refuses them, newest last and bounded
     /// (`harness_sandbox.rs`): one that completes ends the failure. Empty otherwise.
     pub(super) harness_sandbox_calls: StdMutex<std::collections::VecDeque<String>>,
@@ -531,6 +567,8 @@ pub struct Session {
     /// The turn a refused sign-in's end is scheduled for (`turn_retry.rs`): its later retries
     /// schedule no second end.
     pub(super) sign_in_refused_turn: StdMutex<Option<String>>,
+    /// The running turn's prompt line until Claude Code starts it (`queued_turn.rs`).
+    pub(super) queued_prompt: StdMutex<super::queued_turn::QueuedPrompt>,
     /// Unix ms of the agent's last sign of its model at work (as `heard`); 0: none since load.
     /// A running turn quiet since then, with no tool call in flight, stalls (`views.rs`).
     pub(super) last_model_at: AtomicU64,
@@ -541,7 +579,7 @@ pub struct Session {
     /// Other agents' messages to this chat, in threads (`inbox.rs`). Read through
     /// [`Session::inbox`], which restores it from the log on first use: a chat's log load no
     /// longer reads its whole inbox history ahead of its first prompt (`restore_point.rs`).
-    pub(super) inbox_state: StdMutex<super::inbox::Inbox>,
+    pub(super) inbox_state: OnFirstUse<StdMutex<super::inbox::Inbox>>,
     /// Whether [`Self::inbox_state`] holds what the log says (`Hub::restore_inbox`).
     pub(super) inbox_loaded: AtomicBool,
     /// Held while the inbox is restored, so it is read once.
@@ -552,10 +590,16 @@ pub struct Session {
     /// The hub clock's time (`Hub::clock_now`) of the last record or
     /// attach change; the idle harness exit counts from it (`idle.rs`).
     pub(super) last_active: AtomicU64,
+    /// The hub clock's time at which the idle reaper last tried to evict it and it stayed
+    /// (`evict.rs`), or 0: it is tried again one idle period after that, not on every pass.
+    pub(super) evict_tried_at: AtomicU64,
     /// The hub clock's time (`Hub::clock_now`) at which the idle exit hibernated its harness
     /// (`idle.rs`), or 0: the next start of its agent is a wake, logged with its cause and how
     /// long it took.
     pub(super) hibernated_at: AtomicU64,
+    /// Its recent gaps between turns, which `adaptive-v1` picks its idle period from
+    /// (`residency.rs`).
+    pub(super) idle_rhythm: StdMutex<super::residency::Rhythm>,
     /// What asked for the agent the next wake starts (`idle.rs` `wake_cause`): `typing`, `prompt`,
     /// else a request that needs the agent.
     pub(super) wake_cause: StdMutex<Option<&'static str>>,
@@ -567,6 +611,9 @@ pub struct Session {
     /// The last start refused because its harness cannot keep the chat's policy, while nothing it
     /// depends on changed (`policy_mode.rs` `RefusalLatch`): no wake or request starts it again.
     pub(super) policy_refusal: super::policy_mode::RefusalLatch,
+    /// The harness exited while it started, with the same error again: starts fail with it
+    /// until a bounded, doubling window passed (`launch_backoff.rs`).
+    pub(super) launch_backoff: super::launch_backoff::LaunchBackoff,
     /// The agent's own requests (a file read, a terminal, a permission) whose task has not
     /// ended: the idle exit waits for none of them, it keeps the agent (`idle.rs`).
     pub(super) agent_requests: std::sync::atomic::AtomicUsize,
@@ -575,7 +622,7 @@ pub struct Session {
     /// The remote floor's per-session marks (`remote_floor.rs`).
     pub(super) floor: remote_floor::FloorState,
     /// The subagents the agent reported, for attributing their updates.
-    pub(super) subagents: StdMutex<crate::subagents::SubagentTree>,
+    pub(super) subagents: OnFirstUse<StdMutex<crate::subagents::SubagentTree>>,
     /// Its agent's `session/fork` requests, whose new sessions' updates are never its own
     /// (`fork_replay.rs`).
     pub(super) fork_replay: super::fork_replay::ForkReplay,
@@ -586,17 +633,20 @@ pub struct Session {
     /// one it started itself for a task notification, which acpmux never prompted and
     /// `turn` does not show (`subagent_retry.rs` waits for its end).
     pub(super) harness_turn: AtomicBool,
+    /// The person's own turn has had no token and no tool result yet: while they wait on it in a
+    /// chat they attend, its harness never yields the CPU (`hub/cpu_pressure.rs`).
+    pub(super) awaiting_reply: AtomicBool,
     /// The sections of the last `system/init` its log kept whole (`logged_init.rs`).
     pub(super) logged_init: StdMutex<crate::claude_stdio::LoggedInit>,
     /// The state update sections its log last kept (`update_repeats.rs`).
     pub(super) update_repeats: StdMutex<super::update_repeats::UpdateRepeats>,
     /// The turns Claude Code runs that the person did not start (`background_turn.rs`).
-    pub(super) background_turns: StdMutex<super::background_turn::BackgroundTurns>,
+    pub(super) background_turns: OnFirstUse<StdMutex<super::background_turn::BackgroundTurns>>,
     /// The commands its harness runs in the background (`processes.rs`).
-    pub(super) processes: StdMutex<processes::ProcessTable>,
+    pub(super) processes: OnFirstUse<StdMutex<processes::ProcessTable>>,
     /// Tool calls that run `gh pr create`, and the URL each printed so far, until they end
     /// (`pull_requests.rs`).
-    pub(super) pr_creates: StdMutex<std::collections::HashMap<String, Option<String>>>,
+    pub(super) pr_creates: StdMutex<super::pull_requests::Creates>,
     /// Tool calls that run `gh pr merge` or `gh pr close`, and what each settles, until they end
     /// (`pull_requests.rs`).
     pub(super) pr_closes:
@@ -611,7 +661,64 @@ pub struct Session {
     pub(super) composers: StdMutex<super::composers::Composers>,
 }
 
+/// A chat's inbound channel ([`Session::inbound`]).
+pub(super) struct InboundChannel {
+    pub(super) tx: mpsc::Sender<Inbound>,
+    pub(super) rx: Mutex<Option<mpsc::Receiver<Inbound>>>,
+}
+
+/// How many items a chat's inbound channel holds before its producers wait.
+const INBOUND_CAPACITY: usize = 1024;
+
+/// A chat's state that only a running turn writes, made at its first use. A chat that is only
+/// loaded from the store and listed holds one pointer for it instead of the whole value: at
+/// 1,000 idle chats the `Session` inline size is most of `make_session`'s heap
+/// (goals/infinite-items-flat). Reads and writes go through `Deref`, so call sites are unchanged.
+pub(super) struct OnFirstUse<T>(std::sync::OnceLock<Box<T>>);
+
+impl<T> Default for OnFirstUse<T> {
+    fn default() -> Self {
+        Self(std::sync::OnceLock::new())
+    }
+}
+
+impl<T: Default> std::ops::Deref for OnFirstUse<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        self.0.get_or_init(|| Box::new(T::default()))
+    }
+}
+
 impl Session {
+    /// The pid whose process tree is this chat's agent (`_acpmux/session_resources`): its host's,
+    /// which runs the harness and what it starts, or the agent this daemon runs as its own child.
+    /// `Some(None)`: no agent runs (a new or hibernated chat); `None`: a start or stop held the
+    /// slot past `wait`.
+    pub(crate) async fn agent_root_pid(&self, wait: std::time::Duration) -> Option<Option<u32>> {
+        let slot = tokio::time::timeout(wait, self.child.lock()).await.ok()?;
+        let child = (*slot).clone();
+        drop(slot);
+        Some(child.and_then(|c| c.host_record().map(|r| r.host_pid).or(c.pid)))
+    }
+
+    /// The chat's inbound channel, made now when this is its first use.
+    pub(super) fn inbound_channel(&self) -> &InboundChannel {
+        self.inbound.get_or_init(|| {
+            let (tx, rx) = mpsc::channel(INBOUND_CAPACITY);
+            InboundChannel { tx, rx: Mutex::new(Some(rx)) }
+        })
+    }
+
+    /// The chat's own sender ([`Session::inbound_channel`]).
+    pub(super) fn inbound_tx(&self) -> &mpsc::Sender<Inbound> {
+        &self.inbound_channel().tx
+    }
+
+    /// The receiver, while no inbound loop holds it ([`Session::inbound_channel`]).
+    pub(super) fn inbound_rx(&self) -> &Mutex<Option<mpsc::Receiver<Inbound>>> {
+        &self.inbound_channel().rx
+    }
+
     /// The chat's inbox, restored from its log first when its log is read and nothing has read
     /// the inbox yet. The log load warms it in the background (`log_load.rs`); a reader that comes
     /// first reads it here, once. Before its log is read a chat's inbox holds what came since, as
@@ -659,6 +766,7 @@ impl Session {
     pub(crate) fn person_wrote(&self) {
         self.person.store(true, Ordering::SeqCst);
         self.policy_refusal.clear();
+        self.launch_backoff.clear();
     }
 
     /// Fence untagged compaction metadata for this live session. Claude's
@@ -696,6 +804,19 @@ impl Session {
 
     pub fn meta(&self) -> SessionMeta {
         self.meta.lock().unwrap().clone()
+    }
+    /// Edits the metadata in place, as a test outside the crate sets up a saved state (an
+    /// integration test sees no `pub(super)` field). No row change is told.
+    #[doc(hidden)]
+    pub fn edit_meta_for_test(&self, edit: impl FnOnce(&mut SessionMeta)) {
+        edit(&mut self.meta.lock().unwrap_or_else(|e| e.into_inner()));
+    }
+    /// Leaves this chat marked as on its capacity fallback, as a past switch did
+    /// (`hub/auto_resume/capacity_failover.rs`). For tests outside the crate, which cannot
+    /// reach `meta`.
+    #[doc(hidden)]
+    pub fn leave_on_capacity_fallback_for_tests(&self, fallback: crate::store::CapacityFallback) {
+        self.meta.lock().unwrap_or_else(|e| e.into_inner()).capacity_fallback = Some(fallback);
     }
     /// Read only the needed fields without copying large metadata payloads. The
     /// callback must not acquire other session/hub locks or call back into this session.
@@ -982,6 +1103,11 @@ impl Session {
     /// An open sub-session below it waits on the person (`asks_below.rs`).
     pub(crate) fn waits_below(&self) -> bool {
         self.asks_below.lock().unwrap_or_else(|e| e.into_inner()).0 > 0
+    }
+    /// How many permissions wait on an answer: the summary's `pendingPermissions`, read
+    /// without building the row.
+    pub(crate) fn pending_permission_count(&self) -> usize {
+        self.permissions.lock().unwrap_or_else(|e| e.into_inner()).pending.len()
     }
     pub(crate) fn has_pending_permissions(&self) -> bool {
         !self.permissions.lock().unwrap_or_else(|e| e.into_inner()).pending.is_empty()

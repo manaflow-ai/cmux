@@ -1,7 +1,7 @@
 // The parts a recorded prompt's bubble draws in their order (UserBubble.tsx), read without React,
 // so Find (chatFind.ts) and the row's height estimate (model.ts) read exactly what the bubble draws.
 import type { AcpmuxRow, PromptContentPart } from "../model";
-import { isImageOriginal } from "./userBubbleModel";
+import { isImageOriginal, withoutFileNotes } from "./userBubbleModel";
 import { withoutVideoFrames } from "../composer/videoPrompt";
 import { inlineBubbleParts, isStripMedia } from "./promptCollapse";
 import { readsAsText } from "./inlinePromptContentModel";
@@ -40,7 +40,7 @@ export function attachmentOnlyPrompt(row: Pick<AcpmuxRow, "text" | "inlineParts"
 /// (`bubbleLayout`), or undefined when it keeps the legacy bands above a bubble of its recorded text:
 /// its parts without its videos' frames and notes (which went to the agent only) and its images'
 /// retained originals, less the attachments that draw in the band above it (every one in the strip
-/// view; a placed prompt's unmarked ones in the others, promptCollapse.ts `inlineBubbleParts`).
+/// view; none in the inline view, which draws an unplaced one at the bubble's end).
 /// UserBubble.tsx draws these; Find searches their text, so it never reads a part the bubble does
 /// not draw, nor misses words the band's leaving joined.
 export function bubbleParts(
@@ -52,15 +52,17 @@ export function bubbleParts(
 
 /// A prompt drawn in its parts' order as UserBubble.tsx lays it out in the pane's attachment view
 /// (composerSettings.ts `attachmentView`): `parts` in its bubble, and `band`, the attachments it
-/// draws in the row above the bubble. The strip view draws every attachment in that row and leaves
-/// the bubble its text; the others ("both" draws as "inline") leave only a placed prompt's unmarked
-/// attachments there. Undefined for a prompt that keeps the legacy bands. The row's estimate
-/// (model.ts) measures both, so a strip prompt is not estimated as an inline one.
+/// draws in the row above the bubble. One place per view, never both (Leo, 2026-11-27: inline was
+/// showing "inline + top bar"): the strip view draws every attachment in the band and leaves the
+/// bubble its text; the inline view draws none in the band, each where the composer placed it and
+/// one it did not place (a chip left in its strip) at the end of the bubble, after the text.
+/// Undefined for a prompt that keeps the legacy bands. The row's estimate (model.ts) measures both,
+/// so a strip prompt is not estimated as an inline one.
 export function bubbleLayout(
   row: Pick<AcpmuxRow, "text" | "images" | "inlineParts" | "pasted" | "retryAttachments">,
   view: AttachmentView,
 ): { parts: PromptContentPart[]; band: Exclude<PromptContentPart, { kind: "text" }>[] } | undefined {
-  const recorded = withoutVideoFrames(row).inlineParts;
+  const recorded = withoutFileNotes(withoutVideoFrames(row)).inlineParts;
   if (!recorded) return undefined;
   const originals = imageOriginals(row);
   const parts = recorded.filter((part) => !isImageOriginal(part, originals));
@@ -76,11 +78,28 @@ export function bubbleLayout(
       ),
       band: withoutRepeatedVideos(parts.filter(isStripMedia), sentVideos),
     };
-  return {
-    parts: withoutRepeatedVideos(inline, sentVideos),
-    band: withoutRepeatedVideos(
-      parts.filter(isStripMedia).filter((part) => !inline.includes(part)),
-      sentVideos,
-    ),
-  };
+  return { parts: withoutRepeatedVideos(inlineOrder(parts, inline), sentVideos), band: [] };
+}
+
+/// A prompt's parts in the inline view: `inline` (promptCollapse.ts `inlineBubbleParts`, each placed
+/// attachment at its place in the text), then the attachments the composer left unplaced, at the
+/// end of the bubble rather than in a band above it.
+export function inlineOrder(
+  parts: readonly PromptContentPart[],
+  inline: readonly PromptContentPart[],
+): PromptContentPart[] {
+  const unplaced = parts.filter((part) => isStripMedia(part) && !inline.includes(part));
+  return unplaced.length ? [...inline, ...unplaced] : [...inline];
+}
+
+/// The attachments an attachment-only prompt draws in its strip (UserBubble.tsx `stripMedia`), in
+/// their order: its recorded parts less its videos' frames and its images' retained originals. The
+/// row's estimate (model.ts) measures each at its own sent size.
+export function stripAttachments(
+  row: Pick<AcpmuxRow, "text" | "images" | "inlineParts" | "retryAttachments">,
+): Exclude<PromptContentPart, { kind: "text" }>[] {
+  const originals = imageOriginals(row);
+  return (withoutFileNotes(withoutVideoFrames(row)).inlineParts ?? [])
+    .filter((part) => !isImageOriginal(part, originals))
+    .filter(isStripMedia);
 }

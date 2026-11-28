@@ -9,6 +9,11 @@
 //   latest     the newest message ("Answer N:") painted;
 //   settled    nothing moved for 400 ms after that: no long task or layout shift, and the scroller's
 //              position and height unchanged.
+//   first_contentful_paint  the browser's first-contentful-paint entry: the web app's first paint of anything
+//              (Leo, 2026-11-22: "we also need startup times of the app to keep hill climbing"). Its row's p50 is
+//              the rounds' median and its p95 their nearest-rank 95th percentile; each round also prints the HTML's
+//              responseEnd and DOMContentLoaded beside it, so the cost before the first paint splits into fetch and
+//              script.
 // The stages that follow `attach` are the page's own: parse, first render and layout passes.
 // Long tasks (count, total) and the layout-shift sum cover the whole load; the transcript's scroll drift
 // after `latest` says how much the page still moved after the newest messages appeared.
@@ -62,6 +67,7 @@ import {
   roundOrder,
 } from "./runnerCalibration";
 import { sourceMapper } from "./sourceMapper";
+import { sharedPaneDir } from "./support/sharedBuilds";
 
 const ROUNDS = Number(process.argv[2] ?? 7);
 const TURNS = Number(process.argv[3] ?? 300);
@@ -113,6 +119,7 @@ type Chat = {
   events: Fixture["events"];
   session: Fixture["session"];
   latest: string;
+  latestRow: string;
   perfRow: (row: PerfRow) => void;
   attachBytes: number;
   attachEvents: number;
@@ -123,16 +130,27 @@ const chatAt = (scale: Scale): Chat => {
       ? godChat(PAPERCUT_CHAT, remoteFields)
       : papercutEvents({ turns: TURNS, running: false, session: remoteFields });
   const latest = scale === "god" ? LATEST_TEXT : `Answer ${TURNS}:`;
-  return { scale, events, session, latest, perfRow: scaledPerfRow(printRow, scale), attachBytes: 0, attachEvents: 0 };
+  const latestEvent = [...events].reverse().find((event) => event.kind === "agent_message_chunk");
+  if (!latestEvent) throw new Error(`${scale} fixture has no final assistant message`);
+  return {
+    scale,
+    events,
+    session,
+    latest,
+    latestRow: `assistant-${latestEvent.seq}`,
+    perfRow: scaledPerfRow(printRow, scale),
+    attachBytes: 0,
+    attachEvents: 0,
+  };
 };
 /// The chats this run opens: FIXTURE's, or with PAIRED=1 the small chat and the god one. The stand-in serves `current`,
 /// one load at a time, so both share its port and the page's URL.
 const chats = ((PAIRED ? ["small", "god"] : [FIXTURE]) as Scale[]).map(chatAt);
 let current = chats.at(-1)!;
-let { events, session, latest: LATEST } = current;
+let { events, session, latest: LATEST, latestRow: LATEST_ROW } = current;
 const use = (chat: Chat) => {
   current = chat;
-  ({ events, session, latest: LATEST } = chat);
+  ({ events, session, latest: LATEST, latestRow: LATEST_ROW } = chat);
 };
 if (REVEAL) {
   const event = events.find((event) => event.seq === (REVEAL_TURN - 1) * 4 + 3)!;
@@ -258,7 +276,9 @@ try {
 
   // PANE_OUT=dir keeps the pane's build there and takes one already in it, so a harness that runs the
   // bench many times on one checkout (bench/chat-open-ab.sh) builds each side once.
-  const keptOut = process.env.PANE_OUT ? path.resolve(process.env.PANE_OUT) : undefined;
+  // Under bench/web-ui-suite.ts, the suite's one pane build of the run (bench/support/sharedBuilds.ts).
+  const variant = process.env.PROFILE === "1";
+  const keptOut = process.env.PANE_OUT ? path.resolve(process.env.PANE_OUT) : sharedPaneDir({ variant });
   const out = keptOut ?? fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "chat-open-bench-"));
   if (!keptOut) releases.push(["pane build", () => fs.rmSync(out, { recursive: true, force: true })]);
   const { build } = await import("vite");
@@ -268,7 +288,7 @@ try {
       build: {
         outDir: out,
         emptyOutDir: true,
-        ...(process.env.PROFILE === "1" ? { minify: false, sourcemap: true } : {}),
+        ...(variant ? { minify: false, sourcemap: true } : {}),
       },
       logLevel: "error",
     });
@@ -324,6 +344,8 @@ try {
     initialize: number;
     watch: number;
     dcl: number;
+    fcp: number;
+    responseEnd: number;
     scriptKiB: number;
     scripts: string[];
     forced: {
@@ -341,6 +363,13 @@ try {
     const page = await browser.newPage({
       viewport: { width: 1200, height: 800 },
       deviceScaleFactor: REVEAL ? 2 : 1,
+    });
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
+    const consoleErrors: string[] = [];
+    page.on("console", (message) => {
+      if ((message.type() === "error" || message.type() === "warning") && consoleErrors.length < 30)
+        consoleErrors.push(message.text().slice(0, 1000));
     });
     await page.addInitScript((rail) => {
       localStorage.setItem("cmux.experiments", JSON.stringify({ "thread-minimap-layout": rail }));
@@ -367,7 +396,7 @@ try {
         [COMPOSER_FIELD, COMPOSER_KEY] as const,
       );
     await page.addInitScript(
-      ([latestText, instrument, hostLatency, remoteTail, diskSnapshot]) => {
+      ([latestRow, instrument, hostLatency, remoteTail, diskSnapshot]) => {
         if (hostLatency > 0)
           (window as unknown as { cmuxAcpmuxActions: Record<string, () => Promise<unknown>> }).cmuxAcpmuxActions = {
             // fixed-wait: the stand-in host's answer latency is what this run measures.
@@ -631,7 +660,7 @@ try {
           const now = performance.now();
           if (!state.firstRow && document.querySelector("[data-row-id]"))
             nextFrame(() => (state.firstRow ||= performance.now()));
-          if (!state.latest && document.body.textContent?.includes(latestText)) {
+          if (!state.latest && document.querySelector(`[data-row-id="${CSS.escape(latestRow)}"]`)) {
             // TRACE=1: how much the first frame with the newest message drew.
             if (instrument === "trace") {
               const count = (selector: string) => document.querySelectorAll(selector).length;
@@ -658,7 +687,7 @@ try {
               !remote.reconciled &&
               remote.attachReceived &&
               !document.querySelector(".acpmux-peer-copy") &&
-              document.body.textContent?.includes(latestText)
+              document.querySelector(`[data-row-id="${CSS.escape(latestRow)}"]`)
             )
               afterPaint(() => (remote.reconciled ||= performance.now()));
           }
@@ -673,7 +702,7 @@ try {
         requestAnimationFrame(tick);
       },
       [
-        LATEST,
+        LATEST_ROW,
         process.env.TRACE === "1" ? "trace" : process.env.INSTRUMENT === "1",
         HOST_LATENCY,
         REMOTE_TAIL,
@@ -698,20 +727,55 @@ try {
           );
         })
       : page.goto(url);
-    await typed;
-    await page.waitForFunction(
-      (remoteTail) => {
-        const state = (window as unknown as { __open: { latest: number; activity: number } }).__open;
-        const remote = (window as unknown as { __remoteTail: { reconciled: number } }).__remoteTail;
-        return (
-          state.latest > 0 &&
-          (!remoteTail || remote.reconciled > 0) &&
-          performance.now() - Math.max(state.latest, state.activity, remote.reconciled) > 400
-        );
-      },
-      REMOTE_TAIL,
-      { timeout: 120_000, polling: 100 },
-    );
+    try {
+      await typed;
+      await page.waitForFunction(
+        (remoteTail) => {
+          const state = (window as unknown as { __open: { latest: number; activity: number } }).__open;
+          const remote = (window as unknown as { __remoteTail: { reconciled: number } }).__remoteTail;
+          return (
+            state.latest > 0 &&
+            (!remoteTail || remote.reconciled > 0) &&
+            performance.now() - Math.max(state.latest, state.activity, remote.reconciled) > 400
+          );
+        },
+        REMOTE_TAIL,
+        { timeout: 120_000, polling: 100 },
+      );
+    } catch (error) {
+      const diagnostic = await page
+        .evaluate((expectedRow) => {
+          const state = window as unknown as {
+            __open?: { latest: number; activity: number };
+            __remoteTail?: { reconciled: number };
+            __composer?: unknown;
+            webkit?: { messageHandlers?: Record<string, unknown> };
+          };
+          const scroll = document.querySelector(".acpmux-scroll");
+          return {
+            expectedRow,
+            url: location.href,
+            body: document.body.innerText.slice(0, 3000),
+            hostHandlers: Object.keys(state.webkit?.messageHandlers ?? {}),
+            parked: (window as unknown as { __cmuxPageParked?: unknown }).__cmuxPageParked,
+            now: performance.now(),
+            open: state.__open,
+            remote: state.__remoteTail,
+            composer: state.__composer,
+            rows: [...document.querySelectorAll("[data-row-id]")].map((row) => ({
+              id: row.getAttribute("data-row-id"),
+              text: row.textContent?.slice(0, 160),
+            })),
+            scroll: scroll && { top: scroll.scrollTop, height: scroll.scrollHeight, client: scroll.clientHeight },
+          };
+        }, LATEST_ROW)
+        .catch((cause) => ({ evaluationError: String(cause) }));
+      console.error(
+        "chat-open failed",
+        JSON.stringify({ diagnostic, pageErrors, consoleErrors, socketOpenedAt, calls }),
+      );
+      throw error;
+    }
     const got = await page.evaluate(() => {
       const state = (
         window as unknown as {
@@ -745,6 +809,8 @@ try {
         origin: performance.timeOrigin,
         forced,
         dcl: nav.domContentLoadedEventEnd,
+        fcp: performance.getEntriesByName("first-contentful-paint")[0]?.startTime ?? 0,
+        responseEnd: nav.responseEnd,
         composer: (window as unknown as { __composer?: { ready: number; interactive: number } }).__composer ?? {
           ready: 0,
           interactive: 0,
@@ -861,6 +927,8 @@ try {
       initialize: at(arrivals.get("initialize")),
       watch: at(arrivals.get("_acpmux/watch")),
       dcl: got.dcl,
+      fcp: got.fcp,
+      responseEnd: got.responseEnd,
       scriptKiB: got.scriptKiB,
       scripts: got.scripts as unknown as string[],
       forced: got.forced as Round["forced"],
@@ -876,14 +944,14 @@ try {
     await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
     // When the newest message was first in the page (epoch ms), so the profile can be cut to the stretch
     // between the attach's answer and it: the page's own parse, replay and first render.
-    await page.addInitScript((latestText) => {
+    await page.addInitScript((latestRow) => {
       const tick = () => {
-        if (document.body?.textContent?.includes(latestText))
+        if (document.querySelector(`[data-row-id="${CSS.escape(latestRow)}"]`))
           (window as unknown as { __latestAt: number }).__latestAt = performance.timeOrigin + performance.now();
         else requestAnimationFrame(tick);
       };
       requestAnimationFrame(tick);
-    }, LATEST);
+    }, LATEST_ROW);
     attachedAt = 0;
     await cdp.send("Profiler.start");
     const profileStart = Date.now();
@@ -1248,6 +1316,19 @@ try {
           version: NEXT_FRAME_STAGES.has(stage) ? 3 : 2,
           ...(COMPOSER && SAMPLED_STAGES.has(stage) ? { samples: rounds.map(pick) } : {}),
         });
+      // The web app's first paint from navigation start, a real p95 across rounds (the stage rows above give one median).
+      const fcps = rounds.map((r) => r.fcp).sort((a, b) => a - b);
+      console.log(
+        `first paint per round (ms from navigation): fcp ${rounds.map((r) => r.fcp.toFixed(0)).join(" ")}; html responseEnd ${rounds.map((r) => r.responseEnd.toFixed(0)).join(" ")}; DOMContentLoaded ${rounds.map((r) => r.dcl.toFixed(0)).join(" ")}`,
+      );
+      if (fcps.every((fcp) => fcp > 0))
+        perfRow({
+          name: `chat_open.${arm}.first_contentful_paint`,
+          p50: median((r) => r.fcp),
+          p95: fcps[Math.max(0, Math.ceil(fcps.length * 0.95) - 1)]!,
+          target: TARGET_MS.load,
+        });
+      else console.log(`chat-open [rail ${arm}]: a round had no first-contentful-paint entry; no first paint row`);
       // The page's own work in units of this runner's speed: each round's attach_to_latest over that round's calibration
       // (runnerCalibration.ts), the median of them. It holds across runners where the ms row above tracks the runner.
       console.log(

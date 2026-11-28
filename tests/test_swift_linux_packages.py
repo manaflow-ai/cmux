@@ -32,6 +32,10 @@ echo "swift $* env=${CMUX_TERMINAL_CLIENT_MODEL_ONLY:-}" >> "$FAKE_SWIFT_LOG"
 case "$1" in
   build) echo "Build complete!" ;;
   test)
+    if [ "${2:-}" = list ]; then
+      printf '%s\\n' 'ListedTests.Suite/test()' 'ListedTests.Other/test()' 'ListedTestsExtra.Suite/test()' 'ModelTests.Suite/test()'
+      exit 0
+    fi
     filter="${@: -1}"
     for id in 'ListedTests.Suite/test()' 'ListedTests.Other/test()' 'ListedTestsExtra.Suite/test()' 'ListedTestsXSuite/test()' 'ModelTests.Suite/test()'; do
       if printf '%s\n' "$id" | grep -Eq -- "$filter"; then echo "ran $id" >> "$FAKE_SWIFT_LOG"; fi
@@ -61,23 +65,39 @@ def check_rows(failures: list[str]) -> None:
             failures.append(f"{dir_} is listed twice")
         seen.add(dir_)
         manifest = ROOT / dir_ / "Package.swift"
-        if not re.fullmatch(r"Packages/[A-Za-z0-9_]+/[A-Za-z0-9_]+", dir_) or not manifest.is_file():
+        if not (re.fullmatch(r"Packages/[A-Za-z0-9_]+/[A-Za-z0-9_]+", dir_) or dir_ == "cmux-next-ios/CmuxMobileKit") or not manifest.is_file():
             failures.append(f"{dir_}: not a package directory under Packages/")
             continue
         text = manifest.read_text()
         for target in targets:
             if not re.search(r'\.testTarget\(\s*name:\s*"' + re.escape(target) + '"', text):
                 failures.append(f"{dir_}: its manifest declares no test target {target}")
+        reach = manifest_reach(manifest)
         for pair in envs:
             key = pair.split("=", 1)[0]
-            if not re.fullmatch(r"[A-Z_][A-Z0-9_]*=[A-Za-z0-9_.:/-]*", pair) or key not in text:
-                failures.append(f"{dir_}: ENV {pair} is malformed or its manifest never reads {key}")
+            if not re.fullmatch(r"[A-Z_][A-Z0-9_]*=[A-Za-z0-9_.:/-]*", pair) or not any(key in m.read_text() for m in reach):
+                failures.append(f"{dir_}: ENV {pair} is malformed or neither its manifest nor a `.package(path:)` one it reaches reads {key}")
+
+
+def manifest_reach(manifest: Path) -> list[Path]:
+    """The manifest and every manifest it reaches through `.package(path:)`: an ENV a dependency reads
+    (CmuxAuthRuntime's Linux SQLite3 module) shapes the listed package's build too."""
+    seen: list[Path] = []
+    todo = [manifest.resolve()]
+    while todo:
+        m = todo.pop()
+        if m in seen or not m.is_file():
+            continue
+        seen.append(m)
+        for rel in re.findall(r'\.package\(\s*path:\s*"([^"]+)"', m.read_text()):
+            todo.append((m.parent / rel / "Package.swift").resolve())
+    return seen
 
 
 def check_workflow(failures: list[str]) -> None:
     wf = WORKFLOW.read_text()
     for needed in ("shell: bash", "scripts/ci/swift-linux-packages.txt", "bash scripts/ci/package-test-lane.sh suite \"$dir\" \"$targets\"",
-                   "container: public.ecr.aws/docker/library/swift:6.2-noble@sha256:", "'cmux-linux'"):
+                   "public.ecr.aws/docker/library/swift:6.2-noble@sha256:", "'cmux-linux'"):
         if needed not in wf:
             failures.append(f"{WORKFLOW.name} lacks {needed!r}: it must run every listed package through the lane on Linux")
     # Pushes start it from its own trigger; feat-cmux-next pull requests through pr-router.yml, whose

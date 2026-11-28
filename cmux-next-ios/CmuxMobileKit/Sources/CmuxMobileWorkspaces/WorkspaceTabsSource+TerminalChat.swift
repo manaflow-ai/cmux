@@ -129,12 +129,31 @@ extension WorkspaceTabsSource {
     /// tab's own id so a new chat of the tab is a new store.
     func terminalChatStore(_ tab: WorkspaceTab, in workspace: Workspace, chatSession: String, faces: TerminalChatFaces) -> AgentChatStore {
         let harness = faces.harness ?? tab.harness ?? "claude"
-        return sessions.store(for: AgentSessionSummary(
+        let store = sessions.store(for: AgentSessionSummary(
             id: "\(tab.id)#chat:\(chatSession)", name: tab.title, harness: harness,
             agentName: harness == "codex" ? "Codex" : "Claude", cwd: tab.subtitle ?? workspace.directory,
             workspaceTitle: workspace.title, macName: macName, branch: workspace.branch,
             status: tab.agentStatus.map { $0 == .waiting ? .waiting : .running } ?? .idle,
             macID: workspace.macID, acpmuxSessionID: chatSession))
+        // Its composer is the regular chat's (Leo, 2026-11-16: "it's not usable like the regular
+        // gui"); the chat is View Only, so a prompt is typed into the terminal that runs the session.
+        // Bound each time: the store (`sessions`) outlives this source when the workspace reopens.
+        let tabID = tab.id
+        store.terminalRoute = AgentChatStore.TerminalRoute(prompt: { [weak self] text in
+            guard let self, let workspace = self.workspace, let tab = self.workspaceTab(tabID) else { return false }
+            return self.terminal.sendPrompt(text, for: tab, in: workspace)
+        }, interrupt: { [weak self] in
+            guard let self, let workspace = self.workspace, let tab = self.workspaceTab(tabID) else { return false }
+            return self.terminal.interruptAgent(for: tab, in: workspace)
+        })
+        return store
+    }
+
+    /// The Chat face's store of terminal `tab`, once a chat shows its session.
+    func terminalChatStore(_ tab: WorkspaceTab, in workspace: Workspace) -> AgentChatStore? {
+        let faces = pairFaces(tab, in: workspace)
+        guard faces.offered, faces.chatEnabled, let chatSession = terminalChatSessionID(tab, in: workspace) else { return nil }
+        return terminalChatStore(tab, in: workspace, chatSession: chatSession, faces: faces)
     }
 
     /// The chat face needs a chat no chat of the Mac is: ask the Mac for its View Only chat, once
@@ -298,6 +317,7 @@ struct TerminalChatPage<Terminal: View>: View {
                     CmuxSpinner(label: Text("Opening chat…"))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background(Color.cmuxMobileBackground)
+                        .placeholderBound("tab.opening.chat", .milliseconds(2000))
                 }
             }
         }

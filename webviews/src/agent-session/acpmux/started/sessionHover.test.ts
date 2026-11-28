@@ -17,10 +17,10 @@ test("a running chat's card says what its turn does now, its place and its last 
       status: "running",
       updatedAt: AT,
       lane: { state: "working" },
-      turn: { planStep: "Run the sidebar tests", activity: "bun test sidebar" },
+      turn: { activity: "bun test sidebar" },
     }),
   );
-  expect(info.doing).toBe("Run the sidebar tests · bun test sidebar");
+  expect(info.doing).toBe("bun test sidebar");
   expect(info.waiting).toBeUndefined();
   expect(info.preview).toBeUndefined();
   expect(info.meta?.[0]).toBe("cmux");
@@ -56,6 +56,32 @@ test("a chat's card changes only when what it says changes", () => {
   ]);
   expect(store.get("s-1")).not.toBe(first);
   expect(store.get("s-1")?.doing).toBe("Read App.tsx");
+});
+
+test("a hidden page's store lets its cards go, makes them again on a read or a show, and tells readers of a list it missed", () => {
+  const store = new SessionHoverStore();
+  let told = 0;
+  store.subscribe(() => (told += 1));
+  const first = [sessionEntry({ sessionId: "s-a", title: "A" }), sessionEntry({ sessionId: "s-b", title: "B" })];
+  store.set(first);
+  expect(told).toBe(1);
+  store.release();
+  // Released, a read makes the cards again and tells no one (it reads now).
+  expect(store.get("s-a")?.title).toBe("A");
+  expect(told).toBe(1);
+  store.release();
+  // A list set while released waits; shown again, the cards are its, and readers hear once.
+  store.set([sessionEntry({ sessionId: "s-a", title: "A renamed" })]);
+  expect(told).toBe(1);
+  store.restore();
+  expect(told).toBe(2);
+  expect(store.get("s-a")?.title).toBe("A renamed");
+  expect(store.get("s-b")).toBeUndefined();
+  // Shown with nothing missed: no one is told.
+  store.release();
+  store.restore();
+  expect(told).toBe(2);
+  expect(store.get("s-a")?.title).toBe("A renamed");
 });
 
 test("chats listed after the others add their own cards, and an agent link still opens the first chat it names", () => {

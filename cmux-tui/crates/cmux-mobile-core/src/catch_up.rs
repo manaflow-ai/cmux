@@ -16,6 +16,9 @@
 
 use std::collections::BTreeMap;
 
+pub mod relay;
+pub mod service;
+
 /// Bytes the list catch-up is counted at: an `unchanged` answer or a few changed rows.
 pub const LIST_ESTIMATE_BYTES: u64 = 4 * 1024;
 /// Bytes one wake may spend (the design's per-wake budget).
@@ -28,11 +31,18 @@ pub const MAX_TERMINALS: usize = 64;
 
 const FORMAT: &str = "cmux-cursors/1";
 
+/// The capability a Mac lists when its `list-workspaces` answers `since` with the changed
+/// entries only. A Mac without it refuses `since` on the phone lane, so it is never sent there.
+pub const WORKSPACE_LIST_DELTA_CAPABILITY: &str = "workspace-list-delta-v1";
+
 /// The list cursors of one Mac.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ListCursor {
     /// The workspace tree revision last applied (`list-workspaces {known}`).
     pub tree_revision: Option<String>,
+    /// The workspace delta cursor last applied (`list-workspaces {since: {epoch, seq}}`).
+    pub tree_epoch: Option<String>,
+    pub tree_seq: Option<u64>,
     /// The chat list's row log position and epoch (`_acpmux/watch {afterSeq, listEpoch}`).
     pub list_seq: Option<u64>,
     pub list_epoch: Option<String>,
@@ -61,6 +71,9 @@ pub struct Cursors {
     pub list: ListCursor,
     pub chats: BTreeMap<String, ChatCursor>,
     pub terminals: BTreeMap<String, TerminalCursor>,
+    /// The Mac listed [`WORKSPACE_LIST_DELTA_CAPABILITY`] on this link. Not kept across a
+    /// relaunch: until the Mac says so again, the plan asks by `known`, which every Mac answers.
+    pub workspace_delta: bool,
 }
 
 /// Why the app runs a catch-up.
@@ -77,17 +90,36 @@ pub enum Wake {
 /// One request of a wake, carrying its cursor and the bytes it may answer with.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Request {
-    Workspaces { known: Option<String> },
-    ChatList { after_seq: Option<u64>, list_epoch: Option<String> },
-    Chat { session: String, after_seq: u64, max_bytes: u64 },
-    Terminal { surface: String, offset: u64, generation: String, max_bytes: u64 },
+    /// `since` is set only when the Mac listed [`WORKSPACE_LIST_DELTA_CAPABILITY`]; an empty
+    /// epoch at seq 0 asks for the whole tree and a first cursor.
+    Workspaces {
+        known: Option<String>,
+        since: Option<(String, u64)>,
+    },
+    ChatList {
+        after_seq: Option<u64>,
+        list_epoch: Option<String>,
+    },
+    Chat {
+        session: String,
+        after_seq: u64,
+        max_bytes: u64,
+    },
+    Terminal {
+        surface: String,
+        offset: u64,
+        generation: String,
+        max_bytes: u64,
+    },
 }
 
 /// An answer, reduced to the cursor it carries.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Reply {
+    /// `delta`: the `epoch`/`seq` a delta-capable Mac answered with.
     Workspaces {
         revision: String,
+        delta: Option<(String, u64)>,
     },
     ChatList {
         through_seq: u64,
@@ -113,7 +145,15 @@ pub enum Reply {
 /// `budget`; the plan stops when it is spent.
 pub fn plan(cursors: &Cursors, wake: &Wake, budget: u64) -> Vec<Request> {
     let mut requests = vec![
-        Request::Workspaces { known: cursors.list.tree_revision.clone() },
+        Request::Workspaces {
+            known: cursors.list.tree_revision.clone(),
+            since: cursors.workspace_delta.then(|| {
+                match (&cursors.list.tree_epoch, cursors.list.tree_seq) {
+                    (Some(epoch), Some(seq)) => (epoch.clone(), seq),
+                    _ => (String::new(), 0),
+                }
+            }),
+        },
         Request::ChatList {
             after_seq: cursors.list.list_seq,
             list_epoch: cursors.list.list_epoch.clone(),
@@ -162,10 +202,25 @@ pub fn plan(cursors: &Cursors, wake: &Wake, budget: u64) -> Vec<Request> {
 }
 
 impl Cursors {
+    /// Records the capabilities the Mac listed on this link (its `identify` reply).
+    pub fn set_capabilities<'a>(&mut self, capabilities: impl IntoIterator<Item = &'a str>) {
+        self.workspace_delta =
+            capabilities.into_iter().any(|name| name == WORKSPACE_LIST_DELTA_CAPABILITY);
+    }
+
     /// Moves a cursor past what `reply` held, never back: an older or repeated answer is a no-op.
     pub fn apply(&mut self, reply: Reply, now: u64) {
         match reply {
-            Reply::Workspaces { revision } => self.list.tree_revision = Some(revision),
+            Reply::Workspaces { revision, delta } => {
+                self.list.tree_revision = Some(revision);
+                if let Some((epoch, seq)) = delta {
+                    let same_epoch = self.list.tree_epoch.as_deref() == Some(epoch.as_str());
+                    if !same_epoch || self.list.tree_seq.is_none_or(|known| seq > known) {
+                        self.list.tree_seq = Some(seq);
+                    }
+                    self.list.tree_epoch = Some(epoch);
+                }
+            }
             Reply::ChatList { through_seq, list_epoch } => {
                 let same_epoch = self.list.list_epoch.as_deref() == Some(list_epoch.as_str());
                 if !same_epoch || self.list.list_seq.is_none_or(|seq| through_seq > seq) {
@@ -237,6 +292,9 @@ impl Cursors {
             opt(self.list.list_seq.map(|seq| seq.to_string())),
             opt(self.list.list_epoch.as_deref().map(escape)),
         ));
+        if let (Some(epoch), Some(seq)) = (&self.list.tree_epoch, self.list.tree_seq) {
+            out.push_str(&format!("tree\t{}\t{seq}\n", escape(epoch)));
+        }
         for (id, cursor) in &self.chats {
             out.push_str(&format!(
                 "chat\t{}\t{}\t{}\n",
@@ -276,11 +334,14 @@ impl Cursors {
             let opt = |field: &str| (field != "-").then(|| unescape(field)).flatten();
             match fields.as_slice() {
                 ["list", revision, seq, epoch] => {
-                    cursors.list = ListCursor {
-                        tree_revision: opt(revision),
-                        list_seq: if *seq == "-" { None } else { Some(seq.parse().ok()?) },
-                        list_epoch: opt(epoch),
-                    };
+                    cursors.list.tree_revision = opt(revision);
+                    cursors.list.list_seq =
+                        if *seq == "-" { None } else { Some(seq.parse().ok()?) };
+                    cursors.list.list_epoch = opt(epoch);
+                }
+                ["tree", epoch, seq] => {
+                    cursors.list.tree_epoch = Some(unescape(epoch)?);
+                    cursors.list.tree_seq = Some(seq.parse().ok()?);
                 }
                 ["chat", id, seq, opened] => {
                     cursors.chats.insert(
@@ -340,180 +401,5 @@ fn unescape(value: &str) -> Option<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn escaped_ids_and_generations_survive_encode_and_decode() {
-        let mut cursors = Cursors::default();
-        let id = "50%\tdone\n-";
-        cursors.chats.insert(id.to_string(), ChatCursor { last_seq: 3, opened_at: 1 });
-        cursors.list.tree_revision = Some("-".to_string());
-        let decoded = Cursors::decode(&cursors.encode());
-        assert_eq!(decoded.chats.get(id).map(|chat| chat.last_seq), Some(3));
-        assert_eq!(decoded.list.tree_revision.as_deref(), Some("-"));
-        assert_eq!(unescape("%4"), None);
-        assert_eq!(unescape("%zz"), None);
-    }
-
-    fn cursors() -> Cursors {
-        let mut cursors = Cursors::default();
-        for (index, id) in ["a", "b", "c", "d", "e"].into_iter().enumerate() {
-            cursors.chats.insert(
-                id.to_string(),
-                ChatCursor { last_seq: 10 * index as u64, opened_at: index as u64 },
-            );
-        }
-        cursors.terminals.insert(
-            "7".to_string(),
-            TerminalCursor {
-                offset: 500,
-                generation: "ab.1".into(),
-                replay_bytes: 3000,
-                opened_at: 1,
-            },
-        );
-        cursors
-    }
-
-    fn bytes(requests: &[Request]) -> u64 {
-        requests
-            .iter()
-            .map(|request| match request {
-                Request::Workspaces { .. } | Request::ChatList { .. } => LIST_ESTIMATE_BYTES,
-                Request::Chat { max_bytes, .. } => *max_bytes,
-                Request::Terminal { .. } => 0,
-            })
-            .sum()
-    }
-
-    #[test]
-    fn a_refresh_asks_lists_then_the_three_most_recent_chats_within_the_budget() {
-        let requests = plan(&cursors(), &Wake::Refresh, WAKE_BUDGET_BYTES);
-        let chats: Vec<_> = requests
-            .iter()
-            .filter_map(|request| match request {
-                Request::Chat { session, after_seq, .. } => Some((session.as_str(), *after_seq)),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(chats, [("e", 40), ("d", 30), ("c", 20)]);
-        assert!(matches!(requests[0], Request::Workspaces { .. }));
-        assert!(matches!(requests[1], Request::ChatList { .. }));
-        assert!(bytes(&requests) <= WAKE_BUDGET_BYTES, "{requests:?}");
-        assert!(!requests.iter().any(|request| matches!(request, Request::Terminal { .. })));
-    }
-
-    #[test]
-    fn a_push_asks_its_chat_first_and_a_new_chat_from_the_start() {
-        let requests =
-            plan(&cursors(), &Wake::Push { chat: Some("new".into()) }, WAKE_BUDGET_BYTES);
-        let Request::Chat { session, after_seq, max_bytes } = &requests[2] else { panic!() };
-        assert_eq!((session.as_str(), *after_seq), ("new", 0));
-        assert!(*max_bytes >= (WAKE_BUDGET_BYTES - 2 * LIST_ESTIMATE_BYTES) / 2);
-        assert_eq!(requests.len(), 2 + 1 + RECENT_CHATS);
-        assert!(bytes(&requests) <= WAKE_BUDGET_BYTES);
-    }
-
-    #[test]
-    fn the_foreground_asks_the_screen_and_bounds_the_terminal_resume_by_its_last_replay() {
-        let wake = Wake::Foreground { chat: Some("b".into()), terminal: Some("7".into()) };
-        let requests = plan(&cursors(), &wake, WAKE_BUDGET_BYTES);
-        assert_eq!(
-            &requests[2..],
-            [
-                Request::Chat {
-                    session: "b".into(),
-                    after_seq: 10,
-                    max_bytes: WAKE_BUDGET_BYTES - 2 * LIST_ESTIMATE_BYTES
-                },
-                Request::Terminal {
-                    surface: "7".into(),
-                    offset: 500,
-                    generation: "ab.1".into(),
-                    max_bytes: 3000
-                },
-            ]
-        );
-    }
-
-    #[test]
-    fn a_spent_budget_stops_the_plan_after_the_lists() {
-        let requests = plan(&cursors(), &Wake::Refresh, 2 * LIST_ESTIMATE_BYTES);
-        assert_eq!(requests.len(), 2);
-    }
-
-    #[test]
-    fn a_cursor_never_moves_back_and_a_new_epoch_or_generation_resets_it() {
-        let mut cursors = cursors();
-        cursors.apply(Reply::Chat { session: "e".into(), through_seq: 45 }, 9);
-        cursors.apply(Reply::Chat { session: "e".into(), through_seq: 41 }, 9);
-        assert_eq!(cursors.chats["e"].last_seq, 45);
-
-        cursors.apply(Reply::ChatList { through_seq: 8, list_epoch: "x".into() }, 9);
-        cursors.apply(Reply::ChatList { through_seq: 5, list_epoch: "x".into() }, 9);
-        assert_eq!(cursors.list.list_seq, Some(8));
-        cursors.apply(Reply::ChatList { through_seq: 2, list_epoch: "y".into() }, 9);
-        assert_eq!(cursors.list.list_seq, Some(2));
-
-        let stamp = |offset, generation: &str, replay| Reply::Terminal {
-            surface: "7".into(),
-            offset,
-            generation: generation.into(),
-            replay_bytes: replay,
-        };
-        cursors.apply(stamp(400, "ab.1", None), 9);
-        assert_eq!(cursors.terminals["7"].offset, 500);
-        cursors.apply(stamp(900, "ab.1", None), 9);
-        assert_eq!(cursors.terminals["7"].offset, 900);
-        cursors.apply(stamp(10, "cd.1", Some(2500)), 9);
-        let terminal = &cursors.terminals["7"];
-        assert_eq!(
-            (terminal.offset, terminal.generation.as_str(), terminal.replay_bytes),
-            (10, "cd.1", 2500)
-        );
-    }
-
-    #[test]
-    fn a_cut_wake_is_resumed_by_the_next() {
-        let mut cursors = cursors();
-        // The first wake's answer for "e" held only up to 42 before iOS ended the wake.
-        cursors.apply(Reply::Chat { session: "e".into(), through_seq: 42 }, 9);
-        let requests = plan(&cursors, &Wake::Refresh, WAKE_BUDGET_BYTES);
-        assert!(requests.contains(&Request::Chat {
-            session: "e".into(),
-            after_seq: 42,
-            max_bytes: (WAKE_BUDGET_BYTES - 2 * LIST_ESTIMATE_BYTES) / 2
-        }));
-    }
-
-    #[test]
-    fn cursors_survive_a_relaunch_and_garbage_reads_as_none() {
-        let mut cursors = cursors();
-        cursors.list = ListCursor {
-            tree_revision: Some("rev\t1%".into()),
-            list_seq: Some(12),
-            list_epoch: Some("-".into()),
-        };
-        cursors.chats.insert("we\nird".into(), ChatCursor { last_seq: 3, opened_at: 4 });
-        assert_eq!(Cursors::decode(&cursors.encode()), cursors);
-        assert_eq!(Cursors::decode(&Cursors::default().encode()), Cursors::default());
-        assert_eq!(
-            Cursors::decode(b"cmux-cursors/1\nchat\tx\tnot-a-number\t1\n"),
-            Cursors::default()
-        );
-        assert_eq!(Cursors::decode(b"something else"), Cursors::default());
-    }
-
-    #[test]
-    fn the_set_stays_bounded() {
-        let mut cursors = Cursors::default();
-        for index in 0..(MAX_CHATS as u64 + 50) {
-            cursors.opened_chat(&format!("chat-{index}"), index);
-        }
-        assert_eq!(cursors.chats.len(), MAX_CHATS);
-        assert!(!cursors.chats.contains_key("chat-0"));
-        assert!(cursors.chats.contains_key(&format!("chat-{}", MAX_CHATS + 49)));
-        assert!(cursors.encode().len() < 64 * 1024);
-    }
-}
+#[path = "catch_up_tests.rs"]
+mod tests;

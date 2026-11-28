@@ -39,12 +39,14 @@ pub(super) async fn run(
     let to_meta = json!({"socket": socket});
     let watch = json!({"socket": socket});
     let running = (interrupt, after_turn);
+    // A folder `--cwd` names is whatever it is there, never the chat's own.
+    let there = cwd.map(|cwd| There { cwd, same_folder: false });
     let reach = (
         Some(Reach::Socket { path: std::path::absolute(crate::config::socket_path())? }),
         Some(Reach::Socket { path: socket.clone() }),
     );
     let moved =
-        move_chat(&src, &dst, &dst_init, &id, Some(watch), cwd, name, running, to_meta, reach)
+        move_chat(&src, &dst, &dst_init, &id, Some(watch), there, name, running, to_meta, reach)
             .await?;
     if json_out {
         print_json(&moved);
@@ -61,6 +63,8 @@ pub(super) struct Begun {
     pub(super) transfer_id: String,
     pub(super) epoch: u64,
     pub(super) stage_id: Option<String>,
+    /// `session move --as`: the target's harness the chat lands on (`hub/transfer_in.rs`).
+    pub(super) as_harness: Option<String>,
     /// The last seq of the history that follows the chat (`history_follows`), when the staged
     /// prefix left it behind.
     pub(super) history_after: Option<u64>,
@@ -226,7 +230,7 @@ async fn begin_with(
     let staged = staged.filter(|_| begin.get("prefix").is_some());
     let stage_id = staged.map(|s| s.stage_id.clone());
     let history_after = staged.filter(|s| s.history_later).map(|s| s.after_seq);
-    Ok(Begun { begin, transfer_id, epoch, stage_id, history_after, begun_at })
+    Ok(Begun { begin, transfer_id, epoch, stage_id, as_harness: None, history_after, begun_at })
 }
 
 /// Gives the chat back on the source: the move did not happen.
@@ -235,6 +239,16 @@ pub(super) async fn abort_move(src: &mut MoveEnd<'_>, id: &str, begun: &Begun) {
     if let Err(e) = src.request("_acpmux/transfer_abort", abort).await {
         eprintln!("acpmux: the move failed and the chat stays frozen here: {e}");
     }
+}
+
+/// The chat's folder on the target, as a move's finish names it, and whether the move made it
+/// the chat's own folder there (`session_move_plan::same_folder`): the same checkout with
+/// nothing left behind, or its files carried. Only then does the chat's namespace manifest
+/// (`session_manifest.rs`) hold there.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct There {
+    pub cwd: String,
+    pub same_folder: bool,
 }
 
 /// Moves the chat `id` from `src` to `dst`, both clients of the daemons' local sockets, and
@@ -246,7 +260,7 @@ pub(super) async fn move_chat(
     dst_init: &Value,
     id: &str,
     watch: Option<Value>,
-    cwd: Option<String>,
+    cwd: Option<There>,
     name: Option<String>,
     running: (bool, bool),
     to_meta: Value,
@@ -465,7 +479,7 @@ pub(super) async fn finish_move(
     dst_init: &Value,
     id: &str,
     begun: &Begun,
-    cwd: Option<String>,
+    cwd: Option<There>,
     name: Option<String>,
     to_meta: Value,
 ) -> Result<Value> {
@@ -482,7 +496,7 @@ pub(super) async fn finish_journaled(
     dst_init: &Value,
     id: &str,
     begun: &Begun,
-    cwd: Option<String>,
+    cwd: Option<There>,
     name: Option<String>,
     (dir, to_meta): (&std::path::Path, Value),
 ) -> Result<Value> {
@@ -529,7 +543,7 @@ async fn finish_noted(
     dst_init: &Value,
     id: &str,
     begun: &Begun,
-    cwd: Option<String>,
+    cwd: Option<There>,
     name: Option<String>,
     to_meta: Value,
 ) -> Result<Value, Failed> {
@@ -550,6 +564,9 @@ async fn finish_noted(
     let mut receive_params = json!({"manifest": begin});
     if let Some(stage_id) = &begun.stage_id {
         receive_params.set("stageId", json!(stage_id));
+    }
+    if let Some(name) = &begun.as_harness {
+        receive_params.set("asHarness", json!(name));
     }
     let receive = dst.call("_acpmux/transfer_receive", receive_params, Wait::Page, false);
     let receive = match receive.await {
@@ -591,7 +608,7 @@ async fn finish_noted(
             field(f, "size").as_u64().unwrap_or(0).saturating_sub(held)
         })
         .sum();
-    let later = if begun.history_after.is_some() { ", history follows" } else { "" };
+    let later = if begun.history_after.is_some() { ", usable now, history follows" } else { "" };
     eprintln!("acpmux: move {transfer_id}: frozen {ms} ms, {bytes} bytes carried{later}");
     let mut to_meta = to_meta;
     to_meta.set("sessionId", moved.get("sessionId").cloned().unwrap_or(Value::Null));
@@ -601,14 +618,26 @@ async fn finish_noted(
     src.call("_acpmux/transfer_commit", commit, Wait::Page, true).await?;
     // The chat runs on the target now. Its history follows; a failure leaves it on the source,
     // whose copy keeps the log, and the chat on the target awaiting it.
+    let mut moved = moved;
     if let Some(through) = begun.history_after {
-        match history_follows(src, dst, id, through).await {
-            Ok(line) => eprintln!("acpmux: move {transfer_id}: {line}"),
-            Err(e) => eprintln!(
-                "acpmux: the chat moved, but its history through seq {through} did not follow: \
-                 {e:#}; it is still on the source"
-            ),
-        }
+        // Usable from the commit, fully here once the history arrived: a driver reads both
+        // (`historyFollowed`), and the chat says each in one line (`hub/transfer_history.rs`).
+        let started = std::time::Instant::now();
+        let followed = match history_follows(src, dst, id, through).await {
+            Ok(line) => {
+                eprintln!("acpmux: move {transfer_id}: {line}");
+                json!({"arrived": true, "throughSeq": through,
+                       "ms": started.elapsed().as_millis() as u64})
+            }
+            Err(e) => {
+                eprintln!(
+                    "acpmux: the chat moved, but its history through seq {through} did not follow: \
+                     {e:#}; it is still on the source"
+                );
+                json!({"arrived": false, "throughSeq": through, "error": format!("{e:#}")})
+            }
+        };
+        moved.set("historyFollowed", followed);
     }
     Ok(moved)
 }
@@ -706,7 +735,7 @@ async fn copy(
     begin: &Value,
     receive_id: &Value,
     epoch: u64,
-    cwd: Option<String>,
+    cwd: Option<There>,
     name: Option<String>,
 ) -> Result<Value> {
     let id = field(begin, "sessionId").as_str().unwrap_or_default();
@@ -721,8 +750,13 @@ async fn copy(
     paged?;
     let mut finish =
         json!({"receiveId": receive_id, "from": {"sessionId": begin["sessionId"]}, "epoch": epoch});
-    if let Some(cwd) = cwd {
+    if let Some(There { cwd, same_folder }) = cwd {
         finish.set("cwd", json!(cwd));
+        // The target rebinds the chat's namespace manifest only to its own folder
+        // (`hub/transfer_in.rs`); absent, as from an older client, it records one anew.
+        if same_folder {
+            finish.set("sameFolder", json!(true));
+        }
     }
     if let Some(name) = name {
         finish.set("name", json!(name));

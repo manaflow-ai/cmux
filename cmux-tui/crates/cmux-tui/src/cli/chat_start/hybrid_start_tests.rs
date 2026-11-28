@@ -10,7 +10,7 @@ use super::super::super::cloud_start_chat::Machine;
 use super::super::{Parsed, cloud_words, here_words, parse};
 use super::{
     Drive, account, boot_tags, cached_plan, drive, drive_args, drive_words, end_stage, here_of,
-    local_harness, move_words, pause_words, plan_of, takes, tool_event,
+    local_harness, move_outcome, move_words, pause_words, plan_of, takes, tool_event,
 };
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -37,7 +37,6 @@ fn a_plain_cloud_start_is_the_hybrid_ones_and_every_cloud_only_option_is_not() {
         &["--environment", "env_1"],
         &["--wait"],
         &["--timings"],
-        &["--name", "n"],
         &["--attach", "f.txt"],
         &["--allow-large"],
     ] {
@@ -47,6 +46,18 @@ fn a_plain_cloud_start_is_the_hybrid_ones_and_every_cloud_only_option_is_not() {
         assert_eq!(takes(&start(&list), &Machine::New), None, "{extra:?}");
     }
     assert_eq!(takes(&start(&["--on", "vm:new"]), &Machine::New), None);
+}
+
+#[test]
+fn a_named_cloud_start_is_hybrid_and_its_chat_here_carries_the_name() {
+    let named = start(&["--on", "vm:new", "--name", "triage", "--prompt", "hi"]);
+    assert_eq!(takes(&named, &Machine::New).as_deref(), Some("new"));
+    // Off, the Cloud start still refuses the name, as it did.
+    assert!(cloud_words(&named, &Machine::New).is_err());
+    // On, the chat here is started with it.
+    let here = here_words(&[], &here_of(&named, "/fresh")).unwrap();
+    let at = here.iter().position(|word| word == "--name").expect("--name");
+    assert_eq!(here[at + 1], "triage");
 }
 
 #[test]
@@ -305,6 +316,23 @@ fn a_long_first_turn_moves_at_its_next_tool_boundary_once_the_machine_is_ready()
         driver.did,
         ["create", "show booting", "show ready", "show moving", "move", "show live"]
     );
+}
+
+#[test]
+fn a_move_refused_for_the_login_leaves_the_chat_here_with_the_reason() {
+    // The app's Move to Cloud refuses when the owner's chosen login cannot be read; its reason
+    // names the step and the cause, and is not one to try again.
+    let reason = "reading the agent login for the move: the keychain item is missing";
+    let refused = move_outcome(Err(json!({"code": "cloud_move.login", "message": reason})));
+    assert_eq!(refused, Err((reason.to_owned(), false)));
+    assert_eq!(move_outcome(Ok(json!({"moved": true}))), Ok(()));
+    let mut driver = fake(vec![Event::TurnEnded, Event::MachineReady]);
+    driver.moves = VecDeque::from([refused]);
+    let state = drive(&mut driver);
+    assert_eq!((state.home, state.cloud), (Home::Here, Cloud::Failed));
+    assert_eq!(state.reason.as_deref(), Some(reason));
+    assert_eq!(driver.did.iter().filter(|did| *did == "move").count(), 1);
+    assert_eq!(driver.did.last().map(String::as_str), Some("pause"));
 }
 
 /// The tags each Show sets, read back as acpmux's gate reads them: a Bash call made while the

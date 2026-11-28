@@ -20,9 +20,14 @@ import Testing
         #expect(machine.phase.diagnosticLine(macName: "Studio") == "Connected · WireGuard direct")
         _ = machine.handle(.linkUpdated(generation: machine.generation, path: .turn, rttMillis: 40))
         #expect(machine.phase.diagnosticLine(macName: "Studio") == "Connected · WireGuard relay (TURN) · 40 ms")
-        // UDP blocked: TURN reached over TLS. (There is no WebSocket relay any more.)
+        // UDP blocked: TURN reached over TLS.
         _ = machine.handle(.linkUpdated(generation: machine.generation, path: .turnTLS, rttMillis: nil))
         #expect(machine.phase.diagnosticLine(macName: "Studio") == "Connected · WireGuard relay (TURN over TLS) · 40 ms")
+        // Neither UDP nor the TURN host: cmux's WebSocket relay (PROTOCOL.md "WebSocket relay").
+        _ = machine.handle(.linkUpdated(generation: machine.generation, path: .httpsRelay, rttMillis: nil))
+        #expect(machine.phase.diagnosticLine(macName: "Studio") == "Connected · WireGuard relay (cmux, HTTPS) · 40 ms")
+        // The header says nothing for a connected link, on cmux's relay as on any path (#53778).
+        #expect(machine.phase.statusLine(macName: "Studio") == nil)
         _ = machine.handle(.linkUpdated(generation: machine.generation, path: .noPath, rttMillis: nil))
         #expect(machine.phase.diagnosticLine(macName: "Studio") == "Connected · WireGuard no path · 40 ms")
     }
@@ -77,14 +82,15 @@ import Testing
     let offline = LinkController.reason(LinkError(code: "offline", message: ""))
     let timedOut = LinkController.reason(LinkError(code: "timeout", message: ""))
 
-    /// A lost link redialing says "Offline · Retry", held for the quiet bound (never "Reconnecting…").
+    /// A lost link redialing says "Offline", held for the quiet bound (never "Reconnecting…"). It redials on
+    /// its own, so no Retry (#50367: Leo, 2026-11-22: "vacuous decisions like that should be just done").
     @Test func aMacTheLinkWasConnectedToWaitsQuietlyThenSaysOffline() {
         for attempt in [2, 9] {
             let banner = LiveCoordinator.waitingBanner(
                 macName: "Studio", transport: .wireGuard, reason: timedOut, attempt: attempt, wasConnected: true,
                 relayAvailable: true)
             #expect(banner == .connectionFailed)
-            #expect(banner.offersRetry)
+            #expect(!banner.offersRetry)
         }
     }
 
@@ -153,12 +159,16 @@ import Testing
     }
 
     #if os(iOS)
-    @Test func offlineBannerOffersRetryWithoutEmbeddingAnInertActionInText() {
+    /// Leo, 2026-11-22: "vacuous decisions like that should be just done". The link redials on
+    /// its own, so an offline banner offers no Retry; only signed out has a button (Sign in).
+    @Test func offlineBannerOffersNoRetryAndNoInertActionInText() {
         #expect(ConnectionBannerState.connectionFailed.text == "Offline")
-        #expect(ConnectionBannerState.connectionFailed.offersRetry)
-        // This iPhone offline: nothing to retry; the links redial when the network returns.
+        #expect(!ConnectionBannerState.connectionFailed.offersRetry)
         #expect(!ConnectionBannerState.offline.offersRetry)
-        #expect(ConnectionBannerState.macOffline("Studio").offersRetry)
+        #expect(!ConnectionBannerState.macOffline("Studio").offersRetry)
+        #expect(!ConnectionBannerState.refreshFailed().offersRetry)
+        #expect(ConnectionBannerState.signedOut.offersRetry && ConnectionBannerState.signedOut.actionTitle != nil)
+        #expect(ConnectionBannerState.reconnecting(to: "Studio").text == "Reconnecting…")
     }
     #endif
 }

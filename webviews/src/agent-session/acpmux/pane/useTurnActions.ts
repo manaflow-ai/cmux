@@ -1,12 +1,12 @@
 // AcpmuxPane's turn rows and turn actions (RFD 0046 step 2.5): the bodies of its `turnRowsShown` and
 // `turnActions` memos, moved out of App.tsx as they were. The memos, their deps arrays and every
 // hook stay in AcpmuxPane; these are plain functions over the values it closes over.
+import type { AnswerBlock } from "../subagents/restart";
 import type { RefObject } from "react";
 import type { AccessOffer } from "../accessOffer";
 import { callNative } from "../callNative";
 import type { HarnessCatalog } from "../catalog";
 import type { HunkReview } from "../changes/hunkReview";
-import { type ChatAccounts, ownRouteOf } from "../chatAccounts";
 import type { Presentation } from "../chatDisplay";
 import { type CloudSignIn, terminalSignIn } from "../cloudAgentLogin";
 import type { ComposerHandle } from "../Composer";
@@ -14,7 +14,7 @@ import { PICKER_LABELS } from "../composerPickerModel";
 import type { MessageBranch } from "../conversation/branches";
 import { chatAfterRewind, type ChatMarks } from "../conversation/cloudTurnCheckpoints";
 import { projectInboxRows } from "../conversation/laneNoticeBatches";
-import { messagesRows } from "../conversation/messagesRows";
+import { detailRows } from "../chatDetail";
 import { takeBackSteer, takesSteersBack } from "../conversation/pendingSteerModel";
 import type { QueuedMessageActionsValue } from "../conversation/QueuedMessageCard";
 import type { RetryModel } from "../conversation/retryModelSections";
@@ -62,6 +62,16 @@ import { subagentRowsFrom, type SubagentRows } from "../subagents/subagentRows";
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 type Held = { session?: string; keys: ReadonlySet<string> };
 
+/// The reader's click on a Worked for held open at its turn's end (`heldWorked`): the hold without
+/// it, and the fold named in `letGo`, so the pass the click asks for does not hold it open again over
+/// the work leaving the view. Undefined when the fold is not held.
+export function letGoHeldWorked<T extends Held & { letGo?: ReadonlySet<string> }>(held: T, id: string): T | undefined {
+  if (!held.keys.has(id)) return undefined;
+  const keys = new Set(held.keys);
+  keys.delete(id);
+  return { ...held, keys, letGo: new Set(held.letGo).add(id) };
+}
+
 /// What `turnRowsShownFrom` reads of AcpmuxPane: the values its `turnRowsShown` memo closes over.
 export interface TurnRowsShownDeps {
   chatPresentation: Presentation;
@@ -73,21 +83,26 @@ export interface TurnRowsShownDeps {
   doneLines: RefObject<DoneLineCache>;
   workflowLabsEnabled: boolean;
   lastTurns: RefObject<{ sessionId: string | undefined; turns: TurnView; subagents: SubagentRows } | undefined>;
+  /// The last turns of each chat shown before, newest last, at most ``PAST_TURNS_KEPT``: a chat shown
+  /// again builds on its own (turnViewFrom), its rows the objects it was left with (direct.ts
+  /// `leftRows`), not shaping every turn anew on a chat switch.
+  pastTurns?: RefObject<Map<string, { sessionId: string | undefined; turns: TurnView; subagents: SubagentRows }>>;
   shownSessionId: string | undefined;
   heldCalls: RefObject<Held & { lined?: string }>;
   callRelease: number;
   transcriptInView: RefObject<(() => readonly string[] | null) | undefined>;
   heldRuns: RefObject<Held & { asked?: true }>;
-  heldWorked: RefObject<Held>;
+  /// `letGo`: the held Worked for folds the reader's click let go of (App.tsx `toggleActivity`); the
+  /// pass it asks for does not hold them again.
+  heldWorked: RefObject<Held & { letGo?: ReadonlySet<string> }>;
   heldWorkedClosing: RefObject<boolean>;
   /// Only the fields the memo's deps array names.
   snapshot: Pick<
     AcpmuxSnapshot,
-    "isWorking" | "canLoadNewer" | "clockOffsetMs" | "turnStartedAtMs" | "waitingSteers"
+    "isWorking" | "canLoadNewer" | "clockOffsetMs" | "turnStartedAtMs" | "waitingSteers" | "heldFromAt"
   > & {
     summary?: Pick<Summary, "family">;
   };
-  sessionStatus: boolean;
   messageBreaks: readonly number[];
   supersededReplyIds: Set<string> | undefined;
   foldsSeen: RefObject<{ session?: string; folds?: Folds }>;
@@ -103,6 +118,8 @@ export interface TurnActionsDeps {
   /// CMUX-682); the chat already said why, or the click opened setup.
   holdsRetry?: (prompt: string) => boolean;
   restartChat: string | undefined;
+  /// Why the shown chat takes no answer, when `restartChat` is undefined (subagents/restart.ts).
+  answerBlock?: AnswerBlock;
   queuedMessageActionsRef: RefObject<QueuedMessageActionsValue | undefined>;
   stableBranches: Map<string, MessageBranch>;
   runningBranchSessions: ReadonlySet<string>;
@@ -146,11 +163,13 @@ export interface TurnActionsDeps {
   catalog: HarnessCatalog;
   cloudRouteHostKind: "local" | "cloud" | undefined;
   cloudTeamMachine: boolean;
-  chatAccounts: ChatAccounts | undefined;
   access: AccessOffer;
 }
 
 /// The transcript's rows as AcpmuxPane draws them (its `turnRowsShown` memo's body).
+/// How many chats' last turns the pane keeps once it shows another (`pastTurns`).
+const PAST_TURNS_KEPT = 8;
+
 export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
   const {
     chatPresentation,
@@ -162,6 +181,7 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
     doneLines,
     workflowLabsEnabled,
     lastTurns,
+    pastTurns,
     shownSessionId,
     heldCalls,
     callRelease,
@@ -170,7 +190,6 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
     heldWorked,
     heldWorkedClosing,
     snapshot,
-    sessionStatus,
     messageBreaks,
     supersededReplyIds,
     foldsSeen,
@@ -178,7 +197,7 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
     heldFolds,
     chatShellRuns,
   } = deps;
-  if (chatPresentation === "messages") return messagesRows(childRows ?? sourceRows);
+  if (chatPresentation === "messages") return detailRows(childRows ?? sourceRows, "messages");
   if (childRows) {
     return withoutAskedCalls(withoutQuietThoughts(childRows), panelAsks);
   }
@@ -188,7 +207,20 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
   // The tray takes the running groups out of the rows, so the live line's wait is counted first.
   const trayAgents = trayWaitAgents(startedRows);
   return acpmuxPerf.timed("app.rows", () => {
-    const last = lastTurns.current?.sessionId === shownSessionId ? lastTurns.current : undefined;
+    const left = lastTurns.current;
+    if (pastTurns && left?.sessionId !== undefined && left.sessionId !== shownSessionId) {
+      const past = pastTurns.current;
+      past.delete(left.sessionId);
+      past.set(left.sessionId, left);
+      // ends: each pass deletes the oldest key, so the map shrinks to PAST_TURNS_KEPT
+      while (past.size > PAST_TURNS_KEPT) past.delete(past.keys().next().value!);
+    }
+    const last =
+      left?.sessionId === shownSessionId
+        ? left
+        : shownSessionId === undefined
+          ? undefined
+          : pastTurns?.current.get(shownSessionId);
     if (heldCalls.current.session !== shownSessionId) heldCalls.current = { session: shownSessionId, keys: new Set() };
     // Null while the view follows the latest row: what was held out goes back in there. The view
     // following again with calls held (`callRelease`) shapes the rows again for that.
@@ -217,7 +249,6 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
           working: snapshot.isWorking && snapshot.canLoadNewer !== true,
           clockOffset: snapshot.clockOffsetMs,
           turnStartedAtMs: snapshot.turnStartedAtMs,
-          sessionStatus,
           // A finished turn folds as its harness family's app does: Codex under one Worked for, Claude per run.
           agentFamily: snapshot.summary?.family,
           // Other sessions' messages among them, two or more in a run, draw as one card.
@@ -225,6 +256,8 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
           messageBreaks,
           trayAgents,
           supersededReplyIds,
+          // What the chat let go of stays gone (turns.ts `retainVisibleReplies`).
+          heldFromAt: snapshot.heldFromAt,
         },
         last?.turns,
       );
@@ -234,6 +267,11 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
     // turn's end folding its work, a run of calls closing) leaves that fold open
     // (conversation/turnEndHold.ts); the effect below puts it in `expanded`. The reader's own
     // toggles change `folds` and are left alone, as is a chat just switched to.
+    // A click on a held Worked for changes no fold, so it names the fold (`letGo`): held again
+    // here, the work it hides leaving the view, it stayed open until the view followed the latest
+    // row. Only that fold: another turn that ends in the same pass still holds its own.
+    const workedLetGo = heldWorked.current.letGo;
+    if (workedLetGo) heldWorked.current = { session: heldWorked.current.session, keys: heldWorked.current.keys };
     const ownChange = foldsSeen.current.session !== shownSessionId || foldsSeen.current.folds !== folds;
     foldsSeen.current = { session: shownSessionId, folds };
     if (heldFolds.current.session !== shownSessionId) heldFolds.current = { session: shownSessionId, keys: new Set() };
@@ -247,6 +285,7 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
     if (inView) {
       const worked = new Set<string>();
       const held = foldsToHold(rows, turns.rows, last?.turns.rows, turns.reusedRows, inView, folds, worked);
+      for (const key of workedLetGo ?? []) worked.delete(key);
       if (worked.size > 0) {
         heldWorked.current = { session: shownSessionId, keys: new Set([...heldWorked.current.keys, ...worked]) };
         turns = shape(withHeldFolds(folds, heldOpen()));
@@ -309,6 +348,7 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
     showCall,
     holdsRetry,
     restartChat,
+    answerBlock,
     queuedMessageActionsRef,
     stableBranches,
     runningBranchSessions,
@@ -343,7 +383,6 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
     catalog,
     cloudRouteHostKind,
     cloudTeamMachine,
-    chatAccounts,
     access,
   } = deps;
   // Sign in again's terminal login: a chat here or on an own machine, and a Cloud chat on an older
@@ -493,6 +532,8 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
               : Promise.resolve()
         )(restartChat),
       }),
+    // Where it cannot send, the card says why (NextStepCard.tsx), in the typed answer's row.
+    ...(!restartChat && answerBlock && { answerBlock }),
     // A tagged ask's answer (NextStepCard.tsx) sends as Continue does, with the same reach.
     ...(restartChat && {
       nextStepKey,
@@ -511,11 +552,14 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
     // its reason, for the card.
     ...(restartChat && {
       githubConnect: ((owner: string): GitHubConnectOffer => ({
-        connect: (repo) => {
+        connect: (repo, org) => {
           const returnTo = sessionLink(owner);
           return callNative("action.run", {
             id: GITHUB_CONNECT_ACTION,
             ...(repo && { repo }),
+            // An agent's ask for an org (settings_ask `connection:github:ORG`): the Mac connects
+            // another account even when one is connected (GitHubConnections.swift `connect`).
+            ...(org && !repo && { org }),
             ...(returnTo && { returnTo }),
           }).then(() => undefined);
         },
@@ -617,8 +661,6 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
       ...(terminalLogin.onCloud && { terminalSignIn: true }),
     },
     switchModel: () => void openPicker(translate(PICKER_LABELS.model)),
-    // A failure's cmux CodeRouter action: only this Mac's acpmux lists and binds a chat's routes.
-    ...(chatAccounts && snapshot.sessionId ? { ownRoute: ownRouteOf(chatAccounts, snapshot.sessionId) } : {}),
     access,
   };
 }

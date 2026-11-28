@@ -23,7 +23,7 @@ impl<T> RecoverPoison<T> for LockResult<T> {
 }
 
 /// Panic-free stand-ins for serde_json's `value[key]` read and write.
-pub(crate) trait JsonFields {
+pub trait JsonFields {
     /// `value[key]` without the index operator: Null when the key is absent
     /// or the value is not an object.
     fn field(&self, key: &str) -> &Value;

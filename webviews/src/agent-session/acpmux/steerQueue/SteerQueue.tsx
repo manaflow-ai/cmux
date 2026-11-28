@@ -1,5 +1,6 @@
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { KeyboardScope } from "../../../ui/KeyboardScope";
+import { KeyHint } from "../../../ui/KeyHint";
 import { Listbox } from "../../../ui/Listbox";
 import { useT } from "../i18n";
 import { shortAge } from "../sessionList";
@@ -160,8 +161,10 @@ export function SteerQueue({
         ? t("steerQueue.placeholder.steer", { name: focused.title })
         : t("steerQueue.placeholder.reply", { name: focused.title });
 
+  // "results": the queue is a live list (agents join and leave, the split look widens it) with no
+  // input from the person, so its box follows its rows (ui/popupSettle.ts).
   return (
-    <KeyboardScope className="acpmux-steer-queue ui-popup ui-glass" handleKeyDown={handleKeyDown}>
+    <KeyboardScope className="acpmux-steer-queue ui-popup ui-glass" popupSettle="results" handleKeyDown={handleKeyDown}>
       {/* A press anywhere on the panel keeps the keyboard in the field: with focus on the page, keys
           would reach the chat under the queue (its composer, a permission card's digits, Esc Esc). */}
       <div ref={frame} className="acpmux-steer-frame">
@@ -269,7 +272,7 @@ function SteerRow({
         {look !== "compact" ? <span className="acpmux-steer-line">{item.line ?? ""}</span> : null}
         {said ? <span className="acpmux-steer-said">{said}</span> : null}
       </span>
-      <kbd className="acpmux-steer-key">{index + 1}</kbd>
+      <KeyHint keys={String(index + 1)} className="acpmux-steer-key" />
     </>
   );
 }
@@ -304,7 +307,7 @@ function stepLabel(step: Step, t: ReturnType<typeof useT>): string {
 function Hint({ keys, label }: { keys: string; label: string }) {
   return (
     <span className="acpmux-steer-hint">
-      <kbd>{keys}</kbd>
+      <KeyHint keys={keys} />
       {label}
     </span>
   );

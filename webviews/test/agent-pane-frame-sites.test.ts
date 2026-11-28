@@ -32,6 +32,13 @@ test("node_modules sources collapse to their package, others stay paths under we
   expect(siteSource("artifact-runtime:shim", "/w/webviews/out/pane", webviews)).toBe("artifact-runtime:shim");
 });
 
+test("a file the build wrote outside webviews/ is named from the build root, not its temp path", () => {
+  const webviews = "/w/webviews";
+  expect(siteSource("../chunks/c-ABC.js", "/tmp/tmp.X1/pane", webviews, "/tmp/tmp.X1")).toBe("build:chunks/c-ABC.js");
+  expect(siteSource("../chunks/c-ABC.js", "/tmp/tmp.Y2/pane", webviews, "/tmp/tmp.Y2")).toBe("build:chunks/c-ABC.js");
+  expect(siteSource("../../src/a.ts", "/w/webviews/out/pane", webviews, "/w/webviews/out")).toBe("src/a.ts");
+});
+
 test("boundaries keep one entry per run of one source", () => {
   // Line 0: col 0 source 0, col 5 source 0, col 9 source 1; line 1: col 0 source 1 (no new entry), col 4 no source.
   const map = { sources: ["a.ts", "b.ts"], mappings: "AAAA,KAAC,ICAA;AAAA,I" };

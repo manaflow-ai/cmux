@@ -28,7 +28,7 @@ public final class SettingsPaletteProvider: PaletteProvider {
     func makeItems() -> [PaletteItem] {
         let rows = source.rows
         let fontRows = rows.filter(Self.isFontRow)
-        return (fontRows.isEmpty ? [] : [changeFontItem(fontRows)]) + rows.map(item)
+        return (fontRows.isEmpty ? [] : [changeFontItem(fontRows)]) + rows.map(item) + source.navigationItems
     }
 
     /// The rows Change Font… lists: every font family setting and every setting whose key names a
@@ -94,9 +94,32 @@ public final class SettingsPaletteProvider: PaletteProvider {
                 frecencyKey: "setting:\(id)"
             )
         }
+        if source.revealsInSettings {
+            revealInSettings(&item, row)
+        }
         item.swatches = row.swatches
         item.isDemoted = true
         return item
+    }
+
+    /// Show in Settings (Cmd-Return, and the Actions menu): opens the Settings page at the row, its
+    /// section open and the row focused (`openSettings setting:`), so typing a setting's name in the
+    /// palette is a way into Settings too. A setting the palette has no values for (a list, a set of
+    /// sound rules) does that on Return: the Settings page is where it is edited.
+    private func revealInSettings(_ item: inout PaletteItem, _ row: PaletteSettingRow) {
+        let source = source
+        let id = row.id
+        let reveal = PaletteCommand(id: "showInSettings", title: PaletteStrings.showInSettings, symbol: "gearshape",
+                                    effect: .perform { source.reveal(row: id) })
+        let ref = PaletteActionRef("openSettings", arguments: ["setting": .string(id)], title: PaletteStrings.showInSettings)
+        if case .options(let options, .none) = row.kind, options.isEmpty {
+            item.primary = reveal
+            item.actionRefs = [ref]
+        } else {
+            item.alternate = reveal
+            // A toggle's first ref stays its toggle; a value list has no headless primary, so adds none.
+            if !item.actionRefs.isEmpty { item.actionRefs.append(ref) }
+        }
     }
 
     /// The value list of one setting: the current value selected; the

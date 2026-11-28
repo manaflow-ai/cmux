@@ -104,6 +104,8 @@ public final class CloudSpareReadiness {
     }
 
     private let dependencies: Dependencies
+    /// The account's one spare-warm gate: a Cmd-Tab burst spawns one CLI process (hq#8747).
+    public let warmGate = CloudSpareWarmGate()
     private var keyed: [String: Keyed] = [:]
     private var routes: [String: Routed] = [:]
     /// When a route read ahead of `machine` last gave no report: not read again for ``keyRetry``.
@@ -120,6 +122,12 @@ public final class CloudSpareReadiness {
     /// Machines whose session asked for its link while a prime still ran for them: the primes running for it make no
     /// link after that.
     private var asked: Set<String> = []
+    /// Machines a session linked in this app run (``link(for:team:)``): a session's machine, never a spare again. A
+    /// warm that names one anyway (the platform's answer can lag a claim by seconds) primes nothing: a second link
+    /// made ahead starts a second carrier supervisor for the machine beside its session's, and their fight for the
+    /// machine's connection socket ends the session's streams (the desktop's rd stream ended after 0 bytes on
+    /// 2026-11-28, desktop-agent-production first-pixel).
+    private var sessioned: Set<String> = []
     /// When a key ahead of `machine` last did not key it: not tried again for ``keyRetry``, so a spare whose daemon is
     /// busy or too old is not read (or restarted) on every app activation.
     private var keyMissed: [String: ContinuousClock.Instant] = [:]
@@ -154,6 +162,10 @@ public final class CloudSpareReadiness {
         sweep()
         let resets = resets
         guard Self.signedIn(scope), !machine.isEmpty else { return }
+        guard !sessioned.contains(machine) else {
+            Self.log.notice("cloud spare \(machine, privacy: .public): not primed: a session already linked it, so it is no spare")
+            return
+        }
         let running = primes[machine].flatMap { $0.resets == resets ? $0 : nil }
         if let running, running.dials || !dials { return }
         lastPrime += 1
@@ -183,6 +195,7 @@ public final class CloudSpareReadiness {
         // Its session links now, with this link or its own: a prime still running for it (one that joined may still
         // read the team) makes no other.
         if primes[machine] != nil { asked.insert(machine) }
+        sessioned.insert(machine)
         guard let held = links.removeValue(forKey: machine) else { return nil }
         let scope = dependencies.scope()
         guard fits(held, scope: scope), held.team == team else {
@@ -212,6 +225,7 @@ public final class CloudSpareReadiness {
         warmed = [:]
         warmMissed = [:]
         asked = []
+        sessioned = []
         resets += 1
     }
 
@@ -316,7 +330,7 @@ public final class CloudSpareReadiness {
         // Forgotten since its prime (the scope may still be the same one: Cloud turned off): no link is made or held.
         // Or its session asked for the link while the team was read, and links its own: a second serve nobody takes
         // is not made.
-        guard resets == self.resets, !asked.contains(machine), dependencies.scope() == scope else { return }
+        guard resets == self.resets, !asked.contains(machine), !sessioned.contains(machine), dependencies.scope() == scope else { return }
         // Held and fit: kept. A prime that dials replaces a link made for another team than the one it names; any
         // other prime, and one whose team could not be read, keeps what is held.
         let kept = links[machine].map { fits($0, scope: scope) && ($0.team == team || !dials || team == nil) } ?? false
@@ -373,6 +387,17 @@ public final class CloudSpareReadiness {
     private func end(_ link: SpareLink) {
         // task-owner: none; one stop line to the serve's supervisor, which ends its child
         Task { await link.end() }
+    }
+
+    /// Whether the account scope `now` (the App's `"user\0team"`, nil signed out) is a sign-in after `previous` (the scope
+    /// before it, `.none` before the first): the person's spare is warmed then, as an activation signed in warms it, so
+    /// it is keyed and linked from the sign-in on. An activation that came while signed out (a launch whose sign-in
+    /// lands a few seconds later) warmed nothing, and the first start's own warm was the first: its key ahead (a status
+    /// read, the keyed restart and its proof, 3 to 4.5 s from the warm's answer) then ended 1 to 2 s after the claim
+    /// connected, and the start's approvals step waited it out.
+    public nonisolated static func warmsAtSignIn(previous: String??, now: String?) -> Bool {
+        guard let now else { return false }
+        return (previous ?? nil) != now
     }
 
     /// A scope with a user: signed in (the team may be unset).

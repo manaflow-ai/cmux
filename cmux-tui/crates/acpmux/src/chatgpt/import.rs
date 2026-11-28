@@ -1,6 +1,6 @@
 //! The CI-only import of a Codex `auth.json` (`_acpmux/connections/chatgpt.import`, cmuxterm-hq
 //! #15720): the Codex CLI's own login file becomes a real `chatgpt-plan` connection, written by
-//! the same `save` a browser sign-in ends with, so the record and the route are the ones a
+//! the same store a browser sign-in ends with, so the record and the route are the ones a
 //! sign-in makes and nothing about storage is new.
 //!
 //! What it cannot do is prove the tokens: there is no JWKS fetch here, so the ID token is read
@@ -15,7 +15,7 @@ use std::path::Path;
 use base64::Engine as _;
 use serde_json::{Value, json};
 
-use super::oauth::{TokenAnswer, save};
+use super::oauth::{TokenAnswer, save_import};
 use super::{CODEX_CLIENT_ID, Failure, Places, jwt, now_unix};
 
 /// The daemon-environment switch that turns the import on; any other value is off.
@@ -93,7 +93,7 @@ fn import_text(places: &Places, bytes: &[u8], now: i64) -> Result<String, Failur
         "expires_in": expires_in,
     }))
     .map_err(|_| invalid("auth.json tokens are unreadable"))?;
-    save(places, None, CODEX_CLIENT_ID, claims, answer, now)
+    save_import(places, CODEX_CLIENT_ID, claims, answer)
 }
 
 /// A Codex `auth.json` as tests write it (unsigned tokens: the import reads them unverified).

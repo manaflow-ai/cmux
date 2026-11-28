@@ -208,3 +208,60 @@ fn a_model_error_names_its_model() {
     );
     assert_eq!(model_named_in("stream disconnected"), None);
 }
+
+#[test]
+fn a_sustained_overload_moves_opus_and_fable_to_the_newest_sonnet() {
+    let c = claude();
+    for running in
+        ["claude-opus-5-5", "opus", "claude-fable-5-2", "fable", "fable-5.2", "claude-opus-4-8"]
+    {
+        assert_eq!(
+            capacity_fallback(&c, running).as_deref(),
+            Some("claude-sonnet-5-5"),
+            "{running}"
+        );
+    }
+    // Claude Code's `default` is the catalog's default model (Opus).
+    assert_eq!(capacity_fallback(&c, "default").as_deref(), Some("claude-sonnet-5-5"));
+    // The context-window suffix stays: a chat past 200K tokens keeps its window.
+    assert_eq!(capacity_fallback(&c, "opus[1m]").as_deref(), Some("claude-sonnet-5-5[1m]"));
+}
+
+#[test]
+fn a_small_or_unknown_model_has_no_capacity_fallback() {
+    let c = claude();
+    for running in ["claude-sonnet-5-5", "sonnet", "claude-haiku-5-5", "haiku", "m1", ""] {
+        assert_eq!(capacity_fallback(&c, running), None, "{running}");
+    }
+    // Codex's models are in no fallback family.
+    assert_eq!(capacity_fallback(&codex(), "gpt-6.2-sol"), None);
+}
+
+#[test]
+fn same_model_reads_aliases_as_their_ids() {
+    let c = claude();
+    assert!(same_model(Some(&c), "sonnet", "claude-sonnet-5-5"));
+    assert!(same_model(Some(&c), "claude-opus-5-5", "opus"));
+    assert!(!same_model(Some(&c), "opus", "claude-sonnet-5-5"));
+    assert!(!same_model(Some(&c), "opus[1m]", "opus"));
+    assert!(same_model(None, "m1", "m1"));
+}
+
+/// Codex's "Selected model is at capacity. Please try a different model." asks for another
+/// model; a plain overload does not. The model it moves to is its family's capacity fallback
+/// (Opus to Sonnet), else the same family one version back (`gpt-6.2-sol` -> `gpt-6.1-sol`);
+/// a model with no older one of its family stays.
+#[test]
+fn a_capacity_error_that_asks_for_another_model_moves_one_version_back() {
+    assert!(asks_for_another_model("Selected model is at capacity. Please try a different model."));
+    assert!(!asks_for_another_model("529 overloaded_error"));
+    assert!(!asks_for_another_model("Selected model is at capacity."));
+    assert!(!asks_for_another_model("try a different model: unknown id"));
+    let codex = bundled_harness("codex").expect("bundled codex entry");
+    assert_eq!(asked_fallback(&codex, "gpt-6.2-sol").as_deref(), Some("gpt-6.1-sol"));
+    assert_eq!(asked_fallback(&codex, "gpt-6.2-astra").as_deref(), Some("gpt-6-astra"));
+    assert_eq!(asked_fallback(&codex, "gpt-5.5"), None);
+    let claude = bundled_harness("claude").expect("bundled claude entry");
+    let opus = claude.models.iter().find(|m| m.id.contains("opus")).unwrap().id.clone();
+    assert_eq!(asked_fallback(&claude, &opus), capacity_fallback(&claude, &opus));
+}

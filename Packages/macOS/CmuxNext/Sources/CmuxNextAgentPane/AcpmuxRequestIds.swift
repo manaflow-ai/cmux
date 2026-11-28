@@ -4,7 +4,7 @@ import CmuxNextCompat
 /// Request ids between the page and acpmux (ad349, round 6). Every request the relay forwards gets
 /// an id the relay owns (a counter per connection), so a page cannot make two requests share an
 /// id at the daemon. The reply's id is mapped back to the page's, and a reply to a filtered method
-/// (``AcpmuxPaneMethods/replyShapes``) is cut to its shape. A page id (JSON value and type) is used
+/// (``AcpmuxPaneMethods/replyShapedMethods``) is cut to its shape by Rust. A page id (JSON value and type) is used
 /// by one request at a time. A daemon reply with an id the relay did not send is dropped. Replies
 /// pass the duplicate-key check and reach the page as the daemon's text with the page's id spliced
 /// in (a fresh serialization only when the id could not be found by the scan, or for a filtered
@@ -35,6 +35,8 @@ nonisolated final class AcpmuxRequestIds: Sendable {
         var inFlight: Set<String> = []
         /// Told when the daemon answers a relay id (``whenAnswered(_:_:)``).
         var answered: [Int: @Sendable (Bool) -> Void] = [:]
+        /// Told the daemon's whole answer to a host request (``whenReply(_:_:)``).
+        var replies: [Int: @Sendable (Reply) -> Void] = [:]
         /// Each `_acpmux/request_state` question on the wire: the relay ids written before it,
         /// which the daemon read before the question (``snapshotWritten(for:)``).
         var stateQueries: [Int: [Int]] = [:]
@@ -59,6 +61,39 @@ nonisolated final class AcpmuxRequestIds: Sendable {
     /// or an error; never when the request is cancelled.
     func whenAnswered(_ id: Int, _ handler: @escaping @Sendable () -> Void) {
         state.withLock { $0.answered[id] = { _ in handler() } }
+    }
+
+    /// The daemon's answer to a host request: a result, or a refusal with its code, reason and words.
+    nonisolated struct Reply: Sendable, Equatable {
+        var ok: Bool
+        var code: String?
+        var reason: String?
+        var origin: String?
+        var message: String?
+
+        init(ok: Bool, code: String? = nil, reason: String? = nil, origin: String? = nil, message: String? = nil) {
+            self.ok = ok
+            self.code = code
+            self.reason = reason
+            self.origin = origin
+            self.message = message
+        }
+
+        init(_ object: [String: Any]) {
+            let error = object["error"] as? [String: Any]
+            let data = error?["data"] as? [String: Any]
+            self.init(ok: error == nil && object["result"] != nil,
+                      code: data?["code"] as? String ?? (error?["code"]).map { "\($0)" },
+                      reason: data?["reason"] as? String,
+                      origin: data?["origin"] as? String,
+                      message: error?["message"] as? String)
+        }
+    }
+
+    /// Calls `handler` with the daemon's whole answer to host request `id` (the prompt journal's
+    /// resend tells a refusal it may send again from one it must give up); never when cancelled.
+    func whenReply(_ id: Int, _ handler: @escaping @Sendable (Reply) -> Void) {
+        state.withLock { $0.replies[id] = handler }
     }
 
     /// A host-owned request's acknowledgement, distinguishing a result from a refusal.
@@ -94,6 +129,7 @@ nonisolated final class AcpmuxRequestIds: Sendable {
         state.withLock { state in
             if let entry = state.entries.removeValue(forKey: id) { state.inFlight.remove(entry.pageID) }
             state.answered[id] = nil
+            state.replies[id] = nil
             state.stateQueries[id] = nil
         }
     }
@@ -221,6 +257,10 @@ nonisolated final class AcpmuxRequestIds: Sendable {
         // already read it as one JSON text, as for a notification). Anything else is parsed.
         if replyObject == nil, let span = methodScan.id, let relayID = Self.integer(text, span) {
             state.withLock { $0.answered.removeValue(forKey: relayID) }?(!methodScan.error && methodScan.result)
+            if let replied = state.withLock({ $0.replies.removeValue(forKey: relayID) }) {
+                replied(((try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any]).map(Reply.init)
+                    ?? Reply(ok: !methodScan.error && methodScan.result))
+            }
             guard let entry = take(relayID), let id = Self.value(entry.pageID) else { return .drop }
             if Self.passesThrough(entry.method, text) {
                 return .reply(Self.splice(text, span, entry.pageID), replyTo: entry.method)
@@ -228,11 +268,12 @@ nonisolated final class AcpmuxRequestIds: Sendable {
             guard var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return .drop }
             object["id"] = id
             if entry.method == Self.requestStateMethod { return reply(requestState(object, relayID: relayID), entry: entry, text: nil) }
-            return reply(object, entry: entry, text: AcpmuxPaneMethods.replyShapes[entry.method] == nil ? Self.splice(text, span, entry.pageID) : nil)
+            return reply(object, entry: entry, text: AcpmuxPaneMethods.replyShapedMethods.contains(entry.method) ? nil : Self.splice(text, span, entry.pageID))
         }
         guard var object = replyObject ?? (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return .drop }
         guard let relayID = object["id"].flatMap(AcpmuxPaneMethods.rawID).flatMap({ Int($0) }) else { return .drop }
         state.withLock { $0.answered.removeValue(forKey: relayID) }?(object["error"] == nil && object["result"] != nil)
+        state.withLock { $0.replies.removeValue(forKey: relayID) }?(Reply(object))
         guard let entry = take(relayID), let id = Self.value(entry.pageID) else { return .drop }
         object["id"] = id
         if entry.method == Self.requestStateMethod { return reply(requestState(object, relayID: relayID), entry: entry, text: nil) }
@@ -256,8 +297,10 @@ nonisolated final class AcpmuxRequestIds: Sendable {
         if entry.method == AgentPaneAgentReply.method {
             return .complete(object: object, pageID: entry.pageID, subject: entry.subject)
         }
-        if let shape = AcpmuxPaneMethods.replyShapes[entry.method] {
-            return .page(AcpmuxPaneMethods.filteredReply(object, shape: shape, pageID: entry.pageID), object: object, replyTo: entry.method)
+        if AcpmuxPaneMethods.replyShapedMethods.contains(entry.method) {
+            // Rust cuts it (cmux_agent_pane_policy_filter_reply); nothing unfiltered reaches the page.
+            let filtered = Self.encode(object).flatMap { AcpmuxPaneMethods.filteredReply(method: entry.method, reply: $0, pageID: entry.pageID) }
+            return .page(filtered ?? AcpmuxPaneMethods.unreadableReply(pageID: entry.pageID), object: object, replyTo: entry.method)
         }
         guard let fresh = text ?? Self.encode(object) else { return .drop }
         return .page(fresh, object: object, replyTo: entry.method)

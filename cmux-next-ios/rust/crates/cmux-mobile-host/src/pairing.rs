@@ -212,11 +212,16 @@ pub struct Pairing {
     /// Notification replies already applied, over a link or from the mailbox
     /// (`mailbox.rs`): a reply that came both ways is applied once.
     pub spent_replies: Arc<crate::mailbox::SpentReplies>,
+    /// The highest settled mailbox `seq` per phone (`mailbox.rs`, `mailbox-cursor.json`).
+    pub mailbox_cursor: Arc<crate::mailbox::MailboxCursor>,
     /// What other machines did here (`activity.rs`).
     pub activity: Arc<crate::activity::Activity>,
     /// The requests this hostd asked the app about and still waits on, which another of the
     /// person's paired devices may answer (`pair_requests.rs`).
     pub waiting: Arc<crate::pair_requests::Waiting>,
+    /// What this Mac last published to the relay cache, per surface (`relay_feed.rs`): the
+    /// `relay` heads a `catch-up` reply carries. Empty while the feed is off.
+    pub relay_heads: Arc<crate::relay_feed::RelayHeads>,
 }
 
 impl Pairing {
@@ -235,8 +240,10 @@ impl Pairing {
             identity: watch::channel(None).1,
             push_keys: Arc::new(crate::push_keys::PushKeys::memory()),
             spent_replies: Arc::new(crate::mailbox::SpentReplies::memory()),
+            mailbox_cursor: Arc::new(crate::mailbox::MailboxCursor::memory()),
             activity: Arc::new(crate::activity::Activity::memory()),
             waiting: Arc::default(),
+            relay_heads: Arc::default(),
         }
     }
 
@@ -249,6 +256,12 @@ impl Pairing {
     /// With the store of applied notification replies.
     pub fn with_spent_replies(mut self, spent: Arc<crate::mailbox::SpentReplies>) -> Self {
         self.spent_replies = spent;
+        self
+    }
+
+    /// With the store of each phone's settled mailbox `seq`.
+    pub fn with_mailbox_cursor(mut self, cursor: Arc<crate::mailbox::MailboxCursor>) -> Self {
+        self.mailbox_cursor = cursor;
         self
     }
 
@@ -568,6 +581,9 @@ pub struct MacIdentity {
     /// mailbox replies are sealed to it.
     boxed: Arc<p256::SecretKey>,
     box_public: String,
+    /// The same identity scalar as an ECDSA key: the relay cache's source key
+    /// (`relay_feed.rs`), which the phone checks against the identity it pinned.
+    relay: Arc<p256::ecdsa::SigningKey>,
 }
 
 impl std::fmt::Debug for MacIdentity {
@@ -592,7 +608,14 @@ impl MacIdentity {
         .ok()?;
         let boxed = crate::seal::box_key(&private)?;
         let box_public = crate::seal::point_hex(&boxed.public_key());
-        Some(Self { pair: Arc::new(pair), public: public_hex.to_owned(), boxed: Arc::new(boxed), box_public })
+        let relay = p256::ecdsa::SigningKey::from_slice(&private).ok()?;
+        Some(Self {
+            pair: Arc::new(pair),
+            public: public_hex.to_owned(),
+            boxed: Arc::new(boxed),
+            box_public,
+            relay: Arc::new(relay),
+        })
     }
 
     /// A fresh key (tests, and a hostd that runs without the app).
@@ -614,6 +637,11 @@ impl MacIdentity {
     /// The box key (opens mailbox replies).
     pub fn box_secret(&self) -> &p256::SecretKey {
         &self.boxed
+    }
+
+    /// The identity key as the relay cache's source key: what `relay_feed.rs` seals with.
+    pub fn relay_key(&self) -> &p256::ecdsa::SigningKey {
+        &self.relay
     }
 
     /// Raw `r || s` over `message`, as hex.
@@ -693,24 +721,41 @@ fn phone_apps() -> &'static Mutex<HashMap<String, PhoneApp>> {
     APPS.get_or_init(Default::default)
 }
 
-/// Records the phone app `phone` states in `auth` args, logs it once with the link's path, and
-/// returns it. A machine's `auth` is not recorded.
+/// Records the phone app `phone` states in `auth` args, logs it once with the link's path and
+/// the auth's action, and returns what is recorded. A machine's `auth` is not recorded.
+///
+/// An `auth` that states no app (the phone's `unpair`, from "Remove This iPhone from My Macs",
+/// sends only its keys) keeps the app the device stated before: it used to overwrite it with
+/// `unknown`, so the log and `phone_app` said a TestFlight phone sent no app info.
 pub fn note_phone_app(phone: &str, args: &Value, path: Option<&str>) -> Option<PhoneApp> {
     if crate::peer::PeerKind::parse(args.get("kind").and_then(Value::as_str).unwrap_or_default())
         .is_some_and(|kind| kind.is_machine())
     {
         return None;
     }
-    let app = PhoneApp::from_args(args);
+    let action = match args.get("action").and_then(Value::as_str) {
+        None | Some("" | "pair") => "pair",
+        Some("unpair") => "unpair",
+        Some(_) => "other",
+    };
+    let stated = PhoneApp::from_args(args);
+    let mut apps = phone_apps().lock().expect("phone apps");
+    let states_app = stated.bundle_id.is_some() || stated.build.is_some();
+    let app = match apps.get(phone) {
+        Some(known) if !states_app => known.clone(),
+        _ => stated,
+    };
     tracing::info!(
         device = phone,
+        action,
         variant = app.variant,
         bundle = app.bundle_id.as_deref().unwrap_or("-"),
         build = app.build.as_deref().unwrap_or("-"),
+        stated = states_app,
         path = path.unwrap_or("-"),
         "phone app"
     );
-    phone_apps().lock().expect("phone apps").insert(phone.to_owned(), app.clone());
+    apps.insert(phone.to_owned(), app.clone());
     Some(app)
 }
 
@@ -1058,6 +1103,10 @@ mod tests {
         // A later auth from the same device replaces it.
         note_phone_app(phone, &json!({"kind": "phone", "bundleId": "com.cmux.app", "appBuild": "80"}), None);
         assert_eq!(phone_app(phone).unwrap().build.as_deref(), Some("80"));
+        // The unpair auth states no app: the recorded one stays.
+        let unpair = json!({"kind": "phone", "identityKey": "04aa", "approvalKey": "04bb", "name": "", "action": "unpair"});
+        assert_eq!(note_phone_app(phone, &unpair, None).unwrap().variant, "appstore");
+        assert_eq!(phone_app(phone).unwrap().build.as_deref(), Some("80"));
         let machine = "machine-app-record-test";
         assert_eq!(note_phone_app(machine, &json!({"kind": "mac", "bundleId": "com.cmux.app"}), None), None);
         assert_eq!(phone_app(machine), None);
@@ -1297,7 +1346,7 @@ mod tests {
         let n = 20_000u32;
         for (name, message) in [("v1", &v1), ("v2", &v2)] {
             let started = Instant::now();
-            let signature = (0..n).map(|_| id.sign(message).unwrap()).last().unwrap();
+            let signature = (0..n).map(|_| id.sign(message).unwrap()).next_back().unwrap();
             let sign = started.elapsed() / n;
             let started = Instant::now();
             assert!((0..n).all(|_| verify(id.public_key(), message, &signature)));

@@ -120,6 +120,8 @@ BILLING_TEST_NAMES = (
 def workflow_pull_request_paths() -> list[str]:
     lines = WORKFLOW.read_text(encoding="utf-8").splitlines()
     start = lines.index("  pull_request:")
+    if lines[start + 1].startswith("    types: "):  # the land tier's trigger types (tests/test_head_tier.py)
+        start += 1
     assert lines[start + 1] == "    branches: [feat-cmux-next]", "billing.yml must target feat-cmux-next"
     assert lines[start + 2] == "    paths:", "billing.yml pull_request must list paths after branches"
     paths = []
@@ -304,6 +306,22 @@ class Wiring(unittest.TestCase):
         self.assertIn("needs.billing.outputs.ios == 'true' || needs.billing.outputs.storekit_kind != ''", block)
         self.assertIn("IOS: ${{ needs.billing.outputs.ios }}", block)
         self.assertIn("STOREKIT_KIND: ${{ needs.billing.outputs.storekit_kind }}", block)
+
+    def test_listed_billing_packages_run_on_linux_not_the_mac(self) -> None:
+        # RFD 0051: a billing package swift-linux-packages.txt lists runs in the
+        # Linux billing job through package-test-lane.sh suite, and the Mac
+        # ios-billing step skips it, so its unit tests never wait for a Mac.
+        linux = self.jobs["billing"]
+        step = linux[linux.index("- name: iOS billing unit tests (Linux)"):]
+        self.assertIn("steps.route.outputs.ios == 'true'", step.splitlines()[1])
+        self.assertIn("scripts/ci/swift-linux-packages.txt", step)
+        self.assertIn("package-test-lane.sh suite", step)
+        self.assertIn("chown -R", step)
+        mac = self.jobs["ios-billing"]
+        loop = mac[mac.index("- name: Billing package tests"):]
+        self.assertLess(loop.index("swift-linux-packages.txt"), loop.index("swift test --package-path"))
+        listed = Path(__file__).resolve().parents[1] / "scripts/ci/swift-linux-packages.txt"
+        self.assertIn("Packages/iOS/CmuxMobileBilling ", listed.read_text(encoding="utf-8"))
 
 
 class Selection(unittest.TestCase):

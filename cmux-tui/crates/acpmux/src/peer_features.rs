@@ -28,6 +28,7 @@ use crate::rpc::method as m;
 /// listed only on some connections (`listStream`, `listPages`, `linkControls`, `listHubRows`) or
 /// added after (`queueGet`, `server/requests/queued.rs`).
 pub const PEER_FEATURES: &[PeerFeature] = &[
+    PeerFeature { id: crate::hub::presence::PEER_FEATURE, gates: &[] },
     PeerFeature { id: "promptAccepted", gates: &[m::MUX_PROMPT_ACCEPTED] },
     PeerFeature { id: "turnIds", gates: &[] },
     PeerFeature { id: "eventPaging", gates: &[] },
@@ -170,6 +171,8 @@ pub const PEER_FEATURES: &[PeerFeature] = &[
     },
     PeerFeature { id: crate::hub::list_tee::HUB_ROWS_FEATURE, gates: &[] },
     PeerFeature { id: crate::author::QUEUE_GET_FEATURE, gates: &[m::MUX_QUEUE_GET] },
+    // A session move's wait handoff (`server/bg_rearm.rs`).
+    PeerFeature { id: crate::server::bg_rearm::FEATURE, gates: &[m::MUX_BG_REARM] },
 ];
 
 /// The features of [`PEER_FEATURES`] that gate request or notification `method` (a registry name,
@@ -259,6 +262,19 @@ impl Peer {
     /// they kept (`capabilities::SESSION_MESSAGES`).
     pub fn supports_session_messages(&self) -> bool {
         self.session_messages.load(Ordering::SeqCst)
+    }
+
+    /// Whether the peer said at its last handshake that it serves agent byte channels
+    /// (`server/channels.rs`, `agent-channels-v1`).
+    pub fn agent_channels(&self) -> bool {
+        self.agent_channels.load(Ordering::SeqCst)
+    }
+
+    /// Integration-test stand-in for a peer from before `agent-channels-v1`: until the next
+    /// handshake, as though it had not listed it.
+    #[doc(hidden)]
+    pub fn forget_agent_channels_for_tests(&self) {
+        self.agent_channels.store(false, Ordering::SeqCst);
     }
 
     /// Integration-test stand-in for a peer from before `session-messages-v1`: until the next

@@ -45,6 +45,13 @@ extension UpdaterService {
                 json["detail"] = .string(version.map(UpdaterStrings.foundVersion) ?? UpdaterStrings.restartKeepsSessions)
             }
             actions = [.install]
+            // "What's in this build" (the popover's ``BuildPullRequests``): the staged span's PRs by area.
+            if let prs = stagedPullRequests, !prs.isEmpty,
+               case .object(var members)? = try? JSONValue.parse(JSONEncoder().encode(prs)) {
+                members["title"] = .string(UpdaterStrings.pullRequestsTitle)
+                members["other"] = .string(UpdaterStrings.pullRequestsOther)
+                json["prs"] = .object(members)
+            }
         case .card(let shown):
             let card = Self.settingsQuantized(shown)
             let shown = card.presentation(version: identity.shortVersion, build: identity.build,
@@ -169,6 +176,7 @@ public nonisolated enum SettingsUpdateAction: String, Sendable, CaseIterable {
         case .check: UpdaterStrings.settingsCheckNow
         case .update: UpdaterStrings.update
         case .cancelDownload: UpdaterStrings.cancel
+        // retry-prompt-ok: an update that downloads and replaces binaries
         case .retry: UpdaterStrings.retry
         case .install: UpdaterStrings.restartToUpdate
         }
@@ -178,8 +186,8 @@ public nonisolated enum SettingsUpdateAction: String, Sendable, CaseIterable {
     public var isProminent: Bool { self == .install || self == .update }
 }
 
-/// Settings > Updates' App Update card's buttons (`cmux.settings.app_update.run {action}`), routed
-/// here by prefix. The card reads ``UpdaterService/settingsPageJSON`` from the host lists.
+/// Settings > Updates' App Update card's buttons (`cmux.settings.app_update.run {action}`), and its
+/// Go Back to Previous Build row (`.previous`, `.rollback {build}`), routed here by prefix. The card reads ``UpdaterService/settingsPageJSON`` from the host lists.
 @MainActor
 public final class AppUpdatePageProvider: PageProvider {
     public static let prefix = "cmux.settings.app_update."
@@ -190,7 +198,23 @@ public final class AppUpdatePageProvider: PageProvider {
     }
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
-        guard op == Self.prefix + "run" else { throw PageError.unknownOp(op) }
+        switch op {
+        case Self.prefix + "previous":
+            // The card's Go Back to Previous Build row: the newest kept build and whether it would run.
+            return await updater.previousBuildPageJSON()
+        case Self.prefix + "rollback":
+            // It restarts the app into the kept build: the person's own click only.
+            guard context.userGesture else {
+                throw PageError(code: PageNativeOp.userOnlyCode, message: "Go Back to Previous Build needs the person's click")
+            }
+            guard let build = params["build"]?.stringValue else { throw PageError.invalidParams("build") }
+            if let failure = await updater.goBackToPreviousBuild(build) { throw PageError(code: "cmux.page.refused", message: failure) }
+            return .object([:])
+        case Self.prefix + "run":
+            break
+        default:
+            throw PageError.unknownOp(op)
+        }
         guard let id = params["action"]?.stringValue, let action = SettingsUpdateAction(rawValue: id) else {
             throw PageError.invalidParams("action is one of \(SettingsUpdateAction.allCases.map(\.rawValue))")
         }

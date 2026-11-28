@@ -5,6 +5,10 @@ This covers the cmux-tui daemon socket protocol (the raw mux protocol that the
 prompts that nobody revisits, so a change that silently breaks an old client
 hurts them more than it hurts a person at a keyboard.
 
+The public page users read is
+[API versions and the compatibility promise](https://cmux.com/docs/nightly/next/api-versions)
+(`web/data/next-docs/pages.ts`, slug `api-versions`); change both together.
+
 ## The promise
 
 1. **No breaking change ships without a new dated version.** Renaming,
@@ -78,7 +82,24 @@ client pinned one version back pays about 8 us median per changed reply
 (peek, program lookup, streaming rewrite), on the order of serializing the
 reply (about 2.4 us). Resolving a pin is under 1 us, once per connection.
 
+## The cloud HTTP API
+
+The cmux VM API Worker (`workers/cmux-vm`, `vm.cmux.dev`) makes the same
+promise over HTTP. A client sends `Cmux-Api-Version: 2026-11-24`; the Worker
+serves the newest version dated on or before it, translates the request up
+and the JSON reply down, and answers with the version served in the same
+header. A malformed pin, or one older than the base date, gets 400
+`UnsupportedApiVersion` naming the oldest and newest dates. A request with no
+header is served exactly as before. The table is `API_VERSIONS` in
+`workers/cmux-vm/src/api-version.ts` (rename, add and remove, keyed by
+`request:` or `response:` and the route); its base date is 2026-11-24.
+`bun scripts/bench-api-version.ts` there measures it: about 0.5 us per
+unpinned or current-pinned request, about 9 us per reply one version back,
+and about 40 ns to resolve a pin a client has sent before.
+
 ## Not covered yet
 
 Resource API v2 (`cmux.protocol/2`), terminal byte streams,
-`session.events` stream items, the broker tools and the cloud HTTP API.
+`session.events` stream items and the broker tools. The broker tools (the lane GitHub broker
+agents publish through) are internal to the fleet, not a public surface, so
+they stay outside the promise until an outside client calls them.

@@ -3,7 +3,14 @@
 // click through each step in a plain browser.
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
 import { agentsState, computerUseState, importState, makeItYoursState } from "./fixtures";
-import { OPS, type ImportDataKind, type OnboardingState, type DensityChoice, type WorkStyle } from "./ops";
+import {
+  OPS,
+  type ChatsRunIn,
+  type ImportDataKind,
+  type MakeItYoursMaterial,
+  type OnboardingState,
+  type WorkStyle,
+} from "./ops";
 import type { AccountRowWire, AccountRunParams } from "../shared/signIn/accountSignIn";
 import { MockAccountSignIn } from "../shared/signIn/mockSignIn";
 
@@ -47,7 +54,8 @@ export class MockOnboardingProvider implements PageClient {
       kind?: ImportDataKind;
       target?: string | null;
       pane?: string;
-      value?: string;
+      value?: string | number;
+      writes?: { path: string; value: string | number | boolean | null }[];
     };
     const state = this.state;
     switch (op) {
@@ -127,7 +135,10 @@ export class MockOnboardingProvider implements PageClient {
         return {} as R;
       case OPS.workStyle:
       case OPS.density:
-      case OPS.background: {
+      case OPS.chatsRunIn:
+      case OPS.background:
+      case OPS.opacity:
+      case OPS.material: {
         const choices = state.makeItYours;
         if (!choices) return {} as R;
         this.openedChoices ??= choices;
@@ -135,9 +146,39 @@ export class MockOnboardingProvider implements PageClient {
           op === OPS.workStyle
             ? { ...choices, workStyle: input.value as WorkStyle }
             : op === OPS.density
-              ? { ...choices, density: input.value as DensityChoice }
-              : { ...choices, background: input.id ?? null };
+              ? { ...choices, density: String(input.value) }
+              : op === OPS.chatsRunIn
+                ? { ...choices, chatsRunIn: input.value as ChatsRunIn }
+                : op === OPS.opacity
+                  ? { ...choices, opacity: Number(input.value), opacitySet: true }
+                  : op === OPS.material
+                    ? { ...choices, material: input.value as MakeItYoursMaterial }
+                    : { ...choices, background: input.id ?? null };
         this.change({ ...state, makeItYours: next });
+        return {} as R;
+      }
+      case OPS.walk: {
+        const choices = state.makeItYours;
+        if (!choices) return {} as R;
+        const walk = { ...choices.walk };
+        const next = { ...choices };
+        for (const { path, value } of (input.writes ?? []) as {
+          path: string;
+          value: string | number | boolean | null;
+        }[]) {
+          if (path === "tabs.newTabTemplate") next.workStyle = value === "terminal" ? "terminal" : "gui";
+          else if (path === "appearance.density") next.density = String(value ?? "cozy");
+          else if (path === "appearance.background")
+            next.background = value == null || value === "none" ? null : String(value);
+          else if (path === "appearance.backgroundOpacity") {
+            next.opacity = value == null ? 1 : Number(value);
+            next.opacitySet = value != null;
+          } else if (path === "appearance.backgroundBlur")
+            next.material = value == null ? null : (value as MakeItYoursMaterial);
+          else if (value == null) delete walk[path];
+          else walk[path] = value;
+        }
+        this.change({ ...state, makeItYours: { ...next, walk } });
         return {} as R;
       }
       case OPS.install:

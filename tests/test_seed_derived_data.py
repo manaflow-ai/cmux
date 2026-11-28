@@ -765,10 +765,14 @@ def evaluate(expression, context):
     if text.startswith("${{") and text.endswith("}}"):
         text = text[3:-2]
     tokens, at = [], 0
-    while text[at:].strip():
+    # Linear in the expression: re-slicing and stripping the rest per token made a 5 KB runs-on cost 0.1 s, and
+    # the cascade's release-compile sweep (7,500 cases x 2 expressions) ran past 30 minutes.
+    while True:
         match = TOKEN.match(text, at)
         if not match:
-            raise ValueError(f"cannot parse {text[at:]!r}")
+            if text[at:].strip():
+                raise ValueError(f"cannot parse {text[at:]!r}")
+            break
         tokens.append(match.group(1))
         at = match.end()
     position = [0]
@@ -942,7 +946,7 @@ def github_context(event_name, ref="refs/heads/main", **variables):
 
 class Wiring(unittest.TestCase):
     def test_only_the_nightly_seeder_writes_the_seed_and_admission_reads_the_same_key(self):
-        seeder = steps("nightly.yml", "refresh-test-compilation-cache")
+        seeder = steps("nightly-compilation-cache.yml", "refresh-test-compilation-cache")
         record_at, _ = named(seeder, "Record DerivedData seed inputs")
         build_at, _ = named(seeder, "Build the app-host test product")
         save_at, save = named(seeder, "Save DerivedData seed")
@@ -950,7 +954,7 @@ class Wiring(unittest.TestCase):
         self.assertLess(build_at, save_at)
         self.assertEqual(save["with"]["backend"], "r2")
         written = save["with"]["key"]
-        suffix = "${{ needs.decide.outputs.head_sha }}"
+        suffix = "${{ inputs.head_sha }}"  # the head nightly.yml passes its refresh-compilation-caches call
         self.assertEqual(written, "${{ steps.derived-data-seed-key.outputs.scoped }}" + suffix)
         _, scope = named(seeder, "Scope DerivedData seed key")
         self.assertEqual(scope["env"]["FINGERPRINT"], "${{ steps.compilation-cache-key.outputs.fingerprint }}")
@@ -975,7 +979,7 @@ class Wiring(unittest.TestCase):
 
         for path in (ROOT / ".github/workflows").glob("*.yml"):
             text = path.read_text()
-            if "admission-derived-data-" in text and path.name not in {"nightly.yml", "ci-macos.yml", "seed-derived-data.yml",
+            if "admission-derived-data-" in text and path.name not in {"nightly-compilation-cache.yml", "ci-macos.yml", "seed-derived-data.yml",
                                                                         "main-compile-probe.yml"}:
                 self.fail(f"{path.name} names the admission DerivedData seed")
         # Main compile probes adopt the same seed but only read it.
@@ -1434,7 +1438,7 @@ class Wiring(unittest.TestCase):
             f"{path.name}:{number}"
             for path in sorted((ROOT / ".github/workflows").glob("*.yml"))
             for number, line in enumerate(path.read_text().splitlines(), 1)
-            if bare.search(line)
+            if not line.lstrip().startswith("#") and bare.search(line)
         ]
         self.assertEqual(offenders, [], "an unset variable is null, which equals '0'; give it a default first")
 
