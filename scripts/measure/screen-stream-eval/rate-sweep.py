@@ -123,6 +123,17 @@ def table(rows: list[dict]) -> str:
     return "\n".join(out) + "\n"
 
 
+def local_repo(commit: str) -> str | None:
+    """This checkout's object store as a file:// remote when it already has the commit: no network fetch."""
+    here = Path(__file__).resolve().parent
+    have = subprocess.run(["git", "-C", str(here), "cat-file", "-e", f"{commit}^{{commit}}"], capture_output=True)
+    if have.returncode:
+        return None
+    common = subprocess.run(["git", "-C", str(here), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                            capture_output=True, text=True, check=True).stdout.strip()
+    return f"file://{common}"
+
+
 def build_all(netem, commit: str, work: Path, variants: list[tuple[str, dict]], repo_url: str) -> dict[str, Path]:
     src = work / "src"
     git = ["git", "-C", str(src)]
@@ -131,6 +142,7 @@ def build_all(netem, commit: str, work: Path, variants: list[tuple[str, dict]], 
         netem.run(git + ["init", "-q"])
         netem.run(git + ["remote", "add", "origin", repo_url])
         netem.run(git + ["sparse-checkout", "set", *netem.SPARSE_PATHS])
+    netem.run(git + ["remote", "set-url", "origin", repo_url])
     netem.run(git + ["fetch", "-q", "--depth=1", "--filter=blob:none", "origin", commit])
     netem.run(git + ["checkout", "-q", "--force", "--detach", commit])
     toolchain = re.search(r'channel\s*=\s*"([^"]+)"', (src / "cmux-tui/rust-toolchain.toml").read_text()).group(1)
@@ -173,7 +185,7 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--passive-s", type=int, default=10)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--work", type=Path, help="source tree and cargo target to keep between runs")
-    ap.add_argument("--repo-url", default=netem.REPO_URL)
+    ap.add_argument("--repo-url", help="default: this checkout when it has --commit, else the GitHub repo")
     ap.add_argument("--openh264", default="cisco")
     ap.add_argument("--deps", action="store_true")
     args = ap.parse_args(argv)
@@ -200,7 +212,7 @@ def main(argv: list[str]) -> int:
     netem.OPENH264[:] = [args.openh264]
     work = args.work or Path(tempfile.mkdtemp(prefix="rate-sweep-"))
     work.mkdir(parents=True, exist_ok=True)
-    bins = build_all(netem, args.commit, work, variants, args.repo_url)
+    bins = build_all(netem, args.commit, work, variants, args.repo_url or local_repo(args.commit) or netem.REPO_URL)
     # measure_binary reads passive_s, samples and keep_logs; the key session is not this number, so keep it short.
     margs = argparse.Namespace(passive_s=args.passive_s, samples=5, keep_logs=False)
     scratch_out = Path(tempfile.mkdtemp(prefix="rate-sweep-rows-"))
