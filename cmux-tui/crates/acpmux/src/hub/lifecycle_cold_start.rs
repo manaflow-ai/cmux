@@ -548,6 +548,45 @@ impl Hub {
         let codex_answer = session.codex_answer.lock().unwrap_or_else(|e| e.into_inner()).clone();
         // What the user had chosen before; replayed after load or new.
         let saved = session.meta();
+        // A fresh OpenCode fork: its own agent forks the chat's agent session now
+        // (`fork_own_process.rs`). One that fails starts a new session fed the fork's transcript.
+        let own_fork = if existing.is_none() && session.agent_fork_parent().is_some() {
+            let params =
+                self.acp_params(&session.id, &meta, profile, None, &child, &codex_answer, &init);
+            self.fork_in_own_process(session, &child, params).await
+        } else {
+            None
+        };
+        let forked_here = match own_fork {
+            Some(Ok(v)) => {
+                let sid = v.get("sessionId").and_then(Value::as_str).unwrap_or_default().to_owned();
+                session
+                    .meta
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .set_agent_session_id(Some(sid), "non-claude");
+                self.absorb_session_response(session, &v);
+                self.append(
+                    session,
+                    "mux",
+                    "resumed",
+                    self.wake_marked(session, json!({"level": "fork"})),
+                );
+                true
+            }
+            Some(Err(e)) => {
+                tracing::warn!(session = %session.id, "the fork's own session/fork failed, starting from its transcript: {e}");
+                self.append(
+                    session,
+                    "mux",
+                    "resume_failed",
+                    json!({"error": format!("{} could not fork the chat ({}), so this fork's agent starts from its transcript", meta.harness, e.message)}),
+                );
+                session.rehydrate.store(true, Ordering::SeqCst);
+                false
+            }
+            None => false,
+        };
         let loaded = match existing {
             Some(sid) if supports_load => {
                 let hold = ReplayHold::start(session, &child);
@@ -601,6 +640,7 @@ impl Hub {
             Some(_) => false,
             None => false,
         };
+        let loaded = forked_here || loaded;
         if !loaded {
             let had_history = session.meta().agent_session_id.is_some();
             let res = match child
@@ -660,6 +700,9 @@ impl Hub {
                     "resumed",
                     self.wake_marked(session, json!({"level": "rehydrate"})),
                 );
+            } else if saved.parent_id.is_some() && saved.fork_seq.is_some() {
+                // An unstarted fork recovered after daemon restart still carries its transcript.
+                session.rehydrate.store(true, Ordering::SeqCst);
             }
         }
         // A guarded relay import may retire the source ACP id when its native agent files are
@@ -670,6 +713,7 @@ impl Hub {
         if saved.agent_session_id.is_some()
             || saved.fork_before.is_some()
             || saved.remote_origin
+            || forked_here
             || (saved.parent_id.is_some()
                 && (saved.modes.is_some()
                     || saved.config_options.is_some()
