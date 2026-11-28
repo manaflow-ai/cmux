@@ -103,13 +103,13 @@ extension UpdaterService {
             // A rollback's quit: a staged update would install over the build just put in place
             // and relaunch forward (cmux#41013 review F2). One staged after the swap is cancelled.
             if let staged = stagedBuild(), !staged.isEmpty {
-                log.append(cancelStaged() ? "quit: a rollback quits, cancelled the staged update \(staged)"
+                log.append(cancelStagedUpdate() ? "quit: a rollback quits, cancelled the staged update \(staged)"
                                           : "quit: a rollback quits, but the staged update \(staged) could not be cancelled")
             }
             return .cancelPendingInstall
         }
         if action == .proceed, stagedPulledHeld {
-            if cancelStaged() {
+            if cancelStagedUpdate() {
                 log.append("quit: the staged build was pulled, cancelled it instead of installing on quit")
                 action = .cancelPendingInstall
             } else {
@@ -117,7 +117,7 @@ extension UpdaterService {
             }
         } else if action == .cancelPendingInstall {
             log.append("quit: install on quit is off, cancelling the staged update")
-            _ = cancelStaged()
+            _ = cancelStagedUpdate()
         }
         return action
     }

@@ -47,4 +47,15 @@ import Testing
         #expect(h.updater.log.recent.contains("launch pre-warm of 300: stopped: the staged update was cancelled"),
                 "\(h.updater.log.recent)")
     }
+
+    /// A pre-warm that already ended is left as it was: the cancel logs no stop.
+    @Test func aCancelAfterThePrewarmEndedLogsNoStop() async throws {
+        let updater = StagedUpdatePrewarmInstallStopTests.updater()
+        updater.prewarmRunner = { _ in "pre-warmed" }
+        updater.followStagedUpdate(.ready(version: "2.0.0"))
+        #expect(await StagedUpdatePrewarmTests().eventually(.seconds(5)) { updater.prewarmRun?.line != nil }, "the pre-warm never ended")
+        updater.cancelStaged = { true }
+        #expect(updater.cancelStagedUpdate())
+        #expect(!updater.log.recent.contains { $0.contains("stopped: the staged update was cancelled") }, "\(updater.log.recent)")
+    }
 }
