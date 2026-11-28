@@ -46,6 +46,8 @@ pub(crate) enum Command {
     },
     Install {
         target: Target,
+        /// `--direct`: the CLI puts the kept build in place itself, with no app (nightly/frozen.rs).
+        direct: bool,
     },
     /// `whats-in [BUILD]`: the PRs that build carries (default: the build this Mac runs).
     WhatsIn {
@@ -105,6 +107,9 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
             Ok(Command::List { limit })
         }
         Some("install") => {
+            let direct = rest.iter().any(|word| word == "--direct");
+            let rest: Vec<String> =
+                rest.iter().filter(|word| *word != "--direct").cloned().collect();
             let target = match rest.get(1).map(String::as_str) {
                 Some("previous") => Target::Previous,
                 Some("next") => Target::Next,
@@ -121,7 +126,11 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
                     messages.unexpected_argument.replace("{value}", extra),
                 ));
             }
-            Ok(Command::Install { target })
+            // Only a kept build is in reach with no app: a download needs its Sparkle check.
+            if direct && matches!(target, Target::Next | Target::Latest) {
+                return Err(UsageError::new(messages.nightly.direct_needs_kept.to_owned()));
+            }
+            Ok(Command::Install { target, direct })
         }
         Some("whats-in") => {
             let build = match rest.get(1).map(String::as_str) {
@@ -177,9 +186,26 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
         Command::Which { pr } => return which(*pr, global.output, messages),
         _ => {}
     }
+    // A kept build the CLI can put in place itself when the app does not answer (its main thread
+    // hung): `previous` or a build number.
+    let direct_target = match command {
+        Command::Install { target: target @ (Target::Previous | Target::Build(_)), direct } => {
+            if *direct {
+                return frozen::run(target, &frozen::Reason::Asked, global.output);
+            }
+            Some(target)
+        }
+        _ => None,
+    };
     let mut stream = match super::connect_command(global) {
         Ok(stream) => stream,
-        Err(error) => return super::super::wire::print_local_error(&error, global.output, 3),
+        Err(error) => {
+            if let Some(target) = direct_target.filter(|_| frozen::in_app()) {
+                let why = error.get_str("message").unwrap_or_default().to_owned();
+                return frozen::run(target, &frozen::Reason::Unreachable(why), global.output);
+            }
+            return super::super::wire::print_local_error(&error, global.output, 3);
+        }
     };
     let limit = match command {
         Command::List { limit } => *limit,
@@ -193,7 +219,31 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
         LIST_TIMEOUT,
     ) {
         Ok(Ok(value)) => value,
+        // The app's main actor did not take the call in time: it is hung, go back without it.
+        Ok(Err(error))
+            if error.get_str("code") == Some("timeout")
+                && direct_target.is_some()
+                && frozen::in_app() =>
+        {
+            let why = error.get_str("message").unwrap_or("timeout").to_owned();
+            return frozen::run(
+                direct_target.unwrap(),
+                &frozen::Reason::NoAnswer(why),
+                global.output,
+            );
+        }
         Ok(Err(error)) => return super::super::wire::print_operation_error(&error, global.output),
+        Err(message)
+            if direct_target.is_some()
+                && frozen::in_app()
+                && message == super::wait::timeout_message(LIST_TIMEOUT) =>
+        {
+            return frozen::run(
+                direct_target.unwrap(),
+                &frozen::Reason::NoAnswer(message),
+                global.output,
+            );
+        }
         Err(message) => return failure("app.transport", &message, global.output),
     };
     match command {
@@ -205,7 +255,7 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
             }
             _ => super::super::wire::print_local_success(&listing, global.output),
         },
-        Command::Install { target } => {
+        Command::Install { target, .. } => {
             let build = match pick(&listing, target, messages) {
                 Ok(build) => build,
                 Err((code, message)) => return failure(code, &message, global.output),
@@ -530,5 +580,6 @@ fn which(pr: u64, output: OutputMode, messages: &NightlyMessages) -> i32 {
 }
 
 mod feed;
+mod frozen;
 #[cfg(test)]
 mod tests;
