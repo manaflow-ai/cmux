@@ -73,9 +73,7 @@ test("unset, neither the live line nor Jump to latest mounts a glyph", () => {
   expect(container.querySelector(".cv-glyph")).toBeNull();
   act(() => root!.render(jump()));
   expect(container.querySelector(".cv-glyph")).toBeNull();
-  expect(container.querySelector(JUMP_LATEST)?.hasAttribute("data-working-dots")).toBe(
-    false,
-  );
+  expect(container.querySelector(JUMP_LATEST)?.hasAttribute("data-working-dots")).toBe(false);
 });
 
 test("the look's glyph reaches the live line and swaps live for another look's", () => {
