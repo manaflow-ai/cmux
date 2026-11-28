@@ -93,6 +93,7 @@
     "field:_meta.acpmux#topic",
     "field:_meta.acpmux#via",
     "field:_meta.acpmux#vmBoundary",
+    "field:_meta.acpmux#waitForLink",
     "field:_meta.acpmux#waitStart",
     "field:_meta.acpmux#workflowAllowedTools",
     "field:_meta.acpmux#workspaceId",
@@ -1189,6 +1190,10 @@
       "method:_acpmux/prompts_delete",
       "method:_acpmux/prompts_list",
       "method:_acpmux/prompts_save"
+    ],
+    "prompt-link-wait-v1": [
+      "method:session/prompt",
+      "notify:_acpmux/prompt_held"
     ],
     "queue-approval-v1": [
       "method:_acpmux/queue_approve",
