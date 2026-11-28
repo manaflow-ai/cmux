@@ -3,6 +3,7 @@
 // Removing an experiment (its winner shipped as the plain code path) removes its line.
 import { diffTreeDisclosure, treeNameFade } from "../agent-session/acpmux/changes/treeMotion.experiment";
 import { sessionReplay } from "../agent-session/acpmux/replay/replay.experiment";
+import { momentTipsExperiment } from "../agent-session/acpmux/momentTips.experiment";
 import { steerQueueExperiment } from "../agent-session/acpmux/steerQueue/steerQueue.experiment";
 import { statusIslandExperiment } from "../agent-session/acpmux/statusIsland/statusIsland.experiment";
 import { chiefDock } from "../agent-session/acpmux/chiefDock.experiment";
@@ -158,6 +159,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   treeNameFade,
   diffViewedProgress,
   sessionReplay,
+  momentTipsExperiment,
   steerQueueExperiment,
   statusIslandExperiment,
   chiefDock,

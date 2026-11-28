@@ -102,6 +102,7 @@ import { experimentArm } from "../../../experiments/experiment";
 import { sandboxRetryable, type SandboxTab, type RunModeRows, type SandboxRun } from "../sandboxRun";
 import { SandboxRunView } from "../lazyScreens";
 import { PaneFeatureTips } from "../featureTips";
+import { PaneMomentTips } from "../momentTips";
 import { callNative } from "../callNative";
 import { pullRequestActionPrompt } from "../header/pullRequestActionPrompt";
 import type { EvacuateState } from "../place/placeModel";
@@ -1545,6 +1546,10 @@ export function drawPaneBody({
                 </header>
                 {/* A feature tip under its header control (featureTips.tsx; it portals out). */}
                 {!quick && !showNewTab && snapshot.sessionId && <PaneFeatureTips streaming={turnWorking} />}
+                {/* A built feature's tip when its situation is on screen (momentTips.tsx; experiment, off). */}
+                {!quick && !showNewTab && snapshot.sessionId && (
+                  <PaneMomentTips turnWorking={turnWorking} waitingOnPerson={hasBottomAsk} />
+                )}
                 {!sessionInfo.on && !summaryCard.column && summaryPanel}
                 {underHeader.checkpointReview && checkpoints.review}
                 {/* The lines under the header drop in from the top (ui/popupSurface.css `data-enter`). */}
