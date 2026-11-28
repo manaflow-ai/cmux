@@ -10,6 +10,8 @@ import { experimentArm } from "../../../experiments/experiment";
 import { jumpPairLook } from "../jumpPair.experiment";
 import { JumpDots } from "../conversation/JumpDots";
 import { useThinkingLook } from "../conversation/thinkingLook";
+import { ThinkingGlyph } from "../conversation/ThinkingGlyph";
+import { useLiveGlyphTrigger } from "../conversation/thinkingGlyphModel";
 
 /// Jump to latest's diameter, CSS px (conversation.css .acpmux-jump-latest): its fisheye filter is
 /// drawn for it (ui/glass/Fisheye.tsx).
@@ -43,7 +45,12 @@ export function JumpToLatest({
   const [look] = useState(() => experimentArm(jumpPairLook));
   // A look's working dots (thinkingLook.ts `jumpButton: "dots"`, off by default): drawn over the arrow's
   // cell while the agent works; the arrow comes back on hover and focus (JumpDots.css).
-  const dots = useThinkingLook().jumpButton === "dots" && working;
+  const thinking = useThinkingLook();
+  const dots = thinking.jumpButton === "dots" && working;
+  // A look's thinking glyph (`jumpButton: "glyph"`, #47525) plays the live line's trigger in the same
+  // cell, at `glyphSize`; it was lost when #47525 merged over #50840's move of this button here.
+  const glyph = thinking.jumpButton === "glyph" && working ? thinking.glyph : null;
+  const trigger = useLiveGlyphTrigger();
   if (needsYou && needsYou.count > 0) return <NeedsYouPill {...needsYou} shown={shown} lift={lift} onJump={onJump} />;
   const label = t(working ? "transcript.jumpLatestWorking" : "transcript.jumpLatest");
   const lens = look === "lens";
@@ -56,7 +63,7 @@ export function JumpToLatest({
         className={lens ? "ui-glass ui-glass-fisheye acpmux-jump-latest" : "ui-glass acpmux-jump-latest"}
         data-look={look}
         data-shown={shown ? "" : undefined}
-        data-working-dots={dots ? "" : undefined}
+        data-working-dots={dots || glyph ? "" : undefined}
         // Its keyboard focus is its own wash over the glass (conversation.css), not the shared one,
         // whose `box-shadow: none` took the glass's rim and shadow away while it was focused.
         data-focus-ring="none"
@@ -73,6 +80,14 @@ export function JumpToLatest({
             draws exactly the static arrow this button drew before. */}
         <Slot slot={jumpToBottomSlot} props={{ shown, working }} />
         {dots && <JumpDots />}
+        {glyph && (
+          <ThinkingGlyph
+            className="cv-jump-glyph"
+            doc={glyph}
+            trigger={trigger}
+            size={thinking.glyphSize > 0 ? thinking.glyphSize : undefined}
+          />
+        )}
         {look === "labeled" && <span className="acpmux-jump-latest__label">{t("transcript.jumpLatest")}</span>}
       </button>
     </>
