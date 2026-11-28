@@ -8,10 +8,11 @@ import QuartzCore
 /// reused for every card; the app's one `HoverCardPanel` hosts it.
 ///
 /// A tab's card (`TabHoverCardLines`, Leo 2026-10-14; the Codex sidebar card, Leo 2026-10-19): the
-/// tab's own glyph (a page's favicon) and title with the tab's status indicator, then one shared
-/// row (`HoverCardRowView`) each for where it is, what it is doing (a colored dot when the title
-/// shows no indicator), the program's own status words and its memory with the last seconds of
-/// CPU as bars, then the thumbnail (Full previews). 13 pt rows on one leading edge.
+/// tab's own glyph (a page's favicon) and title, then one shared row (`HoverCardRowView`) each for
+/// where it is, what it is doing (a colored dot: the tab itself draws the spinner), an agent chat's
+/// latest words, the program's own status words and its memory with the last seconds of CPU as
+/// bars, then the thumbnail (Full previews; not for an agent chat, whose words say more than a
+/// picture of its page at this size). 13 pt rows on one leading edge.
 ///
 /// Leo 2026-11-07 ("is the length of it based off of anything? ... Or should we have it just be the
 /// same size of the, like max width of a tab?"; "Does this need so many symbols?"): the card is as
@@ -43,6 +44,8 @@ final class TabHoverCardView: NSView {
     let placeRow = HoverCardRowView()
     /// What the tab does and for how long, and the agent's model.
     let statusRow = HoverCardRowView()
+    /// An agent chat's latest words (its running prompt, else its last message), two lines in the primary ink.
+    let latestRow = HoverCardRowView()
     /// The program's own words on its status (OSC 7501, cx-6so.36.9): one line, in a quieter
     /// color, so program text never reads as cmux's.
     let detailRow = HoverCardRowView()
@@ -103,7 +106,7 @@ final class TabHoverCardView: NSView {
         rows.orientation = .vertical
         rows.alignment = .leading
         rows.spacing = HoverCardStyle.shared.rowGap
-        for row in [placeRow, statusRow, detailRow, memoryRow] {
+        for row in [placeRow, statusRow, latestRow, detailRow, memoryRow] {
             row.isHidden = true
             rows.addArrangedSubview(row)
             row.widthAnchor.constraint(equalTo: rows.widthAnchor).isActive = true
@@ -163,7 +166,7 @@ final class TabHoverCardView: NSView {
             placeholderIcon.image = iconImage(tint: Palette.textTertiary, size: Self.placeholderIconSize)
         }
         updatePlaceholder()
-        for row in [placeRow, statusRow, detailRow, memoryRow] { row.applyColors() }
+        for row in [placeRow, statusRow, latestRow, detailRow, memoryRow] { row.applyColors() }
     }
 
     func configure(_ content: TabHoverCardContent) {
@@ -175,7 +178,9 @@ final class TabHoverCardView: NSView {
             }
             self.item = item
             titleTwoLines.isActive = true
-            setActivity(item.indicator, style: item.busyStyle)
+            // The tab under the card already draws its spinner: the card says the state once, as its status row's dot
+            // (Leo 2026-11-27, a chat tab's card with a second spinner by its title: "this hover preview is a bit shit").
+            setActivity(.idle, style: nil)
             render()
             // The thumbnail frame is the controller's: it shows or hides once the tab's own is known.
         case .group(let group, let titles):
@@ -189,7 +194,7 @@ final class TabHoverCardView: NSView {
             titleLabel.stringValue = group.name.isEmpty ? Strings.groupTabCount(titles.count) : group.name
             setCardWidth(Self.restWidth)
             set(placeRow, HoverCardRowContent(text: lines.joined(separator: "\n"), lines: lines.count))
-            for row in [statusRow, detailRow, memoryRow] { set(row, nil) }
+            for row in [statusRow, latestRow, detailRow, memoryRow] { set(row, nil) }
             setActivity(.idle, style: nil)
             setThumbnailVisible(false)
         }
@@ -228,6 +233,7 @@ final class TabHoverCardView: NSView {
         set(statusRow, lines.status.map {
             HoverCardRowContent(text: $0, accessory: activity.isHidden ? tone.map(HoverCardAccessory.dot) : nil)
         })
+        set(latestRow, lines.latest.map { HoverCardRowContent(text: $0, ink: .primary, lines: TabHoverCardLines.latestLines) })
         set(detailRow, lines.detail.map { HoverCardRowContent(text: $0, ink: .tertiary) })
         set(memoryRow, lines.memory.map { HoverCardRowContent(text: $0, accessory: cpuBars()) })
     }

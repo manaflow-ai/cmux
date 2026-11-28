@@ -11,6 +11,8 @@ struct TabHoverCardLines: Equatable {
     var title: String
     var place: String?
     var status: String?
+    /// An agent chat's latest words (`TabHoverFacts.latest`), up to `latestLines` lines.
+    var latest: String?
     var detail: String?
     var memory: String?
 
@@ -30,6 +32,7 @@ struct TabHoverCardLines: Equatable {
             title: title(item),
             place: badges.compactMap(\.self).nilIfEmpty,
             status: status(facts, now: now) ?? exitStatus(item) ?? output(facts, now: now),
+            latest: facts.latest.flatMap(oneLine),
             detail: item.statusDetail.flatMap { $0.isEmpty ? nil : $0 },
             memory: memory(item, report: report)
         )
@@ -64,7 +67,22 @@ struct TabHoverCardLines: Equatable {
     }
 
     /// The card's rows below the title, in order.
-    var rows: [String] { [place, status, detail, memory].compactMap(\.self) }
+    var rows: [String] { [place, status, latest, detail, memory].compactMap(\.self) }
+
+    /// How many lines the latest words wrap to before they truncate.
+    static let latestLines = 2
+
+    /// `text` on one line (its runs of whitespace and line breaks as single spaces) and cut to `maxLatest`
+    /// characters, nil when nothing is left. A long prompt is a few lines on the card, never a page of text.
+    static func oneLine(_ text: String) -> String? {
+        let words = text.split(whereSeparator: \.isWhitespace)
+        guard !words.isEmpty else { return nil }
+        let line = words.joined(separator: " ")
+        return line.count <= maxLatest ? line : String(line.prefix(maxLatest - 1)) + "…"
+    }
+
+    /// The most of a chat's latest words the card keeps (two lines at the card's widest hold far fewer).
+    static let maxLatest = 240
 
     /// "Working · 3m · Opus 5.5", "Running · 12s" (the command is the title already); nil for
     /// a tab doing nothing it reports.

@@ -25,6 +25,9 @@ extension TabItemMapping {
             default: nil
             }
             facts.since = detail?.laneSinceMs.map(SidebarMapping.date(ms:))
+            // What the chat is on: the turn's prompt while one runs (never acpmux's inbox notice), else its last message.
+            let prompt = detail.flatMap { $0.promptIsNotice || $0.turnStartedAtMs == nil ? nil : $0.prompt }
+            facts.latest = [prompt, turns.lastMessage(for: ref)].lazy.compactMap(TabHoverCardLines.oneLine).first
             // Who the chat was before its rename; a tab the person named reads as their name only.
             if tab.name?.isEmpty ?? true { facts.formerName = turns.formerName(for: ref) }
             return (facts, detail?.cwd.map(SidebarMapping.shared.abbreviate))
