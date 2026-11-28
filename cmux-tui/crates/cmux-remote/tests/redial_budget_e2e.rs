@@ -321,8 +321,9 @@ struct TestSource {
 impl ReconnectGroupSource for TestSource {
     async fn next_group(&self) -> Result<Arc<dyn LinkGroup>, ProviderError> {
         self.calls.fetch_add(1, Ordering::AcqRel);
-        if self.hang.load(Ordering::Acquire) {
-            std::future::pending::<()>().await;
+        // A pass in flight in the silence answers once the network is back, as a dial does.
+        while self.hang.load(Ordering::Acquire) {
+            tokio::time::sleep(Duration::from_millis(50)).await;
         }
         let mut others = lock(&self.others);
         if others.is_empty() {
@@ -1082,6 +1083,38 @@ async fn a_network_that_comes_back_is_dialed_afresh() {
         .send(Lane::Interactive, 1, Bytes::from_static(b"after"), FrameFlags::empty())
         .await
         .unwrap();
+}
+
+/// A silence longer than the redial's burst (three 15 s rounds) parks the link; the network
+/// coming back with no change the link can see (a long freeze) ends the park as soon as a
+/// route answers, instead of after the park's 5 s (RFD 0164 A8).
+#[tokio::test(start_paused = true)]
+async fn a_network_back_after_a_long_freeze_ends_the_park() {
+    let h = harness_with(policy(), true, true).await;
+    let source = h.source.as_ref().unwrap();
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    let mut generation = h.client.subscribe_generation();
+    let before = *generation.borrow_and_update();
+    h.group.hang.store(true, Ordering::Release);
+    source.hang.store(true, Ordering::Release);
+    h.group.cut_all();
+    assert!(
+        wait_state(&h.client, ConnectionState::Disconnected, Duration::from_secs(300)).await,
+        "the link never parked"
+    );
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(*generation.borrow(), before, "nothing answers in the silence");
+    // The network is back: a pass in flight now opens a route. Nothing tells the link.
+    let back = h.group.sibling_named("test carrier (after the freeze)");
+    *lock(&source.others) = vec![back.clone()];
+    source.hang.store(false, Ordering::Release);
+    let returned = Instant::now();
+    tokio::time::timeout(Duration::from_secs(30), generation.wait_for(|g| *g != before))
+        .await
+        .expect("the link was not reconnected")
+        .unwrap();
+    let took = returned.elapsed();
+    assert!(took < Duration::from_secs(1), "reconnected {took:?} after the network came back");
 }
 
 /// A network change in a raced round starts a fresh pass at once and keeps what is in flight:

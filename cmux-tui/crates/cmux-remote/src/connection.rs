@@ -1842,6 +1842,10 @@ impl ClientConnection {
                     return Ok(());
                 }
                 Err(error) if retryable_connection_error(&error) => {
+                    // A round nobody answered (a freeze, a black hole).
+                    let silent = matches!(error, ConnectionError::ReconnectAttemptTimedOut { .. });
+                    // A route opened after it: the network is back, redial at once (RFD 0164 A8).
+                    let mut answered = false;
                     if policy.maximum_attempts.is_some_and(|maximum| attempt >= maximum) {
                         return Err(ConnectionError::ReconnectExhausted {
                             attempts: attempt,
@@ -1897,6 +1901,7 @@ impl ClientConnection {
                         };
                         if let Some(next) = next {
                             group = next;
+                            answered = silent;
                         }
                     }
                     if standby.is_some() && !network_moved {
@@ -1904,8 +1909,8 @@ impl ClientConnection {
                         in_burst = in_burst.saturating_sub(1);
                         continue;
                     }
-                    if network_moved || network.has_changed().unwrap_or(false) {
-                        // A new network starts a new burst at once.
+                    if answered || network_moved || network.has_changed().unwrap_or(false) {
+                        // A new network, or the old one back, starts a new burst at once.
                         network.borrow_and_update();
                         in_burst = 0;
                         delay = policy.initial_delay;
@@ -1919,6 +1924,18 @@ impl ClientConnection {
                         policy.retry_delay(delay)
                     };
                     let wait = remaining(wait);
+                    // After a silent round the source keeps looking: a route it opens ends the wait.
+                    let back = async {
+                        let source = self.reconnect_groups.as_ref().filter(|_| silent);
+                        if let Some(source) = source
+                            && let Some(next) =
+                                resolve_reconnect_group(source.as_ref(), policy.attempt_timeout)
+                                    .await
+                        {
+                            return next;
+                        }
+                        std::future::pending().await
+                    };
                     // Any change seen before this wait counts: an action
                     // while a redial was in flight still wakes the park.
                     let woken = tokio::select! {
@@ -1926,6 +1943,10 @@ impl ClientConnection {
                         _ = close_state.changed() => return Err(ConnectionError::Closed),
                         _ = network.changed() => true,
                         _ = actions.changed(), if parking => true,
+                        next = back => {
+                            group = next;
+                            true
+                        }
                         () = tokio::time::sleep(wait) => false,
                     };
                     if parking || woken {
