@@ -55,8 +55,39 @@ done
 
 grouped() { [[ -n "${GITHUB_ACTIONS:-}" ]] && echo "::$1::${2:-}" || true; }
 
+# cgroup_mem_gib: the smallest memory.max (GiB) on this process's cgroup v2 path, or nothing when none is set.
+# CARGO_GROUPS_CGROUP_ROOT moves /sys/fs/cgroup for tests.
+cgroup_mem_gib() {
+  local root="${CARGO_GROUPS_CGROUP_ROOT:-/sys/fs/cgroup}" rel p v min=""
+  rel=$(awk -F: '$1 == "0" { print $3; exit }' "${CARGO_GROUPS_PROC_CGROUP:-/proc/self/cgroup}" 2>/dev/null) || return 0
+  [[ -n "$rel" ]] || return 0
+  p="$root${rel%/}"
+  while :; do
+    v=$(cat "$p/memory.max" 2>/dev/null) || v=""
+    if [[ "$v" =~ ^[0-9]+$ ]] && { [[ -z "$min" ]] || ((v < min)); }; then min=$v; fi
+    [[ "$p" == "$root" || "$p" != */* ]] && break
+    p="${p%/*}"; [[ -n "$p" ]] || p=/
+    [[ "$p" == "$root"* ]] || break
+  done
+  [[ -z "$min" ]] || echo $((min / 1073741824))
+}
+
 if [[ -z "${CARGO_BUILD_JOBS:-}" ]]; then
   cores=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
+  # A runner whose memory is capped below its CPU count (a pool slot: every host thread visible, MemoryMax 24G)
+  # counts one core per CARGO_GROUPS_GIB_PER_CORE (3) GiB of its cgroup's memory.max. The tokens below come to
+  # about 3 x cores, and on a 96-thread host 96 + 9 x 20 of them in a 24 GiB slot had the kernel SIGKILL the
+  # fat-LTO cmux-tui rustc (cmux-tui job 140826310692, 2026-11-28: groups 2 6 7 10 failed). A runner with no cap,
+  # or with memory to spare (a 16 vCPU / 64 GiB VM), keeps every core.
+  mem_gib=$(cgroup_mem_gib)
+  if [[ -n "$mem_gib" ]]; then
+    per=${CARGO_GROUPS_GIB_PER_CORE:-3}
+    fit=$((mem_gib / per)); ((fit >= 1)) || fit=1
+    if ((fit < cores)); then
+      echo "cargo groups: memory.max ${mem_gib} GiB holds ${fit} of ${cores} cores at ${per} GiB each"
+      cores=$fit
+    fi
+  fi
   groups=${#commands[@]}
   jobs=$(((2 * cores + groups - 1) / groups))
   ((jobs >= 1)) || jobs=1

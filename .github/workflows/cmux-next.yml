@@ -3619,6 +3619,8 @@ jobs:
           bash scripts/ci/tests/r2-cache-multipart.test.sh
           # A restore killed by its step timeout left half a cargo target in place (machine channel run 46003645716).
           bash scripts/ci/tests/r2-cache-restore.test.sh
+          # A 24 GiB pool slot that saw 96 host threads ran 276 cargo jobs and lost cmux-tui's rustc to SIGKILL (job 140826310692).
+          bash scripts/ci/tests/cargo-groups-memory.test.sh
 
       # Why: 2026-11-24-fast-tier-cargo-4.md
       - name: Mount the warm cargo target (feat-cmux-next push, commits)
