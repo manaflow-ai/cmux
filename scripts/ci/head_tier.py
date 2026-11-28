@@ -164,6 +164,19 @@ gets it: a later push (`synchronize`) falls back to the usual rule (cheap until 
 landing tier at open, the same minutes as asking to land at open (lane-9's CI-minutes goal: a push after open must not
 pay the tier again). About 12 ask PRs a day. A draft stays cheap. CI_ASK_LANDING=0 turns it off.
 
+Land pulse rule (goal ci-runner-min-per-day-50k): land-judge on a lane VM cannot take `ready-to-land` off (the
+lane-gh broker refuses it), so it asks for the land tier with a `full-ci` pulse instead (tools/land_judge/engine.py
+label_lane_pulse: added, then taken off a second later). Into feat-cmux-next that `labeled` event is the land's own
+handoff, not a request for the full tier: a `full-ci` added to a pull request that already carries `ready-to-land`
+and taken off before GitHub built the event (its payload lists no `full-ci`) routes exactly as `ready-to-land` added
+would (labels_of leaves the pulse's `full-ci` out, so the hourly full tier
+rule lands it on the affected tier and `cmux/land-tier` posts success). The full tier still runs hourly on
+feat-cmux-next's head (cmux-next-hourly-full-tier.yml), the backstop, and a red there is bisected to the PR. The pulse
+ran the full tier on every lane VM land: about 25.7k pr-router and 11.6k rust-workspaces runner-min a day on
+11-28. `full-ci` kept on, on a PR without `ready-to-land`, or into another base still gives the full tier.
+CI_FULL_CI_LAND_PULSE=0 gives the pulse the full tier again. Leo, 2026-11-21: "de facto, im asking for 99% fewer
+minutes of ci time, period."; "whatever we need to cut, we cut."
+
 Switches: the repository variable CI_FULL_CI_ONE_SHOT=0 makes `full-ci` sticky again (every head of a labelled PR
 full); the repository variable CI_LAND_TIER=0 turns the land rule off (every ready head is full again); the
 repository variable CI_DRAFT_CHEAP_TIER=0 (passed in as $CI_DRAFT_CHEAP_TIER) gives every draft head
@@ -199,6 +212,7 @@ ASK_ID = re.compile(r"\bask-[0-9a-f]{10}\b")
 ASK_ACTIONS = frozenset({"opened", "reopened", "ready_for_review"})
 LAND_STATUS = "cmux/land-tier"  # the commit status the land rule's heads carry (pr-router.yml posts it)
 ONE_SHOT_VAR = "CI_FULL_CI_ONE_SHOT"  # 0: full-ci is sticky again (the one-shot full-ci rule above)
+LAND_PULSE_VAR = "CI_FULL_CI_LAND_PULSE"  # 0: land's full-ci pulse gets the full tier again (the land pulse rule above)
 # The start of the land carry rule's reason: pr_router.land_status posts success for a head whose reason starts so.
 CARRY_REASON = "land tier carried"
 # The full-ci base merge carry rule's reasons: FULL_CARRY_REASON for a workflow that runs nothing (pr_router.land_status
@@ -380,6 +394,21 @@ def land_status_at(repo: str, sha: str, token: str) -> str | None:
     return states[0] if states else ""  # the combined status lists each context's newest status once
 
 
+def land_pulse(event: dict, switch: str | None = None) -> bool:
+    """Land pulse rule: whether EVENT is land's `full-ci` pulse on a ready-to-land head into feat-cmux-next, which routes
+    as `ready-to-land` added (the module docstring): a `labeled` event adding `full-ci` to a ready pull request from
+    this repository whose payload carries `ready-to-land` and no longer `full-ci` (taken off at once, as the pulse
+    does; one kept on is a request for the full tier), with SWITCH (default $CI_FULL_CI_LAND_PULSE) on."""
+    on = os.environ.get(LAND_PULSE_VAR, "1") if switch is None else switch
+    if (on or "1").strip() == "0" or event.get("action") != "labeled":
+        return False
+    if str((event.get("label") or {}).get("name") or "") != FULL_CI or not land_rule_applies(event):
+        return False
+    pr = event.get("pull_request") or {}
+    payload = {str(label.get("name") or "") for label in pr.get("labels") or []}
+    return LAND_LABEL in payload and FULL_CI not in payload
+
+
 def labels_of(event: dict) -> set[str]:
     """The PR's labels for EVENT: the payload's list, plus the label a `labeled` event added. GitHub fills the payload's
     list when it sends the event, not when the label went on, so a label taken off right after (land-judge's full-ci
@@ -388,6 +417,8 @@ def labels_of(event: dict) -> set[str]:
     pipeline, and land-judge refused matrix_missing again; every lane VM land of an iOS link PR stopped there."""
     pr = event.get("pull_request") or {}
     labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
+    if land_pulse(event):
+        return labels  # land's own handoff: its full-ci is already off again, so it routes as ready-to-land added
     if event.get("action") == "labeled":
         added = str((event.get("label") or {}).get("name") or "")
         if added:
@@ -459,8 +490,9 @@ def same_head_rule_applies(event: dict, switch: str = "1") -> bool:
     `labeled` event) to a ready head into feat-cmux-next from this repository (land_rule_applies), no `full-ci` on the
     PR, switch on."""
     added = str((event.get("label") or {}).get("name") or "")
-    return ((switch or "1").strip() != "0" and event.get("action") == "labeled" and added == LAND_LABEL
-            and FULL_CI not in labels_of(event) and land_rule_applies(event))
+    return ((switch or "1").strip() != "0" and event.get("action") == "labeled"
+            and (added == LAND_LABEL or land_pulse(event)) and FULL_CI not in labels_of(event)
+            and land_rule_applies(event))
 
 
 def same_head_carried(decided: tuple[str, str]) -> bool:
