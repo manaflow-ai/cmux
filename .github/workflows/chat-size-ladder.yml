@@ -12,10 +12,10 @@ name: chat-size ladder
 # Advisory: not a required check; a slower head never fails the job (the numbers are the product). The job fails
 # only when a run measures nothing.
 #
-# Once per merged change, not per PR head (Leo, 2026-11-26: "de facto, im asking for 99% fewer minutes of ci time,
+# On feat-cmux-next, not per PR head (Leo, 2026-11-26: "de facto, im asking for 99% fewer minutes of ci time,
 # period."): every PR head that touched acpmux ran two release builds and two 1 GB chats, about 57 runner-min per
-# merged cmux PR on 11-28 06:30-09:30Z, and 48 of 60 such runs failed. The push to feat-cmux-next measures each
-# merged change against its parent; a pull request gets a run only when the `full-ci` label is added, and
+# merged cmux PR on 11-28 06:30-09:30Z, and 48 of 60 such runs failed. The push to feat-cmux-next measures the newest
+# merged change against its parent (a newer merge replaces a running one); a pull request gets a run only when the `full-ci` label is added, and
 # workflow_dispatch measures any ref on demand.
 
 on:
@@ -51,8 +51,9 @@ on:
         type: string
 
 concurrency:
-  # A newer push to the same pull request or branch replaces its older ladder.
-  group: chat-size-ladder-${{ github.event.pull_request.number || github.ref }}
+  # A newer push to the same branch, or a newer full-ci add on the same pull request, replaces its older ladder.
+  # The label is in the group so adding some other label (its run skips the job) never cancels a full-ci run.
+  group: chat-size-ladder-${{ github.event.pull_request.number || github.ref }}-${{ github.event.label.name }}
   cancel-in-progress: true
 
 permissions:
