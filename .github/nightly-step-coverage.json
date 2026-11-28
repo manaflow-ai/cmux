@@ -223,7 +223,7 @@
         "Restore pinned Bun 1.4.4 from the CI cache bucket": {"plumbing": true, "note": "local script: restores the pinned toolchain from the CI cache bucket (scripts/ci/toolchain-r2.sh), continue-on-error, the setup action after it still installs; no product check"},
         "Restore pinned Node 24.22.1 from the CI cache bucket": {"plumbing": true, "note": "local script: restores the pinned toolchain from the CI cache bucket (scripts/ci/toolchain-r2.sh), continue-on-error, the setup action after it still installs; no product check"},
         "Give git this job's token (self-hosted Macs get 403 on anonymous reads)": {"nightly_only": "gives git the job token on the self-hosted Macs, which get 403 on anonymous reads; pull requests run on hosted runners (tests/test_nightly_git_token_env.py)"},
-        "Webview checks on the build commit": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly publishes no red webview tree and no known-bad commit", "note": "the same fast_gate_webviews_checks.py pieces run on every feat-cmux-next pull request in ci-web.yml react-apps-check (1); this test pins that the nightly runs them on its build commit and that publication waits for them"},
+        "Webview checks on the build commit": {"table": "webviews-typecheck", "note": "the whole-tree type check (the piece that blocks here) runs on a landing head that touches webviews (ci/steps.toml webviews-typecheck); the lint-class pieces run in ci-web.yml react-apps-check (1) and are fixed forward"},
         "Report the lint-class webview checks": {"pr": "ci-guards.yml:workflow-guard-tests:Validate lint-class webview checks are fixed forward on the nightly"},
         "Hand a type error with no machine fix to fixit-handoff": {"nightly_only": "writes fixit-compile's no-fix record to this job's outputs for the fixit-handoff job (scripts/ci/oops/fixit_handoff.py signal; tests/test_ci_fixit_handoff.py)"}},
       "early-nightly-webviews": {
@@ -445,9 +445,7 @@
       "keep-published-dsyms": {
         "Give git this job's token (self-hosted Macs get 403 on anonymous reads)": {"nightly_only": "gives git the job token on the self-hosted Macs, which get 403 on anonymous reads; pull requests run on hosted runners (tests/test_nightly_git_token_env.py)"},
         "Download the published build's dSYMs from the run that compiled it (parallel)": {"plumbing": true, "note": "a ranged, digest-checked download (download-run-artifact.py, tests/test_download_run_artifact_modes.py); download-artifact stays the fallback"},
-        "Hold the whole Mac before any credential": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
         "Clean this job's workdir on an owned Mac": {"pr": "ci-guards.yml:workflow-guard-tests:Validate every nightly job runs on our own Mac minis and the publishers hold the whole Mac"},
-        "Claim the whole Mac for signing": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
         "Wipe this job's credentials and files from the owned Mac": {"pr": "ci-guards.yml:workflow-guard-tests:Validate every nightly job runs on our own Mac minis and the publishers hold the whole Mac"},
         "Mint the release App token for this job's gh calls": {"nightly_only": "mints release GitHub App token"},
         "Send this job's gh calls as the release App, github.token as the fallback": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly publish jobs send gh calls as the release App first"},
@@ -556,8 +554,14 @@
         "Point the deltas job at the keyless prebuild": {"plumbing": true},
         "Wipe this job's credentials and temp files": {"plumbing": true},
         "Remove this job's checkout, DMG and deltas": {"plumbing": true}},
+      "restore-historical-notes": {
+        "Take the nightly-next publish lease": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next feed writers' R2 lease"},
+        "Restore and verify the public signed pair": {"nightly_only": "a workflow_dispatch on nightly-next with a restore provenance input writes archived signed notes back to the nightly-next R2 bucket with its release-next secrets (scripts/ci/nightly-notes-restore.py, #62726); a pull request holds no R2 write credentials"},
+        "Release the nightly-next publish lease": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next feed writers' R2 lease"}},
       "nightly-next-one": {
         "Hand the deltas job its inputs": {"plumbing": true},
+        "Restore pinned Bun 1.4.4 from the CI cache bucket": {"plumbing": true, "note": "local script: restores the pinned toolchain from the CI cache bucket (scripts/ci/toolchain-r2.sh), continue-on-error, the setup action after it still installs; no product check (#58009)"},
+        "Restore pinned Node 24.22.1 from the CI cache bucket": {"plumbing": true, "note": "local script: restores the pinned toolchain from the CI cache bucket (scripts/ci/toolchain-r2.sh), continue-on-error, the setup action after it still installs; no product check (#58009)"},
         "Start building in-tree acpmux for the compilation cache": {"pr": "cmux-next.yml:cmux-scheme-compile:Build in-tree acpmux for the app bundle", "note": "split into a start and a finish step around the other build steps (#56668)"},
         "Finish building in-tree acpmux for the compilation cache": {"pr": "cmux-next.yml:cmux-scheme-compile:Build in-tree acpmux for the app bundle", "note": "split into a start and a finish step around the other build steps (#56668)"},
         "Hand the Mac to a newer nightly-next push after the feed": {"nightly_only": "releases the signing Mac to a newer nightly-next push once the feed is written (scripts/ci/nightly-steps/newer-push-waiting.sh); pull requests run no nightly-next"},
