@@ -527,3 +527,15 @@ fn a_rule_request_round_trips_through_json() {
         json!({"drawn": [{"index": 0, "depth": 0}, {"index": -1, "depth": 1}]})
     );
 }
+
+#[test]
+fn runs_cut_at_each_top_level_entry() {
+    // Moved from Swift's SidebarLineageNestingTests when the run cut moved here (#64419).
+    let cut = runs(&entries(&[(0, 0), (1, 1), (2, 2), (3, 0), (4, 1), (5, 0)]));
+    let indices: Vec<Vec<i64>> =
+        cut.iter().map(|run| run.iter().map(|e| e.index).collect()).collect();
+    assert_eq!(indices, vec![vec![0, 1, 2], vec![3, 4], vec![5]]);
+    // A nested entry with nothing before it starts its own run.
+    assert_eq!(runs(&entries(&[(0, 1), (1, 0)])).len(), 2);
+    assert!(runs(&[]).is_empty());
+}
