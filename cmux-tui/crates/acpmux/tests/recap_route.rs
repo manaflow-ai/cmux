@@ -8,6 +8,9 @@
 //! that runs the stand-in ACP agent for the chat's turns and, called as `opencode run` (the
 //! headless recipe), answers with the endpoint its environment names.
 
+// Its harnesses are shell scripts made executable with Unix permissions.
+#![cfg(unix)]
+
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // This process runs stand-in agents (fake_agent.py behind a shell script).
@@ -128,11 +131,8 @@ async fn chat_with(name: &str, env: Value, setup: impl FnOnce(&Path) -> Value) -
         ),
     )
     .unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
     let harnesses = setup(&root);
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": harnesses,
