@@ -2,10 +2,7 @@
 // clip must refresh on that pass, even when every supplied row top stays unchanged.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { Window } from "happy-dom";
-import {
-  createTailGlide,
-  type PlacedRows,
-} from "../src/agent-session/acpmux/conversation/tailGlide";
+import { createTailGlide, type PlacedRows } from "../src/agent-session/acpmux/conversation/tailGlide";
 
 class FakeAnimation extends EventTarget {
   playState: "running" | "paused" | "finished" | "idle" = "running";
@@ -32,9 +29,7 @@ class FakeAnimation extends EventTarget {
 
 const dom = new Window();
 const names = ["Element", "HTMLElement"] as const;
-const saved = names.map(
-  (name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const,
-);
+const saved = names.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const);
 beforeAll(() => {
   for (const name of names)
     Object.defineProperty(globalThis, name, {
@@ -50,23 +45,16 @@ afterAll(() => {
 });
 
 type Row = HTMLElement & { animations: FakeAnimation[] };
-const active = (animation: FakeAnimation) =>
-  animation.playState === "running" || animation.playState === "paused";
+const active = (animation: FakeAnimation) => animation.playState === "running" || animation.playState === "paused";
 const translate = (row: Row) =>
   String(
-    row.animations.findLast(
-      (animation) => active(animation) && "translate" in animation.keyframes[0]!,
-    )?.keyframes[0]!.translate ?? "none",
+    row.animations.findLast((animation) => active(animation) && "translate" in animation.keyframes[0]!)?.keyframes[0]!
+      .translate ?? "none",
   );
-const drawnTop = (row: Row) =>
-  row.offsetTop + (Number.parseFloat(translate(row).split(" ")[1] ?? "0") || 0);
+const drawnTop = (row: Row) => row.offsetTop + (Number.parseFloat(translate(row).split(" ")[1] ?? "0") || 0);
 const clipBottom = (row: Row) => {
-  const clip = row.animations.findLast(
-    (animation) => active(animation) && "clipPath" in animation.keyframes[0]!,
-  );
-  return Number.parseFloat(
-    String(clip?.keyframes[0]!.clipPath ?? "inset(0px 0px 0px 0px)").split(" ")[2]!,
-  );
+  const clip = row.animations.findLast((animation) => active(animation) && "clipPath" in animation.keyframes[0]!);
+  return Number.parseFloat(String(clip?.keyframes[0]!.clipPath ?? "inset(0px 0px 0px 0px)").split(" ")[2]!);
 };
 const view = {
   getComputedStyle: (row: Row) => ({
@@ -94,10 +82,10 @@ function row(id: string, top: number, height: number): Row {
   return node as unknown as Row;
 }
 
-test("a height-only pass refreshes an active upper clip and releases it when the lower glide finishes", () => {
+function started(lowerWas = 60, upperHeight = 80) {
   const anchor = row("anchor", 0, 20);
   const upper = row("upper", 20, 40);
-  const lower = row("lower", 60, 30);
+  const lower = row("lower", lowerWas, 30);
   const rows = [anchor, upper, lower];
   const thread = {
     ownerDocument: doc,
@@ -113,32 +101,73 @@ test("a height-only pass refreshes an active upper clip and releases it when the
     mounted: [{ first: 0, last: rows.length }],
   });
   const glide = createTailGlide();
-  const place = (layout: PlacedRows) =>
-    glide.place(thread, true, "anchor", true, undefined, undefined, layout);
+  const place = (layout: PlacedRows) => glide.place(thread, true, "anchor", true, undefined, undefined, layout);
+  place(placed([0, 20, lowerWas], [20, 40, 30]));
+  (upper as { offsetHeight: number }).offsetHeight = upperHeight;
+  (lower as { offsetTop: number }).offsetTop = 120;
+  const layout = placed([0, 20, 120], [20, upperHeight, 30]);
+  place(layout);
+  return { upper, lower, rows, glide, layout, place };
+}
+
+for (const stage of [
+  {
+    name: "refreshes an existing clip",
+    lowerWas: 60,
+    upperHeight: 80,
+    grownHeight: 100,
+    initialClip: 40,
+  },
+  {
+    name: "adds a clip after an initially clear row grows",
+    lowerWas: 80,
+    upperHeight: 40,
+    grownHeight: 80,
+    initialClip: 0,
+  },
+]) {
+  test(`a height-only pass ${stage.name} and releases clipping on completion`, () => {
+    const { upper, lower, rows, glide, layout, place } = started(stage.lowerWas, stage.upperHeight);
+    try {
+      expect(clipBottom(upper)).toBe(stage.initialClip);
+      expect(drawnTop(lower)).toBe(stage.lowerWas);
+
+      // The DOM grows while the virtualizer still supplies exactly the same placement.
+      (upper as { offsetHeight: number }).offsetHeight = stage.grownHeight;
+      place(layout);
+      const visibleBottom = drawnTop(upper) + upper.offsetHeight - clipBottom(upper);
+      const lowerTop = drawnTop(lower);
+      console.log(
+        `tail-glide-height-refresh ${JSON.stringify({ case: stage.name, visibleBottom, lowerTop, overlap: visibleBottom - lowerTop, clip: clipBottom(upper) })}`,
+      );
+      expect(visibleBottom).toBeLessThanOrEqual(lowerTop);
+
+      // Browser animations on this clock finish together, including the independent clip.
+      const playing = rows.flatMap((node) => node.animations.filter(active));
+      for (const animation of playing) if (active(animation)) animation.finish();
+      expect(clipBottom(upper)).toBe(0);
+      expect(rows.flatMap((node) => node.animations.filter(active))).toHaveLength(0);
+      expect(glide.moving()).toBe(false);
+      expect(upper.offsetTop + upper.offsetHeight).toBeLessThanOrEqual(lower.offsetTop);
+    } finally {
+      glide.stop();
+    }
+  });
+}
+
+test("a pass with unchanged placement and DOM geometry preserves active animation identities", () => {
+  const { rows, glide, layout, place } = started();
   try {
-    place(placed([0, 20, 60], [20, 40, 30]));
-    (upper as { offsetHeight: number }).offsetHeight = 80;
-    (lower as { offsetTop: number }).offsetTop = 120;
-    const layout = placed([0, 20, 120], [20, 80, 30]);
+    const animations = rows.flatMap((node) => node.animations.filter(active));
+    expect(animations).toHaveLength(2);
+    for (const animation of animations) animation.currentTime = 23;
     place(layout);
-    expect(clipBottom(upper)).toBe(40);
-    expect(drawnTop(lower)).toBe(60);
-
-    // The DOM grows another line while the virtualizer still supplies the same placement.
-    (upper as { offsetHeight: number }).offsetHeight = 100;
-    place(layout);
-    const visibleBottom = drawnTop(upper) + upper.offsetHeight - clipBottom(upper);
-    const lowerTop = drawnTop(lower);
-    console.log(
-      `tail-glide-height-refresh ${JSON.stringify({ visibleBottom, lowerTop, overlap: visibleBottom - lowerTop, clip: clipBottom(upper) })}`,
-    );
-    expect(visibleBottom).toBeLessThanOrEqual(lowerTop);
-
-    for (const animation of lower.animations.filter(active)) animation.finish();
-    expect(clipBottom(upper)).toBe(0);
-    expect(upper.animations.filter(active)).toHaveLength(0);
-    expect(glide.moving()).toBe(false);
-    expect(upper.offsetTop + upper.offsetHeight).toBeLessThanOrEqual(lower.offsetTop);
+    const after = rows.flatMap((node) => node.animations.filter(active));
+    expect(after).toHaveLength(animations.length);
+    for (let index = 0; index < animations.length; index++) {
+      expect(after[index]).toBe(animations[index]);
+      expect(after[index]!.currentTime).toBe(23);
+    }
   } finally {
     glide.stop();
   }

@@ -226,6 +226,9 @@ export function createTailGlide(): TailGlide {
   let rested: (() => void) | undefined;
   /// The glide and the clip playing on each row.
   const onRow = new Map<HTMLElement, Animation[]>();
+  // The bounded span read for the active glide, including rows initially clear of it. A row's
+  // content can settle before the virtualizer publishes new tops; that must refresh clearance too.
+  let clearance: { row: HTMLElement; id: string; top: number; bottom: number }[] = [];
   /// Each glide's row (a clip is no glide: it ends with the glides it guards, never on its own).
   const glides = new WeakMap<Animation, HTMLElement>();
   /// The clips each glide guards against, by the glide itself (never by its row): a glide that ends
@@ -253,6 +256,7 @@ export function createTailGlide(): TailGlide {
     else onRow.set(row, [animation]);
     const done = () => {
       const ended = playing.delete(animation) && playing.size === 0;
+      if (ended) clearance = [];
       const left = onRow.get(row)?.filter((other) => other !== animation);
       if (left?.length) onRow.set(row, left);
       else onRow.delete(row);
@@ -355,6 +359,7 @@ export function createTailGlide(): TailGlide {
     onRow.clear();
     guards.clear();
     clips.clear();
+    clearance = [];
     last = undefined;
     if (had) rested?.();
   };
@@ -428,7 +433,14 @@ export function createTailGlide(): TailGlide {
       // (a streamed token moves none, or only the rows under the row that grew; Leo, 2026-11-04:
       // "never ... acceptable ... linear time growth degradation"). A row the last pass did not mount
       // is not moved (it was drawn nowhere), as one that arrived.
-      type Part = { row: HTMLElement; id: string; top: number; bottom: number; moved: number; start: number };
+      type Part = {
+        row: HTMLElement;
+        id: string;
+        top: number;
+        bottom: number;
+        moved: number;
+        start: number;
+      };
       const moving: { id: string; moved: number; held: number }[] = [];
       for (const { first, last: end } of now.placed.mounted)
         for (let index = Math.max(first, toIndex); index < end; index++) {
@@ -444,7 +456,22 @@ export function createTailGlide(): TailGlide {
           const held = carry && !carry.used && carry.id === id ? carry.y : 0;
           if (moved !== 0 || held) moving.push({ id, moved, held });
         }
-      if (!moving.length) return;
+      if (!moving.length) {
+        for (const part of clearance) {
+          const index = now.placed.indexOf(part.id);
+          if (
+            index < 0 ||
+            !isMounted(now.placed, index) ||
+            part.id === pinned ||
+            rowOf(thread, now.placed, part.id) !== part.row
+          )
+            continue;
+          const top = part.row.offsetTop;
+          if (top !== part.top || top + part.row.offsetHeight !== part.bottom)
+            moving.push({ id: part.id, moved: 0, held: 0 });
+        }
+        if (!moving.length) return;
+      }
       // Read from the page now: the rows that move, each row still gliding from an earlier pass (it
       // starts again from where it is drawn, on this pass's clock, so the whole tail moves as one), and
       // below, the rows that lie across where those start.
@@ -538,8 +565,8 @@ export function createTailGlide(): TailGlide {
         const low = Math.min(...indices);
         const high = Math.max(...indices);
         for (let index = low - 1; index >= 0; index--) {
-          if (now.placed.topAt(index) + now.placed.heightAt(index) <= reach - SPAN_SLACK_PX) break;
           take(index);
+          if (now.placed.topAt(index) + now.placed.heightAt(index) <= reach - SPAN_SLACK_PX) break;
         }
         for (let index = low + 1; index < high; index++) take(index);
         for (let index = high + 1; index < now.placed.mounted.at(-1)!.last; index++) {
@@ -550,6 +577,9 @@ export function createTailGlide(): TailGlide {
       const laid = [...still.filter((part) => part.bottom > reach), ...parts]
         .filter((part) => part.bottom > part.top)
         .sort((a, b) => a.top - b.top);
+      // Keep the first clear predecessor too: its next line can reach this glide before the
+      // placement changes. It does not join the clipping sweep until its actual box reaches it.
+      clearance = slides.size ? [...still, ...parts] : [];
       for (let index = 0; index < laid.length; index++) {
         const upper = laid[index]!;
         const over: { glide?: Animation; by: number }[] = [];
