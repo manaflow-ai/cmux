@@ -895,15 +895,40 @@ struct DemoDriver {
         step("plan done")
     }
 
+    /// The live demos' workspace: one with a terminal tab on a Mac this phone links, with that Mac
+    /// focused and its link up. The pair-e2e staging account lists other rigs' Macs too (each rig's
+    /// is "0 e2e rig Mac"), and the focused one (the first online) need not be this rig's: waiting on
+    /// the focused link alone read "no link" for 120 s while this rig's Mac served the phone its
+    /// theme and upload (pair-e2e runs 46073766467, 46139550855, 46171883432).
+    private func liveTerminalWorkspace(_ demo: String) async -> Workspace? {
+        let linked = { [shell] (ws: Workspace) in
+            shell.live?.isLinked(macID: ws.macID) == true && ws.tabs.contains { $0.kind == .terminal }
+        }
+        guard await until(120, { shell.store.workspaces.contains(where: linked) }),
+              let ws = shell.store.workspaces.first(where: linked), let live = shell.live else {
+            let connected = shell.live?.link.phase.isConnected == true
+            step("\(demo) \(connected ? "no terminal" : "no link"): focused \(shell.live?.focusedMacID ?? "none"), "
+                + "linked \(shell.live?.linkedMacIDs.sorted().joined(separator: ",") ?? "-"), "
+                + "\(shell.store.workspaces.count) workspace(s)")
+            return nil
+        }
+        let was = live.focusedMacID ?? "none"
+        if live.focusedMacID != ws.macID { live.select(macID: ws.macID) }
+        guard await until(60, { live.focusedMacID == ws.macID && live.link.phase.isConnected }) else {
+            step("\(demo) no link: \(ws.macID) not focused and up (focused \(live.focusedMacID ?? "none"), was \(was))")
+            return nil
+        }
+        step("\(demo) mac \(ws.macID), focused before \(was), \(live.linkedMacIDs.count) linked")
+        return ws
+    }
+
     /// Live end to end (real Mac): the paired Mac's first terminal, with its colors printed in it,
     /// so a capture shows the terminal in that Mac's terminal theme (`cmux_next_pair_e2e.py --theme`).
     private func liveTerminal() async {
         step("live-terminal start")
         shell.tab = .workspaces
-        guard await until(120, { shell.live?.link.phase.isConnected == true }) else { return step("live-terminal no link") }
-        guard await until(60, { shell.store.workspaces.contains { $0.tabs.contains { $0.kind == .terminal } } }),
-              let ws = shell.store.workspaces.first(where: { $0.tabs.contains { $0.kind == .terminal } }),
-              let tab = ws.tabs.first(where: { $0.kind == .terminal }) else { return step("live-terminal no terminal") }
+        guard let ws = await liveTerminalWorkspace("live-terminal"),
+              let tab = ws.tabs.first(where: { $0.kind == .terminal }) else { return }
         shell.store.requestOpen(tabID: tab.id, in: ws.id)
         shell.workspacesPath = [ws]
         await pause(2)
@@ -932,10 +957,8 @@ struct DemoDriver {
         step("live-attach start")
         guard let path = UserDefaults.standard.string(forKey: "CmuxMobileAttachE2EFile") else { return step("live-attach no file") }
         shell.tab = .workspaces
-        guard await until(120, { shell.live?.link.phase.isConnected == true }) else { return step("live-attach no link") }
-        guard await until(60, { shell.store.workspaces.contains { $0.tabs.contains { $0.kind == .terminal } } }),
-              let ws = shell.store.workspaces.first(where: { $0.tabs.contains { $0.kind == .terminal } }),
-              let tab = ws.tabs.first(where: { $0.kind == .terminal }) else { return step("live-attach no terminal") }
+        guard let ws = await liveTerminalWorkspace("live-attach"),
+              let tab = ws.tabs.first(where: { $0.kind == .terminal }) else { return }
         shell.store.requestOpen(tabID: tab.id, in: ws.id)
         shell.workspacesPath = [ws]
         await pause(2)
