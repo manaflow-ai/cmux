@@ -14,6 +14,9 @@ extension SessionIndexStore {
         let reasoningEffort: String?
         let firstUserMessage: String
         let updatedMs: Int64
+        /// Codex's launch surface (`cli`, `exec`, `vscode`, ...), exposed to
+        /// Vault filters as the session's entrypoint.
+        let source: String?
 
         var normalizedRolloutPath: String? {
             let trimmed = rolloutPath.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -56,10 +59,12 @@ extension SessionIndexStore {
         }
         defer { sqlite3_close(db) }
 
+        // Older state databases predate the `source` column.
+        let sourceColumn = sqliteTableHasColumn(db, table: "threads", column: "source") ? "source" : "NULL"
         var sql = """
             SELECT id, rollout_path, cwd, title, model, git_branch,
                    approval_mode, sandbox_policy, reasoning_effort,
-                   first_user_message, updated_at_ms
+                   first_user_message, updated_at_ms, \(sourceColumn)
             FROM threads
             WHERE archived = 0
             """
@@ -104,7 +109,8 @@ extension SessionIndexStore {
                 sandboxJSON: sqliteText(stmt, 7),
                 reasoningEffort: sqliteText(stmt, 8),
                 firstUserMessage: sqliteText(stmt, 9) ?? "",
-                updatedMs: sqlite3_column_int64(stmt, 10)
+                updatedMs: sqlite3_column_int64(stmt, 10),
+                source: sqliteText(stmt, 11)
             ))
         }
         guard !needle.isEmpty else {
@@ -159,6 +165,24 @@ extension SessionIndexStore {
     }
     #endif
 
+    nonisolated private static func sqliteTableHasColumn(
+        _ db: OpaquePointer,
+        table: String,
+        column: String
+    ) -> Bool {
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "PRAGMA table_info(\(table))", -1, &stmt, nil) == SQLITE_OK,
+              let stmt else {
+            sqlite3_finalize(stmt)
+            return false
+        }
+        defer { sqlite3_finalize(stmt) }
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            if sqliteText(stmt, 1) == column { return true }
+        }
+        return false
+    }
+
     nonisolated private static func codexEntry(from record: CodexThreadRecord) -> SessionEntry {
         let sandboxMode = record.sandboxJSON
             .flatMap { $0.data(using: .utf8) }
@@ -180,6 +204,7 @@ extension SessionIndexStore {
             agent: .codex,
             sessionId: record.sessionId,
             title: displayTitle,
+            entrypoint: record.source?.isEmpty == false ? record.source : nil,
             cwd: record.cwd,
             gitBranch: record.gitBranch?.isEmpty == false ? record.gitBranch : nil,
             pullRequest: nil,
