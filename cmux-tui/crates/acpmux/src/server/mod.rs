@@ -32,7 +32,6 @@ pub use windows_socket::{UnixListener, bind_unix, router_admin, serve_unix};
 // requests that each add a module touch different lines and merge without a conflict.
 mod account_sign_in;
 mod accounts;
-mod asks;
 #[cfg(test)]
 #[path = "ack_latency_bench.rs"]
 mod ack_latency_bench;
@@ -44,6 +43,7 @@ mod agent_login;
 mod agent_messages;
 mod app_assets;
 mod app_reply;
+mod asks;
 #[cfg(test)]
 mod attach_latency_bench;
 mod auto_gate;

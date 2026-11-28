@@ -92,6 +92,8 @@ mod history;
 pub(crate) mod pr;
 /// `pr_state`'s parse of a pull request, which the daemon's poller reads too (`pr_poller.rs`).
 pub(crate) use pr::pr_state;
+#[path = "acpmux_mcp_asks.rs"]
+mod asks;
 #[path = "acpmux_mcp_control.rs"]
 mod control;
 #[path = "acpmux_mcp_look.rs"]
@@ -114,8 +116,6 @@ mod start;
 mod watch;
 #[path = "acpmux_mcp_who_else.rs"]
 mod who_else;
-#[path = "acpmux_mcp_asks.rs"]
-mod asks;
 #[path = "acpmux_mcp_wrap_up.rs"]
 mod wrap_up;
 /// The box a wrap-up call draws, built from the call's own input (`code_mode.rs` records it as a
