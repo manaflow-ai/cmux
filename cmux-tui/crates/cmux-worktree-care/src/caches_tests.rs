@@ -292,3 +292,64 @@ fn protected_descendants_keep_their_parent_even_after_scan() {
         assert!(!sibling.exists());
     }
 }
+
+/// A Rust checkout at `dir` with a build folder.
+fn checkout_with_target(dir: &Path) -> PathBuf {
+    std::fs::create_dir_all(dir.join(".git")).unwrap();
+    std::fs::write(dir.join("Cargo.toml"), "[package]\n").unwrap();
+    let target = dir.join("target");
+    std::fs::create_dir_all(target.join("debug")).unwrap();
+    std::fs::write(target.join("debug/app"), b"bin").unwrap();
+    target
+}
+
+/// First-run findings, new row (clean macOS 26 VM): the daemon's startup cleanup pass listed
+/// every folder in the home folder and read inside each, so a new Mac's first launch raised
+/// macOS's Desktop, Documents and Downloads prompts one after another, "A program running within
+/// cmux would like to access files in your Desktop folder", before the person did anything
+/// (LAUNCH-NO-TCC-PROMPTS). The build-folder search never reads inside a folder macOS guards
+/// (data/protected-folders.json in acpmux), nor treats one as a checkout; a checkout elsewhere
+/// in the home folder is still found.
+#[test]
+fn the_build_folder_search_never_reads_inside_a_folder_macos_guards() {
+    let home = scratch("caches-guarded");
+    let found = checkout_with_target(&home.join("code/app"));
+    let top = checkout_with_target(&home.join("site"));
+    let mut guarded = Vec::new();
+    for name in ["Desktop", "Documents", "Downloads", "Pictures", "Movies", "Music"] {
+        guarded.push(checkout_with_target(&home.join(name).join("app")));
+    }
+    // A guarded folder that is itself a checkout, and one two levels down in Library.
+    guarded.push(checkout_with_target(&home.join("Documents")));
+    guarded.push(checkout_with_target(&home.join("Library/Mobile Documents/app")));
+    let families = default_families(&home);
+    let build = families.iter().position(|f| f.name == "checkout-build-dirs").unwrap();
+    let paths: Vec<PathBuf> =
+        entries(&families).into_iter().filter(|e| e.family == build).map(|e| e.path).collect();
+    assert!(paths.contains(&found), "{paths:?}");
+    assert!(paths.contains(&top), "{paths:?}");
+    for path in &guarded {
+        assert!(!paths.contains(path), "read inside a guarded folder: {path:?}");
+    }
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+/// The guarded folders are acpmux's one list, read whole: a folder in it and one inside it are
+/// guarded, the home folder's other folders are not, and a name that only starts like one is not.
+#[test]
+fn guarded_folders_follow_the_one_protected_folder_list() {
+    let home = Path::new("/Users/someone");
+    for guarded in [
+        "Desktop",
+        "Documents/app",
+        "Downloads",
+        "Library/Mobile Documents",
+        "Library/Containers/x",
+    ] {
+        assert!(guarded_folder(home, &home.join(guarded)), "{guarded}");
+    }
+    for open in ["code", "Library", "Desktopper", "site/Documents"] {
+        assert!(!guarded_folder(home, &home.join(open)), "{open}");
+    }
+    assert!(!guarded_folder(home, Path::new("/elsewhere/Desktop")));
+}

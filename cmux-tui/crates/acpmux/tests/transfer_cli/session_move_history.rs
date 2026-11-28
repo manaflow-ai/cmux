@@ -118,6 +118,24 @@ async fn a_history_later_move_sends_a_second_export_only_what_the_target_lacks()
     let arrived = history_arrived(&there).expect("the target took the history");
     let through = arrived["msg"]["throughSeq"].clone();
     assert!(through.as_u64().unwrap() > 0, "{arrived}");
+    // Playable, then fully here (Leo, 11-25: "playable vs fully installed/downloaded"): one
+    // muted line when the chat runs on the target, one when its history arrived, in that order.
+    let notices: Vec<(u64, String)> = there
+        .iter()
+        .filter(|e| e["kind"] == "host_notice" && e["msg"]["source"] == "move")
+        .map(|e| (e["seq"].as_u64().unwrap(), e["msg"]["text"].as_str().unwrap().to_owned()))
+        .collect();
+    assert_eq!(notices.len(), 2, "{notices:?}");
+    assert!(notices[0].1.contains("still arriving"), "{notices:?}");
+    assert!(notices[1].1.starts_with("Earlier messages arrived ("), "{notices:?}");
+    let arrived_seq = arrived["seq"].as_u64().unwrap();
+    assert!(notices[0].0 < arrived_seq && arrived_seq < notices[1].0, "{notices:?}");
+    assert!(arrived["msg"]["waitedMs"].is_u64(), "{arrived}");
+    assert!(moved.stderr.contains("usable now, history follows"), "{}", moved.stderr);
+    // Fully here: Session Info no longer says the history is following.
+    let mut dst = Rpc::connect(&moved.target.socket).await;
+    let info = dst.call("_acpmux/info", json!({"sessionId": moved.id})).await;
+    assert!(info.get("historyFollowing").is_none(), "{info}");
     // "..., {sent} bytes sent for {raw} of log (...)" (`history_follows`).
     let words: Vec<&str> = line.split_whitespace().collect();
     let at = words.iter().position(|w| *w == "bytes").expect("bytes sent");
@@ -148,6 +166,7 @@ async fn a_history_later_move_to_an_older_target_moves_whole() {
     assert!(!moved.stderr.contains("history arrived"), "{}", moved.stderr);
     let there = whole_on_the_target(&moved).await;
     assert!(history_arrived(&there).is_none(), "no history followed");
+    assert!(!there.iter().any(|e| e["kind"] == "host_notice"), "a whole move says nothing");
 }
 
 /// A source one version older, a new target: the full pre-copy, and the same log there.
