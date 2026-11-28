@@ -69,6 +69,13 @@ for attempt in 1 2 3; do
   if [[ "$status" -ne 0 ]] && python3 ../scripts/cmux-next/cargo-locks.py explain "$log"; then
     exit "$status"
   fi
+  # A rustc error[E...] is the source, not the runner: every attempt fails it the same way, so it is never
+  # retried. Job 141050286394 (run 46168107258, 2026-11-28) recompiled an E0063 twice at fewer jobs and hit
+  # the step's 65-minute limit: the red came an hour late and no tree got its marker meanwhile.
+  if [[ "$status" -ne 0 ]] && grep -qE '^error\[E[0-9]+\]' "$log"; then
+    echo "::error::cmux_next_ daemon tests: the code does not compile (the rustc error above); not retried" >&2
+    exit "$status"
+  fi
   if [[ "$status" -eq 0 ]]; then
     if grep -qE 'test result: ok\. [1-9][0-9]* passed' "$log"; then
       break
