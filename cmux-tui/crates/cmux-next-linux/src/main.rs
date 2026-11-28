@@ -7,7 +7,9 @@ use std::os::unix::process::CommandExt;
 use std::process::{Child, ExitCode};
 use std::time::{Duration, Instant};
 
-use cmux_next_linux::{Command, ParseError, Plan, USAGE, Env, free_port, fresh_token, parse_args, plan};
+use cmux_next_linux::{
+    Command, Env, ParseError, Plan, USAGE, free_port, fresh_token, parse_args, plan,
+};
 
 fn main() -> ExitCode {
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
@@ -98,11 +100,15 @@ fn wait_for_port(port: u16, children: &mut Children, what: &str) -> std::io::Res
         }
         for child in &mut children.0 {
             if let Some(status) = child.try_wait()? {
-                return Err(std::io::Error::other(format!("a child exited ({status}) before the {what} listened")));
+                return Err(std::io::Error::other(format!(
+                    "a child exited ({status}) before the {what} listened"
+                )));
             }
         }
         if Instant::now() > deadline {
-            return Err(std::io::Error::other(format!("the {what} did not listen on {port} in 90 s")));
+            return Err(std::io::Error::other(format!(
+                "the {what} did not listen on {port} in 90 s"
+            )));
         }
         std::thread::sleep(Duration::from_millis(100));
     }
@@ -122,13 +128,10 @@ fn open_window(plan: &Plan, children: Children) -> std::io::Result<()> {
         .with_inner_size(tao::dpi::LogicalSize::new(1100.0, 780.0))
         .build(&event_loop)
         .map_err(std::io::Error::other)?;
-    let vbox = window
-        .default_vbox()
-        .ok_or_else(|| std::io::Error::other("the window has no GTK box"))?;
-    let webview = WebViewBuilder::new()
-        .with_url(&plan.url)
-        .build_gtk(vbox)
-        .map_err(std::io::Error::other)?;
+    let vbox =
+        window.default_vbox().ok_or_else(|| std::io::Error::other("the window has no GTK box"))?;
+    let webview =
+        WebViewBuilder::new().with_url(&plan.url).build_gtk(vbox).map_err(std::io::Error::other)?;
     let mut held = Some((window, webview, children));
     event_loop.run(move |event, _, flow| {
         *flow = ControlFlow::Wait;

@@ -322,11 +322,21 @@ mod tests {
     fn refuses_what_it_cannot_run() {
         let dir = fixture();
         let env = Env { path: None, ..env_with(&dir) };
-        assert!(matches!(parse_args(&[], &env), Err(ParseError::Message(m)) if m.contains("no acpmux")));
+        assert!(
+            matches!(parse_args(&[], &env), Err(ParseError::Message(m)) if m.contains("no acpmux"))
+        );
         let args = [OsString::from("--webviews"), dir.join("bin").into_os_string()];
-        assert!(matches!(parse_args(&args, &env_with(&dir)), Err(ParseError::Message(m)) if m.contains("not a webviews")));
-        assert!(matches!(parse_args(&["--cwd".into()], &env_with(&dir)), Err(ParseError::Message(_))));
-        assert!(matches!(parse_args(&["--bogus".into()], &env_with(&dir)), Err(ParseError::Message(_))));
+        assert!(
+            matches!(parse_args(&args, &env_with(&dir)), Err(ParseError::Message(m)) if m.contains("not a webviews"))
+        );
+        assert!(matches!(
+            parse_args(&["--cwd".into()], &env_with(&dir)),
+            Err(ParseError::Message(_))
+        ));
+        assert!(matches!(
+            parse_args(&["--bogus".into()], &env_with(&dir)),
+            Err(ParseError::Message(_))
+        ));
         assert_eq!(parse_args(&["--help".into()], &env_with(&dir)), Err(ParseError::Help));
     }
 
@@ -343,7 +353,17 @@ mod tests {
         let args: Vec<String> = p.daemon.args.iter().map(|a| a.to_string_lossy().into()).collect();
         assert_eq!(
             args,
-            ["daemon", "run", "--listen", "127.0.0.1:5001", "--token", "t0k", "--allow-dev-origin", "http://127.0.0.1:5002", "--dev"]
+            [
+                "daemon",
+                "run",
+                "--listen",
+                "127.0.0.1:5001",
+                "--token",
+                "t0k",
+                "--allow-dev-origin",
+                "http://127.0.0.1:5002",
+                "--dev"
+            ]
         );
         assert!(p.daemon.env.contains(&("ACPMUX_HOME".into(), "/h".into())));
         assert!(p.daemon.env.contains(&("ACPMUX_SOCKET".into(), "/h/acpmux.sock".into())));
