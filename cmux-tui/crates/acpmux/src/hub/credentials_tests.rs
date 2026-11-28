@@ -39,8 +39,8 @@ async fn recovery_hub() -> (tempfile::TempDir, Arc<Hub>) {
         let mut cfg = hub.config.write().await;
         let profile = cfg.harnesses.get_mut("claude-fake").unwrap();
         profile.argv = vec![launcher.display().to_string()];
-        let cli = serde_json::from_value(json!({"kind": "claude-stdio", "argv": [launcher]}))
-            .unwrap();
+        let cli =
+            serde_json::from_value(json!({"kind": "claude-stdio", "argv": [launcher]})).unwrap();
         cfg.harnesses.insert("claude".into(), cli);
     }
     (root, hub)
@@ -181,10 +181,7 @@ async fn an_adopted_agents_credential_is_held_again_for_its_next_start() {
     );
     // What a new daemon has of the session: no credential.
     *session.credential.lock().unwrap() = None;
-    assert!(
-        !hub.recover_credential(&session, Some((pid, start + 1))),
-        "a reused PID is refused"
-    );
+    assert!(!hub.recover_credential(&session, Some((pid, start + 1))), "a reused PID is refused");
     assert!(hub.recover_credential(&session, identity));
     assert_eq!(*session.credential.lock().unwrap(), Some(credential(FIRST)));
     // One the Mac sent since stays.
@@ -226,14 +223,9 @@ async fn a_host_report_cannot_restore_a_withdrawn_or_replaced_credential() {
         .await
         .unwrap();
     let report = |name: &str| {
-        vec![
-            (crate::agent_credentials::MARKER.into(), name.into()),
-            (name.into(), FIRST.into()),
-        ]
+        vec![(crate::agent_credentials::MARKER.into(), name.into()), (name.into(), FIRST.into())]
     };
-    assert!(
-        !hub.hold_launch_credential(&session, &report(crate::byo_endpoint::ANTHROPIC_KEY_ENV))
-    );
+    assert!(!hub.hold_launch_credential(&session, &report(crate::byo_endpoint::ANTHROPIC_KEY_ENV)));
     let report = report(CLAUDE_OAUTH);
     assert!(hub.hold_launch_credential(&session, &report));
     assert_eq!(*session.credential.lock().unwrap(), Some(credential(FIRST)));
@@ -681,10 +673,7 @@ async fn legacy_refresh_cannot_replace_a_bound_chatgpt_credential() {
             })
             .await
             .unwrap();
-        assert_eq!(
-            hub.update_credential(&session.id, fresh.clone(), true).await.is_ok(),
-            allowed
-        );
+        assert_eq!(hub.update_credential(&session.id, fresh.clone(), true).await.is_ok(), allowed);
         let held = session.credential.lock().unwrap();
         assert_eq!(held.as_ref(), Some(if allowed { &fresh } else { &initial }));
     }
@@ -704,7 +693,6 @@ async fn an_update_of_another_family_or_an_unknown_session_is_refused() {
     .unwrap();
     let e = hub.update_credential(&session.id, codex, false).await.unwrap_err();
     assert_eq!(e.data.unwrap()["reason"], "credentials.family");
-    let e =
-        hub.update_credential("no-such-session", credential(FIRST), false).await.unwrap_err();
+    let e = hub.update_credential("no-such-session", credential(FIRST), false).await.unwrap_err();
     assert_eq!(e.data.unwrap()["reason"], "credentials.no_session");
 }
