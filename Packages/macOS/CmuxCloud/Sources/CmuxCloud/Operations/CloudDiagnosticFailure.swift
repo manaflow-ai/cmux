@@ -57,7 +57,7 @@ public enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
             case .backendUnreachable: return .network
             case .malformedResponse: return .response
             case .disabledByManagedPolicy, .cloudMachinesDisabled: return .permission
-            case .lifecycleUnsupported: return .unsupported
+            case .lifecycleUnsupported, .sshEndpointUnsupported: return .unsupported
             case .httpStatus(let status, let body): return classify(status: status, body: body)
             }
         }

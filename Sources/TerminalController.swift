@@ -4402,6 +4402,16 @@ class TerminalController {
             if case VMClientError.lifecycleUnsupported = error {
                 return v2Error(id: id, code: "vm_operation_unsupported", message: String(describing: error))
             }
+            // The backend has no legacy SSH endpoint. The fallback code lets
+            // `cmux vm ssh` continue through the managed cmux-remote route.
+            if let vmError = error as? VMClientError, let backendCode = vmError.fallbackBackendCode {
+                return v2Error(
+                    id: id,
+                    code: "vm_operation_unsupported",
+                    message: String(describing: vmError),
+                    data: ["backend_code": backendCode]
+                )
+            }
             // Network policy refusals name the offending entry; the generic
             // Cloud VM line would hide which domain or range was wrong.
             if let editError = error as? CloudNetworkPolicyEditError {
@@ -4608,7 +4618,7 @@ class TerminalController {
             return true
         case .httpStatus(let status, _):
             return status == 401
-        case .sessionRefreshFailed, .backendUnreachable, .malformedResponse, .lifecycleUnsupported, .disabledByManagedPolicy, .cloudMachinesDisabled:
+        case .sessionRefreshFailed, .backendUnreachable, .malformedResponse, .lifecycleUnsupported, .sshEndpointUnsupported, .disabledByManagedPolicy, .cloudMachinesDisabled:
             return false
         }
     }
