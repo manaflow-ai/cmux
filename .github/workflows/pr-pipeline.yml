@@ -100,7 +100,7 @@ jobs:
     # Covers setup/tools, shared-step waves and every isolated step.
     # PipelineTest.test_the_job_timeout_covers_setup_and_every_wave derives
     # this bound from ci/steps.toml, including the default-grid detector.
-    timeout-minutes: 710
+    timeout-minutes: 1070
     permissions:
       contents: read
       # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.

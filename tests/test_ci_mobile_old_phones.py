@@ -178,5 +178,19 @@ class ResolveCacheTest(unittest.TestCase):
                 mop.resolve("o/r", "t", 3, Path(d) / "none.txt", fetch=self.refused)
 
 
+class CleanupTrapTest(unittest.TestCase):
+    """The EXIT trap runs under set -e: a helper that returns nonzero there ends cleanup early,
+    so registered phone devices are never deleted and an all-ok run exits 1."""
+
+    def test_stop_host_with_no_host_running_lets_cleanup_finish(self):
+        import subprocess
+        script = (ROOT / "scripts/ci/mobile-old-phones.sh").read_text()
+        stop = next(line for line in script.splitlines() if line.startswith("stop_host()"))
+        probe = f"set -euo pipefail\n{stop}\nafter() {{ stop_host; echo cleanup-finished; }}\ntrap after EXIT\nexit 0\n"
+        r = subprocess.run(["bash", "-c", probe], capture_output=True, text=True)
+        self.assertEqual(r.stdout.strip(), "cleanup-finished", r.stderr)
+        self.assertEqual(r.returncode, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

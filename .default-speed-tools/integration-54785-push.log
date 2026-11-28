@@ -1,3 +1,15 @@
 wt push: format: 1 changed Rust/web file(s)
 wt push: lane receipt: running the fast gates on 54785d10a7c2 merged with feat-cmux-next here, before the push (up to 1800 s; log /home/cmux/.cache/wt-push/receipts/54785d10a7c27bf7fa60dd923fc948dce41889f2.log). Green records a receipt the PR's gates take instead of re-running; WT_PUSH_RECEIPT=0 skips it
 wt push: lane receipt: fast gates green here in 582 s. ci-receipt: passed and recorded: lane receipt for head tree 3a574daf988e3397f6c443823c9095d3ceece83b on base efe2ac6cddb1 by lane:fs-agent-lane-28. Push this tree (any commit with it): the PR's fast gates take the receipt instead of re-running.
+{"started_at": "2026-11-28T12:02:43.297619+00:00", "checks": [{"name": "tier", "status": "deferred", "detail": "4s budget exhausted or no result"}], "head": "54785d10a7c27bf7fa60dd923fc948dce41889f2", "elapsed_ms": 4100.08, "status": "deferred"}
+pre-push: linting 54785d10a7c over 32f2e96aef7, less what 476d4df58d7 adds over ee957206f4e: 1 own commit(s), a merge: what HEAD adds over the upstream it merged, less what the other side already had; origin/feat-cmux-next could not be fetched (an earlier check of this push was stopped mid-fetch), so what a base merge brought in past this clone's copy counts as the push's own: run `git fetch origin feat-cmux-next` and push again
+pre-push: free memory 10.6 GiB is under 16 GiB; the type check and Oxlint are left to CI.
+prepush-gate: this host is loaded (load average at one runnable process per core or more): the scanners, ast-grep and SwiftLint are left to the pull request's fast-gates CI job, which runs them with the same refusal; every other check runs here.
+prepush-gate: judging 54785d10a7c over 32f2e96aef7, less what 476d4df58d7 adds over ee957206f4e: 1 own commit(s), a merge: what HEAD adds over the upstream it merged, less what the other side already had; origin/feat-cmux-next could not be fetched (an earlier check of this push was stopped mid-fetch), so what a base merge brought in past this clone's copy counts as the push's own: run `git fetch origin feat-cmux-next` and push again
+pre-push: cmux-next gate ran past its 180s limit (CMUX_PREPUSH_GATE_TIMEOUT_SECONDS); stopped it and every process it started. The push goes on; CI's `cmux-next checks` job checks it.
+pre-push: hook times: queue 0s, setup 1s, extras 0s, checks-refresh 1s, fast-tier 5s, web-lint 44s, cmux-next-gate 183s, base-merge-warning 5s; total 239s
+pre-push: passed. git now packs and uploads: a failure after this line is git or GitHub, not a check. Retry it as AGENTS.md says ("Retry a failed push": git push -q, at most 3 retries, 30, 60, then 120 s apart).
+To https://github.com/manaflow-ai/cmux.git (through lane-gh push)
+   54785d10a7c2  HEAD -> lane/phone-default-speed
+branch 'lane/phone-default-speed' set up to track 'origin/lane/phone-default-speed'.
+wt push: pushed: origin/lane/phone-default-speed is now 54785d10a7c2 (manaflow-ai/cmux)

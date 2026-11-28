@@ -19,7 +19,7 @@ import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, 
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
 import { carrierScrollProbe, parseScrollReport, scrollDetail, scrollNotes } from "./cloud-journey";
 import { sessionModelVerdict } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, deleteRetryable, requestTimedOut, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, machinesByState, FAILED_JOURNEY_MS, STALE_JOURNEY_MS, SHORT_JOURNEY_MS, LONG_JOURNEY_MS, KEPT_JOURNEY_MS, autoMachineName } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, deleteRetryable, requestTimedOut, IDLE_JOURNEY_MS, listAllMachines, listPageRetryable, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, machinesByState, FAILED_JOURNEY_MS, STALE_JOURNEY_MS, SHORT_JOURNEY_MS, LONG_JOURNEY_MS, KEPT_JOURNEY_MS, autoMachineName } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
 import { sameSurgeSlots, surgeMachineIds, SURGE_PROOF_REQUEST } from "./cloud-journey";
 import { idleHeldBy, idlePauseDeadlineMs, machineIdleSeconds } from "./cloud-journey";
@@ -959,9 +959,33 @@ describe("cloud journey: leaked machine sweep", () => {
     const asked: any[] = [];
     const rows = await listAllMachines(async (p) => { asked.push(p); return pages[String(p.cursor ?? "")]; });
     expect(rows.map((r) => r.id)).toEqual(["a", "b", "c"]);
-    expect(asked).toEqual([{ limit: 100 }, { limit: 100, cursor: "c1" }, { limit: 100, cursor: "c2" }]);
-    // A list that never ends is an error (the sweep then deletes nothing), not a partial sweep.
-    await expect(listAllMachines(async () => ({ machines: [], next_cursor: "again" }), 3)).rejects.toThrow("more than 3 pages");
+    expect(asked).toEqual([{ limit: 25 }, { limit: 25, cursor: "c1" }, { limit: 25, cursor: "c2" }]);
+    // A list that never ends is an error (the sweep then deletes nothing), not a partial sweep: 3 hundred-row pages'
+    // worth is 12 pages of 25.
+    await expect(listAllMachines(async () => ({ machines: [], next_cursor: "again" }), 3)).rejects.toThrow("more than 12 pages");
+  });
+
+  test("a list page that answers an owner reset or a timeout is asked again", async () => {
+    const reset = new Error('cloud.machine.list: HTTP 503 {"code":"owner.unreachable","message":"Error: Durable Object exceeded its CPU time limit and was reset.","retryable":true}');
+    let calls = 0;
+    const rows = await listAllMachines(async () => { if (++calls < 3) throw reset; return { machines: [{ id: "a" }], next_cursor: null }; }, 20, { pauseMs: 0 });
+    expect(rows.map((r) => r.id)).toEqual(["a"]);
+    expect(calls).toBe(3);
+    // A refusal is not asked again.
+    calls = 0;
+    await expect(listAllMachines(async () => { calls++; throw new Error('cloud.machine.list: HTTP 401 {"code":"auth.unauthenticated"}'); }, 20, { pauseMs: 0 })).rejects.toThrow("auth.unauthenticated");
+    expect(calls).toBe(1);
+    expect(listPageRetryable(new Error('cloud.machine.list: HTTP 0 {"code":"transport","message":"The operation timed out.","retryable":true}'))).toBe(true);
+  });
+
+  test("a sweep's list keeps the rows read when a later page still fails", async () => {
+    const timeout = new Error('cloud.machine.list: HTTP 0 {"code":"transport","message":"The operation timed out.","retryable":true}');
+    const read = async (p: Record<string, unknown>) => { if (p.cursor) throw timeout; return { machines: [{ id: "a" }, { id: "b" }], next_cursor: "c1" }; };
+    expect((await listAllMachines(read, 20, { pauseMs: 0, partial: true })).map((r) => r.id)).toEqual(["a", "b"]);
+    // A caller that must see every row gets the error.
+    await expect(listAllMachines(read, 20, { pauseMs: 0 })).rejects.toThrow("timed out");
+    // A first page that fails is the error even for a sweep: it has nothing to go on.
+    await expect(listAllMachines(async () => { throw timeout; }, 20, { pauseMs: 0, partial: true })).rejects.toThrow("timed out");
   });
 });
 
@@ -1962,6 +1986,11 @@ describe("clean-room provider key probe", () => {
       // counted; a key found by its context (a refresh token's field) counts there too.
       "opt/tool/bin/blob": `\0\0ELF${PROJ}\0\0`,
       "home/cmux/.codex/.tmp/plugins/p/skills/api.md": `call it with ${PROJ}\n`,
+      // An installed Python library's own source names the refresh token field (an OAuth client's grants): shipped. A
+      // key's name given a value in that same tree, and the field in a tool's config outside one, still count.
+      "opt/venv/lib/python3.12/site-packages/authlib/grants.py": `doc = '{"refresh_token": "${tok("", 24)}"}'\n`,
+      "opt/venv/lib/python3.12/site-packages/tool/.env": `MISTRAL_API_KEY=${MISTRAL}\n`,
+      "opt/tool/token.json": `{"refresh_token": "${tok("", 24)}"}\n`,
       // AWS's documented stand-in is not a key anywhere; a real-shaped id is.
       "home/cmux/aws.txt": "id AKIAIOSFODNN7EXAMPLE\nid AKIA2E0A8F3B244C9986\n",
       "home/cmux/.claude/.credentials.json": JSON.stringify({ claudeAiOauth: { accessToken: OAUTH } }),
@@ -1999,13 +2028,16 @@ describe("clean-room provider key probe", () => {
         "file /home/cmux/cache/[a name].env:1: MISTRAL_API_KEY",
         "file /home/cmux/cache/[a secret]:1: an OAuth refresh token",
         "file /home/cmux/cache/[a secret]:1: an OpenAI project key",
+        "file /opt/[a name]/lib/[a name]/site-packages/[a name]/.env:1: MISTRAL_API_KEY",
+        "file /opt/[a name]/token.json:1: an OAuth refresh token",
       ]);
       expect((probe.shipped ?? []).map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
         "file /home/cmux/.codex/.tmp/plugins/[a name]/skills/[a name].md:1: an OpenAI project key",
         "file /opt/[a name]/bin/[a name]: an OpenAI project key",
+        "file /opt/[a name]/lib/[a name]/site-packages/[a name]/[a name].py:1: an OAuth refresh token",
       ]);
-      expect(keyProbeDetail(probe)).toStartWith("23 findings: ");
-      expect(keyProbeDetail(probe)).toContain("2 key shapes in installed software, not counted");
+      expect(keyProbeDetail(probe)).toStartWith("25 findings: ");
+      expect(keyProbeDetail(probe)).toContain("3 key shapes in installed software, not counted");
       expect(keyProbeStatus(probe, true)).toBe("fail");
       expect(keyProbeStatus(probe, false)).toBe("skip");
     } finally {
@@ -3793,6 +3825,21 @@ open(out, 'w').write(json.dumps(seen))
       globalThis.fetch = realFetch;
     }
   });
+  test("directExec shares one client-session mint between calls that start together", async () => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(JSON.stringify({ statusCode: 0, stdout: "ok", stderr: "" }), { status: 200, headers: { "content-type": "application/json" } })) as any;
+    let mints = 0;
+    try {
+      const api = { raw: async () => { mints += 1; await new Promise((r) => setTimeout(r, 20)); return { status: 200, body: { ok: true, value: { token: "tok_abcdefgh", vm_id: "vm1", linux_user: "u", api_base_url: "https://fs.example", expires_at: Date.now() + 900_000 } } }; } } as any;
+      const exec = journey.directExec(api, "m1", { secrets: [] });
+      const [a, b] = await Promise.all([exec("start"), exec("observe")]);
+      expect(mints).toBe(1);
+      expect(a.stdout).toBe("ok");
+      expect(b.stdout).toBe("ok");
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
   test("startMarks keeps the first of a retried mark and ignores other lines", () => {
     expect(startMarks("@@mark connected 5\n@@retry x\n@@mark connected 2100\n@@mark session_new 9000\nnoise @@mark x 1\n")).toEqual({ start_connected: 5, start_session_new: 9000 });
   });
@@ -4063,7 +4110,7 @@ describe("listedMachine (run 45174448964: `vm_... missing from 49 machines` on a
     const list = async (p: any) => { seen.push(p); return p.cursor ? { machines: rows(49, 52) } : { machines: rows(0, 49), next_cursor: "c2" }; };
     const r = await listedMachine("vm_51", list, async () => { throw new Error("not asked"); });
     expect(r.detail).toBe("52 machines");
-    expect(seen).toEqual([{ limit: 100 }, { limit: 100, cursor: "c2" }]);
+    expect(seen).toEqual([{ limit: 25 }, { limit: 25, cursor: "c2" }]);
   });
   test("a capped page with no cursor: confirmed by cloud.machine.get, the cap named", async () => {
     const r = await listedMachine("vm_51", async () => ({ machines: rows(0, 49) }), async (id: string) => ({ id, status: "running", size: { cpu: 2 } }));
