@@ -45,7 +45,9 @@ BLACKSMITH_LINUX_X64 = re.compile(r"blacksmith-[0-9]+vcpu-ubuntu-[0-9]{4}")
 JOB_HEADER = re.compile(r"^  ([A-Za-z0-9_-]+):\s*(?:#.*)?$")
 # runs-on, and the matrix / output values that feed one.
 RUNNER_KEY = re.compile(r"^\s*(?:- )?(runs-on|runner|runs_on|linux_runner):\s*(.*?)\s*$")
-EPHEMERAL_ROUTE = re.compile(r"RUNNER_POOLS\)\.linux_(?:4|arm64)\b|ephemeral-required|vars\.CI_TRUSTED_RUNNER")
+# `# frozen-label: RUNNER_POOLS.linux_4` is the same route after #54437 froze the picker to its label
+# (scripts/ci/check_runs_on_pools.py EPHEMERAL_MARK reads the same marks).
+EPHEMERAL_ROUTE = re.compile(r"RUNNER_POOLS\)\.linux_(?:4|arm64)\b|ephemeral-required|frozen-label:|vars\.CI_TRUSTED_RUNNER")
 SAME_REPOSITORY_EVENTS = ("push", "pull_request")
 VARIABLES = {"LINUX_RUNNER": ["blacksmith-4vcpu-ubuntu-2404"], "CI_CLOUD_OVERFLOW_SAVED": ["1"]}
 
