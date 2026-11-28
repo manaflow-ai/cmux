@@ -1291,7 +1291,8 @@ pub struct TitlesConfig {
     /// then keeps its first-prompt title.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub command: Option<Vec<String>>,
-    /// `model`: the Claude model of the default command. Default `haiku`.
+    /// `model`: the Claude model of the default command. Unset: the cmux setting
+    /// `agents.titles.model` (`model_settings.rs`), else `haiku`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
 }
@@ -1824,6 +1825,16 @@ pub struct Config {
     /// Set with `acpmux config --set direct_port=PORT`; the carrier takes it at its start.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub direct_port: Option<u16>,
+    /// `irohDirect`: the hub carrier's iroh path (`hub_carrier_iroh.rs`), for two machines with
+    /// no private network between them. On, the carrier binds one iroh endpoint (both ends dial
+    /// out over QUIC, hole punched where the NATs let it), and a machine's dials upgrade to it
+    /// once its kept circuit there is open, with the relay as the first dial's path and the
+    /// fallback. The same Noise XX and node keys as a relay circuit admit it. Unset: on where
+    /// `directPort` names a port (a machine that already opted into direct links, as every
+    /// lane VM has), else off; `false` turns it off there too ([`Self::iroh_on`]). Set with
+    /// `acpmux config --set iroh_direct=true|false|none`; the carrier takes it at its start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub iroh_direct: Option<bool>,
     /// `coderouterClaudeRoute`: the CodeRouter CLI subcommand that runs
     /// Claude Code through a CodeRouter route. When it is set (env
     /// `ACPMUX_CODEROUTER_CLAUDE_ROUTE` wins) and `coderouter` or `cr` is on

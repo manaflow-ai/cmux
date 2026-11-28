@@ -134,8 +134,6 @@ const settle = () =>
 
 const prompt = () => host.querySelector('[role="combobox"]')?.textContent ?? "";
 const markdownField = () => host.querySelector<MarkdownFieldElement>(".acpmux-md-field")!.acpmuxMarkdownField!;
-const page = () =>
-  dom.window as unknown as { cmuxAcpmuxActions?: Record<string, (params: unknown) => Promise<unknown>> };
 
 test("a prompt that comes back into a prompt already holding it is not doubled", async () => {
   const typed: string[] = [];
