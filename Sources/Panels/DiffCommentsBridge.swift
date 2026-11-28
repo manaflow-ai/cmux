@@ -6,7 +6,8 @@ import WebKit
 
 /// Native bridge for the diff viewer webview's review comments: per-repo
 /// comment persistence plus registration into the workspace's pending
-/// submission pool (consumed by whichever terminal TextBox submits first).
+/// submission pool (consumed by whichever terminal TextBox submits first),
+/// and opening a repository file as a file preview beside the viewer.
 ///
 /// Only main-frame pages served from a registered diff viewer session (custom
 /// `cmux-diff-viewer://` scheme or the local HTTP server form) may call it;
@@ -187,7 +188,7 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
             // Viewer loads repopulate the workspace's pending pool so the
             // TextBox chips survive app restarts and page reloads.
             let comments = store.comments(repoRoot: repoRoot)
-            if let workspace = try? resolveWorkspace(for: webView) {
+            if let workspace = (try? resolvePanel(for: webView))?.workspace {
                 for comment in comments {
                     registerPending(comment, repoRoot: repoRoot, workspaceId: workspace.id)
                 }
@@ -200,7 +201,7 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
                 throw BridgeError.invalidRequest("Malformed comment")
             }
             let saved = store.upsert(comment, repoRoot: repoRoot)
-            if let workspace = try? resolveWorkspace(for: webView) {
+            if let workspace = (try? resolvePanel(for: webView))?.workspace {
                 registerPending(saved, repoRoot: repoRoot, workspaceId: workspace.id)
             }
             return ["comment": DiffCommentPayload().json(saved)]
@@ -210,6 +211,15 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
             }
             DiffCommentSubmissionPool.shared.removePending(commentId: id)
             return ["deleted": store.delete(id: id, repoRoot: repoRoot)]
+        case "file.open":
+            let (workspace, panelId) = try resolvePanel(for: webView)
+            guard let path = params["path"] as? String,
+                  let fileURL = diffViewerOpenableFileURL(repoRoot: repoRoot, path: path),
+                  workspace.openOrFocusFilePreviewSplit(from: panelId, filePath: fileURL.path) != nil else {
+                NSSound.beep()
+                return ["opened": false]
+            }
+            return ["opened": true]
         default:
             throw BridgeError.invalidRequest("Unsupported method '\(method)'")
         }
@@ -264,7 +274,7 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
 
     // MARK: - Workspace resolution
 
-    private func resolveWorkspace(for webView: WKWebView?) throws -> Workspace {
+    private func resolvePanel(for webView: WKWebView?) throws -> (workspace: Workspace, panelId: UUID) {
         guard let webView,
               let association = objc_getAssociatedObject(
                   webView,
@@ -277,7 +287,7 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
               ) else {
             throw BridgeError.invalidRequest("Diff viewer surface not found")
         }
-        return location.workspace
+        return (location.workspace, association.panelId)
     }
 
     // MARK: - JSON mapping
