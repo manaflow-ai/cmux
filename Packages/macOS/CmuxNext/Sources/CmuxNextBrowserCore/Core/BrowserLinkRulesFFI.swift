@@ -4,7 +4,8 @@ import Foundation
 /// The link routing rules answered by the app's Rust library (cmux-tui/crates/cmux-browser-rules,
 /// `link_routes.rs`, with their tests) over the app FFI's JSON channel (`cmux_layout_reducer_json`,
 /// ops `browser_rules_link_*`). Swift reads the facts (a URL's scheme and host) and acts on the answer.
-package nonisolated enum BrowserLinkRulesFFI {
+package nonisolated struct BrowserLinkRulesFFI {
+    package nonisolated init() {}
     /// Calls op `browser_rules_link_<name>` with a JSON request; nil when the library does not answer.
     package static func call(_ name: String, _ request: [String: Any]) -> Any? {
         guard let data = try? JSONSerialization.data(withJSONObject: request),
