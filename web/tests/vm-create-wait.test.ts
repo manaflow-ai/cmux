@@ -184,6 +184,20 @@ describe("createVm wait state", () => {
     expect(h.creates).toHaveLength(1);
   });
 
+  test("each wait state names its own cause in the 202 (address, fleet cap, provider capacity)", async () => {
+    const answers = await Promise.all((["waiting_for_address", "waiting_for_fleet", "waiting_for_capacity"] as const).map(async (state) => {
+      const response = (await vmWorkflowErrorResponse(new VmCreateWaitingError({ idempotencyKey: "k", state, since: 1, deadline: 2, retryAfterSeconds: 15 })))!;
+      expect(response.status).toBe(202);
+      const body = await response.json() as { waitState: string; reason: string; ui: { title: string }; waitDeadline: number };
+      expect(body.waitState).toBe(state);
+      expect(body.waitDeadline).toBe(2);
+      return body;
+    }));
+    expect(new Set(answers.map((a) => a.reason)).size).toBe(3);
+    expect(new Set(answers.map((a) => a.ui.title)).size).toBe(3);
+    expect(answers[1]?.reason).toContain("machine cap");
+  });
+
   test("the same-key retry starts the machine once an address frees, under the first deadline", async () => {
     const since = Date.now() - 60_000;
     const previous = row({ status: "failed", failureCode: "provider_create_unavailable", providerMetadata: { createWait: { state: "waiting_for_address", since, deadline: since + VM_CREATE_WAIT_MAX_MS } } });

@@ -150,6 +150,18 @@ pub(super) async fn start_through_hub(
     params: &Value,
     host: &str,
 ) -> Result<Value, RpcError> {
+    let started = start_through(hub, conn, params, host).await;
+    // A host that refuses starts leaves `machine pick` for a while (`placement/reach.rs`).
+    crate::placement::reach::note_start_outcome(host, started.as_ref().err());
+    started
+}
+
+async fn start_through(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    params: &Value,
+    host: &str,
+) -> Result<Value, RpcError> {
     local_only(hub, conn)?;
     let mesh =
         hub.mesh.get().ok_or_else(|| RpcError::new(-32000, "mesh relay is not configured"))?;
