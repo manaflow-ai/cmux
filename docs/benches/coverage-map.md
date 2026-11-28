@@ -216,6 +216,7 @@ whether it fails on a number.
 | `TerminalLoadBench` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/TerminalLoadBench.swift` | `CMUX_TERMINAL_LOAD_BENCH` | no |
 | `TerminalScrollBenchUITests` | `cmux-next-ios/UITests/TerminalScrollBenchUITests.swift` | UI test plan | yes |
 | `TranscriptReadFirstR1Bench` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/TranscriptReadFirstR1Bench.swift` | none | no |
+| `WorkspaceCacheSaveBurstPerfTests` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileInstantPerfTests/WorkspaceCacheSaveBurstPerfTests.swift` | none | burst of 50 or 500 saves writes ≤ 2 times, wall ≤ 3 single writes |
 | `WorkspaceSyncPerformanceTests` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/WorkspaceSyncPerformanceTests.swift` | none | no |
 
 A row whose path cell reads "pending <branch>" is a suite on an open branch: the test lets it be absent until the branch lands, then wants its path.
