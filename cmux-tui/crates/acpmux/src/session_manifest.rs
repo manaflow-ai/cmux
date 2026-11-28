@@ -13,10 +13,14 @@
 //! from its own profile, preset and login env as before. A later start (after a move, or a fork's
 //! first) that lacks a recorded name is logged with the names it lacks and counted
 //! ([`env_missing`]), so a move to a machine without the chat's key shows up at its start, not as
-//! an agent that fails its first turn. A move asks its target about those names before it freezes
-//! anything ([`env_to_ask`], [`env_lacking`]): the target builds the env a start of the chat
-//! would get there and names what it lacks, and the move says so before it begins. Ports come
-//! next.
+//! an agent that fails its first turn. Step 5 adds the loopback ports its processes served
+//! ([`SessionManifest::ports`], each found when a preview first shows: `hub/process_preview.rs`),
+//! numbers only. A later start whose machine has one of them taken by something other than the
+//! session's own running processes logs it and counts it ([`ports_taken`]): a moved dev server's
+//! port held by another program on the target shows at the start, not when it fails to bind.
+//! Step 7: a move asks its target about the recorded env names before it freezes anything
+//! ([`env_to_ask`], [`env_lacking`]): the target builds the env a start of the chat would get
+//! there and names what it lacks, and the move says so before it begins.
 //!
 //! Off unless [`SWITCH_ENV`] is `1`: then the record is kept and read. Off, nothing is recorded
 //! and every start derives as before; the counter still counts, so the before number is the same
@@ -51,7 +55,14 @@ pub struct SessionManifest {
     /// ([`env_names`]). Names only: no value is ever kept here, secret or not.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub env: Vec<String>,
+    /// The loopback ports its processes served (a preview's port), sorted, at most
+    /// [`MAX_PORTS`]; kept as each shows ([`keep_port`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ports: Vec<u16>,
 }
+
+/// The most ports a manifest keeps: a chat that serves more is not one whose port plan helps.
+pub const MAX_PORTS: usize = 16;
 
 /// The person's own `cmux` entry as Codex answered it (`codex_cmux_entry::CmuxEntry`), only the
 /// answers that are sure: no answer and doubt are never kept.
@@ -250,6 +261,7 @@ pub fn to_record(
         servers: server_names(servers),
         codex: None,
         env: Vec::new(),
+        ports: Vec::new(),
     })
 }
 
@@ -374,6 +386,58 @@ pub fn env_lacking(asked: &[String], has: &BTreeMap<String, String>) -> Vec<Stri
         ENV_LACKING_AT_MOVE.fetch_add(1, Ordering::Relaxed);
     }
     lacking
+}
+
+/// Adds `port`, a preview one of the session's processes served, to `manifest` when the switch is
+/// on, the manifest holds for `cwd` and has room ([`MAX_PORTS`]). True when it was added, so the
+/// caller saves the meta once per new port, never per preview.
+pub fn keep_port(on: bool, manifest: &mut Option<SessionManifest>, cwd: &Path, port: u16) -> bool {
+    let Some(m) = manifest.as_mut().filter(|m| on && m.folder == cwd) else { return false };
+    match m.ports.binary_search(&port) {
+        Ok(_) => false,
+        Err(_) if m.ports.len() >= MAX_PORTS => false,
+        Err(at) => {
+            m.ports.insert(at, port);
+            true
+        }
+    }
+}
+
+static PORTS_TAKEN: AtomicU64 = AtomicU64::new(0);
+
+/// How many starts in this process found a recorded port taken ([`check_ports_with`]).
+pub fn ports_taken() -> u64 {
+    PORTS_TAKEN.load(Ordering::Relaxed)
+}
+
+/// The recorded ports that are `taken` on this machine and not in `own` (the ports the session's
+/// own running processes serve: a restart beside its dev server is not a conflict), when the
+/// switch is on and the manifest holds for `cwd`; a start with any is counted ([`ports_taken`]).
+pub fn check_ports_with(
+    on: bool,
+    manifest: Option<&SessionManifest>,
+    cwd: &Path,
+    own: &[u16],
+    taken: impl Fn(u16) -> bool,
+) -> Vec<u16> {
+    let Some(m) = manifest.filter(|m| on && m.folder == cwd) else { return Vec::new() };
+    let held: Vec<u16> =
+        m.ports.iter().copied().filter(|p| !own.contains(p) && taken(*p)).collect();
+    if !held.is_empty() {
+        PORTS_TAKEN.fetch_add(1, Ordering::Relaxed);
+    }
+    held
+}
+
+/// Whether something on this machine listens on loopback `port`: binding it fails. The probe
+/// listener closes at once.
+pub fn loopback_taken(port: u16) -> bool {
+    std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port)).is_err()
+}
+
+/// [`check_ports_with`] under this daemon's switch, probing loopback ([`loopback_taken`]).
+pub fn check_ports(manifest: Option<&SessionManifest>, cwd: &Path, own: &[u16]) -> Vec<u16> {
+    check_ports_with(on(), manifest, cwd, own, loopback_taken)
 }
 
 /// A fork's manifest: its parent's while it works in the same folder; a fork into another
