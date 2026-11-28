@@ -34,9 +34,12 @@ class TransportTests(unittest.TestCase):
             "import os, sys\n"
             "sys.stdin.readline()\n"
             "sys.stderr.write('worker unavailable ' + os.environ['CMUX_GITHUB_TEST_PASSWORD']"
-            " + ' Bearer abc123\\n')\n"
+            " + ' Bearer abc123\\n' + os.environ['CMUX_GITHUB_TEST_TOTP_SEED']"
+            " + ' ' + os.environ['CMUX_GITHUB_TEST_LOGIN'] + '\\n')\n"
             "sys.exit(23)\n")
-        with mock.patch.dict(os.environ, {"CMUX_GITHUB_TEST_PASSWORD": "private-password"}):
+        with mock.patch.dict(os.environ, {"CMUX_GITHUB_TEST_PASSWORD": "private-password",
+                                         "CMUX_GITHUB_TEST_TOTP_SEED": "private-seed",
+                                         "CMUX_GITHUB_TEST_LOGIN": "private-login"}):
             with self.assertRaises(PROBE.ProbeError) as caught:
                 PROBE.ComputerUse()
         message = str(caught.exception)
@@ -45,15 +48,28 @@ class TransportTests(unittest.TestCase):
         self.assertIn("worker unavailable", message)
         self.assertNotIn("private-password", message)
         self.assertNotIn("abc123", message)
+        self.assertNotIn("private-seed", message)
+        self.assertNotIn("private-login", message)
 
     def test_large_stderr_does_not_deadlock_and_retention_is_bounded(self):
         self.fake_cmux("import sys\nsys.stdin.readline()\n"
-                       "sys.stderr.write('x' * 262144 + ' startup-tail\\n')\n"
+                       "sys.stderr.write('x' * 262144 + '\\nstartup-tail\\n')\n"
                        "sys.exit(17)\n")
         with self.assertRaises(PROBE.ProbeError) as caught:
             PROBE.ComputerUse()
         self.assertIn("startup-tail", str(caught.exception))
         self.assertLess(len(str(caught.exception)), 4600)
+
+    def test_truncation_drops_partial_secret_and_redacts_multiline_remainder(self):
+        self.fake_cmux("import os, sys\nsys.stdin.readline()\n"
+                       "sys.stderr.write(os.environ['TEST_PASSWORD'] + '\\nworker unavailable\\n')\n"
+                       "sys.exit(19)\n")
+        with mock.patch.dict(os.environ, {"TEST_PASSWORD": "s" * 5000 + "leaked-tail\nsecond-secret"}):
+            with self.assertRaises(PROBE.ProbeError) as caught:
+                PROBE.ComputerUse()
+        self.assertNotIn("leaked-tail", str(caught.exception))
+        self.assertNotIn("second-secret", str(caught.exception))
+        self.assertIn("worker unavailable", str(caught.exception))
 
     def test_after_initialize_stderr_is_discarded_and_refusal_is_terminal(self):
         self.fake_cmux(

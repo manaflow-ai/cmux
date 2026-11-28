@@ -41,6 +41,7 @@ class ComputerUse:
         self.executable = executable
         self.starting = True
         self.startup_stderr = b""
+        self.stderr_truncated = False
         self.stderr_open = True
         self.process = subprocess.Popen([executable, "computer-use", "mcp"], stdin=subprocess.PIPE,
                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -56,10 +57,18 @@ class ComputerUse:
             self.startup_stderr = b""
         except Exception as error:
             self.close()
-            detail = self.startup_stderr.decode("utf-8", errors="replace")
+            retained = self.startup_stderr
+            if self.stderr_truncated:
+                # The first retained line may begin inside a credential. Drop it entirely.
+                retained = retained.partition(b"\n")[2]
+            detail = retained.decode("utf-8", errors="replace")
             for name, value in os.environ.items():
-                if value and re.search(r"password|secret|token|credential|key", name, re.I):
-                    detail = detail.replace(value, "[redacted]")
+                if value and (name in SECRET_NAMES or
+                              re.search(r"password|secret|token|credential|key", name, re.I)):
+                    # Redact individual lines too: truncation can remove a multiline value's prefix.
+                    for part in [value, *value.splitlines()]:
+                        if part:
+                            detail = detail.replace(part, "[redacted]")
             detail = re.sub(r"(?i)(bearer\s+)\S+", r"\1[redacted]", detail)
             raise ProbeError(f"Computer Use startup failed ({self.executable}, "
                              f"exit={self.process.returncode}): {error}; "
@@ -70,7 +79,9 @@ class ComputerUse:
         if not chunk:
             self.stderr_open = False
         elif self.starting:
-            self.startup_stderr = (self.startup_stderr + chunk)[-4096:]
+            combined = self.startup_stderr + chunk
+            self.stderr_truncated |= len(combined) > 4096
+            self.startup_stderr = combined[-4096:]
 
     def drain_stderr(self):
         # A dead child cannot keep producing. Bound cleanup even if a descendant holds its pipe.
