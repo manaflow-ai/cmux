@@ -115,6 +115,9 @@ public struct DaemonLanePolicy: Sendable {
         "workspace_group.update": ["machine", "session", "workspace_group", "name", "color", "collapsed"],
         "workspace_group.delete": ["machine", "session", "workspace_group"],
         "workspace.place": ["machine", "session", "workspace", "group"],
+        "diff.comments.list": ["machine", "session", "root"],
+        "diff.comments.thread": ["machine", "session", "root", "id", "reply", "resolved", "author"],
+        "diff.comments.send": ["machine", "session", "root", "acp_session", "ids", "versions", "threads"],
     ]
 
     /// The group colors the Mac's menus offer (`GroupColor`).
@@ -338,8 +341,10 @@ public struct DaemonLanePolicy: Sendable {
     /// workspace tile). This lane has no such check, so it refuses them.
     static func needsOwnershipCheck(_ object: [String: Any]) -> Bool {
         if object["cmd"] as? String == "set-personal-workspace" { return true }
-        return ["sidebar_layout.update", "workspace_group.update", "workspace_group.delete", "workspace.place"]
-            .contains(object["operation"] as? String ?? "")
+        let operation = object["operation"] as? String ?? ""
+        // `diff.comments.*` needs hostd's tab-folder check (policy.rs `Ownership::TabFolder`).
+        return operation.hasPrefix("diff.comments.")
+            || ["sidebar_layout.update", "workspace_group.update", "workspace_group.delete", "workspace.place"].contains(operation)
     }
 
     /// A `cmux.protocol/2` request: one of `allowedResourceOperations` with only its
@@ -371,7 +376,9 @@ public struct DaemonLanePolicy: Sendable {
             guard let value = params.first(where: { $0.key == key })?.value, value as? String != "current" else { continue }
             return "\(key) must be current"
         }
-        if operation != "sidebar_layout.get" {
+        if operation == "diff.comments.list" {
+            if object["idempotency_key"] != nil { return "\(operation) takes no idempotency_key" }
+        } else if operation != "sidebar_layout.get" {
             let key = object["idempotency_key"] as? String ?? ""
             guard (1...128).contains(key.utf8.count), !key.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }) else {
                 return "\(operation) needs an idempotency_key"

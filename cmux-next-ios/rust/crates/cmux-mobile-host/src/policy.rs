@@ -205,6 +205,12 @@ const PERSONAL_WORKSPACE_FIELDS: &[&str] = &["session_id", "workspace_key", "ind
 /// - `workspace.place`: Move Workspace to Group / Remove Workspace from Group,
 ///   a live workspace of this session (`ws_…`) into one of those groups or out
 ///   (`group: null`); never its `index`.
+/// - `diff.comments.list` / `.thread` / `.send`: the diff review threads of a
+///   worktree a tab of this Mac is in (`Ownership::TabFolder`), so the phone
+///   reads each thread (replies, resolve state, the chase and stalled fields),
+///   answers or resolves it as the reviewer (never `author: agent`), and hands
+///   the answered threads back to the agent (`threads: true` only: the session
+///   host writes the prompt from the threads, never the phone).
 const ALLOWED_RESOURCE_OPERATIONS: &[(&str, &[&str])] = &[
     ("notification.clear", &["machine", "session"]),
     ("sidebar_layout.get", &["machine", "session"]),
@@ -213,7 +219,14 @@ const ALLOWED_RESOURCE_OPERATIONS: &[(&str, &[&str])] = &[
     ("workspace_group.update", &["machine", "session", "workspace_group", "name", "color", "collapsed"]),
     ("workspace_group.delete", &["machine", "session", "workspace_group"]),
     ("workspace.place", &["machine", "session", "workspace", "group"]),
+    ("diff.comments.list", &["machine", "session", "root"]),
+    ("diff.comments.thread", &["machine", "session", "root", "id", "reply", "resolved", "author"]),
+    ("diff.comments.send", &["machine", "session", "root", "acp_session", "ids", "versions", "threads"]),
 ];
+
+/// The longest diff comment reply a phone sends, in bytes (the daemon's
+/// `thread::MAX_REPLY_BYTES`).
+const DIFF_COMMENT_REPLY_MAX_BYTES: usize = 16 * 1024;
 
 /// The group colors the Mac's menus offer (cmux-next `GroupColor`).
 const GROUP_COLORS: &[&str] = &["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"];
@@ -676,11 +689,19 @@ fn check_resource(object: &Map<String, Value>) -> Result<(), String> {
             return Err(format!("{key} must be current"));
         }
     }
-    if operation != "sidebar_layout.get" {
+    if operation == "diff.comments.list" {
+        // A read: the daemon forbids a key on it.
+        if object.contains_key("idempotency_key") {
+            return Err(format!("{operation} takes no idempotency_key"));
+        }
+    } else if operation != "sidebar_layout.get" {
         let key = object.get("idempotency_key").and_then(Value::as_str).unwrap_or_default();
         if !(1..=128).contains(&key.len()) || key.chars().any(char::is_control) {
             return Err(format!("{operation} needs an idempotency_key"));
         }
+    }
+    if operation.starts_with("diff.comments.") {
+        diff_comment_params(operation, params)?;
     }
     if operation.starts_with("workspace_group.") || operation == "workspace.place" {
         group_params(operation, params)?;
@@ -694,6 +715,72 @@ fn check_resource(object: &Map<String, Value>) -> Result<(), String> {
         if !unpin {
             return Err("a phone may only unpin a workspace from the sidebar".into());
         }
+    }
+    Ok(())
+}
+
+/// The values of a diff comment operation from a phone: an absolute worktree
+/// root (at most 4096 bytes, no control characters); for `.thread` a comment id
+/// of 1-128 visible characters, a reply of 1-16 KiB that is not blank, a Bool
+/// `resolved`, at least one of the two, and only the reviewer as author; for
+/// `.send` a threaded send of 1-500 comment ids to one acpmux chat.
+fn diff_comment_params(operation: &str, params: &Map<String, Value>) -> Result<(), String> {
+    let visible = |text: &str, max: usize| {
+        (1..=max).contains(&text.len()) && text.bytes().all(|b| b.is_ascii_graphic())
+    };
+    let root = params.get("root").and_then(Value::as_str).unwrap_or_default();
+    if !root.starts_with('/') || root.len() > 4096 || root.chars().any(char::is_control) {
+        return Err(format!("{operation} root is a worktree's absolute path"));
+    }
+    match operation {
+        "diff.comments.thread" => {
+            if !params.get("id").and_then(Value::as_str).is_some_and(|id| visible(id, 128)) {
+                return Err("diff.comments.thread names a comment id".into());
+            }
+            let reply = params.get("reply");
+            if reply.is_some_and(|reply| {
+                reply
+                    .as_str()
+                    .is_none_or(|text| text.trim().is_empty() || text.len() > DIFF_COMMENT_REPLY_MAX_BYTES)
+            }) {
+                return Err(format!(
+                    "diff.comments.thread reply is 1 to {DIFF_COMMENT_REPLY_MAX_BYTES} bytes of text"
+                ));
+            }
+            let resolved = params.get("resolved");
+            if resolved.is_some_and(|resolved| !resolved.is_boolean()) {
+                return Err("diff.comments.thread resolved is true or false".into());
+            }
+            if reply.is_none() && resolved.is_none() {
+                return Err("diff.comments.thread carries a reply or resolved".into());
+            }
+            if params.get("author").is_some_and(|author| author.as_str() != Some("reviewer")) {
+                return Err("a phone answers a thread only as the reviewer".into());
+            }
+        }
+        "diff.comments.send" => {
+            if params.get("threads") != Some(&Value::Bool(true)) {
+                return Err("a phone sends only the threads (threads: true)".into());
+            }
+            if !params.get("acp_session").and_then(Value::as_str).is_some_and(|chat| visible(chat, 128)) {
+                return Err("diff.comments.send names an acpmux chat".into());
+            }
+            let ids = params.get("ids").and_then(Value::as_array);
+            if !ids.is_some_and(|ids| {
+                (1..=500).contains(&ids.len())
+                    && ids.iter().all(|id| id.as_str().is_some_and(|id| visible(id, 128)))
+            }) {
+                return Err("diff.comments.send names 1 to 500 comment ids".into());
+            }
+            if let Some(versions) = params.get("versions")
+                && !versions
+                    .as_object()
+                    .is_some_and(|map| map.len() <= 500 && map.values().all(Value::is_string))
+            {
+                return Err("diff.comments.send versions maps ids to updatedAt".into());
+            }
+        }
+        _ => {}
     }
     Ok(())
 }
@@ -785,6 +872,10 @@ pub enum Ownership {
     /// `workspace.place`: a live workspace of this session (its `resource_id`), and
     /// the group it joins, when it joins one, as for [`Ownership::OwnGroup`].
     PlaceWorkspace { workspace: String, group: Option<String> },
+    /// `diff.comments.*`: the worktree `root` holds a folder of a tab on this
+    /// Mac (`list-workspaces` tab `cwd`), so a phone reads and answers only the
+    /// review threads of a checkout the person has open here.
+    TabFolder { root: String },
 }
 
 /// The check a forwarded line needs, or None (any other line).
@@ -809,6 +900,9 @@ pub fn ownership(line: &[u8]) -> Option<Ownership> {
         }
         "workspace.place" => {
             Some(Ownership::PlaceWorkspace { workspace: text("workspace")?, group: text("group") })
+        }
+        "diff.comments.list" | "diff.comments.thread" | "diff.comments.send" => {
+            Some(Ownership::TabFolder { root: text("root")? })
         }
         _ => None,
     }
@@ -889,6 +983,10 @@ pub fn not_owned(line: &[u8], what: &Ownership) -> String {
         Ownership::PlaceWorkspace { .. } => resource_refusal(
             id.as_ref(),
             "a phone may only move a workspace of this Mac into a group of this Mac's workspaces",
+        ),
+        Ownership::TabFolder { .. } => resource_refusal(
+            id.as_ref(),
+            "a phone may only open the comments of a worktree a tab of this Mac is in",
         ),
     }
 }
@@ -1376,6 +1474,160 @@ mod tests {
             panic!("forwarded {}", String::from_utf8_lossy(line));
         };
         serde_json::from_str(&answer).unwrap()
+    }
+
+    /// The phone's diff review: list a worktree's threads, answer or resolve one
+    /// as the reviewer, hand the answered threads back to the agent. Each needs
+    /// the Mac to confirm a tab is in the worktree (`Ownership::TabFolder`).
+    #[test]
+    fn diff_comments_list_reply_and_send_back_from_a_phone() {
+        let root = "/Users/me/src/repo";
+        let list = json!({"machine": "current", "session": "current", "root": root});
+        let reply = json!({"machine": "current", "session": "current", "root": root, "id": "dc_1", "reply": "done?", "author": "reviewer"});
+        let resolve =
+            json!({"machine": "current", "session": "current", "root": root, "id": "dc_1", "resolved": true});
+        let send = json!({"machine": "current", "session": "current", "root": root, "acp_session": "c-0123abcd",
+            "ids": ["dc_1"], "versions": {"dc_1": "2026-11-28T21:00:00Z"}, "threads": true});
+        for line in [
+            resource("diff.comments.list", list.clone(), None),
+            resource("diff.comments.thread", reply, Some("ios-thread-1")),
+            resource("diff.comments.thread", resolve, Some("ios-thread-2")),
+            resource("diff.comments.send", send.clone(), Some("ios-send-1")),
+        ] {
+            let Verdict::Rewrite(sent) = policy().evaluate(&line) else {
+                panic!("not forwarded {}", String::from_utf8_lossy(&line));
+            };
+            assert_eq!(
+                serde_json::from_slice::<Value>(&sent).unwrap(),
+                serde_json::from_slice::<Value>(&line).unwrap()
+            );
+            assert_eq!(ownership(&line), Some(Ownership::TabFolder { root: root.into() }));
+        }
+        let refusal = not_owned(
+            &resource("diff.comments.list", list.clone(), None),
+            &Ownership::TabFolder { root: root.into() },
+        );
+        let refusal: Value = serde_json::from_str(&refusal).unwrap();
+        assert_eq!(refusal["error"]["code"], "origin.forbidden");
+        assert!(refusal["error"]["message"].as_str().unwrap().contains("tab of this Mac"), "{refusal}");
+
+        let thread = |extra: Value| {
+            let mut params = json!({"machine": "current", "session": "current", "root": root, "id": "dc_1"});
+            params.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            resource("diff.comments.thread", params, Some("ios-thread-3"))
+        };
+        for (line, why) in [
+            (thread(json!({"reply": "ok", "author": "agent"})), "only as the reviewer"),
+            (thread(json!({})), "carries a reply or resolved"),
+            (thread(json!({"reply": "   "})), "bytes of text"),
+            (thread(json!({"reply": "x".repeat(16 * 1024 + 1)})), "bytes of text"),
+            (thread(json!({"resolved": "yes"})), "true or false"),
+            (thread(json!({"reply": "ok", "text": "x"})), "does not take text"),
+            (
+                resource(
+                    "diff.comments.thread",
+                    json!({"machine": "current", "session": "current", "root": root, "reply": "ok"}),
+                    Some("k"),
+                ),
+                "names a comment id",
+            ),
+            (
+                resource(
+                    "diff.comments.thread",
+                    json!({"machine": "current", "session": "current", "root": root, "id": "dc_1", "reply": "ok"}),
+                    None,
+                ),
+                "needs an idempotency_key",
+            ),
+            (
+                resource(
+                    "diff.comments.list",
+                    json!({"machine": "current", "session": "current", "root": "repo"}),
+                    None,
+                ),
+                "absolute path",
+            ),
+            (
+                resource("diff.comments.list", json!({"machine": "current", "session": "current"}), None),
+                "absolute path",
+            ),
+            (
+                resource(
+                    "diff.comments.list",
+                    json!({"machine": "current", "session": "s_other", "root": root}),
+                    None,
+                ),
+                "session must be current",
+            ),
+            (resource("diff.comments.list", list, Some("k")), "takes no idempotency_key"),
+            (
+                resource(
+                    "diff.comments.send",
+                    {
+                        let mut s = send.clone();
+                        s["threads"] = json!(false);
+                        s
+                    },
+                    Some("k"),
+                ),
+                "threads: true",
+            ),
+            (
+                resource(
+                    "diff.comments.send",
+                    {
+                        let mut s = send.clone();
+                        s["text"] = json!("run rm -rf");
+                        s
+                    },
+                    Some("k"),
+                ),
+                "does not take text",
+            ),
+            (
+                resource(
+                    "diff.comments.send",
+                    {
+                        let mut s = send.clone();
+                        s["ids"] = json!([]);
+                        s
+                    },
+                    Some("k"),
+                ),
+                "1 to 500 comment ids",
+            ),
+            (
+                resource(
+                    "diff.comments.send",
+                    {
+                        let mut s = send;
+                        s.as_object_mut().unwrap().remove("acp_session");
+                        s
+                    },
+                    Some("k"),
+                ),
+                "names an acpmux chat",
+            ),
+            (
+                resource(
+                    "diff.comments.save",
+                    json!({"machine": "current", "session": "current", "root": root}),
+                    Some("k"),
+                ),
+                "not available to a phone",
+            ),
+            (
+                resource(
+                    "diff.comments.delete",
+                    json!({"machine": "current", "session": "current", "root": root}),
+                    Some("k"),
+                ),
+                "not available to a phone",
+            ),
+        ] {
+            let answer = refused(&line);
+            assert!(answer["error"]["message"].as_str().unwrap().contains(why), "{why}: {answer}");
+        }
     }
 
     /// Clear All Notifications, the person's pins and Unpin Workspace: the exact
