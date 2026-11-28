@@ -272,9 +272,7 @@ final class NewTabSparePool {
 
     /// The spare taken last and the size its opening shows it at, when known.
     private var opening: (view: ObjectIdentifier, size: NSSize?)?
-    let covers = AgentPaneSpareCovers()
-    let spareFrames = AgentPaneNewTabSpareFrames()
-
+    let covers = AgentPaneSpareCovers(), spareFrames = AgentPaneNewTabSpareFrames()
     func openingSize(of view: AgentPaneView) -> NSSize? { opening.flatMap { $0.view == ObjectIdentifier(view) ? $0.size : nil } }
     /// A closed new tab page that never became a chat or a terminal: reset to
     /// the spare context (the page remounts its screen) and parked as the
