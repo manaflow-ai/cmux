@@ -32,6 +32,24 @@ const ACTIVE_CIRCUIT_STORAGE_KEY: &str = "active-circuit-v1";
 const RELEASE_RETRY_MS: u64 = 5_000;
 const CLOSE_POLICY: u16 = 1008;
 
+/// The slot lease a closing circuit socket leaves unjoined, as `(slot, circuit)`: the socket joined (its
+/// ticket verified, so its `relay` names the slot) but the circuit never reached `Ready`, and no other
+/// socket on the circuit has joined. Before this, only a `Ready` circuit's close told the slot, so an
+/// opener that joined and gave up (its daemon's join failed: a 429, a rejected operation, a WebSocket
+/// error) held one of the slot's pending places until the join ticket's deadline, and a burst of
+/// those filled the slot (`slot-circuit-capacity`) for every other opener.
+fn unjoined_lease_to_release(
+    closing: &CircuitAttachment,
+    other_joined: bool,
+) -> Option<(String, CircuitId)> {
+    if closing.phase != CircuitPhase::Joined || other_joined {
+        return None;
+    }
+    let relay = closing.relay.as_ref()?;
+    let circuit = relay.circuit.clone()?;
+    Some((relay.slot.clone(), circuit))
+}
+
 fn has_live_ready_pair(
     sockets: impl IntoIterator<Item = (u16, CircuitPhase, u64)>,
     now_ms: u64,
@@ -264,6 +282,30 @@ impl RelayCircuit {
         active.renew_at_ms = now_ms.saturating_add(ACTIVE_CIRCUIT_RENEW_MS);
         active.lease_expires_ms = now_ms.saturating_add(ACTIVE_CIRCUIT_LEASE_MS);
         self.state.storage().put(ACTIVE_CIRCUIT_STORAGE_KEY, active).await
+    }
+
+    /// Whether a socket other than `socket` on this circuit has joined (or is ready).
+    fn other_joined(&self, socket: &WebSocket) -> bool {
+        self.state
+            .get_websockets()
+            .into_iter()
+            .filter(|candidate| candidate != socket)
+            .filter(|candidate| websocket_is_open(candidate.as_ref().ready_state()))
+            .filter_map(|candidate| Self::attachment(&candidate).ok())
+            .any(|candidate| candidate.phase != CircuitPhase::Pending)
+    }
+
+    /// Frees the slot's pending place for a circuit whose joined socket closed before its peer joined
+    /// (`unjoined_lease_to_release`). A failed notice only logs: the slot's own join deadline still
+    /// frees the place.
+    async fn release_unjoined_slot_circuit(&self, socket: &WebSocket, closing: &CircuitAttachment) {
+        let Some((slot, circuit)) = unjoined_lease_to_release(closing, self.other_joined(socket))
+        else {
+            return;
+        };
+        if let Err(error) = self.notify_slot(&slot, &circuit, "release").await {
+            worker::console_error!("RelayCircuit unjoined release notification failed: {error}");
+        }
     }
 
     async fn release_slot_circuit(&self) {
@@ -682,22 +724,28 @@ impl DurableObject for RelayCircuit {
         _reason: String,
         _was_clean: bool,
     ) -> Result<()> {
-        let was_ready = Self::attachment(&socket)
-            .is_ok_and(|attachment| attachment.phase == CircuitPhase::Ready);
+        let attachment = Self::attachment(&socket).ok();
+        let was_ready =
+            attachment.as_ref().is_some_and(|attachment| attachment.phase == CircuitPhase::Ready);
         self.close_peer(&socket, "circuit peer disconnected");
         if was_ready {
             self.release_slot_circuit().await;
+        } else if let Some(attachment) = attachment.as_ref() {
+            self.release_unjoined_slot_circuit(&socket, attachment).await;
         }
         Ok(())
     }
 
     async fn websocket_error(&self, socket: WebSocket, error: worker::Error) -> Result<()> {
         worker::console_error!("RelayCircuit WebSocket error: {error}");
-        let was_ready = Self::attachment(&socket)
-            .is_ok_and(|attachment| attachment.phase == CircuitPhase::Ready);
+        let attachment = Self::attachment(&socket).ok();
+        let was_ready =
+            attachment.as_ref().is_some_and(|attachment| attachment.phase == CircuitPhase::Ready);
         self.close_peer(&socket, "circuit peer failed");
         if was_ready {
             self.release_slot_circuit().await;
+        } else if let Some(attachment) = attachment.as_ref() {
+            self.release_unjoined_slot_circuit(&socket, attachment).await;
         }
         Ok(())
     }
