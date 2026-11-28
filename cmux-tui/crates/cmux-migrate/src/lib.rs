@@ -18,6 +18,7 @@
 //! - [`ledger`]: what earlier runs made, by project key, so a rerun makes nothing twice, an
 //!   interrupted run resumes, and `undo` knows what to delete.
 //! - [`preview`]: what a confirmation shows before a plan is applied (the app's import card).
+//! - [`report`]: a measurement of moves that is safe to share: counts and durations only.
 //! - [`sources`]: one reader per place people come from.
 //!
 //! Pure where it can be: readers take a root folder (a home, a checkout) and read files; nothing
@@ -28,6 +29,7 @@ pub mod ledger;
 pub mod machine_toml;
 pub mod plan;
 pub mod preview;
+pub mod report;
 pub mod sources;
 
 pub use plan::{Carry, CarryKind, MachineConfig, Plan, Project, Repo, Source, SourceKind, Step};

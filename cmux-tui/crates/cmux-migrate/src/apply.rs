@@ -54,6 +54,16 @@ pub trait Cloud {
     /// Runs `command` on the machine; an exit other than 0 is an `Err` with its output.
     fn exec(&mut self, machine_id: &str, command: &str) -> Result<String, String>;
     fn delete_machine(&mut self, machine_id: &str) -> Result<(), String>;
+    /// Opens the project's first chat on its machine, once every step is done, and answers when
+    /// it is ready: the end of its time to first working chat (RFD 0173, "Measured on every
+    /// apply"). `None` when this route opens none (the headless journey times its own reply).
+    fn open_first_chat(
+        &mut self,
+        _machine_id: &str,
+        _checkout: &str,
+    ) -> Option<Result<(), String>> {
+        None
+    }
     /// Whether this route can write files and run commands on a machine it made. The headless
     /// journey cannot: its carry steps are skipped, said once each, never failed.
     fn carries_files(&self) -> bool {
@@ -592,6 +602,32 @@ pub fn apply_saving(
                     ledger.entry_mut(&source, &project).error = Some(error.clone());
                 }
                 emit(Event::Failed { step: name, project, error }, &mut outcome, ledger);
+            }
+        }
+    }
+    for project in plan.projects.iter().filter(|p| p.checked && wanted(&p.key)) {
+        let key = project.key.clone();
+        let Some(entry) = ledger.entry(&source, &key) else { continue };
+        let (Some(machine), Some(started)) = (entry.machine_id.clone(), entry.started_ms) else {
+            continue;
+        };
+        if entry.stage != Stage::Done || entry.first_chat_ms.is_some() || entry.error.is_some() {
+            continue;
+        }
+        let checkout = checkouts.get(&key).cloned().unwrap_or_default();
+        let name = "first-chat".to_owned();
+        match cloud.open_first_chat(&machine, &checkout) {
+            None => {}
+            Some(Ok(())) => {
+                let now = local.now_ms();
+                ledger.entry_mut(&source, &key).first_chat_ms = Some(now);
+                let secs = now.saturating_sub(started) as f64 / 1000.0;
+                let detail = format!("ready {secs:.1} s after the move started");
+                emit(Event::Done { step: name, project: key, detail }, &mut outcome, ledger);
+            }
+            // Left unmeasured, not failed: the machine is made; a rerun opens the chat again.
+            Some(Err(error)) => {
+                emit(Event::Failed { step: name, project: key, error }, &mut outcome, ledger);
             }
         }
     }

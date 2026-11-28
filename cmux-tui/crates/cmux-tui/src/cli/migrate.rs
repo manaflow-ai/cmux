@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 use cmux_migrate::apply::{self, Cloud, Created, Event, Local, LocalWork, PatchRoute};
 use cmux_migrate::ledger::{Ledger, Load};
 use cmux_migrate::preview::Preview;
+use cmux_migrate::report::{self, Report};
 use cmux_migrate::sources::competitors::{self, Product, Route};
 use cmux_migrate::sources::{compose, devcontainer, laptop, nix, ssh_host};
 use cmux_migrate::{Plan, Step};
@@ -24,9 +25,11 @@ use super::{GlobalArgs, OutputMode};
 
 pub(super) const USAGE: &str = "\
 usage: cmux migrate plan SOURCE [--json] [--out FILE] [--preview]
-       cmux migrate apply PLAN.json|SOURCE [--only KEY]... [--dry-run] [--headless [--backend B]]
+       cmux migrate apply PLAN.json|SOURCE [--only KEY]... [--dry-run] [--first-chat]
+                          [--headless [--backend B]]
        cmux migrate undo SOURCE_ID --yes
        cmux migrate status
+       cmux migrate report [LEDGER.json|REPORT.json]...
        cmux migrate routes
 
 Moves your work to cmux Cloud: one machine per project, its repo cloned, its
@@ -54,6 +57,11 @@ so running it again goes on where it stopped and makes nothing twice.
 dogfood sign-in; see `cmux cloud journey --help`) and measures its time to the
 first chat reply; it only clones and sets up: local work, chats and settings are
 skipped (said so), and a later run in the app carries them.
+--first-chat opens each moved project's first chat in the app once its steps
+are done and records when it was ready: its time to first working chat.
+`report` prints what `status` measured as counts and durations only (no
+project, path, repo, machine or error), safe to share; given files (each a
+person's ledger.json or report), it adds them into one team roll-up.
 Shell history is listed unchecked (it can hold typed tokens): check it in the
 plan to carry it.
 ";
@@ -144,11 +152,15 @@ pub(super) enum Command {
         only: Vec<String>,
         dry_run: bool,
         headless: Option<String>,
+        first_chat: bool,
     },
     Undo {
         source_id: String,
     },
     Status,
+    Report {
+        files: Vec<PathBuf>,
+    },
     Routes,
 }
 
@@ -157,6 +169,7 @@ pub(super) fn parse(words: &[String]) -> Result<Command, String> {
     let mut positional = Vec::new();
     let (mut out, mut only, mut dry_run, mut headless, mut backend, mut yes, mut preview) =
         (None, Vec::new(), false, false, None::<String>, false, false);
+    let mut first_chat = false;
     let mut it = rest.iter();
     while let Some(word) = it.next() {
         let mut value = |flag: &str| it.next().cloned().ok_or(format!("{flag} needs a value"));
@@ -168,12 +181,16 @@ pub(super) fn parse(words: &[String]) -> Result<Command, String> {
             "--headless" => headless = true,
             "--yes" => yes = true,
             "--preview" => preview = true,
+            "--first-chat" => first_chat = true,
             flag if flag.starts_with("--") => return Err(format!("unknown option {flag}")),
             _ => positional.push(word.clone()),
         }
     }
     if backend.is_some() && !headless {
         return Err("--backend goes with --headless".into());
+    }
+    if first_chat && headless {
+        return Err("--first-chat is the app's route: --headless times its own first reply".into());
     }
     let one = |what: &str| -> Result<String, String> {
         match positional.as_slice() {
@@ -190,10 +207,12 @@ pub(super) fn parse(words: &[String]) -> Result<Command, String> {
             only,
             dry_run,
             headless: headless.then(|| backend.unwrap_or_else(|| "prod".into())),
+            first_chat,
         }),
         "undo" if !yes => Err("undo deletes every machine that move made: add --yes".into()),
         "undo" => Ok(Command::Undo { source_id: one("SOURCE_ID")? }),
         "status" => Ok(Command::Status),
+        "report" => Ok(Command::Report { files: positional.iter().map(PathBuf::from).collect() }),
         "routes" => Ok(Command::Routes),
         other => Err(format!("unknown verb {other}")),
     }
@@ -267,9 +286,26 @@ fn run(global: &GlobalArgs, output: OutputMode, command: Command) -> Result<i32,
             });
             Ok(0)
         }
+        Command::Report { files } => {
+            let report = if files.is_empty() {
+                Report::of(&load_ledger()?)
+            } else {
+                let mut team = Report { version: report::VERSION, ..Report::default() };
+                for file in &files {
+                    team.add(&read_report(file)?);
+                }
+                team
+            };
+            let mut answer = serde_json::to_value(&report).unwrap_or(Value::Null);
+            if let Value::Object(map) = &mut answer {
+                map.insert("summary".into(), json!(report.summary()));
+            }
+            print_answer(output, &answer, || report.line());
+            Ok(0)
+        }
         Command::Undo { source_id } => {
             let mut ledger = load_ledger()?;
-            let mut cloud = AppCloud { runner: SelfRunner::new(global) };
+            let mut cloud = AppCloud { runner: SelfRunner::new(global), first_chat: false };
             let mut events = Vec::new();
             let outcome = apply::undo(&source_id, &mut ledger, &mut cloud, &mut |e| {
                 say(output, e, &mut events)
@@ -277,7 +313,7 @@ fn run(global: &GlobalArgs, output: OutputMode, command: Command) -> Result<i32,
             save_ledger(&ledger)?;
             finish(output, &events, outcome.failed)
         }
-        Command::Apply { from, only, dry_run, headless } => {
+        Command::Apply { from, only, dry_run, headless, first_chat } => {
             let plan = if from.ends_with(".json") && Path::new(&from).is_file() {
                 let text = std::fs::read_to_string(&from).map_err(|e| format!("{from}: {e}"))?;
                 serde_json::from_str::<Plan>(&text)
@@ -322,7 +358,7 @@ fn run(global: &GlobalArgs, output: OutputMode, command: Command) -> Result<i32,
                     )
                 }
                 None => {
-                    let mut cloud = AppCloud { runner: SelfRunner::new(global) };
+                    let mut cloud = AppCloud { runner: SelfRunner::new(global), first_chat };
                     apply::apply_saving(
                         &plan,
                         &only,
@@ -518,6 +554,19 @@ fn ledger_path() -> Result<PathBuf, String> {
     Ok(home()?.join(".cmux/migrate/ledger.json"))
 }
 
+/// A person's ledger.json (measured here, its keys dropped) or a report they shared.
+fn read_report(file: &Path) -> Result<Report, String> {
+    let text = std::fs::read_to_string(file).map_err(|e| format!("{}: {e}", file.display()))?;
+    let value: Value =
+        serde_json::from_str(&text).map_err(|e| format!("{}: not JSON: {e}", file.display()))?;
+    let read = if value.get("projects").is_some() {
+        serde_json::from_value::<Ledger>(value).map(|ledger| Report::of(&ledger))
+    } else {
+        serde_json::from_value::<Report>(value)
+    };
+    read.map_err(|e| format!("{}: not a ledger or a report: {e}", file.display()))
+}
+
 fn load_ledger() -> Result<Ledger, String> {
     let path = ledger_path()?;
     match Ledger::load(&path) {
@@ -593,6 +642,8 @@ fn read_all(pipe: Option<impl std::io::Read>) -> String {
 /// The signed-in app's Cloud verbs, each as this binary with `--json`.
 pub(super) struct AppCloud<R: Runner> {
     pub runner: R,
+    /// `apply --first-chat`: open each moved project's first chat and time it.
+    pub first_chat: bool,
 }
 
 impl<R: Runner> AppCloud<R> {
@@ -669,6 +720,18 @@ impl<R: Runner> Cloud for AppCloud<R> {
             "machine {name} was still being made after {} s: run this again once `cmux vm ls` lists it",
             CREATE_BOUND.as_secs()
         ))
+    }
+
+    fn open_first_chat(&mut self, machine: &str, checkout: &str) -> Option<Result<(), String>> {
+        if !self.first_chat {
+            return None;
+        }
+        let target = Self::target(machine);
+        let mut words = vec!["cloud", "start-chat", "--target", &target, "--no-focus"];
+        if !checkout.is_empty() {
+            words.extend(["--cwd", checkout]);
+        }
+        Some(self.verb(&words).map(|_| ()))
     }
 
     fn deliver_secrets(&mut self, machine: &str, names: &[String]) -> Result<Vec<String>, String> {

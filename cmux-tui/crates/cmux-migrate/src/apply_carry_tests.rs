@@ -90,7 +90,7 @@ fn carry(tmp: &Path, source: &Path, origin: Option<&Path>) -> (PathBuf, String) 
     let index_before = std::fs::read(source.join(".git/index")).ok();
     let work = parse_work(&sh(&work_script(source.to_str().unwrap())).unwrap()).unwrap();
     assert_eq!(std::fs::read(source.join(".git/index")).ok(), index_before, "index touched");
-    let mut machine = Machine { home: home.clone() };
+    let mut machine = Machine { home };
     let mut done = Vec::new();
     let said =
         carry_worktree(&mut machine, &mut done, "m1", &work, &format!("{MACHINE_HOME}/work/app"))
