@@ -1479,6 +1479,12 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_web_complexity_trusted_workflow.py
 
+      - name: Validate fixed-window hook context measurements
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: |
+          python3 tests/test_hook_context_window.py
+          python3 tests/test_hook_context_dedup_bound.py
+
       - name: Validate the web performance gate keeps measurement and validation apart
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_web_perf_validation_boundary.py
@@ -2326,6 +2332,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_toolchain_r2.sh
 
+      - name: Validate the Bun and Node restore on the nightly Macs
+        if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
+        run: python3 tests/test_ci_toolchain_r2_darwin.py
+
       - name: Validate the machine bun store puts the pinned bun back with no download
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_bun_store.sh
@@ -2766,6 +2776,7 @@ jobs:
           python3 tests/test_ci_cloud_journey_prod_preclaim_login.py
           python3 tests/test_ci_checkout_lean.py
           python3 tests/test_ci_sparse_checkout_imports.py
+          python3 tests/test_ci_sparse_cargo_path_deps.py
           python3 tests/test_ci_helper_prebuild_lifecycle.py
           python3 tests/test_ci_killpg_tolerates_eperm.py
 
