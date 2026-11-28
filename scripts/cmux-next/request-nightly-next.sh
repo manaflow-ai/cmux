@@ -489,7 +489,7 @@ precheck() { # <sha>
       return 0 ;;
     superseded*)
       # The check that covers it: the one the controller names (the stored push-tip check whose Covers
-      # lists it, hq#35798), else the first checked push tip after it on feat-cmux-next. Before, only
+      # lists it, cmuxterm-hq#35798), else the first checked push tip after it on feat-cmux-next. Before, only
       # the walk ran: it stopped at the first pending commit, so c6a61b31 (cmux#50356) read "no
       # verdict" while 735222b6, four commits on and listing it in Covers, had passed (2026-11-28).
       local later by="${word#superseded}"

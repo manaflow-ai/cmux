@@ -335,6 +335,7 @@ done
 # them no longer hides its pass. Shape of 2026-11-28: c6a61b31 read "no verdict" while 735222b6, four
 # first-parent commits on and listing it in Covers, had passed; the walk stopped at 08f09f55 (queued).
 echo running > "$TMP/precheck/$checked"
+git_q -C "$src" checkout -q --detach "$checked"
 echo after > "$src/cmux-tui/a"
 git_q -C "$src" add -A
 git_q -C "$src" commit -m "the covering push tip, checked and passed"
