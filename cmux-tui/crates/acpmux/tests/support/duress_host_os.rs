@@ -204,6 +204,38 @@ pub(super) fn cpu_ticks() -> Option<(u64, u64)> {
     Some((busy, busy + t[libc::CPU_STATE_IDLE as usize]))
 }
 
+/// The host's `true`: the floor for spawning any process (macOS has no `/bin/true`).
+#[cfg(target_os = "linux")]
+pub(super) const TRUE_BIN: &str = "/bin/true";
+#[cfg(target_os = "macos")]
+pub(super) const TRUE_BIN: &str = "/usr/bin/true";
+
+/// A cheap read of the load average, as an agent's tool call might make.
+#[cfg(target_os = "linux")]
+pub(super) const LOAD_READ: &str = "cat /proc/loadavg";
+#[cfg(target_os = "macos")]
+pub(super) const LOAD_READ: &str = "/usr/sbin/sysctl -n vm.loadavg";
+
+/// Resident KiB of `pid` (`VmRSS` on Linux, `ps -o rss=` on macOS).
+#[cfg(target_os = "linux")]
+pub(super) fn rss_kib(pid: u32) -> Option<u64> {
+    std::fs::read_to_string(format!("/proc/{pid}/status"))
+        .ok()?
+        .lines()
+        .find_map(|l| l.strip_prefix("VmRSS:")?.trim().trim_end_matches("kB").trim().parse().ok())
+}
+
+#[cfg(target_os = "macos")]
+pub(super) fn rss_kib(pid: u32) -> Option<u64> {
+    let out = Command::new("/bin/ps")
+        .args(["-o", "rss=", "-p", &pid.to_string()])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    String::from_utf8_lossy(&out.stdout).trim().parse().ok()
+}
+
 /// The legs that need Linux: a tmpfs or `prlimit` (disk), `systemd-run` memory ceilings
 /// (bigchat, host150), CPU pinning and cgroups (starved). Elsewhere they are refused by name.
 pub(super) const LINUX_ONLY_LEGS: [&str; 5] = ["disk", "bigchat", "all", "host150", "starved"];
@@ -236,6 +268,10 @@ mod unit {
         let rows = procs();
         let mine = rows.iter().find(|(p, _)| *p == me).expect("this process listed");
         assert!(mine.1.len() >= 3, "state, parent, group: {:?}", mine.1);
+        assert!(rss_kib(me as u32).is_some_and(|k| k > 0), "own rss");
+        assert!(std::path::Path::new(TRUE_BIN).exists(), "{TRUE_BIN}");
+        let st = std::process::Command::new("/bin/sh").args(["-c", LOAD_READ]).output().unwrap();
+        assert!(st.status.success() && !st.stdout.is_empty(), "{LOAD_READ}");
     }
 
     #[test]

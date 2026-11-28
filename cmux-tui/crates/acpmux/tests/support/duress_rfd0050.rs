@@ -48,12 +48,14 @@ pub(super) fn hog_bytes() -> Option<u64> {
     Some(want.min(avail.saturating_sub(RAM_HEADROOM)))
 }
 
-/// Holds `bytes` resident: touched a page at a time, then touched again every 2 s.
+/// Holds `bytes` resident: copies of one random 64 MiB block, so macOS's memory compressor
+/// cannot shrink them (zero pages compress to nearly nothing and the hold read 63% used on a
+/// Mac mini), then a page of each touched again every 2 s.
 pub(super) fn hog_script(bytes: u64) -> String {
     format!(
-        "exec python3 -c 'import time\nchunks=[]\nleft={bytes}\nwhile left>0:\n n=min(left,64<<20)\n \
-         b=bytearray(n)\n b[::4096]=b\"\\x01\"*len(range(0,n,4096))\n chunks.append(b)\n left-=n\n\
-         while True:\n time.sleep(2)\n for b in chunks:\n  b[::4096]=b\"\\x02\"*len(range(0,len(b),4096))\n'"
+        "exec python3 -c 'import os,time\nr=os.urandom(64<<20)\nchunks=[]\nleft={bytes}\n\
+         while left>0:\n n=min(left,64<<20)\n chunks.append(bytearray(r[:n]))\n left-=n\n\
+         while True:\n time.sleep(2)\n for b in chunks:\n  b[::4096]=bytes(b[::4096])\n'"
     )
 }
 
