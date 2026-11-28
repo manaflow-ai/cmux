@@ -87,6 +87,17 @@ jobs:
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # A cmux-runner-pool slot shows cargo every host thread (up to 96) under a 24 GiB memory.max, so
+      # clippy-driver/rustc on acpmux (lib test) got SIGKILLed (batch clippy job 141038960720, 2026-11-28).
+      # One cargo job per 3 GiB of the slot's memory, as cmux-tui-spec.yml clippy does (#65012).
+      - name: Cap cargo jobs at this runner's memory
+        shell: bash
+        run: |
+          s="$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh"
+          [[ -z "${CARGO_BUILD_JOBS:-}" && -f "$s" ]] || exit 0
+          jobs="$(bash "$s" 2>/dev/null || true)"
+          [[ -z "$jobs" ]] || { echo "CARGO_BUILD_JOBS=$jobs" >> "$GITHUB_ENV"; echo "CARGO_BUILD_JOBS=$jobs"; }
+
       - name: Key the seed
         id: r2-cargo-key
         run: |
