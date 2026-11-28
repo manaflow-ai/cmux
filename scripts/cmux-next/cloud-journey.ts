@@ -4204,6 +4204,9 @@ export function launchCredentialStartProgram(session: string, agent: string, nam
   const trace = traceId && /^[0-9a-f]{32}$/.test(traceId) ? JSON.stringify(traceId) : "None";
   return `python3 -I - <<'CMUX_JOURNEY_START'
 import json, os, socket, sys, time, uuid
+t0 = time.monotonic()
+def mark(name):
+    print('@@mark ' + name + ' ' + str(int((time.monotonic() - t0) * 1000)), flush=True)
 params = json.loads(${JSON.stringify(params)})
 first = ${first}
 trace = ${trace}
@@ -4248,10 +4251,13 @@ while True:
             except (ConnectionRefusedError, FileNotFoundError) as e:
                 raise Retryable('connect: ' + str(e))
             f = s.makefile('r')
+            mark('connected')
             call(f, s, 1, 'initialize', {'protocolVersion': 1, 'clientCapabilities': {}, 'clientInfo': {'name': 'cloud-journey', 'version': '1'}})
+            mark('initialized')
             try:
                 r = call(f, s, 2, 'session/new', params)
                 sid = (r or {}).get('sessionId')
+                mark('session_new')
             except RuntimeError as e:
                 # A start cut by acpmux's restart can have made the session before its answer was lost: the
                 # resend then finds its name taken. Only after such a cut is that name this start's own session.
@@ -4314,6 +4320,7 @@ if sid is not None:
                         text = 'session/prompt: ' + json.dumps(err)[:400]
                         raise (Retryable if ((err.get('data') or {}).get('retryable') is True) else RuntimeError)(text)
                     break
+            mark('prompt_accepted')
             print('@@prompted', flush=True)
             sys.exit(0)
         except Retryable as e:
@@ -4395,6 +4402,27 @@ export function guestTimed(command: string): string {
 export function guestMs(stdout: string): number | null {
   const m = /@@guest_ms (\d+)/.exec(stdout);
   return m ? Number(m[1]) : null;
+}
+
+/**
+ * The start program's own marks (`@@mark NAME MS`, ms since its python started): where the guest's start time goes,
+ * as start_<NAME> parts. The first of each name wins (a retried connect keeps its first time). Before these, the
+ * claude start read only as one harness_spawn of 12,797 ms (8,987 on the guest) in run 46099930567, with no split
+ * between acpmux's handshake, session/new (the harness spawn) and the prompt's accept.
+ */
+export function startMarks(stdout: string): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const m of stdout.matchAll(/^@@mark ([a-z_]+) (\d+)$/gm)) if (!(`start_${m[1]}` in out)) out[`start_${m[1]}`] = Number(m[2]);
+  return out;
+}
+
+/** Each start mark as a guest part, and a detail line naming them. */
+function recordStartMarks(timing: FirstTextTiming, stdout: string): string {
+  const marks = startMarks(stdout);
+  for (const [k, v] of Object.entries(marks)) timing.guest(k, v);
+  timing.guest("start_total", guestMs(stdout));
+  const parts = Object.entries(marks).map(([k, v]) => `${k.slice(6)} ${v}`);
+  return parts.length ? `; start marks ms ${parts.join(", ")}` : "";
 }
 
 /** "; on the guest N ms (the rest is the exec route)" for a step's detail, or "" with no time. */
@@ -4579,6 +4607,15 @@ export const IDLE_JOURNEY_MS = 60 * 60_000;
  * 10:29Z 2026-11-27: 130 machines, 37 failed) while each sweep deleted 0-1.
  */
 export const FAILED_JOURNEY_MS = 15 * 60_000;
+/**
+ * How long a --keep run's machines (`cloud journey jr-<tag>`, its ` gateway`, any suffix) stay before the sweep takes
+ * one, idle: a week, the longest ttl a create takes. A failed one, which nobody can open again, goes once its tag is
+ * LONG_JOURNEY_MS old (past any run that kept it). The sweep never took them before, and on the production agent test
+ * account's 5-machine team they held the cap: `cloud journey jr-mw8lvrpa` (vm_5c394603ba9c2b33e108), failed for
+ * 454 h, failed the after-deploy journey's capacity preflight (quota_headroom used 4/5, need 2), so image 589544f1
+ * rolled back at 2026-11-28 00:13Z (cmux run 46085754677) while every sweep read `0 of 0 leaked deleted`.
+ */
+export const KEPT_JOURNEY_MS = 7 * 24 * 3_600_000;
 export interface StaleMachine { id: string; name: string; status: string; created: string }
 /** The account's machines counted by state, for the sweep's before and after (`running 12, paused 63, failed 37`). */
 export function machinesByState(rows: any[]): string {
@@ -4596,8 +4633,9 @@ export function machinesByState(rows: any[]): string {
  * long run's `jr-<tag> long…`), with no activity
  * in the last IDLE_JOURNEY_MS (`last_active_at`, when the row has it), and not deleted. A failed one is picked once
  * its tag is FAILED_JOURNEY_MS old, whatever its window or activity.
- * Ownership is the name, never age or state: a --keep run's `cloud journey jr-<tag>`, any other name, and a tag that
- * does not read as a time are never picked.
+ * A --keep run's `cloud journey jr-<tag>` (any suffix) is picked past KEPT_JOURNEY_MS idle, or past LONG_JOURNEY_MS
+ * once failed. Ownership is the name, never age or state: any other name, and a tag that does not read as a time,
+ * are never picked.
  */
 /**
  * Whether a GET /v1/cloud/inference-gateway answer shows a team stranded in gateway mode: mode "gateway" with no
@@ -4634,12 +4672,16 @@ export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STAL
     const name = typeof r.name === "string" ? r.name : "";
     // A start bench's machines (runStartBench) are the sweep's too: only a run that deletes them names them so.
     // So are the Auto mode journey's (auto-journey.ts `auto journey aj-<tag>`): it always deletes its machine.
-    const m = /^cloud journey auto jr-([0-9a-z]+)( long)?(?: \S.*)?$/.exec(name) ?? /^cloud start bench jr-([0-9a-z]+) (?:source|(?:spare|cold|snapshot) \d+)$/.exec(name) ?? /^auto journey aj-([0-9a-z]+)$/.exec(name);
+    const auto = /^cloud journey auto jr-([0-9a-z]+)( long)?(?: \S.*)?$/.exec(name) ?? /^cloud start bench jr-([0-9a-z]+) (?:source|(?:spare|cold|snapshot) \d+)$/.exec(name) ?? /^auto journey aj-([0-9a-z]+)$/.exec(name);
+    // A --keep run's own name (ownNamedMachines' `kept`): only the journey gives it, so it is the sweep's past KEPT_JOURNEY_MS.
+    const kept = auto ? null : /^cloud journey jr-([0-9a-z]+)(?: \S.*)?$/.exec(name);
+    const m = auto ?? kept;
     if (!m) continue;
     const started = parseInt(m[1], 36);
     // A real tag is a millisecond time after 2020 and not in the future.
     if (!Number.isFinite(started) || started < Date.UTC(2020, 0, 1) || started > nowMs) continue;
-    if (r.status === "failed" ? nowMs - started <= FAILED_JOURNEY_MS : nowMs - started <= (m[2] ? longMs : maxAgeMs)) continue;
+    const bound = kept ? (r.status === "failed" ? longMs : KEPT_JOURNEY_MS) : r.status === "failed" ? FAILED_JOURNEY_MS : m[2] ? longMs : maxAgeMs;
+    if (nowMs - started <= bound) continue;
     if (r.status !== "failed" && typeof r.last_active_at === "number" && nowMs - r.last_active_at <= IDLE_JOURNEY_MS) continue;
     const id = String(r.id ?? r.machine_id ?? "");
     const created = typeof r.created_at === "number" ? new Date(r.created_at).toISOString() : new Date(started).toISOString();
@@ -7067,7 +7109,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           // One exec carries both: send and sent fall at its return, after session_ready, as the trace's spans read them.
           J.firstText.mark("send");
           J.firstText.mark("sent");
-          return { value: null, detail: `session ${session}, on the person's model connection (its launch credential); its first prompt went with the start${guestDetail(guestMs(r.stdout))}` };
+          return { value: null, detail: `session ${session}, on the person's model connection (its launch credential); its first prompt went with the start${guestDetail(guestMs(r.stdout))}${recordStartMarks(J.firstText, r.stdout)}` };
         }
         if (provider === "claude") {
           // The machine holds the person's login (a receipt spare or a copy) or reaches its model through the team's
@@ -7084,7 +7126,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           promptedWithStart = true;
           J.firstText.mark("send");
           J.firstText.mark("sent");
-          return { value: null, detail: `session ${session}, ${probeExtra.login_path === "receipt" ? "on the login copied on spare.ready" : probeExtra.login_path === "copy" ? "on the login copied after bind" : "with no login of its own (gateway or none)"}; its first prompt went with the start${guestDetail(guestMs(r.stdout))}` };
+          return { value: null, detail: `session ${session}, ${probeExtra.login_path === "receipt" ? "on the login copied on spare.ready" : probeExtra.login_path === "copy" ? "on the login copied after bind" : "with no login of its own (gateway or none)"}; its first prompt went with the start${guestDetail(guestMs(r.stdout))}${recordStartMarks(J.firstText, r.stdout)}` };
         }
         const r = await startExec(`${GUEST}"$c" acp ensure ${shq(session)} -m ${shq(agent)} --json 2>&1; echo "@@exit $?"`);
         if (!/@@exit 0/.test(r.stdout)) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));
