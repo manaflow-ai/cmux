@@ -543,6 +543,10 @@ POWER_SPLIT = ("find_ms", "call_ms", "verify_ms", "provider_ms")
 # claim; only these say which spare wake they were. Each is kept only as one of its fixed words, any other dropped.
 START_KINDS = frozenset({"person", "window", "refresh", "warm"})
 START_BEFORE = frozenset({"paused", "stopped", "pausing", "starting", "running", "other"})
+# A create trace's `kind`, why the create ran (cmux-platform#2507 CloudCore.ts createKind): an unclaimed spare's, a
+# restore's or fork's, else a start kind. cmux-vm's create queue is 3 slots, shared by development and staging, and
+# 2026-11-28 01:36-01:48Z it refused 61 of 69 creates; only this says who filled it. Fixed words only, as above.
+CREATE_KINDS = START_KINDS | {"spare", "restore"}
 
 
 # cloud.start.first_reply (cmux-platform StartTrace.ts firstReplyOf): `steps`, each hop's ms of one real chat's start
@@ -1070,6 +1074,10 @@ def public_log(j):
         power = power_split(j.get("power"))
         if power is not None:
             out["power"] = power
+    if msg == "cloud.create.trace":
+        out.pop("kind", None)
+        if j.get("kind") in CREATE_KINDS:
+            out["kind"] = j["kind"]
     if msg == "cloud.start.trace":
         out.pop("kind", None)
         if j.get("kind") in START_KINDS:
