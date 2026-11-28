@@ -96,6 +96,12 @@ stderr) when the inventory names another commit, shows an `update-failed`, has f
 the build, or the current share is younger than --min-seconds. web-ota-pointer.py newer takes the wider file of the
 same build (widens) and nothing narrower; the kill switch stays `revoked` and `rollback`, never a smaller share.
 
+`first-pct` is the fast-head rule: the channel moves on every merge, so a new commit starts at the share its
+predecessor reached (never under --first) when the predecessor's inventory shows machines on it and no
+`update-failed`, else at --first; the same commit keeps its own share. .github/workflows/cmux-machine-channel.yml
+asks it only when vars.CLOUD_MACHINE_FIRST_PCT is set (unset: no rollout field, every machine, as before), and
+.github/workflows/cloud-machine-rollout-step.yml runs `step` on a schedule behind the same variable.
+
 An installer holds the channel pointer to expires_at; the per-commit file carries the same field,
 but an installer that asks for a version by name does not enforce it.
 
@@ -523,6 +529,53 @@ def step(args):
     return 0
 
 
+def first_pct(args):
+    """The share a new build of the channel starts at (--rollout-pct), printed on stdout: the fast-head rule.
+
+    The channel moves on every feat-cmux-next merge, often before a share has stood ROLLOUT_STEP_MIN_SECONDS, so a
+    build that always started at --first would hold most machines on whatever build last reached 100%. A new
+    commit inherits the share its predecessor (the channel's verified current build) reached, never less than
+    --first, when the predecessor's inventory shows machines on it and no update-failed: that is the evidence the
+    ring gate would have stepped on, and the code between two adjacent merges is the same update path. Without it
+    (no current file, an unverified one, an inventory of another commit, any update-failed, fewer than
+    --min-updated machines) the build starts at --first. The same commit (point-linux adding aarch64 after
+    point-x86_64) keeps its own share, so the wider file is not refused as a narrowing."""
+    first = args.first
+    if not 0 <= first <= 100:
+        fail("--first is a share from 0 to 100")
+    pct, why = first, "no current build"
+    if args.current and os.path.exists(args.current):
+        r = subprocess.run([sys.executable, POINTER, "verify", "--pointer", args.current, "--keys", args.keys,
+                            "--purpose", PURPOSE, "--channel", CHANNEL, "--allow-expired"],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            why = "the current file does not verify"
+        else:
+            current = json.loads(r.stdout)
+            reached = rollout_pct(current)
+            inventory = {}
+            try:
+                with open(args.inventory or "") as f:
+                    inventory = json.load(f)
+            except (OSError, ValueError):
+                pass
+            counts = [inventory.get(k) for k in ("updated", "update_failed")]
+            counted = all(isinstance(v, int) and not isinstance(v, bool) and v >= 0 for v in counts)
+            if current.get("commit") == args.commit:
+                pct, why = reached, "this build's own share"
+            elif inventory.get("commit") != current.get("commit") or not counted:
+                why = f"no inventory of {str(current.get('commit'))[:12]}"
+            elif counts[1]:
+                why = f"{counts[1]} update-failed on {current['commit'][:12]}"
+            elif counts[0] < args.min_updated:
+                why = f"{counts[0]} of the {args.min_updated} machines needed run {current['commit'][:12]}"
+            else:
+                pct, why = max(first, reached), f"inherited from {current['commit'][:12]} at {reached}%"
+    print(f"cmux-machine-channel: first share {pct}% ({why})", file=sys.stderr)
+    print(pct)
+    return 0
+
+
 def repoint(args):
     """The payload of another channel's pointer (linux-nightly, linux-stable) at a commit's published
     cmux-tui/<commit>/release.json: its verified build (commit, commit time, tree, targets) re-signed for
@@ -591,6 +644,13 @@ def main(argv):
     st.add_argument("--min-updated", type=int, default=1,
                     help="machines that must run the build, with no update-failed, before the next share")
     st.add_argument("--now", type=int, help=argparse.SUPPRESS)
+    fp = sub.add_parser("first-pct", help="the share a new build starts at: --first, or its predecessor's (fast head)")
+    fp.add_argument("--first", type=int, required=True)
+    fp.add_argument("--commit", required=True)
+    fp.add_argument("--keys", required=True)
+    fp.add_argument("--current", help="the channel's current signed file; missing starts at --first")
+    fp.add_argument("--inventory", help="the version inventory of the current file's commit")
+    fp.add_argument("--min-updated", type=int, default=1)
     a = sub.add_parser("alias", help="the release.json payload of a commit that shares a published tree")
     for name in ("--tree-release", "--keys", "--tree-key", "--channel", "--commit", "--committed-at", "--out"):
         a.add_argument(name, required=True)
@@ -614,6 +674,8 @@ def main(argv):
         repoint(args)
     elif args.command == "step":
         return step(args)
+    elif args.command == "first-pct":
+        return first_pct(args)
     else:
         payload(args)
     return 0

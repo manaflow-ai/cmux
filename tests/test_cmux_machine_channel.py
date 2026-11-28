@@ -1287,6 +1287,76 @@ class CloudMachineRolloutStep(unittest.TestCase):
                           str(self.repo / KEYS_PATH), "--inventory", str(unsigned), "--out", str(self.tmp / "o")])
         self.assertIn("does not verify", err.getvalue())
 
+    def first(self, commit, inventory=None, first=1, current=True):
+        argv = ["cmux-machine-channel.py", "first-pct", "--first", str(first), "--commit", commit,
+                "--keys", str(self.repo / KEYS_PATH)]
+        if current:
+            argv += ["--current", str(self.current())]
+        if inventory is not None:
+            inv = self.tmp / f"first-inventory-{len(list(self.tmp.iterdir()))}.json"
+            inv.write_text(json.dumps(inventory))
+            argv += ["--inventory", str(inv)]
+        with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(channel.main(argv), 0)
+        return int(out.getvalue()), err.getvalue()
+
+    def test_the_fast_head_inherits_its_predecessors_share_only_on_a_clean_inventory(self):
+        """The channel moves every merge: a new commit starts where its predecessor reached when that one's
+        inventory shows machines on it and no update-failed, else at the first share."""
+        self.assert_ok(self.point(self.build(pct=50)))
+        new = "e" * 40
+        self.assertEqual(self.first(new, self.ok()), (50, mock.ANY))
+        self.assertIn("inherited", self.first(new, self.ok())[1])
+        for inventory, message in (
+                (None, "no inventory"),
+                ({"commit": "b" * 40, "updated": 3, "update_failed": 0}, "no inventory"),
+                ({"commit": self.BUILD, "updated": 3, "update_failed": 2}, "2 update-failed"),
+                ({"commit": self.BUILD, "updated": 0, "update_failed": 0}, "0 of the 1"),
+                ({"commit": self.BUILD, "updated": "3", "update_failed": 0}, "no inventory")):
+            with self.subTest(inventory=inventory):
+                pct, err = self.first(new, inventory)
+                self.assertEqual(pct, 1)
+                self.assertIn(message, err)
+        # Never under the first share; a channel with no file starts there.
+        self.assertEqual(self.first(new, self.ok(), first=60)[0], 60)
+        self.assertEqual(self.first(new, current=False, first=10)[0], 10)
+
+    def test_the_same_commit_keeps_its_own_share(self):
+        """point-linux adds aarch64 to the commit point-x86_64 signed: it keeps that share, so the wider file of
+        the same build is taken (completes), not refused as narrower."""
+        self.assert_ok(self.point(self.build(pct=10)))
+        self.assertEqual(self.first(self.BUILD, first=1)[0], 10)
+        # Inherited, the new build publishes over its predecessor at that share.
+        self.assert_ok(self.point(self.build(commit="d" * 40, committed_at=COMMITTED_AT + 60, key="2" * 64,
+                                             pct=self.first("d" * 40, self.ok())[0]), run_id="5"))
+        value = self.verified(self.CHANNEL, "cloud-machine", "cmux-cloud-machine-update")
+        self.assertEqual((value["commit"], pointer.rollout_pct(value)), ("d" * 40, 10))
+
+    def test_first_pct_with_an_unsigned_current_file_starts_at_the_first_share(self):
+        self.assert_ok(self.point(self.build(pct=50)))
+        unsigned = self.build(pct=100)
+        with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()) as err:
+            channel.main(["cmux-machine-channel.py", "first-pct", "--first", "1", "--commit", "e" * 40,
+                          "--keys", str(self.repo / KEYS_PATH), "--current", str(unsigned)])
+        self.assertEqual(int(out.getvalue()), 1)
+        self.assertIn("does not verify", err.getvalue())
+
+    def test_the_stepper_and_first_share_stay_off_unless_the_variable_is_set(self):
+        """Never flipped on here: the scheduled job and both first-share points run only with
+        vars.CLOUD_MACHINE_FIRST_PCT set, and the inventory stub writes no file without its URL."""
+        workflows = ROOT / ".github" / "workflows"
+        stepper = (workflows / "cloud-machine-rollout-step.yml").read_text()
+        self.assertIn("vars.CLOUD_MACHINE_FIRST_PCT != ''", stepper)
+        machine = (workflows / "cmux-machine-channel.yml").read_text()
+        self.assertEqual(machine.count('[[ -z "$CLOUD_MACHINE_FIRST_PCT" ]] || rollout=('), 2)
+        out = self.tmp / "inv.json"
+        env = {k: v for k, v in os.environ.items() if k != "CLOUD_MACHINE_INVENTORY_URL"}
+        r = subprocess.run(["bash", str(ROOT / "scripts/ci/cmux-machine-channel-inventory.sh"), self.BUILD,
+                            str(out)], capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse(out.exists())
+        self.assertIn("the ring gate holds", r.stderr)
+
 
 class LinuxReleaseAliases(unittest.TestCase):
     """scripts/ci/cmux-linux-release-aliases.sh (mark-tree-commits) in a git repo against a fake R2: the
