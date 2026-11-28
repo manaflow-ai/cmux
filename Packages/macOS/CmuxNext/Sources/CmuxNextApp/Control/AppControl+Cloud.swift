@@ -91,7 +91,7 @@ extension AppControl {
     static func cloudMachineRow(_ session: CloudMachineSession, _ machines: MachineRegistry) -> [String: JSONValue] {
         let store = session.daemon.store
         let state: String = switch store.connectionState {
-        case .connected: "connected"
+        case .connected: session.effectiveStatus == .paused ? "paused" : "connected" // a frozen machine's link may still read up (cmux#57136)
         case .connecting: session.daemon.connection == nil && session.effectiveStatus == .paused ? "paused" : "connecting" // a paused machine is never dialed (cmux#57136)
         case .disconnected: "disconnected"
         case .failed(let reason): "failed: \(reason)"

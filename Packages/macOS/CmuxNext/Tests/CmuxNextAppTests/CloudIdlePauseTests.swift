@@ -171,8 +171,10 @@ struct CloudIdlePauseTests {
         f.session.daemon.store.connectionState = .connected(identity)
         #expect(CloudCreationRows.machine(f.session, compatibility: nil, updates: DaemonUpdateBoard()).status == .pausedIdle)
         #expect(SidebarBridge.paneLink(f.session.machineID, in: f.services.machines)?.link == "paused")
+        #expect(AppControl.cloudMachineRow(f.session, f.services.machines)["daemon"] == .string("paused"), "machine list says paused, not connected")
         f.session.machine.status = .running
         #expect(CloudCreationRows.machine(f.session, compatibility: nil, updates: DaemonUpdateBoard()).status == .connected)
+        #expect(AppControl.cloudMachineRow(f.session, f.services.machines)["daemon"] == .string("connected"))
     }
 
     @Test func aPausedMachinesCreationRowHasNoSpinner() throws {
