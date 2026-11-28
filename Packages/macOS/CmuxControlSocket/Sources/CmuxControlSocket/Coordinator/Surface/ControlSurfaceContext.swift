@@ -184,6 +184,27 @@ public protocol ControlSurfaceContext: AnyObject {
         hasSurfaceIDParam: Bool
     ) -> ControlSurfaceClearHistoryResolution
 
+    /// Applies a `surface.textbox.*` action to a terminal's TextBox Input.
+    ///
+    /// - Parameters:
+    ///   - action: The requested action.
+    ///   - routing: The routing selectors.
+    ///   - surfaceID: The parsed `surface_id`, or `nil` (focused-surface fallback
+    ///     only when the param was absent).
+    ///   - hasSurfaceIDParam: Whether a non-null `surface_id` param was present;
+    ///     present-but-unresolvable must error, never fall back to the focused
+    ///     surface.
+    ///   - focusRequested: Whether the caller asked a shown TextBox to take
+    ///     keyboard focus (granted only under the socket focus policy).
+    /// - Returns: The TextBox resolution.
+    func controlSurfaceTextBox(
+        action: ControlSurfaceTextBoxAction,
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID?,
+        hasSurfaceIDParam: Bool,
+        focusRequested: Bool
+    ) -> ControlSurfaceTextBoxResolution
+
     /// Triggers the focus flash for `surface.trigger_flash`.
     ///
     /// - Parameters:
