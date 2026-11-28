@@ -1476,6 +1476,11 @@
       "size": 5380
     },
     {
+      "path": "FloatingPane.java",
+      "sha256": "62a9d2bf9ec0474f775e4ff6cf152ed88d0818ceeb6c61140fc08b0179e1f1c4",
+      "size": 4254
+    },
+    {
       "path": "FlushLaunchSnapshotRequest.java",
       "sha256": "0dd827879eaef58ae2f6305ef4bec994fcc2a175bff05ee6bc3f50a7df5bdc5f",
       "size": 1423
@@ -2362,7 +2367,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "0559a13df86c38bedae3d663498c0b8125efbe166f49442df90efd578c94f18f",
+      "sha256": "a14455d9a8f558695a8ac84957efef1b366617a5684c5103940b890a6258ca7d",
       "size": 8753
     },
     {
@@ -2712,8 +2717,8 @@
     },
     {
       "path": "Screen.java",
-      "sha256": "48ea41f4662be4d137d176eeb98b56c13ec760a72781c10133a68ee7d437507b",
-      "size": 14808
+      "sha256": "6e29cb3452809a231de7019769dad4fd97ccbc2b6c7c355930b9dc3bfb59cc0c",
+      "size": 14853
     },
     {
       "path": "ScreenAddedEvent.java",
@@ -3957,7 +3962,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "6cd5f9b4b09f29969b15bdc6371b9629b48a844d29a569e87f3e3d2739d5684b",
+  "ir_sha256": "4fec002cc50074d54cc2ceb3cce0c5793558740f152e0e38234067f26eb505bf",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2
