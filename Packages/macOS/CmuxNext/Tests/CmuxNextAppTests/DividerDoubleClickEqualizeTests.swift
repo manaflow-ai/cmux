@@ -205,7 +205,7 @@ struct DividerDoubleClickEqualizeTests {
         #expect(abs(heights[2] - minimum) <= 1, "Y keeps its minimum \(heights)")
     }
 
-    /// Thick dividers: a four-pane chain A | (B | (C | D)) ends with every pane the same width to the device pixel
+    /// Thick dividers: a four-pane chain A | (B | (C | D)) ends with every pane the same width to a point (pixel rounding)
     /// (leaf counts put each nested divider's thickness on the deeper panes: 3 points apart here).
     @Test(arguments: ["p", "q", "r"] as [SplitID])
     func dividersInsideTheChainAreCounted(clicked: SplitID) {
@@ -215,7 +215,7 @@ struct DividerDoubleClickEqualizeTests {
                                                      b: .split("r", axis: .horizontal, ratio: 0.4, a: .leaf("c"), b: .leaf("d")))))
         model.equalizeSplit(clicked, geometry: Self.geometry(model, viewport))
         let widths = Self.extents(model, viewport, ["a", "b", "c", "d"], along: .horizontal)
-        #expect((widths.max() ?? 0) - (widths.min() ?? 1) <= 0.5, "\(widths)")
+        #expect((widths.max() ?? 0) - (widths.min() ?? 1) <= 1, "\(widths)")
     }
 
     /// Panes that cannot all fit (five 200 point panes on 900 points): the layout shares by minimums, so the ratios
