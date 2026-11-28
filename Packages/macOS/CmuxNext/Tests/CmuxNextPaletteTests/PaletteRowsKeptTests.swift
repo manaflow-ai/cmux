@@ -26,6 +26,14 @@ struct PaletteRowsKeptTests {
         return (list, table, window)
     }
 
+    /// A frame: the list laid out and drawn, as the next display shows it. A reload's rows are made when the table
+    /// draws, so a list read before its frame shows none.
+    static func settle(_ list: PaletteListView) {
+        list.needsLayout = true
+        list.layoutSubtreeIfNeeded()
+        list.displayIfNeeded()
+    }
+
     static func row(_ id: String, _ title: String, subtitle: String? = nil, isEnabled: Bool = true) -> PaletteRow {
         PaletteRow(item: PaletteItem(id: id, title: title, subtitle: subtitle, isEnabled: isEnabled,
                                      primary: PaletteCommand(id: "open", title: "Open", effect: .perform {})),
@@ -73,7 +81,7 @@ struct PaletteRowsKeptTests {
         let (list, table, window) = try Self.host()
         defer { window.closeAfterTest() }
         list.setSections(Self.sections("a", [3, 4]))
-        list.layoutSubtreeIfNeeded()
+        Self.settle(list)
         let rowViews = (0..<table.numberOfRows).map { table.rowView(atRow: $0, makeIfNecessary: false) }
         let cells = (0..<table.numberOfRows).map { table.view(atColumn: 0, row: $0, makeIfNecessary: false) }
         try #require(table.numberOfRows == 9 && rowViews.allSatisfy { $0 != nil }, "the list showed no rows to keep")
@@ -85,7 +93,7 @@ struct PaletteRowsKeptTests {
             #expect(table.view(atColumn: 0, row: row, makeIfNecessary: false) === cells[row],
                     "row \(row)'s cell left the table and is made again for results of the same shape")
         }
-        list.layoutSubtreeIfNeeded()
+        Self.settle(list)
         let header = table.view(atColumn: 0, row: 0, makeIfNecessary: false) as? PaletteSectionHeaderCell
         #expect(header?.title == "b 0", "the header shows the old results")
         let cell = table.view(atColumn: 0, row: 1, makeIfNecessary: false) as? PaletteRowCell
@@ -129,16 +137,16 @@ struct PaletteRowsKeptTests {
             updated.setSections(before)
             updated.setSelection(selected)
             updated.setHover(hovered)
-            updated.layoutSubtreeIfNeeded()
+            Self.settle(updated)
             updated.setSections(after)
-            updated.layoutSubtreeIfNeeded()
+            Self.settle(updated)
 
             let (fresh, freshTable, freshWindow) = try Self.host()
             defer { freshWindow.closeAfterTest() }
             fresh.setSelection(selected)
             fresh.setHover(hovered)
             fresh.setSections(after)
-            fresh.layoutSubtreeIfNeeded()
+            Self.settle(fresh)
 
             #expect(Self.shown(updatedTable) == Self.shown(freshTable),
                     "\(name), selected \(selected ?? "-"), hovered \(hovered ?? "-"): the updated list shows other rows")
@@ -157,17 +165,17 @@ struct PaletteRowsKeptTests {
         let (updated, updatedTable, updatedWindow) = try Self.host()
         defer { updatedWindow.closeAfterTest() }
         updated.setSections(Self.sections("a", [3, 4]))
-        updated.layoutSubtreeIfNeeded()
+        Self.settle(updated)
         let before = updatedTable.rect(ofRow: 0).height
         try #require(store.set(header.key, .number(Double(MetricTunables.sidebarHeaderHeight.value) + 10)) != nil)
         try #require(PaletteLayout.headerRowHeight != before, "the header height did not change")
 
         updated.setSections(Self.sections("b", [3, 4]))
-        updated.layoutSubtreeIfNeeded()
+        Self.settle(updated)
         let (fresh, freshTable, freshWindow) = try Self.host()
         defer { freshWindow.closeAfterTest() }
         fresh.setSections(Self.sections("b", [3, 4]))
-        fresh.layoutSubtreeIfNeeded()
+        Self.settle(fresh)
         #expect(updatedTable.rect(ofRow: 0).height == PaletteLayout.headerRowHeight, "a kept header keeps its old height")
         #expect(Self.shown(updatedTable) == Self.shown(freshTable), "the updated list shows other rows")
     }

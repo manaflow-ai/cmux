@@ -12,13 +12,13 @@ struct PaletteRowsAskedTests {
         let (list, table, window) = try PaletteRowsKeptTests.host()
         defer { window.closeAfterTest() }
         list.setSections(PaletteRowsKeptTests.sections("a", [3, 4]))
-        list.layoutSubtreeIfNeeded()
+        PaletteRowsKeptTests.settle(list)
         let first = list.cellsAsked
         #expect(first >= table.numberOfRows, "the first results asked for \(first) cells for \(table.numberOfRows) rows")
 
         for prefix in ["b", "c", "a"] {
             list.setSections(PaletteRowsKeptTests.sections(prefix, [3, 4]))
-            list.layoutSubtreeIfNeeded()
+            PaletteRowsKeptTests.settle(list)
         }
         #expect(list.cellsAsked == first, "three updates of the same shape asked for \(list.cellsAsked - first) cells")
     }
@@ -27,14 +27,14 @@ struct PaletteRowsAskedTests {
         let (list, table, window) = try PaletteRowsKeptTests.host()
         defer { window.closeAfterTest() }
         list.setSections(PaletteRowsKeptTests.sections("a", [3, 2]))
-        list.layoutSubtreeIfNeeded()
+        PaletteRowsKeptTests.settle(list)
         let first = list.cellsAsked
         list.setSections(PaletteRowsKeptTests.sections("b", [3, 5]))
-        list.layoutSubtreeIfNeeded()
+        PaletteRowsKeptTests.settle(list)
         #expect(table.numberOfRows == 10)
         #expect(list.cellsAsked - first == 3, "3 rows came; the update asked for \(list.cellsAsked - first) cells")
         list.setSections(PaletteRowsKeptTests.sections("c", [3, 1]))
-        list.layoutSubtreeIfNeeded()
+        PaletteRowsKeptTests.settle(list)
         #expect(table.numberOfRows == 6)
         #expect(list.cellsAsked - first == 3, "fewer rows asked for cells")
     }
@@ -43,10 +43,10 @@ struct PaletteRowsAskedTests {
         let (list, table, window) = try PaletteRowsKeptTests.host()
         defer { window.closeAfterTest() }
         list.setSections(PaletteRowsKeptTests.sections("a", [3, 4]))
-        list.layoutSubtreeIfNeeded()
+        PaletteRowsKeptTests.settle(list)
         let first = list.cellsAsked
         list.setSections(PaletteRowsKeptTests.sections("b", [1, 6]))
-        list.layoutSubtreeIfNeeded()
+        PaletteRowsKeptTests.settle(list)
         #expect(list.cellsAsked - first >= table.numberOfRows, "another shape kept a row of another kind")
     }
 }
