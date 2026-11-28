@@ -145,6 +145,7 @@ class Workflows(unittest.TestCase):
         ("ci-compile-attribution.yml", "fix", "scripts/ci/app_spend_mark.py", "pass"),
         ("ci-owned-pool-rescue.yml", "rescue", "scripts/ci/app_spend_mark.py", None),
         ("ci-queue-janitor.yml", "sweep", "scripts/ci/app_spend_mark.py", None),
+        ("cmux-next-pair-e2e-reconnect-nightly.yml", "reconnect", ".gh-budget-tooling/scripts/ci/app_spend_mark.py", "pass"),
     ]
 
     # Jobs that mint cmux-bot and do not yet print their spend. This list only shrinks: a new minting job is marked

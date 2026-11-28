@@ -21,9 +21,6 @@ permissions: {}
 jobs:
   reconnect:
     if: github.repository == 'manaflow-ai/cmux'
-    concurrency:
-      group: pair-e2e-reconnect-nightly-schedule
-      cancel-in-progress: false
     permissions:
       actions: write # dispatch cmux-next-pair-e2e-vm.yml on feat-cmux-next
       contents: read
@@ -41,15 +38,15 @@ jobs:
           sparse-checkout: |
             scripts/ci/gh_budget_wait.sh
             scripts/ci/gh_budget_wait.cjs
+            scripts/ci/app_spend_mark.py
           sparse-checkout-cone-mode: false
       - name: Wait through GitHub API rate limits and 5xx in this job
         working-directory: ${{ github.workspace }}
         run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
-      # The job token shares the repository's hourly pool with every workflow; spent, the dispatch 403s and
-      # the share run silently does not start. The cmux bot App's token has its own hour; the job token
-      # stays the fallback. Detector: scripts/ci/cron_dispatch_token_lint.py.
+      # The job token shares the repository's hourly pool with every workflow; spent, the dispatch 403s. The cmux
+      # bot App's token has its own hour; the job token stays the fallback. Detector: scripts/ci/cron_dispatch_token_lint.py.
       - name: Mint the cmux bot App token
-        id: app-token
+        id: cmux-bot-token
         if: ${{ vars.CMUX_BOT_APP_ID != '' }}
         continue-on-error: true
         timeout-minutes: 1
@@ -59,10 +56,25 @@ jobs:
           private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-actions: write
           permission-contents: read
+      - name: Read the cmux-bot budget before the dispatch
+        id: app-spend
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+        run: python3 .gh-budget-tooling/scripts/ci/app_spend_mark.py start cmux-next-pair-e2e-reconnect-nightly/reconnect --floor pass
       - name: Dispatch cmux-next-pair-e2e-vm.yml (reconnect-drops=10,60) on feat-cmux-next
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          # Below the floor the App token is not spent: the job token dispatches.
+          GH_TOKEN: ${{ steps.app-spend.outputs.low != 'true' && steps.cmux-bot-token.outputs.token || github.token }}
         run: |
           set -euo pipefail
           gh workflow run cmux-next-pair-e2e-vm.yml -R "$GITHUB_REPOSITORY" --ref feat-cmux-next -f ref=feat-cmux-next -f words=reconnect-drops=10,60
           echo "Dispatched cmux-next-pair-e2e-vm.yml (reconnect-drops=10,60) on feat-cmux-next." >> "$GITHUB_STEP_SUMMARY"
+      - name: Read the cmux-bot budget after the dispatch
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+        run: python3 .gh-budget-tooling/scripts/ci/app_spend_mark.py end cmux-next-pair-e2e-reconnect-nightly/reconnect
