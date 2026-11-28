@@ -1653,11 +1653,8 @@ function matches(words: readonly string[], text: string): boolean {
 /// `peer` names the machine to acpmux (an environment's id; `name` when absent) for its device kind.
 /// The box keeps its size whatever the kind: this Mac's wide MacBook box, else the square one.
 export function EnvironmentIcon({ kind, name, peer }: { kind: EnvironmentKind; name?: string; peer?: string }) {
-  // Only this Mac reads this machine's kind; an SSH icon with no machine named reads none ("").
-  const device = environmentDevice(
-    kind,
-    useDeviceKind(kind === "local" ? undefined : kind === "ssh" ? (peer ?? name ?? "") : ""),
-  );
+  // Only an SSH machine reads its kind; this Mac and an SSH icon with no machine named read none ("").
+  const device = environmentDevice(kind, useDeviceKind(kind === "ssh" ? (peer ?? name ?? "") : ""));
   return (
     <svg
       className={`acpmux-icon acpmux-location-icon acpmux-env-icon ui-ghost-icon${kind === "local" ? " acpmux-macbook-icon" : ""}${device ? " acpmux-device-icon" : ""}`}
@@ -1691,12 +1688,13 @@ export function EnvironmentIcon({ kind, name, peer }: { kind: EnvironmentKind; n
   );
 }
 
-/// The device glyph a machine of `kind` draws: what the daemon says it is (`reported`); this Mac
-/// until it says, the MacBook it always drew. A Cloud machine keeps its own cloud icon (none here),
-/// and an SSH machine that has not said keeps its terminal glyph.
+/// The device glyph a machine of `kind` draws: an SSH machine what its daemon says it is
+/// (`reported`), else its terminal glyph. This Mac always draws the MacBook, whatever this machine
+/// reports (#65784: the reported desktop glyph replaced the icon people knew). A Cloud machine keeps
+/// its own cloud icon (none here).
 export function environmentDevice(kind: EnvironmentKind, reported: DeviceKind | undefined): DeviceKind | undefined {
   if (kind === "cloud") return undefined;
-  if (kind === "local") return reported ?? "macbook";
+  if (kind === "local") return "macbook";
   return reported;
 }
 

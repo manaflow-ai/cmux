@@ -40,14 +40,16 @@ test("a status read names this machine and each peer", () => {
   });
 });
 
-test("the location picker draws each machine's reported kind", () => {
+test("the location picker draws each SSH machine's reported kind", () => {
   const icon = (kind: "local" | "ssh" | "cloud", name?: string) =>
     renderToStaticMarkup(createElement(EnvironmentIcon, name ? { kind, name } : { kind }));
   // Before the daemon says: This Mac is the MacBook it always was, SSH keeps its terminal glyph.
   expect(icon("local")).toContain('data-device="macbook"');
   expect(icon("ssh", "gpu-box")).not.toContain("data-device");
   noteDeviceKinds({ device: "mac-mini", peers: [{ name: "gpu-box", health: { device: "linux-server" } }] });
-  expect(icon("local")).toContain('data-device="mac-mini"');
+  // This Mac stays the MacBook whatever this machine reports (#65784).
+  expect(icon("local")).toContain('data-device="macbook"');
+  expect(icon("local")).not.toContain("mac-mini");
   expect(icon("ssh", "gpu-box")).toContain('data-device="linux-server"');
   // An SSH icon with no machine named (a saved environment, an action row) never takes this Mac's.
   expect(icon("ssh")).not.toContain("data-device");
@@ -61,7 +63,7 @@ test("the location picker draws each machine's reported kind", () => {
   expect(cloudBefore).not.toContain("data-device");
   // A later read without kinds keeps what was said.
   noteDeviceKinds({ peers: [] });
-  expect(icon("local")).toContain('data-device="mac-mini"');
+  expect(icon("ssh", "gpu-box")).toContain('data-device="linux-server"');
 });
 
 /// The web surfaces that draw a machine. Each draws its glyph from ui/DeviceGlyph, never a copy.
