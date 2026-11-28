@@ -83,7 +83,7 @@ async fn finish(
     let task_via = params.pointer("/_meta/acpmux/via").cloned();
     let task_agent = row.get("from").and_then(Value::as_str).map(str::to_owned);
     let task_device = crate::server::remote_guard::sending_device(conn, &prompt);
-    tokio::spawn(async move {
+    let _prompt = hub.scope.spawn_until_cancelled("brief-prompt", async move {
         let mut blocks =
             vec![json!({"type":"text","text":prompt.get("text").cloned().unwrap_or(Value::Null)})];
         let web = crate::server::trust_gate::for_web(task_conn.origin, &prompt);
