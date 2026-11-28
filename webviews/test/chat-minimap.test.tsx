@@ -9,7 +9,6 @@
 import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { settleReact } from "./support/domTeardown";
 setDefaultTimeout(120_000);
 
@@ -51,6 +50,7 @@ for (const key of Object.getOwnPropertyNames(dom.window))
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
+const { turnView } = await import("../src/agent-session/acpmux/conversation/turns");
 
 // jsdom has no layout: a 600 px viewport in a 1040 px pane, and a scroll offset.
 const VIEWPORT = 600;

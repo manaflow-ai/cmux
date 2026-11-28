@@ -194,6 +194,8 @@ enum AgentShareStrings {
         if error is AgentShareBadAccount { return ActionWorkFailure(code: "share.bad_request", reason: badAccount) }
         if error is AgentShareNotCloudOwner { return ActionWorkFailure(code: "share.not_owner", reason: notCloudOwner) }
         if error is AgentShareCloudRoomMissing { return ActionWorkFailure(code: "share.room_unconfigured", reason: cloudRoomMissing) }
+        // An approve or decline on a request that went meanwhile (another dialog, the CLI).
+        if error is AgentShareRequestGone { return ActionWorkFailure(code: "share.unknown", reason: reason("share.unknown") ?? "share.unknown") }
         if let missing = error as? AgentShareNotInvited { return ActionWorkFailure(code: "share.not_invited", reason: notInvited(missing.account)) }
         // No answer in time: the daemon may still make (or provision) the share, so the caller is
         // told the run may have applied and must not simply retry.

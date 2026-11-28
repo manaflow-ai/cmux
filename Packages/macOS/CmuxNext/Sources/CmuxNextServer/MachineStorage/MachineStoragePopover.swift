@@ -82,6 +82,7 @@ public final class MachineStoragePopover {
         readVolume(source.volume)
         state.phase = .measuring
         work = run(source.report, refusal: source.refusal) { state, data in
+            // main-actor-ok: the worktree care report, one row per worktree (tens)
             state.measured(try JSONDecoder().decode(WorktreeCareReportReply.self, from: data))
         }
     }
@@ -103,6 +104,7 @@ public final class MachineStoragePopover {
         state.freed = nil
         draw()
         work = run(source.clean, refusal: source.refusal) { state, data in
+            // main-actor-ok: the worktree care cleanup report, one row per worktree (tens)
             state.cleaned(try JSONDecoder().decode(WorktreeCareReport.self, from: data))
         }
     }
