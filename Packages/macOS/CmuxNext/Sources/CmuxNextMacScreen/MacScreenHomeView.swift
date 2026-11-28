@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 public import CmuxNextDevices
 import Observation
 
@@ -44,6 +45,8 @@ final class MacScreenHomeView: MacScreenThemedView {
     private var permissionsRead: Task<Void, Never>?
     private var readFor: [String] = []
     private var builtWithBorders = true
+    /// Holds This Mac's joining note back for ``MacScreenHomeSnapshot/joiningQuiet``; tests give it a manual clock.
+    var joiningHold = QuietHold(owner: "mac-screen-home-joining", delay: MacScreenHomeSnapshot.joiningQuiet)
     /// Your Devices' Offline group is open (the quiet look folds offline Macs under one row).
     var offlineExpanded = false
     /// The snapshot the rows were last built from (the page's own or a test's), for a rebuild after a local toggle.
@@ -143,7 +146,7 @@ final class MacScreenHomeView: MacScreenThemedView {
     // MARK: Drawing
 
     /// Reads the page's state and builds the rows when it changed; again on every change of what it read.
-    private func render() {
+    func render() {
         let snapshot = withObservationTracking { MacScreenHomeSnapshot(home: self) } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.render() }
         }
