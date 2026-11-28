@@ -474,7 +474,8 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         #expect(store.macLinkDiagnostics["m1"]?.contains("Chats:") != true)
         #expect(dialer.dialCount("m1") == dials, "cleared by the data, not by a redial")
         // The bind that began before the list arrived fails late: stale, so nothing comes back.
-        #expect(!session.chatsErrors.set("acpmux channel closed", by: .fetch, startedAt: bind))
+        let stood = session.chatsErrors.set("acpmux channel closed", by: .fetch, startedAt: bind)
+        #expect(!stood)
         #expect(session.chatsError == nil)
     }
 
