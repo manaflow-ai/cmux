@@ -21,6 +21,8 @@ pub(super) fn add_canonical_paths(session: &Session, kind: &str, msg: &mut Value
     super::tool_shell::add_shell_fields(kind, msg);
     // The packages it installs, while Usage Patterns is on (`tool_installs.rs`).
     super::tool_installs::count_installs(&session.id, kind, msg);
+    // A test command's pass/fail counts and failures so far (`tool_test_results.rs`).
+    super::tool_test_results::add_test_results(&session.id, kind, msg);
     let Some(update) = msg.pointer_mut("/params/update").filter(|u| u.is_object()) else {
         return;
     };

@@ -1,4 +1,4 @@
-import type { AcpmuxActivity, AcpmuxFileDiff, AcpmuxLocation, ClaimCheck } from "../model";
+import type { AcpmuxActivity, AcpmuxFileDiff, AcpmuxLocation, AcpmuxTestResults, ClaimCheck } from "../model";
 
 export const objectValue = (value: unknown): Record<string, unknown> | undefined =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
@@ -149,6 +149,8 @@ export function mergeToolItem(
   // The subagent a SendMessage goes to, as the daemon names it: a v1 update's `recipient` (from its
   // record's `_meta.acpmux.recipient`, `withRecipient`) or a v2 tool row's field of that name.
   const recipient = typeof update.recipient === "string" && update.recipient ? update.recipient : before?.recipient;
+  // A test command's counts so far: each update carries the latest (acpmux tool_test_results.rs).
+  const testResults = readTestResults(update) ?? before?.testResults;
   const title = update.title ?? update.name;
   const status = String(update.status ?? before?.status ?? "in_progress");
   const ended = status === "completed" || status === "failed";
@@ -209,7 +211,35 @@ export function mergeToolItem(
       diffs,
       ...(provenance ? { provenance } : {}),
       ...(recipient ? { recipient } : {}),
+      ...(testResults ? { testResults } : {}),
     },
+  };
+}
+
+/// A test command's results acpmux put on the update (`_meta.acpmux.testResults`), else none.
+function readTestResults(update: any): AcpmuxTestResults | undefined {
+  const results = update._meta?.acpmux?.testResults;
+  if (!objectValue(results)) return undefined;
+  const count = (value: unknown) => (typeof value === "number" && value >= 0 ? value : 0);
+  return {
+    runner: typeof results.runner === "string" ? results.runner : "tests",
+    passed: count(results.passed),
+    failed: count(results.failed),
+    skipped: count(results.skipped),
+    done: results.done === true,
+    failures: Array.isArray(results.failures)
+      ? results.failures
+          .filter((f: any) => objectValue(f) && typeof f.name === "string")
+          .map((f: any) => ({
+            name: f.name,
+            ...(typeof f.path === "string" && f.path ? { path: f.path } : {}),
+            ...(typeof f.line === "number" && f.line > 0 ? { line: f.line } : {}),
+            ...(typeof f.message === "string" && f.message ? { message: f.message } : {}),
+          }))
+      : [],
+    ...(typeof results.moreFailures === "number" && results.moreFailures > 0
+      ? { moreFailures: results.moreFailures }
+      : {}),
   };
 }
 
