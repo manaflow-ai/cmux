@@ -50,15 +50,93 @@ class PlanTest(unittest.TestCase):
         self.assertTrue(p["build"])
         self.assertTrue(p["app"])
 
-    def test_a_rust_crate_the_ffi_compiles_builds_the_kit_and_the_app(self) -> None:
-        # cmux#55399: a cmux-tui crate change broke the iOS build and nothing iOS ran.
-        for path in ("cmux-tui/crates/cmux-wg/src/wireguard_dormant.rs", "cmux-tui/Cargo.lock",
-                     "cmux-tui/vendor/smoltcp/src/lib.rs"):
+    def rust_root(self, files: dict[str, str]) -> Path:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        for rel, text in files.items():
+            (root / rel).parent.mkdir(parents=True, exist_ok=True)
+            (root / rel).write_text(text)
+        return root
+
+    def test_rust_the_swift_surface_sees_builds_the_kit_and_the_app(self) -> None:
+        # cmux#55399: a cmux-tui crate change can break the iOS build; one that names the bindings, a C export or an
+        # Apple target, a build.rs, or a file the planner cannot read (deleted) still takes the Mac.
+        files = {
+            "cmux-tui/crates/cmux-mobile-core/src/api.rs": "#[uniffi::export]\npub fn ping() {}\n",
+            "cmux-tui/crates/cmux-rd-ffi/src/lib.rs": '#[no_mangle]\npub extern "C" fn rd() {}\n',
+            "cmux-tui/crates/cmux-wg/src/tun.rs": '#[cfg(target_os = "ios")]\nfn tun() {}\n',
+            "cmux-tui/crates/cmux-wg/Cargo.toml": "[target.'cfg(target_vendor = \"apple\")'.dependencies]\n",
+            "cmux-next-ios/rust/crates/cmux-mobile-link-ffi/Cargo.toml": "[dependencies]\nuniffi = \"0.29\"\n",
+            "cmux-tui/crates/cmux-wg/build.rs": "fn main() {}\n",
+        }
+        root = self.rust_root(files)
+        for path in [*files, "cmux-tui/crates/cmux-wg/src/gone.rs", "cmux-tui/rust-toolchain.toml"]:
             with self.subTest(path=path):
-                p = self.plan(path)
+                p = fv.plan([path], root=root)
                 self.assertTrue(p["build"])
                 self.assertTrue(p["app"])
-                self.assertTrue(fv.affects([path]))
+                self.assertTrue(p["proof"])
+                self.assertTrue(fv.affects([path], root=root))
+
+    def test_rust_the_swift_surface_cannot_see_plans_nothing(self) -> None:
+        # 11-27 22:00-23:30Z: 7 of 10 sampled Mac runs (about 14 min each) were these: a lock bump, a crate's
+        # internals, its tests. The Linux Rust steps compile and test them; the bindings are the same.
+        files = {
+            "cmux-tui/Cargo.lock": "[[package]]\nname = \"uniffi\"\n",
+            "cmux-tui/Cargo.toml": "[workspace]\nmembers = [\"crates/*\"]\n",
+            "cmux-tui/crates/cmux-cloud-wire/src/lib.rs": "pub fn wire() -> u8 { 1 }\n",
+            "cmux-tui/crates/cmux-cloud-wire/src/tests.rs": "#[test]\nfn t() {}\n",
+            "cmux-next-ios/rust/crates/cmux-mobile-host/tests/relay.rs": "#[test]\nfn relay() {}\n",
+            "cmux-tui/vendor/smoltcp/src/lib.rs": "pub mod iface;\n",
+        }
+        root = self.rust_root(files)
+        p = fv.plan(list(files), root=root)
+        self.assertFalse(p["run"], p)
+        self.assertFalse(p["proof"])
+        self.assertFalse(fv.affects(list(files), root=root))
+        # With a Swift change beside them, only the Swift plans.
+        p = fv.plan([*files, KIT + "Tests/CmuxMobileVoiceTests/VoiceTests.swift"], root=root)
+        self.assertEqual(p["tests"], ["CmuxMobileVoiceTests"])
+        self.assertFalse(p["app"])
+
+    def test_the_matrix_cells_run_the_tests_that_read_them(self) -> None:
+        p = self.plan("cmux-next-ios/reliability-matrix/cells.json")
+        self.assertEqual(p["tests"], ["CmuxMobileLiveTests"])
+        self.assertFalse(p["app"])
+        self.assertFalse(p["build"])
+
+    def test_a_base_that_named_the_bindings_builds(self) -> None:
+        # A removed uniffi export changes the bindings though the head no longer names it.
+        path = "cmux-tui/crates/cmux-mobile-core/src/api.rs"
+        root = self.rust_root({path: "pub fn ping() {}\n"})
+        self.assertFalse(fv.plan([path], root=root)["run"])
+        self.assertTrue(fv.plan([path], root=root, base_marked={path})["build"])
+
+    def test_the_base_grep_reads_the_base_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            git = ["git", "-C", tmp, "-c", "user.email=t@t", "-c", "user.name=t"]
+            subprocess.run([*git, "init", "-q"], check=True)
+            marked, plain = "cmux-tui/crates/a/src/lib.rs", "cmux-tui/crates/b/src/lib.rs"
+            for rel, text in ((marked, "#[uniffi::export]\nfn f() {}\n"), (plain, "fn g() {}\n")):
+                (Path(tmp) / rel).parent.mkdir(parents=True, exist_ok=True)
+                (Path(tmp) / rel).write_text(text)
+            subprocess.run([*git, "add", "-A"], check=True)
+            subprocess.run([*git, "commit", "-qm", "base"], check=True)
+            cwd = os.getcwd()
+            os.chdir(tmp)
+            try:
+                got = fv.base_marked_paths([marked, plain, "cmux-tui/Cargo.lock", "docs/a.md"], base="HEAD")
+            finally:
+                os.chdir(cwd)
+            self.assertEqual(got, {marked})
+
+    def test_the_ere_and_the_regex_agree(self) -> None:
+        for text in ("uniffi::Record", 'extern "C" fn', "#[no_mangle]", 'cfg(target_os = "macos")',
+                     'cfg(target_vendor="apple")', "fn plain()", 'target_os = "linux"'):
+            with self.subTest(text=text):
+                ere = subprocess.run(["grep", "-qE", fv.RUST_SWIFT_MARK_ERE], input=text, text=True).returncode == 0
+                self.assertEqual(bool(fv.RUST_SWIFT_MARK.search(text)), ere)
 
     def test_a_rust_crate_the_ffi_does_not_compile_plans_nothing(self) -> None:
         import ios_link_ffi_key
@@ -124,6 +202,20 @@ class PlanTest(unittest.TestCase):
         for path in fv.SELF:
             with self.subTest(path=path):
                 self.assertTrue(self.plan(path)["build"])
+
+    def test_only_its_own_files_need_no_flow_proof(self) -> None:
+        # cmux#62950 changed only ios_fast_verdict.sh: the kit built, then cmux/ios-fast waited on an ios-flows record
+        # that `cmux ios verify` never posts for a diff no flow reads, so the status stayed pending for good.
+        self.assertFalse(self.plan(*fv.SELF)["proof"])
+        self.assertTrue(self.plan(fv.SELF[0], KIT + "Sources/CmuxMobileKit/A.swift")["proof"])
+        self.assertFalse(self.plan("docs/a.md")["proof"])
+        for wf in ("pr-router.yml", "ios-fast-verdict-dispatch.yml"):
+            with self.subTest(workflow=wf):
+                text = (ROOT / ".github/workflows" / wf).read_text()
+                self.assertIn("PROOF: ${{ needs.pipeline.outputs.ios_fast_proof }}", text)
+                self.assertIn('[ "$PROOF" != false ] && [ "$NEED_PROOF" = true ]', text)
+        pipeline = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
+        self.assertEqual(pipeline["jobs"]["ios-fast-runner"]["outputs"]["proof"], "${{ steps.plan.outputs.proof }}")
 
     def test_many_targets_fall_back_to_a_build(self) -> None:
         have = sorted(fv.test_targets(fv.ROOT) - fv.SKIPPED_TESTS)
@@ -297,6 +389,13 @@ class WorkflowTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.jobs = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())["jobs"]
+
+    def test_the_default_on_switch_normalizes_an_unset_variable(self) -> None:
+        # GitHub coerces null and '0' to numeric zero. String normalization keeps an
+        # unset switch enabled and still lets an explicit '0' disable the verdict.
+        # The hosted control probe is recorded in the 2026-11-27-ios-fast-unset-switch workflow note.
+        self.assertEqual(self.jobs["ios-fast-runner"]["if"],
+                         "${{ !cancelled() && !inputs.web_browser_only && format('{0}', vars.CI_IOS_FAST_VERDICT) != '0' }}")
 
     def test_the_picker_plans_then_picks_only_when_a_target_changed(self) -> None:
         runner = self.jobs["ios-fast-runner"]

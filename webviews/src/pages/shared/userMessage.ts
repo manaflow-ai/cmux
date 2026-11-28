@@ -23,6 +23,8 @@ const SHARED: Readonly<Record<string, string>> = {
   unreachable: "error.disconnected",
   timeout: "error.disconnected",
   "cmux.protocol.unknown_op": "error.unsupported",
+  "cmux.agents.unavailable": "error.disconnected",
+  "cmux.agents.unsupported": "error.unsupported",
   "cmux.agents.exists": "error.agentExists",
   // cmux models (an endpoint at cmux's model router): acpmux's `harness.cmux_models_*` reasons.
   "cmux.agents.cmux_models_signed_out": "error.cmuxModelsSignedOut",

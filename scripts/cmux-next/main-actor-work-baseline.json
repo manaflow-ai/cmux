@@ -193,12 +193,6 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentActivity/AgentActivityPageProvider.swift": {
   "JSON / property-list encode": 1
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentChatUploads.swift": {
-  "synchronous file write or file-system change": 5
- },
- "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentPeerUploads.swift": {
-  "synchronous file write or file-system change": 1
- },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentTabSeed.swift": {
   "line split of a whole input": 1
  },
@@ -240,9 +234,6 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStartChat+Machine.swift": {
   "JSON / property-list encode": 1,
   "JSON encode with sorted keys": 1
- },
- "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudUploads.swift": {
-  "synchronous file write or file-system change": 4
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+Cloud.swift": {
   "JSON / property-list decode": 2,
@@ -617,9 +608,6 @@
   "JSON / property-list encode": 1,
   "a main-actor Task per line or event (batch with MainActorLineBatch)": 2
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextNotifications/DesktopNotifier.swift": {
-  "synchronous file write or file-system change": 4
- },
  "Packages/macOS/CmuxNext/Sources/CmuxNextNotifications/NotificationBannerFormatter.swift": {
   "line split of a whole input": 1
  },
@@ -707,9 +695,6 @@
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalLaunchFrames.swift": {
   "JSON / property-list encode": 1
- },
- "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalPasteboard+Image.swift": {
-  "synchronous file write or file-system change": 3
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalSession+CommentAnchor.swift": {
   "line split of a whole input": 1
