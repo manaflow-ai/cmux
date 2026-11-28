@@ -28,6 +28,12 @@ public nonisolated struct CEFPumpStats: Equatable, Sendable {
     /// first (``CEFPumpCrossThreadGate``); the main thread merges them at its next pass or re-arm.
     /// They are not in ``delayedRequests``.
     public var keptCrossThreadRequests = 0
+    /// ``CEFMessagePump/runIfDueAtStep()``: passes run at a live resize step's start (of them, for an immediate request
+    /// still on its way from a Chromium thread), steps with no due work, and steps begun inside a pass (skipped).
+    public var stepRuns = 0
+    public var stepRunsInFlight = 0
+    public var stepNotDue = 0
+    public var stepSkippedInPass = 0
 
     public init() {}
 
@@ -40,6 +46,8 @@ public nonisolated struct CEFPumpStats: Equatable, Sendable {
          "delayed_requests": Double(delayedRequests), "reentrant_fires": Double(reentrantFires),
          "long_work_runs": Double(longWorkRuns), "follow_up_runs": Double(followUpRuns),
          "kept_cross_thread_requests": Double(keptCrossThreadRequests),
+         "step_runs": Double(stepRuns), "step_runs_in_flight": Double(stepRunsInFlight),
+         "step_not_due": Double(stepNotDue), "step_skipped_in_pass": Double(stepSkippedInPass),
          "work_ms": workSeconds * 1_000, "fallback_ms": fallbackInterval * 1_000]
     }
 }

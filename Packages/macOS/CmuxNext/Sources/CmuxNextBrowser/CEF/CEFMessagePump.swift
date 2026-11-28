@@ -92,6 +92,37 @@ final class CEFMessagePump {
         fire()
     }
 
+    /// `CMUX_NEXT_CEF_PUMP_AT_STEP=1` (off by default until measured): the pump also runs at the start of each live
+    /// resize step (``ResizeStepStart``).
+    nonisolated static let runsAtStep = ProcessInfo.processInfo.environment["CMUX_NEXT_CEF_PUMP_AT_STEP"] == "1"
+
+    /// The start of a live resize step, before its layout: one pass when work CEF already asked for is due (a request
+    /// whose deadline passed, or an immediate one still on its way from a Chromium thread). A live resize keeps the
+    /// main thread busy in cmux's steps, and the timer got about 10 passes a second in a window drag: each page's ack
+    /// of its new size waited, so its next size waited in Chromium's resize IPC throttle. Never re-entrant: nothing
+    /// runs inside a pass (a step begun from a CEF callback). Returns whether a pass ran.
+    func runIfDueAtStep() -> Bool {
+        guard isRunning else { return false }
+        guard !schedule.isWorking else {
+            counters.stepSkippedInPass += 1
+            return false
+        }
+        let inFlight = gate.immediatePending
+        mergeKeptRequests()
+        let now = clock()
+        guard inFlight || (schedule.nextWake.map { $0.deadline <= now } ?? false) else {
+            counters.stepNotDue += 1
+            return false
+        }
+        if inFlight {
+            schedule.request(milliseconds: 0, now: now)
+            counters.stepRunsInFlight += 1
+        }
+        counters.stepRuns += 1
+        fire()
+        return true
+    }
+
     private func timerFired() {
         guard isRunning else { return }
         #if DEBUG || CMUX_BENCH_HOOKS
@@ -191,7 +222,13 @@ let cefScheduleCallback: CEFShimLibrary.ScheduleFn = { context, delayMillisecond
     if Thread.isMainThread {
         deliver()
     } else {
-        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue, deliver)
+        // An immediate request on its way counts as due work for a live resize step's pass (``runIfDueAtStep()``).
+        let gate = delayMilliseconds <= 0 && CEFMessagePump.runsAtStep ? CEFRuntime.pumpGate(at: address) : nil
+        gate?.immediatePosted()
+        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) {
+            deliver()
+            gate?.immediateDelivered()
+        }
         CFRunLoopWakeUp(CFRunLoopGetMain())
     }
 }
