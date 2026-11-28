@@ -21,7 +21,20 @@ name: cmux ios verify (auto)
 # vars.CI_IOS_VERIFY_PROOF=0 still turns the requirement off, and vars.CI_IOS_VERIFY_AUTO=0 turns this off.
 # The push on this file's own path registers it, so the first dispatch does not 404
 # (tests/test_ci_workflows_registered.py).
+#
+# Parked, not held: a verify job that waited on the simulator fleet's queue held this Mac gateway runner while it
+# waited. The queue's p90 wait was 272-295 min on 2026-11-28 against the job's 150 min bound, so in one hour 4 of 17
+# verify jobs were cancelled at 150 min and 2 more ran 114 and 122 min. That was about 740 of this workflow's 888
+# runner minutes, and none of those jobs posted a record (job 141098698495: "step c1ec4df778628e734c89d987 still queued
+# after 141 min"). Leo, 2026-11-28: "de facto, im asking for 99% fewer minutes of ci time, period." Now ios_verify.py
+# stops waiting at --queue-timeout (exit 75: the steps keep their place in the queue), and the job saves an empty
+# cache keyed ios-verify-parked-PR-HEAD-IDS. The requeue job (scripts/ci/ios_verify_requeue.py) runs every 20
+# min on cmux-linux and dispatches the verify for each parked head still open; that run attaches to the steps by key,
+# posts the record if they ran, and parks again after 120 s if not.
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('cmux ios verify #{0} {1}', inputs.pr, inputs.sha) || github.event_name == 'schedule' && 'cmux ios verify (requeue)' || 'cmux ios verify (auto)' }}
 on:
+  schedule:
+    - cron: "7-59/20 * * * *"
   pull_request:
     branches: [feat-cmux-next]
     types: [opened, synchronize]
@@ -47,6 +60,11 @@ on:
       sha:
         description: Its head commit, the full 40-character id
         required: true
+        type: string
+      queue_timeout:
+        description: Seconds to wait for a simulator step still in the fleet queue before parking it (0 waits to the job's bound)
+        required: false
+        default: "600"
         type: string
 
 permissions: {}
@@ -188,8 +206,10 @@ jobs:
         with:
           controller: ${{ vars.CMUX_FLEET_CONTROLLER }}
       - name: Run cmux ios verify and post the record
+        id: verify
         if: ${{ steps.proved.outputs.go == 'true' }}
         env:
+          QUEUE_TIMEOUT: ${{ inputs.queue_timeout }}
           REPO: ${{ github.repository }}
           PR: ${{ inputs.pr }}
           SHA: ${{ inputs.sha }}
@@ -215,7 +235,17 @@ jobs:
           export PATH="$bin:$PATH"
           rc=0
           python3 -I scripts/ci/ios_verify.py --pr "$PR" --repo "$REPO" --no-merge-base \
+            --queue-timeout "${QUEUE_TIMEOUT:-600}" --queued-out "$RUNNER_TEMP/ios-verify-queued" \
             --scripts-at "$RUNNER_TEMP/ios-verify-head" --out "$RUNNER_TEMP/ios-verify-record.json" || rc=$?
+          # 75: a simulator step was still in the fleet queue at --queue-timeout. It keeps its place; the next step
+          # saves the parked key, and the requeue job dispatches this head again.
+          if [[ "$rc" == 75 ]]; then
+            ids=$(tr -cd '0-9a-f.' < "$RUNNER_TEMP/ios-verify-queued" 2>/dev/null || true)
+            : > "$RUNNER_TEMP/ios-verify-parked"
+            echo "parked=ios-verify-parked-$PR-$SHA-${ids:-none}" >> "$GITHUB_OUTPUT"
+            echo "### cmux ios verify #$PR at ${SHA:0:12}: parked in the fleet queue (${ids:-no step id}); the requeue job dispatches it again every 20 min" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           # Exit 1 is a failing record, which is posted: the gate then says why. Anything else posted nothing.
           if [[ -s "$RUNNER_TEMP/ios-verify-record.json" ]]; then
             # No backslash inside an f-string: the Macs' python3 is older than 3.12, where that is a SyntaxError
@@ -226,3 +256,37 @@ jobs:
           [[ "$rc" -le 1 ]] || { echo "::error title=cmux ios verify (auto)::ios_verify.py exited $rc"; exit "$rc"; }
           [[ "$rc" == 0 && ! -s "$RUNNER_TEMP/ios-verify-record.json" ]] && echo "not iOS-affecting at the plan: no record needed" >> "$GITHUB_STEP_SUMMARY"
           exit 0
+      # The parked key: an empty file under a key the requeue job lists. Nothing reads its contents.
+      - name: Park the head for the requeue job
+        if: ${{ steps.verify.outputs.parked != '' }}
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/ios-verify-parked
+          key: ${{ steps.verify.outputs.parked }}
+
+  # Every 20 min: dispatch the verify run again for each parked head still open at that head
+  # (scripts/ci/ios_verify_requeue.py). On cmux-linux, not a gateway Mac (tests/test_ci_gateway_jobs_on_linux.py): the
+  # pool has no route to the tailnet-only controller, so it does not read the steps' state. A dispatched run attaches
+  # to its steps by key, posts if they ran, and parks again after 120 s if they are still queued: about 3 gateway
+  # minutes per parked head per pass, against up to 150 held before.
+  requeue:
+    name: cmux ios verify requeue
+    if: ${{ github.event_name == 'schedule' && github.repository == 'manaflow-ai/cmux' && vars.CI_EVAL_STEP_GATEWAY != '' && format('{0}', vars.CI_IOS_VERIFY_AUTO) != '0' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/ios_verify_requeue.py
+          sparse-checkout-cone-mode: false
+      - name: Dispatch parked heads still open
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: python3 -I scripts/ci/ios_verify_requeue.py --repo "$REPO"

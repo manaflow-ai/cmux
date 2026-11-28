@@ -480,6 +480,10 @@ path = "tests/test_ci_ios_loading_placeholders.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_ios_verify_queue_park.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_job_inputs.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23, AGENTS.md:214). Checks that every pull-request job declares its inputs (a router map or scripts/ci/job-inputs-always.json) via scripts/ci/job_inputs.py; run python3 tests/test_ci_job_inputs.py yourself after changing job_inputs.py, job-inputs-always.json or a router map (seconds, no build)."
@@ -1261,6 +1265,10 @@ lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_swiftpm_prefetch_shared_cache.py"
 
 [[test]]
+path = "tests/test_ci_tailnet_oidc_identity_scope.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_target_graph.py"
 lane = "linux-guard"
 
@@ -1447,10 +1455,6 @@ reason = "Unit tests of scripts/ci/workflow_start_lint.py, the lint cmux-next-gu
 
 [[test]]
 path = "tests/test_ci_workflow_step_id_grep_guarded.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_tailnet_oidc_identity_scope.py"
 lane = "linux-guard"
 
 [[test]]
