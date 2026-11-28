@@ -247,19 +247,28 @@ final class SubagentListModel {
     /// No subagents at all ("No subagents").
     private(set) var isEmpty = true
     @ObservationIgnored private var rows: [String: Row] = [:]
+    /// `entries` and `isEmpty` as last set, read untracked: `update` runs inside the list's body on
+    /// the first read, where reading the observed values before setting them would observe them.
+    @ObservationIgnored private var shownEntries: [Entry] = []
+    @ObservationIgnored private var shownEmpty = true
     private let order = SubagentOrderMemo()
     @ObservationIgnored private weak var store: AgentChatStore?
 
     /// The rows of `store`'s subagents, made on the first read and kept by the store's changes.
+    /// The first read is in the list's body: it reads the store without observing it (an
+    /// observation made there would be the body's too, so the next change to any subagent would
+    /// evaluate the list again), and the model starts observing right after, outside the body.
     func entries(for store: AgentChatStore) -> [Entry] {
         if self.store !== store {
             self.store = store
-            sync()
+            update(store.subagentsUnobserved)
+            Task { @MainActor [weak self] in self?.sync() }
         }
         return entries
     }
 
-    /// Reads the subagents and watches them: a change syncs again once it has landed.
+    /// Reads the subagents and watches them: a change syncs again once it has landed. Never from a
+    /// view's body (see `entries(for:)`).
     private func sync() {
         guard let store else { return }
         let agents = withObservationTracking {
@@ -276,21 +285,34 @@ final class SubagentListModel {
     func update(_ agents: [AgentSubagent]) {
         let builds = order.builds
         let ordered = order.ordered(agents)
-        if order.builds != builds || ordered.count != entries.count {
+        if order.builds != builds || ordered.count != shownEntries.count {
             var kept: [String: Row] = [:]
             kept.reserveCapacity(ordered.count)
             let next = ordered.map { agent, depth in
-                let row = rows[agent.id] ?? Row(agent)
-                row.update(agent)
+                // A new row is made as it is: comparing its fields would read them, observed, in the
+                // list's body on the first read.
+                let row: Row
+                if let existing = rows[agent.id] {
+                    existing.update(agent)
+                    row = existing
+                } else {
+                    row = Row(agent)
+                }
                 kept[agent.id] = row
                 return Entry(id: agent.id, row: row, depth: depth)
             }
             rows = kept
-            if next != entries { entries = next }
+            if next != shownEntries {
+                shownEntries = next
+                entries = next
+            }
         } else {
             for (agent, _) in ordered { rows[agent.id]?.update(agent) }
         }
-        if isEmpty != agents.isEmpty { isEmpty = agents.isEmpty }
+        if shownEmpty != agents.isEmpty {
+            shownEmpty = agents.isEmpty
+            isEmpty = agents.isEmpty
+        }
     }
 
     /// "<action> · <task>" while it runs, "<state> · <task>" once it ended (the task left out when it

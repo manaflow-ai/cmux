@@ -347,6 +347,10 @@ public final class AgentChatStore {
     }
     /// Every subagent seen, nested ones included, in start order.
     public private(set) var subagents: [AgentSubagent] = []
+    /// `subagents` read without observing it, from the backing storage as `mentionArtifacts` reads
+    /// it: the Subagents list's model reads it first inside the list's body, which must not depend
+    /// on it (the model observes it on its own and updates each row, `SubagentListModel`).
+    var subagentsUnobserved: [AgentSubagent] { _subagents }
     /// Every file, folder, link and image the session referenced (`SessionArtifacts.collect`),
     /// built once per change of what it reads. The collection scans every turn's text, tool
     /// input and output; the artifacts sheet's body and the composer's `@` picker read it on
