@@ -39,8 +39,13 @@ struct VMAgentKeyDaemonTests {
         let refused = FakeDaemon { _, _, _ in #"{"ok":false,"error":{"kind":"transport","message":"down"}}"# }
         let failed = await AppControl.vmAgentKeyMint(try issuer(), baseURL: base, body: .object([:]), run: { input, _ in try refused.run(input) })
         #expect(failed.status == 0)
-        // No bundled cmux: nothing runs, status 0.
+        #expect(failed.failure?.contains("down") == true)
+        // No bundled cmux: nothing runs, status 0, and the failure says so.
         let none = await AppControl.vmAgentKeyMint(try issuer(), baseURL: base, body: .object([:]))
         #expect(none.status == 0)
+        #expect(none.failure?.contains("cmux is not available") == true)
+        let answered = FakeDaemon { _, _, _ in #"{"ok":true,"body":{"status":503,"body":""}}"# }
+        let served = await AppControl.vmAgentKeyMint(try issuer(), baseURL: base, body: .object([:]), run: { input, _ in try answered.run(input) })
+        #expect(served.status == 503 && served.failure == nil)
     }
 }
