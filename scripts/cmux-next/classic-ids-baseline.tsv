@@ -471,9 +471,12 @@ scripts/cmux-next/cloud-journey.ts	join(bin, "cmux")	1	keep	harness: links the C
 scripts/cmux-next/codex-login-hang.py	com.cmuxterm.app*	1	keep	harness: copies hang reports out of the logs folder
 scripts/cmux-next/every-action-sweep.py	.config/cmux/	1	move	lane A: harness assumes the shared state root; changes with the roots (lane/next-own-state-roots)
 scripts/cmux-next/quit-leaves-no-helpers-live.py	/tmp/cmux-debug-{tag}.sock	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
-cmux-tui/crates/cmux-cloud-config/src/config.rs	com.cmuxterm.app"	1	keep	RELEASE_BUNDLE_ID names the release channel so its signed builds share the keychain access group (#46910); no read or write under it
 cmux-tui/crates/acpmux/src/codex_cloud_auth.rs	.config/cmux/	3	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-cloud-config/src/config.rs	com.cmuxterm.app	1	keep	RELEASE_BUNDLE_ID: names the release channel's bundle id to pick its auth/keychain service; no read or write under it
 scripts/cmux-next/restart-to-update-migration.py	/tmp/cmux-{channel}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
 scripts/cmux-next/titlebar-hover-reveal.py	/tmp/cmux-debug-{o.tag}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
 scripts/cmux-next/update-card-resize-drag.py	/tmp/cmux-debug-{o.tag}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
+cmux-tui/crates/cmux-config/src/app_ops/section_reads.rs	com.cmuxterm.app	1	keep	RETIRED_DENIED_APPS: an old default deny-list entry the migration drops; names the id only to match it, no read or write under it
+scripts/cmux-next/agent-conn-chaos/linux_daemon.py	join(self.env["XDG_CONFIG_HOME"], "cmux")	1	keep	harness: writes a harness profile under a scratch XDG_CONFIG_HOME in its own temp root (scripts ship in no build)
+scripts/cmux-next/auto-journal-nightly-recovery.ts	.config/cmux	1	keep	harness: writes cmux-next.json under a scratch HOME in its output folder (scripts ship in no build)
+scripts/cmux-next/bench_memory.py	/tmp/cmux-bm-{os.getpid()}-{uuid.uuid4().hex[:8]}.sock	1	keep	dev harness: the run's own control socket, named cmux*.sock where launch() looks (scripts ship in no build)

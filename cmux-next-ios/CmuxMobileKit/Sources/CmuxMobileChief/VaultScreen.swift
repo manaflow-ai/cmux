@@ -16,6 +16,7 @@ public struct VaultScreen: View {
     @State private var importText: VaultImportText?
     @State private var approving: VaultDevice?
     @State private var removingDevice: VaultDevice?
+    @State private var autoRetry = AutoRetry()
 
     public init(model: VaultModel) {
         _model = State(initialValue: model)
@@ -39,6 +40,7 @@ public struct VaultScreen: View {
             }
             .refreshable { await model.load() }
             .task { await model.load() }
+            .autoRetry(autoRetry, failing: vaultFailed) { await model.load() }
             .sheet(item: $editing) { target in VaultEditSheet(model: model, target: target) }
             .sheet(item: $importText) { text in VaultImportSheet(model: model, text: text) }
             .fileImporter(isPresented: $importing, allowedContentTypes: [.item]) { result in
@@ -68,6 +70,11 @@ public struct VaultScreen: View {
             .background(theme.colors.bgGrouped.color.ignoresSafeArea())
     }
 
+    private var vaultFailed: Bool {
+        if case .failed = model.phase { return true }
+        return false
+    }
+
     @ViewBuilder private var content: some View {
         switch model.phase {
         case .loading:
@@ -82,7 +89,8 @@ public struct VaultScreen: View {
             } description: {
                 Text(message)
             } actions: {
-                Button("Try Again") { Task { await model.load() } }.buttonStyle(.borderedProminent)
+                // Read again on its own (AutoRetry); one quiet line past the shared bound.
+                AutoRetryQuietLine(autoRetry)
             }
             .accessibilityIdentifier("vault.failed")
         case .loaded:
