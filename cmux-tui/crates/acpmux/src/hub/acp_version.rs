@@ -105,3 +105,7 @@ pub(super) async fn initialize(
 #[cfg(test)]
 #[path = "acp_version_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "acp_registry_live_tests.rs"]
+mod registry_live;

@@ -98,8 +98,10 @@ function PickerChips({
   useDraftActionsVersion();
   // `chat.new` for the same agent and folder is the switch already running, so a second pick
   // never restarts it.
-  const start = () => {
-    const harness = snapshot.summary?.harness;
+  // `faceHarness`: the agent the chips name where the snapshot names none yet (ComposerPickers'
+  // chip harness), the one a New Tab's mode pick starts.
+  const start = (faceHarness?: string) => {
+    const harness = snapshot.summary?.harness ?? faceHarness;
     if (!startsChat || !harness || snapshot.summary?.sessionId) return;
     void callNative("chat.new", { harness, ...inFolder }).catch(() => undefined);
   };
@@ -109,21 +111,21 @@ function PickerChips({
   // made before the connect installs `chat.mode` is held, and runs through the same chat.new and
   // chat.mode path as any other pick once it does; a later pick replaces it. The chip shows the
   // pick meanwhile (AccessMenu's optimistic mode, settled by the returned promise).
-  const pickMode = (modeId: string) => {
-    start();
+  const pickMode = (modeId: string, faceHarness?: string) => {
+    start(faceHarness);
     return callNative("chat.mode", { modeId });
   };
   // A pick before the connect is the page's (heldModePick.ts), so a first send that unmounts these
   // chips never loses it; the connect flushes it. The run reads the page's actions when it runs.
-  const onMode = (modeId: string): Promise<unknown> => {
+  const onMode = (modeId: string, faceHarness?: string): Promise<unknown> => {
     // Cloud picked: the pick waits for the Cloud send, which starts the chat in it on the machine;
     // this Mac starts nothing for it.
     if (snapshot.startsOnCloud) {
-      holdCloudModePick(shown.summary?.harness, modeId);
+      holdCloudModePick(shown.summary?.harness ?? faceHarness, modeId);
       return Promise.resolve();
     }
-    if (!startsChat || window.cmuxAcpmuxActions?.["chat.mode"] !== undefined) return pickMode(modeId);
-    return holdModePick(modeId, pickMode);
+    if (!startsChat || window.cmuxAcpmuxActions?.["chat.mode"] !== undefined) return pickMode(modeId, faceHarness);
+    return holdModePick(modeId, (held) => pickMode(held, faceHarness));
   };
   const picker = usePickerCatalog(
     snapshot.catalog,

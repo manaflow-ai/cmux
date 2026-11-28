@@ -39,7 +39,7 @@ struct NewTabPerceivedFlickerTests {
         context.setFillColor(CGColor(red: 0.08, green: 0.1, blue: 0.14, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: width, height: height))
         context.setFillColor(CGColor(red: 0.3, green: 0.7, blue: 0.95, alpha: 1))
-        context.fill(CGRect(x: accentOrigin.x, y: accentOrigin.y, width: min(32, width), height: min(32, height)))
+        context.fill(CGRect(x: accentOrigin.x, y: accentOrigin.y, width: CGFloat(min(32, width)), height: CGFloat(min(32, height))))
         return NSImage(cgImage: try #require(context.makeImage()), size: size)
     }
 

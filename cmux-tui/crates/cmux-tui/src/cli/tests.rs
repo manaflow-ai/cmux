@@ -117,7 +117,7 @@ mod remote_cli_docs {
             include_str!("../../../../../docs/remote-agents-and-cloud.md"),
         ),
         ("acpmux README", include_str!("../../../acpmux/README.md")),
-        ("acpmux skill", include_str!("../../../acpmux/skills/acpmux/SKILL.md")),
+        ("agents skill", include_str!("../../../acpmux/skills/agents/SKILL.md")),
     ];
 
     fn command_lines(text: &str, binary: &str) -> Vec<Vec<String>> {

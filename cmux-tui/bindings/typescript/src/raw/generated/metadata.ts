@@ -4,7 +4,7 @@
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "aa7779b3359ce4c7b932c9de646ff247ae742afc7c712a93c9e618c22b5d7f09" as const;
+export const SDK_IR_SHA256 = "6558219fc95c08d3a088c88dbc9c81015f042cad7dacb50a02c64d081d016c7b" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2604,6 +2604,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Only a view detached by detach-client can be reattached."
+    ]
+  },
+  "record-notification-delivery": {
+    "authority": "control",
+    "since": 12,
+    "capability": "notification-ack-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
     ]
   },
   "register-browser-provider": {
@@ -6177,6 +6187,88 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "name": "string"
     }
   },
+  "ColumnDock": {
+    "additional_properties": true,
+    "fields": {
+      "allow_tabs": {
+        "description": "`pinned-dock-v1`: a pinned column takes more tabs; omitted when false.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "edge": {
+        "description": "left or right (`dock-columns-v1`), top or bottom (also `edge-docks-v1`).",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ColumnDockEdge"
+        }
+      },
+      "mode": {
+        "description": "`docked` takes its width out of the scrolling area; `overlay` floats above the scrolling columns.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ColumnDockMode"
+        }
+      },
+      "permanent": {
+        "description": "`permanent-dock-v1`: the column stays docked on `edge` for every client; omitted when false.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "pinned": {
+        "description": "`pinned-dock-v1`: a pinned column (the Home dock); omitted when false.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "role": {
+        "description": "`dock-column-role-v1`: what the column is for; omitted when unset.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ColumnDockRole"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ColumnDockEdge": {
+    "kind": "enum",
+    "values": [
+      "left",
+      "right",
+      "top",
+      "bottom"
+    ]
+  },
+  "ColumnDockMode": {
+    "kind": "enum",
+    "values": [
+      "docked",
+      "overlay"
+    ]
+  },
+  "ColumnDockRole": {
+    "kind": "enum",
+    "values": [
+      "agent_chat"
+    ]
+  },
   "ColumnMoveDirection": {
     "kind": "enum",
     "values": [
@@ -8927,7 +9019,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "since": 12,
         "type": {
           "kind": "ref",
-          "name": "JsonValue"
+          "name": "ColumnDock"
         }
       },
       "id": {
@@ -28425,6 +28517,45 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "ReattachViewResult"
+    }
+  },
+  "record-notification-delivery": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "desktop": {
+          "description": "shown or suppressed.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "notification": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "reason": {
+          "default": null,
+          "description": "Why: viewed, typing, muted, quiet-hours, desktop-never, app-active, poster-no-banner, permission-denied, incognito, digest.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "register-browser-provider": {
