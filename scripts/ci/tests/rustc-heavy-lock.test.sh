@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# rustc-heavy-lock.sh runs the heavy crates (acpmux, cmux_tui_core) one at a time and every other crate at once:
+# rustc-heavy-lock.sh runs the heavy crates (acpmux, cmux_tui_core, cmux_tui) one at a time and every other crate at once:
 # on cloud-journey-pr.yml's 14 GiB runner the two overlapping rustc went past the runner's memory and the kernel
 # SIGKILLed acpmux (run 46147374990, 2026-11-28). A fake rustc logs when each call starts and ends.
 set -euo pipefail
@@ -24,12 +24,16 @@ overlapped() { # 0 when the two named calls ran at the same time
   awk -v a="$1" -v b="$2" '$1=="start"{on[$2]=1; if (on[a] && on[b]) hit=1} $1=="end"{on[$2]=0} END{exit hit?0:1}' "$LOG"
 }
 
-# 1. The two heavy crates never overlap.
+# 1. The heavy crates never overlap (cmux_tui beside acpmux: run 46162259817).
 : > "$LOG"
 "$wrapper" "$tmp/rustc" --crate-name acpmux --edition=2024 & p1=$!
 "$wrapper" "$tmp/rustc" --crate-name cmux_tui_core --edition=2024 & p2=$!
-wait "$p1" "$p2"
-if overlapped acpmux cmux_tui_core; then echo "FAIL: acpmux and cmux_tui_core overlapped"; cat "$LOG"; exit 1; fi
+"$wrapper" "$tmp/rustc" --crate-name cmux_tui --edition=2024 & p3=$!
+wait "$p1" "$p2" "$p3"
+for pair in "acpmux cmux_tui_core" "acpmux cmux_tui" "cmux_tui_core cmux_tui"; do
+  # shellcheck disable=SC2086
+  if overlapped $pair; then echo "FAIL: $pair overlapped"; cat "$LOG"; exit 1; fi
+done
 
 # 2. Other crates still run at once, beside a heavy one too.
 : > "$LOG"
