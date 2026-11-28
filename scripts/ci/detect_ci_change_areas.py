@@ -183,6 +183,16 @@ _DOCUMENTATION_SUFFIXES = (".md", ".mdx", ".txt", ".log")
 # that names a helper only in a comment does not run it (a Cargo.toml's note on
 # the release strip routed that strip script to every lane, #42338).
 _HASH_COMMENT_SUFFIXES = (".toml", ".yml", ".yaml", ".sh", ".bash", ".zsh")
+# Files where `//` and `/* */` start comments. One that names a helper only in
+# a comment does not run it (web/tests/vm-image-cmux-vm-auto-roll.test.ts, #48644,
+# cites scripts/ci/one_linux_label.py and made what that helper reaches every area).
+_SLASH_COMMENT_SUFFIXES = (".ts", ".tsx", ".js", ".mjs", ".cjs", ".swift", ".rs", ".go")
+_SLASH_COMMENT_RE = re.compile(r"/\*.*?\*/|(?<![:/\\])//.*$", re.S | re.M)
+
+
+def _without_slash_comments(text: str) -> str:
+    """`text` without `//` line comments (a URL's `://` stays) and `/* */` blocks."""
+    return _SLASH_COMMENT_RE.sub("", text)
 # Data files that name helpers without running them: git attributes, the
 # warm-source table, whose entries describe a source in prose (#28568), the
 # single-host fallback declaration, whose `fallback` lines name the rescue that
@@ -780,7 +790,7 @@ def _nothing_imports_test(root: Path, test: str) -> bool:
     if namers is None:
         return False
     for namer in namers:
-        if namer == test or namer in _TEST_PATH_LISTS or namer.endswith(_DOCUMENTATION_SUFFIXES):
+        if namer == test or namer in _TEST_PATH_LISTS or referrer_role(namer) in ("documentation", "data"):
             continue
         if is_test_registry_path(namer) and _registry_lane_is_inert(root, test):
             continue
@@ -939,6 +949,13 @@ def ci_helper_areas(
                     return every_area(f"could not read {referrer}")
                 if not _names(text, token):
                     continue
+            elif referrer.endswith(_SLASH_COMMENT_SUFFIXES):
+                try:
+                    text = (root / referrer).read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    return every_area(f"could not read {referrer}")
+                if not _names(_without_slash_comments(text), token):
+                    continue
             if role == "action":
                 # An action runs in whatever job uses it; its directory is
                 # the token those jobs name.
@@ -946,6 +963,14 @@ def ci_helper_areas(
                 continue
             if role == "test":
                 if is_guard_only_test(referrer, test_references):
+                    continue
+                if (referrer.endswith(".py") and "/" not in referrer[len("tests/"):]
+                        and not Path(referrer).name.startswith("test_")
+                        and is_unrouted_test(referrer, test_references)):
+                    # A helper module tests import (tests/runs_on_labels.py,
+                    # tests/workflow_jobs.py) runs wherever those tests run:
+                    # walk on through its importers, as for a script.
+                    tokens.append(Path(referrer).stem)
                     continue
                 if is_unrouted_test(referrer, test_references):
                     runners = _files_naming(root, referrer)
@@ -959,8 +984,9 @@ def ci_helper_areas(
                         runner for runner in runners
                         if runner != referrer
                         and runner not in _TEST_PATH_LISTS
-                        and not runner.endswith(_DOCUMENTATION_SUFFIXES)
-                        and not _is_docs_table(runner)
+                        # Nor does a data file or a table under docs/ that lists it
+                        # (.github/runners.json, docs/benches/relevance-map.toml).
+                        and referrer_role(runner) not in ("documentation", "data")
                         and not (is_test_registry_path(runner) and _registry_lane_is_inert(root, referrer))
                         # So does a script under scripts/ (scripts/cmux-next/tests/
                         # test_build_names.py names tests/test_script_module_loads.py
