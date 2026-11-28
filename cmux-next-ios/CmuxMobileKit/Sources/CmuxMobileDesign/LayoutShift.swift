@@ -29,8 +29,11 @@ public final class LayoutShiftProbe {
     private struct WatchedList {
         weak var view: UIScrollView?
         let prefix: String
-        let rows: () -> [(String, CGRect)]
+        let rows: () -> [(id: String, frame: CGRect, content: Int?)]
     }
+    /// Each watched list's content offset at the last frame counted, so its rows carry the scroll
+    /// it made since (`LayoutShiftCounter.Row.scrolled`).
+    @ObservationIgnored private var offsets: [ObjectIdentifier: CGPoint] = [:]
     @ObservationIgnored private var counter = LayoutShiftCounter()
     @ObservationIgnored private var link: CADisplayLink?
 
@@ -55,21 +58,31 @@ public final class LayoutShiftProbe {
     /// list's visible bounds and its frame there (content frame less the content offset), as
     /// `LoadFrameProbe.watch` does. Nothing is counted while the list is off screen or hidden.
     /// Measured in the list, so a transform of the list (the grid's zoom, the live page following
-    /// its card) is not a shift, and native and SwiftUI cells are counted alike.
-    public func watch(_ view: UIScrollView, prefix: String, rows: @escaping () -> [(String, CGRect)]) {
+    /// its card) is not a shift, and native and SwiftUI cells are counted alike. `content` is each
+    /// row's content revision, so a row growing with new content is not a shift
+    /// (`LayoutShiftCounter.Row.content`).
+    public func watch(_ view: UIScrollView, prefix: String, rows: @escaping () -> [(id: String, frame: CGRect, content: Int?)]) {
         lists.append(WatchedList(view: view, prefix: prefix, rows: rows))
     }
 
-    private func listRows() -> [String: LayoutShiftCounter.Row] {
+    /// `advance`: the frame being counted, so each list's offset is taken as the last one
+    /// (the JSON's row count reads the rows again without it).
+    private func listRows(advance: Bool = false) -> [String: LayoutShiftCounter.Row] {
         lists.removeAll { $0.view == nil }
         var out: [String: LayoutShiftCounter.Row] = [:]
+        var seen: [ObjectIdentifier: CGPoint] = [:]
         for list in lists {
             guard let view = list.view, Self.isShown(view) else { continue }
+            let key = ObjectIdentifier(view), offset = view.contentOffset
+            seen[key] = offset
+            // Scrolling by +d moves the rows by -d in the list's visible bounds.
+            let scrolled = offsets[key].map { CGPoint(x: $0.x - offset.x, y: $0.y - offset.y) }
             let visible = CGRect(origin: .zero, size: view.bounds.size)
-            for (id, frame) in list.rows() where frame.intersects(visible) {
-                out[list.prefix + id] = .init(frame, .window)
+            for (id, frame, content) in list.rows() where frame.intersects(visible) {
+                out[list.prefix + id] = .init(frame, .window, content: content, scrolled: scrolled)
             }
         }
+        if advance { offsets = seen }
         return out
     }
 
@@ -86,7 +99,7 @@ public final class LayoutShiftProbe {
 
     fileprivate func tick() {
         let frames = counter.frames, shifts = counter.shiftFrames
-        counter.frame(lists.isEmpty ? rows : rows.merging(listRows()) { first, _ in first })
+        counter.frame(lists.isEmpty ? rows : rows.merging(listRows(advance: true)) { first, _ in first })
         guard counter.frames != frames, counter.frames == 1 || counter.shiftFrames != shifts || counter.frames % 30 == 0 else { return }
         let json: [String: Any] = [
             "frames": counter.frames, "shiftFrames": counter.shiftFrames,

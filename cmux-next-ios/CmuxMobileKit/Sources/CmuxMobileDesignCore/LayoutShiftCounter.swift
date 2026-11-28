@@ -20,6 +20,13 @@ import Foundation
 ///   read as the scroll and only rows that moved otherwise (by more than the tolerance), or
 ///   resized, count.
 ///
+/// A row may carry its content's revision (`content`). A row that resizes at a revision other than
+/// the one its last size was drawn for (the list may lay the new content out a frame after the
+/// revision lands) drew new content (a streamed token, a tool call's output): as the web's CLS does not count
+/// an element growing, its resize is not a shift, and it counts only when neither its top nor its
+/// bottom edge stayed put (with the frame's scroll, in `.window` space). The rows its growth pushed
+/// still count. A resize at the same revision (an estimated height measured late) still counts.
+///
 /// Neither space is the screen: as the web's CLS leaves out CSS transforms, a list scaled or moved
 /// whole (the tab grid's zoom, the live page riding its card on the grid, a push) shifts nothing
 /// in it. Only rows inside their list's visible bounds are reported (the CLS viewport).
@@ -29,9 +36,19 @@ public struct LayoutShiftCounter: Sendable {
     public struct Row: Sendable, Equatable {
         public var rect: CGRect
         public var space: Space
-        public init(_ rect: CGRect, _ space: Space) {
+        /// The revision of what the row draws, when its list knows it (nil: unknown, so any resize
+        /// counts).
+        public var content: Int?
+        /// `.window`: the translation the row's own list gave its rows this frame by scrolling
+        /// (its content offset's change, negated), when the list reports it. A row that moved by it
+        /// (or a row that grew with new content, one edge moved by it) is that scroll, even with no
+        /// other row on screen to read a scroll from (a streamed answer alone on screen, followed).
+        public var scrolled: CGPoint?
+        public init(_ rect: CGRect, _ space: Space, content: Int? = nil, scrolled: CGPoint? = nil) {
             self.rect = rect
             self.space = space
+            self.content = content
+            self.scrolled = scrolled
         }
     }
 
@@ -52,6 +69,8 @@ public struct LayoutShiftCounter: Sendable {
     /// Moves and resizes up to this many points are rounding, not a shift.
     public let tolerance: CGFloat
     private var last: [String: Row] = [:]
+    /// Each drawn row's revision when it took its current size.
+    private var sizedFor: [String: Int] = [:]
     private var painted = false
 
     public init(tolerance: CGFloat = 1) {
@@ -66,17 +85,36 @@ public struct LayoutShiftCounter: Sendable {
             painted = true
         }
         frames += 1
-        var moves: [(id: String, before: CGRect, after: CGRect, space: Space)] = []
+        var moves: [(id: String, before: CGRect, after: CGRect, space: Space, grew: Bool, own: CGPoint?)] = []
         for (id, row) in rows {
             guard let before = last[id], before.space == row.space else { continue }
-            if differs(before.rect, row.rect) { moves.append((id, before.rect, row.rect, row.space)) }
+            let drawnFor = sizedFor[id] ?? before.content
+            let grew = resized(before.rect, row.rect) && drawnFor != nil && row.content != nil && drawnFor != row.content
+            if differs(before.rect, row.rect) { moves.append((id, before.rect, row.rect, row.space, grew, row.space == .window ? row.scrolled : nil)) }
         }
+        var sized: [String: Int] = [:]
+        for (id, row) in rows {
+            let kept = last[id].map { !resized($0.rect, row.rect) } ?? false
+            if let content = kept ? sizedFor[id] ?? row.content : row.content { sized[id] = content }
+        }
+        sizedFor = sized
+        // Rows drawn for the first time this frame, for the record of what a pushed row sat under.
+        let arrived = rows.filter { last[$0.key] == nil }.map { (id: $0.key, rect: $0.value.rect, space: $0.value.space) }
         last = rows
         guard !moves.isEmpty else { return 0 }
 
-        // Among window-space rows that kept their size, the most common translation is a scroll.
+        // Among window-space rows that kept their size, the most common translation is a scroll;
+        // not rows below a row that grew that moved down: that growth pushed them (the web's CLS
+        // case of content landing above what the reader reads).
+        let growth = moves.filter { $0.grew }.map { $0.before }
+        let tol = tolerance
+        let pushed: (CGRect, CGRect) -> Bool = { before, after in
+            after.minY - before.minY > tol && growth.contains { before.minY >= $0.maxY - tol }
+        }
+        // A row whose list reports its own scroll is read against that, not the frame's guess.
+        let scrolled = moves.filter { $0.space == .window && $0.own == nil && !resized($0.before, $0.after) && !pushed($0.before, $0.after) }
         var counts: [Delta: Int] = [:]
-        for move in moves where move.space == .window && !resized(move.before, move.after) {
+        for move in scrolled {
             counts[Delta(move.before, move.after, tolerance), default: 0] += 1
         }
         let bucket = counts.max { $0.value == $1.value ? $0.key > $1.key : $0.value < $1.value }?.key
@@ -85,16 +123,26 @@ public struct LayoutShiftCounter: Sendable {
         // -3.1 pt (either side of a bucket's edge) are not read as one row moving against the rest.
         var scroll: (dx: CGFloat, dy: CGFloat)?
         if let bucket {
-            let alike = moves.filter { $0.space == .window && !resized($0.before, $0.after) && Delta($0.before, $0.after, tolerance) == bucket }
+            let alike = scrolled.filter { Delta($0.before, $0.after, tolerance) == bucket }
             let n = CGFloat(alike.count)
             scroll = (alike.reduce(0) { $0 + $1.after.minX - $1.before.minX } / n,
                       alike.reduce(0) { $0 + $1.after.minY - $1.before.minY } / n)
         }
         let shifted = moves.filter { move in
+            // The scroll that moved the row: its own list's when the list reports it, else the
+            // frame's read from the rows; none in a scroll view's content.
+            let held: (dx: CGFloat, dy: CGFloat) = move.space == .scrollContent ? (0, 0)
+                : move.own.map { ($0.x, $0.y) } ?? scroll ?? (0, 0)
+            // New content: one of its edges held still (less a scroll) is the row growing.
+            if move.grew {
+                guard abs(move.after.minX - move.before.minX - held.dx) <= tolerance else { return true }
+                return abs(move.after.minY - move.before.minY - held.dy) > tolerance
+                    && abs(move.after.maxY - move.before.maxY - held.dy) > tolerance
+            }
             if move.space == .scrollContent || resized(move.before, move.after) { return true }
-            guard let scroll else { return true }
-            return abs(move.after.minX - move.before.minX - scroll.dx) > tolerance
-                || abs(move.after.minY - move.before.minY - scroll.dy) > tolerance
+            if scroll == nil, move.own == nil { return true }
+            return abs(move.after.minX - move.before.minX - held.dx) > tolerance
+                || abs(move.after.minY - move.before.minY - held.dy) > tolerance
         }
         guard let first = shifted.min(by: { $0.id < $1.id }) else { return 0 }
         shiftFrames += 1
@@ -106,7 +154,14 @@ public struct LayoutShiftCounter: Sendable {
             // run's record tells a row moving against a scroll from a scroll split by rounding.
             if move.space == .window {
                 entry += String(format: " dy %.1f dh %.1f", Double(move.after.minY - move.before.minY), Double(move.after.height - move.before.height))
-                if let scroll { entry += String(format: " scroll %.1f", Double(scroll.dy)) }
+                if let own = move.own { entry += String(format: " list %.1f", Double(own.y)) } else if let scroll { entry += String(format: " scroll %.1f", Double(scroll.dy)) }
+            }
+            // What it moved under: the nearest row above it that arrived or grew this frame, so a
+            // run's record names the cause (content landing above, a late card) and not only the row.
+            let above = arrived.filter { $0.space == move.space && $0.rect.maxY <= move.after.minY + tolerance }.map { (id: $0.id, y: $0.rect.maxY, how: "new") }
+                + moves.filter { $0.grew && $0.id != move.id && $0.space == move.space && $0.after.maxY <= move.after.minY + tolerance }.map { (id: $0.id, y: $0.after.maxY, how: "grew") }
+            if move.after.minY - move.before.minY > tolerance, let cause = above.max(by: { $0.y < $1.y }) {
+                entry += " under \(cause.how) \(cause.id.prefix(40))"
             }
             self.moves.append(entry)
         }
