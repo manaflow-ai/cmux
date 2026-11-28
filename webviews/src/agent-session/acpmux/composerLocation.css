@@ -149,7 +149,11 @@
   outline: none;
 }
 .acpmux-location-button {
-  --ui-ghost-end-bearing: 4px;
+  /* Its trailing chevron keeps the one label-to-chevron room (docs/cmux-next/ui-guidelines.md; Leo, 2026-11-27:
+     "these chevrons are too close dont we have any guidelines for these yet?"): the gap before it is
+     --ui-disclosure-gap and its end padding takes the chevron's own bearing, not local numbers. */
+  --ui-ghost-end-bearing: var(--ui-disclosure-bearing);
+  gap: var(--ui-disclosure-gap);
   /* The composer's text is on the one type scale (regular or emphasis), not the shared ghost
      button's medium label weight. */
   font-weight: var(--weight-regular);
@@ -1425,7 +1429,7 @@
   color: var(--agent-muted);
 }
 .acpmux-speed { display: inline-flex; flex: none; align-items: center; font-size: var(--text-detail); letter-spacing: var(--text-detail--letter-spacing); }
-.acpmux-speed-choices { min-width: 16px; width: 16px; height: 28px; border: 0; border-radius: 6px; padding: 0; background: none; color: var(--agent-muted); font: inherit; }
+.acpmux-speed-choices { min-width: 16px; width: 16px; height: 28px; border: 0; border-radius: 6px; padding: 0; background: none; color: var(--agent-muted); font: inherit; display: inline-grid; place-items: center; }
 .acpmux-fast .acpmux-icon { width: 16px; height: 16px; }
 .acpmux-fast:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: 2px; }
 @media (hover: hover) and (pointer: fine) {

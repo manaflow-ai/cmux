@@ -352,7 +352,7 @@
 }
 :root[data-agent-motion="off"] .acpmux-newtab-row[data-kind-switch],
 :root[data-agent-motion="off"] .acpmux-newtab-under[data-kind-switch]{animation:none}
-.acpmux-newtab-all{--ui-ghost-end-bearing:5px;border:0;background:none;color:inherit;font-family:inherit;cursor:default}
+.acpmux-newtab-all{--ui-ghost-end-bearing:calc(var(--ui-disclosure-bearing) + 1px);border:0;background:none;color:inherit;font-family:inherit;cursor:default}
 .acpmux-newtab-all:hover{color:var(--agent-text)}
 .acpmux-newtab-kind:focus-visible,.acpmux-newtab-all:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 .acpmux-newtab-anchor{position:relative}

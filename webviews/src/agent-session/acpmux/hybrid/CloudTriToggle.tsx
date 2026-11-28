@@ -3,6 +3,7 @@
 // runs on this Mac and continues in Cloud when the Mac cannot serve it. The two others pin it.
 // `segments` shows all three glyphs with the chosen one lit; `cycle` is one button that shows the
 // chosen glyph and steps to the next on a click.
+import { DisclosureFace } from "../DisclosureFace";
 import { useId, useState } from "react";
 import { useT } from "../i18n";
 import { Tooltip } from "../../../ui/Tooltip";
@@ -330,10 +331,7 @@ export function CloudTriToggle({
             label={t("hybrid.holders.label")}
             data-menu="Slots"
           >
-            {name}
-            <span className="acpmux-hybrid-tri__chevron" aria-hidden="true">
-              ⌄
-            </span>
+            <DisclosureFace>{name}</DisclosureFace>
           </MenuButton>
           <MenuPopup className="acpmux-menu acpmux-hybrid-holders" label={t("hybrid.holders.label")} side="top">
             <MenuGroup label={t("hybrid.holders.label")}>
