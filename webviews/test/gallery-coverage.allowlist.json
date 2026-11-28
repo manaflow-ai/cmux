@@ -14,7 +14,6 @@
     "agent-session/acpmux/FileSearchLoading.tsx#FileSearchLoading",
     "agent-session/acpmux/HomeInbox.tsx#HomeInbox",
     "agent-session/acpmux/HostError.tsx#HostRecoveringLine",
-    "agent-session/acpmux/Keycap.tsx#Keycap",
     "agent-session/acpmux/MacBookGlyph.tsx#MacBookGlyph",
     "agent-session/acpmux/MachineCard.tsx#WakeIcon",
     "agent-session/acpmux/NewTabFolderAsk.tsx#NewTabFolderAsk",

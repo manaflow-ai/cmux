@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
+import { KeyHint } from "../../ui/KeyHint";
 import { useUnsettledHeight } from "./conversation/unsettledHeights";
 import { PASTE_FILE_CHARS } from "./pastedText";
 import { escapeDefinitions, insertReplyQuote } from "./quoteReply";
@@ -1885,7 +1886,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         aria-hidden="true"
       >
         {placeholderKey ? <span className="acpmux-md-placeholder-text">{placeholder}</span> : placeholder}
-        {placeholderKey && <kbd className="acpmux-md-placeholder-key">{placeholderKey}</kbd>}
+        {placeholderKey && <KeyHint keys={placeholderKey} />}
       </span>
       <div ref={standIn} className="acpmux-md-standin" aria-hidden="true" />
       <div ref={mount} className="acpmux-md-root" />

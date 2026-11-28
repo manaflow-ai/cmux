@@ -1,5 +1,6 @@
 // l10n-allow-file: gallery-only sample labels, not shipped UI.
 import { componentEntry } from "../../../gallery/format";
+import { KeyHint } from "../../../ui/KeyHint";
 import type { Play } from "../../../gallery/play";
 import { ChatMenu } from "./ChatHeaderTools";
 import { menuGroups, type ChatMenuItem } from "./chatHeaderToolsModel";
@@ -54,7 +55,9 @@ function TitleMenuGallery({
         </div>
       </header>
       <main className="acpmux-thread-title-gallery-copy">
-        <p>The title is plain text; double-click it (or ⌘R) to rename. ⋮ holds the chat's actions.</p>
+        <p>
+          The title is plain text; double-click it (or <KeyHint keys="⌘R" />) to rename. ⋮ holds the chat's actions.
+        </p>
         <p className="acpmux-muted">
           Move uses the chat’s existing Cloud transfer path; Delete purges the session and closes the tab.
         </p>
