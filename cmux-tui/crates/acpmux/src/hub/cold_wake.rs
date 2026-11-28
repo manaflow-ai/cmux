@@ -333,6 +333,9 @@ impl Hub {
                 return Some(b.due);
             }
             *batch = None;
+            session.meta.lock().unwrap_or_else(|e| e.into_inner()).cold_batch_due = None;
+            // Save the clear even if the newly warm metadata cannot open another batch.
+            self.save_meta(session);
         }
         let (cold, tokens) = coldness(meta, now)?;
         // Read once per batch opened, not per message: a cold chat opens one per idle stretch.
@@ -343,6 +346,10 @@ impl Hub {
         let window = window_ms(cold, tokens);
         let due = now.saturating_add(window);
         *batch = Some(Batch { due });
+        session.meta.lock().unwrap_or_else(|e| e.into_inner()).cold_batch_due = Some(due);
+        // Persist before spawning compaction: it can finish with usage below the batching
+        // threshold, and a restart then has no way to reconstruct this original deadline.
+        self.save_meta(session);
         drop(batch);
         tracing::info!(session = %session.id, window_ms = window, tokens, cold_ms = cold, "cold wake batch opened");
         let line = knobs.compact_above;
@@ -359,8 +366,19 @@ impl Hub {
     /// A turn started in `session`: its batch went in with it, unless it is the batch's own
     /// compaction, which the batch waits behind.
     pub(super) fn cold_batch_turn_started(&self, session: &Session) {
-        let taken = !compaction_runs(session)
-            && session.cold_batch.lock().unwrap_or_else(|e| e.into_inner()).take().is_some();
+        let taken = if compaction_runs(session) {
+            false
+        } else {
+            let mut batch = session.cold_batch.lock().unwrap_or_else(|e| e.into_inner());
+            let taken = batch.take().is_some();
+            if taken {
+                session.meta.lock().unwrap_or_else(|e| e.into_inner()).cold_batch_due = None;
+                // inbox_turn_started runs before writing the prompt to the agent. Keep that
+                // ordering durable too: restarting after delivery must not resurrect a batch.
+                self.save_meta(session);
+            }
+            taken
+        };
         session.cold_batch_turn.store(taken, Ordering::SeqCst);
     }
 

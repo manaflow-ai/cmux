@@ -2514,6 +2514,7 @@ impl Hub {
         // Every start of a session whose creator asked waits on its harness (`SessionMeta::wait_start`).
         let wait_start = meta.wait_start;
         let parent_print = views::parent_print_of(&meta);
+        let cold_batch = meta.cold_batch_due.map(|due| cold_wake::Batch { due });
         // A fork whose agent had not started before a restart starts as the first daemon's would.
         let (fork_from, rehydrate, rehydrate_note) = fork_start::restored(&meta);
         let session = Arc::new(Session {
@@ -2639,7 +2640,7 @@ impl Hub {
             cancel_forced_turn: StdMutex::new(None),
             unwritten_prompt: StdMutex::new(None),
             gathering: StdMutex::new(None),
-            cold_batch: StdMutex::new(None),
+            cold_batch: StdMutex::new(cold_batch),
             cold_batch_turn: AtomicBool::new(false),
             person_hold: StdMutex::new(None),
             cancel_forced_result_turn: StdMutex::new(None),

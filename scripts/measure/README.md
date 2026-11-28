@@ -1,5 +1,25 @@
 # Measurement harnesses
 
+## Cold inbox deadline receipt
+
+`cold-batch-runtime-receipt.py` checks a sanitized private-daemon capture after
+compaction warms a chat and the daemon restarts before its original batch deadline:
+
+```sh
+python3 scripts/measure/cold-batch-runtime-receipt.py evidence.json \
+  --run-start-ms RUN_START_MS --session MUX_UUID --acp-session ACP_UUID \
+  --marker fyi-A --marker fyi-B
+```
+
+It requires binary identity and ancestry, a real 60–300 second batch-open event,
+completed compaction, warm usage, a restart before that deadline and one timer-only
+delivery of both gathered FYIs at the original deadline. An ordinary FYI flush,
+an unrelated wake, or a reopened window cannot pass. Exit 0 is PASS, 1 is FAIL,
+2 is INCOMPLETE; truncated captures cannot prove a missed deadline.
+This measures daemon scheduling with a controlled ACP agent, not model quality,
+token savings or the person's installed app. Never publish raw listener/MCP config.
+Fixtures: `python3 scripts/measure/tests/cold-batch-runtime-receipt.test.py`.
+
 Measurements now go through `scripts/bench/cmux-bench`: one entry point, one row schema (`cmux-bench/v1`), one ledger (the `bench-ledger` branch of cmuxterm-hq).
 
 - `cmux-bench list` shows the registered benches.
