@@ -41,7 +41,8 @@ fn remote_route_parses_no_row() {
         // Same answer as the parsing lookup, which still parses once.
         let (p2, id2, row) = hub.resolve_remote(key).unwrap();
         assert_eq!((p2.name.as_str(), id2.as_str()), ("box", "01a1c7f2-0000-00001"));
-        assert_eq!(row["name"], "coord/lane-1");
+        // The parsed row carries the name a list shows it under: its host first.
+        assert_eq!(row["name"], "box/coord/lane-1");
         assert_eq!(parses() - before, 1, "{key}: resolve_remote parses once");
     }
     let before = parses();
