@@ -2,7 +2,7 @@
 // header click; again flips it), one selected row, and Kill Process on it from the footer button or
 // the row's menu. The app formats the numbers and decides what may be ended; the page only shows it.
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { memo, useCallback, useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
+import { memo, useCallback, useLayoutEffect, useState, useSyncExternalStore, type KeyboardEvent } from "react";
 import { Button } from "../../ui/Button";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import type { Strings } from "../shared/i18n";
@@ -238,6 +238,7 @@ const Row = memo(function Row({
 function Spacer({ height }: { height: number }) {
   return (
     <tr className="tm-spacer" aria-hidden="true">
+      {/* oxlint-disable-next-line jsx-a11y/control-has-associated-label -- an aria-hidden spacer row; it holds no control. */}
       <td colSpan={COLUMNS.length} style={{ height, padding: 0, border: 0 }} />
     </tr>
   );
