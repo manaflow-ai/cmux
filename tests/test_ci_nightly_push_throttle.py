@@ -134,7 +134,8 @@ run(github, context, core, process, exec).then(() => {
 
 def decide_script() -> str:
     lines = WORKFLOW.read_text(encoding="utf-8").splitlines()
-    start = lines.index("      - name: Decide whether a nightly build is needed")
+    # decide-main runs the same step name with a module call; the script under test is decide's.
+    start = lines.index("      - name: Decide whether a nightly build is needed", lines.index("  decide:"))
     script_at = next(
         i for i in range(start, len(lines)) if lines[i].strip() == "script: |"
     )
