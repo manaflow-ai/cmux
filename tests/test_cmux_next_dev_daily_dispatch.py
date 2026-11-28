@@ -311,8 +311,9 @@ calls = run([dev_run(8, "8" * 40, "success")], {8: app_job("success")},
               "status": "completed", "conclusion": "skipped"}])
 check(published(calls) == ["8"], f"a skipped publisher must be retried, got {published(calls)}")
 
-# A DEV build started under five minutes ago is still running: a push kick
-# for a newer tip waits for the next push or tick instead of starting another.
+# A DEV build that is still queued or running holds the line: a push kick for a
+# newer tip waits for the first push or tick after it ends instead of starting
+# another (one build in flight; 2026-11-28 had three at once under 5-min spacing).
 def built(calls):
     return [c[2]["dev_daily_sha"] for c in calls if c[0] == "dispatch" and c[1] == "cmux-next.yml"]
 
@@ -326,14 +327,16 @@ def active_run(run_id, sha, age_s, status="in_progress", title=None, name="cmux-
 
 for status in ("queued", "requested", "waiting", "pending", "in_progress"):
     calls = run([active_run(20, "2" * 40, 60, status=status)], {})
-    check(built(calls) == [], f"a {status} DEV build under five minutes old must space the next one, got {built(calls)}")
+    check(built(calls) == [], f"a {status} DEV build must hold the next one, got {built(calls)}")
 calls = run([active_run(20, "2" * 40, 60, title="cmux-next", name=f"cmux NEXT DEV daily · {'2' * 40}")], {})
 check(built(calls) == [], f"a DEV build named by run.name must space the next one, got {built(calls)}")
 for title in ("cmux NEXT DEV daily · publish 123", "cmux NEXT DEV daily · abc", f"cmux NEXT DEV daily · {'2' * 40} extra"):
     calls = run([active_run(20, "2" * 40, 60, title=title)], {})
     check(built(calls) == [TIP], f"{title!r} is not a dispatched DEV build and must not space the tip, got {built(calls)}")
-calls = run([active_run(21, "2" * 40, 6 * 60)], {})
-check(built(calls) == [TIP], f"a DEV build over five minutes old must not hold the tip, got {built(calls)}")
+calls = run([active_run(21, "2" * 40, 30 * 60)], {})
+check(built(calls) == [], f"a DEV build still running after 30 minutes must hold the tip, got {built(calls)}")
+calls = run([active_run(21, "2" * 40, 91 * 60)], {})
+check(built(calls) == [TIP], f"a DEV build over 90 minutes old must not hold the tip, got {built(calls)}")
 finished = dev_run(22, "2" * 40, "failure")
 finished["created_at"] = active_run(22, "2" * 40, 60)["created_at"]
 calls = run([finished], {22: app_job("failure")})
