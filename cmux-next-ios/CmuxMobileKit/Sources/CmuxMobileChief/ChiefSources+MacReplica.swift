@@ -1,4 +1,5 @@
 import CmuxConversationCore
+import CmuxMobileModel
 import Foundation
 
 /// The Mac Chief with the Mac offline (cmux-prompts logs/iphone-chief-DESIGN.md, a450):
@@ -7,6 +8,17 @@ extension ChiefSources {
     /// Why the Mac Chief runs on its cloud copy: shown on Chief's bar.
     public static var macOfflineReason: String {
         String(localized: "Your Mac is offline. Messages wait in the cloud and reach Chief when your Mac is back.")
+    }
+
+    /// Why the Mac Chief runs on its cloud copy while the Mac's link is up: Chief on it did not
+    /// answer. Never "offline" for a Mac this phone is connected to (ask-02dd2cc9ee).
+    public static var chiefNotAnsweringReason: String {
+        String(localized: "Chief on your Mac isn't answering. Messages wait in the cloud and reach Chief when it's back.")
+    }
+
+    /// Chief's bar on its cloud copy, from the Mac's shared ``MacPresence``.
+    public static func awayReason(_ presence: MacPresence) -> String {
+        presence.isUp ? chiefNotAnsweringReason : macOfflineReason
     }
 
     /// The cloud copy of the Mac Chief on the Mac named `macName`, or nil when

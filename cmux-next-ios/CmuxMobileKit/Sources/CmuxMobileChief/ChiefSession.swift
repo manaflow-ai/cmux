@@ -82,6 +82,11 @@ public final class ChiefSession {
     public private(set) var control: ChiefControl?
     /// The Mac Chief runs on, for the settings page.
     public var macName: String?
+    /// Reads the shared ``MacPresence`` of a Mac (``AppStore/macPresence(_:)``, set by the link's
+    /// coordinator): whether Chief's Mac is there is that answer, not one of Chief's own.
+    @ObservationIgnored public var macPresenceSource: (@MainActor (String?) -> MacPresence)?
+    /// Chief's Mac's ``MacPresence`` (``untracked`` without a coordinator).
+    public var macPresence: MacPresence { macPresenceSource?(macID) ?? .untracked }
     /// Reads a file a Chief message links to from Chief's Mac (the link's `file`
     /// service, inside the folders that Mac shares); nil without a Mac link.
     @ObservationIgnored public var fileSource: (any ArtifactSource)?
@@ -312,7 +317,8 @@ public final class ChiefSession {
             return .failure(id: id, failure)
         }
         // The Mac is away (its cloud copy): say so, with the Cloud Chief hand-off.
-        if isConnected, backend is ChiefReplicaBackend, let status { return .macAway(reason: status) }
+        // Its words come from the Mac's shared presence: "offline" only when the link is not up.
+        if isConnected, backend is ChiefReplicaBackend { return .macAway(reason: ChiefSources.awayReason(macPresence)) }
         return nil
     }
 

@@ -135,6 +135,9 @@ extension AppStore {
         var machine = macData[macID] ?? MacDataMachine()
         machine.handle(event)
         if macData[macID] != machine { macData[macID] = machine }
+        // The Mac's live list came: cmux on it answers, so a "not answering" from a slow
+        // first load (the workspaces deadline) no longer stands, on any link.
+        if case .received = event, macFailure[macID] == .serviceDown { macFailure[macID] = nil }
     }
 }
 

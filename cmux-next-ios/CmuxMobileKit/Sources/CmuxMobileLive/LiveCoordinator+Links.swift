@@ -1014,8 +1014,10 @@ extension LiveCoordinator {
                 replica.close()
                 return
             }
+            // The bar's words come from the Mac's shared presence (``ChiefSession/macPresence``):
+            // "offline" only while the link is not up, never a copy set here.
+            session.macPresenceSource = { [weak self] id in self?.store.macPresence(id) ?? .untracked }
             session.use(replica)
-            session.status = ChiefSources.macOfflineReason
         }
     }
 
@@ -1038,6 +1040,7 @@ extension LiveCoordinator {
         // Try Again on Chief's unavailable bar opens the channel again on this link.
         session.reconnect = { [weak self] in self?.retryChief() }
         session.macName = owner.name
+        session.macPresenceSource = { [weak self] id in self?.store.macPresence(id) ?? .untracked }
         // A file a Chief message links to previews from this Mac (absolute paths only).
         let fileScope = ArtifactThumbnailOwner.remote(accountID: userID, macID: owner.macID, resource: "chief")
         session.fileSource = LinkFileArtifactSource(macName: owner.name, baseDirectory: nil,
@@ -1265,6 +1268,9 @@ extension LiveCoordinator {
         // A closed (idle) link cannot reattach: its terminals say so until it opens again.
         // Not while the team is still starting (a cold launch before its first list):
         // nothing has dialed yet, so nothing has failed.
+        // The link's own phase is the source ``AppStore/macPresence(_:)`` is built from, so it is
+        // read here directly: a presence read can trail the phase and hold the tabs "online"
+        // through a drop, which leaves them unattached when the link returns.
         let offline = LinkOutageClock.terminalsOffline(phase, down: down, teamStarted: registeredTeamID != nil)
         session.terminalsOffline = offline
         session.terminals.removeAll { $0.session == nil }
