@@ -1902,7 +1902,13 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          bash scripts/hyperdrive.sh limit "$HYPERDRIVE_CONFIG"
+          # Production has no cap of its own yet (hyperdrive.sh: "Production keeps its current limit"); its cap comes
+          # from this action's report of production's max_connections, so here it only restarts and frees.
+          if [ "$HYPERDRIVE_CONFIG" != cmux-vm-production ] || [ -n "${HYPERDRIVE_ORIGIN_CONNECTION_LIMIT:-}" ]; then
+            bash scripts/hyperdrive.sh limit "$HYPERDRIVE_CONFIG"
+          else
+            echo "::notice::cmux-vm-production: no origin_connection_limit set; restarting the pool without a cap"
+          fi
           bash scripts/hyperdrive.sh restart "$HYPERDRIVE_CONFIG"
       - name: ${{ inputs.dry_run && 'Connections (read only)' || 'Connections, then end the Worker role''s idle backends' }}
         working-directory: scripts/cmux-next/release
