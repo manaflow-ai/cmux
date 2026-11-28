@@ -64,6 +64,7 @@ mod local_actor;
 mod machine_identity;
 #[cfg(unix)]
 mod machine_secrets;
+mod measure_clock;
 #[cfg(unix)]
 mod own_build_helpers;
 mod page_listener;
@@ -71,6 +72,8 @@ mod private_mode;
 mod screen_detection_status;
 #[cfg(unix)]
 mod scroll_probe;
+#[cfg(unix)]
+mod seed_deps_warm;
 #[cfg(unix)]
 mod share_room;
 #[cfg(unix)]
@@ -1632,54 +1635,6 @@ fn rewrite_server_start(args: &mut Vec<String>) {
     }
 }
 
-/// `--measure-freeing-clock-fifo` (the bench, `scripts/measure/infinite-items.py`): a thread
-/// blocked on reading the FIFO (no wakeup while nothing is written); each line holds the seconds
-/// to let pass for the freeing timer (`Mux::advance_freeing_clock`).
-#[cfg(unix)]
-fn start_measure_freeing_clock(
-    mux: &std::sync::Arc<cmux_tui_core::Mux>,
-    fifo: &std::path::Path,
-) -> anyhow::Result<()> {
-    use std::io::BufRead;
-    use std::os::unix::fs::FileTypeExt;
-    let kind = std::fs::metadata(fifo)
-        .map_err(|error| {
-            anyhow::anyhow!("--measure-freeing-clock-fifo {}: {error}", fifo.display())
-        })?
-        .file_type();
-    if !kind.is_fifo() {
-        anyhow::bail!("--measure-freeing-clock-fifo {}: not a FIFO", fifo.display());
-    }
-    let mux = std::sync::Arc::downgrade(mux);
-    let fifo = fifo.to_path_buf();
-    eprintln!("cmux-tui: measure freeing clock on ({})", fifo.display());
-    std::thread::Builder::new().name("measure-clock".into()).spawn(move || {
-        loop {
-            // Blocks until a writer opens it; its lines end at the writer's close.
-            let Ok(file) = std::fs::File::open(&fifo) else { return };
-            for line in std::io::BufReader::new(file).lines() {
-                let Ok(line) = line else { break };
-                let Some(owner) = mux.upgrade() else { return };
-                match line.trim().parse::<u64>() {
-                    Ok(seconds) => {
-                        owner.advance_freeing_clock(std::time::Duration::from_secs(seconds))
-                    }
-                    Err(_) => eprintln!("cmux-tui: measure freeing clock: not seconds: {line:?}"),
-                }
-            }
-        }
-    })?;
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn start_measure_freeing_clock(
-    _mux: &std::sync::Arc<cmux_tui_core::Mux>,
-    _fifo: &std::path::Path,
-) -> anyhow::Result<()> {
-    anyhow::bail!("--measure-freeing-clock-fifo needs a Unix FIFO")
-}
-
 pub(crate) const STARTUP_VALUE_OPTIONS: &[&str] = &[
     "--socket",
     "--session",
@@ -1910,62 +1865,6 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
     Ok(())
 }
 
-/// After a seed checks out a folder on this machine: restore its dependencies
-/// from the cache in the background, never running its install
-/// (`acpmux machine deps warm --if-joined --no-install`, which does nothing on
-/// a machine that is not joined). `CMUX_DEPS_WARM=0` turns it off. Seeds and `acp` are
-/// unix-only.
-#[cfg(unix)]
-fn warm_seeded_deps(folder: &Path) {
-    if std::env::var_os("CMUX_DEPS_WARM").is_some_and(|v| v == "0") {
-        return;
-    }
-    let Ok(exe) = std::env::current_exe() else { return };
-    // After a self-update replaced the binary, Linux names the running one "<path> (deleted)".
-    let exe = exe
-        .to_str()
-        .and_then(|path| path.strip_suffix(" (deleted)"))
-        .map_or(exe.clone(), PathBuf::from);
-    // The warm's stderr can hold private output: an owner-only log in this
-    // build's acpmux state folder, never a shared temp folder, never through a link.
-    let out = {
-        use std::os::unix::fs::OpenOptionsExt;
-        let dir = acpmux::config::home();
-        std::fs::create_dir_all(&dir).ok().and_then(|()| {
-            std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .mode(0o600)
-                .custom_flags(libc::O_NOFOLLOW)
-                .open(dir.join("deps-warm.log"))
-                .ok()
-        })
-    };
-    let err = out.as_ref().and_then(|f| f.try_clone().ok());
-    // A binary named `acpmux` (a symlink or a copy) runs acpmux directly; the
-    // `cmux` binary takes it under `acp`.
-    let standalone = exe.file_name().is_some_and(|name| name == "acpmux");
-    let mut command = cmux_process::Command::new(&exe);
-    if !standalone {
-        command.arg("acp");
-    }
-    command
-        // Restore only: a seed never runs a project's install, whose lifecycle
-        // scripts would execute repository code without the owner's consent.
-        .args(["machine", "deps", "warm", "--if-joined", "--if-missing", "--no-install", "--json"])
-        .arg(folder)
-        .current_dir(folder)
-        .stdin(cmux_process::Stdio::null())
-        .stdout(out.map_or_else(cmux_process::Stdio::null, Into::into))
-        .stderr(err.map_or_else(cmux_process::Stdio::null, Into::into));
-    // Reaped by a thread so it never lingers as a zombie of the daemon.
-    if let Ok(mut child) = command.spawn() {
-        let _ = std::thread::Builder::new().name("cmux-deps-warm".into()).spawn(move || {
-            let _ = child.wait();
-        });
-    }
-}
-
 /// The whole cmux-tui program: the `cmux-tui` binary calls this, and on
 /// Windows with the `windows-thin-exe` feature the thin `cmux-tui.exe` calls
 /// it through [`cmux_tui_dll_main`] in `cmux_tui.dll`.
@@ -2004,7 +1903,7 @@ pub fn main() -> std::process::ExitCode {
     // acpmux is headless; its interactive commands open the terminal UI this binary links.
     acpmux_tui::install();
     #[cfg(unix)]
-    cmux_tui_core::git_seed::on_seeded(warm_seeded_deps);
+    cmux_tui_core::git_seed::on_seeded(seed_deps_warm::warm_seeded_deps);
     // The daemon's `device-setup` (the app's set-up buttons) runs `cmux device setup|start`'s code.
     cmux_tui_core::device_setup::on_device_setup(devices::setup::daemon_run);
     // `cmux` (CLI and mux) and `acpmux` (a symlink) are one binary, one version.
@@ -2931,7 +2830,7 @@ fn run_server(
         mux.set_freeing_idle_override(idle);
     }
     if let Some(fifo) = &args.measure_freeing_clock_fifo {
-        start_measure_freeing_clock(&mux, fifo)?;
+        measure_clock::start_measure_freeing_clock(&mux, fifo)?;
     }
     if let Some(grace) = args.terminal_reap_grace {
         mux.set_terminal_reap_grace(grace)?;
