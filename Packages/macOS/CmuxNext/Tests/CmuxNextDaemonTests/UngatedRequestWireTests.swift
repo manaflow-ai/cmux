@@ -2,9 +2,10 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// The exact request line of `create-workspace`, which the schema gates on `workspace-registry-v1` and the app
-/// sends without asking (`requiredCapability` nil): these bytes, and the ungated send, are the contract the
-/// generated type (swift_app request `ungated`) keeps with the hand-written one it replaced.
+/// The exact request lines of `create-workspace` and `create-terminal`, which the schema gates on
+/// `workspace-registry-v1` and the app sends without asking (`requiredCapability` nil): these bytes, and the
+/// ungated send, are the contract the generated types (swift_app request `ungated`) keep with the hand-written
+/// ones they replaced.
 struct UngatedRequestWireTests {
     private func line(_ request: some DaemonRequest) throws -> String {
         String(decoding: try WireCoding.encodeRequest(request, id: 7), as: UTF8.self)
@@ -26,5 +27,23 @@ struct UngatedRequestWireTests {
     @Test func aCreateGoesToADaemonThatDoesNotAdvertiseTheRegistry() throws {
         #expect(CreateWorkspaceRequest.requiredCapability == nil)
         try CreateWorkspaceRequest.requireServed(by: nil)
+    }
+
+    @Test func aTerminalSendsEveryFieldItSets() throws {
+        var request = CreateTerminalRequest(
+            workspace: .key(Self.key), argv: ["zsh"], command: "ls", cwd: "/tmp", name: "n", size: CellSize(cols: 80, rows: 24),
+            terminalID: TerminalID(rawValue: "t1"), env: ["lang": "c"], keep: false,
+            mutation: MutationIdentity(origin: "app", mutationID: "m1"))
+        request.shellArgs = ["-l"]
+        request.createWorkspace = true
+        request.workspaceName = "w"
+        #expect(try line(request)
+            == #"{"argv":["zsh"],"cmd":"create-terminal","cols":80,"command":"ls","create_workspace":true,"cwd":"/tmp","env":{"lang":"c"},"id":7,"keep":false,"key":"018f6e21-7b70-7e70-8000-0000000000b1","mutation_id":"m1","name":"n","origin":"app","rows":24,"shell_args":["-l"],"terminal_id":"t1","workspace_name":"w"}"#)
+    }
+
+    @Test func aPlainTerminalNamesItsWorkspaceAlone() throws {
+        #expect(try line(CreateTerminalRequest(workspace: .handle(WorkspaceHandle(rawValue: 4)), mutation: nil))
+            == #"{"cmd":"create-terminal","id":7,"workspace":4}"#)
+        #expect(CreateTerminalRequest.requiredCapability == nil)
     }
 }
