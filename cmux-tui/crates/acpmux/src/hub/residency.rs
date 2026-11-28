@@ -26,8 +26,37 @@
 
 use crate::hub::*;
 use acpmux_book::index::residency::{IdlePolicy as WirePolicy, RESIDENCY_V, Residency};
-use std::collections::VecDeque;
-use std::time::Duration;
+use std::collections::{HashSet, VecDeque};
+use std::time::{Duration, Instant};
+
+/// All row reads share one host scan per second; totals use one immutable snapshot throughout.
+/// A failed read retains the last evidence instead of making surviving detached hosts disappear.
+#[derive(Default)]
+pub(super) struct HostSnapshot {
+    read_at: Option<Instant>,
+    live: Arc<HashSet<String>>,
+}
+
+impl HostSnapshot {
+    pub(super) fn seed(&mut self, live: HashSet<String>) {
+        self.live = Arc::new(live);
+        self.read_at = Some(Instant::now());
+    }
+
+    fn read(
+        &mut self,
+        now: Instant,
+        read: impl FnOnce() -> Option<HashSet<String>>,
+    ) -> Arc<HashSet<String>> {
+        if self.read_at.is_none_or(|at| now.duration_since(at) >= Duration::from_secs(1)) {
+            if let Some(live) = read() {
+                self.live = Arc::new(live);
+            }
+            self.read_at = Some(now);
+        }
+        self.live.clone()
+    }
+}
 
 /// How many of a chat's last gaps between turns its rhythm keeps.
 pub(super) const RHYTHM_GAPS: usize = 20;
@@ -117,20 +146,14 @@ pub(super) fn adaptive_period(
 
 /// A harness runs for the chat: its status says one is up, it holds one, or its agent host runs.
 /// Never a closed chat's.
-fn resident(session: &Session, status: SessionStatus, hosted: bool) -> bool {
+pub(super) fn costs_for_cap(session: &Session, status: SessionStatus, hosted: bool) -> bool {
     status != SessionStatus::Closed
+        && !super::app_exit::gone(&session.id)
         && (matches!(
             status,
             SessionStatus::Ready | SessionStatus::Running | SessionStatus::Waiting
         ) || hosted
             || session.child.try_lock().map(|c| c.is_some()).unwrap_or(true))
-}
-
-/// What a cap counts: a chat not closed whose harness is resident.
-/// `hosted`: its agent host runs (`admission.rs` passes the hosts it read). A hibernated chat
-/// costs nothing and is not counted.
-pub(super) fn costs_for_cap(session: &Session, hosted: bool) -> bool {
-    resident(session, session.status(), hosted)
 }
 
 impl Hub {
@@ -166,13 +189,31 @@ impl Hub {
 
     /// `session`'s `residency` record (module docs).
     pub(super) fn residency_of(&self, session: &Session, status: SessionStatus) -> Residency {
-        let resident = resident(session, status, false);
+        let hosts = self.residency_hosts();
+        self.residency_with_host(session, status, hosts.contains(&session.id))
+    }
+
+    fn residency_hosts(&self) -> Arc<HashSet<String>> {
+        self.store_load
+            .residency_hosts
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .read(Instant::now(), Self::read_live_host_sessions)
+    }
+
+    fn residency_with_host(
+        &self,
+        session: &Session,
+        status: SessionStatus,
+        hosted: bool,
+    ) -> Residency {
+        let resident = costs_for_cap(session, status, hosted);
         let hibernated = session.hibernated_at.load(Ordering::Relaxed) != 0;
         let idle = *self.idle_child.lock().unwrap_or_else(|e| e.into_inner());
         Residency {
             v: RESIDENCY_V,
             resident,
-            busy: matches!(status, SessionStatus::Running | SessionStatus::Waiting),
+            busy: resident && matches!(status, SessionStatus::Running | SessionStatus::Waiting),
             hibernated_at: (hibernated && !resident)
                 .then(|| session.meta().hibernated_ms)
                 .filter(|ms| *ms != 0),
@@ -189,15 +230,16 @@ impl Hub {
     /// by a cap, and hibernated.
     pub(super) fn residency_status(&self, sessions: &[Arc<Session>]) -> Value {
         let (mut resident, mut busy, mut counted, mut hibernated) = (0, 0, 0, 0);
+        let hosts = self.residency_hosts();
         for s in sessions {
             let status = s.status();
             if status == SessionStatus::Closed {
                 continue;
             }
-            let r = self.residency_of(s, status);
+            let r = self.residency_with_host(s, status, hosts.contains(&s.id));
             resident += usize::from(r.resident);
             busy += usize::from(r.resident && r.busy);
-            counted += usize::from(costs_for_cap(s, false));
+            counted += usize::from(r.counts_for_cap());
             hibernated += usize::from(r.hibernated_at.is_some());
         }
         let idle = *self.idle_child.lock().unwrap_or_else(|e| e.into_inner());
