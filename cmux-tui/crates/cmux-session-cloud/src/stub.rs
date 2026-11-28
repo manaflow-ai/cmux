@@ -70,7 +70,8 @@ pub enum History {
 }
 
 pub fn history(path: &Path) -> anyhow::Result<History> {
-    parse_history(std::fs::File::open(path)?)
+    // A bare File would cost serde_json one read syscall per byte.
+    parse_history(std::io::BufReader::new(std::fs::File::open(path)?))
 }
 
 pub fn parse_history(reader: impl std::io::Read) -> anyhow::Result<History> {

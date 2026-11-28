@@ -77,11 +77,11 @@ final class SidebarChiefFixture {
         harness.tearDown()
     }
 
-    /// SidebarBridge's `chiefAvatar`: `SidebarChiefAvatar(home: services.home.chiefFaces[chief])`.
+    /// SidebarBridge's `chiefAvatar`: `SidebarChiefAvatar(home: services.home.chiefFace(of: chief))`.
     private func avatar(_ chief: String) -> SidebarChiefAvatar? {
         avatarCalls += 1
         let settings = harness.settings, picks = picks
-        let faces = HomeService.chiefFaces(chiefs: Set(Self.chiefs), own: [:]) {
+        let faces = HomeChiefAvatars.faces(chiefs: Set(Self.chiefs), own: [:]) {
             ChiefPetSettingsRows.chosenPicture(of: $0, picks: picks, uploads: nil, in: settings.snapshot, file: settings.fileRoot)
         }
         return SidebarChiefAvatar(home: faces[chief])
