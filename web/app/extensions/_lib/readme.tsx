@@ -71,7 +71,11 @@ export function rewriteReadmeUrl(source: ReadmeSource, href: string, kind: "link
   const root: ReadmeSource = { ...source, path: "" };
   // The query and fragment are kept as written (e.g. `?plain=1`, `?sanitize=true`, `#usage`).
   const suffix = value.slice(value.split(/[?#]/, 1)[0]!.length);
-  if (kind === "image") return `${repositoryRawUrl(root, source.commit, resolved)}${suffix}`;
+  if (kind === "image") {
+    // A host with no known raw route has no image URL: the image is dropped, never drawn from "null...".
+    const raw = repositoryRawUrl(root, source.commit, resolved);
+    return raw === null ? null : `${raw}${suffix}`;
+  }
   const isDirectory = resolved === "" || DIRECTORY_HINT.test(value.split(/[?#]/, 1)[0]!);
   return `${repositoryTreeUrl(root, source.commit, resolved, isDirectory ? "tree" : "blob")}${suffix}`;
 }

@@ -146,10 +146,15 @@ export function downloadWithInstallHref(key: ListingKey, commit?: string | null,
   return `/download?${query.toString()}`;
 }
 
-/** Reads `install=HOST/OWNER/REPO[/PATH]` (an optional `https://` and trailing `@REF` are dropped) into a key. */
+/**
+ * Reads `install=HOST/OWNER/REPO[/PATH]` (an optional `https://` is dropped) into a key. A trailing `@REF` is dropped
+ * only from the repo segment: repo names never hold `@`, but path segments may (PATH_SEGMENT_PATTERN), and the site
+ * writes the commit as its own parameter, so `HOST/OWNER/REPO/pkg@2` keeps its path as written.
+ */
 export function parseInstallReference(value: string): ListingKey | null {
-  const trimmed = value.trim().replace(/^https:\/\//i, "").replace(/\.git$/i, "").replace(/@[^/]*$/, "");
+  const trimmed = value.trim().replace(/^https:\/\//i, "").replace(/\.git$/i, "");
   const segments = trimmed.split("/").filter(Boolean);
+  if (segments.length === 3) segments[2] = segments[2]!.replace(/@.*$/, "").replace(/\.git$/i, "");
   if (segments.length < 3 || !segments[0]!.includes(".")) return null;
   const route = parseListingSlug(segments.map(encodeURIComponent));
   if (!route || route.page !== "listing") return null;
