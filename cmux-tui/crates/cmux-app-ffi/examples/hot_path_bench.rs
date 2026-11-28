@@ -8,9 +8,9 @@
 
 use std::time::Instant;
 
+use cmux_chat_markdown::{DefaultPolicy, parse};
 use cmux_palette_ranker::ffi as palette;
 use cmux_url_input::ffi as url;
-use cmux_chat_markdown::{DefaultPolicy, parse};
 
 fn median(mut v: Vec<f64>) -> f64 {
     v.sort_by(|a, b| a.total_cmp(b));

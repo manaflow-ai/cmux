@@ -135,6 +135,16 @@ opt-level = 3
 opt-level = 3
 [profile.release.package.cmux-rd-screen]
 opt-level = 3
+[profile.release.package.cmux-agent-pane-policy]
+opt-level = 3
+[profile.release.package.cmux-acpmux-remote-wire]
+opt-level = 3
+[profile.release.package.cmux-keymap]
+opt-level = 3
+# The omnibox resolves on every key: 633 -> 1761 ns per call at z under duress
+# (examples/hot_path_bench.rs).
+[profile.release.package.cmux-url-input]
+opt-level = 3
 
 [profile.release.build-override]
 strip = false
