@@ -177,6 +177,12 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
     let status = summary["status"].as_str().unwrap_or_default();
     let last = summary["lastTurn"]["status"].as_str();
     let answered = last == Some("completed");
+    // A clean turn after it (a background or trigger turn, `background_turn.rs`) shows the chat
+    // works again: its failure no longer reads `failed` or `lost`.
+    let recovered = summary
+        .get("lastTurn")
+        .and_then(|last| last.get("recoveredAt"))
+        .is_some_and(Value::is_u64);
     let pending = summary["pendingPermissions"].as_u64().unwrap_or(0) > 0;
     match status {
         "closed" => None,
@@ -190,8 +196,8 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
         _ if crate::session_liveness::blocked(summary) => Some("failed"),
         // acpmux holds a turn a capacity error cut and goes on by itself (`row_last_turn`).
         _ if last == Some("capacity") => Some("working"),
-        _ if last == Some("failed") => Some("failed"),
-        "disconnected" | "unreachable" if last.is_some() && !answered => Some("lost"),
+        _ if last == Some("failed") && !recovered => Some("failed"),
+        "disconnected" | "unreachable" if last.is_some() && !answered && !recovered => Some("lost"),
         "unreachable" => answered.then_some("done"),
         _ if summary["subagentsWorkingSince"].is_u64() => Some("working"),
         _ if summary["commandsRunning"].as_u64().unwrap_or(0) > 0 => Some("working"),

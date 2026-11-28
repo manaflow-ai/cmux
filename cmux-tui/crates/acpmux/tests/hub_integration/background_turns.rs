@@ -21,6 +21,16 @@ fn records(hub: &Hub, id: &str, kind: &str) -> Vec<Value> {
 /// returns the hub, the chat id and the summary before the own turn.
 #[cfg(unix)]
 async fn own_turn_saying(text: &str) -> (Arc<Hub>, String, Value, std::path::PathBuf) {
+    own_turn_after("own-turn:", text).await
+}
+
+/// [`own_turn_saying`], the person's turn being fake Claude's `command` (`own-turn:`, or
+/// `own-turn-after-fail:` for a person's turn that failed, `own-turn-fail:` for an own turn that does).
+#[cfg(unix)]
+async fn own_turn_after(
+    command: &str,
+    text: &str,
+) -> (Arc<Hub>, String, Value, std::path::PathBuf) {
     let root = std::env::temp_dir().join(format!("acpmux-bgturn-{}", uuid::Uuid::now_v7()));
     let claude = root.join("claude");
     std::fs::create_dir_all(&claude).unwrap();
@@ -35,9 +45,10 @@ async fn own_turn_saying(text: &str) -> (Arc<Hub>, String, Value, std::path::Pat
     // The person's turn ends in view: read.
     c.request("_acpmux/view", json!({"sessionId": id, "visible": true})).await.unwrap();
     let mut events = hub.subscribe();
-    let said = format!("own-turn: {} :: {text}", gate.display());
+    let said = format!("{command} {} :: {text}", gate.display());
     let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": said}]});
-    c.request(method::SESSION_PROMPT, prompt).await.unwrap();
+    let answered = c.request(method::SESSION_PROMPT, prompt).await;
+    assert_eq!(answered.is_err(), command == "own-turn-after-fail:", "{answered:?}");
     c.request("_acpmux/view", json!({"sessionId": id, "visible": false})).await.unwrap();
     let before = hub.session_summary(&session);
     assert_eq!(before["unread"], false, "{before}");
@@ -96,5 +107,40 @@ async fn a_background_turn_with_something_to_say_is_not_quiet_and_never_pings() 
     let after = hub.session_summary(&session);
     assert_eq!(after["unread"], false, "{after}");
     assert_eq!(after["lastTurn"], before["lastTurn"], "{after}");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// One failed turn, then the chat goes on working by itself (task notifications, `/loop` ticks):
+/// its clean own turn shows it works again, so the dot no longer reads `failed`. Its `lastTurn`
+/// keeps the failure (now `recoveredAt`), and it still never pings. Leo, 2026-11-27: "this isn't
+/// leaving the tab icon even after you're not erroring anymore".
+#[cfg(unix)]
+#[tokio::test]
+async fn a_clean_own_turn_after_a_failed_turn_clears_the_failed_dot() {
+    let (hub, id, before, root) = own_turn_after("own-turn-after-fail:", "All green now.").await;
+    assert_eq!(before["lastTurn"]["status"], "failed", "{before}");
+    assert_eq!(before["indicator"], "failed", "{before}");
+    let session = hub.resolve(&id).unwrap();
+    let after = hub.session_summary(&session);
+    assert_eq!(after["lastTurn"]["status"], "failed", "the failure stays on record: {after}");
+    assert!(after["lastTurn"]["recoveredAt"].is_u64(), "{after}");
+    assert!(after["indicator"].is_null(), "no longer red, and not a ping either: {after}");
+    assert_eq!(after["unread"], false, "{after}");
+    // The journal restore reads it back the same (`count_restored`).
+    let marks = records(&hub, &id, "background_turn");
+    assert!(marks.iter().all(|m| m.get("failed").is_none()), "{marks:?}");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// An own turn whose `result` is an error says so on its `ended` record and recovers nothing.
+#[cfg(unix)]
+#[tokio::test]
+async fn an_own_turn_that_fails_is_marked_failed_and_recovers_nothing() {
+    let (hub, id, _, root) = own_turn_after("own-turn-fail:", "API Error: 500 boom").await;
+    let session = hub.resolve(&id).unwrap();
+    let marks = records(&hub, &id, "background_turn");
+    assert_eq!(marks.last().unwrap()["failed"], true, "{marks:?}");
+    let after = hub.session_summary(&session);
+    assert!(after["lastTurn"].get("recoveredAt").is_none(), "{after}");
     let _ = std::fs::remove_dir_all(root);
 }

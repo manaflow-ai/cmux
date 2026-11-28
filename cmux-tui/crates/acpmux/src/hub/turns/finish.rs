@@ -679,13 +679,19 @@ impl Hub {
         self.lane_report_record_result(&session.id, turn_result);
         if turn_result.get("trigger") != Some(&Value::Bool(true)) {
             let mut meta = session.meta.lock().unwrap();
-            if last["errorCode"] == "claude_cloud_token_rejected"
+            if last.get("errorCode").and_then(Value::as_str) == Some("claude_cloud_token_rejected")
                 && meta.claude_token_recovery.is_none()
             {
                 meta.claude_token_recovery =
                     Some(crate::store::ClaudeTokenRecovery::LegacyRejected);
             }
             meta.last_turn = Some(last);
+        } else if turn_result.get("status").and_then(Value::as_str) == Some("completed") {
+            // A trigger turn that completed proves the chat works (`background_turn.rs`).
+            super::super::background_turn::recover_last_turn(
+                &mut session.meta.lock().unwrap_or_else(|e| e.into_inner()).last_turn,
+                last.get("endedAt").and_then(Value::as_u64).unwrap_or_else(now_ms),
+            );
         }
         // Every turn's end passes here once: its parent hears it (`subsession_results.rs`).
         self.subsession_turn_ended(session, turn_result);
