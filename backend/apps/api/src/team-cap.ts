@@ -2,6 +2,7 @@ import type { Meter } from "@cmux/protocol"
 import { billedLevelMicros, DEFAULT_TEAM_CAP_UNPAID_MAX_POOLS, defaultTeamCapPools, overageModelMarkup, TEAM_CAP_NEAR_PERCENT, type UsagePriceSet } from "./billing-catalog.ts"
 import { BILLABLE_METERS, BILLABLE_METERS_SQL, utcMonth } from "./domains/usage.ts"
 import { currentBillable, hasPaidInvoice, periodMarkupBp } from "./usage-billing-store.ts"
+import type { AdminCap } from "./domains/usage.ts"
 
 /**
  * The team spending cap (Leo 2026-11-09, cmuxterm-hq plans/team-plan/margins.md "Decided" and section 4), shared by
@@ -29,6 +30,13 @@ export interface TeamCap {
    * at that limit (billing-catalog.ts teamCapUnpaidMaxPools x the pool) until the invoice is paid.
    */
   readonly raise_locked?: boolean
+  /**
+   * The plan's pool for the period (USD, every seat), present with a billing period: what an overage cap
+   * (usage.cap.set `overage_usd`, RFD 0080) adds to. The overage set is `cap_usd - included_usd`.
+   */
+  readonly included_usd?: number
+  /** The admin's overage past the pool, when the cap was set that way; null = overage off (the cap is the pool). */
+  readonly overage_usd?: number | null
 }
 
 /** How long a period's spend row is kept after its end (the previous period's row, for a late read). */
@@ -70,12 +78,14 @@ const nextMonthStartMs = (now: number) => {
  * spend plus open model calls at their reserved maximum (those reserved in the period), plus `extraMicros` (a call
  * asking to reserve), at billed prices: the model overage above the pool x the period's pinned markup
  * (usage-billing-store.ts periodMarkupBp, billing-catalog.ts billedLevelMicros); at cost without a billable mark (no
- * overage is billed then); plus Cloud machine time at list when `machineTime`. `cap`: the admin's cap (usage.cap.set),
+ * overage is billed then); plus Cloud machine time at list when `machineTime`. `cap`: the admin's cap (usage.cap.set):
+ * a total, or (`{overage_usd}`, RFD 0080) the pool plus that overage, the pool alone when it is null; without a pool the
+ * overage alone, none when null. Else
  * else under `set` v2 for any account the sync marked with a pool (a personal plan per team, a Team per seat), twice
  * the pool; else none. The raise lock (v2, with a pool): until the account's first paid renewal invoice, the cap counts
  * up to `unpaidMaxPools` x the pool, whatever the admin set (`raise_locked`).
  */
-export const teamCapState = (sql: SqlStorage, now: number, graceMs: number, machineTime: boolean, set: UsagePriceSet, adminCapUsd: number | null, extraMicros = 0, unpaidMaxPools = DEFAULT_TEAM_CAP_UNPAID_MAX_POOLS): TeamCap & { readonly spent_micros: number; readonly cap_micros: number | null } => {
+export const teamCapState = (sql: SqlStorage, now: number, graceMs: number, machineTime: boolean, set: UsagePriceSet, adminCapUsd: AdminCap, extraMicros = 0, unpaidMaxPools = DEFAULT_TEAM_CAP_UNPAID_MAX_POOLS): TeamCap & { readonly spent_micros: number; readonly cap_micros: number | null } => {
   const mark = currentBillable(sql, now, graceMs)
   const inPeriod = mark?.period_start !== undefined
   const fromMs = inPeriod ? mark!.period_start! * 1000 : Date.parse(`${utcMonth(now)}-01T00:00:00Z`)
@@ -95,13 +105,23 @@ export const teamCapState = (sql: SqlStorage, now: number, graceMs: number, mach
   const spent = pool === null ? models + machines : billedLevelMicros(models, machines, pool, bp / 10_000)
   const pools = defaultTeamCapPools(set)
   const pooled = pools !== null && pool !== null && pool > 0
-  const asked = adminCapUsd !== null ? adminCapUsd : pooled ? (pools * pool) / 1_000_000 : null
+  const overage = adminCapUsd !== null && typeof adminCapUsd === "object" ? adminCapUsd : null
+  const admin = overage
+    ? pool !== null
+      ? (pool + Math.round((overage.overage_usd ?? 0) * 1_000_000)) / 1_000_000
+      : overage.overage_usd
+    : (adminCapUsd as number | null)
+  const asked = admin !== null ? admin : pooled ? (pools * pool) / 1_000_000 : null
+  const shown = {
+    ...(pool !== null ? { included_usd: pool / 1_000_000 } : {}),
+    ...(overage ? { overage_usd: overage.overage_usd } : {})
+  }
   // The raise lock: one indexed row read, only for a capped account with a pool under v2.
   const lockUsd = asked !== null && pooled && !hasPaidInvoice(sql) ? (Math.max(pools, unpaidMaxPools) * pool) / 1_000_000 : null
   const raise_locked = lockUsd !== null && asked! > lockUsd
   const cap_usd = raise_locked ? lockUsd : asked
-  if (cap_usd === null) return { state: "under", spent_usd: spent / 1_000_000, cap_usd: null, period_end, spent_micros: spent, cap_micros: null }
+  if (cap_usd === null) return { state: "under", spent_usd: spent / 1_000_000, cap_usd: null, period_end, spent_micros: spent, cap_micros: null, ...shown }
   const capMicros = Math.round(cap_usd * 1_000_000)
   const state = spent >= capMicros ? "at_cap" : spent * 100 >= capMicros * TEAM_CAP_NEAR_PERCENT ? "near" : "under"
-  return { state, spent_usd: spent / 1_000_000, cap_usd, period_end, spent_micros: spent, cap_micros: capMicros, ...(raise_locked ? { raise_locked } : {}) }
+  return { state, spent_usd: spent / 1_000_000, cap_usd, period_end, spent_micros: spent, cap_micros: capMicros, ...(raise_locked ? { raise_locked } : {}), ...shown }
 }

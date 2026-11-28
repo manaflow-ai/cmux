@@ -140,19 +140,6 @@ export function markdownConfigNeedsPick(config: unknown): boolean {
   return value?.pick === true || (value != null && typeof value === "object" && value.path == null);
 }
 
-/** The session source of an empty-state source choice for `repoRoot`. */
-export function emptySource(kind: EmptySourceKind, repoRoot: string, baseRef?: string): DiffSource {
-  switch (kind) {
-    case "uncommitted":
-      return { kind: "branch", repoRoot, baseRef: "HEAD" };
-    case "staged":
-    case "unstaged":
-      return { kind, repoRoot };
-    default:
-      return baseRef ? { kind: "branch", repoRoot, baseRef } : { kind: "branch", repoRoot };
-  }
-}
-
 /** Whether `name` is a markdown file the markdown page opens. */
 export function isMarkdownName(name: string): boolean {
   return /\.(md|markdown|mdx|mdown|mkd)$/i.test(name);
