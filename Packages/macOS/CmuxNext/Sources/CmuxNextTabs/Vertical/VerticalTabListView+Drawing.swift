@@ -3,7 +3,7 @@ import CmuxNextDesign
 import CmuxNextIcons
 
 // Drawing the rows: one pass over the layout, every color resolved in the list's theme scope, so a
-// theme change only needs a redraw. No animation: a change shows in the next frame.
+// theme change only needs a redraw. Each row draws where its spring has it (`VerticalTabListView+Motion`).
 extension VerticalTabListView {
     typealias Row = VerticalTabListLayout.Row
 
@@ -22,7 +22,9 @@ extension VerticalTabListView {
             // unhovered"), as the sidebar's no-color group and the strip's band draw it. Under every row, so hover and
             // selection draw over it.
             let look = VerticalNoColorGroupLook.tunable.value
-            for pane in listLayout.groupPanes where look != .plain && pane.frame.intersects(visible) {
+            for var pane in shownLayout.groupPanes {
+                pane.frame = motion.panes[pane.group]?.rect ?? pane.frame
+                guard look != .plain, pane.frame.intersects(visible) else { continue }
                 guard model.group(pane.group)?.tint.isNone == true else { continue }
                 let rect = viewRect(pane.frame)
                 Palette.sidebarStep.setFill()
@@ -36,20 +38,46 @@ extension VerticalTabListView {
                 path.lineWidth = 1 / scale
                 path.stroke()
             }
-            for line in listLayout.groupLines where line.frame.intersects(visible) {
+            for var line in shownLayout.groupLines {
+                line.frame = motion.lines[line.group]?.rect ?? line.frame
+                guard line.frame.intersects(visible) else { continue }
                 guard let group = model.group(line.group) else { continue }
                 group.tint.headerFill.setFill()
                 NSBezierPath(roundedRect: viewRect(line.frame), xRadius: line.frame.width / 2, yRadius: line.frame.width / 2).fill()
             }
-            for row in listLayout.rows where row.frame.insetBy(dx: 0, dy: -1).intersects(visible) {
+            let liftedID = drag?.isActive == true ? drag?.id : nil
+            for var row in shownLayout.rows {
+                if let liftedID, Self.tabID(row.kind) == liftedID { continue } // its slot stays open: the gap
+                let alpha = shownAlpha(row)
+                row.frame = shownFrame(row)
+                guard alpha > 0, row.frame.insetBy(dx: 0, dy: -1).intersects(visible) else { continue }
+                withAlpha(alpha) { drawRow(row) }
+            }
+            // The lifted row, on top of the others under the pointer, with the sidebar's lift shadow.
+            if let liftedID, let frame = liftedFrame(), var row = listLayout.rows.first(where: { Self.tabID($0.kind) == liftedID }) {
+                row.frame = frame
+                let shadow = NSShadow()
+                shadow.shadowColor = Palette.shadow.withAlphaComponent(0.3)
+                shadow.shadowBlurRadius = Metrics.space2
+                shadow.shadowOffset = NSSize(width: 0, height: -Metrics.space1 / 2)
+                NSGraphicsContext.saveGraphicsState()
+                shadow.set()
+                Palette.windowBackground.setFill()
+                NSBezierPath(roundedRect: viewRect(frame), xRadius: metrics.cornerRadius, yRadius: metrics.cornerRadius).fill()
+                NSGraphicsContext.restoreGraphicsState()
                 drawRow(row)
             }
-            if let drag, drag.isActive, let slot = drag.slot {
-                Palette.accent.setFill()
-                let mark = viewRect(slot.indicator)
-                NSBezierPath(roundedRect: mark, xRadius: min(mark.width, mark.height) / 2, yRadius: min(mark.width, mark.height) / 2).fill()
-            }
         }
+    }
+
+    private func withAlpha(_ alpha: CGFloat, _ body: () -> Void) {
+        guard alpha < 1, let context = NSGraphicsContext.current?.cgContext else { return body() }
+        context.saveGState()
+        context.setAlpha(alpha)
+        context.beginTransparencyLayer(auxiliaryInfo: nil)
+        body()
+        context.endTransparencyLayer()
+        context.restoreGState()
     }
 
     private func drawRow(_ row: Row) {
@@ -83,8 +111,7 @@ extension VerticalTabListView {
     private func drawTab(_ item: TabItem, row: Row) {
         let frame = viewRect(row.frame)
         let isHovered = hovered == row.kind
-        let dragged = drag?.isActive == true && drag?.id == item.id
-        let alpha: CGFloat = dragged ? 0.45 : 1
+        let alpha: CGFloat = 1
         if let fill = fill(for: item, hovered: isHovered) {
             fill.withAlphaComponent(fill.alphaComponent * alpha).setFill()
             NSBezierPath(roundedRect: frame, xRadius: metrics.cornerRadius, yRadius: metrics.cornerRadius).fill()

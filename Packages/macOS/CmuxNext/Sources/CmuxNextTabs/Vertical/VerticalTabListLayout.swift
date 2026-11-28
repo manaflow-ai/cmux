@@ -295,3 +295,33 @@ public struct VerticalTabListLayout: Equatable {
         return Slot(index: max(end, pinnedCount), group: nil, indicator: indicator)
     }
 }
+
+// MARK: Drag preview
+
+extension VerticalTabListLayout {
+    /// The tabs as they would stand with `id` dropped on `slot`, as the sidebar shows a drag (its rows spring
+    /// aside and a gap opens where the row lands): `id` moved before `tabs[slot.index]`, into `slot.group`.
+    /// The same clamps as `VerticalTabDrop` (pinned tabs stay pinned and first). Nil when nothing moves.
+    public func previewTabs(dragging id: TabID, on slot: Slot) -> [TabItem]? {
+        guard let from = tabs.firstIndex(where: { $0.id == id }) else { return nil }
+        var moved = tabs[from]
+        var rest = tabs
+        rest.remove(at: from)
+        let pinnedCount = rest.filter(\.isPinned).count
+        var index = min(max(slot.index > from ? slot.index - 1 : slot.index, 0), rest.count)
+        if moved.isPinned {
+            index = min(index, pinnedCount)
+        } else {
+            index = max(index, pinnedCount)
+            moved.groupID = slot.group
+        }
+        rest.insert(moved, at: index)
+        return rest == tabs ? nil : rest
+    }
+
+    /// This layout's rows with `id` dropped on `slot` (`previewTabs`): where every row goes while it is dragged.
+    public func preview(dragging id: TabID, on slot: Slot, showsNewTab: Bool) -> VerticalTabListLayout {
+        guard let moved = previewTabs(dragging: id, on: slot) else { return self }
+        return VerticalTabListLayout(tabs: moved, groups: groups, showsNewTab: showsNewTab, iconsOnly: iconsOnly, width: width, metrics: metrics)
+    }
+}
