@@ -35,7 +35,7 @@ export function cloudStartModePick(harness: string | undefined): { mode?: string
   return mode ? { mode } : {};
 }
 
-/** Tests only: drops the pick. */
+/** Drops the pick: a page another tab adopts (App.tsx adoption). */
 export function clearCloudModePick(): void {
   held = undefined;
   emit();

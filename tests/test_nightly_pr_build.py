@@ -267,7 +267,12 @@ class Workflow(unittest.TestCase):
         text = (ROOT / npb.WORKFLOW).read_text()
         match = re.search(r"(?ms)^  swift-fleet:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)", text)
         self.assertIsNotNone(match)
-        self.assertIn("needs.route.outputs.swift == 'true' }}", match.group(1))
+        # route runs past a skipped coalesce job (#63705), so the gate also says !cancelled() and route succeeded
+        # (tests/test_ci_needs_skip_propagation.py, #63984).
+        self.assertIn(
+            "if: ${{ !cancelled() && needs.route.result == 'success' && needs.route.outputs.swift == 'true' }}",
+            match.group(1),
+        )
         # The fleet controller is tailnet-only: the job stays on the gateway label, never a variable.
         self.assertIn("|| 'mac-gateway' }}", match.group(1))
         self.assertNotIn("vars.", re.search(r"runs-on: (.*)", match.group(1)).group(1))
