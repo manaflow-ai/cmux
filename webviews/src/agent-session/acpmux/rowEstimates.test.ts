@@ -991,8 +991,8 @@ test("placed attachments wrap to a new line only when the line is full", () => {
 });
 
 // The strip attachment view (composerSettings.ts `attachmentView`) draws a placed prompt's
-// attachments in a row above its bubble and leaves the bubble its text (UserBubble.tsx); a placed
-// prompt's unmarked attachment draws in that row in the inline view too. The estimate measures that
+// attachments in a row above its bubble and leaves the bubble its text (UserBubble.tsx); the inline
+// view draws none there (#61287). The estimate measures that
 // row and a bubble of the text alone, so the row does not shift when it mounts. At 1543d956 every
 // such prompt was estimated as if each attachment sat on its text's line.
 test("a strip prompt is estimated as its attachment row over a bubble of its text", () => {

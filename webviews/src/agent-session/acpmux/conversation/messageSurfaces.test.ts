@@ -76,7 +76,13 @@ test("the user bubble's rim is off in Plain, Lens and Spectrum glass", () => {
     }
   }
   const bubble = rules(css).filter(({ selector }) => /(^|\s)\.cv-user__bubble$/.test(selector));
-  const selected = bubble.filter(({ selector }) => !selector.includes("data-message-surfaces"));
+  // A look's plain user messages (`data-transcript-user="plain"`, #46848) draw no bubble at all, so its
+  // rule clears the rim with the rest; the drawn bubble's own rules are the rest.
+  const plainLook = bubble.filter(({ selector }) => selector.includes('[data-transcript-user="plain"]'));
+  expect(plainLook.flatMap(({ body }) => declared(body, "--glass-rim"))).toEqual(["0"]);
+  const selected = bubble.filter(
+    ({ selector }) => !selector.includes("data-message-surfaces") && !selector.includes("data-transcript-user"),
+  );
   expect(selected.flatMap(({ body }) => declared(body, "--glass-rim"))).toEqual(["0"]);
   // Clear unless a look names a hairline (--cv-user-bubble-edge, style-tokens.json): the default
   // stays transparent, and a look's edge is the only rim the bubble can get.

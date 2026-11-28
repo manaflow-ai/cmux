@@ -111,6 +111,10 @@ test("Send and Stop draw in the secondary text color, the off Send's dim, or the
       for (const part of namesSend(selector)) {
         const at = part.trim();
         if (at === ".acpmux-send" && ink === "var(--agent-muted)") base = true;
+        // Resume draws as the mic does, its hover lighting the glyph as the quiet controls' does (Leo,
+        // 2026-11-22: "we should make it sure it matches the other icons here"; #51134,
+        // test/composer-resume-quiet.test.ts).
+        if (/\.acpmux-resume:not\(:disabled\):hover$/.test(at) && ink === "var(--agent-text)") continue;
         if (ink === "var(--agent-muted)" || ink === "var(--acpmux-send-off-fg)") {
           // Hover keeps the glyph's color: only the background changes.
           if (/:hover/.test(at)) inks.push(`${name}: ${at} { color: ${ink} }`);

@@ -37,6 +37,8 @@ const BARE_SPINNER_OK: Record<string, string> = {
   "summary/WorkflowSummary.tsx": "running work: a workflow",
   "toolCards/ToolCards.tsx": "running work: a tool card",
   "worktreeSetup.tsx": "running work: a setup step",
+  "MoveToAutoCloud.tsx": "running work: a chat being moved (cmux#54507)",
+  "composer/attachmentIntake.tsx": "running work: an original still uploading (cmux#51599)",
 };
 
 function* sources(dir: string): Generator<string> {

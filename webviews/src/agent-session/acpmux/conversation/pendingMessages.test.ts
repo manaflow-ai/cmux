@@ -300,10 +300,23 @@ test("turn shaping keeps all expanded waiting deliveries in the pending group", 
     incoming: { kind: "message", message: { name: "inbox", text, raw: `[inbox] ${text}` } },
   };
   const { turnViewFrom } = await import("./turns");
-  const view = turnViewFrom([wrapper], new Set());
-  expect(view.rows.filter((row) => row.kind !== "date")).toHaveLength(0);
-  expect(view.pending).toHaveLength(1);
-  expect(pendingMessagesRow(view.pending, [])?.pendingMessages?.displayRows).toHaveLength(13);
+  // The end group is the `group` arm of waiting-messages-order; the default `arrival` arm keeps an
+  // unread message where it came in (#56279; Leo, 2026-11-25: "we need to respect the ordering of
+  // things coming in when we render it.").
+  const saved = globalThis.cmuxExperiments;
+  globalThis.cmuxExperiments = { ...saved, "waiting-messages-order": "group" };
+  try {
+    const view = turnViewFrom([wrapper], new Set());
+    expect(view.rows.filter((row) => row.kind !== "date")).toHaveLength(0);
+    expect(view.pending).toHaveLength(1);
+    expect(pendingMessagesRow(view.pending, [])?.pendingMessages?.displayRows).toHaveLength(13);
+  } finally {
+    if (saved === undefined) delete (globalThis as { cmuxExperiments?: unknown }).cmuxExperiments;
+    else globalThis.cmuxExperiments = saved;
+  }
+  // Arrival order: the delivery stays in the turn, and nothing waits in the end group.
+  const arrival = turnViewFrom([wrapper], new Set());
+  expect(arrival.pending).toHaveLength(0);
 });
 
 test("turn shaping removes a read inbox summary when its direct delivery is present", async () => {

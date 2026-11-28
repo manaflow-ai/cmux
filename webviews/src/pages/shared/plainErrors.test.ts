@@ -127,6 +127,11 @@ const ALLOWED: readonly { file: string; line: string; why: string }[] = [
     line: "message: reply.error.message } };",
     why: "carries the host's refusal sentence into the answer the autocloud card shows as is (store.ts runAutocloud)",
   },
+  {
+    file: "settings/store.ts",
+    line: "reply.ok ? reply.value?.error : reply.error.message;",
+    why: "matches a code: runEnvironments compares it to the list-unavailable reason and returns only flags (#54956)",
+  },
 ];
 
 function* sources(dir: string): Generator<string> {

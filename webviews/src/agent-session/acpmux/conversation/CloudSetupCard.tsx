@@ -1,11 +1,11 @@
 import { useId } from "react";
 import { useT } from "../i18n";
-import { type CloudSetupAction, type CloudSetupNeed, cloudSetupAction, cloudSetupName } from "../cloudSetup";
+import { cloudSetupAction, cloudSetupName, type CloudSetupAction, type CloudSetupNeed } from "../cloudSetup";
 import type { ConnectProgress } from "../claudeConnect";
 import { ConnectCard, type ConnectCardLook } from "../ConnectCard";
 import { CloudSetupSteps } from "./CloudSetupSteps";
+import { WaitSpinner } from "./WaitSpinner";
 import type { CloudSetupStepsLook } from "./cloudSetupStep";
-import { Spinner } from "./icons";
 
 export function CloudSetupCard({
   need,
@@ -74,7 +74,7 @@ export function CloudSetupCard({
         />
       ) : pending ? (
         <output className="acpmux-cloud-start__status" aria-busy="true">
-          <Spinner size={14} loading />
+          <WaitSpinner size={14} />
           <span>{t("cloudSetup.waiting")}</span>
         </output>
       ) : null}

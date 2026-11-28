@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
 import { Select } from "../../../ui/Select";
@@ -11,17 +11,10 @@ import type {
   CloudEnvironmentVariable,
 } from "../ops";
 import { t } from "../strings";
+import { STATUS } from "./cloudEnvironmentStatus";
 import { editRun, variableValue, type EnvironmentDraft } from "./cloudEnvironmentRun";
 import { GroupHeader } from "./GroupHeader";
 import { SettingsErrorRow } from "./SettingsErrorRow";
-
-export const STATUS: Record<string, string> = {
-  unbuilt: "settingsPage.cloudEnvironments.status.unbuilt",
-  building: "settingsPage.cloudEnvironments.status.building",
-  ready: "settingsPage.cloudEnvironments.status.ready",
-  stale: "settingsPage.cloudEnvironments.status.stale",
-  failed: "settingsPage.cloudEnvironments.status.failed",
-};
 
 const FAILURE = {
   refresh: "settingsPage.cloudEnvironments.loadFailed",
