@@ -86,6 +86,14 @@ public final class ScreenPresentProbe: NSObject, RTCVideoRenderer, @unchecked Se
     private var hookDraws = 0
     private var hookDrawsAdvanced = 0
     private var hookDrawsEmptyBounds = 0
+    /// Why a simulator draw did not advance: no readable `lastFrameTimeNs`, no `videoFrame`, the
+    /// frame already drawn (the renderer's own skip), or a new frame the renderer did not draw.
+    private var hookDrawsNoStamp = 0
+    private var hookDrawsNoFrame = 0
+    private var hookDrawsSameFrame = 0
+    private var hookDrawsNewNotDrawn = 0
+    /// At the first new frame left undrawn: the frame's buffer class and the renderers the view had.
+    private var hookUndrawn: [String: Any]?
     /// Metal hooks `watch(_:)` installed (0 with no `hook_problem`: the view was already hooked).
     private var hooksInstalled = 0
     /// Every Metal hook installed (an `MTKView` holds its delegate weakly); dead views' are dropped.
@@ -122,6 +130,11 @@ public final class ScreenPresentProbe: NSObject, RTCVideoRenderer, @unchecked Se
                 clock["hook_draws"] = hookDraws
                 clock["hook_draws_advanced"] = hookDrawsAdvanced
                 clock["hook_draws_empty_bounds"] = hookDrawsEmptyBounds
+                clock["hook_draws_no_stamp"] = hookDrawsNoStamp
+                clock["hook_draws_no_frame"] = hookDrawsNoFrame
+                clock["hook_draws_same_frame"] = hookDrawsSameFrame
+                clock["hook_draws_new_not_drawn"] = hookDrawsNewNotDrawn
+                clock["hook_undrawn"] = hookUndrawn.map { $0 as Any } ?? NSNull()
                 clock["display_link_ticks"] = ticks
                 clock["tick_ms_min"] = tickInterval.map { $0.min * 1000 as Any } ?? NSNull()
                 clock["tick_ms_max"] = tickInterval.map { $0.max * 1000 as Any } ?? NSNull()
@@ -264,12 +277,27 @@ public final class ScreenPresentProbe: NSObject, RTCVideoRenderer, @unchecked Se
     }
 
     /// Metal in the simulator: the hook forwarded a draw; whether it moved `lastFrameTimeNs`.
-    fileprivate func hookDraw(advanced: Bool, emptyBounds: Bool) {
+    fileprivate func hookDraw(advanced: Bool, emptyBounds: Bool, miss: HookMiss?) {
         lock.withLock {
             hookDraws += 1
             if advanced { hookDrawsAdvanced += 1 }
             if emptyBounds { hookDrawsEmptyBounds += 1 }
+            switch miss {
+            case .noStamp: hookDrawsNoStamp += 1
+            case .noFrame: hookDrawsNoFrame += 1
+            case .sameFrame: hookDrawsSameFrame += 1
+            case let .newNotDrawn(detail):
+                hookDrawsNewNotDrawn += 1
+                if hookUndrawn == nil { hookUndrawn = detail }
+            case nil: break
+            }
         }
+    }
+
+    /// Why a simulator draw did not move `lastFrameTimeNs`.
+    fileprivate enum HookMiss {
+        case noStamp, noFrame, sameFrame
+        case newNotDrawn([String: Any])
     }
 
     fileprivate func hookFailed(_ problem: String) {
@@ -418,6 +446,25 @@ private final class PresentHook: NSObject {
         return frame.timeStampNs != lastDrawn()
     }
 
+    /// Why a draw that did not advance drew nothing; nil when it advanced.
+    func miss(before: Int64?, frame: RTCVideoFrame?, advanced: Bool) -> ScreenPresentProbe.HookMiss? {
+        if advanced { return nil }
+        guard before != nil else { return .noStamp }
+        guard let frame, frame.width > 0, frame.height > 0 else { return .noFrame }
+        if frame.timeStampNs == before { return .sameFrame }
+        var detail: [String: Any] = [
+            "buffer": String(describing: type(of: frame.buffer)),
+            "width": Int(frame.width), "height": Int(frame.height),
+        ]
+        // The renderer `RTCMTLVideoView` makes per buffer kind; nil means it could not set one up.
+        for name in ["rendererI420", "rendererNV12", "rendererRGB"] {
+            // crash-allow: value(forKey:) is read only after responds(to:) says the getter exists.
+            guard let video, video.responds(to: NSSelectorFromString(name)) else { detail[name] = "absent"; continue }
+            detail[name] = video.value(forKey: name) == nil ? "nil" : "set"
+        }
+        return .newNotDrawn(detail)
+    }
+
     func lastDrawn() -> Int64? {
         // crash-allow: init installs the hook only when the view answers lastFrameTimeNs.
         (video?.value(forKey: "lastFrameTimeNs") as? NSNumber)?.int64Value
@@ -449,10 +496,13 @@ extension PresentHook: @preconcurrency MTKViewDelegate {
         // 200 decoded samples behind the old guards (`drawsNewFrame`, `currentDrawable`), with
         // nothing saying which one stopped it; `presentClock` now counts each outcome.
         let before = lastDrawn()
+        // crash-allow: init installs the hook only when the view answers videoFrame.
+        let frame = video?.value(forKey: "videoFrame") as? RTCVideoFrame
         original?.draw(in: view)
         let after = lastDrawn()
         let advanced = after != nil && after != before
-        probe?.hookDraw(advanced: advanced, emptyBounds: view.bounds.isEmpty)
+        probe?.hookDraw(advanced: advanced, emptyBounds: view.bounds.isEmpty,
+                        miss: miss(before: before, frame: frame, advanced: advanced))
         if let probe, let after, advanced { probe.drew(timeStampNs: after, drawnAt: CACurrentMediaTime()) }
         #else
         guard let probe, drawsNewFrame(), !view.bounds.isEmpty, let drawable = view.currentDrawable else {
