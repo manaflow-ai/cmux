@@ -369,6 +369,119 @@ class ClippyChangedTests(unittest.TestCase):
         self.assertIn(f"last changed on the base by {self.base[:7]}", result.stdout)
         self.assertIn("likely a base red", result.stdout)
 
+    def record_verdict(self, red_file: str) -> Path:
+        """The seed's whole-workspace run at HEAD, red at RED_FILE (relative to cmux-tui): its recorded verdict."""
+        out = self.tmp / "verdict" / "verdict.json"
+        result = self.run_check("--base", "", fail="--workspace",
+                                env_extra={"FAIL_FILE": red_file, "CMUX_CLIPPY_VERDICT_OUT": str(out)})
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.log.unlink()
+        return out
+
+    def test_the_seed_records_which_members_its_commit_fails_to_compile(self) -> None:
+        out = self.record_verdict("crates/d/src/lib.rs")
+        doc = json.loads(out.read_text())
+        self.assertEqual((doc["version"], doc["sha"], doc["complete"]), (1, self.base, True))
+        self.assertEqual(sorted(doc["red"]), ["pkg-d"])
+        row = doc["red"]["pkg-d"]
+        self.assertEqual((row["files"], row["lib"]), (["cmux-tui/crates/d/src/lib.rs"], True))
+        # Its own directory, its path dependencies' (pkg-c, and pkg-a through pkg-c) and the workspace-wide inputs.
+        for path in ("cmux-tui/crates/d", "cmux-tui/crates/c", "cmux-tui/crates/a", "cmux-tui/Cargo.lock",
+                     "cmux-tui/Cargo.toml", "scripts/cmux-next/rust-panic-baseline.json"):
+            self.assertIn(path, row["inputs"])
+        self.assertNotIn("cmux-tui/crates/b", row["inputs"])
+        self.assertEqual(row["inputs"]["cmux-tui/crates/d"], self.git("rev-parse", "HEAD:cmux-tui/crates/d").strip())
+        self.assertIsNone(row["inputs"]["cmux-tui/clippy.toml"], "an input the commit lacks is recorded as absent")
+
+    def test_a_red_no_member_owns_is_no_verdict(self) -> None:
+        doc = json.loads(self.record_verdict("vendor/up/src/lib.rs").read_text())
+        self.assertEqual((doc["complete"], doc["red"]), (False, {}))
+
+    def test_a_member_red_on_the_base_that_the_change_does_not_touch_is_not_linted(self) -> None:
+        # 2026-11-27: 32% of failed clippy-changed steps ended in a base red after the whole ~12 min run.
+        verdict = self.record_verdict("crates/d/src/lib.rs")
+        self.change("cmux-tui/crates/a/src/lib.rs")
+        result = self.run_check("--base", self.base, env_extra={"CMUX_CLIPPY_BASE_VERDICT": str(verdict)})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.calls(), [["clippy", "--locked", "--keep-going", "-p", "pkg-a", "-p", "pkg-c", *LINT]])
+        self.assertIn("::warning title=cmux-tui clippy (base red)::cmux-tui/crates/d/src/lib.rs is red and this change "
+                      "does not touch it", result.stdout)
+        self.assertIn("verdict for the members this change reaches (pkg-a, pkg-c): pass; not linted (red on the base): "
+                      "pkg-d", result.stdout)
+
+    def test_a_base_red_in_test_code_leaves_its_users_linted(self) -> None:
+        verdict = self.record_verdict("crates/c/tests/it.rs")
+        self.change("cmux-tui/crates/a/src/lib.rs")
+        result = self.run_check("--base", self.base, env_extra={"CMUX_CLIPPY_BASE_VERDICT": str(verdict)})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.calls(), [["clippy", "--locked", "--keep-going", "-p", "pkg-a", "-p", "pkg-d", *LINT]])
+
+    def test_a_touched_member_red_on_the_base_is_still_linted_and_fails(self) -> None:
+        verdict = self.record_verdict("crates/d/src/lib.rs")
+        self.change("cmux-tui/crates/d/tests/it.rs", "#[test]\nfn t() {}\n")
+        result = self.run_check("--base", self.base, fail="pkg-d",
+                                env_extra={"FAIL_FILE": "crates/d/src/lib.rs", "CMUX_CLIPPY_BASE_VERDICT": str(verdict)})
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(self.calls(), [["clippy", "--locked", "--keep-going", "-p", "pkg-d", *LINT]])
+        self.assertIn("::error title=cmux-tui clippy (base red)::cmux-tui/crates/d/src/lib.rs", result.stdout)
+
+    def test_a_real_error_in_a_linted_member_still_fails_beside_a_base_red(self) -> None:
+        verdict = self.record_verdict("crates/d/src/lib.rs")
+        self.change("cmux-tui/crates/a/src/lib.rs")
+        result = self.run_check("--base", self.base, fail="pkg-a",
+                                env_extra={"FAIL_FILE": "crates/a/src/lib.rs", "CMUX_CLIPPY_BASE_VERDICT": str(verdict)})
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("::error title=cmux-tui clippy::clippy found compile errors in pkg-a, pkg-c", result.stdout)
+        self.assertIn("(pkg-a, pkg-c): FAIL; not linted (red on the base): pkg-d", result.stdout)
+
+    def test_an_older_verdict_whose_inputs_changed_since_is_not_trusted(self) -> None:
+        verdict = self.record_verdict("crates/d/src/lib.rs")
+        self.change("cmux-tui/crates/c/src/lib.rs")  # pkg-d's path dependency moves on the base
+        base = self.head()
+        self.change("cmux-tui/crates/a/tests/journey.rs", "#[test]\nfn t3() {}\n")
+        result = self.run_check("--base", base, env_extra={"CMUX_CLIPPY_BASE_VERDICT": str(verdict)})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.calls(), [["clippy", "--locked", "--keep-going", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d",
+                                         *LINT]])
+        self.assertIn("inputs changed before the base", result.stdout)
+
+    def test_an_older_verdict_holds_where_nothing_it_rests_on_changed(self) -> None:
+        verdict = self.record_verdict("crates/d/src/lib.rs")
+        self.change("cmux-tui/crates/b/src/lib.rs")  # the base moves elsewhere
+        base = self.head()
+        self.change("cmux-tui/crates/a/src/lib.rs", "pub fn again() {}\n")
+        result = self.run_check("--base", base, env_extra={"CMUX_CLIPPY_BASE_VERDICT": str(verdict)})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.calls(), [["clippy", "--locked", "--keep-going", "-p", "pkg-a", "-p", "pkg-c", *LINT]])
+
+    def test_the_panic_ratchet_leaves_out_the_members_red_on_the_base(self) -> None:
+        verdict = self.record_verdict("crates/d/src/lib.rs")
+        self.change("cmux-tui/crates/a/src/lib.rs")
+        out = self.tmp / "out" / "panic-clippy.jsonl"
+        result = self.run_check("--base", self.base, "--panic-ratchet", str(out),
+                                env_extra={"CMUX_CLIPPY_BASE_VERDICT": str(verdict)})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.calls(), [["clippy", "--locked", "-p", "pkg-a", "-p", "pkg-c", "--lib", "--bins",
+                                         "--examples", *PANIC]])
+
+    def test_only_base_red_members_left_passes_without_a_lint(self) -> None:
+        verdict = self.record_verdict("crates/c/src/lib.rs")
+        # pkg-c's only change is a sibling crate's path it reaches through: pkg-c and pkg-d are users of pkg-a.
+        self.uses["pkg-c"] = [("crates/a", None)]
+        self.change("cmux-tui/crates/a/tests/journey.rs", "#[test]\nfn t4() {}\n")
+        result = self.run_check("--base", self.base, env_extra={"CMUX_CLIPPY_BASE_VERDICT": str(verdict)})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.calls(), [["clippy", "--locked", "--keep-going", "-p", "pkg-a", *LINT]])
+
+    def test_an_unreadable_verdict_skips_nothing(self) -> None:
+        bad = self.tmp / "bad.json"
+        bad.write_text("{not json")
+        self.change("cmux-tui/crates/a/src/lib.rs")
+        result = self.run_check("--base", self.base, env_extra={"CMUX_CLIPPY_BASE_VERDICT": str(bad)})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.calls(), [["clippy", "--locked", "--keep-going", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d",
+                                         *LINT]])
+
     def test_base_compile_red_allows_an_independent_panic_verdict(self) -> None:
         # An unchanged test can fail compilation while changed production code introduces a panic.
         self.change("cmux-tui/crates/a/src/lib.rs")
