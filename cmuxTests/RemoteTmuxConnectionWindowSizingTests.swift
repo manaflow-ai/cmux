@@ -383,6 +383,10 @@ import Testing
         ["list-windows", "-t", "sizing", "-F", "#{window_id} #{window_name}"],
         ["display-message", "-p", "-t", "sizing:@0", "#{window_width}x#{window_height}"],
         ["start-ruler", "-t", "%1"],
+        ["set-history-limit", "40000"],
+        ["print-history", "-t", "%1", "30000", "plain"],
+        ["print-history", "-t", "%1", "40000", "dense"],
+        ["display-message", "-p", "-t", "%1", "#{history_size}"],
     ])
     func uiTestTmuxPolicyAllowsOnlyHarnessCommands(_ arguments: [String]) {
         #expect(TerminalController.isAllowedRemoteTmuxTestCommand(arguments))
@@ -393,6 +397,10 @@ import Testing
         ["new-session", "-d", "-s", "sizing", "-x", "180", "-y", "45", "sh -c id"],
         ["list-panes", "-t", "sizing", "-F", "#(id)"],
         ["split-window", "-h", "-t", "sizing", "sh -c id"],
+        ["set-history-limit", "40000; id"],
+        ["print-history", "-t", "%1", "30000; id", "plain"],
+        ["print-history", "-t", "%1", "30000", "sh -c id"],
+        ["display-message", "-p", "-t", "%1", "#(id)"],
     ])
     func uiTestTmuxPolicyRejectsExecutableArguments(_ arguments: [String]) {
         #expect(!TerminalController.isAllowedRemoteTmuxTestCommand(arguments))

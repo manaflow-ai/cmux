@@ -2677,7 +2677,7 @@ private final class FuzzPeer {
         case let .paneAltScreen(pane):
             feed(block(["0"]))
             return "alt-screen(%\(pane))"
-        case let .capturePane(pane):
+        case let .capturePane(pane), let .capturePaneHistory(pane):
             feed(block(["cmux-fuzz screen for %\(pane)"]))
             return "capture-pane(%\(pane))"
         case let .paneState(pane):

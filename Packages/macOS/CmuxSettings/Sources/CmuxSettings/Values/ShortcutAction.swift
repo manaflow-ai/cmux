@@ -35,6 +35,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case goToWorkspace
     case commandPalette
     case agentInbox
+    case findTmuxWindow
     case openChief
     case commandPaletteNext
     case commandPalettePrevious

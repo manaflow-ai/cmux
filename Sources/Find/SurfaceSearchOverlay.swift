@@ -31,6 +31,8 @@ struct SurfaceSearchOverlay: View {
     let onSearchTextChanged: () -> Void
     let onFieldDidFocus: () -> Void
     let onClose: () -> Void
+    /// Present only on a mirrored tmux pane: loads the pane's whole tmux history.
+    var fullHistorySearch: RemoteTmuxFullHistorySearch? = nil
     @State private var corner: Corner = .topRight
     @State private var dragOffset: CGSize = .zero
     @State private var barSize: CGSize = .zero
@@ -59,6 +61,9 @@ struct SurfaceSearchOverlay: View {
                     },
                     onReturn: { isShift in
                         onNavigateSearch(isShift ? .previous : .next)
+                    },
+                    onAlternateReturn: fullHistorySearch.map { search in
+                        { Task { @MainActor in await search.load() } }
                     }
                 )
                 .accessibilityIdentifier("TerminalFindSearchTextField")
@@ -87,6 +92,10 @@ struct SurfaceSearchOverlay: View {
                             .monospacedDigit()
                             .padding(.trailing, 8)
                     }
+                }
+
+                if let fullHistorySearch {
+                    SurfaceSearchFullHistoryButton(search: fullHistorySearch)
                 }
 
                 Button(action: {
@@ -247,6 +256,8 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
     let onEditingChanged: (Bool) -> Void
     let onEscape: () -> Void
     let onReturn: (_ isShift: Bool) -> Void
+    /// Option-Return (`insertNewlineIgnoringFieldEditor:`), when the field offers it.
+    var onAlternateReturn: (() -> Void)? = nil
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
@@ -322,6 +333,11 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
                 rememberSelection(from: textView)
                 let isShift = NSApp.currentEvent?.modifierFlags.contains(.shift) ?? false
                 parent.onReturn(isShift)
+                return true
+            case #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)):
+                guard let onAlternateReturn = parent.onAlternateReturn,
+                      !textView.hasMarkedText() else { return false }
+                onAlternateReturn()
                 return true
             default:
                 if cmuxFindCommandMayChangeSelection(commandSelector) {
@@ -475,34 +491,5 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
         nsView.cmuxSelectionOwner = nil
         nsView.cmuxOnEscape = nil
         coordinator.parentField = nil
-    }
-}
-
-struct SearchButtonStyle: ButtonStyle {
-    @State private var isHovered = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .foregroundStyle(isHovered || configuration.isPressed ? .primary : .secondary)
-            .padding(.horizontal, 2)
-            .frame(height: 26)
-            .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(backgroundColor(isPressed: configuration.isPressed))
-            )
-            .onHover { hovering in
-                isHovered = hovering
-            }
-            .backport.pointerStyle(.link)
-    }
-
-    private func backgroundColor(isPressed: Bool) -> Color {
-        if isPressed {
-            return Color.primary.opacity(0.2)
-        }
-        if isHovered {
-            return Color.primary.opacity(0.1)
-        }
-        return Color.clear
     }
 }
