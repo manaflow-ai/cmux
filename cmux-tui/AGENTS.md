@@ -17,6 +17,18 @@ The script rejects dirty or unpushed work, verifies the exact commit in every ho
 
 A fix under cmux-tui/ that lands on main or on feat-cmux-next names, in its PR body, the PR that ports it to the other branch, or says 'No port: <why>'; the review subagent refuses a daemon fix without that line.
 
+## Before the first push: the panic ratchet
+
+The pre-push gate does not run clippy, so a slice index, `unwrap` or similar new hit first shows up as a red CI check, and fixing it adds a late commit. That late commit is the most common reason a cmux-tui PR is not ready within an hour of its first commit. Commit your change, then run what CI runs from the repository root before the first push:
+
+```bash
+python3 .github/scripts/cmux-tui-clippy-changed.py \
+  --base "$(git merge-base HEAD origin/feat-cmux-next)" \
+  --panic-ratchet "$(mktemp)"
+```
+
+The command checks only committed changes (base..HEAD). It runs the panic ratchet (`scripts/cmux-next/rust_panic_ratchet.py`) on each changed crate and then clippy on those crates and their dependents. A ratchet hit (exit 1, `rust-panic-ratchet: RED`) fails CI: fix it with a typed error, or put a reviewed `#[allow(clippy::<lint>, reason = "...")]` on the smallest item that needs it, and never raise the baseline. Other clippy lints show up as warnings and never fail CI. Fix the ones in your diff now anyway, because the PR autofix job would otherwise push a commit later. For one crate, a cold run takes about 2 to 3 minutes (139 s for the ratchet and 63 s for clippy on a 16-core Linux lane, measured on cmux-braid-carrier).
+
 ## Daemon edits: swap the running daemon
 
 To try a daemon edit (`crates/cmux-tui-core`, `crates/cmux-tui`, `crates/acpmux`) on a running session,
