@@ -59,10 +59,13 @@ def main() -> int:
     step = lint_step(text)
     check(bool(step), "ci-guards.yml has a `Lint every workflow` step")
 
+    # Lines that run the linter itself. A line that only hands the binary to another program
+    # (ACTIONLINT="$RUNNER_TEMP/actionlint" python3 tests/test_ci_workflow_start_lint.py, #60110)
+    # is not this invocation; the bare run below must still take no file arguments.
     invocation = [
         line.strip()
         for line in step.splitlines()
-        if '"$RUNNER_TEMP/actionlint"' in line
+        if line.strip().startswith('"$RUNNER_TEMP/actionlint"')
     ]
     check(
         invocation == ['"$RUNNER_TEMP/actionlint"'],
