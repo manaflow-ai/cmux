@@ -96,19 +96,18 @@ export function TripwireStatus({ items, compact = true, look = "dots", onShowCal
   const unresolved = items.filter((item) => item.verdict !== "backed").length;
   const label = t("tripwire.summary", { count: items.length, unresolved });
   return (
-    <div
+    <output
       className={`acpmux-tripwire-status${compact ? " acpmux-tripwire-status--compact" : ""}`}
       data-tripwire-count={shown.length}
       data-tripwire-total={items.length}
       data-tripwire-unresolved={unresolved}
       data-tripwire-complete={unresolved === 0 ? "true" : "false"}
       aria-label={label}
-      role="status"
     >
       {shown.map((item) => (
         <TripwireItem key={`${item.path}:${item.name}`} item={item} t={t} look={look} showCall={navigateToCall} />
       ))}
-    </div>
+    </output>
   );
 }
 
