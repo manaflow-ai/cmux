@@ -19,7 +19,8 @@ use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::{self, handshake::client::Request};
 
 /// The address that last connected per `(host, port)`, for the whole process.
-static LAST_GOOD: LazyLock<LastGood<(String, u16), SocketAddr>> = LazyLock::new(LastGood::from_env);
+static LAST_GOOD: LazyLock<LastGood<(String, u16), SocketAddr>> =
+    LazyLock::new(|| LastGood::from_env().named("mobile.signal"));
 
 /// How the addresses race: a second attempt after 400 ms (or 1.5 times the remembered connect
 /// time, at least 100 ms), three at a time, each but the last given 3 s.
