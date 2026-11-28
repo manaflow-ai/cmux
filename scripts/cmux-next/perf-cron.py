@@ -1613,6 +1613,78 @@ def build_never_ran(cur):
         build.get("infra_retried") or BUILD_NEVER_RAN_RE.search(str(build.get("why") or "")))
 
 
+# A budgets part whose app never came up: it measured no row and each of its benches exited nonzero within this many
+# seconds (a launch alone takes about 7 s), or logged split-spring's BENCH-LAUNCH line with reason "crashed". Every
+# other Mac part of the same build launches the same app, so a newer tip is as good a retry as for a failed build
+# (build_failed_tip). Tip cdf458ee (2026-11-28): cmux#59517 made debug builds trap at launch (`home rules op
+# chiefs_tab: unknownOp`, fixed by cmux#64336), switch's tab_switch and palette exited 1 in 6.4 s and 7.4 s, and its 19
+# Mac parts left (tabs, which NOW's tabs-keep-speed reads, among them) yielded to a busy host toward ABANDON_WALL_HOURS.
+LAUNCH_DEAD_SECONDS = 15.0
+LAUNCH_DEAD_MARK = "its app crashed at launch"
+BENCH_LAUNCH_CRASHED_RE = re.compile(r'BENCH-LAUNCH .*"reason":\s*"crashed"')
+
+
+def launch_dead_report(report):
+    """Why a part's report says its app never launched (LAUNCH_DEAD_SECONDS), or '' (pure)."""
+    if not isinstance(report, dict):
+        return ""
+    runs, counts = report.get("runs"), report.get("counts")
+    if not (isinstance(runs, dict) and runs and isinstance(counts, dict) and counts.get("measured") == 0):
+        return ""
+    for run in runs.values():
+        if not isinstance(run, dict):
+            return ""
+        crashed = any(BENCH_LAUNCH_CRASHED_RE.search(str(line)) for line in run.get("tail") or [])
+        code, seconds = run.get("exit"), run.get("seconds")
+        quick = (isinstance(code, int) and not isinstance(code, bool) and code != 0
+                 and isinstance(seconds, (int, float)) and seconds <= LAUNCH_DEAD_SECONDS)
+        if not (crashed or quick):
+            return ""
+    return ", ".join(f"{name}: exit {run.get('exit')} in {run.get('seconds')} s" for name, run in runs.items())[:200]
+
+
+def mark_launch_dead(cur, state_dir):
+    """Mark each done Mac part of the measurement whose stored report (parts/NAME.json) is launch-dead
+    (launch_dead_report) with entry['launch_dead']. Returns whether it marked one. Reads the stored reports, so a
+    measurement in flight from before this mark gets it at the next report."""
+    if not (isinstance(cur, dict) and cur.get("kind") == "tip"):
+        return False
+    marked = False
+    for name, entry in (cur.get("parts") or {}).items():
+        if (not isinstance(entry, dict) or entry.get("state") != "done" or is_linux_part(name) or name == "build"
+                or "launch_dead" in entry):
+            continue
+        try:
+            with open(os.path.join(state_dir, "parts", f"{name}.json")) as f:
+                stored = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if not isinstance(stored, dict) or stored.get("measurement") != measurement_id(cur):
+            continue
+        why = launch_dead_report(stored.get("report"))
+        if why:
+            entry["launch_dead"] = why
+            marked = True
+    return marked
+
+
+def launch_dead_tip(cur):
+    """The Mac parts of the tip measurement in flight whose app never launched (mark_launch_dead) (pure)."""
+    if not (isinstance(cur, dict) and cur.get("kind") == "tip" and not cur.get("superseded")):
+        return []
+    return sorted(n for n, p in (cur.get("parts") or {}).items() if isinstance(p, dict) and p.get("launch_dead"))
+
+
+def last_tip_launch_dead(state):
+    """The newest finished tip measurement's app never launched too (finish_measurement's launch_dead, or parts
+    superseded for it) (pure): the base is likely broken, so the tip in flight keeps its parts."""
+    entry = next((e for e in reversed(state.get("history") or []) if isinstance(e, dict) and e.get("kind") == "tip"), None)
+    if not entry:
+        return False
+    why = entry.get("failed_why") if isinstance(entry.get("failed_why"), dict) else {}
+    return bool(entry.get("launch_dead")) or any(str(w).startswith(LAUNCH_DEAD_MARK) for w in why.values())
+
+
 def unread_missing(state, cur):
     """The unread parts (unread_parts) the tip measurement in flight cannot run: its commit predates them (pure).
     Empty unless it still has a Mac part to do."""
@@ -1652,6 +1724,24 @@ def goal_harness_fixed(state, cur, newest, changed=None):
         if (changed or harness_changed)(cur["sha"], newest, part["harness"]):
             out.append(name)
     return out
+
+
+def wants_newest(state, cur, tip, tree_ready=lambda sha: True):
+    """Whether the tick looks up newest, the newer measurable tip supersede_for_unread hands the Mac to (pure but for
+    goal_harness_fixed's git diff). One predicate per supersede_for_unread branch that needs a newer tip: a part
+    that never produced a reading and that the tip in flight predates (unread_missing), a tip whose app build failed
+    (build_failed_tip), whose app crashed at launch (launch_dead_tip), whose Mac parts wait for a tree still
+    unpublished (tree_waiting), or a goal part that stored no goal row with a harness the tip fixes
+    (goal_harness_fixed). A branch missing here never fires: newest stays None.
+
+    2026-11-28: cmux#65310 added the launch-dead branch to supersede_for_unread but not to this gate; it fired on tip
+    cdf458ee only because unread_missing (infinite-tabs) also held there, and a launch-dead tip with every part read
+    would have kept its Mac parts to ABANDON_WALL_HOURS with newest None."""
+    if not cur:
+        return False
+    return bool(unread_missing(state, cur) or build_failed_tip(cur) or launch_dead_tip(cur)
+                or (tree_waiting(cur) and not tree_ready(cur["sha"]))
+                or goal_harness_fixed(state, cur, tip))
 
 
 def supersede_for_unread(state, t, newest, supported_parts, changed=None):
@@ -1705,6 +1795,19 @@ def supersede_for_unread(state, t, newest, supported_parts, changed=None):
             cur["parts_todo"] = []
             cur.pop("host_asked_since", None)
             end_yield(cur, t)
+        return why
+    dead = launch_dead_tip(cur)
+    if dead and newest and newest != cur["sha"] and not last_tip_launch_dead(state):
+        # Its app crashed at launch (LAUNCH_DEAD_SECONDS), so every Mac part left would fail the same way: the newer
+        # tip takes the Mac now, as for a failed build. When the tip before it never launched either, the base is
+        # likely broken and it keeps its parts.
+        why = f"{LAUNCH_DEAD_MARK} ({', '.join(dead)}); {newest[:12]} is newer"
+        cur["superseded"] = {"by": newest, "why": why, "at": iso(t)}
+        for name in list(cur["parts_todo"]):
+            cur["parts"][name] = {"state": "superseded", "reason": why}
+        cur["parts_todo"] = []
+        cur.pop("host_asked_since", None)
+        end_yield(cur, t)
         return why
     if tree_waiting(cur) and newest and newest != cur["sha"]:
         # Its tree may never be published: the tree publisher coalesces a window of pushes into one build of the
@@ -3904,6 +4007,9 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
     entry["ran_failed"] = [n for n in failed if cur["parts"][n].get("state") == "failed"]
     if any(cur["parts"][n].get("state") == "build_failed" for n in failed):
         entry["build_failed"] = True  # its app did not build (last_tip_build_failed)
+    dead = sorted(n for n, p in cur["parts"].items() if isinstance(p, dict) and p.get("launch_dead"))
+    if dead:
+        entry["launch_dead"] = dead  # its app never launched (last_tip_launch_dead)
     state.setdefault("history", []).append(entry)
     state["history"] = state["history"][-60:]
     base_rows = judging_rows(state, t)
@@ -4371,13 +4477,8 @@ def plan(o):
                 break
     newest = None
     gone_by = state.get("current") or {}
-    if not no_mac and (unread_missing(state, gone_by) or build_failed_tip(gone_by)
-                       or (tree_waiting(gone_by) and not tree_ready(gone_by["sha"]))
-                       or goal_harness_fixed(state, gone_by, tip)):
-        # A part that never produced a reading (unread_parts) and that the tip in flight predates, a tip whose app
-        # build failed (build_failed_tip), one whose Mac parts wait for a tree still unpublished (tree_waiting), or a
-        # goal part that stored no goal row with a harness the tip fixes (goal_harness_fixed):
-        # the newest commit that can run it on the fleet (supersede_for_unread).
+    if not no_mac and wants_newest(state, gone_by, tip, tree_ready):
+        # The newest commit that can run on the fleet, for supersede_for_unread.
         later, _ = first_parent_since(tip, gone_by["sha"], CANDIDATE_DEPTH)
         for i, sha in enumerate(later):
             if sha == gone_by["sha"] or not fleet_runs(sha, tip_version):
@@ -5326,6 +5427,8 @@ def report(o, t=None):
                     store_part_rows(state, cur, part, entry, report_value, stored_mod, stored_budgets, o.run_url, t)
                 except Exception as error:  # a row that does not parse is the finish's to report; never fail the tick
                     print(f"perf-cron report: part {part}: rows not stored now ({error!r})", file=sys.stderr)
+    if cur and mark_launch_dead(cur, o.dir):
+        changed = True
     if cur and not cur["parts_todo"] and (changed or o.finish):
         changed = True
         mod, budgets = load_budgets()
