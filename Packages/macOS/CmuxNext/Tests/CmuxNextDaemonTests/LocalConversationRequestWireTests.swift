@@ -3,7 +3,7 @@ import Testing
 @testable import CmuxNextDaemon
 
 struct LocalConversationRequestWireTests {
-    private func check<R: DaemonRequest>(_ request: R, capability: String, line: String) throws {
+    private func check<R: DaemonRequest>(_ request: R, capability: String?, line: String) throws {
         #expect(R.requiredCapability == capability)
         #expect(try WireCoding.encodeRequest(request, id: 1) == Data(line.utf8))
     }
@@ -35,5 +35,32 @@ struct LocalConversationRequestWireTests {
                   line: #"{"cmd":"conversation-agent-token","id":1,"participant":"a"}"#)
         try check(ConversationBindRequest(participant: "a", token: "fixture"), capability: gate,
                   line: #"{"cmd":"conversation-bind","id":1,"participant":"a","token":"fixture"}"#)
+    }
+
+    @Test func attachmentReadsAndImportsKeepTheirOptionalCapability() throws {
+        let read = ConversationAttachmentReadRequest(conversation: "c", hash: "h", variant: .preview, offset: 2, length: 3)
+        try check(read, capability: nil,
+                  line: #"{"cmd":"conversation-attachment-read","conversation":"c","hash":"h","id":1,"length":3,"offset":2,"variant":"preview"}"#)
+        try check(ConversationImportRequest(conversation: "c", messages: []), capability: nil,
+                  line: #"{"cmd":"conversation-import","conversation":"c","id":1,"messages":[]}"#)
+    }
+
+    @Test func inboxRequestsSendOnlyTheirExposedFields() throws {
+        try check(HomeInboxRequest(), capability: "home-inbox-v1", line: #"{"cmd":"home-inbox","id":1}"#)
+        try check(HomeInboxRequest(owners: ["local"]), capability: "home-inbox-v1",
+                  line: #"{"cmd":"home-inbox","id":1,"owners":["local"]}"#)
+        try check(ConversationInboxOpRequest(conversation: "c", op: .markUnread(false)),
+                  capability: "conversation-inbox-state-v1",
+                  line: #"{"cmd":"conversation-inbox-op","conversation":"c","id":1,"op":{"kind":"inbox.mark_unread","unread":false}}"#)
+    }
+
+    @Test func conversationOperationsCanOmitOrSupplyTheTransaction() throws {
+        var request = ConversationOpRequest(conversation: "c", idempotencyKey: "k", transaction: nil, op: .setTitle("t"))
+        try check(request, capability: "local-conversations-v1",
+                  line: #"{"cmd":"conversation-op","conversation":"c","id":1,"idempotency_key":"k","op":{"kind":"title.set","title":"t"}}"#)
+        request.actor = "a"
+        request.transaction = ClientTransactionID(rawValue: "tx")
+        try check(request, capability: "local-conversations-v1",
+                  line: #"{"actor":"a","cmd":"conversation-op","conversation":"c","id":1,"idempotency_key":"k","op":{"kind":"title.set","title":"t"},"transaction":"tx"}"#)
     }
 }

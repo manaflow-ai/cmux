@@ -2847,6 +2847,39 @@
           ],
           "response": "ConversationAgentToken"
         },
+        "conversation-attachment-read": {
+          "name": "ConversationAttachmentReadRequest",
+          "doc": [
+            "`conversation-attachment-read` (`local-attachments-v1`): up to `length`",
+            "bytes of one variant of a part's hash from `offset`."
+          ],
+          "allow_unadvertised_capability": "local-attachments-v1",
+          "order": [
+            "conversation",
+            "hash",
+            "variant",
+            "offset",
+            "length"
+          ],
+          "fields": {
+            "variant": {
+              "type": "ConversationAttachmentVariant",
+              "optional": false,
+              "encode": "always"
+            },
+            "offset": {
+              "type": "Int",
+              "optional": false,
+              "encode": "always"
+            },
+            "length": {
+              "type": "Int",
+              "optional": false,
+              "encode": "always"
+            }
+          },
+          "response": "hand-written"
+        },
         "conversation-bind": {
           "name": "ConversationBindRequest",
           "doc": [
@@ -2882,6 +2915,46 @@
           },
           "response": "ConversationCreated"
         },
+        "conversation-import": {
+          "name": "ConversationImportRequest",
+          "doc": [
+            "`conversation-import` (cmux-tui conversation_import.rs): appends history",
+            "from another store once, keeping authors and times; the owner assigns",
+            "seqs and skips what it already holds. Local user connections only."
+          ],
+          "allow_unadvertised_capability": "local-conversations-v1",
+          "order": [
+            "conversation",
+            "messages"
+          ],
+          "fields": {
+            "messages": {
+              "type": "[ConversationImportedMessage]"
+            }
+          },
+          "response": "ConversationImportResult"
+        },
+        "conversation-inbox-op": {
+          "name": "ConversationInboxOpRequest",
+          "doc": [
+            "`conversation-inbox-op` (`conversation-inbox-state-v1`): sets the caller's own pin (with its position)",
+            "or \"marked unread\" flag of one conversation. Values are absolute, so a retry writes the same state."
+          ],
+          "omit": [
+            "op_id"
+          ],
+          "order": [
+            "conversation",
+            "op"
+          ],
+          "fields": {
+            "op": {
+              "type": "Op",
+              "optional": false
+            }
+          },
+          "response": "hand-written"
+        },
         "conversation-link-resolve": {
           "name": "ConversationLinkResolveRequest",
           "doc": [
@@ -2905,6 +2978,39 @@
             "every running run. Home asks when it opens a conversation and after a gap."
           ],
           "response": "ChiefLiveFrame"
+        },
+        "conversation-op": {
+          "name": "ConversationOpRequest",
+          "doc": [
+            "`conversation-op`: one typed op; the reply and the event carry `transaction`."
+          ],
+          "order": [
+            "conversation",
+            "idempotency_key",
+            "actor",
+            "transaction",
+            "op"
+          ],
+          "initializer": {
+            "explicit": [
+              "transaction"
+            ]
+          },
+          "fields": {
+            "actor": {
+              "doc": [
+                "Omitted: the owner stamps the connection's principal."
+              ]
+            },
+            "transaction": {
+              "type": "ClientTransactionID"
+            },
+            "op": {
+              "type": "ConversationOp",
+              "optional": false
+            }
+          },
+          "response": "ConversationOpResult"
         },
         "conversation-search": {
           "name": "ConversationSearchRequest",
@@ -2934,6 +3040,29 @@
             "on"
           ],
           "response": "EmptyResponse"
+        },
+        "home-inbox": {
+          "name": "HomeInboxRequest",
+          "doc": [
+            "`home-inbox` (`home-inbox-v1`): the Home list as the caller sees it, derived once by the owner",
+            "(cmux-tui/spec/commands.md `home-inbox`), so the Messages view and the Channels page show one list."
+          ],
+          "omit": [
+            "since",
+            "offset",
+            "limit",
+            "ids",
+            "scope"
+          ],
+          "fields": {
+            "owners": {
+              "doc": [
+                "Which owners' rows (`local`, `cloud`); nil is both. In the app the Chief home's daemon owns the",
+                "local conversations and the build's daemon holds the Cloud lease, so each is asked for its own."
+              ]
+            }
+          },
+          "response": "hand-written"
         }
       },
       "objects": {

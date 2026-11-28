@@ -100,9 +100,7 @@ public struct ConversationAttachmentUploadRequest: DaemonRequest {
     }
 }
 
-/// `conversation-attachment-read` (`local-attachments-v1`): up to `length`
-/// bytes of one variant of a part's hash from `offset`.
-public struct ConversationAttachmentReadRequest: DaemonRequest {
+extension ConversationAttachmentReadRequest {
     public struct Response: Decodable, Sendable, Equatable {
         /// The hash of the variant read (a preview's own hash).
         public var hash: String
@@ -118,20 +116,5 @@ public struct ConversationAttachmentReadRequest: DaemonRequest {
             case mimeType = "mime_type"
             case byteCount = "byte_count"
         }
-    }
-
-    public static let command = "conversation-attachment-read"
-    public var conversation: String
-    public var hash: String
-    public var variant: ConversationAttachmentVariant
-    public var offset: Int
-    public var length: Int
-
-    public init(conversation: String, hash: String, variant: ConversationAttachmentVariant, offset: Int, length: Int) {
-        self.conversation = conversation
-        self.hash = hash
-        self.variant = variant
-        self.offset = offset
-        self.length = length
     }
 }

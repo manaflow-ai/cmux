@@ -1,8 +1,6 @@
 import Foundation
 
-/// `home-inbox` (`home-inbox-v1`): the Home list as the caller sees it, derived once by the owner
-/// (cmux-tui/spec/commands.md `home-inbox`), so the Messages view and the Channels page show one list.
-public struct HomeInboxRequest: DaemonRequest {
+extension HomeInboxRequest {
     /// One row, already in list order (pinned rows by position, then newest activity first).
     public struct Row: Codable, Sendable, Equatable {
         public var id: String
@@ -39,12 +37,6 @@ public struct HomeInboxRequest: DaemonRequest {
         /// The Cloud rows: `included`, `signed_out`, `unavailable` or `not_asked`.
         public var cloud: String?
     }
-    public static let command = "home-inbox"
-    public static let requiredCapability: String? = DaemonCapability.homeInbox.rawValue
-    /// Which owners' rows (`local`, `cloud`); nil is both. In the app the Chief home's daemon owns the
-    /// local conversations and the build's daemon holds the Cloud lease, so each is asked for its own.
-    public var owners: [String]?
-    public init(owners: [String]? = nil) { self.owners = owners }
 }
 
 /// `cloud-inbox-op`: `conversation-inbox-op`'s pin and mark for a Cloud conversation, forwarded to the
@@ -68,9 +60,7 @@ public struct CloudInboxOpRequest: DaemonRequest {
     }
 }
 
-/// `conversation-inbox-op` (`conversation-inbox-state-v1`): sets the caller's own pin (with its position)
-/// or "marked unread" flag of one conversation. Values are absolute, so a retry writes the same state.
-public struct ConversationInboxOpRequest: DaemonRequest {
+extension ConversationInboxOpRequest {
     public struct Op: Encodable, Sendable, Equatable {
         public var kind: String
         public var pinned: Bool?
@@ -101,13 +91,5 @@ public struct ConversationInboxOpRequest: DaemonRequest {
             case conversation, pinned
             case markedUnread = "marked_unread"
         }
-    }
-    public static let command = "conversation-inbox-op"
-    public static let requiredCapability: String? = DaemonCapability.conversationInboxState.rawValue
-    public var conversation: String
-    public var op: Op
-    public init(conversation: String, op: Op) {
-        self.conversation = conversation
-        self.op = op
     }
 }
