@@ -270,38 +270,6 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
     });
     vite = await createServer({
       configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-      plugins: process.env.CMUX_OVERLAP_TRACE === "1" ? [{
-        name: "test-tail-glide-trace",
-        enforce: "pre",
-        transform(source, id) {
-          if (!id.endsWith("/conversation/tailGlide.ts")) return;
-          return source
-            .replace("export function createTailGlide(): TailGlide {", `export function createTailGlide(): TailGlide {
-              let debugPass = 0;
-              let debugNext = 0;
-              const debugIds = new WeakMap();
-              const debug = (event, data) => {
-                const records = globalThis.__tailGlideTrace ??= [];
-                records.push({ t: performance.now(), pass: debugPass, event, ...data });
-                if (records.length > 6000) records.splice(0, records.length - 6000);
-              };`)
-            .replace("playing.add(animation);", `debugIds.set(animation, ++debugNext);
-              debug("keep", { id: row.dataset.rowId, animation: debugNext });
-              animation.addEventListener("cancel", () => debug("cancel-event", { animation: debugIds.get(animation) }), { once: true });
-              playing.add(animation);`)
-            .replace("const cancelOn = (row: HTMLElement) => {", `const cancelOn = (row: HTMLElement) => {
-              debug("cancel-row", { id: row.dataset.rowId, animations: (onRow.get(row) ?? []).map(a => debugIds.get(a)) });`)
-            .replace("const by = Math.ceil(Math.max(...over.map((each) => each.by)));", `const by = Math.ceil(Math.max(...over.map((each) => each.by)));
-              debug("clip", { id: row.dataset.rowId, by, over: over.map(each => ({ by: each.by, glide: debugIds.get(each.glide) })) });`)
-            .replace("place(thread, glide, anchor, track = true, pinned, carry, placed, readView) {", `place(thread, glide, anchor, track = true, pinned, carry, placed, readView) {
-              debugPass++;
-              debug("place", { anchor, track, pinned, carry, refreshing });`)
-            .replace("glideOn(part.row, slide);", `glideOn(part.row, slide);
-              debug("slide", { id: part.id, top: part.top, bottom: part.bottom, start: part.start, animation: debugIds.get(slide) });`)
-            .replace("for (let index = 0; index < laid.length; index++) {", `debug("laid", { rows: laid.map(p => ({ id: p.id, top: p.top, bottom: p.bottom, start: p.start })) });
-              for (let index = 0; index < laid.length; index++) {`);
-        },
-      }] : [],
       server: { port: 0, host: "127.0.0.1", strictPort: false },
       logLevel: "error",
     });
@@ -1014,10 +982,6 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
         console.log(
           `OVERLAP_REPORT ${JSON.stringify({ engine: name, scenario: `messages ${scenario.name}`, ...report })}`,
         );
-        if (process.env.CMUX_OVERLAP_TRACE === "1") {
-          const trace = await page.evaluate(() => (globalThis as any).__tailGlideTrace);
-          console.log(`TAIL_GLIDE_TRACE ${JSON.stringify(trace)}`);
-        }
         await assertReplyReleased(page, finalId);
         await page.close();
         expect(report.frames).toBeGreaterThan(20);

@@ -5651,7 +5651,9 @@ function TranscriptView({
       tailGlides && chasing,
       tailAnchor,
       chasing && followingRef.current,
-      pinLive ? LIVE_THINKING : undefined,
+      // A requested pin can decline a still-gliding line, or remain held after the request stops.
+      // Exclude only its actual owner; otherwise the glide must keep clearing the line's path.
+      pinnedLiveRow(thread.current)?.dataset.rowId,
       carry,
       placedRows,
       // The scroller's box: a row that moves out of the view is drawn at its place, unseen.
