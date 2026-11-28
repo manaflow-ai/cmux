@@ -63,8 +63,10 @@ const open = async (ctx: PlayContext) => {
 
 // Both variants check the carded head's columns (its mark, time and chevron); the one-line head
 // (trayFoldHead `line`, the default since #56287) draws none while tucked, so they pin the carded
-// `groups` head, as SubagentTray.gallery.ts does.
-const CARD_HEAD = { "subagent-tray-fold-head": "groups" } as const;
+// `groups` head, as SubagentTray.gallery.ts does. They also check the header's time after its counts,
+// which a several-item header draws only off the `none` clock (trayHeadClock, `none` the default
+// since #51151), so they pin the run's clock, as SubagentTray.gallery.ts's timed variant does.
+const CARD_HEAD = { "subagent-tray-fold-head": "groups", "subagent-tray-head-clock": "run" } as const;
 
 export default agentPaneEntry({
   id: "agent-pane.subagent-tray-head",
