@@ -192,6 +192,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `wallpaper-cost.sh` | A live wallpaper's CPU, GPU time and footprint per wallpaper and per hold (bench wallpaper_cost). | live wallpapers | 2026-11-17 | active |
 | `wallpaper-cost.py` | Python driver for wallpaper-cost.sh. | live wallpapers | 2026-11-17 | active |
 | `perf-idle-ab.sh` | Interleaved base vs head idle A/B in one step. | - | 2026-11-14 | active |
+| `mcp-serve-malloc-ab.sh` | `cmux mcp serve`'s idle phys_footprint, macOS malloc default against space-efficient mode, on one signed binary (`dmg=nightly`, no build). | ram-baseline | 2026-11-27 | active |
 | `perf-idle-power.sh` | Idle power and wakeups in the scenarios of a browser comparison. | msg 2654 | 2026-11-15 | active |
 | `perf-bench.sh` | xbench: cmux NEXT against other browsers (power, scroll, video, tab switch, launch). | msg 2654 | 2026-11-15 | active |
 | `perf-lab.sh` | Measures a prebuilt bench app of one commit on one lab host. | p12 | 2026-10-31 | active |

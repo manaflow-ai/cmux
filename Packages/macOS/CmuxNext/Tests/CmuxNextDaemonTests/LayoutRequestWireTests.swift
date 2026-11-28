@@ -34,6 +34,17 @@ struct LayoutRequestWireTests {
         expectGate(SetSplitRatioRequest.self, optional: nil)
     }
 
+    /// The hand-written `SetDividerVisibleRequest`'s bytes and gate, pinned before the request moves to the
+    /// generator: no `transaction`, and no `requiredCapability` (`DaemonConnection.setDividerVisible` checks
+    /// `split-divider-visibility-v1` itself, so the request stays unadvertised-capable until the generator can say so).
+    @Test func aDividerToggleSendsTheSplitAndVisibilityAndNoGate() throws {
+        #expect(try line(SetDividerVisibleRequest(split: SplitID(rawValue: 4), visible: false)) ==
+            envelope("set-divider-visible", ["split": .number(4), "visible": .bool(false)]))
+        #expect(try line(SetDividerVisibleRequest(split: SplitID(rawValue: 4), visible: true)) ==
+            envelope("set-divider-visible", ["split": .number(4), "visible": .bool(true)]))
+        #expect(SetDividerVisibleRequest.requiredCapability == nil)
+    }
+
     @Test func aColumnWidthDragSendsThePaneWidthAndTransaction() throws {
         #expect(try line(SetColumnWidthRequest(pane: PaneID(rawValue: 3), width: 0.75, transaction: 2)) ==
             envelope("set-viewport-pane-width", ["pane": .number(3), "width": .number(0.75), "transaction": .number(2)]))
