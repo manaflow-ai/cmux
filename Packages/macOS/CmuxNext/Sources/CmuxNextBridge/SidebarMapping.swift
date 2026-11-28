@@ -260,8 +260,11 @@ public struct SidebarMapping {
         if let explicitWorkspaceTitle, !explicitWorkspaceTitle.isEmpty { return workspaceTitle }
         let originalName = workspaceName ?? workspaceTitle
         // A rename remains authoritative even when the user chose a default-looking name or
-        // the session name. Revision zero also supports launcher-named workspaces.
-        if workspaceNameSource == .user, workspaceNameRevision > 0 { return workspaceTitle }
+        // the session name. Revision zero also supports launcher-named workspaces. A name the chat
+        // had before its own rename is not one: the chat's rename is newer (`isFormerSessionName`).
+        if workspaceNameSource == .user, workspaceNameRevision > 0,
+           !isFormerSessionName(originalName, sessionName: sessionName, displayName: displayName,
+                                formerSessionNames: formerSessionNames) { return workspaceTitle }
         let machineNamed = workspaceNameSource == .auto || WorkspaceModel.isDefaultName(originalName)
             || isSessionNamed(originalName, sessionName: sessionName, displayName: displayName,
                               formerSessionNames: formerSessionNames)
@@ -289,6 +292,17 @@ public struct SidebarMapping {
             guard let candidate, !candidate.isEmpty else { return false }
             return name == candidate || name == shortSessionName(candidate)
         }
+    }
+
+    /// Whether a workspace's `name` is a name its chat had before a rename (acpmux `formerNames`) and has no longer.
+    /// `agents chat new --name` pins the workspace to the chat's name (user, revision 1, #56422); renaming the chat
+    /// later moves that name into `formerNames`, and the workspace follows the rename (Leo, 2026-11-22: "RENAMES
+    /// NEED TO BE PROPAGATED TO THE VISIBLE AREAS AND IT SHOULD ALL BE REFLECTED"). A name the chat still has
+    /// stays pinned, so its first-prompt title never replaces it.
+    public static func isFormerSessionName(_ name: String, sessionName: String?, displayName: String? = nil,
+                                           formerSessionNames: [String]) -> Bool {
+        isSessionNamed(name, sessionName: nil, formerSessionNames: formerSessionNames)
+            && !isSessionNamed(name, sessionName: sessionName, displayName: displayName)
     }
 
     /// Peers qualify session names for routing; the sidebar already shows the host separately.
