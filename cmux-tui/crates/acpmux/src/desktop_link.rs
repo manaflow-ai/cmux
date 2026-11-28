@@ -714,7 +714,7 @@ fn unlink_toml(servers: &mut toml_edit::Table) -> Result<()> {
 /// Read `path` as JSON (none or empty: `{}`), change its servers under `key`, and write it back
 /// whole ([`edit_file`]). The top level and the servers keep the person's key order (serde_json's
 /// own map would sort them).
-fn edit_json(
+pub(crate) fn edit_json(
     path: &Path,
     key: &str,
     change: impl Fn(&mut Ordered<Value>) -> Result<()>,
@@ -774,22 +774,22 @@ fn render_json(
 const SERVERS_KEY: &str = "mcpServers";
 
 /// A JSON object read and written in its own key order.
-struct Ordered<T>(Vec<(String, T)>);
+pub(crate) struct Ordered<T>(pub(crate) Vec<(String, T)>);
 
 impl<T> Ordered<T> {
     /// Set `key` to `value`, in its place when it is there, else last.
-    fn insert(&mut self, key: &str, value: T) {
+    pub(crate) fn insert(&mut self, key: &str, value: T) {
         match self.0.iter_mut().find(|(k, _)| k == key) {
             Some((_, v)) => *v = value,
             None => self.0.push((key.to_owned(), value)),
         }
     }
 
-    fn remove(&mut self, key: &str) {
+    pub(crate) fn remove(&mut self, key: &str) {
         self.0.retain(|(k, _)| k != key);
     }
 
-    fn get(&self, key: &str) -> Option<&T> {
+    pub(crate) fn get(&self, key: &str) -> Option<&T> {
         self.0.iter().find(|(k, _)| k == key).map(|(_, v)| v)
     }
 }
@@ -826,7 +826,10 @@ impl<T: serde::Serialize> serde::Serialize for Ordered<T> {
 /// The same for Codex's TOML, through `toml_edit` so the person's comments and order stay, under
 /// the lock every cmux writer of it takes (`cmux_tui_platform::codex_config_lock`: the hook
 /// installer's trust state and the Cloud devbox provider merge).
-fn edit_toml(path: &Path, change: impl Fn(&mut toml_edit::Table) -> Result<()>) -> Result<()> {
+pub(crate) fn edit_toml(
+    path: &Path,
+    change: impl Fn(&mut toml_edit::Table) -> Result<()>,
+) -> Result<()> {
     let lock = path.parent().map(|dir| dir.join(cmux_tui_platform::codex_config_lock::LOCK_FILE));
     edit_file(path, lock.as_deref(), |text| render_toml(path, text, &change))
 }

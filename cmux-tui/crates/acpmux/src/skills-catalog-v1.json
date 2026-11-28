@@ -1,0 +1,105 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "terminal-workflows",
+      "kind": "skill",
+      "name": "Terminal workflows",
+      "description": "Reusable shell workflows for fast, repeatable agent sessions.",
+      "publisher": "cmux community",
+      "version": "1.0.0",
+      "targets": [
+        "claude",
+        "codex",
+        "pi",
+        "opencode"
+      ],
+      "skill": "# Terminal workflows\n\nUse this skill when a task needs shell commands, builds, tests or long-running processes.\n\n## Rules\n\n1. Read before you run. Check `git status`, the project's README and any `Makefile`, `package.json` or `Cargo.toml` scripts before inventing a command.\n2. Prefer one focused command over a chain. When you chain, use `&&` so a failure stops the chain.\n3. Bound every wait. Give builds, tests and network calls a timeout (`timeout 300 cmd`) and say what you will do if it expires.\n4. Run anything that takes more than a minute in the background, keep its log in a file, and read the tail of that log before you report.\n5. Never kill a process you did not start. Find yours by the PID you recorded, not by name.\n6. Never delete by glob. Delete only paths you created, by exact name.\n\n## Reporting\n\nQuote the exact command, its exit code and the last relevant lines of output. If a step was skipped or failed, say so plainly."
+    },
+    {
+      "id": "git-review",
+      "kind": "skill",
+      "name": "Git review",
+      "description": "A compact review checklist for safe, focused changes.",
+      "publisher": "cmux community",
+      "version": "1.0.0",
+      "targets": [
+        "claude",
+        "codex",
+        "pi",
+        "opencode"
+      ],
+      "skill": "# Git review\n\nUse this skill before you commit, open a pull request or review someone else's change.\n\n## Checklist\n\n1. `git diff --stat` against the base branch: is every changed file part of the task? Move unrelated edits out.\n2. Read the full diff once, top to bottom. Look for debug prints, commented-out code, secrets, `.env` files and generated files that should not be committed.\n3. For each behaviour change, name the test that covers it. If none does, add the smallest test that would fail without the change.\n4. Run the narrowest check that exercises the change (one test file, one package), then the project's normal lint or type check.\n5. Write the commit message as: what changed, why, and how it was verified.\n\n## Reviewing others\n\nLead with blocking issues (data loss, security, broken base), then correctness, then style. Suggest a concrete fix for each finding."
+    },
+    {
+      "id": "ui-polish",
+      "kind": "skill",
+      "name": "UI polish",
+      "description": "Practical guidance for stable, accessible interface changes.",
+      "publisher": "cmux community",
+      "version": "1.0.0",
+      "targets": [
+        "claude",
+        "codex",
+        "pi",
+        "opencode"
+      ],
+      "skill": "# UI polish\n\nUse this skill when you change anything a person sees: layout, copy, colour, motion or interaction.\n\n## Before you edit\n\n- Take a screenshot of the current state so you can compare.\n- Find the design tokens (colours, spacing, radii, fonts) the project already uses and reuse them instead of new literals.\n\n## While you edit\n\n- Keep hit targets at least 24x24 px and keep visible focus rings for keyboard users.\n- Respect `prefers-reduced-motion`: no essential information may depend on animation.\n- Check text contrast against WCAG AA (4.5:1 for body text).\n- Test the narrowest supported width and a long-string case (long names, other languages).\n- Show loading, empty and error states, not only the happy path.\n\n## After you edit\n\nTake a second screenshot at the same size and compare. Describe what changed in one sentence per visible difference."
+    },
+    {
+      "id": "filesystem-tools",
+      "kind": "mcp",
+      "name": "Filesystem tools",
+      "description": "The reference MCP filesystem server, scoped to the session's working directory.",
+      "publisher": "Model Context Protocol",
+      "version": "1.0.0",
+      "targets": [
+        "claude",
+        "codex",
+        "opencode"
+      ],
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "."
+      ]
+    },
+    {
+      "id": "browser-tools",
+      "kind": "mcp",
+      "name": "Browser tools",
+      "description": "Microsoft's Playwright MCP server for driving and inspecting a browser.",
+      "publisher": "Microsoft",
+      "version": "1.0.0",
+      "targets": [
+        "claude",
+        "codex",
+        "opencode"
+      ],
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@latest"
+      ]
+    },
+    {
+      "id": "memory-tools",
+      "kind": "mcp",
+      "name": "Memory tools",
+      "description": "The reference MCP knowledge-graph memory server for durable notes.",
+      "publisher": "Model Context Protocol",
+      "version": "1.0.0",
+      "targets": [
+        "claude",
+        "codex",
+        "opencode"
+      ],
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-memory"
+      ]
+    }
+  ]
+}

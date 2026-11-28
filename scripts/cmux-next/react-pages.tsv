@@ -35,6 +35,7 @@ setup-card	review	a card inside Home's first run
 sidebar-chats	debt	a strip of rows inside the native sidebar (#40314)
 site-data	page	a full tab page
 site-settings	page	a full tab page
+skills	page	a full tab page (cmux-page://cmux.skills/)
 stash	page	a full tab page
 stats	page	a full tab page
 task-manager	page	a full tab page

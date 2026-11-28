@@ -189,6 +189,30 @@
     },
     {
       "kind": "request",
+      "name": "skills.directory.list",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "skills.directory.install",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "skills.directory.remove",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "skills.directory.status",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/v2",
       "params": true,
       "result": true

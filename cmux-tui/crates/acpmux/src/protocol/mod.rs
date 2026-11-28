@@ -217,6 +217,10 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("catalog.get", Request),
         untyped("catalog.refresh", Request),
         untyped("catalog.changed", Notification),
+        untyped("skills.directory.list", Request),
+        untyped("skills.directory.install", Request),
+        untyped("skills.directory.remove", Request),
+        untyped("skills.directory.status", Request),
         // First-request transport upgrade, answered before framed v2 traffic.
         untyped(method::MUX_V2, Request),
         // First-request pipe to another machine's cmux-tui remote daemon (cmux_tui_service.rs).
