@@ -130,9 +130,9 @@ pub struct RegisterRequest {
     /// `--resume` that conversation, with no code. Anything else gets nothing: no code is ever
     /// delivered for it, so a hook never wakes a session (`renewed_name`).
     pub renew: bool,
-    /// What asked for an automatic first step (`origin`): `hook` (cmux's prompt hook,
-    /// `cli/hook_register.rs`) or `send` (`acpmux send`, `cli/reply_address.rs`). It picks what
-    /// the code's message says asked for it.
+    /// What asked for an automatic first step (`origin`): `send` (`acpmux send`,
+    /// `cli/reply_address.rs`), the only one a code goes for, or `hook` (`acpmux register --auto`,
+    /// which only asks whether the chat is reached). An ask that names none gets no code.
     pub origin: Option<Origin>,
 }
 
@@ -260,6 +260,26 @@ pub(crate) fn chat_ran_it(between: &[(u32, String, Vec<String>)]) -> bool {
 /// itself ([`chat_ran_it`]).
 pub const NOT_OWN_SEND: &str = "register.not_own_send";
 
+/// Why an automatic step sent no code: nothing the chat sent asked for it (cmux's prompt hook,
+/// or an older CLI that does not say what asked).
+pub const NO_SEND: &str = "register.no_send";
+
+/// What an automatic first step the proof passed gets, for what asked (`origin`) and the
+/// processes `between` the caller and its Claude Code process: why a code goes (`host` this
+/// machine, `by` the caller, [`Caller::named`]), or why none does.
+fn auto_why(
+    origin: Option<Origin>,
+    between: &[(u32, String, Vec<String>)],
+    host: String,
+    by: String,
+) -> Result<Why, &'static str> {
+    match origin {
+        Some(Origin::Send) if chat_ran_it(between) => Ok(Why::Send { host, by }),
+        Some(Origin::Send) => Err(NOT_OWN_SEND),
+        Some(Origin::Hook) | None => Err(NO_SEND),
+    }
+}
+
 /// The nearest of `ancestry` that `live` lists, with `socket` its inbox when one is given.
 pub(crate) fn nearest_claude(
     ancestry: &[u32],
@@ -316,7 +336,7 @@ impl Hub {
                 reserved.failed(auto::OFFERED);
             }
             Ok(v) if v.get("offered").and_then(Value::as_bool) == Some(false) => {
-                reserved.failed(NOT_OWN_SEND);
+                reserved.failed(v.get("reason").and_then(Value::as_str).unwrap_or(NOT_OWN_SEND));
             }
             Ok(_) => {}
         }
@@ -417,15 +437,14 @@ impl Hub {
                             return Ok(json!({"offered": true, "name": name}));
                         }
                         let (host, by) = (crate::host_pressure::host_name(), caller.named());
-                        let why = match req.origin {
-                            Some(Origin::Hook) => Why::Hook { host, by },
-                            _ if !chat_ran_it(&caller.between) => {
-                                tracing::info!(chat = %id, by = %by, "register: no code for a send the chat did not run");
+                        let why = match auto_why(req.origin, &caller.between, host, by.clone()) {
+                            Ok(why) => why,
+                            Err(reason) => {
+                                tracing::info!(chat = %id, by = %by, reason, "register: no automatic code");
                                 return Ok(
-                                    json!({"offered": false, "reason": NOT_OWN_SEND, "name": name, "by": by}),
+                                    json!({"offered": false, "reason": reason, "name": name, "by": by}),
                                 );
                             }
-                            _ => Why::Send { host, by },
                         };
                         tracing::info!(chat = %id, by = %why.by(), "register: an automatic code goes");
                         let sent =
@@ -700,21 +719,21 @@ fn renewable(registered: bool, launched_for: Option<&str>, session_id: &str) -> 
     registered && launched_for == Some(session_id)
 }
 
-/// Why a code goes to a session: `acpmux register NAME` asked; `acpmux send` from the chat's
-/// own shell, which has no reply address until it registers; or cmux's prompt hook, which gives
-/// a terminal chat an address. `host` is this machine's name, `by` the process that asked
+/// Why a code goes to a session: `acpmux register NAME` asked, or `acpmux send` from the chat's
+/// own shell, which has no reply address until it registers. Nothing else sends one: a code
+/// arrives as a prompt in the chat, so it goes only when the chat did something that needs it
+/// (Lawrence, 2026-11-28). `host` is this machine's name, `by` the process that sent
 /// ([`Caller::named`]).
 enum Why {
     Asked,
     Send { host: String, by: String },
-    Hook { host: String, by: String },
 }
 
 impl Why {
     fn by(&self) -> &str {
         match self {
             Why::Asked => "acpmux register",
-            Why::Send { by, .. } | Why::Hook { by, .. } => by,
+            Why::Send { by, .. } => by,
         }
     }
 }
@@ -734,12 +753,6 @@ fn code_text(name: &str, code: &str, why: &Why) -> String {
              replies reach {host}/{name}, and every send from this chat names that address: send \
              again what still needs an answer. acpmux sends this chat no other code on its own. \
              (If this session ran no such send, ignore it. The code is good for ten minutes.)"
-        ),
-        Why::Hook { host, by } => format!(
-            "acpmux register: cmux's prompt hook, {by}, offers this chat an acpmux address, so \
-             other sessions can message it as {host}/{name}. To take it, run this in your shell: \
-             acpmux register {name} --code {code}\nIf no one asked for that, ignore this: acpmux \
-             sends this chat no other code on its own. (The code is good for ten minutes.)"
         ),
     }
 }

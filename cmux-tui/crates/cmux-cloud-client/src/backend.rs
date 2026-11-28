@@ -36,6 +36,19 @@ pub fn platform_origin_env() -> Option<String> {
     platform_origin_from(|key| std::env::var(key).ok())
 }
 
+/// The origin that serves cmux-platform's HttpApi routes (`/v1/machines/...`) for a caller
+/// handed `api`: a known owner API's own platform (the owner API forwards only `/v1/cloud/...`
+/// and the ops, and answers every `/v1/machines/...` route an empty 404: prod journey run
+/// 46112352774, where every exec-router fork got that 404 and ran here), else the platform
+/// origin the environment names ([`platform_origin_from`]), else `api` itself (a local stack,
+/// or a platform origin already).
+pub fn platform_for(api: &str, env: impl Fn(&str) -> Option<String>) -> String {
+    if let Some(backend) = Backend::of_owner_api(api) {
+        return backend.platform().to_owned();
+    }
+    platform_origin_from(env).unwrap_or_else(|| api.trim().trim_end_matches('/').to_owned())
+}
+
 /// A NEXT Cloud environment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Backend {
@@ -80,6 +93,14 @@ impl Backend {
             Self::Staging => env::STAGING_API,
             Self::Development => env::DEVELOPMENT_API,
         }
+    }
+
+    /// Which backend `owner_api` is, when it is one of the three.
+    pub fn of_owner_api(owner_api: &str) -> Option<Self> {
+        let origin = owner_api.trim().trim_end_matches('/');
+        [Self::Production, Self::Staging, Self::Development]
+            .into_iter()
+            .find(|b| b.owner_api() == origin)
     }
 
     /// Which backend `platform_origin` is, when it is one of the three.

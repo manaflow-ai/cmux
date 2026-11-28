@@ -14,18 +14,24 @@ struct CreateTerminalWorkspaceWireTests {
     }
 
     private static func first(in key: WorkspaceKey, keyed: Bool = true) -> CreateTerminalRequest {
-        CreateTerminalRequest(workspace: .key(key), cwd: "/tmp", terminalID: keyed ? TerminalID.generate() : nil,
-                              mutation: keyed ? MutationIdentity(origin: "cmux-next", mutationID: "first-terminal") : nil)
+        // Taking the initializer as a function also checks its public labels and arity.
+        let make = CreateTerminalRequest.init(workspace:argv:command:cwd:name:size:terminalID:env:keep:mutation:)
+        let mutation = keyed ? MutationIdentity(origin: "cmux-next", mutationID: "first-terminal") : nil
+        return make(.key(key), nil, nil, "/tmp", nil, nil, keyed ? TerminalID.generate() : nil, nil, nil, mutation)
     }
 
     @Test func theFirstTerminalAsksForItsWorkspace() throws {
-        let request = NewTerminalWorkspace(key: Self.key, name: "shell").applied(to: Self.first(in: Self.key))
+        let base = Self.first(in: Self.key)
+        let terminalID = try #require(base.terminalID)
+        let request = NewTerminalWorkspace(key: Self.key, name: "shell").applied(to: base)
         let fields = try Self.fields(request)
         #expect(fields["cmd"] == .string("create-terminal"))
         #expect(fields["key"] == .string(Self.key.rawValue))
         #expect(fields["create_workspace"] == .bool(true))
         #expect(fields["workspace_name"] == .string("shell"))
         #expect(fields["cwd"] == .string("/tmp"), "the program fields stay top-level fields of create-terminal")
+        #expect(fields["terminal_id"] == .string(terminalID.rawValue))
+        #expect(fields["detached"] == nil)
     }
 
     /// A terminal of another workspace, or one the daemon cannot replay (no terminal id or mutation), stays plain.
