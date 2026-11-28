@@ -9,6 +9,13 @@
 //! report names a person, a Mac or what was on the screen. The app sends it at
 //! the session's end through crash reporting, only while the person kept
 //! anonymous telemetry on. No I/O, no clock.
+//!
+//! Reliability from real sessions (research note 2026-11-28-screen-share-10x,
+//! idea 1): the report also counts the main surface's freezes (W3C
+//! webrtc-stats `freezeCount` / `totalFreezesDuration`, attributed with the
+//! host's display times so an idle, unchanging screen is not a freeze), the
+//! link's stalls and the time from each resume to the next frame on glass,
+//! keyframes and recovery frames, and whether the session ended stalled.
 
 use crate::ledger::{FrameRow, Percentiles};
 
@@ -21,6 +28,62 @@ pub const SCHEMA: &str = "cmux.rd-session-report/1";
 const BUCKET_US: u64 = 500;
 /// Buckets kept: 0 to 2000 ms. Slower samples count in `over` (and `max_us`).
 const BUCKETS: usize = 4001;
+
+/// A gap between two frames on glass is a freeze candidate past this, or
+/// past three times the usual frame interval when that is longer (W3C
+/// webrtc-stats: `max(3 x mean interval, mean + 150 ms)`; a screen's frames
+/// come at up to 60 fps, so the floor decides almost always).
+pub const FREEZE_FLOOR_US: u64 = 200_000;
+/// Weight of each new normal interval in the running mean (1/16).
+const INTERVAL_EWMA: f64 = 1.0 / 16.0;
+
+/// The main surface's freezes: gaps on glass longer than the threshold that
+/// the host did not also leave (its display times were closer together).
+#[derive(Debug, Default, Clone)]
+struct Freezes {
+    last_presented_us: Option<u64>,
+    /// The last frame's host display time (host clock), when known.
+    last_display_us: Option<u64>,
+    mean_interval_us: Option<f64>,
+    count: u32,
+    frozen_us: u64,
+    /// Gaps past the threshold with no host display time on one side: the
+    /// screen may have been still, so they are not counted as freezes.
+    unattributed: u32,
+}
+
+impl Freezes {
+    fn threshold_us(&self) -> u64 {
+        let mean = self.mean_interval_us.unwrap_or(0.0);
+        FREEZE_FLOOR_US.max((3.0 * mean) as u64)
+    }
+
+    fn on_presented(&mut self, presented_us: u64, display_us: Option<u64>) {
+        if let Some(prev) = self.last_presented_us {
+            let gap = presented_us.saturating_sub(prev);
+            let threshold = self.threshold_us();
+            if gap > threshold {
+                match (display_us, self.last_display_us) {
+                    (Some(d), Some(prev_d)) => {
+                        // The time a newer picture existed on the host but not on glass.
+                        let late = gap.saturating_sub(d.saturating_sub(prev_d));
+                        if late > threshold {
+                            self.count = self.count.saturating_add(1);
+                            self.frozen_us = self.frozen_us.saturating_add(late);
+                        }
+                    }
+                    _ => self.unattributed = self.unattributed.saturating_add(1),
+                }
+            } else {
+                let g = gap as f64;
+                self.mean_interval_us =
+                    Some(self.mean_interval_us.map_or(g, |m| m + INTERVAL_EWMA * (g - m)));
+            }
+        }
+        self.last_presented_us = Some(presented_us);
+        self.last_display_us = display_us;
+    }
+}
 
 /// Nearest-rank percentiles over a fixed-bucket histogram.
 #[derive(Debug, Default, Clone)]
@@ -82,6 +145,17 @@ pub struct SessionReport {
     total: Histogram,
     /// Decoded to on glass (the ledger's Present).
     present: Histogram,
+    freezes: Freezes,
+    stalls: u32,
+    stalled_us: u64,
+    /// When the host went silent, while the link is stalled.
+    stalled_since_us: Option<u64>,
+    /// When the last stall ended, until the next main-surface frame on glass.
+    resumed_us: Option<u64>,
+    /// A resume to the next main-surface frame on glass.
+    resume_first_frame: Histogram,
+    keyframes: u64,
+    recovery_frames: u64,
 }
 
 /// The numbers of one session.
@@ -97,6 +171,25 @@ pub struct SessionSummary {
     pub frames_presented: u64,
     /// First to last frame on glass, seconds.
     pub presenting_s: f64,
+    /// Main-surface freezes (gaps on glass past [`FREEZE_FLOOR_US`] or 3x the
+    /// usual interval that the host's display times did not share).
+    pub freezes: u32,
+    /// Their total time a newer picture existed but was not on glass, ms.
+    pub frozen_ms: f64,
+    /// Long gaps that could not be attributed (no host display time).
+    pub freeze_unattributed: u32,
+    /// Link stalls (a heartbeating host went silent) and their silent time, ms
+    /// (a stall still open at the report counts in `stalls` only).
+    pub stalls: u32,
+    pub stalled_ms: f64,
+    /// Each resume to the next main-surface frame on glass.
+    pub resume_first_frame: Option<Percentiles>,
+    /// Main-surface keyframes and recovery frames released to the decoder.
+    pub keyframes: u64,
+    pub recovery_frames: u64,
+    /// Whether the session ended (or was read) stalled: silence, not a
+    /// clean end.
+    pub ended_stalled: bool,
 }
 
 impl SessionReport {
@@ -108,6 +201,50 @@ impl SessionReport {
     /// reconnect is its own session).
     pub fn note_connect_started(&mut self, at_us: u64) {
         self.connect_started_us.get_or_insert(at_us);
+    }
+
+    /// The link stalled: a heartbeating host has been silent since
+    /// `silent_since_us`. Repeated calls during one stall count once.
+    pub fn on_stalled(&mut self, silent_since_us: u64) {
+        if self.stalled_since_us.is_none() {
+            self.stalled_since_us = Some(silent_since_us);
+            self.stalls = self.stalls.saturating_add(1);
+        }
+    }
+
+    /// The host was heard again at `at_us`; ends a stall, if one was open.
+    pub fn on_heard(&mut self, at_us: u64) {
+        if let Some(since) = self.stalled_since_us.take() {
+            self.stalled_us = self.stalled_us.saturating_add(at_us.saturating_sub(since));
+            self.resumed_us = Some(at_us);
+        }
+    }
+
+    /// A main-surface frame with header `flags` was released to the decoder.
+    pub fn on_released(&mut self, flags: u8) {
+        if flags & cmux_rd_proto::flags::KEYFRAME != 0 {
+            self.keyframes = self.keyframes.saturating_add(1);
+        }
+        if flags & cmux_rd_proto::flags::RECOVERY != 0 {
+            self.recovery_frames = self.recovery_frames.saturating_add(1);
+        }
+    }
+
+    /// A main-surface (stream 0) frame reached the glass: [`Self::on_presented`]
+    /// plus the freeze and resume counts, which only the main surface feeds
+    /// (popups and tiles have their own cadence).
+    pub fn on_main_presented(
+        &mut self,
+        row: Option<&FrameRow>,
+        offset_us: Option<i64>,
+        presented_us: u64,
+    ) {
+        let display = row.and_then(|r| r.host).map(|h| h.display_us).filter(|t| *t != 0);
+        self.freezes.on_presented(presented_us, display);
+        if let Some(resumed) = self.resumed_us.take() {
+            self.resume_first_frame.add(presented_us.saturating_sub(resumed));
+        }
+        self.on_presented(row, offset_us, presented_us);
     }
 
     /// A frame reached the glass at `presented_us`; `row` is its ledger row
@@ -150,6 +287,15 @@ impl SessionReport {
             present: self.present.percentiles(),
             frames_presented: self.frames_presented,
             presenting_s,
+            freezes: self.freezes.count,
+            frozen_ms: self.freezes.frozen_us as f64 / 1000.0,
+            freeze_unattributed: self.freezes.unattributed,
+            stalls: self.stalls,
+            stalled_ms: self.stalled_us as f64 / 1000.0,
+            resume_first_frame: self.resume_first_frame.percentiles(),
+            keyframes: self.keyframes,
+            recovery_frames: self.recovery_frames,
+            ended_stalled: self.stalled_since_us.is_some(),
         }
     }
 }
@@ -177,12 +323,21 @@ impl SessionSummary {
     /// The summary as one JSON object (schema [`SCHEMA`]).
     pub fn to_json(&self) -> String {
         format!(
-            "{{\"schema\":\"{SCHEMA}\",\"first_frame_ms\":{},\"total\":{},\"present\":{},\"frames_presented\":{},\"presenting_s\":{}}}",
+            "{{\"schema\":\"{SCHEMA}\",\"first_frame_ms\":{},\"total\":{},\"present\":{},\"frames_presented\":{},\"presenting_s\":{},\"freezes\":{},\"frozen_ms\":{},\"freeze_unattributed\":{},\"stalls\":{},\"stalled_ms\":{},\"resume_first_frame\":{},\"keyframes\":{},\"recovery_frames\":{},\"end\":\"{}\"}}",
             num(self.first_frame_ms),
             pct(self.total),
             pct(self.present),
             self.frames_presented,
             num(Some(self.presenting_s)),
+            self.freezes,
+            num(Some(self.frozen_ms)),
+            self.freeze_unattributed,
+            self.stalls,
+            num(Some(self.stalled_ms)),
+            pct(self.resume_first_frame),
+            self.keyframes,
+            self.recovery_frames,
+            if self.ended_stalled { "stalled" } else { "live" },
         )
     }
 }

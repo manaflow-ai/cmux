@@ -65,3 +65,80 @@ fn a_slow_tail_reads_at_p95_and_above_two_seconds_reads_its_largest() {
     assert_eq!(total.p50_ms, 10.0);
     assert_eq!(total.p95_ms, 2600.0);
 }
+
+fn host_row(display_us: u64) -> FrameRow {
+    FrameRow {
+        host: Some(FrameTimes { display_us, ..FrameTimes::default() }),
+        ..FrameRow::default()
+    }
+}
+
+#[test]
+fn a_late_picture_is_a_freeze_and_an_idle_screen_is_not() {
+    let mut r = SessionReport::new();
+    // 60 fps for a second: host display and glass 16 ms apart.
+    let mut t = 1_000_000u64;
+    for _ in 0..60 {
+        r.on_main_presented(Some(&host_row(t - 30_000)), Some(0), t);
+        t += 16_000;
+    }
+    // The screen goes still for 5 s: no host frame, no frame on glass. Not a freeze.
+    t += 5_000_000;
+    r.on_main_presented(Some(&host_row(t - 30_000)), Some(0), t);
+    // The network holds a frame: the host showed it 16 ms after the last, glass 516 ms after.
+    let prev_display = t - 30_000;
+    t += 516_000;
+    r.on_main_presented(Some(&host_row(prev_display + 16_000)), Some(0), t);
+    let s = r.summary();
+    assert_eq!(s.freezes, 1, "{s:?}");
+    assert_eq!(s.frozen_ms, 500.0);
+    assert_eq!(s.freeze_unattributed, 0);
+    // A long gap without host times is not counted either way.
+    t += 900_000;
+    r.on_main_presented(None, None, t);
+    let s = r.summary();
+    assert_eq!((s.freezes, s.freeze_unattributed), (1, 1));
+}
+
+#[test]
+fn a_short_hitch_under_the_floor_is_not_a_freeze() {
+    let mut r = SessionReport::new();
+    let mut t = 0u64;
+    for i in 0..120u64 {
+        // One 150 ms hitch the host did not share.
+        let gap = if i == 60 { 150_000 } else { 16_000 };
+        t += gap;
+        r.on_main_presented(Some(&host_row(i * 16_000)), Some(0), t);
+    }
+    assert_eq!(r.summary().freezes, 0);
+}
+
+#[test]
+fn stalls_resumes_keyframes_and_the_end_are_counted() {
+    use cmux_rd_proto::flags::{KEYFRAME, RECOVERY};
+    let mut r = SessionReport::new();
+    r.on_released(KEYFRAME);
+    r.on_released(0);
+    r.on_main_presented(None, None, 1_000_000);
+    // Silent from 2.0 s, stalled (called again by every tick), heard at 4.5 s.
+    r.on_stalled(2_000_000);
+    r.on_stalled(2_000_000);
+    r.on_heard(4_500_000);
+    r.on_heard(4_600_000); // no stall open: nothing
+    r.on_released(KEYFRAME | RECOVERY);
+    r.on_main_presented(None, None, 4_620_000);
+    r.on_main_presented(None, None, 4_640_000); // only the first after a resume counts
+    let s = r.summary();
+    assert_eq!((s.stalls, s.stalled_ms), (1, 2500.0));
+    let resume = s.resume_first_frame.expect("resume");
+    assert_eq!((resume.n, resume.p50_ms), (1, 120.0));
+    assert_eq!((s.keyframes, s.recovery_frames), (2, 1));
+    assert!(!s.ended_stalled);
+    let json = s.to_json();
+    assert!(json.contains("\"stalls\":1,\"stalled_ms\":2500.0,\"resume_first_frame\":{\"n\":1,\"p50_ms\":120.0,\"p95_ms\":120.0},\"keyframes\":2,\"recovery_frames\":1,\"end\":\"live\"}"), "{json}");
+    // Silent again and read before any byte: the session ended stalled.
+    r.on_stalled(5_000_000);
+    let s = r.summary();
+    assert_eq!(s.stalls, 2);
+    assert!(s.ended_stalled && s.to_json().ends_with("\"end\":\"stalled\"}"));
+}
