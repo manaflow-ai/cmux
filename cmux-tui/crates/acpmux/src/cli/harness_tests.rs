@@ -107,6 +107,61 @@ async fn doctor_checks_a_folder_profile_only_when_enabled_and_inside_its_folder(
     assert!(step(&report, "profile").detail.contains("no harness"), "{}", report.text());
 }
 
+/// The sr2 launcher (`sr2 claude2`), headless, accepts only a session's stream-json
+/// shape and refuses `-p PROMPT`. The doctor's turn sent `-p PROMPT --output-format json`,
+/// so `cmux harness doctor claude-sr2` failed its prompt step with the launcher's "runs the
+/// Claude TUI only in a cmux terminal" while every claude-sr2 chat ran (cmux#57823). The
+/// stand-in refuses as the launcher does; the doctor's turn must pass through it.
+#[tokio::test(flavor = "multi_thread")]
+async fn doctor_turns_a_launcher_that_takes_only_stream_json() {
+    let root = temp("doctor-sr2-stream-json");
+    let launcher = root.join("claude-sr2");
+    crate::test_exec::write_executable(
+        &launcher,
+        r#"#!/usr/bin/env python3
+import json, sys
+args = sys.argv[1:]
+if "--version" in args:
+    sys.stderr.write("subrouter: sr2 claude2 runs the Claude TUI only in a cmux terminal\n")
+    sys.exit(1)
+def after(name):
+    return args[args.index(name) + 1] if name in args and args.index(name) + 1 < len(args) else ""
+if after("--input-format") != "stream-json" or after("--output-format") != "stream-json":
+    sys.stderr.write("subrouter: sr2 claude2 runs the Claude TUI only in a cmux terminal (it types /compact through the cmux CLI); elsewhere start a session with `acpmux new -m claude-sr2`\n")
+    sys.exit(1)
+print(json.dumps({"type": "system", "subtype": "init", "model": after("--model")}))
+lines = [json.loads(l) for l in sys.stdin if l.strip()]
+text = "".join(b["text"] for b in lines[0]["message"]["content"])
+assert lines[0]["type"] == "user" and "OK" in text, lines
+print(json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "OK"}]}}))
+print(json.dumps({"type": "result", "subtype": "success", "is_error": False, "result": "OK"}))
+"#,
+    );
+    let path = root.join("claude-sr2.toml");
+    let text = format!(
+        "schema = 1\nid = \"claude-sr2\"\nfamily = \"claude-sr2\"\nprotocol = \"claude-stdio\"\n\
+         command = {:?}\n\n[defaults]\nmodel = \"claude-opus-5-5\"\n",
+        launcher.to_string_lossy()
+    );
+    std::fs::write(&path, &text).unwrap();
+    let (id, profile, meta, warnings) =
+        profiles::parse_profile_toml(&text, &path, Some("claude-sr2"), ProfileSource::UserFile)
+            .unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(profile.kind, HarnessKind::ClaudeStdio);
+    let mut cfg = Config::default();
+    cfg.harnesses.insert(id.clone(), profile);
+    cfg.profile_meta.insert(id, meta);
+
+    let report = doctor(&cfg, "claude-sr2", &options(&[])).await;
+    let prompt = step(&report, "prompt");
+    assert_eq!(prompt.status, StepStatus::Pass, "{}", report.text());
+    assert_eq!(report.reply.as_deref(), Some("OK"), "{}", report.text());
+    // No --version is a warning, never the verdict.
+    assert_eq!(step(&report, "launch").status, StepStatus::Warn, "{}", report.text());
+    assert!(report.ok, "{}", report.text());
+}
+
 /// A managed Codex install reports whether it told a running daemon to read its profiles again,
 /// so a daemon that was running does not keep offering the catalog it had before the install.
 #[test]

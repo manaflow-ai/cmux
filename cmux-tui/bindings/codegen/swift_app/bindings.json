@@ -3158,6 +3158,199 @@
               ]
             }
           }
+        },
+        "TabGroupSnapshot": {
+          "type": "TabGroupRun",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable",
+            "Identifiable"
+          ],
+          "doc": [
+            "A tab group inside one pane's strip (`tab-groups-v1`): named, colored, collapsible, members contiguous.",
+            "Wire shape `Pane.tab_groups[]`; `list-tab-groups` rows add `pane`. Command results carry the same object",
+            "without the run fields, so every field but `id` decodes leniently. `count` is `surfaces.count`",
+            "(TabGroupSnapshot+Members.swift)."
+          ],
+          "order": [
+            "id",
+            "name",
+            "color",
+            "collapsed",
+            "saved_id",
+            "start",
+            "surfaces",
+            "pane",
+            "icon"
+          ],
+          "omit": [
+            "count"
+          ],
+          "fields": {
+            "id": {
+              "type": "TabGroupID"
+            },
+            "name": {
+              "default": "\"\""
+            },
+            "color": {
+              "optional": true,
+              "doc": [
+                "One of the nine group colors (`grey`, `blue`, `red`, `yellow`, `green`, `pink`, `purple`, `cyan`, `orange`)."
+              ]
+            },
+            "collapsed": {
+              "default": "false"
+            },
+            "saved_id": {
+              "type": "SavedTabGroupID",
+              "doc": [
+                "The saved record this live group is linked to (`saved-tab-groups-v1`)."
+              ]
+            },
+            "start": {
+              "type": "Int",
+              "default": "0",
+              "doc": [
+                "Strip index of the first member."
+              ]
+            },
+            "surfaces": {
+              "type": "[SurfaceID]",
+              "default": "[]",
+              "doc": [
+                "Member tabs in strip order."
+              ]
+            },
+            "pane": {
+              "type": "PaneID",
+              "doc": [
+                "The pane, in `list-tab-groups` rows only."
+              ]
+            },
+            "icon": {
+              "doc": [
+                "The group's icon (`tab-group-icon-v1`): the shared icon string (emoji, SF Symbol name or stored asset); nil is none."
+              ]
+            }
+          }
+        },
+        "ScreenGroupSnapshot": {
+          "type": "ScreenGroupRun",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable",
+            "Identifiable"
+          ],
+          "doc": [
+            "A group of screens inside one workspace (`screen-groups-v1`): named, colored, collapsible, members",
+            "contiguous in screen order. Wire shape `Workspace.screen_groups[]`. `count` is `screens.count`",
+            "(ScreenGroupSnapshot.swift)."
+          ],
+          "order": [
+            "id",
+            "name",
+            "color",
+            "collapsed",
+            "saved_id",
+            "start",
+            "screens",
+            "icon"
+          ],
+          "omit": [
+            "count"
+          ],
+          "fields": {
+            "id": {
+              "type": "ScreenGroupID"
+            },
+            "name": {
+              "default": "\"\""
+            },
+            "color": {
+              "optional": true,
+              "doc": [
+                "One of the nine group colors."
+              ]
+            },
+            "collapsed": {
+              "default": "false"
+            },
+            "saved_id": {
+              "type": "SavedScreenGroupID",
+              "doc": [
+                "The saved record this live group is linked to."
+              ]
+            },
+            "start": {
+              "type": "Int",
+              "default": "0",
+              "doc": [
+                "Index of the first member in the workspace's screen list."
+              ]
+            },
+            "screens": {
+              "type": "[ScreenID]",
+              "default": "[]",
+              "doc": [
+                "Member screens in order."
+              ]
+            },
+            "icon": {
+              "doc": [
+                "The group's icon (`screen-group-icon-v1`): the shared icon string (emoji, SF Symbol name or stored asset); nil is none."
+              ]
+            }
+          }
+        },
+        "TabNotification": {
+          "type": "NotificationMarker",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable"
+          ],
+          "doc": [
+            "Retained unread marker on a tab (one per tab; a later one overwrites it)."
+          ],
+          "order": [
+            "notification",
+            "unread",
+            "level",
+            "createdAtMs",
+            "source"
+          ],
+          "fields": {
+            "notification": {
+              "type": "NotificationID"
+            },
+            "unread": {
+              "default": "false"
+            },
+            "level": {
+              "type": "NotificationLevel",
+              "optional": true,
+              "lenient": true
+            },
+            "source": {
+              "type": "String",
+              "lenient": true,
+              "doc": [
+                "Who posted it (`notification-source-v1`: `cli`, `terminal`, `agent`, `daemon`); nil from older daemons."
+              ]
+            }
+          },
+          "extra": {
+            "createdAtMs": {
+              "type": "UInt64?",
+              "default": "nil",
+              "doc": [
+                "Not on `Tab.notification`: the app fills it from the `list-notifications` ledger (`created_at_ms`)."
+              ]
+            }
+          }
         }
       }
     }
