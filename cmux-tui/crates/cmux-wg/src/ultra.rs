@@ -175,6 +175,24 @@ pub(crate) fn bulk_parity_from(value: Option<&str>) -> u8 {
         .unwrap_or(BULK_PARITY)
 }
 
+/// Benches only: `class` makes remote desktop media (`Priority::Media`) follow
+/// its Braid class's repair rule (class 1, state: copies or parity only above
+/// 1 % measured loss) instead of being repaired at any loss, so the two can be
+/// measured against each other (RFD 0164 B6). Anything else, or unset, keeps
+/// media repaired at any loss.
+pub const MEDIA_REPAIR_ENV: &str = "CMUX_WG_ULTRA_MEDIA_REPAIR";
+
+/// Whether media follows its class's repair rule ([`MEDIA_REPAIR_ENV`]). Read
+/// once per process.
+fn media_follows_class() -> bool {
+    static CLASS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *CLASS.get_or_init(|| media_follows_class_from(std::env::var(MEDIA_REPAIR_ENV).ok().as_deref()))
+}
+
+pub(crate) fn media_follows_class_from(value: Option<&str>) -> bool {
+    value.is_some_and(|value| value.trim() == "class")
+}
+
 /// Whether `datagram` is an ultra-mode parity datagram. A carrier that
 /// classifies datagrams by shape should give parity the class the tunnel's
 /// pacer sent it in, not treat it as control.
@@ -922,8 +940,10 @@ impl UltraUnderlay {
     fn repairs(&mut self, priority: Option<Priority>) -> bool {
         match priority {
             // Remote desktop media keeps its repair at any loss: its loss behaviour under
-            // the 1 % rule has not been measured (RFD 0164 B6).
-            None | Some(Priority::Media) => true,
+            // the 1 % rule has not been measured (RFD 0164 B6; MEDIA_REPAIR_ENV
+            // measures it).
+            None => true,
+            Some(Priority::Media) if !media_follows_class() => true,
             Some(priority) => priority.braid_class().repairs_at(|| {
                 self.fold_loss();
                 self.window.above_one_percent()
