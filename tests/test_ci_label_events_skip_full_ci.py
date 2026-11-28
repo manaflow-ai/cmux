@@ -84,6 +84,8 @@ REACTS: dict[str, str] = {
     "cmux-next-batch.yml": "debounce only; hold and landing labels change batch eligibility",
     "cmux-next-media.yml": "labeled-only; its jobs already run only for media-tour / no-media-tour",
     "cmux-next-motion-golden.yml": "its job already runs only when motion-golden is the label added",
+    "ios-launch-tti-hosted.yml": "its measure job runs on a label event only when launch-tti is the label added; "
+    "another label gets its own concurrency group, so it cancels nothing (tests/test_ci_ios_launch_tti_intent.py)",
     "cloud-resume-matrix.yml": "its plan job runs only for the resume-matrix labels (or the body marker on a "
     "non-label event); every other job needs plan",
 }
