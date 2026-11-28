@@ -235,6 +235,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             reason,
             status,
             hold_for,
+            thaw_order,
         } => {
             let client = connect(true).await?;
             if !client.daemon_lists(crate::hub::session_hold::FEATURE) {
@@ -315,6 +316,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 });
                 if let Some(reason) = reason {
                     cmux_json::JsonSet::set(&mut p, "reason", json!(reason));
+                }
+                if let Some(order) = thaw_order.filter(|_| held) {
+                    let order: Vec<&str> =
+                        order.iter().map(|o| o.trim()).filter(|o| !o.is_empty()).collect();
+                    cmux_json::JsonSet::set(&mut p, "thawOrder", json!(order));
                 }
                 let v = client.request(method::MUX_FLEET_HOLD, p).await?;
                 if json_out {
@@ -1179,6 +1185,21 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             crate::cli::shutdown::run(end_agents, keep_agents, restart, json_out).await
         }
         Command::DaemonRestart => crate::cli::shutdown::restart(json_out).await,
+        Command::DaemonExpectRelaunch { within, reason } => {
+            let home = crate::config::home();
+            crate::daemon::owner_relaunch::expect_in(
+                &home,
+                std::time::Duration::from_secs(within),
+                &reason,
+            )?;
+            let path = crate::daemon::owner_relaunch::path_in(&home);
+            if json_out {
+                println!("{}", serde_json::json!({"marker": path, "within": within.min(300)}));
+            } else {
+                println!("relaunch expected within {}s ({})", within.min(300), path.display());
+            }
+            Ok(())
+        }
         Command::DaemonFelt => crate::cli::daemon_felt::run(json_out).await,
         Command::DaemonWatchdogHold => crate::cli::watchdog_hold::run().await,
         Command::DaemonPlacement { message } => crate::cli::daemon_placement::run(&message).await,
@@ -1402,7 +1423,22 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     .with_exit(2)
                 })?;
                 crate::cli::cloud_join::join_with_token(hub, name, replace, json_out, Some(token))
-                    .await
+                    .await?;
+                // A pair code's join runs only this (the join line also installs the service):
+                // the update timer `host setup` installs, when acpmux's own service runs here.
+                // Its stdout is the join's answer, so a note goes to stderr.
+                let timer = tokio::task::spawn_blocking(|| {
+                    crate::cli::daemon_service::ensure_update_timer(
+                        &crate::cli::daemon_service::Here,
+                    )
+                })
+                .await;
+                // `cmux pair` reads this line's prefix from the join's stderr
+                // (`cmux-server/src/pairing/machine_join.rs`, `TIMER_NOTE`).
+                if let Ok(Some(off)) = timer {
+                    eprintln!("acpmux update timer: {off}");
+                }
+                Ok(())
             } else if value.starts_with("cmxt1.") {
                 let ticket = crate::cli::pairing::join_ticket_text(&value)?;
                 let client = connect(true).await?;
@@ -1570,6 +1606,29 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         Command::Host(PeerCmd::Load { .. }) => {
             let load = crate::host_load::sample().await;
             print_json(&serde_json::to_value(&load)?);
+            Ok(())
+        }
+        // Writes only the named cgroup's memory.reclaim; no daemon (`working_set.rs`).
+        Command::Host(PeerCmd::WorkingSet {
+            cgroup,
+            step_permille,
+            refault_permille,
+            settle_ms,
+            max_steps,
+            floor_mb,
+        }) => {
+            let probe = crate::working_set::Probe {
+                step_permille,
+                refault_permille,
+                settle_ms,
+                max_steps,
+                floor_bytes: floor_mb.saturating_mul(1 << 20),
+                ..crate::working_set::Probe::default()
+            };
+            let report =
+                tokio::task::spawn_blocking(move || crate::working_set::cli(cgroup, probe))
+                    .await??;
+            print_json(&serde_json::to_value(&report)?);
             Ok(())
         }
         // Reads the home directory and writes one file; no daemon (`disk_usage.rs`).
@@ -1745,6 +1804,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 | PeerCmd::Cells
                 | PeerCmd::Unreachable { .. }
                 | PeerCmd::DiskWalk
+                | PeerCmd::WorkingSet { .. }
                 | PeerCmd::Verdict
                 | PeerCmd::Notice { .. } => {
                     return Err(anyhow!(

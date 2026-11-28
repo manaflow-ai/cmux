@@ -181,6 +181,16 @@ printf '%s\n' "<unknown>:0: error: fatal error encountered during compilation; p
   "7  swift-frontend           0x000000010b7091a0 llvm::report_fatal_error(llvm::Twine const&, bool) + 292" \
   "9  swift-frontend           0x0000000108cd11d0 swift::TypeChecker::typeCheckDecl(swift::Decl*) + 60" > "$TMP/caslog"
 cmux_next_runtime_cas_failed "$TMP/caslog" && fail "a compiler crash outside the CAS triggered the retry"
+# A build service crash early in a long log, under this file's pipefail: nightly-next runs 46051203184 and
+# 46060011808 had ~110k lines after it, and the old `awk | grep -q` read that as no crash.
+{ echo "error: unexpected service error: The Xcode build system has crashed. Build again to continue."
+  seq 1 200000 | sed 's/^/note: filler /'; echo "xcodebuild exit status: 65"; } > "$TMP/caslog"
+cmux_next_build_service_crashed "$TMP/caslog" || fail "a build service crash before a long log tail was not recognized"
+{ seq 1 200000 | sed 's/^/note: filler /'; echo "xcodebuild exit status: 65"
+  echo "error: unexpected service error: The Xcode build system has crashed. Build again to continue."; } > "$TMP/caslog"
+cmux_next_build_service_crashed "$TMP/caslog" && fail "a crash line after xcodebuild's exit status counted"
+printf '%s\n' "/x/a.swift:1:2: error: cannot find 'x' in scope" "xcodebuild exit status: 65" > "$TMP/caslog"
+cmux_next_build_service_crashed "$TMP/caslog" && fail "a compile error counted as a build service crash"
 reset
 status=0; SC_ARG="$cas_dd" run CMUX_NEXT_COMPILATION_CACHE=1 STUB_XCODEBUILD_STATUS=65 || status=$?
 [[ $status -eq 65 && $(wc -l < "$TMP/args") -eq 1 ]] || fail "a code failure exited $status after $(wc -l < "$TMP/args") builds (want 65 after 1)"

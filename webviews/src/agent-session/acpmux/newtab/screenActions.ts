@@ -3,6 +3,7 @@
 import type { AllChatsPage } from "./allChatsListModel";
 import type { NewTabOpenHow, NewTabScreenActions } from "./NewTabScreen";
 import { savedEnvironmentHost } from "../environments";
+import { cloudMachineForRegistry } from "../cloudMachines";
 import { rememberStartedProject } from "./startedProject";
 import { rememberPick } from "../lastPick";
 import { translate } from "../i18n";
@@ -42,6 +43,7 @@ export function newTabScreenActions(deps: {
   holdsSend?(text: string, here: boolean): boolean;
   /// Captures the page/selection owning this attempt, before any asynchronous work.
   startScope?(allowReconnect: boolean): () => boolean;
+  peerCloudRegistry?(peer: string): string | undefined;
   clearError?(): void;
   showError?(error: unknown): void;
 }): NewTabScreenActions {
@@ -52,7 +54,7 @@ export function newTabScreenActions(deps: {
   const remember = (agent: string, model: string | undefined, folder: string | undefined) =>
     rememberPick({ harness: agent, ...(model ? { model } : {}) }, folder, callNative);
   return {
-    onAsk(harness, text, picked, model, noProject, attachments, saved) {
+    async onAsk(harness, text, picked, model, noProject, attachments, saved) {
       const peer = saved?.peer;
       // A newer folder pick made while this chat starts stays the next New Tab's default.
       const sentAt = Date.now();
@@ -60,6 +62,23 @@ export function newTabScreenActions(deps: {
       if (deps.holdsSend?.(text, !peer && deps.startsHere?.() !== false)) return Promise.reject(startCancelled());
       const queuedStart = !!harness && !peer && !noProject;
       const current = deps.startScope?.(queuedStart) ?? (() => true);
+      const cloudRegistryId = peer ? deps.peerCloudRegistry?.(peer) : undefined;
+      if (peer && saved?.cloudEnvironment) {
+        const machine = cloudMachineForRegistry(cloudRegistryId);
+        const readiness =
+          machine &&
+          (await callNative("cloud.setup.state", {
+            machine: machine.id,
+            environment: saved.cloudEnvironment,
+          }).catch(() => undefined));
+        if (!current()) throw startCancelled();
+        if (
+          (readiness as { environmentMatches?: boolean } | undefined)?.environmentMatches !== true ||
+          deps.peerCloudRegistry?.(peer) !== cloudRegistryId
+        ) {
+          throw new Error(translate("composer.envNotConnected"));
+        }
+      }
       // The prompt goes in the same turn as the switch: the switch queues it, and a folder trust
       // refusal then holds it with the send's gesture (holdPrompt), so Trust sends it. Sending
       // after `chat.new` settled lost it: the switch had stopped on the refusal with nothing
@@ -84,6 +103,7 @@ export function newTabScreenActions(deps: {
             ...(folder ? { cwd: folder } : noProject ? { noProject: true } : {}),
             ...(model ? { model } : {}),
             ...(peer ? { peer } : {}),
+            ...(cloudRegistryId ? { cloudRegistryId } : {}),
           });
           const message = { text, ...(attachments?.length ? { attachments } : {}) };
           const asks = !!text || !!attachments?.length;

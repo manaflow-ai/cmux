@@ -654,7 +654,7 @@ fn an_empty_machine_gets_every_look_and_no_stack() {
         json!({
             "id": "manaflow-ai/studio-look",
             "name": "Studio",
-            "tagline": "A dense, near-black workbench for agent chats: quiet chrome, compact rows, a boxed prompt.",
+            "tagline": "Dark and compact, made for long agent chats.",
             "repo": "github.com/manaflow-ai/cmux-studio-look",
             "tags": ["chat", "dark", "sidebar"],
             "installed": null,

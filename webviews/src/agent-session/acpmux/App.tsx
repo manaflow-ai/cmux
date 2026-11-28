@@ -66,6 +66,7 @@ import { reportToastAvoidance } from "./toastAvoidance";
 import { OpenAppCard, afterLatestFooter } from "./OpenAppCard";
 import { setCloudPreviewContext, useCloudPreviewPorts } from "./cloudPreviewPorts";
 import { useChatCloudEnvironment } from "./chatCloudEnvironment";
+import { cloudStartEnvironment } from "./cloudEnvironmentChoice";
 import { NativeError } from "./nativeError";
 import { errorMessage, isStartCancelled, knownRefusalText, startErrorMessage } from "./transportErrors";
 import { pageHostClient } from "./pageHost";
@@ -100,6 +101,8 @@ import {
   withCloudStartPick,
 } from "./newtab/draftFolder";
 import { cloudModePickFor as cloudModeFor, useCloudModePick } from "./cloudModePick";
+import { cloudAgentPick, holdCloudAgentPick } from "./cloudAgentPick";
+import { cloudLastPick } from "./cloudLastPick";
 import {
   askAppCloudPick,
   cloudPickChoices,
@@ -161,7 +164,7 @@ import {
 import { usePickerCatalog } from "./modelCatalogHost";
 import { workedProfiles } from "./modelCatalogData";
 import { isDefaultChoice } from "./defaultChoice";
-import { applySwitch, browserSwitchClock, HarnessSwitch } from "./harnessSwitch";
+import { applySwitch, browserSwitchClock, defaultModel, HarnessSwitch } from "./harnessSwitch";
 import { liveAsk } from "./liveAsk";
 import { NewChatPrewarm, type PrewarmTarget } from "./newChatPrewarm";
 import { harnessModeName, highestMode } from "./harnessModes";
@@ -178,6 +181,7 @@ import { useComposerKeyboard } from "./composerFocus";
 import { type AutomationCompose } from "./automation";
 import { acpmuxPerf } from "./perf";
 import { type PerfSend } from "./perfReporter";
+import type { ReadInspectorHistory } from "./InspectorTiming";
 import { startFromContext } from "./newtab/startHint";
 import { useSameValue } from "./session-info/sameValue";
 import { drawsAsIs, setStreamingRowBlocked, streamingRowBlocked, textOnlyRow } from "./streamingRow";
@@ -225,8 +229,9 @@ import { trustedLabel } from "./trustAskModel";
 import { ElevationCard } from "./ElevationCard";
 import { SecretCard } from "./SecretCard";
 import { ToolCards } from "./toolCards/ToolCards";
-import { type UploadProgressReport, uploadToMachine } from "./cloudUploads";
+import { type UploadCancelled, type UploadProgressReport, uploadToMachine } from "./cloudUploads";
 import { droppedPaths } from "./composer/intakeFiles";
+import { pushedDropPaths, uploadDropped } from "./composer/dropPush";
 import { useToolCards } from "./toolCards/toolCardStore";
 import {
   COMPUTER_USE_PREVIEW_RESERVE,
@@ -522,6 +527,7 @@ import {
   pickOnlyNewChat,
 } from "./cloudRun";
 import { promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
+import { cloudStartOpenedSettled, cloudStartWaitsForFirstPage } from "./cloudStartOpened";
 import { folderRunLocation, newChatRunLocation, defaultFolderFor } from "./runLocationDefault";
 import {
   lastNewChatPlace,
@@ -530,11 +536,12 @@ import {
   placeOfRunMode,
   rememberNewChatPlace,
 } from "./lastNewChatPlace";
-import { cloudStartStalled, watchCloudStartStall, type CloudStartProgress } from "./cloudStartProgress";
+import { cloudStartStalled, heldCloudSetup, watchCloudStartStall, type CloudStartProgress } from "./cloudStartProgress";
 import { createCloudPlanSubscribe } from "./cloudPlanSubscribe";
 import { type CloudSignInWait } from "./cloudSignIn";
-import { retryWithSetUpPick, type CloudSetupAction, type CloudSetupNeed } from "./cloudSetup";
-import { ClaudeConnectContext, setupConnect } from "./claudeConnect";
+import { connectHeldCloudSend, retryWithSetUpPick, type CloudSetupAction, type CloudSetupNeed } from "./cloudSetup";
+import { ClaudeConnectContext, openClaudeCloudSettings, setupConnect } from "./claudeConnect";
+import { cloudPickerMachineForDraft, useCloudServed, CloudServedContext, selectFamilyOnReturn } from "./cloudServed";
 import { type QuickActionMode } from "./header/quickActions";
 import {
   useAutoCloudKey,
@@ -544,6 +551,7 @@ import {
   useEnvironmentCardOn,
   useFeatureTipsOn,
   useHeaderBreadcrumb,
+  useOwnHarnessUpdatesOnly,
   useSubagentOf,
   useTrayHandle,
   useTrayTucked,
@@ -620,7 +628,7 @@ import { ShellRuns } from "./shell/shellRuns";
 import { answerBlock, restartOwner, restartReaches } from "./subagents/restart";
 import { bridgedWatch } from "./watchBannerModel";
 import { type SubagentRows, runningGroups, subagentsIn } from "./subagents/subagentRows";
-import { foldOwnLog, subagentPaneView, useOwnLog, needsOwnLog } from "./subagents/subagentOwnLog";
+import { foldOwnLog, subagentPaneView, useOwnLog, needsOwnLog, type OwnLogRecord } from "./subagents/subagentOwnLog";
 import { lastReply as lastSubagentReply, SubagentReplyContext } from "./subagents/wholeReport";
 import { knownMark } from "../shared/AgentMark";
 import { useSenderIconLook } from "./subagents/senderIconLook";
@@ -1219,6 +1227,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // explicit picker choice; never guess a machine from the account inventory. Null records a
   // non-Cloud destination and suppresses the previous identity while its handshake catches up.
   const cloudDraftMachineID = useRef<string | null | undefined>(undefined);
+  const cloudDraftPeer = useRef<string | null | undefined>(undefined);
+  const [cloudDraftHasPeer, setCloudDraftHasPeer] = useState(false);
   // Whether `cloudChatIdentity` still names the chat shown (cloudIdentityKept): set by the
   // handshake that gave it, cleared when the pane moves to another chat or New Tab page.
   const cloudIdentityBound = useRef(false);
@@ -1332,8 +1342,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       directClient.current ? directClient.current.perf(params) : Promise.reject(new Error(translate("error.notOpen"))),
     [],
   );
+  /// `_acpmux/history` through the client connected now (the Inspector's Timing tab, InspectorTiming.tsx).
+  const readInspectorHistory = useCallback<ReadInspectorHistory>(
+    (sessionId) =>
+      directClient.current
+        ? directClient.current.inspectorHistory(sessionId)
+        : Promise.reject(new Error(translate("error.notOpen"))),
+    [],
+  );
   // acpmux's verdict on this Mac's load and swap (host_overload.rs): the composer draws it only when over.
   const readOverload = useCallback(
+    // l10n-allow: a bug message for a caller, never shown
     () => directClient.current?.hostOverload() ?? Promise.reject(new Error("no client")),
     [],
   );
@@ -1476,12 +1495,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [clientSnapshot, switchView, catalog, shownStarting, shownOffline],
   );
   // Unsettle (a settle toast's Undo, the home's Settled shelf): Unarchive by id (direct.ts
-  // `unsettle`); a refusal says so in a toast.
+  // `unsettle`); a refusal says so in a toast, in the pane's words (plainErrors.test.ts).
   const unsettleChat = useCallback(
     (entry: AcpmuxSessionEntry) => {
       const client = directClient.current;
       if (!client) return notices.failed(translate("error.notOpen"));
-      client.unsettle(entry.sessionId).catch((error: unknown) => notices.failed(errorMessage(error) || String(error)));
+      client
+        .unsettle(entry.sessionId)
+        .catch((error: unknown) => notices.failed(knownRefusalText(error) ?? translate("settle.unsettleFailed")));
     },
     [notices],
   );
@@ -1753,6 +1774,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const showSaid = useRef<(said: SaidReveal) => string | undefined>(() => undefined);
   /// Starts this chat's Ask about this side chat (Needs you's `sideSession`), set where Needs you is.
   const askAboutChat = useRef<(sessionId: string, question: string) => Promise<unknown>>(async () => {
+    // l10n-allow: a bug message for a caller, never shown
     throw new Error("not ready");
   });
   const reveal = (value: string) => {
@@ -2018,6 +2040,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (id: string) => catalog.find((entry) => entry.id === id)?.pickable !== false,
     [catalog],
   );
+  const ownHarnessUpdatesOnly = useOwnHarnessUpdatesOnly();
   const harnessUpdates = useHarnessUpdateList({
     rows: healthRows,
     offer: updateOffer,
@@ -2026,6 +2049,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     native: callNative,
     onUpdated: recheckHealth,
     offered: harnessOffered,
+    // A one-agent app's look (the Claude Code app profile) offers only the chat's own agent's update.
+    ownOnly: ownHarnessUpdatesOnly,
   });
   // The forum's current rules on this Mac (hq#2570), pinned above the composer: read when the pane
   // connects or opens a chat, and at each turn's start and end, when the chat's agent is told the
@@ -2359,13 +2384,22 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     return taken?.kind === "still" ? taken.file : undefined;
   }, []);
   const uploadFiles = useCallback(
-    (files: File[], cancelled?: (index: number) => boolean, progress?: UploadProgressReport) =>
-      uploadToMachine(files, callNative, cancelled, progress),
+    (files: File[], cancelled?: UploadCancelled, progress?: UploadProgressReport) =>
+      uploadDropped(
+        files,
+        callNative,
+        (rest, restCancelled, restProgress) => uploadToMachine(rest, callNative, restCancelled, restProgress),
+        cancelled,
+        progress,
+      ),
     [],
   );
   // A chat on this Mac links a dropped or pasted folder, or a file no block takes, where it is.
   const localPaths = useCallback(
-    (kind: DroppedKind, files: File[], gestureAt?: number) => droppedPaths(kind, files, callNative, gestureAt),
+    (kind: DroppedKind, files: File[], gestureAt?: number) =>
+      kind === "drop"
+        ? pushedDropPaths(files, () => droppedPaths(kind, files, callNative, gestureAt))
+        : droppedPaths(kind, files, callNative, gestureAt),
     [],
   );
   const searchFiles = useCallback<FileSearchSource>(
@@ -2553,7 +2587,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   const readSubagentLog = useCallback(
     // l10n-allow: internal transport error; the subagent pane renders its own localized state.
-    (id: string) => directClient.current?.readSubagentLog(id) ?? Promise.reject(new Error("Not connected")),
+    (id: string, onNewest?: (records: OwnLogRecord[]) => void) =>
+      directClient.current?.readSubagentLog(id, onNewest) ?? Promise.reject(new Error("Not connected")),
     [],
   );
   // A finished subagent's whole last reply, from its own records, for a report card whose Show more
@@ -2791,6 +2826,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const lastTurns = useRef<{ sessionId: string | undefined; turns: TurnView; subagents: SubagentRows } | undefined>(
     undefined,
   );
+  const leftChatTurns = useRef(
+    new Map<string, { sessionId: string | undefined; turns: TurnView; subagents: SubagentRows }>(),
+  );
   const supersededReplyIds = useMemo(
     () => (snapshot.supersededRows?.length ? new Set(snapshot.supersededRows) : undefined),
     [snapshot.supersededRows],
@@ -2807,6 +2845,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         doneLines,
         workflowLabsEnabled,
         lastTurns,
+        pastTurns: leftChatTurns,
         shownSessionId,
         heldCalls,
         callRelease,
@@ -3886,6 +3925,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const cloudSignIn = cloudAgentLogin(login);
     const owner = snapshot.sessionId;
     return {
+      ...(connected &&
+        cloudMachineID &&
+        !cloudTeamMachine && {
+          openClaudeCloudSettings: openClaudeCloudSettings(callNative, cloudMachineID),
+        }),
       cloudSignIn:
         cloudSignIn && owner
           ? {
@@ -3939,6 +3983,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     recheckHealth,
     connected,
     cloudMachineID,
+    cloudTeamMachine,
     chatElsewhere,
     loginSupported,
     snapshot.sessionId,
@@ -4602,6 +4647,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // Run mode is a new destination (including a brand-new Cloud machine); an account-machine
     // picker target must not survive that choice and wake the old machine on the next edit.
     cloudDraftMachineID.current = null;
+    cloudDraftPeer.current = undefined;
+    setCloudDraftHasPeer(false);
     cloudTypingPrewarm.reset();
     runModePicked.current = true;
     sandbox.setMode(mode);
@@ -4878,7 +4925,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// stalled: the card says so, and the start is still out.
   /// The chat view shows the start (CloudStartView: the sent prompt, its steps, a failure and Retry) in place
   /// of the new chat: one with no session, or an empty local chat the start replaces (`emptyLocalChat`).
-  const cloudStartShown = cloudStart !== undefined && (!snapshot.sessionId || emptyLocalChat);
+  /// An opened start (cloudStartOpened.ts) shows until the Cloud chat's first page is drawn: the pane never blanks between.
+  const cloudStartShown =
+    cloudStart !== undefined &&
+    (!snapshot.sessionId || emptyLocalChat || cloudStartWaitsForFirstPage(cloudStart, snapshot));
   /// The folder the shown start copies (none for a folderless one): the composer's folder chip names it (cmux#46023).
   const cloudStartFolderShown = cloudStartShown ? cloudStart?.cwd : undefined;
   const cloudStartPickShown = shownCloudStartPick(cloudStartShown, cloudStart, {
@@ -4913,7 +4963,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const cloudStartQueued = useRef<{ key: string; texts: string[] } | undefined>(undefined);
   const queueCloudStartSend = (text: string): boolean => {
     const start = cloudStart;
-    if (!start || start.state !== "starting" || start.signingIn || !cloudStartGoes()) return false;
+    // An opened start took its queue with the chat: what is typed now stays in the composer for the chat.
+    if (!start || start.state !== "starting" || start.signingIn || start.opened || !cloudStartGoes()) return false;
     const before = cloudStartQueued.current?.key === start.key ? cloudStartQueued.current.texts : [];
     const texts = [...before, text];
     cloudStartQueued.current = { key: start.key, texts };
@@ -5007,8 +5058,81 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setUpCloudNow.current = setUpCloud;
     cancelCloudSignInNow.current = cancelCloudSignIn;
   });
-  const cloudSetupNeed = cloudStart?.state === "failed" ? cloudStart.cloudSetup : undefined;
+  const cloudSetupNeed = heldCloudSetup(cloudStart);
   const cloudSetupWaiting = cloudStart?.signingIn === true;
+  const cloudPickerMachine = useCallback(
+    () =>
+      cloudPickerMachineForDraft(
+        cloudDraftMachineID.current,
+        cloudDraftPeer.current,
+        snapshotRef.current?.peerCloudRegistries,
+      ),
+    [],
+  );
+  // A linked machine is a Persistent destination with its own Cloud model readiness.
+  const cloudPickerActive =
+    cloudPicked || (cloudDraftHasPeer && !onOtherMachinePage && (!snapshot.sessionId || emptyLocalChat));
+  const accountMachines = useCloudMachines();
+  const pickerEnvironment = cloudPicked ? cloudStartEnvironment(undefined, cloudEnvironment.pick.current) : undefined;
+  const cloudServed = useCloudServed(callNative, cloudPickerActive, {
+    readMachine: cloudPickerMachine,
+    environment: pickerEnvironment,
+  });
+  const { openSettings: connectCloudPicker, refresh: refreshCloudPicker } = cloudServed;
+  useEffect(() => {
+    if (cloudDraftHasPeer) refreshCloudPicker();
+  }, [accountMachines, cloudDraftHasPeer, refreshCloudPicker, snapshot.peerCloudRegistries]);
+  const openCloudPickerSettings = useCallback(
+    (family: string) => {
+      if (connectHeldCloudSend(family, cloudSetupNeed, cloudSetupWaiting, setUpCloudNow.current)) return;
+      const readPick = () => {
+        if (cloudStartShown || !cloudComposeEligible.current || sessionIdRef.current) return undefined;
+        const client = directClient.current;
+        const { intent, model } = harnessSwitch.view();
+        const summary = snapshotRef.current?.summary;
+        const cloudPick = cloudAgentPick() ?? cloudLastPick();
+        return {
+          harness: cloudPick?.harness ?? intent?.harness ?? summary?.harness,
+          revision: [
+            cloudPick,
+            client,
+            client?.selectionToken,
+            composerHandle.current,
+            sessionIdRef.current,
+            lastCloudAttempt.current,
+            cloudPickerMachine(),
+            pickerEnvironment,
+            summary?.configOptions?.map((option) => option.currentValue).join("\u0000"),
+            JSON.stringify(intent?.config.options ?? {}),
+            intent?.id,
+            intent?.config.model ?? model?.model ?? summary?.model,
+          ],
+        };
+      };
+      const select = selectFamilyOnReturn(family, readPick, () => {
+        const model = defaultModel(family, catalogRef.current, undefined, snapshotRef.current?.summary?.cwd);
+        holdCloudAgentPick({ harness: family, ...(model ? { model } : {}) });
+      });
+      connectCloudPicker(family, select);
+    },
+    [
+      cloudPickerMachine,
+      connectCloudPicker,
+      cloudSetupNeed,
+      cloudSetupWaiting,
+      cloudStartShown,
+      harnessSwitch,
+      pickerEnvironment,
+    ],
+  );
+  const cloudPickerSetup = useMemo(() => {
+    const { served, ...actions } = cloudServed;
+    return {
+      ...actions,
+      ...(served ? (cloudDraftHasPeer ? { linkedClaude: served } : { served }) : {}),
+      openSettings: openCloudPickerSettings,
+    };
+  }, [cloudDraftHasPeer, cloudServed, openCloudPickerSettings]);
   const modelConnect = useMemo(
     () =>
       setupConnect(
@@ -5119,6 +5243,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cloudPlanHeldTurn,
     sendHeldForPlan,
     cloudEnvironment,
+    cloudDraftMachineID,
     cloudSwitchTeam,
     emptyLocalChat,
     snapshot,
@@ -5190,6 +5315,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cloudStartQueued.current = undefined;
     newTabCloudSent.current = false;
     cloudDraftMachineID.current = undefined;
+    cloudDraftPeer.current = undefined;
+    setCloudDraftHasPeer(false);
     cloudTypingPrewarm.reset();
     const view = { ...(snapshot.sessionId ? { session: snapshot.sessionId } : {}), generation: newTabGeneration };
     if (!cloudIdentityKept(cloudShownView.current, view)) cloudIdentityBound.current = false;
@@ -6316,6 +6443,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (!signatureSessionId) return;
     return setAgentSignatureSource({
       sessionId: signatureSessionId,
+      // l10n-allow: a bug message for a caller, never shown
       fetch: (ids) => directClient.current?.signatures(ids) ?? Promise.reject(new Error("no client")),
     });
   }, [signatureSessionId]);
@@ -7182,6 +7310,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// refusal at once, a recovery (a daemon starting, restarting or handed off by an update) only
   /// once it has failed past its deadline. Until then the pane shows nothing; a connect clears it.
   const [hostErrorShown, setHostErrorShown] = useState(false);
+  // An opened Cloud start's card goes once the Cloud chat's first page is drawn, or says why the chat did not open
+  // (the host's error, the start's notice), its prompt kept: never a blank chat or one that loads forever.
+  const cloudStartOpenedNow = cloudStart?.opened === true;
+  useEffect(() => {
+    if (!cloudStartOpenedNow) return;
+    const view = {
+      sessionId: snapshot.sessionId,
+      rows: snapshot.rows,
+      hostError: hostErrorShown ? hostError : undefined,
+    };
+    setCloudStart((current) => cloudStartOpenedSettled(current, view));
+  }, [cloudStartOpenedNow, snapshot.sessionId, snapshot.rows, hostError, hostErrorShown]);
   /// A Retry the user asked for that waits on the attempt in flight.
   const [retryQueued, setRetryQueued] = useState(false);
   /// Asks the host again now, after the user fixed what `hostError` says.
@@ -8462,7 +8602,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   };
   // The account's machine a Cloud chat runs on, for the chat menu's Pause and Resume; the
   // account's list is read when such a chat shows (and after each pick), never on a timer.
-  const accountMachines = useCloudMachines();
   const chatMachine = chatCloudMachine(summary, accountMachines);
   // Leo, 2026-11-04: "as the user's selected cloud/is typing in it… that's when we can do an
   // optimistic resume". A keystroke in a Cloud chat whose machine reads paused wakes it with that
@@ -8736,6 +8875,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     : trayAgents.length + childSessions.length;
   if (revealSection && listedAgents > 0) commands.showSubagents = () => revealSection("subagents");
   if (revealSection && backgroundRows > 0) commands.showBackgroundTasks = () => revealSection("tasks");
+  // Command-J G (agentPane.openLastTurnChanges): the last turn that edited files, its diff beside the
+  // chat, as that turn's edited-files card's View changes opens it, wherever the card has scrolled to.
+  const lastEditedTurn = cardEdit.turn;
+  if (!quick && lastEditedTurn)
+    commands.openLastTurnChanges = () =>
+      void diffBeside.current(lastEditedTurn.rowId, undefined, "open").catch(() => false);
   paletteCommands.current = { sessionId: snapshot.sessionId ?? "", commands };
   const commandNames = Object.keys(commands).sort().join(" ");
   // Again for every client: the host's handshake (a reconnect's too) forgets the list, and a new
@@ -9610,12 +9755,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   const cloudHintUsed = cloudHint.used;
   const onCloudMachinePicked = useCallback(
-    (machine: CloudMachine | undefined) => {
+    (machine: CloudMachine | undefined, peer?: string | null) => {
       cloudDraftMachineID.current = machine?.id ?? null;
+      cloudDraftPeer.current = peer;
+      setCloudDraftHasPeer(Boolean(peer));
+      refreshCloudPicker();
       // A Cloud machine picked is a pick of Cloud: the hint is done.
       if (machine) cloudHintUsed();
     },
-    [cloudHintUsed],
+    [cloudHintUsed, refreshCloudPicker],
   );
   const newTabSnapshot = useMemo(
     () =>
@@ -11548,6 +11696,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setDisplayAnchor,
     closeInspector,
     sendPerf,
+    readInspectorHistory,
     setDock,
     dockFoot,
     paneToasts,
@@ -11600,7 +11749,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               <OpenBackgroundTasks.Provider value={quick ? undefined : openBackgroundTask}>
                 <ClaudeConnectContext.Provider value={modelConnect}>
                   <TranscriptRowsContext.Provider value={rowsRef}>
-                    <NoticeSlot>{pane}</NoticeSlot>
+                    <CloudServedContext.Provider value={cloudPickerActive ? cloudPickerSetup : undefined}>
+                      <NoticeSlot>{pane}</NoticeSlot>
+                    </CloudServedContext.Provider>
                   </TranscriptRowsContext.Provider>
                 </ClaudeConnectContext.Provider>
               </OpenBackgroundTasks.Provider>

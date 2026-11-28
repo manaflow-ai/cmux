@@ -79,10 +79,19 @@ def flat(text: str) -> str:
 
 
 class DaemonTestsGateTests(unittest.TestCase):
-    def test_the_gate_runs_on_the_shared_linux_label_on_every_attempt(self) -> None:
+    def test_the_gate_runs_on_the_shared_linux_label_and_a_nightly_rerun_leaves_it(self) -> None:
+        # A nightly-ref rerun takes the reserved GCP pool: 2026-11-28 run 46107444639 failed this
+        # gate on one cmux-linux box (cargo EACCES) and every promote waited on that pool.
         runs_on = sole_runs_on(jobs()["cmux-next-daemon-tests"])
         for context in contexts():
-            expected = "cmux-linux" if context["github.repository_owner"] == "manaflow-ai" else "ubuntu-24.04"
+            nightly = context["github.event_name"] == "workflow_dispatch" or context["github.ref"] in (
+                "refs/heads/nightly-next", "refs/heads/feat-cmux-next")
+            if context["github.repository_owner"] != "manaflow-ai":
+                expected = "ubuntu-24.04"
+            elif int(context["github.run_attempt"]) > 1 and nightly:
+                expected = "cmux-gcp-nightly-x64"
+            else:
+                expected = "cmux-linux"
             self.assertEqual(route(runs_on, context), expected, context)
 
     def test_the_job_keeps_its_id_and_setup(self) -> None:

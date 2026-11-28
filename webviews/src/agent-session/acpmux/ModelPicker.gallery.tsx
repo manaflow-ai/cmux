@@ -12,11 +12,16 @@ import { type UpdateOffer, UpdateOfferContext } from "./harnessHealthNoticeModel
 import { type HarnessUpdates, HarnessUpdatesContext } from "./harnessUpdateList";
 import { SOL_SEARCH_CATALOG, SOL_SEARCH_QUERY } from "../../gallery/fixtures/modelSearch";
 import { MODEL_PICKER } from "./composerSelectors";
+import { CloudServedContext, type CloudServed } from "./cloudServed";
 
 /// The chat's agent CLI update on offer (hq#2569 #12), which the pane hands the chip by context, and
 /// the outdated agent CLIs the menus' footer lists (harnessUpdateList.ts), which the pane hands the
 /// same way.
-type GalleryProps = ModelPickerProps & { update?: UpdateOffer; harnessUpdates?: HarnessUpdates };
+type GalleryProps = ModelPickerProps & {
+  update?: UpdateOffer;
+  harnessUpdates?: HarnessUpdates;
+  cloud?: { served?: CloudServed };
+};
 
 const update: UpdateOffer = {
   harness: "claude",
@@ -76,6 +81,20 @@ const base: ModelPickerProps = {
   onLand: () => undefined,
   onEffort: () => undefined,
 };
+
+const localModel = { id: "local-model", name: "Local model" };
+const cloudHarnesses = [
+  { id: "gemini", name: "Gemini CLI", models: [localModel] },
+  { id: "grok-build", name: "Grok Build", models: [localModel] },
+  { id: "openrouter", name: "OpenRouter", models: [localModel] },
+  { id: "opencode", name: "OpenCode", models: [localModel] },
+  { id: "pi", name: "Pi", models: [localModel] },
+];
+const cloudPicker: ModelPickerProps = { ...base, quick: {}, catalog: [...catalog, ...cloudHarnesses] };
+const cloudState = (families: CloudServed["families"]): GalleryProps["cloud"] => ({
+  served: { runnableFamilies: ["claude", "codex"], families },
+});
+const partiallySetUp = cloudState({ claude: true, codex: false });
 
 /// The bundled catalog's Claude Code and Codex models with their curated top lists (topModels/):
 /// the top models first, everything else under More models (cx-espus).
@@ -400,6 +419,12 @@ const openColumns = async (ctx: Parameters<Play>[0], width?: number) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cols [role=listbox] [role=option]") !== null);
 };
 
+const openCloudConnection: Play = async (ctx) => {
+  setModelMenuWidth(undefined);
+  await ctx.click({ selector: MODEL_PICKER });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cols-tab[data-off][aria-selected=true]"));
+};
+
 /// Opens the columns at a dragged width on OpenCode's tab, whose provider-prefixed names are the longest.
 const openOpenCodeAt = async (ctx: Parameters<Play>[0], width: number) => {
   await openColumns(ctx, width);
@@ -625,17 +650,67 @@ export default componentEntry<GalleryProps>({
   ],
   styles: () => Promise.all([import("./styles.css"), import("./modelPicker.css"), import("./composerControls.css")]),
   load: () =>
-    import("./ModelPicker").then(({ ModelPicker }) => ({ update: offer, harnessUpdates, ...props }: GalleryProps) => (
-      <UpdateOfferContext.Provider value={offer}>
-        <HarnessUpdatesContext.Provider value={harnessUpdates}>
-          <ModelPicker {...props} />
-        </HarnessUpdatesContext.Provider>
-      </UpdateOfferContext.Provider>
-    )),
+    import("./ModelPicker").then(
+      ({ ModelPicker }) =>
+        ({ update: offer, harnessUpdates, cloud, ...props }: GalleryProps) => (
+          <UpdateOfferContext.Provider value={offer}>
+            <HarnessUpdatesContext.Provider value={harnessUpdates}>
+              <CloudServedContext.Provider value={cloud && { ...cloud, openSettings: () => undefined }}>
+                <ModelPicker {...props} />
+              </CloudServedContext.Provider>
+            </HarnessUpdatesContext.Provider>
+          </UpdateOfferContext.Provider>
+        ),
+    ),
   variants: {
     "reasoning-column": { props: { ...quick, reasoningMenu: "column", detail: "Medium" }, play: openPicker },
     "separate-reasoning": { props: { ...quick, reasoningMenu: "separate", detail: "Medium" }, play: openPicker },
     "model-only": { props: { ...curated, reasoningMenu: "column" }, play: openPicker },
+    "cloud-partially-set-up": { props: { ...cloudPicker, cloud: partiallySetUp }, play: openColumns },
+    "cloud-needs-connection": {
+      props: { ...cloudPicker, cloud: cloudState({ claude: false, codex: false }) },
+      play: openCloudConnection,
+    },
+    "cloud-runs-soon": {
+      props: { ...cloudPicker, cloud: partiallySetUp, harness: "gemini", model: localModel.id },
+      play: async (ctx) => {
+        await openCloudConnection(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector("[data-cloud-coming-soon]"));
+      },
+    },
+    "cloud-setup-unknown": { props: { ...cloudPicker, cloud: {} }, play: openColumns },
+    "this-mac-models": { props: cloudPicker, play: openColumns },
+    "cloud-disconnected-current": {
+      props: {
+        ...cloudPicker,
+        cloud: partiallySetUp,
+        harness: "codex",
+        model: "gpt-6.1-sol",
+        label: "GPT-6.1-Sol",
+      },
+      play: openCloudConnection,
+    },
+    "cloud-full-models": {
+      props: { ...cloudPicker, quick: undefined, cloud: partiallySetUp },
+      play: async (ctx) => {
+        await ctx.click({ selector: MODEL_PICKER });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp [data-key^='model:']"));
+      },
+    },
+    "cloud-full-needs-connection": {
+      props: {
+        ...cloudPicker,
+        quick: undefined,
+        cloud: partiallySetUp,
+        harness: "codex",
+        model: "gpt-6.1-sol",
+        label: "GPT-6.1-Sol",
+      },
+      play: async (ctx) => {
+        await ctx.click({ selector: MODEL_PICKER });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp-login"));
+      },
+    },
     idle: {
       props: { ...base, catalogRefresh: refresh("idle", "2026-10-07T10:00:00Z") },
       play: async (ctx) => {

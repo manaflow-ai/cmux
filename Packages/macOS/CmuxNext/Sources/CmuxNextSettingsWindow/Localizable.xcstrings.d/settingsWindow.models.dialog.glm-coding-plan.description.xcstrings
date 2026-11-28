@@ -1,0 +1,136 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.models.dialog.glm-coding-plan.description" : {
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "سيستخدم cmux اشتراكك في GLM Coding Plan للوصول إلى نماذج GLM. الصق مفتاح API من GLM Coding Plan للاتصال."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux će koristiti tvoju pretplatu na GLM Coding Plan za pristup opciji modeli GLM. Zalijepi API ključ za GLM Coding Plan da se povežeš."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux bruger dit abonnement på GLM Coding Plan til at tilgå GLM-modeller. Indsæt en API-nøgle til GLM Coding Plan for at oprette forbindelse."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux verwendet dein Abo für GLM Coding Plan für den Zugriff auf Modelle von GLM. Füge einen API-Schlüssel für GLM Coding Plan ein, um dich zu verbinden."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux will use your GLM Coding Plan to access GLM models. Paste a Coding Plan API key to connect."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux usará tu suscripción a GLM Coding Plan para acceder a los modelos de GLM. Pega una clave de API de GLM Coding Plan para conectarte."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux utilisera votre abonnement GLM Coding Plan pour accéder à des modèles GLM. Collez une clé API GLM Coding Plan pour vous connecter."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux userà il tuo abbonamento a GLM Coding Plan per accedere a modelli GLM. Incolla una chiave API di GLM Coding Plan per connetterti."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmuxはお使いのGLM Coding Planのサブスクリプションを使用してGLMモデルにアクセスします。接続するにはGLM Coding PlanのAPIキーを貼り付けてください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux នឹងប្រើ ការជាវ GLM Coding Plan របស់អ្នក ដើម្បីចូលប្រើ ម៉ូដែល GLM។ បិទភ្ជាប់សោ API សម្រាប់ GLM Coding Plan ដើម្បីភ្ជាប់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux에서 GLM Coding Plan 구독로 GLM 모델에 액세스합니다. 연결하려면 GLM Coding Plan API 키를 붙여넣으세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux bruker abonnementet ditt på GLM Coding Plan for å få tilgang til modeller fra GLM. Lim inn en API-nøkkel for GLM Coding Plan for å koble til."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux użyje Twojej subskrypcji GLM Coding Plan, aby uzyskać dostęp do modeli GLM. Wklej klucz API usługi GLM Coding Plan, aby się połączyć."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O cmux usará sua assinatura de GLM Coding Plan para acessar os modelos de GLM. Cole uma chave de API de GLM Coding Plan para conectar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux будет использовать вашу подписку на GLM Coding Plan для доступа к следующему: модели GLM. Вставьте ключ API для GLM Coding Plan, чтобы подключиться."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux จะใช้การสมัครใช้บริการ GLM Coding Plan ของคุณเพื่อเข้าถึงโมเดล GLM วางคีย์ API ของ GLM Coding Plan เพื่อเชื่อมต่อ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux GLM modellerine erişmek için GLM Coding Plan aboneliğinizi kullanacak. Bağlanmak için GLM Coding Plan API anahtarını yapıştırın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux використає вашу підписку на GLM Coding Plan для доступу до такого: моделі GLM. Вставте ключ API для GLM Coding Plan, щоб підключитися."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux sẽ dùng gói đăng ký GLM Coding Plan của bạn để truy cập mô hình GLM. Dán khóa API GLM Coding Plan để kết nối."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 将使用你的GLM Coding Plan订阅访问GLM模型。粘贴GLM Coding Plan API 密钥以连接。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 將使用你的GLM Coding Plan訂閱存取GLM模型。貼上GLM Coding Plan API 金鑰以連接。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
