@@ -25,6 +25,8 @@ CAS_PATHS = [
     "cmux-tui/crates/cmux-signed-envelope/**",  # cmux-cas depends on it (a85833e329d / #60110)
     "scripts/cas/**",
     "scripts/cmux-next/web-bundle-archive.py",
+    "scripts/ci/cmux_tui_tree_key.py",  # the cmux-tui tree key the replay build reuses
+    "scripts/cmux-next/cmux-tui-tree-inputs.txt",
     ".github/workflows/cas-replay.yml",
     "scripts/ci/verify_cas_replay_artifact.py",
     "tests/test_cas_web_ota_replay.py",
@@ -62,6 +64,8 @@ class CasReplayWorkflow(unittest.TestCase):
             "cmux-tui/crates/cmux-signed-envelope/**",
             "scripts/cas/**",
             "scripts/cmux-next/web-bundle-archive.py",
+            "scripts/ci/cmux_tui_tree_key.py",
+            "scripts/cmux-next/cmux-tui-tree-inputs.txt",
             "webviews/**",
             ".github/workflows/cas-replay.yml",
             "scripts/ci/verify_cas_replay_artifact.py",
