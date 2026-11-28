@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agents.providers.codex.home.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Where Codex keeps its settings and sign-in (CODEX_HOME). Empty uses ~/.codex."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "المكان الذي يحفظ فيه Codex إعداداته وتسجيل الدخول (CODEX_HOME). إذا تُرك فارغًا يُستخدم ~/.codex."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gdje Codex čuva svoje postavke i prijavu (CODEX_HOME). Prazno koristi ~/.codex."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hvor Codex gemmer sine indstillinger og login (CODEX_HOME). Tomt bruger ~/.codex."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wo Codex seine Einstellungen und Anmeldung speichert (CODEX_HOME). Leer verwendet ~/.codex."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dónde guarda Codex su configuración y sesión (CODEX_HOME). Vacío usa ~/.codex."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’endroit où Codex garde ses réglages et sa connexion (CODEX_HOME). Vide utilise ~/.codex."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dove Codex conserva impostazioni e accesso (CODEX_HOME). Vuoto usa ~/.codex."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex が設定とサインイン情報を保存する場所（CODEX_HOME）。空欄の場合は ~/.codex を使います。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "កន្លែងដែល Codex រក្សាការកំណត់ និងការចូលរបស់វា (CODEX_HOME)។ ទុកទទេ ប្រើ ~/.codex។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex가 설정과 로그인 정보를 보관하는 곳(CODEX_HOME)입니다. 비워 두면 ~/.codex를 사용합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hvor Codex lagrer innstillingene og påloggingen sin (CODEX_HOME). Tomt bruker ~/.codex."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Miejsce, w którym Codex przechowuje ustawienia i logowanie (CODEX_HOME). Puste używa ~/.codex."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Onde o Codex guarda suas configurações e login (CODEX_HOME). Vazio usa ~/.codex."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Где Codex хранит настройки и вход (CODEX_HOME). Если пусто, используется ~/.codex."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ที่ที่ Codex เก็บการตั้งค่าและการลงชื่อเข้าใช้ (CODEX_HOME) หากว่างไว้จะใช้ ~/.codex"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex uygulamasının ayarlarını ve oturumunu tuttuğu yer (CODEX_HOME). Boş bırakılırsa ~/.codex kullanılır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Де Codex зберігає налаштування та вхід (CODEX_HOME). Якщо порожньо, використовується ~/.codex."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nơi Codex lưu cài đặt và thông tin đăng nhập (CODEX_HOME). Để trống sẽ dùng ~/.codex."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex 保存设置和登录信息的位置（CODEX_HOME）。留空则使用 ~/.codex。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex 儲存設定和登入資訊的位置（CODEX_HOME）。留空則使用 ~/.codex。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
