@@ -233,6 +233,7 @@ pub(crate) mod shutdown_drain;
 #[cfg(test)]
 #[path = "shutdown_drain_tests.rs"]
 mod shutdown_drain_tests;
+mod shutdown_reason;
 mod sign_in_follow;
 #[cfg(test)]
 #[cfg(unix)]

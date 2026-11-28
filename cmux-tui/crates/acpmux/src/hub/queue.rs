@@ -428,9 +428,8 @@ impl Hub {
                         // A cold chat's batch (`cold_wake.rs`): the message waits for it, a burst
                         // window past its deadline, so the inbox's notice at the deadline leads
                         // the turn and takes it (`take_joined`).
-                        let wait = self
-                            .cold_batch_due(session, &session.meta(), now_ms())
-                            .map_or(0, |due| due.saturating_sub(now_ms()));
+                        // A time watch's wake does not wait for it: the chat set that time.
+                        let wait = self.cold_batch_wait(session, p.provenance, now_ms());
                         let until = tokio::time::Instant::now()
                             + std::time::Duration::from_millis(
                                 wait + super::digest::AGENT_GATHER_MS,
