@@ -100,6 +100,7 @@ export function failedSendText(
   attachments: readonly ComposerAttachment[] = [],
 ): string {
   const fields = error && typeof error === "object" ? (error as { code?: unknown; reason?: unknown }) : undefined;
+  if (fields?.reason === "credentials.claude_login_busy") return translate("prompt.failure.claudeLoginBusy");
   switch (sendCause(fields)) {
     case "trust-pending":
       return translate("prompt.failure.trustPending");

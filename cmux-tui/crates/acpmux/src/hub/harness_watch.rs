@@ -243,6 +243,7 @@ impl Hub {
                     .harness_watch
                     .changes
                     .send(json!({"harnesses": reply["harnesses"], "diagnostics": diagnostics}));
+                crate::server::connections::announce_later(self);
                 true
             }
             Err(e) => {
