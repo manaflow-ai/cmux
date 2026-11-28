@@ -78,8 +78,10 @@ class MacWarmTargetScript(unittest.TestCase):
                               env=env).stdout
 
     def run_script(self, command: str, runner: str, lto: str = "fat") -> str:
+        self.github_env = self.tmp / f"github-env-{runner}"
         env = {"PATH": os.environ["PATH"], "HOME": str(self.tmp), "RUNNER_NAME": runner,
-               "RUNNER_TEMP": str(self.tmp), "LTO": lto, "CMUX_TUI_MAC_WARM_ROOT": str(self.cache)}
+               "RUNNER_TEMP": str(self.tmp), "LTO": lto, "CMUX_TUI_MAC_WARM_ROOT": str(self.cache),
+               "GITHUB_ENV": str(self.github_env)}
         done = subprocess.run(["bash", str(self.repo / SCRIPT), command, TRIPLE], env=env,
                               capture_output=True, text=True, timeout=120)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
@@ -127,6 +129,18 @@ class MacWarmTargetScript(unittest.TestCase):
         self.assertEqual((self.link / TRIPLE / "release" / "cmux-tui").read_text(), "binary")
         self.assertEqual(int((self.repo / "cmux-tui" / "src" / "same.rs").stat().st_mtime), 1_000_000_000)
         self.assertGreater((self.repo / "cmux-tui" / "src" / "changed.rs").stat().st_mtime, 1_000_000_000)
+
+    def test_every_runner_of_a_mac_builds_with_one_cargo_home(self) -> None:
+        # Run 46095639867: a base from another runner's .cargo-home dirtied every registry crate.
+        homes = set()
+        for runner in ("mini-1-glaeda-7", "mini-1-glaeda-8"):
+            if self.link.is_symlink():
+                self.link.unlink()
+            self.run_script("restore", runner)
+            lines = [l for l in self.github_env.read_text().splitlines() if l.startswith("CARGO_HOME=")]
+            self.assertEqual(len(lines), 1, lines)
+            homes.add(lines[0])
+        self.assertEqual(homes, {f"CARGO_HOME={self.tmp}/Library/Caches/cmux-next-ci/cmux-tui-cargo-home"})
 
     def build_and_record(self, runner: str, marker: str, lto: str = "fat") -> str:
         if self.link.is_symlink():

@@ -1,7 +1,10 @@
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { measureOnce, type LatencyAction } from "./latency/measure";
-import { installLatencyProbe } from "./latency/probe";
+import type { LatencyAction } from "./latency/measure";
+import { importWithDom } from "./support/importWithDom";
+
+const { measureOnce } = await importWithDom(() => import("./latency/measure"));
+const { installLatencyProbe } = await importWithDom(() => import("./latency/probe"));
 
 function harness() {
   const dom = new JSDOM("<!doctype html><output></output>", { runScripts: "outside-only" });

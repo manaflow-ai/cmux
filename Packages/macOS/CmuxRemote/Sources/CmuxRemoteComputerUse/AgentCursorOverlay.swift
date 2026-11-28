@@ -270,7 +270,7 @@ final class AgentCursorOverlay {
                         } else if case .drag = step {
                             live[c].glide = Glide(from: from, plan: nil, start: t, end: to, linear: 0.35 / max(speed, 0.25))
                         } else {
-                            let plan = GlideMotion().plan(fromX: from.x, fromY: from.y, toX: to.x, toY: to.y, endHeading: 0)
+                            let plan = GlideMotion().codexPlan(fromX: from.x, fromY: from.y, toX: to.x, toY: to.y, endHeading: 0)
                             live[c].glide = Glide(from: from, plan: plan, start: t, end: to, linear: 0)
                         }
                         cursor.noteTailEvent(.move)
@@ -380,6 +380,11 @@ private final class SessionCursor {
     private let shadow = CAShapeLayer()
     private let pointer = CAShapeLayer()
     private let shine = CAGradientLayer()
+    /// The Codex-style lavender fill, masked to the kite.
+    private let brandFill = CAGradientLayer()
+    private let brandMask = CAShapeLayer()
+    /// Codex's soft lavender halo behind the pointer (about 4x its size), breathing while idle.
+    private let glow = CAGradientLayer()
     private let shineMask = CAShapeLayer()
     private let nameTag = CALayer()
     private let dot = CALayer()
@@ -475,9 +480,26 @@ private final class SessionCursor {
         shadow.shadowRadius = 3
         shadow.shadowOffset = CGSize(width: 0, height: -1.5)
         shadow.shadowPath = path
-        pointer.fillColor = AgentCursorOverlay.blue.cgColor
-        pointer.strokeColor = NSColor.white.cgColor
-        pointer.lineWidth = 2
+        // The classic cmux cursor: the Sky kite with a white outline drawn outside the
+        // brand gradient (classic's AgentCursorPointerView, `paint-order: stroke`).
+        rim.strokeColor = NSColor.white.cgColor
+        rim.lineWidth = 2.4
+        pointer.fillColor = NSColor.clear.cgColor
+        pointer.strokeColor = nil
+        pointer.lineWidth = 0
+        brandMask.path = path
+        brandFill.frame = CGRect(origin: .zero, size: Self.pointerSize)
+        // Codex's fill: a muted lavender, a little lighter at the tip, slightly see-through.
+        brandFill.colors = [NSColor(srgbRed: 0x9A / 255, green: 0x9C / 255, blue: 0xD6 / 255, alpha: 0.92).cgColor,
+                            NSColor(srgbRed: 0x82 / 255, green: 0x84 / 255, blue: 0xC4 / 255, alpha: 0.92).cgColor,
+                            NSColor(srgbRed: 0x74 / 255, green: 0x74 / 255, blue: 0xB8 / 255, alpha: 0.92).cgColor]
+        brandFill.locations = [0, 0.59, 1]
+        brandFill.startPoint = CGPoint(x: Self.tipPoint.x / Self.pointerSize.width, y: Self.tipPoint.y / Self.pointerSize.height)
+        brandFill.endPoint = CGPoint(x: 1, y: 0)
+        brandFill.mask = brandMask
+        // The kite has no stem: no tail.
+        tailEdge.isHidden = true
+        tail.isHidden = true
         // A soft light along the pointer's top edge: a gradient masked to the pointer's shape.
         shineMask.path = path
         shine.frame = CGRect(origin: .zero, size: Self.pointerSize)
@@ -486,6 +508,8 @@ private final class SessionCursor {
         shine.endPoint = CGPoint(x: 0.6, y: 0.4)
         shine.mask = shineMask
         pointer.addSublayer(shine)
+        shine.isHidden = true
+        pointer.addSublayer(brandFill)
 
         nameTag.backgroundColor = AgentCursorOverlay.blue.cgColor
         nameTag.borderColor = NSColor.white.withAlphaComponent(0.85).cgColor
@@ -513,6 +537,34 @@ private final class SessionCursor {
         chipLayer.shadowRadius = 4
         chipLayer.shadowOffset = CGSize(width: 0, height: -1)
 
+        let halo = max(Self.pointerSize.width, Self.pointerSize.height) * 4
+        glow.type = .radial
+        glow.colors = [NSColor(srgbRed: 0x8E / 255, green: 0x86 / 255, blue: 0xF0 / 255, alpha: 0.42).cgColor,
+                       NSColor(srgbRed: 0x8E / 255, green: 0x86 / 255, blue: 0xF0 / 255, alpha: 0).cgColor]
+        glow.startPoint = CGPoint(x: 0.5, y: 0.5)
+        glow.endPoint = CGPoint(x: 1, y: 1)
+        glow.bounds = CGRect(x: 0, y: 0, width: halo, height: halo)
+        glow.position = CGPoint(x: Self.pointerSize.width / 2, y: Self.pointerSize.height / 2)
+        glow.allowsHitTesting = false
+        figure.addSublayer(glow)
+        // motion: allow an idle breathe (glow scale and opacity, a slight tilt of the kite), like Codex's.
+        let breathe = CABasicAnimation(keyPath: "transform.scale")
+        breathe.fromValue = 0.92
+        breathe.toValue = 1.06
+        breathe.duration = 1.4
+        breathe.autoreverses = true
+        breathe.repeatCount = .infinity
+        breathe.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        glow.add(breathe, forKey: "breathe")
+        let tilt = CABasicAnimation(keyPath: "transform.rotation.z")
+        tilt.fromValue = -0.05
+        tilt.toValue = 0.05
+        tilt.duration = 1.8
+        tilt.autoreverses = true
+        tilt.repeatCount = .infinity
+        tilt.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        pointer.add(tilt, forKey: "wiggle")
+        rim.add(tilt, forKey: "wiggle")
         figure.addSublayer(tailEdge)
         figure.addSublayer(tail)
         figure.addSublayer(shadow)
@@ -533,16 +585,21 @@ private final class SessionCursor {
         text.truncationMode = .end
     }
 
-    /// The cursor's pointer: a chubby arrow with soft, rounded corners, tip at (2.5, 26) (y up).
+    /// The cursor's pointer: classic cmux's Sky kite (AgentCursorPointerView on main), its tip
+    /// at (2.5, 26) of the design grid (y up). The kite's own units are y down, tip near (0.6, 0.6).
     static func pointerPath() -> CGPath {
-        let points = AgentCursorTail.pointerOutline
-        let radii: [CGFloat] = [2.0, 2.4, 1.4, 1.6, 1.6, 1.4, 2.4]
+        let s: CGFloat = 1.75
+        func g(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: 2.5 + (x - 0.6) * s, y: 26 - (y - 0.6) * s) }
         let path = CGMutablePath()
-        let first = points[0], last = points[points.count - 1]
-        path.move(to: CGPoint(x: (first.x + last.x) / 2, y: (first.y + last.y) / 2))
-        for i in points.indices {
-            path.addArc(tangent1End: points[i], tangent2End: points[(i + 1) % points.count], radius: radii[i])
-        }
+        path.move(to: g(0.68, 1.83))
+        path.addLine(to: g(3.63, 9.78))
+        path.addQuadCurve(to: g(5.3, 9.66), control: g(4.67, 12.59))
+        path.addLine(to: g(5.44, 9.01))
+        path.addQuadCurve(to: g(9.01, 5.44), control: g(6.08, 6.08))
+        path.addLine(to: g(9.66, 5.3))
+        path.addQuadCurve(to: g(9.78, 3.63), control: g(12.59, 4.67))
+        path.addLine(to: g(1.83, 0.68))
+        path.addQuadCurve(to: g(0.68, 1.83), control: g(0, 0))
         path.closeSubpath()
         var grid = CGAffineTransform(scaleX: k, y: k)
         return path.copy(using: &grid) ?? path
@@ -595,10 +652,11 @@ private final class SessionCursor {
 
     /// The tail and pointer follow the alert color (amber, red), else cmux blue.
     private func tint(_ color: NSColor?) {
-        pointer.fillColor = (color ?? AgentCursorOverlay.blue).cgColor
+        // Alerts (amber, red) fill the kite solid; else the classic brand gradient.
+        pointer.fillColor = (color ?? .clear).cgColor
+        brandFill.isHidden = color != nil
         let deep = color?.blended(withFraction: 0.25, of: .black) ?? AgentCursorOverlay.deepBlue
         tail.strokeColor = deep.cgColor
-        rim.strokeColor = deep.withAlphaComponent(0.55).cgColor
         // Paused or refused: the tail droops until the next step.
         let drooping = color != nil
         if tailMotion.drooping != drooping { stirTail { $0.drooping = drooping } }
@@ -726,7 +784,7 @@ private final class SessionCursor {
         body.opacity = 1
         CATransaction.commit()
         if animated, let from, hypot(from.x - to.x, from.y - to.y) >= 1 {
-            let plan = GlideMotion().plan(fromX: from.x, fromY: from.y, toX: to.x, toY: to.y, endHeading: 0)
+            let plan = GlideMotion().codexPlan(fromX: from.x, fromY: from.y, toX: to.x, toY: to.y, endHeading: 0)
             // motion: allow the worker's own gate: `animated` is the app's cursor switches and Reduce Motion (CursorMotionSettings), speed is ui.animationSpeed.
             let move = plan.positionAnimation(from: from)
             move.duration /= max(speed, 0.25)

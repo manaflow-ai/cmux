@@ -74,6 +74,26 @@ fn browser_rules_tab_state_apply_ignores_a_superseded_loads_late_failure() {
 }
 
 #[test]
+fn browser_rules_input_key_stroke_gives_a_meta_shortcut_its_editing_command() {
+    let request = json!({"key": "z", "code": "KeyZ", "modifiers": ["Meta", "Shift"]});
+    let (code, body) =
+        call("browser_rules_input_key_stroke", &serde_json::to_vec(&request).unwrap());
+    assert_eq!(code, OK);
+    assert_eq!(body["keyCode"], json!(6));
+    assert_eq!(body["modifierFlags"], json!((1u64 << 20) | (1u64 << 17)));
+    assert_eq!(body["editingCommand"], json!("redo:"));
+}
+
+#[test]
+fn browser_rules_input_mouse_event_drags_while_a_button_is_held() {
+    let request = json!({"held": ["left"], "type": "move", "button": "left"});
+    let (code, body) =
+        call("browser_rules_input_mouse_event", &serde_json::to_vec(&request).unwrap());
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"eventType": "leftMouseDragged", "held": ["left"]}));
+}
+
+#[test]
 fn browser_rules_refuse_a_request_that_is_not_their_json() {
     let (code, _) = call("browser_rules_link_action", br#"{"gesture": "wave"}"#);
     assert_eq!(code, ERR_INVALID);
@@ -170,4 +190,27 @@ fn browser_rules_automation_console_event_maps_a_pageerror() {
         call("browser_rules_automation_console_event", &serde_json::to_vec(&request).unwrap());
     assert_eq!(code, OK);
     assert_eq!(body, json!({"name": "pageerror", "payload": {"message": "boom", "stack": "boom"}}));
+}
+
+#[test]
+fn browser_rules_linkroute_sign_in_to_close_names_the_one_tab_on_the_provider() {
+    let request = json!({
+        "tabs": [{"shown": [{"scheme": "https", "host": "example.com"}]},
+                 {"shown": [null, {"scheme": "https", "host": "GitHub.com"}]}],
+        "host": "github.com", "hosts": [],
+    });
+    let (code, body) =
+        call("browser_rules_linkroute_sign_in_to_close", &serde_json::to_vec(&request).unwrap());
+    assert_eq!(code, OK);
+    assert_eq!(body, json!(1));
+}
+
+#[test]
+fn browser_rules_linkroute_is_new_tab_page_knows_the_blank_and_chromium_pages() {
+    let (code, body) =
+        call("browser_rules_linkroute_is_new_tab_page", br#"{"text":"chrome://newtab/"}"#);
+    assert_eq!(code, OK);
+    assert_eq!(body, json!(true));
+    let (code, _) = call("browser_rules_linkroute_is_new_tab_page", b"{}");
+    assert_eq!(code, ERR_INVALID);
 }

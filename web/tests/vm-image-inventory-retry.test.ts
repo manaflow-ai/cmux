@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { runChild } from "./helpers/run-child";
 import { INVENTORY_STEP_BUDGET_MS, inventoryFailure, SYFT_GOMEMLIMIT, SYFT_MEMORY_MAX, sbomScanCommand } from "../scripts/cmux-vm-image/bake";
 import { guestShellProblems } from "../scripts/cmux-vm-image/shell-check";
 import {
@@ -143,26 +143,26 @@ describe("the SBOM scan cannot wedge its builder, and a silent builder is not re
     expect(command).toContain("--exclude './home/cmux/dev/**'");
   });
 
-  function runScan(syftBody: string): { status: number; stdout: string; stderr: string; gz: boolean } {
+  async function runScan(syftBody: string): Promise<{ status: number; stdout: string; stderr: string; gz: boolean }> {
     const out = mkdtempSync(path.join(tmpdir(), "sbom-"));
     mkdirSync(`${out}-syft`, { recursive: true });
     writeFileSync(`${out}-syft/syft`, `#!/bin/sh\n${syftBody}\n`);
     chmodSync(`${out}-syft/syft`, 0o755);
     // No systemd-run on PATH: the guest without it still gets the Go limit.
-    const r = spawnSync("/bin/sh", ["-c", sbomScanCommand(out, [])], { encoding: "utf8", env: { PATH: "/usr/bin:/bin" } as unknown as NodeJS.ProcessEnv });
+    const r = await runChild("/bin/sh", ["-c", sbomScanCommand(out, [])], { env: { PATH: "/usr/bin:/bin" } });
     return { status: r.status ?? -1, stdout: r.stdout, stderr: r.stderr, gz: existsSync(`${out}/sbom.cdx.json.gz`) };
   }
 
-  test("a scan that finishes is gzipped and timed, with the limit it ran under", () => {
-    const r = runScan('[ "$GOMEMLIMIT" = 1800MiB ] || exit 3; for a; do case "$a" in cyclonedx-json=*) echo "{}" > "${a#cyclonedx-json=}";; esac; done');
+  test("a scan that finishes is gzipped and timed, with the limit it ran under", async () => {
+    const r = await runScan('[ "$GOMEMLIMIT" = 1800MiB ] || exit 3; for a; do case "$a" in cyclonedx-json=*) echo "{}" > "${a#cyclonedx-json=}";; esac; done');
     expect(r.status).toBe(0);
     expect(r.stdout).toContain("syft-cap  gomemlimit 1800MiB");
     expect(r.stdout).toMatch(/syft-secs \d+/);
     expect(r.gz).toBe(true);
   });
 
-  test("a syft the cap killed fails the step at once with the reason", () => {
-    const r = runScan("kill -9 $$");
+  test("a syft the cap killed fails the step at once with the reason", async () => {
+    const r = await runScan("kill -9 $$");
     expect(r.status).toBe(137);
     expect(r.stderr).toContain(`syft killed (status 137): its ${SYFT_MEMORY_MAX} memory cap`);
     expect(r.stdout).not.toContain("syft-secs");

@@ -83,6 +83,19 @@ describe("enrollment and audit reducer (TeamDO)", () => {
     expect(ok(teamDomain.reduce(s, "team.device.release", { install: INST }, ctx(OWNER))).state.managed_devices?.[INST]).toBeUndefined()
   })
 
+  it("hands RFD 0211 device keys (sandbox.local, projection.*) only to managed installs", () => {
+    let s = ok(teamDomain.reduce(baseState(), "team.policy.update", { changes: [
+      { key: "sandbox.local", value: { value: "required", mode: "enforced" } },
+      { key: "projection.readOnly", value: { value: true, mode: "enforced" } },
+      { key: "cloud.regions", value: { value: ["us-east-1"], mode: "enforced" } }
+    ], expected_version: 0 }, ctx())).state as TeamState
+    expect(devicePolicyFor(s, INST).features).toEqual({})
+    s = ok(teamDomain.reduce(s, "team.device.enroll", {}, asInstall(MEMBER, INST))).state as TeamState
+    const features = devicePolicyFor(s, INST).features
+    expect(features).toMatchObject({ "sandbox.local": { value: "required" }, "projection.readOnly": { value: true } })
+    expect(features).not.toHaveProperty("cloud.regions")
+  })
+
 })
 
 const sessionToken = async (stackUser: string) => {
