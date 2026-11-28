@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-/// Settings-invalidated snapshot for the five right-sidebar mode shortcuts.
+/// Settings-invalidated snapshot for the right-sidebar mode shortcuts.
 /// Normal typing misses the modifier bucket without reading settings or the
 /// current keyboard layout.
 @MainActor
@@ -50,7 +50,8 @@ final class RightSidebarModeShortcutMatcher {
             guard entry.shortcut.matches(
                 event: event,
                 layoutCharacterProvider: cachedLayoutCharacterProvider
-            ), availability(entry.mode), allowingAction(entry.action) else { continue }
+            ), availability(entry.mode) else { continue }
+            if let action = entry.action, !allowingAction(action) { continue }
             return entry.mode
         }
         return nil
@@ -58,8 +59,8 @@ final class RightSidebarModeShortcutMatcher {
 
     private func rebuildSnapshot() {
         let entries = RightSidebarMode.allCases.compactMap { mode -> RightSidebarModeShortcutEntry? in
-            guard let action = mode.shortcutAction else { return nil }
-            let shortcut = shortcutProvider(action)
+            let action = mode.shortcutAction
+            let shortcut = action.map(shortcutProvider) ?? mode.effectiveShortcut
             guard !shortcut.isUnbound, !shortcut.hasChord else { return nil }
             return RightSidebarModeShortcutEntry(mode: mode, action: action, shortcut: shortcut)
         }

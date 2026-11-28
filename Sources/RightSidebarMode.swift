@@ -46,6 +46,13 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .customSidebar: return nil
         }
     }
+
+    /// The effective shortcut for switching to this mode, including the
+    /// positional default used by the Custom tab.
+    var effectiveShortcut: StoredShortcut {
+        shortcutAction.map { KeyboardShortcutSettings.shortcut(for: $0) }
+            ?? KeyboardShortcutSettings.rightSidebarPositionalDefaultShortcut(for: self)
+    }
 }
 
 extension RightSidebarMode {
