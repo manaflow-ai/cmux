@@ -29,6 +29,13 @@ public nonisolated struct ChatSettings: Sendable, Equatable {
     /// not a boolean), nil when nothing forces it. acpmux takes a forced value over the settings file at
     /// each Claude or Codex start (`cmux-tui/crates/acpmux/src/claude_stdio/prompt_suggestions.rs`).
     public let promptSuggestionsManaged: Bool?
+    /// `sessions.lockdown` with its allowlists `sessions.lockdownHarnesses` and `sessions.lockdownModels`
+    /// (the Settings text, comma separated), effective across the file, the team policy and MDM. acpmux
+    /// parses the lists and refuses any other agent or model (`cmux-tui/crates/acpmux/src/lockdown.rs`);
+    /// the app turns Cloud and computer use off itself (``ManagedPreferences/lockdownFeatures``).
+    public let lockdown: Bool
+    public let lockdownHarnesses: String
+    public let lockdownModels: String
 
     // Paths and defaults: schemas/settings/source/chats.json (SettingsSchema+Chats.generated.swift).
     public static let booleanKeys = [enabledPath, discoveryPath, sessionRecapPath, terminalChatWritablePath].map { $0.joined(separator: ".") }
@@ -57,6 +64,11 @@ public nonisolated struct ChatSettings: Sendable, Equatable {
         let suggestionsPath = SessionSettings.claudePromptSuggestionsPath
         promptSuggestionsManaged = managedKeys[suggestionsPath.joined(separator: ".")] == nil
             ? nil : effective.value(at: suggestionsPath)?.boolValue ?? false
+        lockdown = ManagedPreferences.lockdownOn(effective)
+        lockdownHarnesses = effective.value(at: SessionSettings.lockdownHarnessesPath)?.stringValue
+            ?? SessionSettings.lockdownHarnessesDefault
+        lockdownModels = effective.value(at: SessionSettings.lockdownModelsPath)?.stringValue
+            ?? SessionSettings.lockdownModelsDefault
     }
 
     /// `_acpmux/chat_settings` params. The daemon persists this device-local projection.
@@ -68,7 +80,8 @@ public nonisolated struct ChatSettings: Sendable, Equatable {
          "sessionRecap": .bool(sessionRecap),
          "terminalChatWritable": .bool(terminalChatWritable),
          "promptSuggestions": promptSuggestionsManaged.map(JSONValue.bool) ?? .null,
-         "promptSuggestionsManaged": .bool(promptSuggestionsManaged != nil)]
+         "promptSuggestionsManaged": .bool(promptSuggestionsManaged != nil),
+         "lockdown": lockdown ? ["harnesses": .string(lockdownHarnesses), "models": .string(lockdownModels)] : .null]
     }
 
     /// Initialize followed by one request, each terminated by a newline.

@@ -55,6 +55,9 @@ pub(crate) struct StartModeState {
     /// The `agents.promptSuggestions` MDM or the team policy forces, as the app pushed it
     /// (`claude_stdio::prompt_suggestions::set_managed`); `None` when nothing forces it.
     pub prompt_suggestions_managed: Option<bool>,
+    /// Lockdown mode's allowlists as the app last pushed them (`crate::lockdown`); `None` off.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lockdown: Option<crate::lockdown::Lockdown>,
 }
 
 impl StartModeState {
@@ -129,6 +132,7 @@ impl StartModeCell {
         let state = path.map(|p| StartModeState::load(Some(p)));
         if let Some(state) = &state {
             crate::claude_stdio::prompt_suggestions::set_managed(state.prompt_suggestions_managed);
+            crate::lockdown::set(state.lockdown.clone());
         }
         Self(StdMutex::new(state), tokio::sync::watch::channel(0).0)
     }
@@ -219,6 +223,23 @@ impl Hub {
             state.prompt_suggestions_managed = managed;
         });
         crate::claude_stdio::prompt_suggestions::set_managed(managed);
+    }
+
+    /// Lockdown mode (`sessions.lockdown`) as the app pushed it (`None`: off): every later agent
+    /// start and model switch checks its allowlists (`crate::lockdown`). Kept in
+    /// `start-mode.json` so it holds across a daemon restart before the app pushes again.
+    pub async fn apply_lockdown_push(&self, lockdown: Option<crate::lockdown::Lockdown>) {
+        let path = state_file(&*self.config.read().await);
+        let (before, after) = self.update_start_mode_state(path.as_deref(), |state| {
+            state.lockdown = lockdown.clone();
+        });
+        if before.lockdown != after.lockdown {
+            tracing::info!(
+                on = after.lockdown.is_some(),
+                "sessions.lockdown: the app pushed a new value"
+            );
+        }
+        crate::lockdown::set(lockdown);
     }
 
     /// The app's push (`_acpmux/chat_settings`): the effective setting and

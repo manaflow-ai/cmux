@@ -25,6 +25,25 @@ extension ManagedPreferences {
     }
 }
 
+extension ManagedPreferences {
+    /// What lockdown mode (`sessions.lockdown`, RFD 0211) turns off in the app: Cloud and computer use.
+    /// Its agent and model allowlists are acpmux's (`ChatSettings.lockdown`).
+    public static let lockdownFeatures: Set<ActionFeature> = [.cloud, .computerUse]
+
+    /// Whether lockdown mode is on in `root` (the effective settings).
+    public static func lockdownOn(_ root: JSONValue) -> Bool {
+        root.value(at: SessionSettings.lockdownPath)?.boolValue ?? SessionSettings.lockdownDefault
+    }
+
+    /// The features `DisabledFeatures` turns off, plus ``lockdownFeatures`` when lockdown mode is on.
+    public static func disabledFeatures(in policy: [String: JSONValue], root: JSONValue)
+        -> (features: Set<ActionFeature>, problem: SettingsDiagnostic?) {
+        var result = disabledFeatures(in: policy)
+        if lockdownOn(root) { result.features.formUnion(lockdownFeatures) }
+        return result
+    }
+}
+
 extension SettingsController {
     /// Applies `DisabledFeatures` from a synchronous read of the forced
     /// managed values, before Cloud, SSH and apps start, so no feature runs
@@ -34,6 +53,12 @@ extension SettingsController {
     public func forcedManagedValuesNow() -> [String: JSONValue] { managedReader.read().forced }
 
     public func applyManagedFeaturesNow() {
-        applier.registry.disabledFeatures = ManagedPreferences.disabledFeatures(in: managedReader.read().forced).features
+        let forced = managedReader.read().forced
+        var features = ManagedPreferences.disabledFeatures(in: forced).features
+        // A profile forcing lockdown on turns Cloud and computer use off before they start too.
+        if forced[SessionSettings.lockdownPath.joined(separator: ".")]?.boolValue == true {
+            features.formUnion(ManagedPreferences.lockdownFeatures)
+        }
+        applier.registry.disabledFeatures = features
     }
 }

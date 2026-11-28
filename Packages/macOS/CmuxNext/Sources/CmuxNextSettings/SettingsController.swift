@@ -540,7 +540,7 @@ public final class SettingsController {
             managedKeys = effective.managedKeys
             managedChatRoots = effective.managedChatRoots
             managedPolicy = effective.policy
-            let policy = ManagedPreferences.disabledFeatures(in: effective.policy)
+            let policy = ManagedPreferences.disabledFeatures(in: effective.policy, root: effective.root)
             applier.registry.disabledFeatures = policy.features
             if let problem = policy.problem { diagnostics.append(problem) }
             // Settings > Menus: the person's right-click menu arrangements (ContextMenusSetting).
