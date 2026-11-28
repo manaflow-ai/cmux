@@ -273,9 +273,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             .catch((e: Error) => ({ status: 0, body: { error: { code: `${e?.name ?? "Error"}: ${e?.message ?? e}` } } }) as { status: number; body: any });
           say(`fs/write piece ${i + 1}/${n}: HTTP ${w.status} in ${Math.round((Date.now() - p0) / 1000)} s (try ${tries})`);
           if (w.status >= 200 && w.status < 300 && w.body?.ok !== false) break;
-          if (tries >= 4 || (w.status !== 0 && w.status < 500 && w.status !== 409)) throw new Error(`fs/write piece ${i}/${n}: HTTP ${w.status} ${String(w.body?.error?.code ?? "")} (try ${tries})`);
+          // Run 46151913661: staging answered 502/503 vm_unavailable on 4 tries of piece 17 while the pieces before
+          // it took 1-3; 8 tries with up to 30 s between them ride out a minutes-long storm.
+          if (tries >= 8 || (w.status !== 0 && w.status < 500 && w.status !== 409)) throw new Error(`fs/write piece ${i + 1}/${n}: HTTP ${w.status} ${String(w.body?.error?.code ?? "")} (try ${tries})`);
           retried++;
-          await sleep(5000 * tries);
+          await sleep(Math.min(5000 * tries, 30_000));
         }
       }
       say(`copied ${n} piece(s), ${retried} retried; swapping cmux-host`);
