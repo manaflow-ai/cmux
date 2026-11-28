@@ -25,6 +25,17 @@ final class MacScreenInputSink: RemoteViewInputSink {
 nonisolated final class MacScreenFrameCounter: Sendable {
     // carve-out: counted from the decode/present callbacks, off any actor, once per frame.
     private let state = Mutex((pending: 0, timings: MacScreenFrameTimings()))
+    /// The newest decoded picture, for `cmux rd screenshot` (`mac_screen.frame`). A still screen
+    /// sends no new frames, so the last one is kept rather than waiting for the next.
+    private let newest = Mutex<RemoteDecodedFrame?>(nil)
+
+    /// Keeps `frame` as the newest picture (one retain; the previous one is released).
+    func keep(_ frame: RemoteDecodedFrame) {
+        newest.withLock { $0 = frame }
+    }
+
+    /// The newest picture this transport decoded; nil before the first.
+    var latest: RemoteDecodedFrame? { newest.withLock { $0 } }
 
     /// Counts one frame (the host's `frame` number, released at `releasedAtNanos` and decoded at
     /// `decodedAtNanos`, `DispatchTime` uptime) as it reaches the presenter; true when the pane

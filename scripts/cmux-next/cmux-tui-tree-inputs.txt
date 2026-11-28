@@ -167,6 +167,7 @@ blob skills/cmux-browser/templates/capture-workflow.sh
 blob skills/cmux-browser/templates/form-automation.sh
 blob skills/cmux-computer-use/SKILL.md
 blob skills/cmux-live/SKILL.md
+blob skills/cmux-screen-sharing/SKILL.md
 blob skills/cmux-customization/SKILL.md
 blob skills/cmux-customization/references/examples.md
 blob skills/cmux-customization/references/local-app-views.md
