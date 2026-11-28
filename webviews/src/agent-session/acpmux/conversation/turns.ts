@@ -2290,6 +2290,8 @@ function shapeTurn(
   // their places, so the end swaps nothing in under the reader (Leo, 2026-11-22: "STOP ADDING
   // FUCKING DINGLEBERRIES OF TOOL CALLS AND BULLSHIT THAT SHIFTS POORLY").
   concluding = false,
+  // The pass is already noted as the running turn's shape (`notedLiveShape`): note no other.
+  noted = false,
 ): AcpmuxRow[] {
   const end = turn.findIndex((row) => row.kind === "turnSummary");
   if (end < 0) {
@@ -2347,6 +2349,35 @@ function shapeTurn(
       : last
         ? turn.flatMap(withoutDrafts)
         : settledWithoutSummary(turn);
+  // A live pass of an ended turn draws what the agent runs on its own after it (its tail, `liveTurn`
+  // below), and the pane's bypass compares what it drew with this pass's shape. Before, it noted none,
+  // so the shape compared was the prompt's turn as it ran ("Working for" where the pane drew "Worked
+  // for"), and each call of the turn after it redrew the pane: 109 of 2161 records a replay window
+  // under load (replay-under-load RENDERS=1, `drewShaped/differs:worked`).
+  if (live && !concluding && !noted)
+    return notedLiveShape(
+      user,
+      turn,
+      (rows) =>
+        shapeTurn(
+          user,
+          rows,
+          expanded,
+          foldOpen,
+          live,
+          last,
+          retryable,
+          retryTarget,
+          clockOffset,
+          agentFamily,
+          trayAgents,
+          endedBackground,
+          turnStartedAtMs,
+          false,
+          true,
+        ),
+      "tail",
+    );
   const summary = turn[end]!;
   // The agent's own wrap-up call (wrapUp.ts) is the card, not a row of its work.
   const worked = turn.slice(0, end);
