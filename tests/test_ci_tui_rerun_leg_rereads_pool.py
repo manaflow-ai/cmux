@@ -20,6 +20,8 @@ WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-build-package.yml"
 CALLER = ROOT / ".github" / "workflows" / "cmux-tui-artifacts.yml"
 RETRY_MAC = "glaeda-side-std-xcode-26.6"
 RETRY_LINUX = "cmux-gcp-nightly-x64"
+# The build legs' retry: the nightly's on-demand one-job JIT label, off the spot pool (cmuxterm-hq#36618).
+RETRY_LINUX_BUILD = "cmux-gcp-nightly-jit-x64"
 
 
 def runs_on() -> str:
@@ -76,8 +78,34 @@ class BuildLegRunner(unittest.TestCase):
         callers = [line for line in lines if line.strip().startswith("linux_retry_runner:")]
         self.assertGreaterEqual(len(callers), 2, "build-linux and build must pass linux_retry_runner")
         for line in callers:
-            self.assertIn(f"'{RETRY_LINUX}'", line)
+            self.assertIn(f"'{RETRY_LINUX_BUILD}'", line)
             self.assertIn("github.repository_owner == 'manaflow-ai'", line)
+
+
+class DaemonTestsRunner(unittest.TestCase):
+    """cmux_next_ daemon tests gate publish-tree-tested, so a nightly promote waits on them too."""
+
+    def label(self, attempt: int, event: str = "push", ref: str = "refs/heads/feat-cmux-next") -> str:
+        jobs = yaml.load(CALLER.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)["jobs"]
+        context = {
+            "github.repository_owner": "manaflow-ai",
+            "github.run_attempt": attempt,
+            "github.event_name": event,
+            "github.ref": ref,
+        }
+        return route(jobs["cmux-next-daemon-tests"]["runs-on"], context)
+
+    def test_first_attempt_keeps_the_shared_pool(self) -> None:
+        self.assertEqual(self.label(1), "cmux-linux")
+        self.assertEqual(self.label(1, "workflow_dispatch"), "cmux-linux")
+
+    def test_a_nightly_rerun_leaves_the_pool_that_failed_it(self) -> None:
+        self.assertEqual(self.label(2), RETRY_LINUX)
+        self.assertEqual(self.label(3, ref="refs/heads/nightly-next"), RETRY_LINUX)
+        self.assertEqual(self.label(2, "workflow_dispatch", "refs/heads/main"), RETRY_LINUX)
+
+    def test_a_pr_rerun_never_takes_the_reserved_label(self) -> None:
+        self.assertEqual(self.label(2, "pull_request", "refs/pull/1/merge"), "cmux-linux")
 
 
 if __name__ == "__main__":
