@@ -149,6 +149,16 @@ pub unsafe extern "C" fn cmux_palette_ranker_rank(
     // SAFETY: a live handle, used by one caller at a time.
     let handle = unsafe { &mut *ranker };
     let result = catch_unwind(AssertUnwindSafe(|| {
+        // The palette model's rules (`crate::model`), read before the rank request: their
+        // fields are their own, so a name the rank request also has never clashes.
+        if let Ok(op) = serde_json::from_slice::<OperationOnly>(request)
+            && op.operation.starts_with(crate::model::OPERATION_PREFIX)
+        {
+            return match crate::model::call(&op.operation, request) {
+                Ok(bytes) => (OK, bytes),
+                Err(error) => (ERR_INVALID, error.into_bytes()),
+            };
+        }
         let request: RankRequest = match serde_json::from_slice(request) {
             Ok(request) => request,
             Err(error) => return (ERR_INVALID, error.to_string().into_bytes()),
@@ -179,4 +189,11 @@ pub unsafe extern "C" fn cmux_palette_ranker_rank(
         *response_len = handle.response.len();
     }
     code
+}
+
+/// A request's `operation` alone (the rest is the op's own).
+#[derive(serde::Deserialize)]
+struct OperationOnly {
+    #[serde(default)]
+    operation: String,
 }

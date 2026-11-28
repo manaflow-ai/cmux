@@ -19,6 +19,7 @@
 
 pub mod ffi;
 pub mod filter;
+pub mod model;
 mod rank;
 mod shortcut;
 mod text;

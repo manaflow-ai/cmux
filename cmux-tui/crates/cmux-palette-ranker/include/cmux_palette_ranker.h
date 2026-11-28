@@ -40,7 +40,11 @@ int32_t cmux_palette_ranker_install_history(
  * response of length 0 (nothing is written when an out pointer is null). The
  * bytes stay valid until the next call on `ranker`. A handle is not thread-safe.
  * A request with "operation": "filter" answers the query's search filter
- * ({"rest", "include", "exclude", "applied"}) for its "sectionNames" instead. */
+ * ({"rest", "include", "exclude", "applied"}) for its "sectionNames" instead.
+ * A request whose "operation" starts with "model." answers one palette model
+ * rule instead (src/model.rs): wordHighlights, querySections, unranked,
+ * resolveRank, storeEmptyRank, selectionAfterRemoving, moveSelection, moveRail,
+ * selectableRows, actionsMenuKey, prefixHints, querySelection. No install needed. */
 int32_t cmux_palette_ranker_rank(
     CmuxPaletteRanker *ranker,
     const uint8_t *request,
