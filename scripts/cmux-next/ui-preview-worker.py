@@ -4,7 +4,8 @@ before and after, and hands them to the agent that pushed, with no app build and
 
     ui-preview-worker.py serve --state DIR [--bind ADDR] [--port 8765] [--public URL] [--send CMD]
                                [--publish-receipts CMD] [--no-warm] [--no-swift] [--swift-peer URL|--swift-pull]
-                               [--follow]
+                               [--swift-reach CMD] [--follow]
+    ui-preview-worker.py shoot --state DIR --job B64JSON
     ui-preview-worker.py pull --state DIR --from URL[,URL...] [--no-warm]
     ui-preview-worker.py once --state DIR [REQUEST.json|-] [--send CMD] [--public URL]
     ui-preview-worker.py warm --state DIR
@@ -24,6 +25,10 @@ request, and every Swift push was a miss.
 SSH port, so a POST to the Mac's :8765 never answered and no Swift look ever posted. Instead the worker queues each
 Swift ask and the Mac's `pull --from URL` takes it over its own outbound connection (GET URL/swift/next, a 25 s
 long-poll), shoots it and answers POST URL/swift/result/ID, the /shoot answer's shape. The Mac listens on nothing.
+--swift-reach CMD (with --swift-pull) is the standby path when no Mac has pulled in PULL_STALE_S (the one pulling Mac
+is asleep or off): the worker runs CMD with {job} replaced by the ask as base64 JSON, a command that reaches another
+display Mac over a path the worker already has (its SSH reach, no new ACL rule) and runs `shoot --job {job}` there;
+the last JSON line of its stdout is the /shoot answer. A Mac that pulls again takes the next ask back over :8765.
 `publish FILE HOST` writes FILE (the receipts) as ui-preview/HOST.json on cmuxterm-hq's now-census through the
 broker's state_put, which NOW's ui_preview.p95_push_to_post_s reads:
 `--publish-receipts 'python3 ui-preview-worker.py publish {file} {host}'`.
@@ -53,6 +58,9 @@ What stays warm under --state:
                  so a web look is a checkout plus a headless shot (ui-preview-shoot.mjs), no gallery build
   shots/KIND/SHA/  every shot set this worker took, by commit: the before of a push is the after of the push before
                  it (cut 7), so an agent's second push shoots one side
+  shots/web-content/KEY.png  every web shot by what it is made of (Worker.content_keys: the entry, the gallery config,
+                 the EVERYTHING files and the blobs of the files touched.ts --inputs names): a base side whose entries
+                 are all here is not shot, and feat-cmux-next's new tip shoots the hot entries off the push path
   looks/TOKEN/   what the agent is sent: before/SCENE.png and after/SCENE.png, served at --public/looks/TOKEN/ under a
                  128-bit random token on the worker's tailnet address, and each changed scene's pair on the
                  push's PR on pr-media (the broker's media call, its privacy check first), which fleet lanes with no
@@ -75,6 +83,8 @@ from __future__ import annotations
 
 import argparse
 import base64
+import collections
+import contextlib
 import datetime as dt
 import fnmatch
 import hashlib
@@ -157,6 +167,12 @@ WEB_SPARSE = ("/*", "!/cmux-next-ios/", "!/ghostty/", "!/ghostty-next/")
 GALLERY_PORT = 4217
 # Warm galleries (web tree, vite, shooter) kept at once, each on one gallery config; ports GALLERY_PORT and up.
 GALLERIES = 2
+# The content cache (shots/web-content): kept KEEP_H like the receipts' window, pruned past CONTENT_CACHE_MB. The
+# prewarm shoots up to PREWARM_ENTRIES of the entries looks shot most in KEEP_H at each new feat-cmux-next tip, one
+# entry at a time and only while no look runs, on a gallery no look holds.
+CONTENT_CACHE_MB = 4096
+CONTENT_SCHEMA = "ui-preview-content/1"  # in every key: a change to what a shot depends on starts a new cache
+PREWARM_ENTRIES = 8
 KEEP_H = 36
 # The published census copy (ui-preview/HOST.json on now-census) goes through the broker's state_put, which refuses a
 # file over STATE_MAX (1 MiB, cmuxterm-hq tools/lane-gh-broker/parts/46-calls-state.py). The local receipts file kept
@@ -179,7 +195,13 @@ SHOOT_SECONDS = 180
 PEER_SECONDS = 10 * 60
 PULL_POLL_S = 25  # GET /swift/next holds this long for a job before answering 204
 PULL_STALE_S = 90  # no Mac asked for a job this long: a Swift ask fails at once instead of waiting PEER_SECONDS
+# A web+Swift push posts its web pictures once they are shot and the Swift side has had this long more; the Swift
+# scenes follow in a second note when they land. Before, the Swift side ran first and the web post waited on it:
+# 11-28 15:29Z/15:40Z the pulling Mac did not answer in PEER_SECONDS, and two pushes whose web shots were ready
+# in under 60 s posted at 710 s and 818 s (the 6 h p95).
+SWIFT_GRACE_S = 20
 PULL = "pull"  # worker.swift_peer under --swift-pull: a pulling Mac shoots the Swift scenes
+REACH_SECONDS = PEER_SECONDS + 120  # --swift-reach: the reach's connect and lease on top of the peer's own bound
 
 
 class SwiftPulls:
@@ -216,6 +238,11 @@ class SwiftPulls:
             self.cond.wait_for(lambda: self.waiting, timeout)
             self.polled_at = time.monotonic()
             return self.waiting.pop(0) if self.waiting else None
+
+    def fresh(self) -> bool:
+        """A Mac asked for a job within PULL_STALE_S: an ask now goes to it."""
+        with self.cond:
+            return time.monotonic() - self.polled_at <= PULL_STALE_S
 
     def answer(self, job_id: str, doc: dict) -> bool:
         with self.cond:
@@ -390,11 +417,40 @@ def git(repo: Path, *args: str, timeout: float = 120) -> str:
     return run(["git", "-C", str(repo), *args], timeout=timeout, what=f"git {args[0]}").strip()
 
 
+class SwiftRun:
+    """One look's Swift sides (before, then after) on a thread of their own, so the web side shoots meanwhile and
+    a slow or silent Mac does not hold the web post. pairs and error are set before done."""
+
+    def __init__(self, worker, req: dict, scenes: list[str], stages: "Stages") -> None:
+        self.pairs: list = []
+        self.error: str | None = None
+        self.done = threading.Event()
+        self.thread = threading.Thread(target=self._run, args=(worker, req, scenes, stages), daemon=True,
+                                       name=f"swift-{req['head_sha'][:8]}")
+        self.thread.start()
+
+    def _run(self, worker, req, scenes, stages) -> None:
+        try:
+            with worker.swift_lock:
+                with stages("swift_before"):
+                    before = worker.swift_side(req["base_sha"], scenes)
+                with stages("swift_after"):
+                    after = worker.swift_side(req["head_sha"], scenes, req.get("branch"))
+            self.pairs = [("swift", s, before.get(s), after.get(s)) for s in scenes]
+        except LookError as err:
+            self.error = str(err)
+        except Exception as err:  # a bug here must not leave the look waiting on done forever
+            self.error = f"{type(err).__name__}: {err}"
+        finally:
+            self.done.set()
+
+
 class Stages:
     """Wall seconds per named stage, in order."""
 
     def __init__(self) -> None:
         self.seconds: dict[str, float] = {}
+        self.counts: dict[str, int] = {}  # not seconds: the receipt's web_cache (stages sum to the look's time)
 
     def __call__(self, name: str):
         stages = self
@@ -652,17 +708,43 @@ class Gallery:
 
     def scenes(self, files: list[str]) -> list[str]:
         """The gallery entries touched.ts ranks first for FILES, at the tree's checkout."""
-        changed = self.worker.state / f"changed-{threading.get_ident()}.txt"
-        changed.write_text("\n".join(files) + "\n")
+        return self.scene_plan(files)["entries"]
+
+    def scene_plan(self, files: list[str] | None = None, entries: list[str] | None = None,
+                   base: str | None = None) -> dict:
+        """touched.ts at the tree's checkout: {"entries": the WEB_CAP it ranks first for FILES (or ENTRIES as given),
+        "inputs": {entry: repo paths its picture is made of}, "base_inputs": the same at BASE ({entry: None} where
+        git cannot say), "everything": its EVERYTHING patterns}. The inputs key the content cache; a touched.ts
+        without --inputs (an older checkout) leaves them empty and the look shoots as before."""
         try:
-            out = run([self.worker.bun(), "scripts/gallery/touched.ts", "--changed", str(changed)],
-                      cwd=self.tree / "webviews", timeout=120, what="touched.ts")
+            # A head branched before touched.ts had --inputs: its parseArgs refuses the flag, so it is not passed.
+            inputs_on = "entryInputs" in (self.tree / GALLERY_RANKER).read_text(errors="replace")
+        except OSError:
+            inputs_on = False
+        if entries is not None and not inputs_on:
+            return {"entries": [], "inputs": {}, "base_inputs": {}, "everything": []}
+        arg = self.worker.state / f"touched-{threading.get_ident()}.txt"
+        arg.write_text("\n".join(files if entries is None else entries) + "\n")
+        argv = [self.worker.bun(), "scripts/gallery/touched.ts", "--changed" if entries is None else "--entries", str(arg)]
+        if inputs_on:
+            argv += ["--inputs", str(WEB_CAP * 2)] + (["--base", base] if base else [])
+        try:
+            out = run(argv, cwd=self.tree / "webviews", timeout=120, what="touched.ts")
         finally:
             with _suppress():
-                changed.unlink()
+                arg.unlink()
         touched = json.loads(out)
-        ranked = [r.get("id") for r in touched.get("ranked") or [] if isinstance(r, dict)]
-        return [i for i in ranked if isinstance(i, str) and re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]*$", i)][:WEB_CAP]
+        if entries is None:
+            ranked = [r.get("id") for r in touched.get("ranked") or [] if isinstance(r, dict)]
+        else:
+            ranked = list(entries)
+        picked = [i for i in ranked if isinstance(i, str) and re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]*$", i)][:WEB_CAP]
+        if entries is not None:
+            picked = [i for i in ranked if isinstance(i, str) and re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]*$", i)]
+        return {"entries": picked,
+                "inputs": touched.get("inputs") if isinstance(touched.get("inputs"), dict) else {},
+                "base_inputs": touched.get("base_inputs") if isinstance(touched.get("base_inputs"), dict) else {},
+                "everything": [p for p in touched.get("everything") or [] if isinstance(p, str)]}
 
     def shoot(self, entries: list[str], out: Path, absent: dict | None = None) -> dict:
         """ENTRIES shot into OUT by the resident shooter (one chromium kept open between looks); when it fails, one
@@ -791,12 +873,19 @@ class Worker:
         self.started_at = dt.datetime.now(dt.timezone.utc)  # before warm: replayed() measures from the takeover
         self.receipts_path = self.state / f"ui-preview-{self.host}.json"
         self.swift_lock = threading.Lock()  # the shell's tree and .build
-        self.fetch_lock = threading.Lock()  # the clone's fetches (a prefetch and a look's fetch of one head)
+        # The clone's fetches: one lock per ref or id fetched (Worker.fetching), so a prefetch and a look never fetch
+        # one head twice while pushes to different branches fetch at once. One lock for every fetch serialized a burst:
+        # four pushes at 01:23Z on 11-28 each waited 166-190 s in the look's fetch on gcp-agent-lane-1.
+        self.clone_lock = threading.Lock()
+        self.fetch_locks: dict[str, threading.Lock] = {}
+        self.fetch_locks_lock = threading.Lock()
         self.receipt_lock = threading.Lock()
+        self.follow_ups: list[threading.Thread] = []  # late Swift posts (tests join them)
         self.swift_on = True  # serve --no-swift: a web-only worker
         self.swift_peer = ""  # serve --swift-peer: the display Mac that shoots this worker's Swift scenes;
         # PULL under --swift-pull: a display Mac's `pull` takes them from self.pulls
         self.pulls = SwiftPulls()
+        self.swift_reach = ""  # serve --swift-reach CMD: the standby Mac's `shoot`, run when no Mac pulls
         self.mirror = MIRROR if (MIRROR / "objects").is_dir() else None
         self.publisher = Publisher(self)
         # The pictures go to pr-media too when this host has a broker client and a writer lane-gh accepts for a PR's
@@ -811,12 +900,30 @@ class Worker:
         self.gallery_keys: dict[str, str] = {}  # sha -> its gallery config's key
         self.web = Gallery(self, self.state / "web", GALLERY_PORT, "web")
         self.galleries = [self.web]
+        self.content = self.state / "shots" / "web-content"
+        self.blobs_lock = threading.Lock()
+        self.blobs: "collections.OrderedDict[str, dict]" = collections.OrderedDict()  # sha -> {path: blob}, a few
+        self.looks_running = 0
+        self.looks_lock = threading.Lock()
+        self.prewarm_wake = threading.Event()
+        self.prewarm_thread: threading.Thread | None = None
+        self.prewarmed: str | None = None  # the base tip the prewarm last finished
         self.warm_tips_path = self.state / "warm-tips.json"  # warmed BASE_BRANCH tips, newest first
         self.warm_tips_lock = threading.Lock()
 
     # The clone and its worktrees.
+    @contextlib.contextmanager
+    def fetching(self, *keys: str):
+        """Hold the fetch lock of each of KEYS (`ref:BRANCH`, `id:SHA`), taken in sorted order (no deadlock)."""
+        with self.fetch_locks_lock:
+            locks = [self.fetch_locks.setdefault(k, threading.Lock()) for k in sorted(set(keys))]
+        with contextlib.ExitStack() as held:
+            for lock in locks:
+                held.enter_context(lock)
+            yield
+
     def ensure_clone(self) -> None:
-        with self.fetch_lock:
+        with self.clone_lock:
             if not ((self.clone / "HEAD").exists() or (self.clone / ".git").exists()):
                 log(f"cloning {CMUX_URL} (blob-less{', borrowing ' + str(self.mirror) if self.mirror else ''}) "
                     f"into {self.clone}")
@@ -866,27 +973,43 @@ class Worker:
         return list(dict.fromkeys(tips))
 
     def fetch(self, *shas: str, branches: tuple[str | None, ...] = ()) -> None:
-        """SHAS into the clone: what the clone or the mirror holds already is not fetched; the rest by BRANCHES (and
-        BASE_BRANCH) as origin/B, then by id only for what is still missing (one lock, so a prefetch and a look never
-        fetch one head twice). By branch, never by --filter or a bare id: on a lane VM that publishes through the
-        broker (host-gh) git fetch carries plain branch names and tracking refspecs only, and every warm-up died
-        "git fetch --filter=blob:none: an option the brokered fetch does not carry" (lane-1/2, 2026-11-26). The
-        blob-less clone's own config (remote.origin.partialclonefilter) keeps a plain git's fetch blob-less."""
-        with self.fetch_lock:
-            missing = [s for s in dict.fromkeys(shas) if not self.has_commit(s)]
-            if missing:
-                self.fetch_branches(*branches, BASE_BRANCH)
+        """SHAS into the clone: what the clone or the mirror holds already is not fetched; the rest by BRANCHES as
+        origin/B, then BASE_BRANCH only if a SHA is still missing (a push's head brings its base along: the base is
+        its ancestor), then by id only for what is still missing. Each step holds its refs' locks and looks again
+        under them, so a prefetch and a look never fetch one head twice. Fetching BASE_BRANCH on every look pulled
+        the busy base's new commits into each look's fetch (fetch p50 7.2 s, p95 19.4 s on 11-28 against a 1 s
+        ceiling). By branch, never by --filter or a bare id: on a lane VM that publishes through the broker (host-gh)
+        git fetch carries plain branch names and tracking refspecs only, and every warm-up died "git fetch
+        --filter=blob:none: an option the brokered fetch does not carry" (lane-1/2, 2026-11-26). The blob-less
+        clone's own config (remote.origin.partialclonefilter) keeps a plain git's fetch blob-less."""
+        missing = [s for s in dict.fromkeys(shas) if not self.has_commit(s)]
+        names = [b for b in dict.fromkeys(branches) if b and BRANCH_NAME.match(b) and b != BASE_BRANCH]
+        for step in (names, [BASE_BRANCH]):
+            if not missing:
+                return
+            if not step:
+                continue
+            with self.fetching(*(f"ref:{b}" for b in step)):
                 missing = [s for s in missing if not self.has_commit(s)]
-            if missing:
-                git(self.clone, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin", *missing,
-                    timeout=FETCH_SECONDS)
+                if missing:
+                    self.fetch_branches(*step)
+            missing = [s for s in missing if not self.has_commit(s)]
+        if missing:
+            with self.fetching(*(f"id:{s}" for s in missing)):
+                missing = [s for s in missing if not self.has_commit(s)]
+                if missing:
+                    git(self.clone, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin", *missing,
+                        timeout=FETCH_SECONDS)
 
     def fetch_branches(self, *branches: str | None) -> None:
-        """BRANCHES' tips into the clone as refs/remotes/origin/B (the caller holds fetch_lock, or needs none)."""
+        """BRANCHES' tips into the clone as refs/remotes/origin/B (the caller holds their `ref:` locks, or needs
+        none)."""
         names = [b for b in dict.fromkeys(branches) if b and BRANCH_NAME.match(b)]
         if names:
             git(self.clone, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin",
                 *(f"+refs/heads/{b}:refs/remotes/origin/{b}" for b in names), timeout=FETCH_SECONDS)
+            if BASE_BRANCH in names:
+                self.prewarm_wake.set()  # feat-cmux-next may have moved: the prewarm thread looks when looks are done
 
     def remote_tip(self, branch: str) -> str | None:
         done = subprocess.run(["git", "-C", str(self.clone), "rev-parse", "-q", "--verify",
@@ -930,15 +1053,20 @@ class Worker:
         """The head is a manaflow-ai/cmux branch's tip, or landed on feat-cmux-next: never a fork's commit (the
         look builds and runs the head's code). A head under a base tip held here asks GitHub nothing; else the
         branch tip the look's fetch wrote (origin/BRANCH: a tip the repo held, so the repo's own commit even if the
-        branch moved since), and only when that is not the head one fetch of the branch and the base. No ls-remote: a lane VM's git has no GitHub credential, only the broker's fetch."""
+        branch moved since), and only when that is not the head one fetch of the branch, then of the base only if the
+        branch's tip is not the head. No ls-remote: a lane VM's git has no GitHub credential, only the broker's fetch."""
         if any(self.is_ancestor(head, tip) for tip in self.local_base_tips()):
             return True
         if branch and self.remote_tip(branch) == head:
             return True
-        with self.fetch_lock:
-            self.fetch_branches(branch, BASE_BRANCH)
-        if branch and self.remote_tip(branch) == head:
-            return True
+        if branch and BRANCH_NAME.match(branch) and branch != BASE_BRANCH:
+            with self.fetching(f"ref:{branch}"):
+                if self.remote_tip(branch) != head:
+                    self.fetch_branches(branch)
+            if self.remote_tip(branch) == head:
+                return True
+        with self.fetching(f"ref:{BASE_BRANCH}"):
+            self.fetch_branches(BASE_BRANCH)
         tip = self.remote_tip(BASE_BRANCH)
         return bool(tip) and self.is_ancestor(head, tip)
 
@@ -1057,7 +1185,10 @@ class Worker:
             shutil.rmtree(out)
         out.mkdir(parents=True)
         if self.swift_peer == PULL:
-            return self._peer_shots(self.pulls.ask({"sha": sha, "scenes": scenes, "branch": branch}), scenes, out)
+            job = {"sha": sha, "scenes": scenes, "branch": branch}
+            if self.swift_reach and not self.pulls.fresh():
+                return self._peer_shots(self.reach_shoot(job), scenes, out)
+            return self._peer_shots(self.pulls.ask(job), scenes, out)
         body = json.dumps({"sha": sha, "scenes": scenes, "branch": branch}).encode()
         request = urllib.request.Request(self.swift_peer.rstrip("/") + "/shoot", data=body,
                                          headers={"Content-Type": "application/json"})
@@ -1070,6 +1201,31 @@ class Worker:
         except (OSError, ValueError) as err:
             raise LookError(f"the Swift peer {self.swift_peer} did not answer: {err}") from None
         return self._peer_shots(doc, scenes, out)
+
+    def reach_shoot(self, job: dict) -> dict:
+        """--swift-reach: run the standby command with the ask as base64 JSON; its last JSON line is the answer."""
+        encoded = base64.b64encode(json.dumps(job).encode()).decode()
+        argv = [a.replace("{job}", encoded) for a in shlex.split(self.swift_reach)]
+        started = time.monotonic()
+        try:
+            done = subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                                  timeout=REACH_SECONDS)
+        except subprocess.TimeoutExpired:
+            raise LookError(f"the standby Swift Mac did not answer in {REACH_SECONDS} s") from None
+        except OSError as err:
+            raise LookError(f"the standby Swift reach did not run: {err}") from None
+        log(f"swift-reach: {job['sha'][:12]} {job['scenes']} exit {done.returncode} in "
+            f"{time.monotonic() - started:.1f} s")
+        for line in reversed(done.stdout.splitlines()):
+            if line.startswith("{"):
+                try:
+                    doc = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(doc, dict):
+                    return doc
+        raise LookError(f"the standby Swift Mac answered no JSON (exit {done.returncode}): "
+                        f"{tail(done.stderr or done.stdout)}")
 
     @staticmethod
     def _peer_shots(doc: dict, scenes: list[str], out: Path) -> dict:
@@ -1166,9 +1322,120 @@ class Worker:
         for g in list(self.galleries):
             g.stop_shooter()
 
-    def web_side(self, sha: str, entries: list[str], gallery: "Gallery | None" = None) -> dict:
+    # The content cache: a web shot by what it is made of, not by commit.
+    def tree_blobs(self, sha: str) -> dict:
+        """{path: blob id} of SHA's whole tree (one ls-tree, no blob fetched), the last few kept."""
+        with self.blobs_lock:
+            if sha in self.blobs:
+                self.blobs.move_to_end(sha)
+                return self.blobs[sha]
+        rows = {}
+        for row in git(self.clone, "ls-tree", "-r", "--full-tree", sha).splitlines():
+            meta, _, path = row.partition("\t")
+            parts = meta.split()
+            if len(parts) == 3:
+                rows[path] = parts[2]
+        with self.blobs_lock:
+            self.blobs[sha] = rows
+            while len(self.blobs) > 6:
+                self.blobs.popitem(last=False)
+        return rows
+
+    def content_keys(self, sha: str, inputs: dict, everything: list[str]) -> dict:
+        """{entry: key} for INPUTS ({entry: repo paths at SHA}, touched.ts --inputs): sha256 of the entry, SHA's
+        gallery config key, the blobs of every file an EVERYTHING pattern names and the blobs of the entry's inputs.
+        Two commits with one key draw the entry alike. An entry with no inputs (None: git could not say) or a file
+        SHA does not hold gets no key: it is shot."""
+        if not inputs or not everything:
+            return {}
+        try:
+            blobs = self.tree_blobs(sha)
+            patterns = [re.compile(p) for p in everything]
+        except (LookError, re.error):
+            return {}
+        config = self.gallery_key(sha)
+        if config is None:
+            return {}
+        broad = hashlib.sha256("\n".join(f"{p} {b}" for p, b in sorted(blobs.items())
+                                         if any(r.search(p) for r in patterns)).encode()).hexdigest()
+        keys = {}
+        for entry, paths in inputs.items():
+            if not isinstance(paths, list) or not paths or any(p not in blobs for p in paths):
+                continue
+            body = "\n".join([CONTENT_SCHEMA, entry, config, broad, *(f"{p} {blobs[p]}" for p in sorted(paths))])
+            keys[entry] = hashlib.sha256(body.encode()).hexdigest()[:32]
+        return keys
+
+    def content_file(self, key: str) -> Path:
+        return self.content / key[:2] / f"{key}.png"
+
+    def content_store(self, keys: dict, shots: dict) -> None:
+        """Each shot of SHOTS ({entry: png}) under its key in the content cache (a hard link; an absent card never)."""
+        for entry, png in shots.items():
+            key = keys.get(entry)
+            if not key or png.name.startswith(ABSENT_PREFIX) or not png.is_file():
+                continue
+            dest = self.content_file(key)
+            if dest.is_file():
+                continue
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            tmp = dest.with_name(f".{dest.name}.{os.getpid()}.{threading.get_ident()}")
+            try:
+                try:
+                    os.link(png, tmp)
+                except OSError:
+                    shutil.copyfile(png, tmp)
+                os.replace(tmp, dest)
+            except OSError:
+                with _suppress():
+                    tmp.unlink()
+
+    def content_hits(self, sha: str, entries: list[str], keys: dict) -> dict:
+        """ENTRIES the content cache holds under KEYS, put into SHA's shot cache: {entry: png}."""
         cache = self.state / "shots" / "web" / sha
-        have = {s: cache / f for s, f in self._cached(cache).items() if s in entries}
+        found = {e: self.content_file(keys[e]) for e in entries if keys.get(e) and self.content_file(keys[e]).is_file()}
+        if not found:
+            return {}
+        cache.mkdir(parents=True, exist_ok=True)
+        merged = self._cached(cache)
+        have = {}
+        for entry, src in found.items():
+            dest = cache / f"{entry}.png"
+            tmp = dest.with_name(f".{dest.name}.{os.getpid()}.{threading.get_ident()}")
+            try:
+                try:
+                    os.link(src, tmp)
+                except OSError:
+                    shutil.copyfile(src, tmp)
+                os.replace(tmp, dest)
+            except OSError:
+                with _suppress():
+                    tmp.unlink()
+                continue
+            os.utime(src)  # recently used: pruned last
+            merged[entry] = dest.name
+            have[entry] = dest
+        index = cache / "index.json"
+        tmp = index.with_name(f".index.{os.getpid()}.{threading.get_ident()}")
+        tmp.write_text(json.dumps(merged))
+        os.replace(tmp, index)
+        return have
+
+    def cached_side(self, sha: str, entries: list[str], keys: dict | None = None) -> dict:
+        """SHA's shots of ENTRIES this worker holds without shooting: its shot cache, then the content cache."""
+        cache = self.state / "shots" / "web" / sha
+        have = {s: cache / f for s, f in self._cached(cache).items() if s in entries and (cache / f).is_file()}
+        missing = [e for e in entries if e not in have]
+        if missing and keys:
+            have.update(self.content_hits(sha, missing, keys))
+        return have
+
+    def web_side(self, sha: str, entries: list[str], gallery: "Gallery | None" = None,
+                 keys: dict | None = None) -> dict:
+        """SHA's shots of ENTRIES: what the shot cache or the content cache (KEYS, Worker.content_keys) holds, the rest
+        shot on GALLERY (else gallery_for) and stored in both."""
+        cache = self.state / "shots" / "web" / sha
+        have = self.cached_side(sha, entries, keys)
         want = [e for e in entries if e not in have]
         if want:
             g = gallery or self.gallery_for(sha)
@@ -1193,36 +1460,148 @@ class Worker:
             (cache / "index.json").write_text(json.dumps(merged))
             shutil.rmtree(fresh, ignore_errors=True)
             have.update({s: cache / merged[s] for s in want if s in merged})
+            if keys:
+                self.content_store(keys, {s: have[s] for s in want if s in have})
         return have
 
-    def web_sides(self, head: str, base: str, entries: list[str], g_head: "Gallery", stages: Stages) -> tuple:
-        """Both sides' shots. Sides on one gallery config shoot one after the other on one vite; sides on two configs
-        shoot at once, each on its own warm vite (a vite.config.ts push restarted one vite twice: 105 s)."""
-        g_base = g_head if self.gallery_key(base) in (None, g_head.key) else self.gallery_for(base, avoid=(g_head,))
+    def idle_twin(self, g: "Gallery") -> "Gallery | None":
+        """Another gallery on G's config whose vite is up and that no look holds: the base side shoots there while
+        the head shoots on G. None when there is none (it would be a cold vite start or a restart, slower than
+        waiting for G)."""
+        with self.galleries_lock:
+            for other in self.galleries:
+                if (other is not g and other.key is not None and other.key == g.key and not other.lock.locked()
+                        and other.proc is not None and other.proc.poll() is None):
+                    other.used = time.monotonic()
+                    return other
+        return None
+
+    def web_sides(self, head: str, base: str, entries: list[str], g_head: "Gallery", stages: Stages,
+                  keys: dict | None = None, base_keys: dict | None = None) -> tuple:
+        """Both sides' shots, at once whenever a second warm vite can take the base: sides on two configs each on
+        its own vite (a vite.config.ts push restarted one vite twice: 105 s), sides on one config on G_HEAD and an
+        idle twin on that config (one after the other put web_before on every look's path: p50 5.8 s, p95 19.7 s
+        on gcp-agent-lane-1, 11-28). No idle twin: one after the other on G_HEAD. A base whose every entry is in the
+        shot or content cache (BASE_KEYS) is not shot at all: only the head is."""
+        with stages("web_before_cache"):
+            held = self.cached_side(base, entries, base_keys)
+        stages.counts["before_hits"] = len(held)
+        stages.counts["before_misses"] = len(entries) - len(held)
+        if len(held) == len(entries):
+            with stages("web_after"):
+                after = self.web_side(head, entries, g_head, keys)
+            return held, after
+        if self.gallery_key(base) in (None, g_head.key):
+            g_base = self.idle_twin(g_head) or g_head
+        else:
+            g_base = self.gallery_for(base, avoid=(g_head,))
         if g_base is g_head:
             with stages("web_after"):
-                after = self.web_side(head, entries, g_head)
+                after = self.web_side(head, entries, g_head, keys)
             with stages("web_before"):
-                before = self.web_side(base, entries, g_base)
+                before = self.web_side(base, entries, g_base, base_keys)
             return before, after
         got: dict = {}
 
-        def side(name: str, sha: str, g: "Gallery") -> None:
+        def side(name: str, sha: str, g: "Gallery", side_keys: dict | None) -> None:
             try:
                 with stages(name):
-                    got[name] = self.web_side(sha, entries, g)
+                    got[name] = self.web_side(sha, entries, g, side_keys)
             except LookError as err:
                 got[name] = err
 
-        other = threading.Thread(target=side, args=("web_before", base, g_base), name=f"before-{base[:8]}",
-                                 daemon=True)
+        other = threading.Thread(target=side, args=("web_before", base, g_base, base_keys),
+                                 name=f"before-{base[:8]}", daemon=True)
         other.start()
-        side("web_after", head, g_head)
+        side("web_after", head, g_head, keys)
         other.join()
         for name in ("web_after", "web_before"):
             if isinstance(got.get(name), LookError):
                 raise got[name]
         return got["web_before"], got["web_after"]
+
+    # The prewarm: feat-cmux-next's new tip shoots the entries looks shot most, off the push path, so a later look
+    # whose base draws them alike (any commit with the same inputs) skips its web_before.
+    def hot_entries(self) -> list[str]:
+        """The PREWARM_ENTRIES gallery entries the receipts' looks (KEEP_H) shot most, most first."""
+        try:
+            rows = json.loads(self.receipts_path.read_text()).get("receipts") or []
+        except (OSError, ValueError):
+            return []
+        counts: collections.Counter = collections.Counter()
+        for row in rows:
+            if isinstance(row, dict):
+                counts.update(e for e in row.get("web_entries") or [] if isinstance(e, str))
+        return [e for e, _ in counts.most_common(PREWARM_ENTRIES)]
+
+    def idle(self) -> bool:
+        with self.looks_lock:
+            return self.looks_running == 0
+
+    def start_prewarm(self) -> threading.Thread:
+        if self.prewarm_thread is None or not self.prewarm_thread.is_alive():
+            self.prewarm_thread = threading.Thread(target=self._prewarm_loop, name="prewarm", daemon=True)
+            self.prewarm_thread.start()
+        return self.prewarm_thread
+
+    def _prewarm_loop(self) -> None:
+        while True:
+            self.prewarm_wake.wait()
+            self.prewarm_wake.clear()
+            try:
+                self.prewarm()
+            except Exception as err:  # the thread outlives one bad prewarm
+                log(f"prewarm: {err!r}")
+
+    def prewarm(self) -> dict | None:
+        """The hot entries at feat-cmux-next's tip into the content cache, when no look runs, on a gallery on the
+        tip's config that no look holds (never a vite restart or an install); one entry at a time, stopping when a
+        look starts. None when it did nothing."""
+        if not self.idle():
+            return None
+        try:
+            tip = git(self.clone, "rev-parse", "--verify", "-q", f"refs/remotes/origin/{BASE_BRANCH}").strip()
+        except LookError:
+            return None
+        if not tip or tip == self.prewarmed:
+            return None
+        hot = self.hot_entries()
+        if not hot:
+            self.prewarmed = tip
+            return None
+        key = self.gallery_key(tip)
+        with self.galleries_lock:
+            free = [g for g in self.galleries if g.key is not None and g.key == key and g.proc is not None
+                    and g.proc.poll() is None and not g.lock.locked()]
+        g = min(free, key=lambda x: x.used) if free else None
+        if g is None or not g.lock.acquire(blocking=False):
+            return None
+        began = time.monotonic()
+        try:
+            if not self.idle():
+                return None
+            g.checkout(tip)
+            if g.key != key or g.proc is None or g.proc.poll() is not None:
+                return None  # the checkout restarted it: the next look starts it
+            touched = g.scene_plan(entries=hot)
+        finally:
+            g.lock.release()
+        keys = self.content_keys(tip, touched["inputs"], touched["everything"])
+        shot = held = 0
+        for entry in touched["entries"]:
+            if not keys.get(entry):
+                continue
+            if self.content_file(keys[entry]).is_file():
+                held += 1
+                continue
+            if not self.idle():
+                log(f"prewarm {tip[:12]}: a look started; {shot} shot, {held} held")
+                return {"tip": tip, "shot": shot, "held": held, "stopped": True}
+            self.web_side(tip, [entry], g, keys)
+            shot += 1
+        self.prewarmed = tip
+        log(f"prewarm {tip[:12]}: {shot} shot, {held} held of {len(hot)} hot in {time.monotonic() - began:.1f} s")
+        return {"tip": tip, "shot": shot, "held": held}
 
     # Warm-up: the clone, both trees at the base tip, the shell's .build, node_modules, the gallery and the shooter's
     # chromium, with one entry shot at the tip (vite has compiled the gallery; the shot is the next push's before).
@@ -1231,11 +1610,12 @@ class Worker:
         with stages("clone"):
             self.ensure_clone()
             ref = f"refs/remotes/origin/{BASE_BRANCH}"
-            with self.fetch_lock:
+            with self.fetching(f"ref:{BASE_BRANCH}"):
                 self.fetch_branches(BASE_BRANCH)
             tip = git(self.clone, "rev-parse", ref)
         errors = []
         prune_transforms(self.state / "vite-transforms")
+        prune_transforms(self.content, CONTENT_CACHE_MB)  # the content cache by the same rule (hits touch their file)
         if swift:
             try:
                 with stages("swift"):
@@ -1380,6 +1760,8 @@ class Worker:
         stages.seconds["queue"] = round(time.monotonic() - received, 3)
         receipt = self.new_receipt(req)
         self.write_receipt(receipt)
+        with self.looks_lock:
+            self.looks_running += 1
         try:
             self._look(req, receipt, stages)
         except LookError as err:
@@ -1387,7 +1769,13 @@ class Worker:
             log(f"{req.get('head_sha', '')[:12]}: {receipt['error']}")
             if isinstance(err, NoShotError) and PUSHER_ERROR in receipt["error"]:
                 self.post_error(req, receipt)
+        finally:
+            with self.looks_lock:
+                self.looks_running -= 1
+            self.prewarm_wake.set()
         receipt["stages"] = stages.seconds
+        if stages.counts:
+            receipt["web_cache"] = stages.counts
         before_s = sum(stages.seconds.get(k, 0) for k in ("swift_before", "web_before"))
         if receipt.get("before_cached"):
             receipt["before_s"] = round(before_s, 3)
@@ -1424,17 +1812,10 @@ class Worker:
         elif planned["swift"] and not self.swift_on and not self.swift_peer:
             errors.append(f"swift: {', '.join(planned['swift'])} not shot: this worker ({self.host}) shoots web "
                           "scenes only")
-        elif planned["swift"]:
+        swift_run = None
+        if not planned["needs_build"] and planned["swift"] and (self.swift_on or self.swift_peer):
             receipt.setdefault("before_cached", {})["swift"] = self.is_cached("swift", base, planned["swift"])
-            try:
-                with self.swift_lock:
-                    with stages("swift_before"):
-                        before = self.swift_side(base, planned["swift"])
-                    with stages("swift_after"):
-                        after = self.swift_side(head, planned["swift"], req.get("branch"))
-                pairs += [("swift", s, before.get(s), after.get(s)) for s in planned["swift"]]
-            except LookError as err:
-                errors.append(f"swift: {err}")
+            swift_run = SwiftRun(self, req, planned["swift"], stages)
         if planned["web"]:
             try:
                 began = time.monotonic()
@@ -1447,42 +1828,39 @@ class Worker:
                             g.stop()
                             g.stop_shooter()
                         web_files = [f for f in req["ui_files"] if f.startswith(WEB_PREFIXES)]
-                        entries = g.scenes(web_files)
+                        touched = g.scene_plan(web_files, base=base)
+                        entries = touched["entries"]
                         if not entries and any(EVERY_SCREEN.match(f) for f in web_files):
                             entries = g.representative_entries()
                             receipt["web_entries_why"] = "every screen"
+                    with stages("web_keys"):
+                        keys = self.content_keys(head, touched["inputs"], touched["everything"])
+                        base_keys = self.content_keys(base, touched["base_inputs"], touched["everything"])
                 receipt["web_entries"] = entries
                 if entries:
                     receipt.setdefault("before_cached", {})["web"] = self.is_cached("web", base, entries)
                     # Head first: its tree is checked out already; the base is often cached (the last push's head).
-                    before, after = self.web_sides(head, base, entries, g, stages)
+                    before, after = self.web_sides(head, base, entries, g, stages, keys, base_keys)
                     pairs += [("web", e, before.get(e), after.get(e)) for e in entries]
                 else:
                     errors.append("web: touched.ts names no gallery entry for these files")
             except LookError as err:
                 errors.append(f"web: {err}")
+        late = None
+        if swift_run is not None:
+            web_shot = any(b is not None and a is not None and b.is_file() and a.is_file() for _, _, b, a in pairs)
+            with stages("swift_wait"):
+                swift_run.done.wait(SWIFT_GRACE_S if web_shot else None)
+            if swift_run.done.is_set():
+                pairs = swift_run.pairs + pairs
+                if swift_run.error:
+                    errors.insert(0, f"swift: {swift_run.error}")
+            else:
+                late = swift_run
+                receipt["swift_late"] = list(planned["swift"])
+        token = secrets.token_hex(16)
         with stages("publish"):
-            token = secrets.token_hex(16)
-            look_dir = self.state / "looks" / token
-            scenes = []
-            for kind, scene, before, after in pairs:
-                row = {"scene": scene, "kind": kind}
-                for side, src in (("before", before), ("after", after)):
-                    if src is not None and src.is_file():
-                        dest = look_dir / side / f"{kind}-{scene}.png"
-                        dest.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copyfile(src, dest)
-                        row[side] = self.url(token, side, dest.name)
-                        row[f"{side}_path"] = str(dest)
-                        if src.name.startswith(ABSENT_PREFIX):
-                            row[f"{side}_absent"] = True  # the entry is not in this side's commit (a new entry)
-                if before is not None and after is not None and before.is_file() and after.is_file():
-                    row["changed"] = before.read_bytes() != after.read_bytes()
-                    if row["changed"]:
-                        diff = pixel_diff(before, after)
-                        if diff:
-                            row["diff"] = diff
-                scenes.append(row)
+            scenes = self.scene_rows(token, pairs)
             self.publish_media(req, scenes, receipt)
         receipt["scenes"] = scenes
         receipt["look"] = token
@@ -1495,6 +1873,68 @@ class Worker:
         with stages("send"):
             receipt["sent_to"] = self.send(send_targets(req), self.message(req, scenes, receipt))
         receipt["posted_at"] = utc_now()
+        if late is not None:
+            follow = threading.Thread(target=self.swift_follow_up, args=(req, receipt, late, token), daemon=True,
+                                      name=f"swift-post-{head[:8]}")
+            self.follow_ups.append(follow)
+            follow.start()
+
+    def swift_follow_up(self, req: dict, receipt: dict, run: SwiftRun, token: str) -> None:
+        """The Swift scenes of a look whose web pictures posted without them: once the Swift side ends, its pictures
+        (or why it shot none) go to the same recipient in a second note, and the receipt gains them."""
+        run.done.wait()
+        head = req["head_sha"][:12]
+        try:
+            rows = []
+            if run.pairs:
+                rows = self.scene_rows(token, run.pairs)
+                self.publish_media(req, rows, receipt)
+            shot = [r for r in rows if r.get("before") and r.get("after")]
+            if shot:
+                text = self.message(req, shot, {**receipt, "error": f"swift: {run.error}" if run.error else None})
+                text = text.replace(f"UI preview of your push {head}", f"UI preview (Swift scenes) of your push {head}", 1)
+            else:
+                text = (f"UI preview of your push {head} ({req.get('branch') or 'no branch'}): the Swift scenes "
+                        f"{', '.join(receipt.get('swift_late') or [])} were not shot: {run.error or 'no scene was shot'}\n")
+            sent = self.send(send_targets(req), text)
+            with self.receipt_lock:
+                receipt["scenes"] = rows + list(receipt.get("scenes") or [])
+                if shot:
+                    receipt["swift_posted_at"] = utc_now()
+                if run.error:
+                    receipt["error"] = "; ".join(x for x in (f"swift: {run.error}", receipt.get("error")) if x)[:500]
+                receipt["swift_sent_to"] = sent
+        except LookError as err:
+            with self.receipt_lock:
+                receipt["error"] = "; ".join(x for x in (receipt.get("error"), f"swift follow-up: {err}") if x)[:500]
+        except Exception as err:
+            log(f"{head}: swift follow-up: {type(err).__name__}: {err}")
+        self.write_receipt(receipt)
+
+    def scene_rows(self, token: str, pairs) -> list[dict]:
+        """Each (kind, scene, before, after) as a posted row: both sides copied under looks/TOKEN, URLs, changed,
+        and the pixel diff."""
+        look_dir = self.state / "looks" / token
+        scenes = []
+        for kind, scene, before, after in pairs:
+            row = {"scene": scene, "kind": kind}
+            for side, src in (("before", before), ("after", after)):
+                if src is not None and src.is_file():
+                    dest = look_dir / side / f"{kind}-{scene}.png"
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(src, dest)
+                    row[side] = self.url(token, side, dest.name)
+                    row[f"{side}_path"] = str(dest)
+                    if src.name.startswith(ABSENT_PREFIX):
+                        row[f"{side}_absent"] = True  # the entry is not in this side's commit (a new entry)
+            if before is not None and after is not None and before.is_file() and after.is_file():
+                row["changed"] = before.read_bytes() != after.read_bytes()
+                if row["changed"]:
+                    diff = pixel_diff(before, after)
+                    if diff:
+                        row["diff"] = diff
+            scenes.append(row)
+        return scenes
 
     def post_error(self, req: dict, receipt: dict) -> None:
         """Tells the pusher why its push has no pictures, when the why is in its own code (touched.ts could not
@@ -1583,6 +2023,9 @@ class Worker:
                 lines.append(f"  diff: {diff_text(s['diff'])}")
         if receipt.get("error"):
             lines.append(f"Partly: {receipt['error']}")
+        if receipt.get("swift_late") and not receipt.get("swift_sent_to") and all(s["kind"] != "swift" for s in scenes):
+            lines.append(f"The Swift scenes ({', '.join(receipt['swift_late'])}) are still shooting: they follow in "
+                         "a second note.")
         public = any(s.get("before_public") or s.get("after_public") for s in scenes)
         if public:
             lines.append(f"Read one: d=$(mktemp -d) && curl -sL -o \"$d/ui-preview-{head}.png\" URL, then open it "
@@ -1840,6 +2283,11 @@ FOLLOW_RETRY_S = 10  # after a failed call
 # ttl_s 60 and probe_s 10 (leo-workspace machines/role-leases.json ui-preview-web), role_lease's STOP_S 15 and
 # RESTART_S 5.
 TAKEOVER_S = 90
+# A replayed request no worker answered is taken late only this soon after its push; an older one gets an error
+# receipt instead of a look. 2026-11-28 ~15:06Z gcp-agent-lane-2 took the role over with its follow-seq from its
+# last term (27T18Z); the 27T18-19Z pushes had no receipt anywhere, so it looked at each and posted them 68,000 to
+# 72,000 s after their push: messages about pushes their lanes had long moved past, and the census's p95 with them.
+REPLAY_MAX_S = 60 * 60
 # Where every worker's census copy is (answered_keys reads the predecessor's answers from it).
 CENSUS_REPO, CENSUS_REF, CENSUS_FOLDER = "manaflow-ai/cmuxterm-hq", "reconciler-state/now-census", "ui-preview"
 
@@ -1898,7 +2346,8 @@ def drain(worker: "Worker", jobs: "queue.Queue", once: bool = False) -> None:
             else:
                 receipt = worker.look(req, received)
             log(f"{req['head_sha'][:12]}: posted_at {receipt.get('posted_at')} push_to_post_s "
-                f"{receipt.get('push_to_post_s')} stages {receipt.get('stages')} error {receipt.get('error')}")
+                f"{receipt.get('push_to_post_s')} stages {receipt.get('stages')} error {receipt.get('error')}"
+                + (f" web_cache {receipt['web_cache']}" if receipt.get("web_cache") else ""))
         except Exception as err:  # a look thread outlives one bad look
             log(f"{req.get('head_sha', '')[:12]}: look thread: {err!r}")
         finally:
@@ -1992,6 +2441,11 @@ def follow_once(worker: "Worker", jobs: "queue.Queue", after: int | None, call=l
                 log(f"follow: request {seq} {req['head_sha'][:12]} pushed {req.get('pushed_at')}, before this worker "
                     f"took the role: its predecessor's, not posted again")
                 continue
+            age = (dt.datetime.now(dt.timezone.utc) - parse_ts(req["pushed_at"])).total_seconds()
+            if age > REPLAY_MAX_S:
+                worker.refuse(req, f"pushed {int(age)} s before this worker took it over and no worker answered it: "
+                                   f"past REPLAY_MAX_S ({REPLAY_MAX_S} s), not posted this late")
+                continue
             log(f"follow: request {seq} {req['head_sha'][:12]} pushed {req.get('pushed_at')}, before this worker "
                 f"took the role, and no worker answered it: taken late")
         planned = plan(req["ui_files"])
@@ -2027,12 +2481,14 @@ def command_serve(args) -> int:
     worker = Worker(Path(args.state), args.public, args.send, args.publish_receipts)
     worker.swift_on = not args.no_swift
     worker.swift_peer = PULL if args.swift_pull else (args.swift_peer or "")
+    worker.swift_reach = (args.swift_reach or "") if args.swift_pull else ""
     bind = args.bind or tailnet_address() or "127.0.0.1"
     if not worker.public:
         worker.public = f"http://{bind}:{args.port}"
     if not args.no_warm:
         log(f"warming: {json.dumps(worker.warm(swift=worker.swift_on))}")
     jobs: queue.Queue = queue.Queue()
+    worker.start_prewarm()
     if args.follow:
         threading.Thread(target=follow, args=(worker, jobs), name="follow", daemon=True).start()
         if worker.swift_scenes_here() and not args.no_warm:
@@ -2103,6 +2559,27 @@ def command_pull(args) -> int:
     finally:
         worker.stop_shooter()
     return 0
+
+
+def command_shoot(args) -> int:
+    """One Swift ask, answered on stdout as one JSON line (the /shoot answer, or {"error"}): the far end of
+    serve --swift-reach, run over the web worker's reach to this display Mac."""
+    try:
+        job = json.loads(base64.b64decode(args.job, validate=True))
+    except (ValueError, TypeError) as err:
+        print(json.dumps({"error": f"--job is not base64 JSON: {err}"[:500]}))
+        return 2
+    worker = Worker(Path(args.state), None, None, None)
+    try:
+        doc = worker.peer_answer(job)
+    except LookError as err:
+        doc = {"error": str(err)[:500]}
+    except Exception as err:  # noqa: BLE001 - the caller reads the error line, not a traceback
+        doc = {"error": f"{type(err).__name__}: {err}"[:500]}
+    finally:
+        worker.stop_shooter()
+    sys.stdout.write("\n" + json.dumps(doc) + "\n")
+    return 1 if doc.get("error") else 0
 
 
 def read_request(source: str) -> dict:
@@ -2232,6 +2709,9 @@ def main(argv: list[str] | None = None) -> int:
                                                 "that shoots the Swift scenes (POST /shoot)")
             p.add_argument("--swift-pull", action="store_true",
                            help="with --no-swift: queue the Swift scenes for a display Mac's `pull` (GET /swift/next)")
+            p.add_argument("--swift-reach", help="with --swift-pull: when no Mac has pulled lately, run this "
+                                                 "command ({job}: the ask, base64 JSON) that runs `shoot` on a "
+                                                 "standby display Mac; its last JSON stdout line is the answer")
             p.add_argument("--follow", action="store_true",
                            help="take requests from the lane-gh broker's push trigger (ui_preview_requests)")
         else:
@@ -2245,6 +2725,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--state", required=True)
     p.add_argument("--from", dest="from_", required=True, help="the web workers' serve URLs, comma-separated")
     p.add_argument("--no-warm", action="store_true")
+    p = sub.add_parser("shoot", help="one Swift ask (base64 JSON) shot here, answered as a JSON line")
+    p.add_argument("--state", required=True)
+    p.add_argument("--job", required=True)
     p = sub.add_parser("submit")
     p.add_argument("--to", required=True)
     p.add_argument("request", nargs="?", default="-")
@@ -2256,7 +2739,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("host")
     args = ap.parse_args(argv)
     return {"serve": command_serve, "once": command_once, "warm": command_warm, "submit": command_submit,
-            "publish": command_publish, "pull": command_pull,
+            "publish": command_publish, "pull": command_pull, "shoot": command_shoot,
             "map": command_map}[args.command](args)
 
 
