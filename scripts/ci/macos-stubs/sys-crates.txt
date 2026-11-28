@@ -1,0 +1,5 @@
+# crate version framework declared-symbols: the binding crates whose every extern is in the stubs
+# (scripts/ci/macos_stubs.py sys-crates scripts/ci/macos-stubs cmux-tui/Cargo.lock)
+core-foundation-sys 0.8.7 CoreFoundation 1137
+security-framework-sys 2.17.0 Security 349
+system-configuration-sys 0.6.0 SystemConfiguration 421

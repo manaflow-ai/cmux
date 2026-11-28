@@ -175,6 +175,13 @@ extension HomeCloudChiefs {
     }
 }
 
+/// The JSON of the Rust rules (`cloud::reach::CloudChief`, `cloud::chiefs::Chiefs`): camelCase,
+/// nil fields left out.
+nonisolated extension CloudChief.BrainPlace: Codable {}
+nonisolated extension CloudChief: Codable {}
+nonisolated extension HomeCloudChiefs: Codable {}
+nonisolated extension HomeChiefChoice: Codable {}
+
 /// A cloud Chief as the shared Chief list rule reads it (CmuxChiefList).
 nonisolated extension CloudChief: ChiefListCloudChief {
     public var isPlaced: Bool { brainPlace != nil }

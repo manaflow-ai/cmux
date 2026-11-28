@@ -14506,6 +14506,9 @@
             "null"
           ]
         },
+        "residency": {
+          "description": "What the chat costs its machine now, versioned (`v`): `resident` (a harness runs),\n`busy` (a turn runs), `hibernatedAt`, and the idle `policy` with this chat's\nperiod (`hub/residency.rs`, `acpmux_list_types::residency`). A cap counts every resident\nchat. Absent from a peer on an older acpmux: unknown, not idle."
+        },
         "retiredAgentSessionIds": {
           "description": "The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):\na Codex chat's earlier roots, which its older records still name, so a client folding\nthem never reads one as a subagent. Absent when none, and from a peer on an older acpmux.",
           "items": {
@@ -15473,6 +15476,9 @@
             "integer",
             "null"
           ]
+        },
+        "residency": {
+          "description": "What the chat costs its machine now, versioned (`v`): `resident` (a harness runs),\n`busy` (a turn runs), `hibernatedAt`, and the idle `policy` with this chat's\nperiod (`hub/residency.rs`, `acpmux_list_types::residency`). A cap counts every resident\nchat. Absent from a peer on an older acpmux: unknown, not idle."
         },
         "retiredAgentSessionIds": {
           "description": "The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):\na Codex chat's earlier roots, which its older records still name, so a client folding\nthem never reads one as a subagent. Absent when none, and from a peer on an older acpmux.",
@@ -16948,6 +16954,12 @@
         "attached": {
           "items": {
             "$ref": "#/types/daemon.Id"
+          },
+          "type": "array"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
           },
           "type": "array"
         },

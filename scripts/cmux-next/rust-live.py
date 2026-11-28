@@ -890,6 +890,16 @@ class Loop:
                     pass
         return found
 
+    def restat(self, found: dict[str, int], paths: list[str]) -> dict[str, int]:
+        """`found` with `paths` (keys of `scan`, relative to cmux-tui/) stat'ed again; a path gone is dropped."""
+        later = dict(found)
+        for rel in paths:
+            try:
+                later[rel] = os.stat(self.root / rel).st_mtime_ns
+            except OSError:
+                later.pop(rel, None)
+        return later
+
     def record(self, entry: dict) -> None:
         self.state.mkdir(parents=True, exist_ok=True)
         (self.state / "last.json").write_text(json.dumps(entry, indent=2) + "\n")
@@ -968,10 +978,13 @@ class Loop:
             changed, removed = changes(files, now)
             if not (changed or removed):
                 continue
-            # An editor's save can be several writes: wait for them to settle.
+            # An editor's save can be several writes: wait for them to settle. Only the changed files are
+            # looked at again (a stat each), not the tree: a whole scan is 13,000 files, 0.4 s on a loaded
+            # 8 vCPU lane VM, and it was a second scan on every save (the daemon loop's fs_event stage,
+            # 459 ms against a 12 ms floor on a fleet Mac). A file saved meanwhile is the next scan's.
             while True:
                 time.sleep(SETTLE_SECS)
-                later = self.scan()
+                later = self.restat(now, changed)
                 if later == now:
                     break
                 now = later
