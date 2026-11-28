@@ -1,7 +1,18 @@
 use super::*;
 
 fn proc(pid: u32, comm: &str, ticks: u64) -> ProcStat {
-    ProcStat { pid, comm: comm.to_owned(), start: 1_000 + u64::from(pid), ticks, kthread: false }
+    ProcStat {
+        pid,
+        ppid: 1,
+        comm: comm.to_owned(),
+        start: 1_000 + u64::from(pid),
+        ticks,
+        kthread: false,
+    }
+}
+
+fn child(pid: u32, ppid: u32, comm: &str, ticks: u64) -> ProcStat {
+    ProcStat { ppid, ..proc(pid, comm, ticks) }
 }
 
 fn snap(mono_ms: u64, procs: Vec<ProcStat>) -> Snapshot {
@@ -24,6 +35,7 @@ fn stat_reads_comm_with_spaces_and_parens_ticks_and_kernel_threads() {
     assert_eq!(p.comm, "a (b) c");
     assert_eq!(p.ticks, 40, "utime + stime + reaped children's");
     assert_eq!(p.start, 5555);
+    assert_eq!(p.ppid, 1);
     assert!(!p.kthread);
     let kthread = "2 (kthreadd) S 0 0 0 0 -1 2129984 0 0 0 0 0 0 0 0 20 0 1 0 1 0 0";
     assert!(parse_stat(2, kthread).unwrap().kthread);
@@ -342,4 +354,61 @@ fn a_download_reads_busy_and_a_trickle_does_not() {
     // No /proc/net/dev: the network never counts.
     let none = |ms| Snapshot { net_bytes: None, ..snap(ms, Vec::new()) };
     assert!(t.observe(&none(120_000), 5).unwrap().busy_processes.is_empty());
+}
+
+/// A chat's agent (acpmux, its adapter, the agent) idling above CPU_BUSY_PERCENT does not make
+/// the machine busy; the same agent in a terminal, under a shell or under another agent does, and
+/// so does what a chat's agent started (a build). The fleet's idle machines read busy from `claude`
+/// and `opencode` alone every 3 to 5 minutes (2026-11-27, 109 of 211 kept lines).
+#[test]
+fn a_chats_own_agent_is_judged_by_its_chat_not_its_cpu() {
+    let busy_after = |procs: Vec<ProcStat>| {
+        let mut t = Tracker::default();
+        let idle: Vec<ProcStat> =
+            procs.iter().map(|p| ProcStat { ticks: 0, ..p.clone() }).collect();
+        t.observe(&snap(0, idle), 1_000);
+        t.observe(&snap(30_000, procs), 31_000).unwrap().busy_processes
+    };
+    let chat = || {
+        vec![
+            proc(1, "systemd", 0),
+            child(10, 1, "acpmux", 0),
+            child(11, 10, "node", 0),
+            child(12, 11, "claude", 500),
+            child(13, 10, "opencode", 500),
+        ]
+    };
+    assert!(busy_after(chat()).is_empty(), "the chat says whether its agent works");
+
+    let mut build = chat();
+    build.push(child(14, 12, "bash", 0));
+    build.push(child(15, 14, "cargo", 500));
+    assert_eq!(busy_after(build), vec!["cargo".to_owned()], "what the agent runs still counts");
+
+    let terminal = vec![
+        proc(1, "systemd", 0),
+        child(10, 1, "acpmux", 0),
+        child(20, 10, "__terminal_host", 0),
+        child(21, 20, "bash", 0),
+        child(22, 21, "claude", 500),
+    ];
+    assert_eq!(busy_after(terminal), vec!["claude".to_owned()], "an agent in a terminal counts");
+
+    let scripted = vec![proc(1, "systemd", 0), child(30, 1, "sh", 0), child(31, 30, "codex", 500)];
+    assert_eq!(busy_after(scripted), vec!["codex".to_owned()], "an agent no chat started counts");
+
+    let nested = vec![
+        proc(1, "systemd", 0),
+        child(10, 1, "acpmux", 0),
+        child(12, 10, "claude", 0),
+        child(40, 12, "claude", 500),
+    ];
+    assert_eq!(
+        busy_after(nested),
+        vec!["claude".to_owned()],
+        "an agent another agent started counts"
+    );
+
+    let orphan = vec![proc(1, "systemd", 0), child(50, 999, "claude", 500)];
+    assert_eq!(busy_after(orphan), vec!["claude".to_owned()], "a parent not found is not a chat");
 }
