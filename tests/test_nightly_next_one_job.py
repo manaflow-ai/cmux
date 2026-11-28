@@ -137,14 +137,13 @@ class NightlyNextOneJobTests(unittest.TestCase):
         self.assertEqual((steps[retry].get("with") or {}).get("overwrite"), True)
 
     def test_it_holds_its_own_concurrency_group_and_never_cancels_a_started_run(self) -> None:
-        # The push slot (docs/ci/nightly-workflow-notes.md#note-19): a loop run's nightly-next-one takes
-        # nightly-next-one-push-<host>, any other run's is scoped to the run; tests/test_nightly_next_push_slot_at_build.py.
+        # The push slot (docs/ci/nightly-workflow-notes.md#note-19): a loop run's nightly-next-one takes the one
+        # shared nightly-next-one-push group, any other run's is scoped to the run; tests/test_nightly_next_push_slot_at_build.py.
         self.assertEqual(self.job.get("concurrency"), {
-            # One slot per signer Mac: docs/ci/nightly-workflow-notes.md#note-33.
+            # One build at a time across both signer Macs, even with NIGHTLY_NEXT_SLOTS=2 (#62030):
+            # docs/ci/nightly-workflow-notes.md#note-33.
             "group": "${{ github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || "
-                     "inputs.nightly_next_loop_retry != '') && (vars.NIGHTLY_NEXT_SLOTS == '2' && vars.CI_NIGHTLY_MINI == '' && format('nightly-next-one-push-{0}', "
-                     "needs.pick-nightly-next-signer.outputs.attempt == github.run_attempt && "
-                     "needs.pick-nightly-next-signer.outputs.host || 'cmux15') || 'nightly-next-one-push') || "
+                     "inputs.nightly_next_loop_retry != '') && 'nightly-next-one-push' || "
                      "format('nightly-next-one-{0}', github.run_id) }}",
             "cancel-in-progress": False})
 
