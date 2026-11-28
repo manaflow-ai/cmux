@@ -24,7 +24,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-memory", "web-ui-flat", "web-ui-scroll-up", "web-ui-flat-grown", "web-ui-ladder", "web-ui-fidelity", "web-ui-typing", "web-ui-scroll", "web-ui-orchestrator", "web-ui-power-user", "web-ui-settled", "chat-disk", "cloud-claim", "terminal-scroll", "daemon-restart", "coord-sim", "chat-search"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-memory", "web-ui-flat", "web-ui-scroll-up", "web-ui-god-curve", "web-ui-flat-grown", "web-ui-ladder", "web-ui-fidelity", "web-ui-typing", "web-ui-scroll", "web-ui-orchestrator", "web-ui-power-user", "web-ui-settled", "chat-disk", "cloud-claim", "terminal-scroll", "daemon-restart", "coord-sim", "chat-search"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 # A fresh state's order (part_order): a part with no row anywhere goes before a goal's part, so the goal's parts go last.
 LINUX_FRESH_ORDER = [n for n in LINUX_PARTS if not cron.PART_BY_NAME[n].get("goal")] + \
@@ -1753,6 +1753,14 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(cron.part_for_row("webui.million_event_chat.short.heap_mb@linux"), "web-ui-million")
         argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-million")["suite"]
         self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "million-event-chat,million-event-chat-short"])
+        self.assertEqual(cwd, "/r/webviews")
+
+    def test_the_god_length_curve_rows_have_their_own_part(self):
+        self.assertTrue(cron.is_linux_part("web-ui-god-curve"))
+        self.assertEqual(cron.part_for_row("webui.god_length_curve.ratio_max@linux"), "web-ui-god-curve")
+        self.assertEqual(cron.part_for_row("webui.god_length_curve.token_ms.t100000@linux"), "web-ui-god-curve")
+        argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-god-curve")["suite"]
+        self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "god-length-curve"])
         self.assertEqual(cwd, "/r/webviews")
 
     def test_the_scroll_up_scale_rows_have_their_own_part(self):
@@ -5547,6 +5555,47 @@ class UnreadPartFirstTests(unittest.TestCase):
         self.assertEqual(sorted(state["current"]["parts_todo"][:2]), ["power", "wake"], "no newer commit has it: no change")
         cron.decide(state, at(1), None, None, self.supported, None, newest=self.OLD)
         self.assertEqual(sorted(state["current"]["parts_todo"][:2]), ["power", "wake"], "the newest commit lacks it too")
+
+    def goal_tip(self):
+        """Mid-tip whose hot-swap ran at OLD and stored none of its goal rows (2026-11-28, tip cdf458ee)."""
+        state = self.mid_tip(stored=[])
+        state["part_stored"]["hot-swap"] = {"sha": self.OLD, "at": cron.iso(T0), "rows": 6,
+                                            "incomplete": "unfocused: never changed in 0 runs"}
+        state["part_rows"] = {"hot_swap.mac.drafts_lost@h": {"p95": 0, "at": cron.iso(T0)}}
+        self.assertEqual(state["current"]["parts"]["hot-swap"]["state"], "done")
+        return state
+
+    def test_a_goal_part_with_no_goal_row_gives_way_to_a_harness_fix_at_once(self):
+        # 2026-11-28: tip cdf458ee ran hot-swap at 13:38Z without the graceful-swap fleet fixes merged by 12:15Z and
+        # stored no hot_swap.mac.*.p95_ms row; 19 Mac parts were left and NOW's hot-swap-fast had no value for 4 days.
+        state = self.goal_tip()
+        seen = []
+        with mock.patch.object(cron, "harness_changed", lambda a, b, paths: seen.append((a, b, tuple(paths))) or True):
+            self.assertEqual(cron.goal_harness_fixed(state, state["current"], self.NEW), ["hot-swap"])
+            cron.decide(state, at(1), None, None, self.supported, None, newest=self.NEW)
+        cur = state["current"]
+        self.assertEqual(seen[0][:2], (self.OLD, self.NEW))
+        self.assertIn("scripts/measure/graceful-swap-fleet.py", seen[0][2])
+        self.assertIn("superseded", cur, "no SUPERSEDE_AFTER_HOURS hold: the goal row waits on it")
+        self.assertIn("hot-swap", cur["superseded"]["why"])
+        self.assertFalse([n for n in cur["parts_todo"] if not cron.is_linux_part(n)], "its Mac parts gave way")
+        self.assertEqual({cur["parts"][n]["state"] for n in ("wake", "power")}, {"superseded"})
+
+    def test_a_goal_part_keeps_the_rotation_without_a_harness_fix_or_with_its_row(self):
+        state = self.goal_tip()
+        with mock.patch.object(cron, "harness_changed", lambda a, b, paths: False):
+            cron.decide(state, at(1), None, None, self.supported, None, newest=self.NEW)
+        self.assertNotIn("superseded", state["current"], "the newer tip runs the same harness: no gain")
+        state = self.goal_tip()
+        state["part_rows"]["hot_swap.mac.focused_pane.p95_ms@h"] = {"p95": 90, "at": cron.iso(T0)}
+        with mock.patch.object(cron, "harness_changed", lambda a, b, paths: True):
+            self.assertEqual(cron.goal_harness_fixed(state, state["current"], self.NEW), [], "it stored a goal row")
+        state = self.goal_tip()
+        state["part_stored"]["hot-swap"]["sha"] = "c" * 40
+        with mock.patch.object(cron, "harness_changed", lambda a, b, paths: True):
+            self.assertEqual(cron.goal_harness_fixed(state, state["current"], self.NEW), [],
+                             "a store from another tip says nothing of this one")
+            self.assertEqual(cron.goal_harness_fixed(self.goal_tip(), state["current"], self.OLD), [], "no newer tip")
 
     def test_an_unread_linux_part_gives_the_tip_in_flight_up_too(self):
         # 2026-11-24: web-ui-orchestrator (cmux#54205) merged after tip b76703549055, 13 of 45 parts in 229 h; as a

@@ -1062,6 +1062,7 @@ fn the_restart_window_holds_a_daemon_that_is_still_starting() {
         allow_downgrade: false,
         caller: None,
         now: false,
+        same_build_installed: false,
     };
     let peer = FakePeer::new("window-starting");
     restarted_ago(&peer, 5 * 60);
