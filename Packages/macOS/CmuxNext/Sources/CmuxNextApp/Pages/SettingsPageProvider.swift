@@ -43,8 +43,8 @@ final class SettingsPageProvider: PageProvider {
     var devicesState: (@MainActor () -> JSONValue)?
     /// Settings > Accounts > Cloud Environments (``CloudEnvironmentsSettings``).
     var environments: CloudEnvironmentsSettings?
-    /// Settings > Environment (``SettingsVault``, RFD 0222): the person's vault over the daemon's `vault-env`; nil in tests without an app.
-    var vault: SettingsVault?
+    /// Settings > Environment (RFD 0222): CmuxNextDaemon's `SettingsVault`, JSON in and out; nil in tests without an app.
+    var vault: (state: @MainActor () async -> Data, run: @MainActor (Data) async -> Data)?
     /// Settings > Cloud > Compute (``CloudAllotmentPage``): only the read; `cmux.settings.cloud.allotment.set` stays unknown here.
     var allotment: CloudAllotmentPage?
     var devicesRun: (@MainActor (JSONValue) async throws -> JSONValue)?

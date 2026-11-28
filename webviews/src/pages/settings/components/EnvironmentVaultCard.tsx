@@ -33,8 +33,7 @@ export const parseHosts = (text: string) =>
     .map((host) => host.trim().toLowerCase())
     .filter(Boolean);
 
-const when = (ms: number) =>
-  new Date(ms).toLocaleString(locale(), { dateStyle: "medium", timeStyle: "short" });
+const when = (ms: number) => new Date(ms).toLocaleString(locale(), { dateStyle: "medium", timeStyle: "short" });
 
 type Failure = { message: string; keyShaped?: string } | null;
 
@@ -116,7 +115,10 @@ export function EnvironmentVaultCard() {
           </div>
         )}
         {readFailed && (
-          <SettingsErrorRow message={t("settingsPage.vault.loadFailed")} retry={busy ? undefined : () => void refresh()} />
+          <SettingsErrorRow
+            message={t("settingsPage.vault.loadFailed")}
+            retry={busy ? undefined : () => void refresh()}
+          />
         )}
         {notice && (
           <output className="row row-help" data-vault-notice="">
@@ -173,7 +175,12 @@ export function VaultLists({
     const name = draft.name.trim();
     setLastDraft({ name, value: draft.value });
     if (draft.delivery === "env" && KEY_SHAPED.test(name)) return refuse(name);
-    const params = { name, value: draft.value, delivery: draft.delivery, ...(draft.delivery === "proxy" ? { allowedHosts: draft.hosts } : {}) };
+    const params = {
+      name,
+      value: draft.value,
+      delivery: draft.delivery,
+      ...(draft.delivery === "proxy" ? { allowedHosts: draft.hosts } : {}),
+    };
     if (await run({ action: "set", params })) {
       setAdding(null);
       setCarried(null);
@@ -214,7 +221,9 @@ export function VaultLists({
         <div className="row">
           <div className="row-main">
             <div className="row-label">
-              <span className="row-title">{t(env ? "settingsPage.vault.variables" : "settingsPage.vault.secrets")}</span>
+              <span className="row-title">
+                {t(env ? "settingsPage.vault.variables" : "settingsPage.vault.secrets")}
+              </span>
               <span className="row-help">
                 {t(env ? "settingsPage.vault.variablesHelp" : "settingsPage.vault.secretsHelp")}
               </span>
@@ -233,7 +242,9 @@ export function VaultLists({
         </div>
         {rows.length === 0 && adding !== delivery && (
           <div className="row" data-vault-empty={delivery}>
-            <span className="row-help">{t(env ? "settingsPage.vault.noVariables" : "settingsPage.vault.noSecrets")}</span>
+            <span className="row-help">
+              {t(env ? "settingsPage.vault.noVariables" : "settingsPage.vault.noSecrets")}
+            </span>
           </div>
         )}
         {rows.map((entry) => (
@@ -281,7 +292,11 @@ export function VaultLists({
                 busy={busy}
                 onSave={async (delivery, hosts) => {
                   if (delivery === "env" && KEY_SHAPED.test(entry.name)) return refuse(entry.name);
-                  const params = { name: entry.name, delivery, ...(delivery === "proxy" ? { allowedHosts: hosts } : {}) };
+                  const params = {
+                    name: entry.name,
+                    delivery,
+                    ...(delivery === "proxy" ? { allowedHosts: hosts } : {}),
+                  };
                   if (await run({ action: "policy", params })) setEditing(null);
                 }}
                 onCancel={() => setEditing(null)}
@@ -464,7 +479,12 @@ export function PolicyForm({
         </label>
       )}
       <div className="host-actions">
-        <Button type="button" data-vault="save" disabled={busy} onClick={() => void onSave(delivery, parseHosts(hosts))}>
+        <Button
+          type="button"
+          data-vault="save"
+          disabled={busy}
+          onClick={() => void onSave(delivery, parseHosts(hosts))}
+        >
           {t("settingsPage.vault.save")}
         </Button>
         <Button type="button" variant="ghost" data-vault="cancel" disabled={busy} onClick={onCancel}>

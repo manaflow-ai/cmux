@@ -1740,12 +1740,35 @@ export class MockSettingsProvider {
     unsupported: false,
     entries: [
       { name: "NODE_ENV", revision: 2, updatedAt: Date.UTC(2026, 10, 20, 9, 30), delivery: "env", allowedHosts: [] },
-      { name: "GITHUB_TOKEN", revision: 4, updatedAt: Date.UTC(2026, 10, 26, 16, 5), delivery: "proxy", allowedHosts: ["api.github.com", "*.githubusercontent.com"] },
-      { name: "STRIPE_SECRET_KEY", revision: 1, updatedAt: Date.UTC(2026, 10, 27, 11, 0), delivery: "proxy", allowedHosts: [] },
+      {
+        name: "GITHUB_TOKEN",
+        revision: 4,
+        updatedAt: Date.UTC(2026, 10, 26, 16, 5),
+        delivery: "proxy",
+        allowedHosts: ["api.github.com", "*.githubusercontent.com"],
+      },
+      {
+        name: "STRIPE_SECRET_KEY",
+        revision: 1,
+        updatedAt: Date.UTC(2026, 10, 27, 11, 0),
+        delivery: "proxy",
+        allowedHosts: [],
+      },
     ],
     grants: [
-      { kind: "joined", id: "mac-studio", expiresAt: Date.UTC(2026, 11, 3, 12, 0), grantedAt: Date.UTC(2026, 10, 26, 12, 0) },
-      { kind: "cloud", id: "vm_7f3a", entries: ["GITHUB_TOKEN"], expiresAt: 0, grantedAt: Date.UTC(2026, 10, 25, 8, 0) },
+      {
+        kind: "joined",
+        id: "mac-studio",
+        expiresAt: Date.UTC(2026, 11, 3, 12, 0),
+        grantedAt: Date.UTC(2026, 10, 26, 12, 0),
+      },
+      {
+        kind: "cloud",
+        id: "vm_7f3a",
+        entries: ["GITHUB_TOKEN"],
+        expiresAt: 0,
+        grantedAt: Date.UTC(2026, 10, 25, 8, 0),
+      },
     ],
   };
   /** Every vault write the page sent, in order (tests). Values are kept here only because this is a mock. */
@@ -1756,18 +1779,24 @@ export class MockSettingsProvider {
     const { name } = run.params;
     const entries = this.vault.entries;
     const at = entries.findIndex((entry) => entry.name === name);
-    const keyShaped = /(^|_)(API_KEY|APIKEY|TOKEN|SECRET|SECRET_KEY|ACCESS_KEY|PRIVATE_KEY|PASSWORD|PASSWD)$/i.test(name);
+    const keyShaped = /(^|_)(API_KEY|APIKEY|TOKEN|SECRET|SECRET_KEY|ACCESS_KEY|PRIVATE_KEY|PASSWORD|PASSWD)$/i.test(
+      name,
+    );
     if (!/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name)) throw new ProtocolError("vault.invalid_name", "invalid name");
     if (run.action === "rm") {
       this.vault = { ...this.vault, entries: entries.filter((entry) => entry.name !== name) };
       return { result: { name, revision: (entries[at]?.revision ?? 0) + 1 } };
     }
     const delivery = run.params.delivery ?? entries[at]?.delivery ?? "proxy";
-    if (delivery === "env" && keyShaped) throw new ProtocolError("vault.key_shaped_variable", "a key-shaped name must be a secret");
+    if (delivery === "env" && keyShaped)
+      throw new ProtocolError("vault.key_shaped_variable", "a key-shaped name must be a secret");
     const allowedHosts = run.params.allowedHosts ?? entries[at]?.allowedHosts ?? [];
     const revision = (entries[at]?.revision ?? 0) + 1;
     const entry = { name, revision, updatedAt: Date.now(), delivery, allowedHosts };
-    this.vault = { ...this.vault, entries: at < 0 ? [...entries, entry] : entries.map((old, i) => (i === at ? entry : old)) };
+    this.vault = {
+      ...this.vault,
+      entries: at < 0 ? [...entries, entry] : entries.map((old, i) => (i === at ? entry : old)),
+    };
     const warning = delivery === "proxy" && allowedHosts.length === 0 ? "no allowed hosts" : undefined;
     return { result: { name, revision, ...(warning ? { warning } : {}) } };
   }

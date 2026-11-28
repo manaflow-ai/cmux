@@ -1,25 +1,25 @@
-import CmuxNextDaemon
 import Foundation
 
 /// Settings > Environment (RFD 0222 (c)1, hq#37585): the person's vault through the local daemon's
 /// `vault-env` op. This only adds the platform origin and install bearer (``VaultEnvRequest``) and
 /// shapes answers for the page; Rust owns the platform calls, the value encoding and every check.
-/// It speaks JSON `Data` so ``SettingsPageProvider`` needs no daemon types.
+/// It speaks JSON `Data` so the Settings page provider needs no daemon types, and it lives here, not
+/// in CmuxNextApp, so its tests need no app.
 ///
 /// A secret value passes through `run` once, on its way to the daemon, and is never kept, logged or
 /// answered back: `list` names entries, it never returns a value.
 @MainActor
-final class SettingsVault {
+public final class SettingsVault {
     /// One `vault-env` action on the local daemon with the signed-in install token.
-    typealias Send = @MainActor (_ action: String, _ params: JSONValue) async throws -> JSONValue
+    public typealias Send = @MainActor (_ action: String, _ params: JSONValue) async throws -> JSONValue
 
     /// The page's writes; `list` and `grants` are what `state` reads.
-    static let writes: Set<String> = ["set", "policy", "rm"]
+    public static let writes: Set<String> = ["set", "policy", "rm"]
 
     private let available: @MainActor () -> Bool
     private let send: Send
 
-    init(available: @escaping @MainActor () -> Bool, send: @escaping Send) {
+    public init(available: @escaping @MainActor () -> Bool, send: @escaping Send) {
         self.available = available
         self.send = send
     }
@@ -27,7 +27,7 @@ final class SettingsVault {
     /// `cmux.settings.vault.state`: `{available, unsupported, entries, grants, error?, code?}`.
     /// Unavailable (Cloud off or signed out) and unsupported (a daemon without `vault-env-v1`) answer
     /// no lists, so the card explains instead.
-    func state() async -> Data {
+    public func state() async -> Data {
         guard available() else { return Self.encode(["available": .bool(false), "unsupported": .bool(false), "entries": .array([]), "grants": .array([])]) }
         do {
             let entries = try await send("list", .object([:]))["entries"] ?? .array([])
@@ -46,7 +46,7 @@ final class SettingsVault {
     }
 
     /// `cmux.settings.vault.run` `{action, params}`: `{result}` or `{error, code}` (`vault.key_shaped_variable`, ...).
-    func run(_ request: Data) async -> Data {
+    public func run(_ request: Data) async -> Data {
         guard let body = try? JSONDecoder().decode(JSONValue.self, from: request),
               let action = body["action"]?.stringValue, Self.writes.contains(action) else {
             return Self.encode(["error": .string("unknown vault action"), "code": .string("vault.invalid")])

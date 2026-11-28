@@ -1325,7 +1325,11 @@ export type VaultRun =
   | { action: "set"; params: { name: string; value: string; delivery?: VaultDelivery; allowedHosts?: string[] } }
   | { action: "policy"; params: { name: string; delivery?: VaultDelivery; allowedHosts?: string[] } }
   | { action: "rm"; params: { name: string } };
-export type VaultRunReply = { result?: { name?: string; revision?: number; warning?: string }; error?: string; code?: string };
+export type VaultRunReply = {
+  result?: { name?: string; revision?: number; warning?: string };
+  error?: string;
+  code?: string;
+};
 
 /** Settings > Server > This Mac on Your Tailnet: acpmux's embedded tailnet node as `_acpmux/tailnet/*`
  * answers it (cmux-tui acpmux tailnet/embedded.rs `Snapshot::to_json`), relayed unchanged by the app on
