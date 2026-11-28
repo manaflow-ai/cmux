@@ -74,12 +74,12 @@ export function installBrowserHost(): void {
         throw new Error(`This browser does not support ${method}.`);
     }
   });
-  // Back, Forward and in-page chat links select through the pane's own chat.select. The first
+  // Back, Forward and in-page chat links bind the pane to the addressed chat. The first
   // route rides the handshake's sessionId, so a route read before the pane mounts is not replayed.
   installBrowserNavigation(selectBrowserRoute);
 }
 
 function selectBrowserRoute(route: BrowserChatRoute | undefined): void {
-  const select = window.cmuxAcpmuxActions?.["chat.select"];
+  const select = window.cmuxAcpmuxActions?.["chat.adopt"];
   if (route && select) void Promise.resolve(select({ sessionId: route.session })).catch(() => undefined);
 }

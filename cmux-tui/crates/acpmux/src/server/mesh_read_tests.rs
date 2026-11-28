@@ -1207,6 +1207,13 @@ async fn a_web_connection_without_a_device_never_uses_the_daemons_identity() {
     let own = Arc::new(DaemonIdentity::default());
     let a = daemon_a(&url, Arc::clone(&own));
     let mut web = Client::connect(&a, Origin::Web);
+    for key in [LISTED.to_owned(), format!("machine-b/{LISTED}")] {
+        let denied = web.request(method::MUX_ATTACH, json!({"sessionId": key})).await.unwrap_err();
+        assert_eq!(reason(&denied), "device.required", "{denied}");
+    }
+    let missing =
+        web.request(method::MUX_ATTACH, json!({"sessionId": "absent"})).await.unwrap_err();
+    assert_eq!(reason(&missing), "no_session", "{missing}");
     assert!(web.read().await.is_err(), "a web read with no device was answered");
     assert!(web.prompt().await.is_err(), "a web prompt with no device was sent");
     assert_eq!(own.used(), 0, "a web connection used the daemon's hub identity");
@@ -1287,7 +1294,7 @@ async fn a_revoked_device_is_dropped() {
     web.request("_acpmux/device_hello", json!({"credential": DEVICE})).await.unwrap();
     web.read().await.unwrap();
 
-    let revoked = web.read().await.unwrap_err();
+    let revoked = web.request(method::MUX_ATTACH, json!({"sessionId": LISTED})).await.unwrap_err();
     assert_eq!(reason(&revoked), "device.revoked", "{revoked}");
     let reached = seen.lock().unwrap().len();
     for _ in 0..2 {

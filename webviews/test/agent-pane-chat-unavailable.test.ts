@@ -154,7 +154,7 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
-    const hash = new URLSearchParams({ endpoint, token: "t", session: chat, must: "" });
+    const hash = new URLSearchParams({ endpoint, token: "t", session: chat });
     if (machine) hash.set("machine", machine);
     await page.goto(`http://127.0.0.1:${port}/#${hash.toString()}`);
     return page;
@@ -753,6 +753,20 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     expect(await shown.getByRole("button", { name: "Close Tab" }).count()).toBe(1);
     expect((await state(page)).sessionId).toBeNull();
     await page.close();
+  });
+
+  test("an explicit link never opens the unrelated session recorded for the tab", async () => {
+    scenario = { sessions: [summary("other-chat")], tabSessionId: "other-chat", peers: [] };
+    const page = await open("requested-chat");
+    try {
+      await page.locator('[data-unavailable="notFound"]').waitFor();
+      const opened = await state(page);
+      expect(opened.sessionId).toBeNull();
+      expect(opened.missingSession).toBe("requested-chat");
+      expect(await page.getByText("Opened other-chat").count()).toBe(0);
+    } finally {
+      await page.close();
+    }
   });
 
   test("a chat on another machine whose tab names it by another id than acpmux's opens", async () => {
