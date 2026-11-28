@@ -26,7 +26,7 @@ await requireBrowserLane("inspect-element-anchor-browser.test.ts", async () => {
     (window as any).picker = installUiPointer(document, { post: (r) => state.reports.push(r), now: () => state.now });
   `,
   );
-  const built = await Bun.build({ entrypoints: [entry], target: "browser" }).finally(() =>
+  const built = await Bun.build({ entrypoints: [entry], format: "iife", target: "browser" }).finally(() =>
     fs.rmSync(dir, { recursive: true, force: true }),
   );
   if (!built.success) throw new Error(built.logs.join("\n"));

@@ -207,11 +207,10 @@ test("the hook refreshes only the selected agent, survives StrictMode, and drops
     expect(calls).toBe(1);
     expect(dom.window.document.body.textContent).toContain("Only recent transcript history is available.");
     expect(dom.window.document.body.textContent).not.toContain("{count}");
-    const loadingNotice = notices.find((notice) => notice.text?.includes("Loading"));
-    const limitedNotice = notices.find((notice) => notice.text?.includes("Only recent"));
-    expect(loadingNotice).toBeDefined();
-    expect(limitedNotice).toBeDefined();
-    expect(limitedNotice!.version).not.toBe(loadingNotice!.version);
+    // No loading words while the first page is read (#62227; Leo, 2026-11-27: "unnecesssary message"):
+    // the only notice is the short history's.
+    expect(notices.some((notice) => notice.text?.includes("Loading"))).toBe(false);
+    expect(notices.find((notice) => notice.text?.includes("Only recent"))).toBeDefined();
     await act(async () => show());
     expect(calls).toBe(1);
     progress = 2;

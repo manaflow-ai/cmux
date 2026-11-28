@@ -189,6 +189,12 @@ jobs:
           SHA: ${{ inputs.sha }}
           GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN }}
           GH_BUDGET_WAIT_MAX_SECONDS: 120
+          # The CI Stack (dev) agent account (docs/ci/ios-e2e.md), so a pair-e2e step runs with
+          # `cmux-ci run --sign-in agent`: without it ios_verify stops before the step (an unsigned one fails at
+          # pairing after a 45-60 min Mac build, cmux#59658, cmux#56372). Only this step holds it: ios_verify mints
+          # the session here and drops both keys from the head's scripts env (SCRUBBED, --scripts-at).
+          CMUX_UITEST_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_UITEST_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
         run: |
           set -uo pipefail
           # ios_verify.py calls `cmux-ci` by name: the checked client from the controller.
