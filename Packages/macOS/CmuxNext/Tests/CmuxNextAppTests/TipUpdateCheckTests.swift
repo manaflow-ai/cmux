@@ -154,11 +154,19 @@ import CmuxNextWakeupsTestSupport
 
     // MARK: Release push, no delta wait
 
+    /// The automatic-download gate as an app with Sparkle has it: `configure` computes it only with a Sparkle
+    /// controller (an app without Sparkle downloads nothing), and this harness has none, so `downloadsFoundUpdates`
+    /// read false whatever the push did (red since #63214). No network monitor runs here, so the link is free.
+    static func downloadsAsWithSparkle(_ h: Harness) {
+        h.updater.applyDownloadPolicy()
+    }
+
     /// A pushed NIGHTLY build whose deltas are not listed yet is checked for at once and downloads in
     /// the background at once: no Download prompt waits for deltas that list 40 to 70 minutes later
     /// (Leo 2026-11-27: "background + incremental should be on by default").
     @Test func aPushedBuildWithoutDeltasDownloadsAtOnce() async throws {
         let h = Self.make(Self.nightly, xml: Self.nightlyFeed(minutesAgo: 1, deltas: false))
+        Self.downloadsAsWithSparkle(h)
         #expect(h.updater.downloadsFoundUpdates)
         h.updater.tipCheck.readNow(h.updater)
         try #require(await eventually { h.checks.count == 1 }, "the pushed build was not checked for at once")
@@ -169,6 +177,7 @@ import CmuxNextWakeupsTestSupport
     /// A pushed build whose deltas are listed downloads at once the same way.
     @Test func aPushedBuildWithDeltasDownloadsAtOnce() async throws {
         let h = Self.make(Self.nightly, xml: Self.nightlyFeed(minutesAgo: 1, deltas: true))
+        Self.downloadsAsWithSparkle(h)
         h.updater.tipCheck.readNow(h.updater)
         try #require(await eventually { h.checks.count == 1 })
         #expect(h.updater.downloadsFoundUpdates)
