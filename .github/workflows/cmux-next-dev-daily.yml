@@ -112,6 +112,8 @@ jobs:
         timeout-minutes: 1
         uses: ./.app-token-spread/.github/actions/app-token-spread
         with:
+          # The CI pool first (quota-goblin-9008/9009) when one has 500 calls left, then the fuller App.
+          pool-tokens: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
           route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
