@@ -792,6 +792,8 @@ jobs:
     permissions:
       contents: read
       actions: read
+      # The plan reads the head's earlier cmux/ios-fast statuses: a pass on the same iOS inputs is reused.
+      statuses: read
     outputs:
       run: ${{ steps.plan.outputs.run }}
       plan: ${{ steps.plan.outputs.plan }}
@@ -814,6 +816,9 @@ jobs:
           persist-credentials: false
       - name: Plan the changed iOS targets
         id: plan
+        env:
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/ios_fast_verdict.py plan
       - name: Mint the cmux-bot read token (even runs)
         # Even run ids read on cmux-bot's installation budget, odd ones on
