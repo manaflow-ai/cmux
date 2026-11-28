@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/46085354594",
+  "recorded_at": "2026-11-28T00:24:08Z",
+  "reason": "image inputs changed in a9143ca1c62a2998254bbe64491e070c6349fcc0..eb84650dace44e4c736fda57b7c59aa218fc2be9; cmux-tui 50b5af300e11, the newest build published on HEAD (pinned 589544f1e56b; latest build 9b73ef66975b is not on HEAD)",
+  "dry_run": false,
+  "cmux_tui": "50b5af300e11207f36bc01140d0a451787f16d6d",
+  "fixes": [
+    {
+      "sha": "eb84650dace44e4c736fda57b7c59aa218fc2be9",
+      "mergedAt": "2026-11-27T23:58:09Z",
+      "subject": "cloud image inventory: start a builder the provider paused, and log its state (#63475)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-28T00:24:08Z",
+    "snapshot_id": "sh-3125359210344a3383857cf8fd1e6a45",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 46085354594): 34 checks passed"
+  },
+  "promotion": {
+    "result": "nothing",
+    "job": "success",
+    "commit": "",
+    "image": "cloud-native-auto-50b5af30-46085354594-1",
+    "revision": "ci-46085354594-1",
+    "at": null
+  },
+  "rolled_back": false
+}
