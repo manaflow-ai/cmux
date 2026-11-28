@@ -172,3 +172,4 @@ jobs:
             vmd-host-out/manifest.json
             vmd-host-out/latest.json
           if-no-files-found: ignore
+          retention-days: 3

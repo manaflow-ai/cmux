@@ -113,7 +113,7 @@ jobs:
           name: optchat-chief-linux-${{ github.run_id }}
           path: ${{ runner.temp }}/chief/optchat-chief-x86_64-unknown-linux-musl
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 1
 
   check:
     needs: build

@@ -2637,6 +2637,8 @@ inputs = [
   # web_subareas.py counts the react-apps-check fleet scripts in agent_pane too (REACT_EXACT).
   "scripts/ci/react-apps-check-fleet.sh",
   "scripts/ci/react_apps_fleet.py",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods.swift",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods+Params.swift",
   "webviews/**",
   "Resources/markdown-viewer/**",
   "config/vite-plus/**",

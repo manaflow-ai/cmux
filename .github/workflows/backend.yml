@@ -314,7 +314,7 @@ jobs:
           name: api-workerd-verdict-${{ matrix.shard }}
           path: ${{ runner.temp }}/api-workerd-verdict/${{ matrix.shard }}
           # As long as the run can still be re-run: a passing shard is not rerun, and its verdict must still be here.
-          retention-days: 30
+          retention-days: 3
           overwrite: true
           if-no-files-found: ignore
       - name: Record this shard's green result for its input tree

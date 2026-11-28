@@ -258,6 +258,7 @@ jobs:
           name: split-table-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/split-table/
           if-no-files-found: warn
+          retention-days: 3
 
   report:
     needs: measure-fleet

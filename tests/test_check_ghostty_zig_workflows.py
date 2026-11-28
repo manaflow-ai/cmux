@@ -65,7 +65,9 @@ def test_executing_consumer_before_init_fails() -> None:
             runs-on: ubuntu-latest
             steps:
               - name: Install Zig
-                run: ./scripts/install-zig-ci.sh
+                run: |
+                  ./scripts/install-zig-ci.sh
+                  echo "elapsed $((SECONDS - started))"
         """
     )
 
@@ -87,7 +89,9 @@ def test_initialized_consumer_passes() -> None:
                 with:
                   submodules: recursive
               - name: Install Zig
-                run: ./scripts/install-zig-ci.sh
+                run: |
+                  ./scripts/install-zig-ci.sh
+                  echo "elapsed $((SECONDS - started))"
         """
     )
 

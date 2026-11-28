@@ -307,7 +307,7 @@ jobs:
         with:
           name: cmux-next-ios-link-ffi-xcframework
           path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
-          retention-days: 1
+          retention-days: 3
           if-no-files-found: error
 
   # The kit's iOS simulator test build (what kit-tests' sim-pack step builds on a Mac) on the build fleet, from a

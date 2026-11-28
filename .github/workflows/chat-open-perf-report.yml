@@ -372,4 +372,4 @@ jobs:
           name: chat-open-perf-${{ github.run_id }}-${{ steps.class.outputs.class || 'unknown' }}
           path: ${{ runner.temp }}/chat-open
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 3

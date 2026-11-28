@@ -489,6 +489,9 @@ def _run_events(
         return [], None
 
     normalized = _normalize_bash_conditionals(_normalize_heredocs(script))
+    # bashlex 0.18 rejects shell arithmetic. Plain identifiers, integers and +/-
+    # cannot invoke a command. Keep all other expansions visible to the parser.
+    normalized = re.sub(r"\$\(\([a-zA-Z_0-9 \t+-]+\)\)", "0", normalized)
     try:
         roots = bashlex.parse(normalized)
     except (bashlex.errors.ParsingError, NotImplementedError) as error:

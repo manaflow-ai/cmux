@@ -160,3 +160,4 @@ jobs:
           name: agent-conn-chaos-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/chaos/
           if-no-files-found: warn
+          retention-days: 3

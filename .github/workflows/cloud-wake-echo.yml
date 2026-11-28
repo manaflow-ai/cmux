@@ -80,4 +80,4 @@ jobs:
             ${{ runner.temp }}/${{ env.WAKE_ECHO_SUBDIR }}/journey.json
             ${{ runner.temp }}/${{ env.WAKE_ECHO_SUBDIR }}/summary.md
           if-no-files-found: warn
-          retention-days: 30
+          retention-days: 3

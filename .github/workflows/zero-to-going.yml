@@ -110,4 +110,4 @@ jobs:
           name: zero-to-going
           path: ${{ runner.temp }}/zero-to-going
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 3
