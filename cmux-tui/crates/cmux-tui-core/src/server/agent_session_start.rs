@@ -765,8 +765,8 @@ pub(super) fn start(
 
 /// `_meta.acpmux.tags` for a person's start on a Cloud machine (`cloud`: this host is a Cloud VM
 /// of any kind, which the host gate admitted the caller to; `phone`: the phone's start): the
-/// subrouter priority `interactive`, which acpmux keeps on the chat before its agent first
-/// spawns (acpmux `subrouter_priority::asked_tag`). None elsewhere: the app proves the person to
+/// gateway class `interactive`, which acpmux keeps on the chat before its agent first
+/// spawns (acpmux `asked_tag`). None elsewhere: the app proves the person to
 /// its own Mac's acpmux itself.
 pub(super) fn person_priority_tags(cloud: bool, phone: bool) -> Option<Value> {
     (cloud || phone).then(|| json!({"priority": "interactive"}))
