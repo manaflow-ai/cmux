@@ -235,6 +235,21 @@
       "what": "one display frame of a transcript scroll (webviews acpmux/VirtualTranscript.tsx scrollDrawsAt): the scroll pacer's frame works out what the offset draws (mounted rows, view, Jump to latest, soft edges) in a few layout searches and renders the transcript only when that changed",
       "bench": "cd webviews && bun bench/transcript-scroll-frame.bench.ts [rows=3000] (frame intervals and vt.renders per frame, fling and wheel)",
       "owner": "agent chat"
+    },
+    "native-transcript-frame": {
+      "what": "one display-link tick of the native transcript (RFD 0121, debug flag; NativeTranscriptRenderer.tick): drain posted input, fill glyphs, ask rich rows, cmux_nt_frame into a shared Metal buffer, one instanced draw, present",
+      "bench": "python3 scripts/ci/frame-pacing/transcript_fling.py (native and web arms interleaved, one job on one 120 Hz Mac: fling frame-interval p95, late textures); scene only: cd cmux-tui && cargo bench -p cmux-native-transcript --bench scene_frame",
+      "owner": "RFD 0121 native transcript"
+    },
+    "native-transcript-glyphs": {
+      "what": "one glyph the native transcript's atlas rasterizes (NativeTranscriptAtlas.draw: CoreText into the R8 atlas slot the scene placed)",
+      "bench": "python3 scripts/ci/frame-pacing/transcript_fling.py (native and web arms interleaved, one job on one 120 Hz Mac: fling frame-interval p95, late textures); scene only: cd cmux-tui && cargo bench -p cmux-native-transcript --bench scene_frame",
+      "owner": "RFD 0121 native transcript"
+    },
+    "native-transcript-rich-row": {
+      "what": "one rich row (KaTeX in the fixture) the native transcript rasterizes to a texture off the render thread (NativeTranscriptRichRows.make)",
+      "bench": "python3 scripts/ci/frame-pacing/transcript_fling.py (native and web arms interleaved, one job on one 120 Hz Mac: fling frame-interval p95, late textures); scene only: cd cmux-tui && cargo bench -p cmux-native-transcript --bench scene_frame",
+      "owner": "RFD 0121 native transcript"
     }
   }
 }

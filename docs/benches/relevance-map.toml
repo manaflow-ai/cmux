@@ -2060,6 +2060,10 @@ paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/**"]
 tests = ["swift test --package-path Packages/macOS/CmuxNext --filter CmuxNextMobileHostTests"]
 
 [[unit]]
+name = "swift:CmuxNextNativeTranscript"
+paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextNativeTranscript/**"]
+
+[[unit]]
 name = "swift:CmuxNextNotifications"
 paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextNotifications/**"]
 

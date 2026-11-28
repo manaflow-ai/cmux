@@ -52,6 +52,7 @@ extension AppServices {
         ssh.start()
         serverReach.start()
         updater.start()
+        nativeTranscript.openIfAsked()  // RFD 0121: only with CMUX_NATIVE_TRANSCRIPT=1
         let memoryReporter = MemoryPressureReporter(reporter: crashReporting.reporter)
         memoryPressureReporter = memoryReporter
         memoryPressureReportingObservation = memoryPressure.observe { [weak self] level in

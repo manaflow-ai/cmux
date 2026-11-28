@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-28",
+  "row": "app_lines",
+  "allow": 3,
+  "why": "RFD 0121 native transcript (app-perf.md section 6, first PR): all code lives in the new CmuxNextNativeTranscript target, including its debug.native_transcript RPC (NativeTranscriptControl.debugMethod, registered on an existing AppControl line). The App keeps only composition-root ownership: the import, the AppServices field and the openIfAsked() launch hook in startAfterFirstFrame (SW14).",
+  "author": "lane/rfd-0121-native-transcript-metal (claude opus, chat-instant-architect-2)",
+  "owner": "lane/rfd-0121-native-transcript-metal",
+  "receipt": "Review (claude opus subagent d232b539): SHIP at e2d4e56ee0ea91b0bd442a3b26d621541e6582fd",
+  "expiry": "2026-12-12"
+}

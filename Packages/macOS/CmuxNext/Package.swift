@@ -38,6 +38,7 @@ import PackageDescription
 //   CmuxNextRemote -> CmuxNextCloud (SSH machines: ssh argv, probe, install, relay policy; no UI, no daemon)
 //   CmuxNextMobile -> Daemon, CCmuxAppFFI (phone host model, pairing and the mobile.* compat adapter; no UI; the rules in Rust)
 //   CmuxNextUpdater -> Design, Icons, CmuxUpdater, Sparkle, CCmuxAppFFI (the pre-warm record, the install gate) (update checks, appcast probe, update sheet; no daemon)
+//   CmuxNextNativeTranscript -> Compat, Control, Design, Settings, Wakeups, CCmuxAppFFI (RFD 0121 native transcript: Metal view, own render thread; read-only, debug-gated)
 //   CmuxNextMallocZone -> libSystem only (C: the delegating default malloc zone that lets the
 //     Chromium framework load later from another thread; plans/cmux-next/browser-isolation.md)
 //   CmuxNextRemoteLayer -> QuartzCore only (ObjC header: CALayerHost, the remote layer a layer-hosted
@@ -460,6 +461,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextMallocZone",
                 "CmuxNextMobile",
                 "CmuxNextMobileHost",
+                "CmuxNextNativeTranscript",
                 "CmuxNextNotifications",
                 "CmuxNextNowPlaying",
                 "CmuxNextOnboarding",
@@ -554,6 +556,22 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             resources: [
                 .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // RFD 0121's native transcript (app-perf.md section 6, first PR): a CAMetalLayer view drawn on its own render
+        // thread from the Rust scene (CCmuxNativeTranscriptFFI in CCmuxAppFFI), read-only, the 3,000-row fixture, only
+        // behind CMUX_NATIVE_TRANSCRIPT=1 or debug.native_transcript. Compiles to its control stub until the FFI pin
+        // carries the module. Wiring stays in the App.
+        .target(
+            name: "CmuxNextNativeTranscript",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
+                "CmuxNextCompat",
+                "CmuxNextControl",
+                "CmuxNextDesign",
+                "CmuxNextSettings",
+                "CmuxNextWakeups",
             ],
             swiftSettings: uiSwiftSettings
         ),

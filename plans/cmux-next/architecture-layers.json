@@ -122,6 +122,7 @@
     "CmuxNextRemoteViewSessions": {"layer": "ui", "mixes": ["service"]},
     "CmuxNextMacScreen": {"layer": "ui", "mixes": ["domain", "service"]},
     "CmuxNextFloating": {"layer": "ui"},
+    "CmuxNextNativeTranscript": {"layer": "ui", "note": "RFD 0121 native transcript: Metal host, render thread, CoreText atlas; read-only fixture, off by default"},
     "CmuxNextPopups": {"layer": "ui"},
     "CmuxNextAgentPermissions": {"layer": "ui"},
     "CmuxNextChiefViews": {"layer": "ui"},

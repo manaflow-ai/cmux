@@ -35,6 +35,8 @@ cmux-config = { path = "../cmux-config" }
 cmux-home-rules = { path = "../cmux-home-rules" }
 # The agent pane relay policy (src/ffi.rs: one check per page frame).
 cmux-agent-pane-policy = { path = "../cmux-agent-pane-policy" }
+# The read-only native transcript scene behind the debug flag (RFD 0121; cmux-native-transcript src/ffi.rs).
+cmux-native-transcript = { path = "../cmux-native-transcript" }
 # Predictive local echo for a terminal on another machine (cmux-terminal-prediction src/ffi.rs).
 cmux-terminal-prediction = { path = "../cmux-terminal-prediction" }
 # The typed address-bar policy: what the omnibox and New Tab field load or search

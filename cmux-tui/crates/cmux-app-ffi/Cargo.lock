@@ -275,6 +275,7 @@ dependencies = [
  "cmux-layout-cache",
  "cmux-layout-reducer-ffi",
  "cmux-motion",
+ "cmux-native-transcript",
  "cmux-palette-ranker",
  "cmux-pane-pictures",
  "cmux-process",
@@ -689,6 +690,10 @@ dependencies = [
 
 [[package]]
 name = "cmux-motion"
+version = "0.1.0"
+
+[[package]]
+name = "cmux-native-transcript"
 version = "0.1.0"
 
 [[package]]

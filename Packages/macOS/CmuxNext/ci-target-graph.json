@@ -404,6 +404,7 @@
         "CmuxNextMallocZone",
         "CmuxNextMobile",
         "CmuxNextMobileHost",
+        "CmuxNextNativeTranscript",
         "CmuxNextNotifications",
         "CmuxNextNowPlaying",
         "CmuxNextOnboarding",
@@ -1977,6 +1978,19 @@
         "CMUXAuthCore"
       ],
       "reads": []
+    },
+    "CmuxNextNativeTranscript": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextNativeTranscript",
+      "targets": [
+        "CCmuxAppFFI",
+        "CmuxNextCompat",
+        "CmuxNextControl",
+        "CmuxNextDesign",
+        "CmuxNextSettings",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
     },
     "CmuxNextNotifications": {
       "kind": "regular",
