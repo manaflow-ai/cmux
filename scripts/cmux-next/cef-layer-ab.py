@@ -31,13 +31,15 @@ launch failure or a crash exits 1 too, so the exit code alone does not tell a bu
 import argparse, json, os, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import in_tree_mode  # noqa: E402
 KEY = "browserResize.layerHosting"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
 parser.add_argument("--tag", required=True)
 parser.add_argument("--out", required=True)
-parser.add_argument("--modes", default="off,on", help="off = page child windows, on = layer hosting")
+parser.add_argument("--modes", default="off,on", help="off = page child windows, on = layer hosting, intree = in-tree pages")
 parser.add_argument("--benches", default="switch,tabs,light,stress")
 parser.add_argument("--workspaces", type=int, default=60)
 parser.add_argument("--rounds", type=int, default=3)
@@ -65,7 +67,7 @@ def check_mode(mode):
     rows = report.get("rows") or []
     # The mode is real when valid, hosted and hosted.fork pass; show.again is a pixel check that is recorded, not a gate
     # (a host whose window images hold no Chromium pixels fails it in both modes).
-    gate = [r for r in rows if r.get("check") in ("valid", "hosted", "hosted.fork")]
+    gate = [r for r in rows if r.get("check") in ("valid", "hosted", "hosted.fork", "in_tree")]
     ok = len(gate) == 3 and all(r.get("ok") for r in gate)
     return ok, {"exit": code, "rows": rows, **(report.get("facts") or {})}
 
@@ -106,6 +108,9 @@ failures = 0
 summary = {"tag": opts.tag, "app": opts.app, "modes": {}, "validity": {}}
 tunables_file = None
 for mode in opts.modes.split(","):
+    # The benches' own launches (bench_launch.BenchApp) take the in-tree switch from this environment: the same build
+    # runs OFF and IN back to back, no rebuild.
+    os.environ[in_tree_mode.ENV] = "1" if mode == "intree" else "0"
     ok, facts = check_mode(mode)
     summary["validity"][mode] = {"ok": ok, **facts}
     tunables_file = facts.get("tunables_file") or tunables_file
@@ -132,6 +137,7 @@ if tunables_file:
         with open(tunables_file) as f:
             data = json.load(f)
         data.setdefault("values", {}).pop(KEY, None)
+        data["values"].pop(in_tree_mode.KEY, None)
         with open(tunables_file, "w") as f:
             json.dump(data, f, indent=2, sort_keys=True)
     except (OSError, ValueError):

@@ -51,6 +51,8 @@ final class CEFHostView: NSView {
     let fileDrag = CEFFileDragRelay()
     /// Layer hosting (fork API 26) of the page window over this view (`CEFLayerHosting`).
     let layerHosting = CEFLayerHosting()
+    /// In-tree hosting (fork API 36) of the page over this view: its own view in this view, no page window.
+    let inTree = CEFInTreeHosting()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -58,6 +60,7 @@ final class CEFHostView: NSView {
         updateBackground()
         fileDrag.view = self
         layerHosting.view = self
+        inTree.view = self
         #if DEBUG || CMUX_BENCH_HOOKS
         Self.registerMotionSampler()
         #endif
@@ -119,7 +122,10 @@ final class CEFHostView: NSView {
         super.setFrameSize(newSize)
         // After super: the fork's tracker resized the page window in the frame notice, so its compositor has the new
         // size the window's resize fence asks for (fork API 32, ``CEFLayerHosting/pageViewResized()``).
-        if !wasEmpty, newSize.width > 0, newSize.height > 0 { layerHosting.pageViewResized() }
+        if !wasEmpty, newSize.width > 0, newSize.height > 0 {
+            layerHosting.pageViewResized()
+            inTree.pageViewResized()
+        }
     }
 
     override func setFrameOrigin(_ newOrigin: NSPoint) {
@@ -329,6 +335,15 @@ final class CEFHostView: NSView {
     func pagesNeedUpdate(force: Bool, geometryOnly: Bool = false) { // perf-hot: 0.05ms cef-geometry (every page, every motion frame)
         // A page parked away comes back when its view does (`CEFLayerHosting.isParkedAway`): its geometry no fork reads.
         if layerHosting.isParkedAway { layerHosting.placementChanged() }
+        // In tree the page is this view's own subview: the fork's update of it (`-updateDetached`) reads no occlusion or
+        // clip, and it already runs on every frame notice of this view and its ancestors and on the window's move,
+        // resize and screen notices, which the fork observes itself. A post here only repeated that update (a headless
+        // window frame and a Views layout of the hidden Browser view) once more per page per motion frame. A show
+        // (`CEFPaneHost.showBrowser`) and a spring's landing (`paneMotionSettled`) still post.
+        if inTree.isInTree, !force {
+            Self.trackerStats.inTreeGeometrySkips += 1
+            return
+        }
         let key = PlacementKey(of: self)
         if geometryOnly, !force, readGeometry != nil, key == readPlacement {
             Self.trackerStats.geometrySkips += 1

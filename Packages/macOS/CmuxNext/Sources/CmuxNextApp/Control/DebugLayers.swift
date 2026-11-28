@@ -1,7 +1,9 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextLayout
+import CmuxNextPages
 import CmuxNextSettings
 
 /// `debug.layers`: per window, the child window order (bottom to top) with
@@ -90,6 +92,10 @@ enum DebugLayers {
             ])
         }
         let pageWindows = WindowOverlayLayer.contentChildWindows(of: window)
+        let pageViews = InTreePageFocus.containers(in: window)
+        // Each page container's pane comes from where it sits in the window (WindowController.inTreePagePane), never from
+        // the browser, which knows only its own tab key.
+        let censusByPane = Dictionary(pageViews.compactMap { view in controller.inTreePagePane(of: view).map { ($0, view.inTreeCensus) } }) { a, _ in a }
         var pagesInSync = true
         let browsers: [JSONValue] = (controller.content?.panes.values.map { $0 } ?? []).compactMap { pane in
             guard case .browser(let entry)? = pane.currentContent else { return nil }
@@ -97,9 +103,25 @@ enum DebugLayers {
             var fields: [String: JSONValue] = [
                 "pane": .string(pane.paneKey),
                 "engine": .string(String(describing: entry.tab.engineKind)),
-                "presentation": .string(entry.tab.presentation == .childWindow ? "child_window" : "in_view"),
+                "presentation": .string(Self.presentationName(entry.tab.presentation)),
                 "content_in_window": .bool(content.window === window),
             ]
+            if entry.tab.presentation == .inTree {
+                let census = censusByPane[pane.paneKey]
+                fields["rwhv_in_window"] = .bool(census?.contentInWindow ?? false)
+                fields["widget_drawing"] = .number(Double(census?.widgetDrawing ?? -1))
+                // The headless page window never shows, but the fork anchors an extension's action popup to its frame:
+                // it must keep tracking the pane (`headless_in_sync`).
+                if content.window === window, !content.isHiddenOrHasHiddenAncestor {
+                    let host = window.convertToScreen(content.convert(content.bounds, to: nil))
+                    let headless = (window.childWindows ?? []).filter(WindowOverlayLayer.isContent)
+                        .min { distance($0.frame, host) < distance($1.frame, host) }
+                    fields["host_screen_rect"] = rect(host)
+                    fields["headless_window_frame"] = headless.map { rect($0.frame) } ?? .null
+                    fields["headless_window_visible"] = headless.map { .bool($0.isVisible) } ?? .null
+                    fields["headless_in_sync"] = headless.map { .bool(distance($0.frame, host) <= 1) } ?? .null
+                }
+            }
             if entry.tab.presentation == .childWindow, content.window === window, !content.isHiddenOrHasHiddenAncestor {
                 // The page window must cover the host view exactly, in
                 // screen coordinates, whatever moved the window.
@@ -139,6 +161,27 @@ enum DebugLayers {
             // Layout calls of one view in one window layout the guard allows in this window.
             "layout_pass_limit": .number(Double(LayoutPassGuard.limit(viewCount: LayoutPassGuard.viewCount(of: window)))),
             "placement": .string(layer.placement.rawValue),
+            // In-tree pages (InTreePages): the mode ("off", "pending", "on", "unsupported_fork: why"), the page views in
+            // this window's tree, and how many of them still have a drawing headless widget (must be 0).
+            "in_tree": .string(InTreePages.shared.status),
+            // A view with no pane is parked, never shown: `parking` says where (`pageParking`); "unplaced" is a page view
+            // nothing accounts for, which a check fails on.
+            "page_views": .array(pageViews.map { view in
+                let census = view.inTreeCensus
+                let pane = controller.inTreePagePane(of: view)
+                let parking = pane == nil ? pageParking(of: view, controller: controller) : nil
+                return .object([
+                    "pane": pane.map(JSONValue.string) ?? .null,
+                    "parked": .bool(pane == nil),
+                    "parking": parking.map(JSONValue.string) ?? .null,
+                    "frame_in_window": rect(view.convert(view.bounds, to: nil)),
+                    "rwhv_in_window": .bool(census.contentInWindow),
+                    "widget_drawing": .number(Double(census.widgetDrawing)), "geometry": .string(view.inTreeGeometry),
+                ])
+            }),
+            // In-tree pages: page child windows that showed over this window (`WindowOverlayLayer`); must stay empty.
+            "retired_page_windows": .array(layer.retiredPageWindowSightings.map(JSONValue.string)),
+            "widget_drawing": .number(Double(pageViews.filter { $0.inTreeCensus.widgetDrawing == 1 }.count)),
             "overlay_panel": layer.overlayPanel.map { .number(Double($0.windowNumber)) } ?? .null,
             "overlay_panel_frame": layer.overlayPanel.map { rect($0.frame) } ?? .null,
             "child_windows": .array(children),
@@ -268,10 +311,36 @@ enum DebugLayers {
     }
     #endif
 
+    /// Where an in-tree page view that is in no shown pane waits, by design: `offscreen_parking` (a prewarmed or retiring
+    /// page in a ``PageOffscreenParking``, 100 000 pt outside the content: the New Tab spare, a pane's paint parking,
+    /// the agent page retirer; its identifier follows a colon when it has one), `reserved_workspace` (the next Cmd-N's
+    /// workspace, prewarmed off the content), `parked_workspace` (a recently shown workspace kept mounted and hidden),
+    /// `hidden` (in a hidden subtree of the shown workspace, a background tab). "unplaced": none of these.
+    static func pageParking(of view: NSView, controller: WindowController) -> String {
+        var current: NSView? = view
+        while let next = current {
+            if let parking = next as? PageOffscreenParking {
+                return parking.identifier.map { "offscreen_parking:\($0.rawValue)" } ?? "offscreen_parking"
+            }
+            if next === controller.reservedContent.ready?.contentView { return "reserved_workspace" }
+            if controller.parked.values.contains(where: { $0.contentView === next }) { return "parked_workspace" }
+            current = next.superview
+        }
+        return view.isHiddenOrHasHiddenAncestor ? "hidden" : "unplaced"
+    }
+
     private static func role(of child: NSWindow, layer: WindowOverlayLayer) -> String {
         if child === layer.overlayPanel { return "overlay" }
         if WindowOverlayLayer.isContent(child) { return "content" }
         return "panel"
+    }
+
+    static func presentationName(_ presentation: BrowserPresentation) -> String {
+        switch presentation {
+        case .inView: "in_view"
+        case .childWindow: "child_window"
+        case .inTree: "in_tree"
+        }
     }
 
     private static func rect(_ rect: CGRect) -> JSONValue {

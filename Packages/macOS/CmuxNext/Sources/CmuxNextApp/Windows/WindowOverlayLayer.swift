@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextFocusUI
 import CmuxNextLayout
 
 /// Keeps a window's app overlays above its content child windows.
@@ -70,6 +71,10 @@ final class WindowOverlayLayer {
     private var evaluateAfterLayout = false
     /// A parent move or resize reported during the layout pass.
     private var geometryAfterLayout = false
+    /// In-tree pages on: the page child windows seen on screen now (by window number), each counted once.
+    private var seenPageWindows: Set<Int> = []
+    /// In-tree pages on: the last page child windows that showed (`debug.layers` `retired_page_windows`); must stay empty.
+    private(set) var retiredPageWindowSightings: [String] = []
     /// Reorders done (for `debug.layers`).
     var reorderCount: Int { WindowOverlayHost.existingHost(for: window)?.reorderCount ?? 0 }
 
@@ -288,6 +293,23 @@ final class WindowOverlayLayer {
 
     static func isContent(_ child: NSWindow) -> Bool { WindowOverlayHost.isPageWindow(child) }
 
+    /// The child windows the placement serves. With in-tree pages on, only a page window the person can see: a Chromium
+    /// page window (`CefNSWindow`) or a content panel, drawn (alpha above 0), with a size, over the window. AppKit's
+    /// helpers (`TUINSWindow`, the text input and cursor accessory; `NSCampoLightweightUIHostWindow`) and Chromium's
+    /// headless (alpha 0) or parked (far off screen) page windows are no page on screen: counted, they put the window on
+    /// the overlay panel for good (user, 34f21f2f). With the mode off every page is a window and the rule is as before.
+    static func shownPageWindows(of window: NSWindow) -> [NSWindow] {
+        let content = contentChildWindows(of: window)
+        guard InTreePages.shared.isActive else { return content }
+        return content.filter { isShownPageWindow($0, over: window) }
+    }
+
+    static func isShownPageWindow(_ child: NSWindow, over window: NSWindow) -> Bool {
+        guard child.isChromiumPageWindow || child is ContentChildPanel, child.isVisible, child.alphaValue > 0 else { return false }
+        let frame = child.frame
+        return frame.width >= 1 && frame.height >= 1 && frame.intersects(window.frame)
+    }
+
     /// Moves the planes to where they draw above content, and restores the
     /// child window order when a page window was added above the overlay.
     func evaluate() {
@@ -301,7 +323,13 @@ final class WindowOverlayLayer {
         }
         isEvaluating = true
         defer { isEvaluating = false }
-        let wanted: Placement = window.isVisible && !Self.contentChildWindows(of: window).isEmpty ? .overlayWindow : .inWindow
+        let pageWindows = window.isVisible ? Self.shownPageWindows(of: window) : []
+        // The placement follows the real windows in both modes: in-window while no page window is on screen, the panel
+        // and the catchers while one is. With in-tree pages no page is a window, so this stays in-window; a page window
+        // that still shows (a page the fork refused twice, `CEFInTreeHosting.fellBack`) is served as before and counted
+        // (`InTreeRetiredGuards.dividerCatchers`, `retiredPageWindowSightings`).
+        let wanted: Placement = pageWindows.isEmpty ? .inWindow : .overlayWindow
+        notePageWindowsInTree(pageWindows)
         if wanted != placement {
             placement = wanted
             switch wanted {
@@ -318,11 +346,41 @@ final class WindowOverlayLayer {
     private func showPanel() {
         guard !isTornDown else { return }
         host.onBlockingChange = { [weak self] in self?.syncCatchers() }
+        // A page window on screen: the host's overlays go back to its panel above it, also with in-tree pages on.
+        host.servesPageWindows = true
         host.setPlanesWantPanel(true)
     }
 
     private func hidePanel() {
+        WindowOverlayHost.existingHost(for: window)?.servesPageWindows = false
         WindowOverlayHost.existingHost(for: window)?.setPlanesWantPanel(false)
+    }
+
+    /// In-tree pages on: each page child window that shows is counted once per appearance
+    /// (`InTreeRetiredGuards.dividerCatchers`) and described (`retiredPageWindowSightings`, `debug.layers`), so a check
+    /// names the window instead of only seeing a count.
+    private func notePageWindowsInTree(_ pageWindows: [NSWindow]) {
+        guard InTreePages.shared.isActive else {
+            seenPageWindows.removeAll()
+            return
+        }
+        let chromiumPages = pageWindows.filter(\.isChromiumPageWindow) // a content panel is the app's own, no retired page
+        let numbers = Set(chromiumPages.map(\.windowNumber))
+        for child in chromiumPages where !seenPageWindows.contains(child.windowNumber) {
+            InTreeRetiredGuards.shared.fired(.dividerCatchers)
+            retiredPageWindowSightings.append(Self.describe(child))
+            if retiredPageWindowSightings.count > 16 { retiredPageWindowSightings.removeFirst() }
+        }
+        seenPageWindows = numbers
+    }
+
+    static func describe(_ child: NSWindow) -> String {
+        let f = child.frame
+        let content = child.contentView.map { String(describing: type(of: $0)) } ?? "nil"
+        let delegate = child.delegate.map { String(describing: type(of: $0)) } ?? "nil"
+        return "\(NSStringFromClass(type(of: child))) #\(child.windowNumber) frame=(\(Int(f.minX)),\(Int(f.minY)),\(Int(f.width)),"
+            + "\(Int(f.height))) alpha=\(child.alphaValue) level=\(child.level.rawValue) content=\(content) delegate=\(delegate) "
+            + "ignoresMouse=\(child.ignoresMouseEvents) uptime=\(Int(ProcessInfo.processInfo.systemUptime * 1000))"
     }
 
     /// Wanted child order, bottom to top: content windows, the host panel,

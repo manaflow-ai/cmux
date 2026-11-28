@@ -17,11 +17,17 @@ extension CEFRuntime {
 
     /// `tab`'s offer started or ended: choosers go to the app while any offer stands.
     func agentFileOfferChanged(_ tab: CEFTab, armed: Bool) {
-        let wasOn = !agentFileOffers.isEmpty
+        let wasOn = choosersGoToApp
         if armed { agentFileOffers.insert(ObjectIdentifier(tab)) } else { agentFileOffers.remove(ObjectIdentifier(tab)) }
-        let isOn = !agentFileOffers.isEmpty
-        if isOn != wasOn { shim?.setFileDialogs(isOn ? 1 : 0) }
+        let isOn = choosersGoToApp
+        if isOn != wasOn { shim?.setFileDialogs(isOn ? 1 : 0); fileDialogTrace.routedToApp = isOn }
     }
+
+    /// Every chooser goes to the app: while an agent's offer stands, and always with in-tree pages (fork API 36),
+    /// where the fork cancels a chooser no CEF handler takes (Chromium's panel would anchor to the page's headless
+    /// window; live step ff9c0eb4: in tree `<input type=file>` opened nothing). The person then picks in the App's
+    /// panel, without the page's accept filters.
+    var choosersGoToApp: Bool { !agentFileOffers.isEmpty || InTreePages.shared.isActive }
 
     /// Sends `tab`'s own choosers to the app while it records the person's pick, else gives them back.
     func applyFileDialogRoute(_ tab: CEFTab) {
@@ -32,16 +38,20 @@ extension CEFRuntime {
     /// Answers chooser `dialogID` (shim `mode`) from `tab`: its agent offer, else the person's panel.
     func answerFileDialog(_ dialogID: Int32, mode raw: Int32, defaultPath: String, tab: CEFTab?) {
         let mode = FileDialogMode(rawValue: raw) ?? .open
+        fileDialogTrace.received += 1
         if let tab, let offered = tab.agentFiles.answer(multiple: mode == .openMultiple, folder: mode == .folder, save: mode == .save) {
+            fileDialogTrace.last = "agent_offer"
             return answerFileDialog(dialogID, multiple: mode == .openMultiple, offered)
         }
         let window = tab?.contentView.window
-        if mode == .save { return askWhereToSave(dialogID, defaultPath: defaultPath, window: window) }
-        guard let fileInput else { return answerFileDialog(dialogID, multiple: false, []) }
+        if mode == .save { fileDialogTrace.last = "save_panel"; return askWhereToSave(dialogID, defaultPath: defaultPath, window: window) }
+        guard let fileInput else { fileDialogTrace.last = "no_file_input"; return answerFileDialog(dialogID, multiple: false, []) }
+        fileDialogTrace.last = window == nil ? "open_panel_no_window" : "open_panel_sheet"
         fileInput.answerFileInput(allowsMultipleSelection: mode == .openMultiple, allowsDirectories: mode == .folder,
                                   window: window) { [weak self, weak tab] urls in
             // The person's pick, before the page gets it (a page that records it, `pageFilesChosen`).
             if let urls, !urls.isEmpty { tab?.pageFilesChosen?(urls) }
+            self?.fileDialogTrace.answered = urls.map { "\($0.count) file(s)" } ?? "cancel"
             self?.answerFileDialog(dialogID, multiple: mode == .openMultiple, urls ?? [])
         }
     }
@@ -65,6 +75,21 @@ extension CEFRuntime {
             let chosen = response == .OK ? panel?.url : nil
             self?.answerFileDialog(dialogID, multiple: false, chosen.map { [$0] } ?? [])
         }
-        if let window { panel.beginSheetModal(for: window, completionHandler: finish) } else { panel.begin(completionHandler: finish) }
+        // A popup can close under its sheet: the sheet ends with it, so the chooser is still answered.
+        if let window { panel.beginSheet(endingWith: window, completionHandler: finish) } else { panel.begin(completionHandler: finish) }
+    }
+}
+
+/// Page file choosers that reached the app (`debug.cef` `file_dialogs`): whether choosers are routed to the app, how
+/// many arrived, the path the last took and how it was answered. Diagnostics only.
+struct CEFFileDialogTrace {
+    var routedToApp = false
+    var received = 0
+    var last: String?
+    var answered: String?
+
+    var reportFields: [String: String] {
+        ["routed_to_app": routedToApp ? "yes" : "no", "received": String(received), "last": last ?? "none",
+         "answered": answered ?? "none"]
     }
 }

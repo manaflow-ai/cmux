@@ -106,7 +106,13 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
     /// Gives the keyboard to the first text field, else to the card itself: never to a button or check box
     /// the person did not choose, so a key typed on as the dialog opens presses nothing (QA
     /// chrome-parity-v2-1, the paste confirm's Deny). Tab moves onto the first control.
+    ///
+    /// The card lays out first: until the window's next layout pass its Auto Layout frame is zero, so a field inside it
+    /// has no visible rect, and a window whose gate refuses the keyboard to an unseen view (G1, `UnseenKeyboardGuard`:
+    /// a dialog on the cmux window itself with in-tree pages) kept it where the person was, so a prompt's typed keys
+    /// missed its field until a click on it.
     public func focusInitial() {
+        (superview ?? self).layoutSubtreeIfNeeded()
         window?.makeFirstResponder(focusables.first { $0 is NSTextField } ?? self)
     }
 

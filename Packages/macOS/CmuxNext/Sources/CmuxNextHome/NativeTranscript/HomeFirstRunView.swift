@@ -61,14 +61,16 @@ final class HomeFirstRunView: NSView {
     /// How many times the panel measured its parts (the full pass of `layout()`). A pane width change that keeps the
     /// column's width, and any layout while the panel is hidden, add none (HomeFirstRunWidthChangeTests).
     private(set) var measurePasses = 0
+    /// How many times the panel asked its stack for its fitting size (HomeFirstRunWidthChangeTests).
+    private(set) var fittingSizePasses = 0
 
-    /// What the last measure pass measured the parts from: the column's width, the panel's height (what fits), the scale
-    /// and everything the panel shows. A layout with the same values keeps every part's size and only centres the column
-    /// (a pane resize above `maxWidth` + 48 pt: one layout a frame in a key resize of the Home). Compared, so a part
-    /// its owner changes directly (`starters`) is in it too; `setShortcuts` clears it, because the card's `apply`
-    /// changes what shows with the same keys.
+    /// What the last measure pass measured the parts from: the column's width, the scale and everything the panel
+    /// shows. A layout with the same values keeps every part's size and only centres the column (a pane resize above
+    /// `maxWidth` + 48 pt: one layout a frame in a key resize of the Home), and with a new height fits again (`fit`).
+    /// Compared, so a part its owner changes directly (`starters`) is in it too; `setShortcuts` clears it, because the
+    /// card's `apply` changes what shows with the same keys.
     private struct Measured: Equatable {
-        var column, height, scale: CGFloat
+        var column, scale: CGFloat
         var intro: String?
         var prompts: [String]
         var startersLook: HomeStarterChips.Look
@@ -77,6 +79,15 @@ final class HomeFirstRunView: NSView {
     }
 
     private var measured: Measured?
+
+    /// What the last fit kept: the height it fitted, which parts showed (`Fit`), and the stack's fitting size then.
+    private var fitted: (height: CGFloat, fit: Fit, size: CGSize)?
+
+    /// Which parts fit: what the stack's fitting size depends on besides the measured parts' sizes.
+    private struct Fit: Equatable {
+        var actions, card, intro, hero, starters: Bool
+        var agents: Int
+    }
 
     /// A hidden panel (a conversation with messages) is not measured: it is when it shows again.
     override var isHidden: Bool {
@@ -177,7 +188,8 @@ final class HomeFirstRunView: NSView {
     /// Measured from the parts' fixed heights, and a view's `isHidden`
     /// changes only when what fits does (hidden arranged views leave the
     /// stack's layout).
-    private func fitAgentRows() {
+    @discardableResult
+    private func fitAgentRows() -> Fit {
         let row = HomeFirstRunRow.height * scale, gap = 6 * scale, group = 14 * scale
         let actions = CGFloat(actionRows.count) * row + CGFloat(actionRows.count - 1) * gap
         let actionsFit = actions <= bounds.height
@@ -215,6 +227,7 @@ final class HomeFirstRunView: NSView {
             let spacing = index == shown - 1 ? group : NSStackView.useDefaultSpacing
             if stack.customSpacing(after: view) != spacing { stack.setCustomSpacing(spacing, after: view) }
         }
+        return Fit(actions: actionsFit, card: cardFits, intro: introFits, hero: heroFits, starters: startersFit, agents: shown)
     }
 
     private func applySpacing() {
@@ -312,11 +325,16 @@ final class HomeFirstRunView: NSView {
         super.layout()
         guard !isHidden else { return }
         let width = max(0, min(Self.maxWidth * scale, bounds.width - 48 * scale))
-        let inputs = Measured(column: width, height: bounds.height, scale: scale, intro: introText,
+        let inputs = Measured(column: width, scale: scale, intro: introText,
                               prompts: starters.prompts, startersLook: starters.look, switching: switchCard.keys, agents: agents)
         if inputs == measured {
             // Nothing the parts are measured from changed (a pane width change around a column that keeps its
             // own, or a layout request with no change): the column moves, no part is measured.
+            if fitted?.height != bounds.height {
+                // A new height (a window drag up or down, each live-resize step): what fits may change, no part's size.
+                place(width: width, measuredAgain: false)
+                return
+            }
             let x = (bounds.width - width) / 2
             if stack.frame.minX != x { stack.setFrameOrigin(CGPoint(x: x, y: stack.frame.minY)) }
             return
@@ -337,8 +355,21 @@ final class HomeFirstRunView: NSView {
         if introHeight.constant != introTall { introHeight.constant = introTall }
         let card = switchCard.height(for: width)
         if cardHeight.constant != card { cardHeight.constant = card }
-        fitAgentRows()
-        let size = stack.fittingSize
+        place(width: width, measuredAgain: true)
+    }
+
+    /// Fits the parts to the height and places the stack: its fitting size is asked again only after a measure or when
+    /// which parts fit changed.
+    private func place(width: CGFloat, measuredAgain: Bool) {
+        let fit = fitAgentRows()
+        let size: CGSize
+        if !measuredAgain, let fitted, fitted.fit == fit {
+            size = fitted.size
+        } else {
+            fittingSizePasses += 1
+            size = stack.fittingSize
+        }
+        fitted = (bounds.height, fit, size)
         stack.frame = CGRect(x: (bounds.width - width) / 2, y: max(0, (bounds.height - size.height) / 2),
                              width: width, height: size.height)
     }

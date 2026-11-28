@@ -685,14 +685,20 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
     public static var layoutPasses: UInt64 = 0
     /// Panes whose chrome (ring, dim, tab emphasis) a sync re-ran, all windows (`debug.layout_counters`).
     public static var paneChromeUpdates: UInt64 = 0
-
     override public func layout() {
+        let live = window?.inLiveResize
+        let superStart = ResizeStepTimes.startIfLive(live)
         super.layout()
+        ResizeStepTimes.recordLive("root_super_layout", since: superStart)
         Self.layoutPasses &+= 1
+        let fitStart = ResizeStepTimes.startIfLive(live)
         fitScreensToBounds()
+        ResizeStepTimes.recordLive("root_fit_screens", since: fitStart)
         updateVisibility()
         if overlayPlane.syncFrame() { overlayIsStale = true }
+        let syncStart = ResizeStepTimes.startIfLive(live)
         flushOverlaySync()
+        ResizeStepTimes.recordLive("root_overlay_sync", since: syncStart)
         planeHost?.planeDidLayout(overlayPlane)
     }
 

@@ -38,13 +38,18 @@ extension WindowOverlayHost {
             }
         }
         if handle.options.modalRegion != nil { modalLeftWindowUsable = true }
+        let keyViews = Self.keyViews(in: handle.content)
+        for (index, view) in keyViews.enumerated() { view.nextKeyView = keyViews[(index + 1) % keyViews.count] }
+        let first = keyViews.first ?? handle.content
+        // In-window (in-tree pages): the window stays key and its first responder moves into the overlay.
+        if usesWindowBackend {
+            makeOverlayFirstResponder(first)
+            return
+        }
         panel.acceptsKey = true
         // Tab and Shift-Tab cycle through this overlay's controls only.
         panel.autorecalculatesKeyViewLoop = false
-        let keyViews = Self.keyViews(in: handle.content)
-        for (index, view) in keyViews.enumerated() { view.nextKeyView = keyViews[(index + 1) % keyViews.count] }
         if panel.isVisible { panel.makeKey() }
-        let first = keyViews.first ?? handle.content
         panel.initialFirstResponder = first
         panel.makeFirstResponder(first)
     }
@@ -52,7 +57,7 @@ extension WindowOverlayHost {
     func endModal() {
         guard !handles.contains(where: { $0.options.isModal }) else {
             if let top = handles.last(where: { $0.options.isModal }) {
-                panel.makeFirstResponder(Self.firstKeyView(in: top.content) ?? top.content)
+                makeOverlayFirstResponder(Self.firstKeyView(in: top.content) ?? top.content)
             }
             return
         }
@@ -100,6 +105,10 @@ extension WindowOverlayHost {
         guard modalLeftWindowUsable, let window = restoreWindow ?? window, let saved = restoreResponder else { return false }
         var current = window.firstResponder
         if let editor = current as? NSTextView, editor.isFieldEditor { current = editor.delegate as? NSResponder }
+        // In-window, the overlay itself held the window's first responder (or let it go as it faded): no move.
+        if usesWindowBackend, current == nil || current === window || (current as? NSView)?.isDescendant(of: panel.root) == true {
+            return false
+        }
         return current !== saved
     }
 
@@ -128,11 +137,11 @@ extension WindowOverlayHost {
         guard let top = handles.last(where: { $0.options.isModal }) else { return false }
         let views = Self.keyViews(in: top.content)
         guard !views.isEmpty else { return true }
-        var current = panel.firstResponder as? NSView
+        var current = responderWindow?.firstResponder as? NSView
         if let editor = current as? NSTextView, editor.isFieldEditor { current = editor.delegate as? NSView }
         let index = current.flatMap { view in views.firstIndex { $0 === view } } ?? (forward ? views.count - 1 : 0)
         let next = views[(index + (forward ? 1 : views.count - 1)) % views.count]
-        panel.makeFirstResponder(next)
+        makeOverlayFirstResponder(next)
         return true
     }
 
@@ -174,6 +183,9 @@ extension WindowOverlayHost {
     /// dismisses on Escape goes.
     func routeEscape(_ event: NSEvent, in target: NSWindow?) -> Bool {
         guard !panel.isKeyWindow, let target, isAppHost || target === window || target.parent === window else { return false }
+        if usesWindowBackend, target === window, let top = handles.last(where: { $0.options.isModal }), !focusMoved {
+            return routeInWindowModalEscape(event, top: top)
+        }
         if handles.contains(where: { $0.options.isModal }), !focusMoved {
             if panel.isVisible { panel.makeKey() }
             if let top = handles.last(where: { $0.options.isModal }),

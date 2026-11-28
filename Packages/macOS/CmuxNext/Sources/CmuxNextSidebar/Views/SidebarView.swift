@@ -432,6 +432,8 @@ public final class SidebarView: NSView {
     private func syncListSize() { list.fitToClip() }
 
     override public func layout() { // perf-hot: 1ms window-resize-step
+        let liveStart = ResizeStepTimes.startIfLive(window?.inLiveResize)
+        defer { ResizeStepTimes.recordLive("sidebar_layout", since: liveStart) }
         super.layout()
         let b = bounds
         // Tokens are read here, never cached, so density changes apply live.

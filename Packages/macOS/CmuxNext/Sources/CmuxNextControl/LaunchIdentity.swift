@@ -206,6 +206,14 @@ public struct LaunchIdentity: Sendable, Equatable {
     public static let noCustomizationsKey = "CMUX_NO_CUSTOMIZATIONS"
     public static let noCustomizationsArgument = "--no-customizations"
 
+    /// The in-tree pages switch (`InTreePages.environmentKey`, `1` or `0`): a bench or harness launch names it. Kept
+    /// through the strip like the switches above; before, the strip took it, so it never reached the launch latch.
+    public static let inTreePagesKey = "CMUX_IN_TREE_PAGES"
+
+    /// The Chromium page resize fence's wait override in ms (`CEFLayerHosting.resizeFenceTimeoutOverrideMs`): a harness
+    /// names it for a fence experiment. Kept through the strip like ``inTreePagesKey``; another cmux's goes.
+    public static let resizeFenceOverrideKey = "CMUX_CEF_RESIZE_FENCE_MS"
+
     /// Whether this launch ignores every layer: the argument, the variable set to anything but
     /// empty, `0`, `false` or `no`, or Option and Shift held as the app starts (`keysHeld`).
     public static func ignoresCustomizations(arguments: [String] = ProcessInfo.processInfo.arguments,
@@ -218,7 +226,8 @@ public struct LaunchIdentity: Sendable, Equatable {
 
     /// Keys of cmux variables this process inherited rather than received
     /// from its own bundle: every `CMUX*` but the `CMUX_NEXT_*` launch knobs,
-    /// ``liveCodeDirKey``, ``noCustomizationsKey``, ``egressModeKey``, ``traceFileKey`` (and, in a DEBUG build, ``captureShellHomeKey``).
+    /// ``liveCodeDirKey``, ``noCustomizationsKey``, ``egressModeKey``, ``traceFileKey``, ``inTreePagesKey``,
+    /// ``resizeFenceOverrideKey`` (and, in a DEBUG build, ``captureShellHomeKey``).
     /// When another cmux started this process (``otherCmuxMarkers``), also
     /// the ``stateRootKnobs`` and that build's files (``BuildStatePaths/environmentKeys``), every `MUX_*` but `MUX_HARNESS`, and every
     /// `OPTCHAT_*`: that build's Chief, brain and acpmux roots. Its
@@ -233,7 +242,8 @@ public struct LaunchIdentity: Sendable, Equatable {
         return processEnvironment.keys.filter { key in
             guard inherited(key) else { return false }
             if key == captureShellHomeKey, isDebugBuild, !fromOtherCmux { return false }
-            if key == liveCodeDirKey || key == noCustomizationsKey || key == egressModeKey || key == traceFileKey, !fromOtherCmux { return false }
+            if key == liveCodeDirKey || key == noCustomizationsKey || key == egressModeKey || key == traceFileKey
+                || key == inTreePagesKey || key == resizeFenceOverrideKey, !fromOtherCmux { return false }
             if cloudSelectionKnobs.contains(key) { return fromOtherCmux && !namesThisApp }
             if key.hasPrefix("CMUX_NEXT_") { return fromOtherCmux && stateRootKnobs.contains(key) }
             if key.hasPrefix("CMUX") { return true }

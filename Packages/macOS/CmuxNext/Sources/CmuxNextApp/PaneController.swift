@@ -488,7 +488,17 @@ final class PaneController: SurfacePresenter, PresentablePane {
         DebugTabSwitch.mark(self, "reveal")
         if view.stripView.window != nil { BenchSpans.measure("switch.strip") { view.stripView.syncFromModel() } } // strip + content: one transaction (L4)
         DebugTabSwitch.mark(self, "stripSync")
-        BenchSpans.measure("switch.view") { _ = view.show(content?.view) }
+        // A new browser tab whose page follows the key's frame (a stand-in, `TabContentCache.browser(for:)`) in a pane
+        // that shows its one browser chrome: the chrome stays, toolbar row and all, with an empty address and no page,
+        // until the page binds a frame later (Chrome's model: the toolbar is the window's). Showing no content there made
+        // a burst of new tabs show the pane bare (in-tree sweep D8: 28-34 frames without the omnibar row).
+        let awaitsPage = content == nil && key.map { services.cache.pendingBrowsers.contains($0) } == true
+            && view.hostsContent && view.browserChrome.chrome.map { view.content === $0 } == true
+        if awaitsPage {
+            view.browserChrome.chrome?.awaitNewTab()
+        } else {
+            BenchSpans.measure("switch.view") { _ = view.show(content?.view) }
+        }
         showTerminalHistoryLink(in: content)
         dropGuestTerminal(keeping: key) // after its view left the pane
         syncGuestTerminal()

@@ -105,6 +105,11 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     /// `fileDialogAnswer(dialogID, ...)`. `mode` 0 open one, 1 open several, 2 folder, 3 save;
     /// `acceptTypes` are MIME types and ".ext" entries; `defaultPath` may be empty.
     case fileDialog(browser: Int32, dialogID: Int32, mode: Int32, acceptTypes: [String], defaultPath: String)
+    /// A page's alert (`type` 0), confirm (1) or prompt (2) (JS_DIALOG; only after `setJSDialogs(1)`): answer it
+    /// once with `jsDialogReply(token, ...)`. `textJSON` is {"message","default"}.
+    case jsDialog(browser: Int32, token: Int32, type: Int32, origin: String, textJSON: String)
+    /// Chromium ended the browser's waiting JS_DIALOG questions itself.
+    case jsDialogDismissed(browser: Int32)
     /// A page posted on one of cmux's channels (PAGE_MESSAGE, fork API 29): untrusted data
     /// (`CEFPageMessage`). `mainFrame`: posted from the main frame.
     case pageMessage(browser: Int32, mainFrame: Bool, channel: String, payload: String)
@@ -196,6 +201,8 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 50: self = .evaluateResult(token: request, status: Int(a), value: s1)
         case 51: self = .statusMessage(browser: browser, text: s1)
         case 52: self = .authPrompt(browser: browser, token: request, host: s1, realm: s2, isSecure: a != 0)
+        case 53: self = .jsDialog(browser: browser, token: request, type: Int32(truncatingIfNeeded: a), origin: s1, textJSON: s2)
+        case 54: self = .jsDialogDismissed(browser: browser)
         default: self = .unknown(kind: kind)
         }
     }

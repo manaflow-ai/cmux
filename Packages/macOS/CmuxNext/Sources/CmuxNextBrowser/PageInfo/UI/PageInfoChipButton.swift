@@ -13,6 +13,20 @@ final class PageInfoChipButton: NSView, PointerHoverReporting {
         didSet { if oldValue != indicator { apply() } }
     }
 
+    /// The bar has no room for the label (a narrow pane, ``OmnibarNarrowFit``): the chip shows its icon alone, as
+    /// Chrome's location icon drops its "Not secure" text, and the label stays in its accessibility label and tooltip.
+    var collapsesLabel = false {
+        didSet { if oldValue != collapsesLabel { apply() } }
+    }
+
+    /// The chip's width with its label shown (its icon's width when it has no label), whether or not it is collapsed.
+    var labeledWidth: CGFloat {
+        let side = OmnibarStyle.chipSize
+        guard labelText != nil else { return side }
+        let padding = (side - OmnibarStyle.iconPointSize) / 2
+        return ceil(side + text.intrinsicContentSize.width + padding)
+    }
+
     private let icon = NSImageView()
     private let text = ChromeLabel(labelWithString: "")
     private let density = DensityBinding()
@@ -72,8 +86,9 @@ final class PageInfoChipButton: NSView, PointerHoverReporting {
         applyTint()
         text.font = OmnibarStyle.font
         text.stringValue = labelText ?? ""
-        text.isHidden = labelText == nil
-        themedToolTip = indicator.isTriggerable ? PageInfoStrings.viewSiteInformation : nil
+        text.isHidden = labelText == nil || collapsesLabel
+        themedToolTip = indicator.isTriggerable ? [PageInfoStrings.viewSiteInformation, collapsesLabel ? labelText : nil]
+            .compactMap(\.self).joined(separator: ", ") : nil
         setAccessibilityLabel([PageInfoStrings.viewSiteInformation, labelText].compactMap(\.self).joined(separator: ", "))
         setAccessibilityEnabled(indicator.isTriggerable)
         hover?.refresh()
@@ -85,8 +100,7 @@ final class PageInfoChipButton: NSView, PointerHoverReporting {
     override var intrinsicContentSize: NSSize {
         let side = OmnibarStyle.chipSize
         guard !text.isHidden else { return NSSize(width: side, height: side) }
-        let padding = (side - OmnibarStyle.iconPointSize) / 2
-        return NSSize(width: ceil(side + text.intrinsicContentSize.width + padding), height: side)
+        return NSSize(width: labeledWidth, height: side)
     }
 
     override func layout() {

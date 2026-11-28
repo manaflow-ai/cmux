@@ -146,6 +146,26 @@ struct MadeAheadPanelStoreTests {
 
     /// A dead panel is never handed out: `AgentPaneFilePicker` awaits `beginSheetModal`'s handler in a continuation,
     /// and a dead panel's sheet may never call it, so the attach flow would hang (review 2 of pl-fleet-gui).
+    /// A popup closed under its chooser's sheet: a panel AppKit still holds in that sheet looks free, and handed out
+    /// again its Cancel answered the old chooser, never the new one (other-Mac run on 6e420b7b). Discarded, it is
+    /// never handed out again; the next click makes and keeps a new panel.
+    @Test func aDiscardedPanelIsNeverHandedOutAgain() {
+        let factory = Factory([])
+        let store = Self.store(factory)
+        let first = store.panel()
+        #expect(first != nil && store.isMade)
+        guard let first else { return }
+        store.discard(first)
+        #expect(!store.isMade, "the discarded panel is still kept")
+        let next = store.panel()
+        #expect(next !== first, "a discarded panel was handed out again")
+        #expect(factory.made.count == 2)
+        #expect(store.isMade, "the new panel was not kept for later clicks")
+        // Discarding a panel the store does not keep changes nothing.
+        store.discard(first)
+        #expect(store.panel() === next)
+    }
+
     @Test func aDeadPanelFromAClickIsNotKeptOrHandedOut() {
         let factory = Factory([nil, nil])
         let store = Self.store(factory)

@@ -41,8 +41,12 @@ public struct ResponderMoveGate {
     /// ``FocusRoute/Origin/system`` move away from where the person types (``takesFromTyping(_:)``),
     /// else `other` (the window's own rule). A refusal is recorded.
     public func refuses(_ responder: NSResponder?, or other: () -> Bool) -> Bool {
-        let refused = UnseenKeyboardGuard().refuses(responder, from: window.firstResponder, inInputEvent: inInputEvent,
-                                                    focusModelApplies: focusModelApplies) || takesFromTyping(responder) || other()
+        let unseen = UnseenKeyboardGuard().refuses(responder, from: window.firstResponder, inInputEvent: inInputEvent,
+                                                   focusModelApplies: focusModelApplies)
+        // Its page-window branch (a page view in a Chromium page window) must never fire with in-tree pages on. Only a
+        // Chromium page window counts: a refusal in a sheet, popover or other child window is not a page window's.
+        if unseen, (responder as? NSView)?.window?.isChromiumPageWindow == true { InTreeRetiredGuards.shared.fired(.unseenKeyboardPageWindow) }
+        let refused = unseen || takesFromTyping(responder) || other()
         if refused { log?.responderChanged(in: window, from: before, to: responder, refused: true, byFocusModel: false, route: route) }
         return refused
     }

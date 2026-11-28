@@ -12,6 +12,11 @@ extension WindowOverlayHost {
             panel.ignoresMouseEvents = handles.isEmpty
             return
         }
+        // In-window overlays take the mouse by AppKit's hit test (OverlayRootView): no monitor, no panel to switch.
+        if usesWindowBackend {
+            removeMouseMonitor()
+            return
+        }
         let regions = interactiveRegions()
         guard !regions.isEmpty || showsAgentCursorTags else {
             panel.ignoresMouseEvents = true
@@ -71,8 +76,12 @@ extension WindowOverlayHost {
         default:
             return false
         }
+        // In-tree pages: the overlays are views on the window, hit by AppKit's own test; nothing is taken from below.
+        if usesWindowBackend { return false }
         guard !isAppHost, let window, let source = event.window, source !== panel, source === window || source.parent === window,
               panel.parent === window, panel.isVisible else { return false }
+        // Counted when the mode is active but this host still has a panel (`debug.focus` in_tree_guards).
+        InTreeRetiredGuards.shared.fired(.takeEventFromBelow)
         let screen = source.convertPoint(toScreen: event.locationInWindow)
         switch event.type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel:
@@ -121,8 +130,12 @@ extension WindowOverlayHost {
     ///   - windowPoint: A point in `window`'s coordinates.
     /// - Returns: True when an overlay of the window shows and takes the mouse at the point.
     public static func overlayTakesMouse(in window: NSWindow, atWindowPoint windowPoint: NSPoint) -> Bool {
-        guard let host = existingHost(for: window), !host.isAppHost, host.panel.parent === window, host.panel.isVisible
-        else { return false }
+        guard let host = existingHost(for: window), !host.isAppHost else { return false }
+        // In-window overlays: the root's coordinates are the window's.
+        if host.isRootInWindow, let content = host.panel.root.superview {
+            return host.acceptsMouse(at: windowPoint) || host.panel.root.hitTest(content.convert(windowPoint, from: nil)) != nil
+        }
+        guard host.panel.parent === window, host.panel.isVisible else { return false }
         return host.acceptsMouse(at: host.panel.convertPoint(fromScreen: window.convertPoint(toScreen: windowPoint)))
     }
 

@@ -516,6 +516,8 @@ public final class HomeNativeTranscriptView: NSView {
     }
 
     public override func layout() {
+        let liveStart = ResizeStepTimes.startIfLive(window?.inLiveResize)
+        defer { ResizeStepTimes.recordLive("home_transcript_layout", since: liveStart) }
         super.layout()
         // Showing the tab again re-attaches the same views: the transcript is
         // laid out only when the size changed (no bitmap or backdrop rebuild).

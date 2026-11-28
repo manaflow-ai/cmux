@@ -12,6 +12,8 @@ checks with debug.layers that the fork really moved the page's pixels, `hosted.f
           page resize); API 27: no wait
   on      layer hosting on, `browserResize.syncDeadline` set to 8 ms (the default until cmux-ad m19, 2026-11-05; the
           default is 0 now), capped at half a display frame by CEFResizeSyncDeadline: 4 ms at 120 Hz
+  intree  in-tree pages (fork API 36, plans/cmux-next/in-tree-pages.md): the page's view is in the window, and a
+          resized page joins the window's resize fence for about one frame (`intree` row of cef-layer-verify.py)
   on0     layer hosting on, syncDeadline 0 (the default since cmux-ad m19): the page never holds the commit (it
           shows its last frame until Chromium draws the new size)
 
@@ -31,9 +33,11 @@ Not a gate: it never fails on a number. Exit 1 when a mode is not what it says o
 import argparse, json, os, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import in_tree_mode  # noqa: E402
 HOSTING_KEY = "browserResize.layerHosting"
 DEADLINE_KEY = "browserResize.syncDeadline"
-MODES = {"off": ("off", None), "on": ("on", 0.008), "on0": ("on", 0.0)}
+MODES = {"off": ("off", None), "on": ("on", 0.008), "on0": ("on", 0.0), "intree": ("intree", None)}
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -77,7 +81,7 @@ def check_mode(mode, hosting):
         code = subprocess.call(command, stdout=log, stderr=subprocess.STDOUT)
     report = load(os.path.join(out, f"verify-{hosting}.json")) or {}
     rows = report.get("rows") or []
-    gate = [r for r in rows if r.get("check") in ("valid", "hosted", "hosted.fork")]  # show.again: recorded only
+    gate = [r for r in rows if r.get("check") in ("valid", "hosted", "hosted.fork", "in_tree")]  # show.again: recorded only
     return len(gate) == 3 and all(r.get("ok") for r in gate), {"exit": code, "rows": rows, **(report.get("facts") or {})}
 
 
@@ -108,6 +112,8 @@ summary = {"tag": opts.tag, "app": opts.app, "label": opts.label, "validity": {}
 tunables_file = None
 for mode in opts.modes.split(","):
     hosting, deadline = MODES[mode]
+    # The benches' launches take the in-tree switch from this environment (bench_launch.BenchApp): no rebuild.
+    os.environ[in_tree_mode.ENV] = "1" if hosting == "intree" else "0"
     ok, facts = check_mode(mode, hosting)
     summary["validity"][mode] = {"ok": ok, **facts}
     summary["modes"][mode] = {}
@@ -134,7 +140,7 @@ for mode in opts.modes.split(","):
                                          "rows": rows or {"error": "no report"}}
 if tunables_file:
     data = load(tunables_file) or {}
-    for key in (HOSTING_KEY, DEADLINE_KEY):
+    for key in (HOSTING_KEY, DEADLINE_KEY, in_tree_mode.KEY):
         data.setdefault("values", {}).pop(key, None)
     try:
         with open(tunables_file, "w") as f:

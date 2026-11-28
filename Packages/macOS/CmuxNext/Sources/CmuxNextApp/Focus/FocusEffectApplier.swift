@@ -19,10 +19,17 @@ final class FocusEffectApplier: FocusEffectApplying {
     /// The CEF page this window gave focus to, and the key changes focusing one makes (#24913).
     private lazy var pageFocus = ChildPageFocus(keys: AppKitKeyWindows(), canTakeKeys: { ($0 as? CEFTab)?.canTakeKeys ?? true },
                                                 keepAsk: { ($0 as? CEFTab)?.keepFocusAsk() }, dropAsk: { ($0 as? CEFTab)?.dropFocusAsk() }) { [weak self] page, focused in
+        // Counted with in-tree pages on (`debug.focus` in_tree_guards): no page window should exist then.
+        InTreeRetiredGuards.shared.fired(.childPageFocus)
         if let page = page as? any BrowserTab { self?.setPageFocus(page, focused) }
     }
     /// The tab whose docked DevTools this window gave focus to.
     private weak var focusedDevTools: (any BrowserDevToolsHosting)?
+    /// The in-tree page this window last gave focus to. A page asked for focus before it is in the tree keeps the ask
+    /// and takes the keys when it attaches (`CEFTab.grantFocus`); once focus moved on, that ask must go, or the page
+    /// takes the keyboard back from where the person is and the focus model follows it (STRESS in tree, offin-a896f429:
+    /// focus never reached pane 13 of 14 while 84 Chromium tabs attached). `ChildPageFocus` drops a child-window page's.
+    private weak var inTreePage: (any BrowserTab)?
     private var observers: [MainActorObservation] = []
     /// The panel bubble over this window that has the keyboard (group editor).
     private weak var overlayPanel: NSWindow?
@@ -192,6 +199,13 @@ final class FocusEffectApplier: FocusEffectApplying {
         case .inView:
             blurChildWindowPage()
             if !responder(of: window, isInside: page.contentView) { setPageFocus(page, true) }
+        case .inTree:
+            // In-tree pages (InTreePages): the page's view is in this window, which stays key. No page window, no key
+            // change: the grant makes the page view this window's first responder through its gate.
+            blurDevTools()
+            if let previous = inTreePage, previous !== page { dropInTreeFocusAsk() }
+            inTreePage = page
+            if !responder(of: window, isInside: page.contentView) { setPageFocus(page, true) }
         case .childWindow:
             // The page the person left for a creation keeps no keys while it is on its way: this window takes them now (P0 INVERSE-KEY).
             if controller.services.keyRouter.creationInputCoordinator.keepsKeysFromLeftPage(controller.focus.state, in: window) { return blurChildWindowPage() }
@@ -228,11 +242,14 @@ final class FocusEffectApplier: FocusEffectApplying {
         guard let devTools = page as? any BrowserDevToolsHosting, devTools.devTools.isOpen else {
             return focusPage(page, in: window)
         }
-        if window.firstResponder !== window { FocusRoute(.system, "focus model: devtools window").moveKeyboard(in: window, to: nil) }
+        // In tree the tools' view holds the keys as this window's first responder; with a DevTools window it does not.
+        let inTree = window.firstResponder.flatMap { $0 as? NSView }.map { devTools.devToolsContains(view: $0) } ?? false
+        if window.firstResponder !== window, !inTree { FocusRoute(.system, "focus model: devtools window").moveKeyboard(in: window, to: nil) }
         guard focusedDevTools !== devTools else { return }
         blurDevTools()
         // Not `blurChildWindowPage`: that would make this window key again.
         pageFocus.replace(with: nil)
+        dropInTreeFocusAsk()
         devTools.setDevToolsFocused(true)
         focusedDevTools = devTools
     }
@@ -243,7 +260,14 @@ final class FocusEffectApplier: FocusEffectApplying {
         devTools.setDevToolsFocused(false)
     }
 
+    /// Focus left the in-tree page this window focused: its kept ask (if it was not in tree yet) goes.
+    private func dropInTreeFocusAsk() {
+        (inTreePage as? CEFTab)?.dropFocusAsk()
+        inTreePage = nil
+    }
+
     private func blurChildWindowPage() {
+        dropInTreeFocusAsk()
         blurDevTools()
         pageFocus.blurPage()
         reclaimKeyFromPageWindow()
@@ -287,7 +311,7 @@ final class FocusEffectApplier: FocusEffectApplying {
     private func setPageFocus(_ page: any BrowserTab, _ focused: Bool) {
         page.setFocused(focused)
         InputJournal.shared.append(window: controller.state.id, .page(tab: page.id.rawValue, focused: focused,
-                                                                      engine: page.presentation == .childWindow ? "chromium" : "webkit"))
+                                                                      engine: page.presentation == .inView ? "webkit" : "chromium"))
     }
 
     private func responder(of window: NSWindow, isInside view: NSView) -> Bool {

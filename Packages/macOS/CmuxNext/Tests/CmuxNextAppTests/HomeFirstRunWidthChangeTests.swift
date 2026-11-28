@@ -90,6 +90,31 @@ import Testing
         #expect(places(panel) == places(makePanel(width: 600, height: 120)), "each part is where a first layout puts it")
     }
 
+    /// A window drag up or down gives the Home a new height in each live-resize step with the same column. Each step
+    /// measured every part again and asked the stack for its fitting size (the first-run panel's share of the Home's
+    /// 6 ms per step in a corner drag of the user's grid, other Mac, 2026-11-24), though only what fits depends on the
+    /// height. A new height fits again: the parts keep their sizes, and the stack's fitting size is asked only when
+    /// what fits changes.
+    @Test func aHeightChangeWithTheSameColumnMeasuresNoPart() {
+        let panel = makePanel(width: 600, height: 800)
+        #expect(places(panel).allSatisfy { $0 != nil }, "SETUP: every part fits at 600 x 800")
+        let measures = panel.measurePasses, sizes = panel.fittingSizePasses
+        for height: CGFloat in [804, 812, 840, 900, 800] {
+            panel.setFrameSize(NSSize(width: 600, height: height))
+            panel.needsLayout = true // as its owner's layout pass gives it one (`HomeNativeTranscriptView.layout`)
+            panel.layoutSubtreeIfNeeded()
+            #expect(panel.measurePasses == measures, "the column is 340 pt at \(height) pt high as before: no part is measured again")
+            #expect(places(panel) == places(makePanel(width: 600, height: height)), "each part is where a first layout at \(height) pt puts it")
+        }
+        #expect(panel.fittingSizePasses == sizes, "every part fits at each height: the stack's size is the one it had")
+        panel.setFrameSize(NSSize(width: 600, height: 120))
+        panel.needsLayout = true
+        panel.layoutSubtreeIfNeeded()
+        #expect(panel.measurePasses == measures && panel.fittingSizePasses == sizes + 1,
+                "at 120 pt the hero and the card go: the stack's size is asked again, no part is measured")
+        #expect(places(panel) == places(makePanel(width: 600, height: 120)), "each part is where a first layout at 120 pt puts it")
+    }
+
     @Test func aChangeOfWhatThePanelShowsIsMeasuredAtTheSameWidth() {
         let panel = makePanel(width: 600)
         var passes = panel.measurePasses
@@ -114,7 +139,7 @@ import Testing
         panel.setFrameSize(NSSize(width: 600, height: 500))
         panel.needsLayout = true
         panel.layoutSubtreeIfNeeded()
-        #expect(panel.measurePasses == passes + 1, "a new height changes what fits")
+        #expect(panel.measurePasses == passes, "a new height changes what fits, not a part's size: no part is measured again")
         let fresh = HomeFirstRunView(frame: NSRect(x: 0, y: 0, width: 600, height: 500))
         fresh.hero.setAvatar(picture: nil, text: nil, name: "Chief")
         fresh.applyScale(1.25)

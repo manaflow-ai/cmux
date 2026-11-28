@@ -120,6 +120,13 @@ extension CEFRuntime {
             evaluationAnswered(token: token, CEFEvaluationResult(status: status, text: value))
         case .pageDragEnter(let browser, let pathsJSON):
             if let tab = tabsByBrowser[browser], let entered = tab.pageFilesDragged { entered(CEFTab.dragPaths(pathsJSON)) }
+        case .jsDialog(let browser, let token, let type, let origin, let textJSON):
+            // A page with no tab to ask in never keeps its script waiting: Cancel.
+            if let tab = tabsByBrowser[browser], let question = CEFJSDialogQuestion(type: type, textJSON: textJSON) {
+                tab.jsDialogAsked(question, token: token, origin: origin)
+            } else {
+                _ = shim?.jsDialogReply(token, 0, nil)
+            }
         case .fileDialog(let browser, let dialogID, let mode, _, let defaultPath):
             // Only while an agent's file offer stands (`CEFRuntime+FileDialogs`).
             answerFileDialog(dialogID, mode: mode, defaultPath: defaultPath, tab: tabsByBrowser[browser])
@@ -221,6 +228,8 @@ extension CEFRuntime {
     func routeUnhandledKey(_ event: NSEvent, browser: Int32) -> Bool {
         guard event.type == .keyDown, !event.modifierFlags.isDisjoint(with: [.command, .control]),
               let tab = tabsByBrowser[browser], let router = tab.keyRouter else { return false }
+        // An in-tree page's key that nobody here takes goes on to Chromium, whose fork hands it to the main menu (fork
+        // API 36, cef#48 one window, ChromeBrowserWebContentsDelegate::HandleKeyboardEvent).
         return router.browserTab(tab, unhandledKeyEquivalent: event)
     }
 
@@ -506,7 +515,7 @@ extension CEFShimEvent {
              .navigationReroute(let b, _, _), .localFileHandoff(let b, _), .externalURL(let b, _, _), .keyUnhandled(let b, _, _), .installPrompt(let b, _, _), .takeFocus(let b, _),
              .devToolsMessage(let b, _), .authCallback(let b, _), .permissionPrompt(let b, _, _, _), .permissionDismissed(let b, _), .passwordPrompt(let b, _, _), .authPrompt(let b, _, _, _, _),
              .beforeUnloadDialog(let b, _, _), .beforeUnloadDismissed(let b), .pageResource(let b, _, _, _), .pageDragEnter(let b, _),
-             .fileDialog(let b, _, _, _, _),
+             .fileDialog(let b, _, _, _, _), .jsDialog(let b, _, _, _, _), .jsDialogDismissed(let b),
              .pageMessage(let b, _, _, _), .statusMessage(let b, _):
             b
         case .contextInitialized, .omniboxSuggestions, .preferenceChanged, .bookmarks, .download, .evaluateResult, .unknown:

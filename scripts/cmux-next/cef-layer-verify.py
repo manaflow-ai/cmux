@@ -54,6 +54,11 @@ posts real events at screen points (desktop scope: the WindowServer routes them,
 (get_desktop_state). The run records the daemon's `permissions status` in its facts; a host without the daemon or
 its grants fails the input rows with the daemon's answer.
 
+--mode intree runs the build with in-tree pages (fork API 36; `CMUX_IN_TREE_PAGES=1` and `browser.inTreePages` in the
+tunables file): `valid` needs debug.cef in_tree == "on", `hosted` stays 0, and `hosted.fork` becomes `in_tree` (every
+shown page presentation in_tree, rwhv_in_window, widget_drawing 0, listed in page_views, no page child window, no
+child-window violation). Every other mode turns the switch off explicitly.
+
 --checks hosted runs only `valid`, `hosted`, `hosted.fork` and `show.again` (cef-layer-ab.py's check of each mode). --tunables build sets the
 tunable in the build's own debug-tunables.json (the path `debug.tunables` reports, which the benches read) instead
 of a scratch file, and records that path.
@@ -73,7 +78,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
 parser.add_argument("--tag", required=True)
 parser.add_argument("--out", default="/tmp")
-parser.add_argument("--mode", default="on", choices=["on", "off"])
+parser.add_argument("--mode", default="on", choices=["on", "off", "intree"],
+                    help="off = page child windows, on = layer hosting, intree = in-tree pages (fork API 36)")
 parser.add_argument("--keep", action="store_true", help="leave the app running")
 parser.add_argument("--input", default="hid", choices=["hid", "debug", "cua"],
                     help="hid: real CGEvents (nx-remote --needs input); debug: debug.mouse/debug.key into the app's queue "
@@ -98,11 +104,15 @@ open(os.path.join(SCRATCH, "ghostty"), "w").close()
 CONFIG = os.path.join(SCRATCH, "cmux.json")
 open(CONFIG, "w").write("{}\n")
 TUNABLES = os.path.join(SCRATCH, "debug-tunables.json")
-json.dump({"version": 1, "values": {"browserResize.layerHosting": opts.mode == "on"}}, open(TUNABLES, "w"))
+json.dump({"version": 1, "values": {"browserResize.layerHosting": opts.mode == "on", "browser.inTreePages": opts.mode == "intree"}},
+          open(TUNABLES, "w"))
 # Left of the top-right corner, where macOS shows notification banners: one there took the
 # clicks meant for the page (step dc19047674621e1ae9bb11aa).
 WINDOW = (40, 40, 1300, 900)
 KEY = "browserResize.layerHosting"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import in_tree_mode  # noqa: E402
+IN_TREE = opts.mode == "intree"
 LAYER_HOSTING_FORK_API = 26
 ROWS, TAB, FACTS = [], {}, {}
 
@@ -447,6 +457,8 @@ def write_build_tunable(path, value):
     except (OSError, ValueError):
         data = {"version": 1, "values": {}}
     data.setdefault("values", {})[KEY] = value
+    # Every mode names the in-tree switch: an `in-tree-pages` tag turns it on by default.
+    data["values"][in_tree_mode.KEY] = IN_TREE
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as out:
         json.dump(data, out, indent=2, sort_keys=True)
@@ -460,14 +472,54 @@ def check_valid_and_hosted():
     hosted = tracker.get("hosted_pages", 0)
     FACTS.update({"fork_api": fork_api, "unavailable": unavailable, "fallback": fallback,
                   "hosted_pages": hosted, "hosting_refused": tracker.get("hosting_refused")})
-    row("valid", unavailable is None and fallback is None and (opts.mode == "off" or fork_api >= LAYER_HOSTING_FORK_API),
-        {"fork_api": fork_api, "unavailable": unavailable, "fallback": fallback})
+    in_tree = cef.get("in_tree")
+    FACTS.update(in_tree_mode.record("on" if IN_TREE else "off", in_tree))
+    if IN_TREE:
+        row("valid", unavailable is None and fallback is None and in_tree == "on",
+            {"fork_api": fork_api, "unavailable": unavailable, "fallback": fallback, "in_tree": in_tree})
+    else:
+        row("valid", unavailable is None and fallback is None and in_tree in (None, "off")
+            and (opts.mode == "off" or fork_api >= LAYER_HOSTING_FORK_API),
+            {"fork_api": fork_api, "unavailable": unavailable, "fallback": fallback, "in_tree": in_tree})
     row("hosted", hosted >= 1 if opts.mode == "on" else hosted == 0,
         {"hosted_pages": hosted, "hosting_refused": tracker.get("hosting_refused"), "fork_api": fork_api})
 
 
+def check_in_tree():
+    """in_tree: every shown Chromium page is in the window's tree: its presentation is in_tree, its current
+    RenderWidgetHostViewCocoa is in the cmux window, its headless widget stopped drawing (0), page_views lists it, no
+    page child window and no child-window violation exists, and no catcher or panel reorder ran."""
+    def pages():
+        windows = (rpc("debug.layers") or {}).get("windows") or []
+        rows = [b for w in windows for b in w.get("browsers") or [] if b.get("engine") is not None]
+        if not rows:
+            return None
+        good = all(b.get("presentation") == "in_tree" and b.get("rwhv_in_window") is True and b.get("widget_drawing") == 0
+                   and b.get("headless_window_visible") is not True and b.get("headless_in_sync") is not False
+                   for b in rows)
+        views = sum(len(w.get("page_views") or []) for w in windows)
+        pages_as_windows = sum(1 for w in windows for c in w.get("child_windows") or [] if c.get("role") == "content" and c.get("visible"))
+        violations = [v for w in windows for v in w.get("child_window_violations") or []]
+        good = good and views >= len(rows) and pages_as_windows == 0 and not violations
+        return (good, rows, windows) if good else None
+    found = wait(pages, 5)
+    windows = found[2] if found else (rpc("debug.layers") or {}).get("windows") or []
+    # headless_in_sync: the headless page window still tracks the pane (the fork anchors extension popups to it).
+    FACTS["in_tree_pages"] = [{k: b.get(k) for k in ("pane", "presentation", "rwhv_in_window", "widget_drawing",
+                                                    "headless_in_sync", "headless_window_frame", "headless_window_visible")}
+                              for w in windows for b in w.get("browsers") or []]
+    FACTS["page_views"] = [v for w in windows for v in w.get("page_views") or []]
+    FACTS["reorders"] = [w.get("reorders") for w in windows]
+    FACTS["divider_catcher_updates"] = [w.get("divider_catcher_updates") for w in windows]
+    FACTS["in_tree_guards"] = ((rpc("debug.focus") or {}).get("in_tree") or {}).get("in_tree_guards")
+    row("in_tree", bool(found), {"pages": FACTS["in_tree_pages"], "page_views": len(FACTS["page_views"]),
+                                 "guards": FACTS["in_tree_guards"]})
+
+
 def check_fork_hosted():
     """hosted.fork: the CALayerHost layers of each shown Chromium page are where the mode puts them."""
+    if IN_TREE:
+        return check_in_tree()
     def pages():
         rows = [b for w in (rpc("debug.layers") or {}).get("windows") or [] for b in w.get("browsers") or []
                 if "page_window_layer_hosts" in b]
@@ -786,6 +838,8 @@ def main():
            "CMUX_NEXT_TEST_WINDOW_FRAME": ",".join(str(v) for v in WINDOW)}
     if opts.tunables == "scratch":
         env["CMUX_NEXT_DEBUG_TUNABLES_FILE"] = TUNABLES
+    # The launch decides the in-tree switch, whichever file the build reads: the environment names it for every mode.
+    env[in_tree_mode.ENV] = "1" if IN_TREE else "0"
     os.makedirs(opts.out, exist_ok=True)
     # An empty saved session, as every bench launch (bench_launch.py start_fresh): a session an earlier bench left
     # (the STRESS layout) put the probe in a small pane of one of 60 workspaces, and workspace.selectFirst went elsewhere.

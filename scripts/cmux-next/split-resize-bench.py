@@ -32,6 +32,7 @@ sys.path.insert(0, here)
 sys.path.insert(0, os.path.join(here, "..", "ci", "frame-pacing"))
 from bench_launch import BenchApp  # noqa: E402
 import golden  # noqa: E402
+import in_tree_mode  # noqa: E402
 import split_resize  # noqa: E402
 
 parser = argparse.ArgumentParser()
@@ -46,7 +47,10 @@ parser.add_argument("--gesture", default="divider")
 # Rows seeded into the chat before its gestures (`--pane=chat`): 2800 is about a 700-turn chat. With
 # `--pane=terminal`: the transcript's turns are a quarter of it (the same chat; 0: split_resize.TRANSCRIPT_TURNS, 700).
 parser.add_argument("--seed", type=int, default=0)
+# In-tree pages on or off for every launch (in_tree_mode.py): the same build, no rebuild.
+in_tree_mode.add_argument(parser)
 opts, _ = parser.parse_known_args()
+in_tree_mode.apply(opts.in_tree)
 
 
 def pick(value: str, known: tuple[str, ...], flag: str) -> list[str]:
@@ -129,6 +133,11 @@ def measure(pane: str, folder: Path) -> dict:
     report: dict = {"pane": pane, "requested_gestures": gestures}
     try:
         app.launch()
+        status = in_tree_mode.read(app.rpc)
+        report.update(in_tree_mode.record(opts.in_tree, status))
+        problem = in_tree_mode.mismatch(opts.in_tree, status)
+        if problem:
+            raise SystemExit(problem)
         driver = golden.Driver(app.socket, folder)
         report["sight"] = {"launched": bring_into_sight(driver, opts.app)}
         driver.call("debug.motion", {"action": "speed", "value": "fast"})

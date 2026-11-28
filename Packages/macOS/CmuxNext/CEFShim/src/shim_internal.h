@@ -132,6 +132,10 @@ struct ForkApi {
   int (*browser_set_draw_on_input)(int, int) = nullptr;
   // API version 35: frames that mode drew for a key, so a bench can prove it is live, not inert.
   int (*draw_on_input_key_frames)(int) = nullptr;
+  // API version 36: in-tree pages (shim_in_tree.mm).
+  void* (*browser_set_in_tree_hosting)(int, void*) = nullptr;
+  void* (*browser_in_tree_content_view)(int) = nullptr;
+  int (*browser_in_tree_widget_drawing)(int) = nullptr;
 };
 
 struct Host {
@@ -215,6 +219,15 @@ bool IsHostClose(int browser_id);
 int StoreBeforeUnloadCallback(int browser_id, CefRefPtr<CefJSDialogCallback> callback);
 bool AnswerBeforeUnload(int browser_id, bool accept);
 bool DropBeforeUnload(int browser_id);
+
+// alert, confirm and prompt to the host (shim_js_dialog.mm, UI thread only).
+// Ask emits JS_DIALOG and keeps the callback when the host asked for them
+// (cmux_shim_set_js_dialogs); false leaves the dialog to Chromium. Drop
+// forgets a browser's waiting questions (Chromium ended them); true when one
+// was waiting.
+bool AskJSDialog(int browser_id, const std::string& origin, int type, const std::string& message,
+                 const std::string& default_text, CefRefPtr<CefJSDialogCallback> callback);
+bool DropJSDialogs(int browser_id);
 
 // Unanswered renderer hangs by browser (UI thread only). Storing replaces an
 // older callback of the same browser; Take removes it.

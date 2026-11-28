@@ -122,6 +122,8 @@ final class CEFRuntime {
     /// Asks the person for files when a chooser reaches the app with no offer for its tab (the App's
     /// made-ahead panel, as WebKit tabs use); nil cancels such a chooser.
     var fileInput: (any WebFileInputAnswering)?
+    /// What happened to page file choosers that reached the app, for `debug.cef` `file_dialogs` (diagnostics only).
+    var fileDialogTrace = CEFFileDialogTrace()
     /// The pane host that last showed a tab: where tabs from windows cmux
     /// does not host go.
     weak var lastShownHost: CEFPaneHost?
@@ -508,6 +510,12 @@ final class CEFRuntime {
             let started = clock.now
             try CEFStartSteps.shared.initialize { () throws(BootError) in try initialize(library, prep: prep, environment: environment) }
             state = .ready
+            // In-tree pages need fork API 36; an older engine keeps child-window pages, and says so in debug.cef.
+            InTreePages.shared.engineResolved(CEFInTreeCalls.support(shim: library.shim, apiVersion: library.shim.forkAPIVersion()))
+            // The fork cancels an in-tree page's alert, confirm or prompt that no handler takes: cmux asks them
+            // (`CEFTab+JSDialogs`). Child-window pages keep Chromium's own dialog.
+            library.shim.setJSDialogs(InTreePages.shared.isActive ? 1 : 0)
+            if choosersGoToApp { library.shim.setFileDialogs(1); fileDialogTrace.routedToApp = true }
             CEFStartSteps.shared.timed("ready_hooks") {
                 startChildMonitor(); windowGuard.start(); ChromiumPageWindowMain.install()
                 observeDisplays()

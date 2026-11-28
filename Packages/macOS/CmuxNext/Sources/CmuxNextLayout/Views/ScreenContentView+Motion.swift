@@ -250,7 +250,11 @@ extension ScreenContentView {
                 // frames come from an empty viewport, and laying every pane out there broke Auto Layout
                 // constraints in each one (4.77 s for moveWorkspaceToNewWindow in STRESS); the window's
                 // layout pass lays them out once the root has its size.
-                if laysOutNow, placed.width >= 1, placed.height >= 1 { host.layoutSubtreeIfNeeded() }
+                if laysOutNow, placed.width >= 1, placed.height >= 1 {
+                    let laidOut = ResizeStepTimes.startIfLive(window?.inLiveResize)
+                    host.layoutSubtreeIfNeeded()
+                    ResizeStepTimes.recordLive("pane_layout", since: laidOut)
+                }
                 changed = true
             } else if host.frame.origin != placed.origin {
                 // A pane that only moves (the strip camera, a column opening beside it) keeps its

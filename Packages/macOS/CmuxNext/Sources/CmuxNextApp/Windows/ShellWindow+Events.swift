@@ -50,6 +50,9 @@ extension ShellWindow {
             return
         }
         guard let controller = windowController as? WindowController else { return }
+        // A control of an overlay on the window itself (in-tree pages) holds the keys as the overlay panel did: the
+        // focus model, which never heard of the panel's first responder, does not hear of this one either.
+        if WindowOverlayHost.isInWindowOverlayView(firstResponder as? NSView, in: self) { return }
         controller.focus.responderDidChange(FocusResponderClassifier.classify(firstResponder, in: controller), source: .current)
     }
 

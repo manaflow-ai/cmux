@@ -82,6 +82,14 @@ final class MadeAheadPanelStore<Panel: ReusableOpenPanel> {
         return panel
     }
 
+    /// Forgets `panel` when it is the one made ahead: it is still caught in a sheet AppKit could not end, though it
+    /// looks free. The next click makes a new panel and keeps that one.
+    func discard(_ panel: Panel) {
+        guard let kept = made, kept.panel === panel else { return }
+        made = nil
+        logger.notice("made-ahead open panel dropped: its sheet's window closed and the sheet could not end")
+    }
+
     /// Makes the panel once the person has paused: the first check 2 s from now, then one a second while busy,
     /// ten at most. Nothing after a dead panel (``warmGaveUp``), and nothing unless ``OpenPanelMakeHistory`` proves
     /// the panel service fast when the check fires.

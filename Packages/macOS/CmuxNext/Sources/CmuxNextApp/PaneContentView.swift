@@ -175,6 +175,9 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
     nonisolated override var isFlipped: Bool { true }
 
     override func layout() {
+        // A live resize's step: this pane's layout by its content (`debug.layout_counters` `resize_steps`).
+        let liveStart = ResizeStepTimes.startIfLive(window?.inLiveResize)
+        defer { ResizeStepTimes.recordLive("pane_content.\(content.map { String(describing: type(of: $0)) } ?? "none")", since: liveStart) }
         let stripHeight = self.stripHeight
         let contentHeight = max(0, bounds.height - stripHeight)
         let onTop = barPosition == .top

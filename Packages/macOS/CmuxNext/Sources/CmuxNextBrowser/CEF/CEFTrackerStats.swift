@@ -63,6 +63,11 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
     public var commitAnswersLate = 0
     public var commitAnswersFailed = 0
     public var commitAnswerSeconds = 0.0
+    /// In-tree pages (fork API 36, ``CEFInTreeHosting``): pages the fork put into the tree, and requests it refused.
+    public var inTreeAttaches = 0
+    public var inTreeRefused = 0
+    /// Window page-update fan-outs an in-tree page skipped (``CEFHostView/pagesNeedUpdate(force:geometryOnly:)``).
+    public var inTreeGeometrySkips = 0
 
     public init() {}
 
@@ -92,7 +97,9 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
          "fences_expired": Double(resizeFencesExpired), "fence_join_ms": resizeFenceJoinSeconds * 1_000,
          "commit_answered": Double(commitWaitsAnswered), "commit_at_bound": Double(commitWaitsAtBound),
          "commit_left": Double(commitWaitsLeft), "commit_answer_late": Double(commitAnswersLate),
-         "commit_answer_failed": Double(commitAnswersFailed), "commit_answer_ms": commitAnswerSeconds * 1_000]
+         "commit_answer_failed": Double(commitAnswersFailed), "commit_answer_ms": commitAnswerSeconds * 1_000,
+         "in_tree_attaches": Double(inTreeAttaches), "in_tree_refused": Double(inTreeRefused),
+         "in_tree_geometry_skips": Double(inTreeGeometrySkips)]
     }
 
     /// Monotonic seconds for timing a read.

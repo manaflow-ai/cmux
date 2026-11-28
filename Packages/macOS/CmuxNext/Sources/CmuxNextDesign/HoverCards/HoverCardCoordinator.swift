@@ -135,9 +135,9 @@ public final class HoverCardCoordinator {
         for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification, NSWindow.didEndLiveResizeNotification,
                      NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
             let ended = name != NSWindow.didMoveNotification && name != NSWindow.didResizeNotification
-            observers.append(MainActorObservation(name, center: center, read: { ($0.object as? NSWindow)?.windowNumber }) { [weak self] number in
+            observers.append(MainActorObservation(name, center: center, read: { $0.object as? NSWindow }) { [weak self] window in
                 self?.topWindowCache = nil // a window moved: another may be on top under the pointer now
-                self?.windowGeometryChanged(number, liveResizeEnded: ended)
+                self?.windowGeometryChanged(window, liveResizeEnded: ended)
             })
         }
     }
@@ -536,8 +536,12 @@ public final class HoverCardCoordinator {
 
     // MARK: Geometry
 
-    private func windowGeometryChanged(_ number: Int?, liveResizeEnded: Bool) {
-        guard let number, number != panel?.windowNumber,
+    private func windowGeometryChanged(_ changed: NSWindow?, liveResizeEnded: Bool) {
+        // Each step of a live resize posts the window's resize, and the card waits for the resize's end
+        // (`geometryChanged`): no step looks for the window among every source's.
+        guard let changed, liveResizeEnded || !Motion.isLiveResizing(changed) else { return }
+        let number = changed.windowNumber
+        guard number != panel?.windowNumber,
               let window = sources.values.lazy.compactMap({ $0.source?.hoverCardWindow }).first(where: { $0.windowNumber == number })
         else { return }
         geometryChanged(in: window, liveResizeEnded: liveResizeEnded)

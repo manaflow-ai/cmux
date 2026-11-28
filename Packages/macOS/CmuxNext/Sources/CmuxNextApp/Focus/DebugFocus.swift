@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextFocus
 import CmuxNextFocusUI
@@ -9,6 +10,19 @@ import CmuxNextPalette
 /// open now, `creation_hold_end` how the last one ended), so a held key names its holder. Pane and tab ids match
 /// `debug.surfaces` and the compat tree.
 enum DebugFocus {
+    /// In-tree pages (`InTreePages`): the mode, the page focus gate's moves, and the retired child-window guards, each
+    /// of which must stay 0 with the mode on (`InTreeRetiredGuards`).
+    static func inTree() -> JSONValue {
+        let gate = InTreePageFocus.shared
+        return .object([
+            "status": .string(InTreePages.shared.status),
+            "gate_allowed": .number(Double(gate.allowed)),
+            "gate_refused": .number(Double(gate.refused)),
+            "gate_last_refusal": gate.lastRefusal.map(JSONValue.string) ?? .null,
+            "in_tree_guards": .object(InTreeRetiredGuards.shared.counts.mapValues { .number(Double($0)) }),
+        ])
+    }
+
     static func report(services: AppServices) -> JSONValue {
         let ghostty = services.cache.focusedTerminalTabs
         let creations = services.keyRouter.creationInputCoordinator
@@ -36,6 +50,7 @@ enum DebugFocus {
                 "palette_open": .bool(context.contains(.paletteOpen)),
             ]),
             "palette": palette(services.palette),
+            "in_tree": inTree(),
             "consistent": .bool(windowProblems.isEmpty && windows.allSatisfy { $0["consistent"]?.boolValue == true }),
         ])
     }

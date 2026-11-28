@@ -50,6 +50,10 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let browserSetFileDialogs: @convention(c) (Int32, Int32) -> Void
     /// `cmux_shim_file_dialog_answer(dialog, multiple, paths)`: newline-separated absolute paths; nil or "" cancels.
     let fileDialogAnswer: @convention(c) (Int32, Int32, UnsafePointer<CChar>?) -> Int32
+    /// `cmux_shim_set_js_dialogs`: 1 sends a page's alert, confirm and prompt to the host (`CEFShimEvent.jsDialog`).
+    let setJSDialogs: @convention(c) (Int32) -> Void
+    /// `cmux_shim_js_dialog_reply(token, accept, text)`: 1 when the question was still waiting.
+    let jsDialogReply: @convention(c) (Int32, Int32, UnsafePointer<CChar>?) -> Int32
     /// Fork API 26: `cmux_shim_browser_set_layer_hosting` (the page's CAContextID, 0 when off).
     let browserSetLayerHosting: @convention(c) (Int32, Int32) -> UInt32
     /// Fork API 27: `cmux_shim_browser_set_resize_sync` (deadline in ms, 0 never holds the commit).
@@ -67,6 +71,10 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// Fork API 35: `cmux_shim_draw_on_input_key_frames` (frames that mode drew for a key on this page,
     /// -1 without the call); nil in an older shim. Proves the mode is live, not inert (`CEFDrawOnInput`).
     let drawOnInputKeyFrames: (@convention(c) (Int32) -> Int32)?
+    /// Fork API 36, in-tree pages (``CEFInTreeCalls``): nil in an older shim.
+    let browserSetInTreeHosting: (@convention(c) (Int32, UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?)?
+    let browserInTreeContentView: (@convention(c) (Int32) -> UnsafeMutableRawPointer?)?
+    let browserInTreeWidgetDrawing: (@convention(c) (Int32) -> Int32)?
     let initialize: @convention(c) (
         UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
         UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
@@ -381,12 +389,17 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         setFileDialogs = try r("cmux_shim_set_file_dialogs")
         browserSetFileDialogs = try r("cmux_shim_browser_set_file_dialogs")
         fileDialogAnswer = try r("cmux_shim_file_dialog_answer")
+        setJSDialogs = try r("cmux_shim_set_js_dialogs")
+        jsDialogReply = try r("cmux_shim_js_dialog_reply")
         browserSetLayerHosting = try r("cmux_shim_browser_set_layer_hosting")
         browserSetResizeSync = try r("cmux_shim_browser_set_resize_sync")
         browserResizeFence = r.optional("cmux_shim_browser_resize_fence")
         browserSetDetachedHosting = r.optional("cmux_shim_browser_set_detached_hosting")
         browserSetDrawOnInput = r.optional("cmux_shim_browser_set_draw_on_input")
         drawOnInputKeyFrames = r.optional("cmux_shim_draw_on_input_key_frames")
+        browserSetInTreeHosting = r.optional(CEFInTreeCalls.Symbol.setInTreeHosting)
+        browserInTreeContentView = r.optional(CEFInTreeCalls.Symbol.contentView)
+        browserInTreeWidgetDrawing = r.optional(CEFInTreeCalls.Symbol.widgetDrawing)
         initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")
         createWindow = try r("cmux_shim_create_window")

@@ -171,6 +171,8 @@ extension WindowOverlayHost {
     /// A subview was added to the window's content view (`WindowRootView`):
     /// while the panel is detached, the cursor goes back on top.
     public func contentViewDidAddSubview(_ subview: NSView) {
+        // In-window overlays (in-tree pages) stay above everything the window adds later.
+        if subview !== panel.root, isRootInWindow { raiseRootIfNeeded() }
         guard let carrier = agentCursorCarrier, subview !== carrier, !isPanelAttached,
               let content = window?.contentView, carrier.superview === content, content.subviews.last !== carrier else { return }
         placeAgentCursor()
@@ -182,6 +184,7 @@ extension WindowOverlayHost {
     /// top; true when it had to (logged in debug builds).
     @discardableResult
     public func repairAgentCursorOrder() -> Bool {
+        if isRootInWindow { return raiseRootIfNeeded() }
         guard let carrier = agentCursorCarrier, !isPanelAttached, !isAppHost,
               let content = window?.contentView, carrier.superview === content, content.subviews.last !== carrier else { return false }
         #if DEBUG
@@ -195,7 +198,19 @@ extension WindowOverlayHost {
     /// content view. Runs on every attach, detach and window geometry change.
     func placeAgentCursor() {
         guard let carrier = agentCursorCarrier else { return }
-        if isAppHost || isPanelAttached {
+        if isRootInWindow, let content = window?.contentView {
+            // In-window overlays: between the window and modal containers of the root, as in the panel.
+            let root = panel.root
+            let subviews = root.subviews
+            let modal = subviews.firstIndex { $0 === panel.modalContainer }
+            let current = subviews.firstIndex { $0 === carrier }
+            if carrier.superview !== root || current.map({ $0 + 1 }) != modal {
+                root.addSubview(carrier, positioned: .below, relativeTo: panel.modalContainer)
+            }
+            carrier.autoresizingMask = []
+            carrier.frame = root.convert(content.convert(content.bounds, to: nil), from: nil)
+            carrier.glassView.blendingMode = .withinWindow
+        } else if isAppHost || isPanelAttached {
             guard let root = panel.contentView else { return }
             let subviews = root.subviews
             let modal = subviews.firstIndex { $0 === panel.modalContainer }

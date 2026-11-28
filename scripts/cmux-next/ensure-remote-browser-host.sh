@@ -13,6 +13,10 @@
 #   3. the private R2 bucket (pin r2_bucket/r2_key) with the read-only
 #      CMUX_CEF_R2_* credentials (environment, else CMUX_CEF_R2_ENV_FILE,
 #      default ~/.secrets/cmux-cef.env)
+#   4. a private GitHub release asset (pin github_repo/github_tag; gh login,
+#      or GH_TOKEN/GITHUB_TOKEN), for a staging host that is not in R2: the
+#      cloud Linux build pool reaches neither the tailnet controller store
+#      nor an unpublished R2 key
 # Bytes from a source that do not match the pin sha256 fail the run, also
 # with --optional: a wrong host binary is never embedded or retried around.
 #
@@ -56,6 +60,7 @@ PY
 }
 sha="$(field sha256)"; asset="$(field asset)"
 r2_bucket="$(field r2_bucket)"; r2_key="$(field r2_key)"
+gh_repo="$(field github_repo)"; gh_tag="$(field github_tag)"
 [[ "$sha" =~ ^[0-9a-f]{64}$ && -n "$asset" ]] || { echo "error: pin $PIN lacks a sha256 or asset" >&2; exit 1; }
 
 root="${CMUX_NEXT_RB_HOST_CACHE_DIR:-$("$SCRIPT_DIR/cef-cache-root.sh")/remote-browser-host}"
@@ -169,7 +174,27 @@ fetch_r2() {
   check R2
 }
 
-fetch_store || fetch_r2 || unavailable "no source had $asset sha256:$sha (tailnet controller or CMUX_CEF_R2_* read credentials)"
+fetch_github() {
+  [[ "${CMUX_RB_HOST_NO_GITHUB:-0}" == "1" ]] && return 1
+  [[ -n "$gh_repo" && -n "$gh_tag" ]] || return 1
+  echo "==> downloading $asset from GitHub $gh_repo release $gh_tag" >&2
+  if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+    "$SCRIPT_DIR/../ci/timeout.sh" 900 gh release download "$gh_tag" --repo "$gh_repo" --pattern "$asset" \
+        --dir "$tmp" --clobber >&2 && { check "GitHub release"; return 0; }
+  fi
+  local token="${GH_TOKEN:-${GITHUB_TOKEN:-}}" asset_api
+  [[ -n "$token" ]] || return 1
+  asset_api="$(curl -fsSL --retry 3 --connect-timeout 15 --max-time 60 -H "Authorization: Bearer $token" \
+      "https://api.github.com/repos/$gh_repo/releases/tags/$gh_tag" |
+    /usr/bin/python3 -c 'import json,sys; a=sys.argv[1]; print(next(x["url"] for x in json.load(sys.stdin)["assets"] if x["name"]==a))' "$asset" 2>/dev/null || true)"
+  [[ -n "$asset_api" ]] || return 1
+  curl -fL --retry 5 --connect-timeout 15 --max-time 900 -H "Authorization: Bearer $token" \
+      -H "Accept: application/octet-stream" -o "$out" "$asset_api" >&2 || { rm -f "$out"; return 1; }
+  check "GitHub API"
+}
+
+fetch_store || fetch_r2 || fetch_github ||
+  unavailable "no source had $asset sha256:$sha (tailnet controller, CMUX_CEF_R2_* read credentials or the pin's GitHub release)"
 chmod 755 "$out"
 mv -f "$out" "$dest"
 echo "==> remote browser host ready at $dest" >&2

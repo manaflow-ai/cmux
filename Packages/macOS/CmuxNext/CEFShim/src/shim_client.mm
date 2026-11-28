@@ -77,6 +77,8 @@
     case CMUX_SHIM_FILE_DIALOG:
     case CMUX_SHIM_STATUS_MESSAGE:
     case CMUX_SHIM_AUTH_PROMPT:
+    case CMUX_SHIM_JS_DIALOG:
+    case CMUX_SHIM_JS_DIALOG_DISMISSED:
       return true;
   }
   return false;
@@ -197,7 +199,7 @@ class Client : public CefClient,
   CefRefPtr<CefRequestHandler> GetRequestHandler() override { return this; }
   CefRefPtr<CefCommandHandler> GetCommandHandler() override { return this; }
   CefRefPtr<CefFocusHandler> GetFocusHandler() override { return this; }
-  // beforeunload only; alert, confirm and prompt keep Chromium's dialogs.
+  // beforeunload always; alert, confirm and prompt while the host asks for them (shim_js_dialog.mm).
   CefRefPtr<CefJSDialogHandler> GetJSDialogHandler() override { return this; }
   CefRefPtr<CefDragHandler> GetDragHandler() override { return this; }
   // File choosers go to the host app (shim_file_dialog.mm).
@@ -264,10 +266,23 @@ class Client : public CefClient,
     return true;
   }
 
+  // alert, confirm and prompt: the host's dialog while it asks for them
+  // (in-tree pages, where the fork cancels a dialog no handler takes);
+  // otherwise Chromium's own.
+  bool OnJSDialog(CefRefPtr<CefBrowser> browser, const CefString& origin_url, JSDialogType dialog_type,
+                  const CefString& message_text, const CefString& default_prompt_text,
+                  CefRefPtr<CefJSDialogCallback> callback, bool& suppress_message) override {
+    suppress_message = false;
+    const int type = dialog_type == JSDIALOGTYPE_CONFIRM ? 1 : dialog_type == JSDIALOGTYPE_PROMPT ? 2 : 0;
+    return AskJSDialog(browser->GetIdentifier(), origin_url.ToString(), type, message_text.ToString(),
+                       default_prompt_text.ToString(), callback);
+  }
+
   // Chromium dropped the page's dialogs (a crash, a navigation, the close):
   // a question still waiting goes away unanswered.
   void OnResetDialogState(CefRefPtr<CefBrowser> browser) override {
     if (DropBeforeUnload(browser->GetIdentifier())) Emit(CMUX_SHIM_BEFORE_UNLOAD_DISMISSED, browser->GetIdentifier());
+    if (DropJSDialogs(browser->GetIdentifier())) Emit(CMUX_SHIM_JS_DIALOG_DISMISSED, browser->GetIdentifier());
   }
 
   // MARK: Chromium commands

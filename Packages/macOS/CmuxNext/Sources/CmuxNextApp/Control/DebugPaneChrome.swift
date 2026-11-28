@@ -46,6 +46,17 @@ enum DebugPaneChrome {
                     "vertical_tabs": view.verticalTabs != nil ? (view.verticalList.map { rect(topLeft($0.convert($0.bounds, to: nil))) } ?? .null) : .null,
                     "tab_slots": .array(view.stripView.tabSlots.map { .array($0.map(JSONValue.number)) }), "tab_available": .number(view.stripView.tabAvailableWidth),
                 ]
+                // What the pane shows now (in-tree D8, a new-tab burst that showed a bare pane): its content view, whether
+                // it is installed and drawn, a paint hold's kept view, and the content host's subviews bottom to top.
+                @MainActor func shown(_ v: NSView) -> JSONValue {
+                    .object(["class": .string(String(describing: type(of: v))), "hidden": .bool(v.isHidden),
+                             "alpha": .number(Double(v.alphaValue)), "frame": rect(topLeft(v.convert(v.bounds, to: nil)))])
+                }
+                fields["shows"] = .object([
+                    "content": view.content.map(shown) ?? .null, "hosts_content": .bool(view.hostsContent),
+                    "kept": view.paintHold.kept.map(shown) ?? .null,
+                    "host_subviews": .array(view.contentHost.subviews.map(shown)),
+                ])
                 if let pill {
                     fields["gap_above"] = .number(Double(pill.minY - cell.minY))
                     fields["gap_below"] = .number(Double(border.minY - pill.maxY))

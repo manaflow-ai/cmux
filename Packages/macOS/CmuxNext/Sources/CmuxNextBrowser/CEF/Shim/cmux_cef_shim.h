@@ -202,6 +202,14 @@ typedef enum {
   // s1 = the host (host:port when not the default port), s2 = the realm.
   // Chromium waits for cmux_shim_auth_continue.
   CMUX_SHIM_AUTH_PROMPT = 52,
+  // A page's alert, confirm or prompt (only after cmux_shim_set_js_dialogs(1);
+  // Chromium's own dialog does not show). request = the question's token,
+  // a = 0 alert, 1 confirm, 2 prompt; s1 = the asking origin's URL; s2 = JSON
+  // {"message","default"}. Chromium waits for cmux_shim_js_dialog_reply.
+  CMUX_SHIM_JS_DIALOG = 53,
+  // Chromium ended the browser's waiting JS_DIALOG questions itself (the
+  // renderer ended, the page navigated or closed). Not sent after an answer.
+  CMUX_SHIM_JS_DIALOG_DISMISSED = 54,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -367,6 +375,16 @@ CMUX_SHIM_EXPORT int cmux_shim_browser_resize_fence(int browser_id, unsigned int
 // Detached hosting: a layer-hosted page window that never orders in, visible
 // to Chromium while the parent view shows; input only by forwarding.
 CMUX_SHIM_EXPORT int cmux_shim_browser_set_detached_hosting(int browser_id, int enabled);
+// Fork API 36: in-tree pages (plans/cmux-next/in-tree-pages.md). UI thread only; NULL, 0 or -1 when the fork
+// lacks the call or off the UI thread.
+// Puts the page's WebContentsViewCocoa as the bottom subview of container_view (an NSView* in the parent view's
+// window, or in none yet), frame = bounds; the page window goes headless. Returns the page NSView (unretained),
+// NULL when refused. NULL container ends it (the page window is a child again).
+CMUX_SHIM_EXPORT void* cmux_shim_browser_set_in_tree_hosting(int browser_id, void* container_view);
+// The current main-frame RenderWidgetHostViewCocoa (unretained); it changes with the renderer: re-query, never cache.
+CMUX_SHIM_EXPORT void* cmux_shim_browser_in_tree_content_view(int browser_id);
+// 0: the headless widget's compositor is stopped (expected); 1: it still draws; -1: not in tree.
+CMUX_SHIM_EXPORT int cmux_shim_browser_in_tree_widget_drawing(int browser_id);
 // The key state of a detached page (page focus without a key window).
 CMUX_SHIM_EXPORT int cmux_shim_browser_set_embedder_active(int browser_id, int active);
 // Fork API 35: draw on input. With `enabled`, each key event the browser's page
@@ -523,6 +541,14 @@ CMUX_SHIM_EXPORT int cmux_shim_try_close(int browser_id);
 // Answers BEFORE_UNLOAD_DIALOG `token` (accept = 1: Leave or Reload).
 // Returns 0 when the token is unknown or already answered.
 CMUX_SHIM_EXPORT int cmux_shim_before_unload_reply(int token, int accept);
+// 1: a page's alert, confirm and prompt come to the host as
+// CMUX_SHIM_JS_DIALOG (it must answer each); 0 (the default): Chromium shows
+// its own. The host turns it on with in-tree pages. UI thread.
+CMUX_SHIM_EXPORT void cmux_shim_set_js_dialogs(int enabled);
+// Answers JS_DIALOG `token`: accept 1 is OK, 0 Cancel; `text` is a prompt's
+// answer (ignored otherwise; NULL is ""). Returns 0 when the token is
+// unknown or already answered.
+CMUX_SHIM_EXPORT int cmux_shim_js_dialog_reply(int token, int accept, const char* text);
 // DevTools protocol message ids. Raw sends (cmux_shim_devtools_send) and
 // shim-internal calls (cmux_shim_devtools_call, the DevTools calls of a CEF
 // tab) share ONE id space per browser. Raw sends use ids >= 2^30

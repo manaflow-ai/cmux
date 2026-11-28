@@ -88,6 +88,7 @@ public final class BrowserPopupWindows {
         entries[id] = Entry(window: window, opener: cmuxOpener, openerKey: openerKey)
         window.onClose = { [weak self] in self?.windowClosed(id) }
         opener.themeScope.adopt(window)
+        window.collectionBehavior = BrowserPopupWindow.collectionBehavior(openerIsFullScreen: opener.styleMask.contains(.fullScreen))
         guard ordersWindowsIn else { return }
         WindowActivation.show(window, .raise)
         if window.isKeyWindow { page.setFocused(true) }

@@ -334,6 +334,9 @@ public final class CEFEngine: BrowserEngine {
 
     /// Asks the person for files when a page's chooser reaches the app with no agent offer for its tab
     /// (`CEFRuntime+FileDialogs`): the App's made-ahead panel.
+    /// Page file choosers that reached the app (`debug.cef` `file_dialogs`).
+    public var fileDialogReport: [String: String] { CEFRuntime.shared.fileDialogTrace.reportFields }
+
     public var fileInput: (any WebFileInputAnswering)? {
         get { CEFRuntime.shared.fileInput }
         set { CEFRuntime.shared.fileInput = newValue }

@@ -409,6 +409,10 @@ final class AppControl {
             .mainActor("debug.app_activation") { call in
                 .value(DebugAppActivation.send(call.params))
             },
+            // The main window off the screen and back without activating, its page layers sampled (DebugPageReveal).
+            .mainActor("debug.page_reveal") { call in
+                .value(DebugPageReveal.run(call.params))
+            },
             .mainActor("debug.palette.capture") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugPaletteCapture.capture(call.params, services: services))
@@ -694,6 +698,11 @@ final class AppControl {
             .mainActor("debug.sidebar_group_drag") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugSidebarGroupDrag.run(call.params, services: services))
+            },
+            // `debug.views_at {x, y}`: every view of the main window over a window point, with its layer's moves and masks.
+            .mainActor("debug.views_at") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugViewsAt.report(call.params, services: services))
             },
             // `debug.view_key {view, key, modifiers?, window?}`: a real key-down/up into a
             // named view made first responder; `debug.focus_ring`: the sidebar's ring (cx-tupd).

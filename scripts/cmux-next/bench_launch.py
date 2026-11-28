@@ -1116,6 +1116,9 @@ class BenchApp:
             env["CMUX_NEXT_TEST_WINDOW_FRAME"] = ",".join(str(v) for v in self.window)
         if self.screen is not None:
             env["CMUX_NEXT_TEST_WINDOW_SCREEN"] = str(self.screen)
+        # In-tree pages (in_tree_mode.py): the caller's switch reaches the app unless this launch sets its own.
+        if os.environ.get("CMUX_IN_TREE_PAGES") is not None:
+            env["CMUX_IN_TREE_PAGES"] = os.environ["CMUX_IN_TREE_PAGES"]
         env.update(self.extra_env)
         for key in DROPPED_ENV + tuple(k for k, v in self.extra_env.items() if v is None):
             env.pop(key, None)  # None in `env` removes a BASE_ENV variable (for example NO_ACTIVATE)

@@ -104,6 +104,15 @@ import Testing
         #expect(!window.isExcludedFromWindowsMenu, "listed in the Window menu like any browser window")
     }
 
+    @Test func overAFullScreenOpenerThePopupFloatsInItsSpaceInsteadOfTakingANewOne() {
+        let over = BrowserPopupWindow.collectionBehavior(openerIsFullScreen: true)
+        #expect(over.contains(.fullScreenAuxiliary), "joins the opener's full-screen Space")
+        #expect(!over.contains(.fullScreenPrimary), "a primary window would open in a full-screen Space of its own")
+        let (popups, _, window, _) = open("https://example.com/pay")
+        defer { popups.closeAll() }
+        #expect(window.collectionBehavior == BrowserPopupWindow.collectionBehavior(openerIsFullScreen: false))
+    }
+
     @Test func thePageGetsTheSizeItAskedFor() {
         let (popups, _, window, _) = open("https://example.com", request: BrowserPopupRequest(size: CGSize(width: 480, height: 360)))
         defer { popups.closeAll() }

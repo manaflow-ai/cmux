@@ -207,8 +207,8 @@ extension WindowOverlayHost {
         handle.clipView = nil
         if handle.options.kind == .dialog, !isTearingDown {
             // The fading dialog keeps no keyboard focus: a Return in the fade would press it again.
-            if let responder = panel.firstResponder as? NSView, responder.isDescendant(of: handle.content) {
-                panel.makeFirstResponder(nil)
+            if let responder = responderWindow?.firstResponder as? NSView, responder.isDescendant(of: handle.content) {
+                makeOverlayFirstResponder(nil)
             }
             fadeOut(shown, content: handle.content)
         } else {

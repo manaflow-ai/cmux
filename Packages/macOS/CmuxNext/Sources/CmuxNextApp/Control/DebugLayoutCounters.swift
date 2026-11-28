@@ -59,6 +59,15 @@ enum DebugLayoutCounters {
             "indicator_resyncs": JSONValue(Int(truncatingIfNeeded: StatusIndicatorAppearance.resyncs)),
             "pane_count_changes": .array(paneCountChanges.map { JSONValue($0) }),
             "sources": .object(sources.mapValues { JSONValue($0) }),
+            // Each live-resize step's main-thread ms by phase (`ResizeStepTimes.live`): set_frame, root_fit_screens and the parts.
+            "resize_steps": .object(ResizeStepTimes.live.report().mapValues { phase in
+                .object(phase.mapValues { value in
+                    if let number = value as? Double { return .number(number) }
+                    if let count = value as? Int { return .number(Double(count)) }
+                    if let rows = value as? [[Double]] { return .array(rows.map { .array($0.map { .number($0) }) }) }
+                    return .null
+                })
+            }),
         ]
         if params["reset"]?.boolValue == true {
             paneSnapshots = 0
@@ -71,6 +80,7 @@ enum DebugLayoutCounters {
             StatusIndicatorAppearance.resyncs = 0
             paneCountChanges.removeAll()
             sources.removeAll()
+            ResizeStepTimes.live.reset()
         }
         return report
     }

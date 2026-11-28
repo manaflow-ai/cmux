@@ -122,7 +122,11 @@ final class CEFLayerHosting {
     /// The hosted page shows no pixels there either, as the page window does not (cmux-ad m37: with layer hosting the
     /// New Tab page showed Chromium's opaque page color instead of the window backdrop).
     var pageHole: CEFPageHole = .none {
-        didSet { if pageHole != oldValue { page?.hole = pageHole } }
+        didSet {
+            guard pageHole != oldValue else { return }
+            page?.hole = pageHole
+            (view as? CEFHostView)?.inTree.container?.hole = pageHole
+        }
     }
     /// Requests the fork refused, or hosted contexts no `CALayerHost` could
     /// show (`CEFTrackerStats.hostingRefused` sums every view).

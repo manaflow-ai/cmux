@@ -64,6 +64,14 @@ public final class BrowserPopupWindow: NSWindow {
     private var toolbarHeightConstraint: NSLayoutConstraint?
     private var fullscreenObservers: [MainActorObservation] = []
 
+    /// Where the popup may live among Spaces. Like any Chrome window it can go full screen itself. Over a full-screen
+    /// opener it floats in the opener's Space at the size it asked for, the way Chrome's popups do
+    /// (`can_appear_in_existing_fullscreen_spaces`): AppKit opens a full-screen-primary window of an app whose key
+    /// window is full screen in a full-screen Space of its own, so that popup is auxiliary instead.
+    public static func collectionBehavior(openerIsFullScreen: Bool) -> NSWindow.CollectionBehavior {
+        openerIsFullScreen ? [.fullScreenAuxiliary] : [.fullScreenPrimary]
+    }
+
     /// A popup window showing `page`.
     ///
     /// - Parameters:
@@ -90,7 +98,7 @@ public final class BrowserPopupWindow: NSWindow {
         titleVisibility = .visible
         titlebarAppearsTransparent = true
         tabbingMode = .disallowed
-        collectionBehavior.insert(.fullScreenPrimary)
+        collectionBehavior = Self.collectionBehavior(openerIsFullScreen: false)
         contentMinSize = CGSize(width: BrowserPopupWindowGeometry.minimumContent, height: Self.toolbarHeight + 1)
         animationBehavior = Motion.panes.animatesMovement ? .documentWindow : .none
         // Kind `.browserPopup`: the three traffic lights and the one surface

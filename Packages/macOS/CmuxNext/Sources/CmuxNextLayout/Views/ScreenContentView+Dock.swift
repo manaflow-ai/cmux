@@ -32,6 +32,7 @@ extension ScreenContentView {
     /// that overlap it (local coordinates), from one walk of the subviews
     /// front to back. Overlaps happen under docked columns and on a canvas;
     /// their headers are see-through, so what is under them is masked out.
+    /// A host a change took out (`isLeaving`) or a move holds under the others (``PaneCommitMotion/underZ``) covers nothing.
     /// Computed once per presentation pass, not once per host (which walked
     /// every subview per host).
     ///
@@ -45,7 +46,12 @@ extension ScreenContentView {
         for case let host as PaneHostView in subviews.reversed() {
             let overlapping = front.filter { $0.intersection(host.frame).width > 0.5 && $0.intersection(host.frame).height > 0.5 }
             if !overlapping.isEmpty { covers[ObjectIdentifier(host)] = overlapping.reversed() }
-            guard !host.isHidden, !host.isLeaving, host.alphaValue > 0.99 else { continue }
+            // A pane a change took out (`isLeaving`: a zoom's covered panes, a close's departed ones) shows, if at all,
+            // under every pane on screen until it hides (`PaneCommitMotion.keepUnder`), whatever its view order: it
+            // covers nothing. Counted as in front, it cut its place out of the zoomed pane's mask in the pass that
+            // shows the zoom, and the motion's end did not clip again. `isLeaving` is set when the change is applied,
+            // before that pass; `keepUnder`'s `underZ` comes later in the same pass, after the clips.
+            guard !host.isHidden && host.alphaValue > 0.99, !host.isLeaving, host.layer?.zPosition != PaneCommitMotion.underZ else { continue }
             // A floating pane covers what is under its whole card (the card, not the resize band around it).
             front.append(floatState.cards[host.pane]?.cardFrame ?? host.frame)
         }

@@ -12,12 +12,18 @@ extension DebugMouse {
     /// instead of passing it through; the press and release go to the view under the point, as
     /// AppKit hands them on when the window is key. Chromium's view forwards them to the renderer
     /// and waits for its answer, so a hung page's hang timer starts (cx-d0d.36). `delivered`
-    /// counts the events a view got. No system event and no other app.
+    /// counts the events a view got. No system event and no other app. `popup: N`: the in-tree page of popup window N.
     static func clickPage(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+        if let index = params["popup"]?.intValue, let popup = services.popups.windows.dropFirst(index).first {
+            return clickInTreePage(popup.page.contentView, in: popup, params: params, windowID: "popup-\(index)")
+        }
         let windowID = params["window"]?.stringValue
         let controller = services.windows.controllers.first { windowID == nil || $0.state.id == windowID }
-        guard let controller, let pane = params["pane"]?.stringValue ?? controller.focus.state.pane,
-              let page = DebugKey.pageWindow(of: pane, in: controller), let content = page.contentView else {
+        guard let controller, let pane = params["pane"]?.stringValue ?? controller.focus.state.pane else { return .object(["error": .string("no Chromium page window for pane")]) }
+        if let inTree = DebugKey.inTreePageView(of: pane, in: controller), let window = controller.window {
+            return clickInTreePage(inTree, in: window, params: params, windowID: controller.state.id)
+        }
+        guard let page = DebugKey.pageWindow(of: pane, in: controller), let content = page.contentView else {
             return .object(["error": .string("no Chromium page window for pane")])
         }
         let size = content.bounds.size
@@ -30,6 +36,26 @@ extension DebugMouse {
         }
         SyntheticInput.click(target, down: events[0], up: events[1])
         return .object(["window": .string(controller.state.id), "x": .number(point.x), "y": .number(point.y),
+                        "view": .string(String(describing: type(of: target))), "delivered": .number(2)])
+    }
+
+    /// An in-tree page (its view is in the cmux window): the press and release go to the view under the point in
+    /// `content` (`x`,`y` top-left points in the page, default its center), as AppKit hands them on in a key window.
+    private static func clickInTreePage(_ content: NSView, in window: NSWindow, params: [String: JSONValue],
+                                        windowID: String) -> JSONValue {
+        let size = content.bounds.size
+        let local = NSPoint(x: params["x"]?.doubleValue ?? size.width / 2, y: params["y"]?.doubleValue ?? size.height / 2)
+        let inWindow = content.convert(NSPoint(x: local.x, y: content.isFlipped ? local.y : size.height - local.y), to: nil)
+        let topLeft = NSPoint(x: inWindow.x, y: (window.contentView?.bounds.height ?? window.frame.height) - inWindow.y)
+        let events = [mouse(.leftMouseDown, at: topLeft, in: window, flags: [], clicks: 1),
+                      mouse(.leftMouseUp, at: topLeft, in: window, flags: [], clicks: 1)].compactMap { $0 }
+        guard events.count == 2, let frame = content.superview,
+              let target = frame.hitTest(frame.convert(events[0].locationInWindow, from: nil)),
+              target === content || target.isDescendant(of: content) else {
+            return .object(["error": .string("no page view under the point")])
+        }
+        SyntheticInput.click(target, down: events[0], up: events[1])
+        return .object(["window": .string(windowID), "x": .number(local.x), "y": .number(local.y), "in_tree": .bool(true),
                         "view": .string(String(describing: type(of: target))), "delivered": .number(2)])
     }
 

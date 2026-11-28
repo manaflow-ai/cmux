@@ -277,6 +277,9 @@ final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
     }
 
     override func layout() {
+        // A live resize's step: the window root's own layout, the main pane card and the sidebar's columns inside it.
+        let liveStart = ResizeStepTimes.startIfLive(window?.inLiveResize)
+        defer { ResizeStepTimes.recordLive("window_root_layout", since: liveStart) }
         defer { onHintGeometryChange?() }
         if let window { TrafficLightsLine.apply(in: window) } // First: the rest reads the lights, now on the top row's line.
         // Before the pass solves the constraints: the lights' frame does not depend on it, and a top set after
