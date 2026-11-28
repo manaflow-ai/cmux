@@ -19,7 +19,10 @@
 
 pub mod ffi;
 pub mod filter;
+pub mod nav;
+mod ops;
 mod rank;
+pub mod scope_graph;
 mod shortcut;
 mod text;
 mod tier;
