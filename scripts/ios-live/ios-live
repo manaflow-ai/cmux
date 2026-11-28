@@ -11,6 +11,10 @@
 #   ios-live undo [--all]            take back the newest live Swift patch (or all of them) (lease)
 #   ios-live relaunch [ARG...] | tap X Y | type TEXT | tree | log [N]
 #   ios-live window                  open the Simulator app (Xcode 27: Device Hub) on the live device, in the background
+#   ios-live phone build             the slot's base as a live code build for a real iPhone, built on the slot's Mac
+#                                    and pulled here (lease); nothing builds on this Mac
+#   ios-live phone run UDID [K=V]... sign it for the attached phone UDID, install and launch it linked (this Mac)
+#   ios-live phone patch             your Swift edits, compiled on the slot's Mac, signed here, live on the phone
 #   ios-live ffi-sync FROM_HOST      copy the built Rust FFI from FROM_HOST (a host with Rust iOS targets)
 #   ios-live slots                   every slot on every host: base, holder; and how many are free
 #   ios-live whoami                  the owner name your lease carries (IOS_LIVE_OWNER overrides it)
@@ -330,6 +334,40 @@ case "$cmd" in
   undo|relaunch) host_sh "$cmd" "$owner" "$@" ;;
   tap) host_sh tap "$owner" "${1:?x}" "${2:?y}" ;;
   type) host_sh type "$owner" "${1:?text}" ;;
+  phone)  # the phone's own Mac runs this: the slot's Mac builds and compiles, this Mac signs, installs and serves
+    phone_out="${IOS_LIVE_PHONE_OUT:-${XDG_CACHE_HOME:-$HOME/.cache}/ios-live/phone}"
+    device_sh="$here/../live-code/ios-device.sh"
+    case "${1:-}" in
+      build)
+        t0="$(now)"
+        out="$(host_sh phone-build "$owner")" || { rc=$?; echo "$out"; exit "$rc"; }
+        echo "$out"
+        app="$(sed -n 's/^phone-app //p' <<<"$out" | tail -n 1)"
+        [[ "$app" == *-iphoneos/CmuxMobileApp.app ]] || die "the slot's Mac printed no phone app"
+        mkdir -p "$phone_out/fleet/Demo-iphoneos"
+        rsync -a --delete -e reach "$host:$app/" "$phone_out/fleet/Demo-iphoneos/CmuxMobileApp.app/" 2> >(quiet)
+        echo "$phone_out/fleet/Demo-iphoneos/CmuxMobileApp.app" >"$phone_out/app-path"
+        sed -n 's/^phone-base //p' <<<"$out" | tail -n 1 >"$phone_out/base"
+        echo "ios-live: phone build (slot's Mac build + pull): $(since "$t0") s; next: ios-live phone run UDID" ;;
+      run) shift; bash "$device_sh" run "$phone_out" "$@" ;;
+      patch)
+        t0="$(now)"
+        tmp="$(mktemp)"
+        base="$(make_patch "$tmp")"
+        out="$(host_sh --patch "$tmp" phone-patch "$owner" "$base")" || { rc=$?; rm -f "$tmp"; echo "$out"; exit "$rc"; }
+        rm -f "$tmp"
+        echo "$out"
+        dylib="$(sed -n 's/^patch.py: \([^ ]*\.dylib\) .*/\1/p' <<<"$out" | tail -n 1)"
+        [[ -n "$dylib" ]] || die "the slot's Mac printed no patch"
+        pulled="$(mktemp -d)"
+        rsync -a -e reach "$host:$dylib" "$host:${dylib%.dylib}.json" "$pulled/" 2> >(quiet) \
+          || die "could not pull $(basename "$dylib") from $host"
+        rc=0; bash "$device_sh" place "$phone_out" "$pulled/$(basename "$dylib")" || rc=$?
+        rm -rf "$pulled"
+        echo "ios-live: phone patch end to end (diff, send, compile, pull, sign, apply, redraw): $(since "$t0") s"
+        exit "$rc" ;;
+      *) die "ios-live phone build | run UDID [KEY=VALUE]... | patch" ;;
+    esac ;;
   ffi-sync)  # to the one host, or in slot mode to every host (each slot's build reads the host's copy)
     from="${1:?ffi-sync FROM_HOST}"
     rel=cmux-next-ios/CmuxMobileKit
