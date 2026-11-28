@@ -49,6 +49,7 @@ pub fn team(policy: Grants) -> Team {
         integrations: vec![Bridge::Slack],
         policy,
         customization: BTreeMap::new(),
+        admins: Vec::new(),
     }
 }
 

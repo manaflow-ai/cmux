@@ -127,7 +127,7 @@ clear_outputs() {
   rm -f "$dest" "$dest_dir/cmux-tui" "$dest_dir/acpmux" \
     "$dest_dir/cmux-app-host" "$dest_dir/cmux-cloud" "$dest_dir/cmux-browser-host" \
     "$dest_dir/cmux-tui-host" "$dest_dir/cmux-holder" "$dest_dir/cmux-agent-screen-detection" "$dest_dir/cmux-launch-preread" \
-    "$dest_dir/cmux-tui.version" "$dest_dir/daemon-capabilities.json"
+    "$dest_dir/cmux-tui.version" "$dest_dir/cmux-tui.version.json" "$dest_dir/daemon-capabilities.json"
 }
 # pin_error <message>: a pin-mode build without its pinned cmux-tui fails, the
 # way tree mode does, and leaves no bundled client behind.

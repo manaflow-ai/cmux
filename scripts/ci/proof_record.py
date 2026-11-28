@@ -9,8 +9,8 @@ A record is a JSON object (version 1):
 
   kind "cmux-proof-record", version 1, suite (ios-flows | mac-flows | web-flows | gui-flows), repo, pr, head_sha
   (the commit the runs built, the PR's head when it was posted), base_ref, base_sha (the base commit under the head),
-  selection (the suite's selector output: flows and the tests behind them), runs ([{name, step, worker, args,
-  result, seconds}]), captures ([{name, sha256, verdict, diff_ratio}] against baseline), baseline ({source, sha,
+  selection (the suite's selector output: flows and the tests behind them), runs ([{name, step, args, result,
+  seconds}]; no worker: PR text names no fleet host), captures ([{name, sha256, verdict, diff_ratio}] against baseline), baseline ({source, sha,
   pr, step} or null), video, verdict ("pass" | "fail"), timing ({pushed_at, proof_at, push_to_proof_s}), tool.
 
 On the PR it is one comment whose first line is the marker `<!-- cmux-proof-record SUITE HEAD_SHA -->` and whose body
@@ -25,13 +25,22 @@ whose head_sha is the PR's current head, and trusts it only when the comment's a
 from __future__ import annotations
 
 import argparse
+import contextvars
 import fnmatch
 import json
 import os
 import re
 import sys
+import urllib.error
+import urllib.parse
 import urllib.request
-from typing import Iterable
+from pathlib import Path
+from typing import Callable, Iterable, TypeVar
+
+T = TypeVar("T")
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gh_http  # noqa: E402
 
 KIND = "cmux-proof-record"
 VERSION = 1
@@ -139,6 +148,14 @@ def gate(record: dict | None, suite: str) -> tuple[str, str]:
     return "success", f"{suite} proof at this head: {len(flows)} flows passed" + (f" in {took}s" if took else "")
 
 
+# How long a read waits out a rate limit that names its end (gh_http's rate_budget_s). with_tokens sets it per token:
+# 0 while another token is left (that token reads it now), RATE_WAIT_LAST_S for the last one. Both gates run in
+# 5-min jobs; before, the run token's 403 slept gh_http's 900 s and the job was cancelled at its timeout, unposted.
+RATE_WAIT_LAST_S = 90.0
+_rate_wait_s: contextvars.ContextVar[float] = contextvars.ContextVar("proof_record_rate_wait_s",
+                                                                     default=RATE_WAIT_LAST_S)
+
+
 def pr_comments(repo: str, pr: int | str, token: str, pages: int = 10) -> list[dict]:
     out: list[dict] = []
     for page in range(1, pages + 1):
@@ -146,12 +163,71 @@ def pr_comments(repo: str, pr: int | str, token: str, pages: int = 10) -> list[d
             f"https://api.github.com/repos/{repo}/issues/{pr}/comments?per_page=100&page={page}",
             headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
                      "X-GitHub-Api-Version": "2022-11-28"})
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            got = json.loads(resp.read())
+        # A passing refusal (429, rate-limit 403, 5xx, a dropped connection) is asked again (gh_http): one
+        # blip used to turn a passed build into "proof record not read (HTTPError): rerun this job".
+        _, body, _ = gh_http.request(req, 20, raise_errors=True, rate_budget_s=_rate_wait_s.get())
+        got = json.loads(body or b"[]")
         out += got
         if len(got) < 100:
             break
     return out
+
+
+# GitHub refusing this token (spent, or not allowed here), not the read: the next token may get it.
+TOKEN_REFUSED = (401, 403, 429)
+
+
+def read_tokens() -> list[str]:
+    """GH_TOKEN (or GITHUB_TOKEN) first, then the TOKENS pool the step also posts with, each once."""
+    first = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
+    return list(dict.fromkeys(t for t in [first, *os.environ.get("TOKENS", "").split()] if t))
+
+
+def with_tokens(read: Callable[[str], T], tokens: list[str]) -> T:
+    """READ(token) with each token in turn while GitHub refuses the token (TOKEN_REFUSED); the last refusal, or any
+    other error, raises. A run's own github.token 403s once the repo's shared budget is spent, so a gate that read
+    with it alone posted `error` on every visual PR until the hour turned."""
+    if not tokens:
+        raise ValueError("no token")
+    for i, token in enumerate(tokens):
+        mark = _rate_wait_s.set(RATE_WAIT_LAST_S if i == len(tokens) - 1 else 0.0)
+        try:
+            return read(token)
+        except urllib.error.HTTPError as e:
+            if e.code not in TOKEN_REFUSED or i == len(tokens) - 1:
+                raise
+            print(f"read refused (HTTP {e.code}) with token {i + 1} of {len(tokens)}; trying the next", file=sys.stderr)
+        finally:
+            _rate_wait_s.reset(mark)
+    raise AssertionError("unreachable")
+
+
+def read_error(error: Exception) -> str:
+    """Log only diagnostic metadata: never response bodies, URL credentials or query strings."""
+    kind = type(error).__name__
+    details = {"error": kind}
+    if isinstance(error, urllib.error.HTTPError):
+        details["status"] = error.code
+        kind += f" {error.code}"
+        path = urllib.parse.urlsplit(error.url).path
+        if re.fullmatch(r"/repos/[\w.-]+/[\w.-]+/(?:pulls/\d+|issues/\d+/comments)", path):
+            details["endpoint"] = path
+        headers = error.headers or {}
+        for header, field, pattern in (
+                ("X-GitHub-Request-Id", "request_id", r"[A-Za-z0-9:-]{1,128}"),
+                ("X-RateLimit-Remaining", "rate_remaining", r"\d{1,20}"),
+                ("X-RateLimit-Reset", "rate_reset", r"\d{1,20}"),
+                ("Retry-After", "retry_after", r"\d{1,20}")):
+            value = headers.get(header, "")
+            if re.fullmatch(pattern, value):
+                details[field] = value
+    print(json.dumps(details, sort_keys=True), file=sys.stderr)
+    return kind
+
+
+# Exit status of `gate` when the record could not be read: the caller fails its job (rerunnable) rather than post
+# the printed `error` for a build that passed, which no sanctioned path could refresh.
+UNREAD = 3
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -171,15 +247,16 @@ def main(argv: list[str] | None = None) -> int:
             print(p, file=sys.stderr)
         return 1 if bad else 0
     repo, pr, sha = os.environ.get("REPO", ""), os.environ.get("PR", ""), os.environ.get("SHA", "")
-    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
-    if not (repo and pr and sha and token):
+    tokens = read_tokens()
+    if not (repo and pr and sha and tokens):
         print("error\tproof record not read: REPO, PR, SHA and GH_TOKEN are needed")
-        return 0
+        return UNREAD
     try:
-        record = find(pr_comments(repo, pr, token), a.suite, sha, [b for b in a.bots.split(",") if b])
+        comments = with_tokens(lambda token: pr_comments(repo, pr, token), tokens)
+        record = find(comments, a.suite, sha, [b for b in a.bots.split(",") if b])
     except Exception as e:  # noqa: BLE001 - an unread record is an error state, never a pass
-        print(f"error\tproof record not read ({type(e).__name__}): rerun this job")
-        return 0
+        print(f"error\tproof record not read ({read_error(e)}): see job log")
+        return UNREAD
     state, desc = gate(record, a.suite)
     print(f"{state}\t{desc}")
     return 0

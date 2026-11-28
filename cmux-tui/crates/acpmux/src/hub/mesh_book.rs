@@ -87,6 +87,7 @@ struct Fields<'a> {
     name: &'a str,
     harness: &'a str,
     state: &'a str,
+    stuck_reason: Option<&'a str>,
     cwd: Option<&'a str>,
     title: Option<&'a str>,
     title_source: Option<&'a str>,
@@ -95,6 +96,8 @@ struct Fields<'a> {
     agent_session_id: Option<&'a str>,
     host_build: Option<&'a str>,
     handle: Option<&'a str>,
+    /// Its tags as its heartbeat lists them (`SessionRow::tags`).
+    tags: Option<&'a std::collections::BTreeMap<String, String>>,
     /// When the session last changed on its machine, as its heartbeat says (`updatedAt`).
     updated_at: Option<u64>,
 }
@@ -105,6 +108,7 @@ impl<'a> Fields<'a> {
             name: &s.name,
             harness: &s.harness,
             state: &s.state,
+            stuck_reason: s.stuck_reason.as_deref(),
             cwd: s.cwd.as_deref().filter(|c| !c.is_empty()),
             title: s.title.as_deref().filter(|t| !t.is_empty()),
             title_source: s.title_source.as_deref().filter(|t| !t.is_empty()),
@@ -115,6 +119,7 @@ impl<'a> Fields<'a> {
             // Only a given handle: a derived one is every reader's to derive, and an invalid one
             // is no handle at all (`session_handle::valid`).
             handle: s.handle.as_deref().filter(|h| crate::session_handle::valid(h)),
+            tags: s.tags.as_ref().filter(|t| !t.is_empty()),
             updated_at: s.updated_at.filter(|&at| at > 0),
         }
     }
@@ -128,6 +133,7 @@ struct Bare {
     name: String,
     harness: String,
     state: String,
+    stuck_reason: Option<String>,
     cwd: Option<String>,
     title: Option<String>,
     title_source: Option<String>,
@@ -136,6 +142,7 @@ struct Bare {
     agent_session_id: Option<String>,
     host_build: Option<String>,
     handle: Option<String>,
+    tags: Option<std::collections::BTreeMap<String, String>>,
     updated_at: Option<u64>,
     read: u64,
     /// The `updatedAt` its row lists.
@@ -149,6 +156,7 @@ impl Bare {
             name: fields.name.into(),
             harness: fields.harness.into(),
             state: fields.state.into(),
+            stuck_reason: own(fields.stuck_reason),
             cwd: own(fields.cwd),
             title: own(fields.title),
             title_source: own(fields.title_source),
@@ -157,6 +165,7 @@ impl Bare {
             agent_session_id: own(fields.agent_session_id),
             host_build: own(fields.host_build),
             handle: own(fields.handle),
+            tags: fields.tags.cloned(),
             updated_at: fields.updated_at,
             read,
             stamped,
@@ -168,6 +177,7 @@ impl Bare {
             name: &self.name,
             harness: &self.harness,
             state: &self.state,
+            stuck_reason: self.stuck_reason.as_deref(),
             cwd: self.cwd.as_deref(),
             title: self.title.as_deref(),
             title_source: self.title_source.as_deref(),
@@ -176,6 +186,7 @@ impl Bare {
             agent_session_id: self.agent_session_id.as_deref(),
             host_build: self.host_build.as_deref(),
             handle: self.handle.as_deref(),
+            tags: self.tags.as_ref(),
             updated_at: self.updated_at,
         }
     }
@@ -243,7 +254,7 @@ pub(crate) fn pushed_health(
 /// null when the hub does not say, so no reader drops or misfiles a chat for a missing key (Leo,
 /// 2026-11-22: "my gui chats are not showing yet").
 #[cfg(test)]
-pub(crate) const ROW_KEYS: [&str; 11] = [
+pub(crate) const ROW_KEYS: [&str; 12] = [
     "name",
     "nameGiven",
     "title",
@@ -254,6 +265,7 @@ pub(crate) const ROW_KEYS: [&str; 11] = [
     "agentSessionId",
     "hostBuild",
     "handle",
+    "tags",
     "status",
 ];
 
@@ -265,6 +277,7 @@ fn row_of(session_id: &str, fields: &Fields<'_>) -> Value {
         name,
         harness,
         state,
+        stuck_reason,
         cwd,
         title,
         title_source,
@@ -273,10 +286,12 @@ fn row_of(session_id: &str, fields: &Fields<'_>) -> Value {
         agent_session_id,
         host_build,
         handle,
+        tags,
         // `set_mesh_book` sets `updatedAt` itself, from this or its own reading.
         updated_at: _,
     } = *fields;
-    json!({
+    let failed = state == "failed";
+    let mut row = json!({
         "sessionId": session_id,
         "name": name,
         // Unknown unless the hub says: the name came from its machine, given or derived there.
@@ -293,12 +308,28 @@ fn row_of(session_id: &str, fields: &Fields<'_>) -> Value {
         // from the id (`session_handle::display`, `session_handle::matches`).
         "handle": handle,
         "displayName": handle,
-        "status": state,
+        // Its tags, as a local row lists them (`session::live_tags`): null when the hub says none.
+        "tags": tags,
+        // Keep the daemon's lifecycle status usable by existing summary views. The synthetic
+        // failed heartbeat state is carried by the last turn they already know how to render.
+        "status": if failed { "idle" } else { state },
         // A waiting session waits on its person: listed with the asks (`pendingOnly`).
         "pendingPermissions": u64::from(state == "waiting"),
         "via": "hub",
         "stale": false,
-    })
+    });
+    if failed {
+        // Existing summary views derive their failed indicator from the last turn. Keep that
+        // projection even when an older peer omitted the optional reason.
+        row["lastTurn"] = json!({"status": "failed"});
+    }
+    if let Some(reason) = stuck_reason {
+        row["stuckReason"] = json!(reason);
+        if failed {
+            row["lastTurn"]["errorText"] = json!(reason);
+        }
+    }
+    row
 }
 
 impl Hub {
