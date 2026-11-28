@@ -68,6 +68,10 @@ SELECTIONS_KEPT_LITERAL = {
         "adds a macOS user as root: it needs a one-job Mac, and no macOS pool is ephemeral_only, so a pool could name "
         "an owned mini where its sudo fails (tests/test_ci_owned_mac_jobs_no_sudo.py)"
     ),
+    ("ci-macos.yml", "jobs.swift-package-tests.runs-on"): (
+        "builds the Ghostty helper with the SDK 15 Xcode, which exists only on macOS 15; the macos_15 pool can fail "
+        "over to macOS 26 (cmux#64925), so its last fallback stays the macOS 15 label"
+    ),
 }
 # A job that holds signing or release material keeps its route under its own trust rules
 # (tests/test_ci_release_sdk_lane.sh, tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py).
