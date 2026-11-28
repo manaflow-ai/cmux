@@ -1439,6 +1439,7 @@ export function EnvironmentPicker({
               {retrying ? t("composer.envCloudChecking") : t("composer.envCloudUnreachable", { when: lastSeenWhen })}
             </span>
             <Button
+              type="button"
               bare
               className="acpmux-env-last-seen-retry ui-ghost ui-ghost-sm"
               disabled={retrying}
