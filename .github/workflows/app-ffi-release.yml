@@ -93,6 +93,7 @@ on:
       - "cmux-tui/crates/cmux-lifeline/**"
       - "cmux-tui/crates/cmux-local-auth/**"
       - "cmux-tui/crates/cmux-layout-reducer-ffi/**"
+      - "cmux-tui/crates/cmux-error-journal/**"
       - "cmux-tui/crates/cmux-palette-ranker/**"
       - "cmux-tui/crates/cmux-process/**"
       - "cmux-tui/crates/cmux-motion/**"
@@ -945,6 +946,28 @@ jobs:
           permission-contents: write
           permission-workflows: write
 
+      # Reads and the fallback dispatch on cmux-bot's own installation budget, not the GITHUB_TOKEN every
+      # workflow in the repository shares (cmux-next-post-merge.yml does the same). 2026-11-28 00:25Z: re-pin
+      # jobs 140796642381 and 140800301756 both stopped on "API rate limit exceeded for installation" reading
+      # commits/7a8a55bf with GITHUB_TOKEN (reset 00:54:57Z, past the 600 s wait), and their fallback dispatch
+      # got the same 403 five times, so "Check the app FFI pin" stayed red on feat-cmux-next. Falls back to
+      # GITHUB_TOKEN when the mint fails.
+      - name: Mint the cmux-bot read and dispatch token
+        id: bot-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-actions: write
+          permission-checks: read
+          permission-contents: read
+          permission-statuses: read
+
       # A separate token, because a mint that asks for a permission the App
       # lacks fails whole: manaflow-cmux-release had contents, metadata and
       # workflows only on 2026-10-07. Without it the branch is still pushed
@@ -1020,7 +1043,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.pr-token.outputs.token }}
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
-          READ_TOKEN: ${{ github.token }}
+          READ_TOKEN: ${{ steps.bot-token.outputs.token || github.token }}
           BASE_TOKEN: ${{ steps.base-token.outputs.token }}
           BASE_PIN_ENABLED: ${{ vars.CMUX_NEXT_BASE_AUTOFIX == '1' }}
           TAG: ${{ needs.build.outputs.tag }}
@@ -1040,16 +1063,11 @@ jobs:
       - name: Start the re-pin workflow when this re-pin failed
         if: failure() || cancelled()
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.bot-token.outputs.token || github.token }}
           GH_REPO: ${{ github.repository }}
         shell: bash
         # The run's installation token shares a rate limit with every other job: runs 46002456039 and
         # 46005933257 got "HTTP 403: API rate limit exceeded for installation" here (2026-11-27 13:47Z and
-        # 14:17Z) and no re-pin ran. Retry on the bounded backoff app-ffi-repin.yml's twin step uses (about 9 min).
-        run: |
-          for wait in 0 60 120 180 180; do
-            sleep "$wait"
-            if gh workflow run app-ffi-repin.yml --ref feat-cmux-next; then exit 0; fi
-            echo "re-pin dispatch failed; retrying after backoff"
-          done
-          exit 1
+        # 14:17Z) and no re-pin ran. A fixed 9 min backoff then spent all five tries inside one spent hour (run
+        # 46086089622, 2026-11-28 00:25Z; the pin sat 131 min behind), so the script waits for the reset instead.
+        run: bash scripts/cmux-next/dispatch-app-ffi-repin.sh

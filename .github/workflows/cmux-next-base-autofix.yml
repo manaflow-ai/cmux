@@ -220,13 +220,66 @@ jobs:
           done
           echo "::warning::cancel failed with every token; the repair jobs skip on this job's run=false"
 
+  # Whether GitHub will take this run's push, read before any repair starts. 2026-11-27: ruleset 28260267 put a
+  # pull_request rule on feat-cmux-next the push App can't bypass, so 93 of 99 autofix runs and 78 of 79 Mac export
+  # runs repaired for ~45 min and then had the push refused (~4,300 runner-min/day). push=refused skips every repair
+  # job, so such a run ends in about a minute; anything unread repairs as before. Off: CMUX_NEXT_BASE_AUTOFIX_PUSH_PREFLIGHT=0.
+  # The repair jobs read it under !cancelled(), so a preflight job that fails (no JIT runner) repairs as before too.
+  push-preflight:
+    name: push preflight
+    needs: window
+    if: >-
+      ${{ needs.window.outputs.run == 'true' && github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: mints a token from the push App's key (CMUX_PR_AUTOFIX_APP_KEY); ephemeral VM
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      push: ${{ steps.preflight.outputs.push }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            /scripts/cmux-next/base-autofix-push-preflight.sh
+          sparse-checkout-cone-mode: false
+
+      # A read-only token of the push App, so the rulesets' current_user_can_bypass answers for the App that pushes.
+      - name: Mint the App's read token
+        id: app-token
+        if: vars.CMUX_NEXT_BASE_AUTOFIX == '1' && vars.CMUX_NEXT_BASE_AUTOFIX_PUSH_PREFLIGHT != '0'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_PR_AUTOFIX_APP_ID }}
+          private-key: ${{ secrets.CMUX_PR_AUTOFIX_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: read
+
+      # A dry run (CMUX_NEXT_BASE_AUTOFIX is not 1) pushes nothing, so it has no token here and repairs as before.
+      - name: Will the push land
+        id: preflight
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          BASE_AUTOFIX_PUSH_PREFLIGHT: ${{ vars.CMUX_NEXT_BASE_AUTOFIX_PUSH_PREFLIGHT }}
+        run: |
+          set -euo pipefail
+          out="$(bash scripts/cmux-next/base-autofix-push-preflight.sh "$GITHUB_REF_NAME")"
+          echo "$out" | tee -a "$GITHUB_OUTPUT" "$GITHUB_STEP_SUMMARY"
+          if grep -qx 'push=refused' <<<"$out"; then
+            echo "::error title=base autofix push refused::$(sed -n 's/^why=//p' <<<"$out"); this run repairs nothing."
+          fi
+
   # Whether the Mac action-exports job runs: the paths changed since the last
   # successful run, as autofix's Changed areas step computes them.
   action-areas:
     name: action export areas
-    needs: window
+    needs: [window, push-preflight]
     if: >-
-      ${{ needs.window.outputs.run == 'true' && github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) }}
+      ${{ !cancelled() && needs.window.result == 'success' && needs.window.outputs.run == 'true' && needs.push-preflight.outputs.push != 'refused' && github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # 15, not 5: on a slow cmux-linux runner the checkout alone used the whole 5 (runs 45335340351, 45339629317 cancelled in checkout), so the exports stopped regenerating.
     timeout-minutes: 15
@@ -286,7 +339,7 @@ jobs:
     # cmux-next-generated-catch-up.yml; on feat-cmux-next only.
     environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'ci-routing-agent' || '' }}
     needs: action-areas
-    if: (needs.action-areas.outputs.actions == 'true' || needs.action-areas.outputs.settings == 'true') && needs.action-areas.outputs.mac_busy != 'true'
+    if: ${{ !cancelled() && !failure() && needs.action-areas.result == 'success' && ((needs.action-areas.outputs.actions == 'true' || needs.action-areas.outputs.settings == 'true') && needs.action-areas.outputs.mac_busy != 'true') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 65
     permissions:
@@ -427,7 +480,7 @@ jobs:
   action-exports-linux:
     name: action exports (Linux)
     needs: [action-areas, pushed-exports]
-    if: needs.action-areas.outputs.actions == 'true' && needs.action-areas.outputs.mac_busy != 'true' && needs.pushed-exports.outputs.deferred != 'true' && needs.pushed-exports.outputs.hit != 'true' && (vars.CMUX_ACTION_EXPORTS_LINUX || 'on') != '0'
+    if: ${{ !cancelled() && !failure() && needs.action-areas.result == 'success' && needs.pushed-exports.result == 'success' && (needs.action-areas.outputs.actions == 'true' && needs.action-areas.outputs.mac_busy != 'true' && needs.pushed-exports.outputs.deferred != 'true' && needs.pushed-exports.outputs.hit != 'true' && (vars.CMUX_ACTION_EXPORTS_LINUX || 'on') != '0') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 30
     container: public.ecr.aws/docker/library/swift:6.2-noble@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197
@@ -539,7 +592,7 @@ jobs:
   settings-exports-linux:
     name: settings exports (Linux)
     needs: [action-areas, pushed-exports]
-    if: needs.action-areas.outputs.settings == 'true' && needs.action-areas.outputs.mac_busy != 'true' && needs.pushed-exports.outputs.deferred != 'true' && needs.pushed-exports.outputs.hit != 'true' && (vars.CMUX_SETTINGS_EXPORTS_LINUX || 'on') != '0'
+    if: ${{ !cancelled() && !failure() && needs.action-areas.result == 'success' && needs.pushed-exports.result == 'success' && (needs.action-areas.outputs.settings == 'true' && needs.action-areas.outputs.mac_busy != 'true' && needs.pushed-exports.outputs.deferred != 'true' && needs.pushed-exports.outputs.hit != 'true' && (vars.CMUX_SETTINGS_EXPORTS_LINUX || 'on') != '0') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
     permissions:
@@ -849,9 +902,9 @@ jobs:
   # the autofix job as a patch, which applies only webviews paths.
   webviews-fmt:
     name: webviews vp fmt
-    needs: window
+    needs: [window, push-preflight]
     if: >-
-      ${{ needs.window.outputs.run == 'true' && github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) }}
+      ${{ !cancelled() && needs.window.result == 'success' && needs.window.outputs.run == 'true' && needs.push-preflight.outputs.push != 'refused' && github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
@@ -915,9 +968,9 @@ jobs:
   # still makes the graph too; whichever lands second finds it current.
   target-graph:
     name: CI target graph
-    needs: window
+    needs: [window, push-preflight]
     if: >-
-      ${{ needs.window.outputs.run == 'true' && github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) }}
+      ${{ !cancelled() && needs.window.result == 'success' && needs.window.outputs.run == 'true' && needs.push-preflight.outputs.push != 'refused' && github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) }}
     # A running one finishes and lands on the newest tip; a newer push replaces only a pending one,
     # and that one makes the graph from the newer tip.
     concurrency:
@@ -1015,9 +1068,9 @@ jobs:
     name: autofix feat-cmux-next
     # The other repairs still run when the webviews formatting or the Mac
     # action exports job fails or is skipped.
-    needs: [window, action-areas, webviews-fmt, action-exports-linux, settings-exports-linux, action-exports, pushed-exports]
+    needs: [window, push-preflight, action-areas, webviews-fmt, action-exports-linux, settings-exports-linux, action-exports, pushed-exports]
     if: >-
-      ${{ !cancelled() && needs.window.outputs.run == 'true' && github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) }}
+      ${{ !cancelled() && needs.window.outputs.run == 'true' && needs.push-preflight.outputs.push != 'refused' && github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) }}
     # A running repair finishes and lands on whatever feat-cmux-next is by then
     # (scripts/cmux-next/base-autofix-land.sh); a newer push replaces only a pending run.
     # The next run diffs from the last successful one. The run that carries Mac exports gets a
@@ -1447,9 +1500,9 @@ jobs:
   # cancels a wait in progress; a queued run is replaced by the newest push.
   ghosttykit-checksum:
     name: pin the GhosttyKit checksum
-    needs: window
+    needs: [window, push-preflight]
     if: >-
-      ${{ needs.window.outputs.run == 'true' && github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) }}
+      ${{ !cancelled() && needs.window.result == 'success' && needs.window.outputs.run == 'true' && needs.push-preflight.outputs.push != 'refused' && github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) }}
     concurrency:
       group: cmux-next-ghosttykit-checksum
       cancel-in-progress: false
