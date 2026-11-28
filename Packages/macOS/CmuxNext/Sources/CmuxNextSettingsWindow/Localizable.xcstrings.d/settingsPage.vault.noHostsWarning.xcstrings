@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.vault.noHostsWarning" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تم الحفظ. لا يوجد مضيف مسموح به بعد، لذا لا يمكن للوكلاء استخدامه حتى تضيف واحدًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sačuvano. Još nema dozvoljenih hostova, pa ga agenti ne mogu koristiti dok ne dodate jedan."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gemt. Den har endnu ingen tilladte værter, så agenter kan ikke bruge den, før du tilføjer en."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gespeichert. Noch ohne erlaubte Hosts, also können Agenten es erst nutzen, wenn du einen hinzufügst."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saved. It has no allowed hosts yet, so agents can't use it until you add one."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Guardado. Aún no tiene hosts permitidos, así que los agentes no pueden usarlo hasta que añadas uno."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enregistré. Aucun hôte autorisé pour l'instant : les agents ne peuvent pas l'utiliser tant que vous n'en ajoutez pas."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Salvato. Non ha ancora host consentiti, quindi gli agenti non possono usarlo finché non ne aggiungi uno."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存しました。許可するホストがまだないため、追加するまでエージェントは使えません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បានរក្សាទុក។ មិនទាន់មានម៉ាស៊ីនមេដែលអនុញ្ញាតទេ ដូច្នេះភ្នាក់ងារមិនអាចប្រើវាបានទេ រហូតដល់អ្នកបន្ថែម។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "저장했습니다. 아직 허용된 호스트가 없어 추가하기 전까지 에이전트가 쓸 수 없습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lagret. Den har ingen tillatte verter ennå, så agenter kan ikke bruke den før du legger til en."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zapisano. Nie ma jeszcze dozwolonych hostów, więc agenci nie mogą go użyć, dopóki nie dodasz hosta."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Salvo. Ainda não há hosts permitidos, então os agentes não podem usá-lo até você adicionar um."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сохранено. Разрешённых хостов пока нет, поэтому агенты не смогут его использовать, пока вы не добавите хост."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "บันทึกแล้ว ยังไม่มีโฮสต์ที่อนุญาต เอเจนต์จึงใช้ไม่ได้จนกว่าคุณจะเพิ่ม"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kaydedildi. Henüz izin verilen ana bilgisayar yok; siz eklemeden ajanlar bunu kullanamaz."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Збережено. Дозволених хостів поки немає, тож агенти не зможуть його використати, доки ви не додасте хост."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Đã lưu. Chưa có máy chủ được phép nên tác tử chưa dùng được cho tới khi bạn thêm một máy chủ."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已保存。它还没有允许的主机，添加之前代理无法使用。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已儲存。它還沒有允許的主機，新增之前代理無法使用。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

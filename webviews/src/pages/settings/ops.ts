@@ -1288,6 +1288,49 @@ export type CloudEnvironmentsRun =
   | { action: "build"; id: string }
   | { action: "delete"; id: string };
 
+/** Settings > Cloud > Environment (RFD 0222 (c)1, `cmux.settings.vault.state`): the person's vault through
+ * the daemon's `vault-env`. `proxy` entries reach agents as a placeholder the egress proxy fills in only
+ * for `allowedHosts`; `env` entries are plain environment variables. No answer ever carries a value. */
+export type VaultDelivery = "proxy" | "env";
+export type VaultEntry = {
+  name: string;
+  revision: number;
+  /** Milliseconds since 1970. */
+  updatedAt: number;
+  delivery: VaultDelivery;
+  allowedHosts: string[];
+};
+/** One machine's access: a joined Mac or a Cloud machine; `entries` absent means all of them;
+ * `expiresAt` 0 means revoked (milliseconds otherwise). */
+export type VaultGrant = {
+  kind: "joined" | "cloud";
+  id: string;
+  entries?: string[];
+  expiresAt: number;
+  grantedAt: number;
+};
+export type VaultState = {
+  /** False while Cloud is off or signed out: the card explains. */
+  available: boolean;
+  /** The daemon lacks `vault-env-v1`: the card hides itself. */
+  unsupported: boolean;
+  entries: VaultEntry[];
+  grants: VaultGrant[];
+  /** The last read's failure (the daemon's message and `error_code`). */
+  error?: string;
+  code?: string;
+};
+/** One vault write; the person's own click or key only. `set` carries the value once. */
+export type VaultRun =
+  | { action: "set"; params: { name: string; value: string; delivery?: VaultDelivery; allowedHosts?: string[] } }
+  | { action: "policy"; params: { name: string; delivery?: VaultDelivery; allowedHosts?: string[] } }
+  | { action: "rm"; params: { name: string } };
+export type VaultRunReply = {
+  result?: { name?: string; revision?: number; warning?: string };
+  error?: string;
+  code?: string;
+};
+
 /** Settings > Server > This Mac on Your Tailnet: acpmux's embedded tailnet node as `_acpmux/tailnet/*`
  * answers it (cmux-tui acpmux tailnet/embedded.rs `Snapshot::to_json`), relayed unchanged by the app on
  * its person connection. */
@@ -2795,6 +2838,10 @@ export type SettingsOps = {
   "cmux.settings.environments.state": [Record<string, never>, CloudEnvironmentsState];
   /** Native: one Cloud Environments gesture; Build and Delete ask natively first; a failure answers `error`. */
   "cmux.settings.environments.run": [CloudEnvironmentsRun, { error?: string | null }];
+  /** Native: Settings > Cloud > Environment, the person's vault (`vault-env` on the local daemon). */
+  "cmux.settings.vault.state": [Record<string, never>, VaultState];
+  /** Native: one vault write (set, policy, rm); a refusal answers `error` and `code`. */
+  "cmux.settings.vault.run": [VaultRun, VaultRunReply];
   /** Native: this Mac's tailnet node; null when acpmux has no tailnet or did not take the person's proof. */
   "cmux.settings.tailnet.state": [Record<string, never>, TailnetState | null];
   /** Native, the person's click: starts the node; a saved login resumes, else it reports `needs_login`. */

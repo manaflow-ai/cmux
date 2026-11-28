@@ -86,6 +86,8 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
     import("./ServerCard").then(({ ServerCard }) => () => <ServerCard />),
   cloudEnvironments: () =>
     import("./CloudEnvironmentsCard").then(({ CloudEnvironmentsCard }) => () => <CloudEnvironmentsCard />),
+  environmentVault: () =>
+    import("./EnvironmentVaultCard").then(({ EnvironmentVaultCard }) => () => <EnvironmentVaultCard />),
   cloudCompute: () =>
     import("./CloudComputeCard").then(({ CloudComputeCard }) => () => <CloudComputeCard />),
   cloudModels: () =>

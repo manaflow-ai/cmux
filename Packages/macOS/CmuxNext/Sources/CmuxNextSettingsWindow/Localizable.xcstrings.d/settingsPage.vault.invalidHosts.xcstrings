@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.vault.invalidHosts" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تحقق من المضيفين: مثل api.example.com أو ‎*.example.com، بحد أقصى 16."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Provjerite hostove: npr. api.example.com ili *.example.com, najviše 16."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tjek værterne: fx api.example.com eller *.example.com, højst 16."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prüfe die Hosts: etwa api.example.com oder *.example.com, höchstens 16."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Check the hosts: like api.example.com or *.example.com, 16 at most."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Revisa los hosts: como api.example.com o *.example.com, 16 como máximo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vérifiez les hôtes : par exemple api.example.com ou *.example.com, 16 au maximum."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Controlla gli host: ad esempio api.example.com o *.example.com, al massimo 16."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ホストを確認してください（例: api.example.com、*.example.com、最大 16 個）。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ពិនិត្យម៉ាស៊ីនមេ៖ ដូចជា api.example.com ឬ *.example.com យ៉ាងច្រើន 16។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "호스트를 확인하세요. 예: api.example.com 또는 *.example.com, 최대 16개"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sjekk vertene: for eksempel api.example.com eller *.example.com, høyst 16."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sprawdź hosty: np. api.example.com lub *.example.com, najwyżej 16."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Confira os hosts: como api.example.com ou *.example.com, no máximo 16."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Проверьте хосты: например api.example.com или *.example.com, не больше 16."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ตรวจสอบโฮสต์ เช่น api.example.com หรือ *.example.com ไม่เกิน 16 รายการ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ana bilgisayarları kontrol edin: api.example.com veya *.example.com gibi, en çok 16."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перевірте хости: наприклад api.example.com або *.example.com, не більше 16."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kiểm tra máy chủ: ví dụ api.example.com hoặc *.example.com, tối đa 16."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请检查主机：例如 api.example.com 或 *.example.com，最多 16 个。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請檢查主機：例如 api.example.com 或 *.example.com，最多 16 個。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

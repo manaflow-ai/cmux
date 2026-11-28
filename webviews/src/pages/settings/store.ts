@@ -71,6 +71,9 @@ import {
   type AppUpdateAction,
   type ChannelsState,
   type CloudEnvironmentsRun,
+  type VaultRun,
+  type VaultRunReply,
+  type VaultState,
   type CloudEnvironmentsState,
   type LibraryListing,
   type LibraryRun,
@@ -1113,6 +1116,18 @@ export class SettingsStore {
   async environments(): Promise<CloudEnvironmentsState | null> {
     const reply = await this.request("cmux.settings.environments.state", {});
     return reply.ok ? reply.value : null;
+  }
+
+  /** Settings > Cloud > Environment: the vault's entries and grants, null when the host has none. */
+  async vault(): Promise<VaultState | null> {
+    const reply = await this.request("cmux.settings.vault.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One vault write: the host's answer, or its refusal as `error` (`code` names it). */
+  async runVault(run: VaultRun): Promise<VaultRunReply> {
+    const reply = await this.request("cmux.settings.vault.run", run);
+    return reply.ok ? (reply.value ?? {}) : { error: reply.error.message, code: reply.error.code };
   }
 
   /** Settings > Agents > Worktree Setup: the session host's projects with their saved recipes,

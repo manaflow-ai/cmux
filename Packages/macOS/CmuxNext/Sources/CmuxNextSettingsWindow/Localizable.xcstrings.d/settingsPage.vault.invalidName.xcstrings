@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.vault.invalidName" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لا يمكن استخدام هذا الاسم. استخدم الحروف والأرقام والشرطات السفلية."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Taj naziv se ne može koristiti. Koristite slova, brojeve i donje crte."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Det navn kan ikke bruges. Brug bogstaver, tal og understreger."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieser Name geht nicht. Verwende Buchstaben, Ziffern und Unterstriche."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "That name can't be used. Use letters, digits and underscores."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ese nombre no se puede usar. Usa letras, dígitos y guiones bajos."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce nom ne peut pas être utilisé. Utilisez des lettres, des chiffres et des traits de soulignement."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questo nome non si può usare. Usa lettere, cifre e trattini bassi."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この名前は使えません。英字、数字、アンダースコアを使ってください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "មិនអាចប្រើឈ្មោះនោះបានទេ។ ប្រើអក្សរ លេខ និងសញ្ញាគូសក្រោម។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 이름은 사용할 수 없습니다. 문자, 숫자, 밑줄을 사용하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Det navnet kan ikke brukes. Bruk bokstaver, sifre og understreker."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tej nazwy nie można użyć. Użyj liter, cyfr i podkreśleń."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esse nome não pode ser usado. Use letras, dígitos e sublinhados."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Это имя использовать нельзя. Используйте буквы, цифры и подчёркивания."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ใช้ชื่อนี้ไม่ได้ ใช้ตัวอักษร ตัวเลข และขีดล่าง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu ad kullanılamaz. Harf, rakam ve alt çizgi kullanın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цю назву використати не можна. Використовуйте літери, цифри та підкреслення."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Không thể dùng tên này. Hãy dùng chữ cái, chữ số và dấu gạch dưới."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法使用这个名称。请使用字母、数字和下划线。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法使用這個名稱。請使用字母、數字和底線。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
