@@ -55,6 +55,16 @@ if [[ "${RUNNER_NAME:-}" != *-glaeda* ]]; then
 fi
 
 sha() { if command -v shasum >/dev/null; then shasum -a 256; else sha256sum; fi | cut -c1-16; }
+
+# ONE_CARGO_HOME_PER_MAC: cargo hashes a registry crate's absolute source path
+# ($CARGO_HOME/registry/src/...) into its fingerprint. runner-cargo-home.sh gives each runner
+# instance its own home (<runner>/_work/.cargo-home), so a base another runner built had every
+# registry crate dirty: run 46095639867's fallback (aws mini runner 7, base from runner 8) said
+# "hit" and still compiled all 1209 units, "Build cmux-tui (native)" 29 min. The native build
+# takes one home for the whole Mac instead. No rust-cache step runs in this job, so nothing here
+# cleans that registry under a sibling's build (the race runner-cargo-home.sh avoids), and cargo
+# locks its own package cache between concurrent builds.
+mac_cargo_home="${CMUX_TUI_MAC_CARGO_HOME:-${HOME:?}/Library/Caches/cmux-next-ci/cmux-tui-cargo-home}"
 developer_dir="${DEVELOPER_DIR:-$(xcode-select -p 2>/dev/null || echo none)}"
 xcode_version="$(xcodebuild -version 2>/dev/null || echo none)"
 sdk_build="$(xcrun --sdk macosx --show-sdk-build-version 2>/dev/null || echo none)"
@@ -78,6 +88,11 @@ export CMUX_TESTBOX_CPUINFO="$cpuinfo"
 clone() { if [[ "$(uname -s)" == Darwin ]]; then cp -c -R -p "$1" "$2"; else cp -a "$1" "$2"; fi; }
 
 restore() {
+  mkdir -p "$mac_cargo_home"
+  if [[ -n "${GITHUB_ENV:-}" ]]; then
+    echo "CARGO_HOME=$mac_cargo_home" >> "$GITHUB_ENV"
+    echo "mac warm target: CARGO_HOME=$mac_cargo_home (one per Mac, so another runner's base stays fresh)"
+  fi
   if [[ -e "$link" || -L "$link" ]]; then
     echo "mac warm target: miss ($link already exists); building in it"
     return 0

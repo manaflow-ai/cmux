@@ -73,6 +73,11 @@ on:
       - "**/notices/**"
       - "vendor/stack-auth-swift-sdk-prerelease/README.cmux.md"
       - "cmux-tui/README.md"
+      - "cmux-tui/spec/**"
+      - "cmux-tui/docs/**"
+      - "cmux-tui/bindings/**"
+      - "cmux-tui/frontends/README*.md"
+      - "cmux-tui/frontends/web/README*.md"
       - "docs/remote-agents-and-cloud.md"
       - "docs/cmux-next/customize-recipes.md"
       - "cmux-tui/crates/acpmux/README.md"
@@ -122,7 +127,7 @@ jobs:
     # Blacksmith, any other run the CI_TRUSTED_RUNNER selector (as the old ui-review and swift-logic jobs), never
     # RUNNER_POOLS (its x64 pools lead with persistent machines). Not cmux-gcp-pr-control-jit-x64: on 2026-11-21 that
     # label queued 1,860 jobs and this job waited on it 10+ min (cmux-next.yml's control jobs left it the same day).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks the Blacksmith size
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token
     timeout-minutes: 15
     permissions:
       contents: read
@@ -266,8 +271,11 @@ jobs:
           # The description lints (pr-body-checks.yml's, until CI v2 step 6's second cut) on every push: on a
           # draft, a base-only update, a fork and under CI_QUOTA_HOLD too, as they ran there (each reads the
           # files API only when git could not list the paths). pr-body-checks.yml keeps the edits and labels.
+          # bench-relevance: the areas, benches, targeted tests and check templates the relevance map names for
+          # these paths (Leo, 2026-11-27: "targetted tests per type of situation that things touch based off
+          # relevance"). The step was in the table since #63786 but never picked, so no pull request showed it.
           case "$ACTION" in
-            opened|synchronize|reopened|ready_for_review) keep+=(capture design-spec perf-section cloud-backend) ;;
+            opened|synchronize|reopened|ready_for_review) keep+=(capture design-spec perf-section cloud-backend bench-relevance) ;;
           esac
           echo "steps=${keep[*]}" >> "$GITHUB_OUTPUT"
           echo "Steps for this ${ACTION} event: ${keep[*]:-none}" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -302,6 +310,10 @@ jobs:
             scripts/ci/pr_perf_section_check.py
             scripts/ci/pr_cloud_backend_check.py
             .github/cloud-backend-paths.json
+            scripts/bench/cmux-bench
+            scripts/bench/benchlib/
+            docs/benches/relevance-map.toml
+            docs/benches/templates/
             .gitmodules
           sparse-checkout-cone-mode: false
 

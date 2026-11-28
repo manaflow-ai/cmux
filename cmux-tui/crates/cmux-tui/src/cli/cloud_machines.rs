@@ -29,12 +29,22 @@ use super::{GlobalArgs, OutputMode};
 /// most this.
 const CLOUD_READ_TIMEOUT: Duration = Duration::from_secs(1);
 
-/// The daemon's `machine.list` result with the app's Cloud machines added.
-pub(super) fn merge(global: &GlobalArgs, result: Value) -> Value {
+/// The app's Cloud machines for `machine list`; `None` when no cmux app is
+/// around to ask (nothing to add, and no note).
+pub(super) fn read(global: &GlobalArgs) -> Option<Result<Vec<Value>, String>> {
     if global.app_socket.is_none() && !app_found() {
-        return result;
+        return None;
     }
-    let cloud = super::app::socket_path(global).and_then(read_by_deadline);
+    Some(super::app::socket_path(global).and_then(read_by_deadline))
+}
+
+/// The daemon's `machine.list` result with `cloud` (a [`read`]) added, and a
+/// note on stderr when it could not be read.
+pub(super) fn apply(
+    global: &GlobalArgs,
+    result: Value,
+    cloud: Result<Vec<Value>, String>,
+) -> Value {
     let (merged, note) = merge_rows(result, cloud);
     if let Some(reason) = note
         && global.output != OutputMode::Quiet

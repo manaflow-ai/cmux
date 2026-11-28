@@ -91,6 +91,27 @@ impl Daemon {
         Self::spawn_as(tag, peer, json!({}), harness).await
     }
 
+    /// [`Self::with_peer`], the test agent also under each name in `also`, in config.json from
+    /// the start: a test that edits config.json after the daemon starts races the daemon's own
+    /// first save of it (its WebSocket token, made once the socket already answers).
+    async fn with_peer_also(tag: &str, target: Option<&Daemon>, also: &[&str]) -> Self {
+        let peer = target.map(|target| (target.home.clone(), target.socket.clone()));
+        let none = &[][..];
+        Self::spawn_keyed(
+            tag,
+            peer,
+            json!({}),
+            "fake",
+            false,
+            None,
+            none,
+            "approve-all",
+            None,
+            also,
+        )
+        .await
+    }
+
     /// `with_peer`, with `harness_env` in the fake harness's env, `vars` in the daemon's, and
     /// `policy` its permission policy.
     async fn with_env(
@@ -163,7 +184,7 @@ impl Daemon {
         key: &str,
     ) -> Self {
         let peer = target.map(|target| (target.home.clone(), target.socket.clone()));
-        Self::spawn_keyed(tag, peer, harness_env, "fake", false, None, vars, policy, Some(key))
+        Self::spawn_keyed(tag, peer, harness_env, "fake", false, None, vars, policy, Some(key), &[])
             .await
     }
 
@@ -179,10 +200,12 @@ impl Daemon {
         vars: &[(&str, &str)],
         policy: &str,
     ) -> Self {
-        Self::spawn_keyed(tag, peer, agent_env, harness, linked, link, vars, policy, None).await
+        Self::spawn_keyed(tag, peer, agent_env, harness, linked, link, vars, policy, None, &[])
+            .await
     }
 
-    /// [`Self::spawn_full`]; `key`: the person key it gets on `--person-key-fd 3`.
+    /// [`Self::spawn_full`]; `key`: the person key it gets on `--person-key-fd 3`; `also`: more
+    /// harness names for the same test agent.
     #[allow(clippy::too_many_arguments)]
     async fn spawn_keyed(
         tag: &str,
@@ -194,6 +217,7 @@ impl Daemon {
         vars: &[(&str, &str)],
         policy: &str,
         key: Option<&str>,
+        also: &[&str],
     ) -> Self {
         let (home, socket) = Self::place(tag);
         let _ = std::fs::remove_dir_all(&home);
@@ -208,6 +232,9 @@ impl Daemon {
             profile["family"] = family;
         }
         let mut config = json!({"harnesses": {harness: profile}, "defaultHarness": harness, "permissionPolicy": policy});
+        for name in also {
+            config["harnesses"][*name] = config["harnesses"][harness].clone();
+        }
         if linked {
             let free = std::net::TcpListener::bind("127.0.0.1:0").expect("a free port");
             let listen = free.local_addr().expect("its address").to_string();
@@ -228,30 +255,42 @@ impl Daemon {
             command.env("PATH", path);
         }
         command.args(["daemon", "run", "--log", "warn"]);
-        let mut fds = [-1i32; 2];
-        if let Some(key) = key {
+        // The key comes from a file, not a pipe: the daemon reads fd 3 to its end, and a pipe's
+        // write end, made without close-on-exec, was inherited by whatever another test thread
+        // spawned meanwhile, so the daemon waited (before it listens) until that process
+        // exited: "daemon mx-claude-t never listened". `File` opens close-on-exec; only the
+        // daemon's fd 3 (a dup2, which clears it) stays open across its exec.
+        let key_file = key.map(|key| {
+            let path = home.with_extension("key");
+            std::fs::write(&path, format!("{key}\n")).expect("person key file");
+            let file = std::fs::File::open(&path).expect("person key file");
+            let _ = std::fs::remove_file(&path);
+            file
+        });
+        if let Some(file) = &key_file {
+            use std::os::fd::AsRawFd;
             use std::os::unix::process::CommandExt;
             command.args(["--person-key-fd", "3"]);
-            // SAFETY: a fresh pipe; both ends are owned here.
-            assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
-            let line = format!("{key}\n");
-            // SAFETY: the write end is open; the line fits the pipe buffer.
-            let n = unsafe { libc::write(fds[1], line.as_ptr().cast(), line.len()) };
-            assert_eq!(n as usize, line.len());
-            // SAFETY: closing our own write end.
-            unsafe { libc::close(fds[1]) };
-            let read_end = fds[0];
+            let read_end = file.as_raw_fd();
             // SAFETY: only dup2 between fork and exec (async-signal-safe).
             unsafe {
                 command.pre_exec(move || {
-                    if libc::dup2(read_end, 3) < 0 {
+                    // dup2 onto itself keeps close-on-exec: clear it then.
+                    let kept = if read_end == 3 {
+                        libc::fcntl(3, libc::F_SETFD, 0)
+                    } else {
+                        libc::dup2(read_end, 3)
+                    };
+                    if kept < 0 {
                         return Err(std::io::Error::last_os_error());
                     }
                     Ok(())
                 });
             }
         }
-        let child = command
+        // Beside the home, not in it: what the daemon said when it never listens.
+        let stderr = home.with_extension("stderr");
+        let mut child = command
             .env("ACPMUX_HOME", &home)
             .env("ACPMUX_SOCKET", &socket)
             // No agent hosts: a host outlives its daemon, and this test kills only the daemon.
@@ -260,18 +299,27 @@ impl Daemon {
             .envs(vars.iter().copied())
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
+            .stderr(std::fs::File::create(&stderr).expect("daemon stderr"))
             .spawn()
             .expect("spawn daemon");
-        if fds[0] >= 0 {
-            // SAFETY: the child has its own copy on fd 3; this is ours.
-            unsafe { libc::close(fds[0]) };
-        }
+        // The child has its own copy on fd 3; this one is ours.
+        drop(key_file);
         let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
         while tokio::net::UnixStream::connect(&socket).await.is_err() {
-            assert!(tokio::time::Instant::now() < deadline, "daemon {tag} never listened");
+            let exited = child.try_wait().expect("the daemon's state");
+            if exited.is_some() || tokio::time::Instant::now() >= deadline {
+                let said = std::fs::read_to_string(&stderr).unwrap_or_default();
+                panic!("daemon {tag} never listened (exit: {exited:?}); its stderr:\n{said}");
+            }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
+        let _ = std::fs::remove_file(&stderr);
+        // A connect proves only the bind (`daemon.rs`): the daemon may still save its generated
+        // web config to config.json after it, over a test's own edit of that file (a harness
+        // `session_move_as` adds then found unknown). It answers only once serving, after its saves.
+        tokio::time::timeout_at(deadline, Rpc::connect(&socket))
+            .await
+            .unwrap_or_else(|_| panic!("daemon {tag} never answered"));
         Self { home, socket, child }
     }
 }
@@ -322,6 +370,8 @@ mod composer_attachments;
 mod first_turn_fence;
 #[path = "transfer_cli/move_matrix.rs"]
 mod move_matrix;
+#[path = "transfer_cli/place_duress.rs"]
+mod place_duress;
 #[path = "transfer_cli/place_set.rs"]
 mod place_set;
 #[path = "transfer_cli/session_move.rs"]
@@ -339,6 +389,8 @@ mod session_move_history;
 mod session_move_live;
 #[path = "transfer_cli/session_move_reachable.rs"]
 mod session_move_reachable;
+#[path = "transfer_cli/session_move_return_send.rs"]
+mod session_move_return_send;
 #[path = "transfer_cli/session_move_target_ask.rs"]
 mod session_move_target_ask;
 #[path = "transfer_cli/synced_pins_drafts.rs"]

@@ -6,7 +6,8 @@
 //! - Before any proof, from what the daemon holds for the caller's inbox and token alone: the
 //!   chat registered with them (nothing to do), a code still waiting for its echo, a first step
 //!   for them already running (one code, never two from sends at once), or a failure kept from
-//!   a recent try (said once, not re-proven on every send). Only the session's own shell holds
+//!   a recent try (said once, not re-proven on every send), or a code that went and expired
+//!   unanswered: one automatic code per chat a day ([`OFFER_TTL`]). Only the session's own shell holds
 //!   its token, and nothing is delivered or registered here.
 //! - After the proof (`register.rs`, unchanged), what to do for the conversation: a chat the
 //!   bridge already reaches gets no code; a chat that has a name (registered before a restart,
@@ -20,6 +21,54 @@ use std::time::{Duration, Instant};
 
 /// How long a failed automatic first step is kept, answered without a new proof.
 const FAILURE_TTL: Duration = Duration::from_secs(300);
+
+/// How long a chat that got an automatic code gets no other. Its model reads the code's
+/// message and runs the `--code` line when it wants an address; a chat that let it expire did
+/// not, and a new code at each later prompt only filled its conversation (Lawrence, 2026-11-28:
+/// 203 codes in a day into one terminal chat, from cmux's prompt hook). A person who wants one
+/// later runs `acpmux register NAME`, which always sends.
+pub(crate) const OFFER_TTL: Duration = Duration::from_secs(24 * 3600);
+
+/// Why an automatic step sent no code: one went to this chat within [`OFFER_TTL`].
+pub(super) const OFFERED: &str = "register.offered";
+
+/// The chats that got an automatic code, by Claude Code session id, with when (unix seconds),
+/// kept across daemon restarts: `register-offered.json` in the daemon's home, owner-only.
+fn offered_file(home: &Path) -> PathBuf {
+    home.join("register-offered.json")
+}
+
+fn read_offered(home: &Path) -> HashMap<String, u64> {
+    std::fs::read(offered_file(home))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
+}
+
+/// Now, in unix seconds.
+pub(super) fn now_secs() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
+}
+
+/// Whether the chat of Claude Code session `session_id` got an automatic code within
+/// [`OFFER_TTL`] of `now`. Reads a file: run off the runtime's workers.
+pub(super) fn offered_lately(home: &Path, session_id: &str, now: u64) -> bool {
+    read_offered(home)
+        .get(session_id)
+        .is_some_and(|at| now.saturating_sub(*at) < OFFER_TTL.as_secs())
+}
+
+/// Keeps that the chat of `session_id` got an automatic code at `now`, and drops records past
+/// [`OFFER_TTL`]. Writes a file: run off the runtime's workers.
+pub(super) fn note_offered(home: &Path, session_id: &str, now: u64) -> anyhow::Result<()> {
+    static WRITING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one = WRITING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut kept = read_offered(home);
+    kept.retain(|_, at| now.saturating_sub(*at) < OFFER_TTL.as_secs());
+    kept.insert(session_id.to_owned(), now);
+    let bytes = serde_json::to_vec(&kept)?;
+    crate::agent_tools::write_private(&offered_file(home), &bytes)
+}
 
 /// The caller's inbox and token: what an automatic first step is known by.
 type Key = (PathBuf, String);
@@ -111,6 +160,19 @@ pub(super) fn pending_name(
         .map(|p| p.name.clone())
 }
 
+/// The name of a code in `pending` that went to `socket` with `token` and expired unanswered
+/// within [`OFFER_TTL`]: that chat gets no other automatic code.
+pub(super) fn offered_name(
+    pending: &HashMap<u32, Pending>,
+    socket: &Path,
+    token: &str,
+) -> Option<String> {
+    pending
+        .values()
+        .find(|p| p.socket == socket && p.token == token && p.at.elapsed() < OFFER_TTL)
+        .map(|p| p.name.clone())
+}
+
 impl Hub {
     /// [`Step`] for the caller's `socket` and `token`, from the tokens `register` kept in `home`
     /// (`claude_peers::save_token`), the codes waiting, the steps running and recent failures.
@@ -134,6 +196,9 @@ impl Hub {
         let pending = PENDING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(name) = pending_name(&pending, socket, token) {
             return Step::Answer(json!({"pending": true, "resent": false, "name": name}));
+        }
+        if let Some(name) = offered_name(&pending, socket, token) {
+            return Step::Answer(json!({"offered": true, "name": name}));
         }
         let key: Key = (socket.to_path_buf(), token.to_owned());
         {

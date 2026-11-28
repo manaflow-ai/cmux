@@ -21,6 +21,20 @@ mod journal;
 /// daemon startup (`REPLAY_CEILING`). A reattach's resend of unlogged answers waits the same.
 use crate::agent::{REPLAY_CEILING, REPLAY_STALL};
 
+fn replay_stalls() -> bool {
+    // Debug fixtures can hold replay proof back until a retry.
+    #[cfg(debug_assertions)]
+    {
+        std::env::var_os("ACPMUX_TEST_REPLAY_INCOMPLETE").is_some()
+            || std::env::var_os("ACPMUX_TEST_REPLAY_INCOMPLETE_FILE")
+                .is_some_and(|path| Path::new(&path).exists())
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        false
+    }
+}
+
 /// What the session log says about the work in flight under one host
 /// incarnation when the previous controller stopped.
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
@@ -120,6 +134,21 @@ pub(super) struct OpenWork {
     /// previous controller stopped. Recovered from its logged `compaction`
     /// updates so Stop keeps the prompt-first path after a restart.
     compacting: bool,
+    /// The chat's process table as the adoption checkpoint keeps it (`journal.rs`
+    /// `keep_processes`): the adoption rebuilds the table from it (`recover_work`).
+    #[serde(skip)]
+    pub(super) processes: Option<super::processes::SavedProcesses>,
+}
+
+impl OpenWork {
+    fn can_end_replayed_host(&self) -> bool {
+        !self.receipts_unproven
+            && self.turn.is_none()
+            && self.carry_next.is_none()
+            && self.requests.is_empty()
+            && self.unwritten.is_empty()
+            && !self.compacting
+    }
 }
 
 /// What the host records say (`Hub::read_host_records`).
@@ -818,18 +847,22 @@ impl Hub {
         if !self.hold_launch_credential(session, &adopted.launch_credential.0)
             && adopted.exited.is_none()
         {
-            self.recover_credential(session, adopted.harness_pid);
+            self.recover_credential(session, adopted.harness_pid.zip(adopted.harness_start));
         }
         let proven = self.adopt_caller_token(&session.id, caller_token, &incarnation);
         // A fork through an adopted agent asks for the list it started with
         // (`spawn.rs` decides it at session/new for a spawned one).
         let meta = session.meta();
+        let claude_recovery = super::credentials::claude_login_needs_restart(&meta)
+            || self.has_saved_claude_token(session, &meta).await;
         let (_, env) = self.harness_env(&meta).await;
         let (all, kind) = {
             let cfg = self.config.read().await;
             let profile = cfg.profile(&meta.harness);
             let all = profile.is_some_and(|p| {
-                crate::agent_tools::lists_all_tools(&meta.harness, p, &env, &meta.cwd)
+                crate::session_manifest::all_tools(meta.manifest.as_ref(), &meta.cwd, || {
+                    crate::agent_tools::lists_all_tools(&meta.harness, p, &env, &meta.cwd)
+                })
             });
             (all, profile.map(|p| p.kind))
         };
@@ -843,14 +876,22 @@ impl Hub {
         self.note_host_kind(session, &child, kind).await;
         // Scan only once every entry the host had is in the log: what the
         // previous daemon wrote or answered may still sit in its buffer.
-        // Debug builds only: `ACPMUX_TEST_REPLAY_INCOMPLETE` makes every replay count as incomplete,
-        // as a host that stalls mid-replay does. Release builds have no seam.
-        #[cfg(debug_assertions)]
-        let stalls = std::env::var_os("ACPMUX_TEST_REPLAY_INCOMPLETE").is_some();
-        #[cfg(not(debug_assertions))]
-        let stalls = false;
-        let replayed =
-            !stalls && child.wait_replayed(adopted.last_h, REPLAY_STALL, REPLAY_CEILING).await;
+        let mut replayed = !replay_stalls()
+            && child.wait_replayed(adopted.last_h, REPLAY_STALL, REPLAY_CEILING).await;
+        session.floor.left_host_read.store(false, Ordering::SeqCst);
+        let managed = off.off();
+        // Claude login recovery uses the rebuilt work state to decide whether it may end this
+        // host. The replay must reach the Resume boundary before that state is read.
+        if claude_recovery || managed {
+            replayed = replayed
+                && match child.learn_replay_end(REPLAY_STALL).await {
+                    Some(end) => child.wait_replayed(end, REPLAY_STALL, REPLAY_CEILING).await,
+                    None => false,
+                };
+        } else {
+            let learning = child.clone();
+            tokio::spawn(async move { learning.learn_replay_end(REPLAY_STALL).await });
+        }
         if !replayed {
             tracing::warn!(session = %session.id, "agent host replay incomplete; recovering from the partial log");
         }
@@ -864,17 +905,8 @@ impl Hub {
         // read the log before the replay reached it. With MDM unset the agent is handed out, and
         // the next off reads the log the replay added to: an earlier read of it no longer holds
         // (review 2 of #26057).
-        // The replay runs to what the host numbered before it handled this daemon's `Resume`, which
-        // may be past its hello's `last_h` (review 3 of #26057): under MDM's off that end is learned
-        // and waited for before the judgement; with MDM unset it is learned in the background and
-        // nothing waits on it, as before.
-        session.floor.left_host_read.store(false, Ordering::SeqCst);
-        if off.off() {
-            let replayed = replayed
-                && match child.learn_replay_end(REPLAY_STALL).await {
-                    Some(end) => child.wait_replayed(end, REPLAY_STALL, REPLAY_CEILING).await,
-                    None => false,
-                };
+        // The Resume boundary may be past the hello's `last_h` (review 3 of #26057).
+        if managed || (claude_recovery && off.off()) {
             let ended = if replayed {
                 self.end_if_runs_full_access(session, true).await
             } else {
@@ -887,9 +919,6 @@ impl Hub {
                 }
                 return Ok(());
             }
-        } else {
-            let learning = child.clone();
-            tokio::spawn(async move { learning.learn_replay_end(REPLAY_STALL).await });
         }
         self.append(
             session,
@@ -914,8 +943,19 @@ impl Hub {
             let told = replayed && adopted.version >= agent_host::QUEUED_VERSION;
             Self::hold_unwritten(session, hold, &record, told, &work);
         }
+        let intact = adopted.acked_h <= resume_after && !work.receipts_unproven;
+        let recovery_complete = claude_recovery && replayed && intact;
+        // The retry checks the drained journal without rebuilding work. An intact prefix
+        // can be checked again even if the work it described was still open at adoption.
+        let recovery_retryable = intact;
         let changes = session.status_changes.load(Ordering::SeqCst);
         self.recover_work(session, &child, &incarnation, work).await;
+        if recovery_complete {
+            child.mark_recovery_replay_complete();
+        }
+        if recovery_retryable {
+            child.mark_recovery_replay_retryable();
+        }
         // The status after recovery, not before it: set before, `ready` was logged and shown
         // between `host_adopted` and a turn the host still runs (an idle chat that was working).
         // Recovery sets the turn and `running` under the spawn lock every new prompt waits on, so
@@ -961,11 +1001,11 @@ impl Hub {
         session: &Arc<Session>,
         child: &Arc<ChildAgent>,
         incarnation: &str,
-        work: OpenWork,
+        mut work: OpenWork,
     ) {
         Self::recover_floor(session, &work);
         session.compacting.store(work.compacting, Ordering::SeqCst);
-        self.recover_processes(session);
+        self.recover_processes(session, work.processes.take());
         // A carried turn the restart cut before its prompt went out (or before it started):
         // the agent runs it still, and it goes on (`carried_turn.rs`).
         if let Some((turn_seq, turn_id, prompt_id, prompt, client, control)) = work.turn.clone()
@@ -1200,7 +1240,11 @@ impl Hub {
                         // the chat. Not started here: this task runs inside
                         // the adoption a start itself may run.
                         // Work below it waits for quiet (`restart_waits_for_work_below`).
+                        // A recovered Claude login moves before the next prompt, after checking
+                        // the permissions and background work this host may still hold.
                         if s.route_switch.load(Ordering::SeqCst)
+                            && !s.read_meta(super::credentials::claude_login_needs_restart)
+                            && hub.route_child_is_idle(&s)
                             && !hub.restart_waits_for_work_below(&s)
                             && s.route_switch.swap(false, Ordering::SeqCst)
                         {
@@ -1678,15 +1722,27 @@ impl Hub {
                 "machine environment changed; login env refresh failed",
             ));
         }
-        let cmd = crate::agent::harness_command_ready(
+        let (cmd, mut scratch) = crate::agent::harness_command_ready(
             &meta.harness,
             profile,
             &meta.cwd,
-            command_line,
+            command_line.clone(),
             Some((&session.id, &meta.name)),
         )
         .await
-        .map_err(internal)?;
+        .map_err(|error| {
+            #[cfg(unix)]
+            if error.is::<crate::agent::CopilotKeychainLocked>() {
+                return RpcError::invalid_params(error.to_string())
+                    .with_data(serde_json::json!({"reason": "subscription.keychain_locked"}));
+            }
+            if error.is::<crate::agent::CopilotReconnect>() {
+                crate::server::connections::announce_later(self);
+                return RpcError::invalid_params(error.to_string())
+                    .with_data(serde_json::json!({"reason": "subscription.reauth_required"}));
+            }
+            internal(error)
+        })?;
         self.record_preview_format(session, crate::agent::pinned_preview_format(&cmd));
         let std_cmd = cmd.as_std();
         let hosts = crate::agent_host::hosts_dir();
@@ -1718,6 +1774,21 @@ impl Hub {
             orphan_exit: None,
             prompt_suggestions_managed: crate::claude_stdio::prompt_suggestions::managed(),
             holder: None,
+            copilot_scratch: scratch
+                .as_ref()
+                .zip(profile.env.get(crate::agent_credentials::COPILOT_TOKEN))
+                .map(|(dir, token)| crate::agent_host::CopilotScratch {
+                    path: dir.path().to_owned(),
+                    redaction: token.clone(),
+                }),
+            local_kimi_expiry: profile
+                .env
+                .get(crate::subscriptions::LOCAL_KIMI_EXPIRY)
+                .and_then(|v| v.parse().ok()),
+            local_chatgpt_expiry: profile
+                .env
+                .get(crate::chatgpt::LOCAL_EXPIRY_ENV)
+                .and_then(|v| v.parse().ok()),
         };
         // The agent holder (`agent_host/custody.rs`): a harness that speaks ACP itself keeps its
         // turn through a host crash. A translated one still has its translator in the host.
@@ -1741,7 +1812,12 @@ impl Hub {
             child
         };
         let first = match self.start_hosted(session, meta, &launcher, &spec, tap.clone()).await {
-            Ok(child) => return Ok(launched(child)),
+            Ok(child) => {
+                if let Some(dir) = scratch {
+                    dir.keep();
+                }
+                return Ok(launched(child));
+            }
             Err(e) => e,
         };
         // A host that started but did not answer (a wedged or dead host: its hello missed the
@@ -1753,8 +1829,36 @@ impl Hub {
             return Err(internal(first.error));
         }
         tracing::warn!(session = %session.id, "agent host did not answer ({:#}); starting a fresh host", first.error);
+        if scratch.is_some() {
+            let (_, next) = crate::agent::harness_command_ready(
+                &meta.harness,
+                profile,
+                &meta.cwd,
+                command_line,
+                Some((&session.id, &meta.name)),
+            )
+            .await
+            .map_err(internal)?;
+            let dir = next
+                .as_ref()
+                .ok_or_else(|| RpcError::internal("missing GitHub Copilot launch folder"))?;
+            if let Some(launch) = spec.copilot_scratch.as_mut() {
+                launch.path = dir.path().to_owned();
+            }
+            if let Some((_, data_home)) =
+                spec.env.iter_mut().find(|(name, _)| name == "XDG_DATA_HOME")
+            {
+                *data_home = dir.path().to_string_lossy().into_owned();
+            }
+            scratch = next;
+        }
         match self.start_hosted(session, meta, &launcher, &spec, tap).await {
-            Ok(child) => Ok(launched(child)),
+            Ok(child) => {
+                if let Some(dir) = scratch {
+                    dir.keep();
+                }
+                Ok(launched(child))
+            }
             Err(second) => {
                 if let Some(failed) = &second.started {
                     let _ = self.end_unanswered_host(session, failed, &second.error).await;
@@ -1801,6 +1905,8 @@ impl Hub {
             started.set("remoteEnvPolicy", crate::agent::REMOTE_ENV_POLICY_ID.into());
         }
         self.append(session, "mux", "host_started", started);
+        // Its first adoption resumes from a checkpoint, not the whole log (`checkpoint.rs`).
+        self.prime_adoption_checkpoint(session, &record.incarnation);
         // A new host: its log is read back again under MDM's off, no end is pending for it, and
         // none of its reports waits (`full_access_bound.rs`).
         session.floor.left_host_read.store(false, Ordering::SeqCst);

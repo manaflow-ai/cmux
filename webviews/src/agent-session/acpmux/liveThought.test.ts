@@ -109,6 +109,25 @@ test("thought fast path draws the pane for a hidden thought once the fold is ope
   expect(thoughtOnly(previous, next)).toBeUndefined();
 });
 
+test("thought fast path keeps a quiet hidden thought under a closed Working for with nothing to open", () => {
+  const { previous, next, beforeThought, afterThought } = hiddenChange();
+  drewThoughts([prompt, { ...header(false), foldEmpty: true }, line]);
+
+  expect(thoughtOnly(previous, next)).toEqual({ id: "activity-folded", before: beforeThought, after: afterThought });
+});
+
+test("thought fast path draws the pane once a hidden thought gives an empty Working for work to open", () => {
+  const beforeThought: AcpmuxActivity = { kind: "thought", text: "Read", startedAt: 1, endedAt: 2 };
+  // Long enough that it is no longer quiet (thoughts.ts `isQuietThought`): the fold now holds it.
+  const afterThought: AcpmuxActivity = { ...beforeThought, text: `Read ${"the helper ".repeat(20)}`, endedAt: 3 };
+  const previous = snapshot([prompt, row("activity-folded", beforeThought, 1)]);
+  const next = snapshot([prompt, row("activity-folded", afterThought, 2)]);
+  markOneRowChange(next.rows, previous.rows, 1);
+  drewThoughts([prompt, { ...header(false), foldEmpty: true }, line]);
+
+  expect(thoughtOnly(previous, next)).toBeUndefined();
+});
+
 test("thought fast path draws the pane for a hidden row of an earlier turn", () => {
   const steer: AcpmuxRow = { id: "user-2", version: 1, at: 2, kind: "user" };
   const { previous, next } = hiddenChange([steer]);

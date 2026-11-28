@@ -71,17 +71,33 @@ def build_run(build: str) -> str:
     return str(int(build[:-2]))
 
 
+def _not_found(error: BaseException) -> bool:
+    """A `gh api` 404, as fix_forward.gh_api (CalledProcessError, stderr) or
+    nightly_next_train.gh_api (TrainError, message) reports it."""
+    text = f"{error} {getattr(error, 'stderr', '') or ''}"
+    return "HTTP 404" in text or "Not Found" in text or str(error).strip() == "404"
+
+
 def build_commit(api: Api, repo: str, build: str) -> str | None:
     """The nightly-next commit a build was made from, or None when its run is
     not a nightly-next run of this repository (a Linux-writer build).
 
     A fork's pull_request run on a branch named nightly-next reports the same
     head_branch with the fork's commit, so the run must also be a publishing
-    event whose head is this repository (as find-nightly-next-recovery.py)."""
+    event whose head is this repository (as find-nightly-next-recovery.py).
+
+    Only a 404 means "no such run". Any other failure (auth, rate limit, a gh
+    wrapper refusal, a timeout) raises ValueError naming it: swallowing it once
+    made the 11-24 train (run 45339117563) report "good build 4532878579001
+    has no nightly-next run, so no base" for a build whose run exists."""
+    run_id = build_run(build)
     try:
-        run = api(f"repos/{repo}/actions/runs/{build_run(build)}")
-    except Exception:  # noqa: BLE001 - an unknown run is a build we can't place
-        return None
+        run = api(f"repos/{repo}/actions/runs/{run_id}")
+    except Exception as error:  # noqa: BLE001 - classified below
+        if _not_found(error):
+            return None
+        detail = (str(error) + " " + str(getattr(error, "stderr", "") or "")).strip()
+        raise ValueError(f"build {build}: reading run {run_id} failed: {detail[:500]}") from error
     if not isinstance(run, dict) or run.get("head_branch") != "nightly-next":
         return None
     if run.get("event") not in PUBLISHED_EVENTS:

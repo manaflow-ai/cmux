@@ -51,6 +51,7 @@ import { chromium } from "./browsers";
 import { papercutEvents } from "../test/support/papercutChat";
 import { classifyFrames, MOVE_TOLERANCE_PX, type FrameRecord } from "../src/agent-session/acpmux/firstLoadFrames";
 import { perfRow } from "./perfRow";
+import { pick } from "./scenarioFilter";
 import { segmenter } from "./replySegments";
 
 const ROUNDS = Number(process.argv[2] ?? 3);
@@ -63,8 +64,8 @@ const SCENARIOS = ["chat_switch", "workspace_switch", "open_recent", "restart"] 
 type Scenario = (typeof SCENARIOS)[number];
 const ARMS = ["idle", "stream"] as const;
 type Arm = (typeof ARMS)[number];
-const only = process.env.ONLY?.split(",") as Scenario[] | undefined;
-const arms = (process.env.ARMS?.split(",") as Arm[] | undefined) ?? [...ARMS];
+const scenarios = pick(SCENARIOS, process.env.ONLY, "ONLY");
+const arms = pick(ARMS, process.env.ARMS, "ARMS");
 const TRACE = process.env.TRACE === "1";
 // PROFILE=1: an unminified build and a CPU profile of each chat switch, its top functions by self and total time.
 const PROFILE = process.env.PROFILE === "1";
@@ -868,7 +869,7 @@ try {
   const report: Record<string, { rounds: Round[] }> = {};
   let score = 0;
   let worst = "";
-  for (const scenario of SCENARIOS.filter((name) => !only || only.includes(name)))
+  for (const scenario of scenarios)
     for (const arm of arms) {
       const rounds: Round[] = [];
       if (scenario === "open_recent" || scenario === "restart") rounds.push(...fromRestartBench(scenario, arm));

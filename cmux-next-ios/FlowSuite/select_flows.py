@@ -35,6 +35,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 MANIFEST = HERE / "flows.json"
+MANIFEST_PATH = "cmux-next-ios/FlowSuite/flows.json"
 REGRESSION_ROWS = 20
 
 
@@ -158,7 +159,8 @@ def compile_globs(manifest: dict, root: Path) -> list[str]:
     return globs
 
 
-def select(manifest: dict, changed: list[str], root: Path = REPO) -> dict:
+def select(manifest: dict, changed: list[str], root: Path = REPO, edited: list[str] = ()) -> dict:
+    """`edited` names flows the change adds or edits in flows.json: they run too, so the PR adding a flow proves it."""
     ignore = manifest.get("compile", {}).get("ignore", [])
     files = [f for f in changed if f and not matches(f, ignore)]
     cglobs = compile_globs(manifest, root)
@@ -167,6 +169,8 @@ def select(manifest: dict, changed: list[str], root: Path = REPO) -> dict:
     chosen = []
     for flow in manifest["flows"]:
         hits = [f for f in files if matches(f, flow.get("paths", []))]
+        if flow["id"] in edited:
+            hits = hits or [MANIFEST_PATH]
         if hits:
             reason[flow["id"]] = hits
             chosen.append(flow)
@@ -182,7 +186,9 @@ def select(manifest: dict, changed: list[str], root: Path = REPO) -> dict:
     def union(key: str) -> list:
         out: list = []
         for f in selected:
-            for x in f.get(key, []):
+            got = f.get(key, [])
+            # `"pair_e2e": true` asks for the paired run with no extra words; a list names its words.
+            for x in (got if isinstance(got, list) else []):
                 if x not in out:
                     out.append(x)
         return out
@@ -200,6 +206,7 @@ def select(manifest: dict, changed: list[str], root: Path = REPO) -> dict:
         "swift": union("swift"),
         "scripts": scripts,
         "pair_e2e": union("pair_e2e"),
+        "pair": any(f.get("pair_e2e") for f in selected),
         "reason": reason,
     }
 
@@ -219,7 +226,7 @@ def sim_args(result: dict, shards: int) -> list[str]:
             parts.append("ui=" + ",".join(u))
         if k or u:
             lines.append(" ".join(parts))
-    if result.get("pair_e2e"):  # a paired Mac and iPhone: its own run (cmux-next-ios-sim.sh pair-e2e WORD...)
+    if result.get("pair") or result.get("pair_e2e"):  # a paired Mac and iPhone: its own run (cmux-next-ios-sim.sh pair-e2e WORD...)
         lines.append(" ".join(["pair-e2e", *result["pair_e2e"]]))
     return lines or ["build"]
 
@@ -276,6 +283,17 @@ def changed_from_git(base: str, head: str) -> list[str]:
     return out.splitlines()
 
 
+def edited_flows(manifest: dict, base: str, head: str) -> list[str]:
+    """The flows in `manifest` that are new or changed since the merge base of BASE and HEAD."""
+    if MANIFEST_PATH not in changed_from_git(base, head):
+        return []
+    mb = subprocess.run(["git", "-C", str(REPO), "merge-base", base, head],
+                        check=True, capture_output=True, text=True).stdout.strip()
+    old = subprocess.run(["git", "-C", str(REPO), "show", f"{mb}:{MANIFEST_PATH}"], capture_output=True, text=True)
+    before = {f["id"]: f for f in json.loads(old.stdout)["flows"]} if old.returncode == 0 else {}
+    return [f["id"] for f in manifest["flows"] if before.get(f["id"]) != f]
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("paths", nargs="*")
@@ -301,9 +319,11 @@ def main(argv: list[str] | None = None) -> int:
     changed = list(a.paths)
     if a.changed_files:
         changed += Path(a.changed_files).read_text().splitlines()
+    edited: list[str] = []
     if a.base:
         changed += changed_from_git(a.base, a.head)
-    result = select(manifest, [c.strip() for c in changed])
+        edited = edited_flows(manifest, a.base, a.head)
+    result = select(manifest, [c.strip() for c in changed], edited=edited)
     if a.sim_args:
         print("\n".join(sim_args(result, a.shards)))
     else:

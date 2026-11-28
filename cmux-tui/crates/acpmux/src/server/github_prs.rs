@@ -4,6 +4,10 @@
 //! has the shape `gh pr view --json` gives (`pr_poller::VIEW_FIELDS`). `until` is `settled`
 //! (default: nothing pending, or merged or closed) or `change` (the summary line moved).
 //!
+//! `_acpmux/github/read {path, freshSecs?}` is the same poller's GET of any `repos/OWNER/REPO/...`
+//! path (`Poller::get`), answering `{data, poller: {source, ageSecs, note?, budget, counters}}`:
+//! a body no older than `freshSecs` (default [`READ_FRESH`]) when the budget allows, else kept.
+//!
 //! Only this machine's clients get them (the `acpmux` MCP server of each chat, the CLI, the
 //! app): the poller spends this machine's GitHub budget with this machine's `gh` login.
 
@@ -14,6 +18,8 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::Duration;
 
+/// How old a kept body a `_acpmux/github/read` may answer with when the call names no `freshSecs`.
+pub const READ_FRESH: Duration = Duration::from_secs(30);
 /// How long a wait runs when the call names no `timeoutSecs`.
 const DEFAULT_WAIT: Duration = Duration::from_secs(45);
 
@@ -23,7 +29,10 @@ pub(super) async fn dispatch(
     m: &str,
     params: &Value,
 ) -> Option<Result<Value, RpcError>> {
-    if !matches!(m, method::MUX_GITHUB_PR_STATE | method::MUX_GITHUB_PR_WAIT) {
+    if !matches!(
+        m,
+        method::MUX_GITHUB_PR_STATE | method::MUX_GITHUB_PR_WAIT | method::MUX_GITHUB_READ
+    ) {
         return None;
     }
     if conn.origin.web_class() {
@@ -60,6 +69,9 @@ fn valid_repo(repo: &str) -> bool {
 }
 
 async fn handle(m: &str, params: &Value) -> Result<Value, RpcError> {
+    if m == method::MUX_GITHUB_READ {
+        return read(params).await;
+    }
     let key = key(params)?;
     let poller = pr_poller::machine();
     let started = tokio::time::Instant::now();
@@ -84,6 +96,34 @@ async fn handle(m: &str, params: &Value) -> Result<Value, RpcError> {
     } else {
         (poller.status(&key, pr_poller::FRESH).await.map_err(|r| refusal(&r))?, None)
     };
+    let mut info = poller_info(poller, &answer);
+    if let Some(obj) = info.as_object_mut() {
+        if let Some(timed_out) = timed_out {
+            obj.insert("timedOut".to_owned(), json!(timed_out));
+            obj.insert("waitedSecs".to_owned(), json!(started.elapsed().as_secs()));
+        }
+    }
+    Ok(json!({"pr": answer.pr, "poller": info}))
+}
+
+/// `_acpmux/github/read {path, freshSecs?}`.
+async fn read(params: &Value) -> Result<Value, RpcError> {
+    let path = str_param(params, "path")
+        .ok_or_else(|| RpcError::invalid_params("path must be repos/OWNER/REPO/..."))?;
+    let path = pr_poller::read_path(path).map_err(RpcError::invalid_params)?;
+    let fresh =
+        params.get("freshSecs").and_then(Value::as_u64).map_or(READ_FRESH, Duration::from_secs);
+    let poller = pr_poller::machine();
+    let answer = poller.get(&path, fresh).await.map_err(|r| refusal(&r))?;
+    let info = poller_info(poller, &answer);
+    Ok(json!({"data": answer.pr, "poller": info}))
+}
+
+/// `{source, ageSecs, note?, budget, counters}` for an answer.
+fn poller_info<F: pr_poller::Fetch>(
+    poller: &pr_poller::Poller<F>,
+    answer: &pr_poller::Answer,
+) -> Value {
     let c = poller.counters();
     let mut info = json!({
         "source": answer.source.as_str(),
@@ -94,16 +134,10 @@ async fn handle(m: &str, params: &Value) -> Result<Value, RpcError> {
             "refreshes": c.refreshes, "cacheHits": c.cache_hits,
         },
     });
-    if let Some(obj) = info.as_object_mut() {
-        if let Some(note) = answer.note {
-            obj.insert("note".to_owned(), json!(note));
-        }
-        if let Some(timed_out) = timed_out {
-            obj.insert("timedOut".to_owned(), json!(timed_out));
-            obj.insert("waitedSecs".to_owned(), json!(started.elapsed().as_secs()));
-        }
+    if let (Some(obj), Some(note)) = (info.as_object_mut(), &answer.note) {
+        obj.insert("note".to_owned(), json!(note));
     }
-    Ok(json!({"pr": answer.pr, "poller": info}))
+    info
 }
 
 fn refusal(r: &pr_poller::Refusal) -> RpcError {

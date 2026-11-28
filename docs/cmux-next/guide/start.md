@@ -6,6 +6,18 @@ This page takes you from nothing to an agent that works for you on a cmux Cloud 
 
 > cmux-next is in preview. The app needs a Mac today. A Cloud machine costs money while it runs and stops costing when you pause or delete it; Plans and credits says how billing works.
 
+## Choose your way in
+
+- New to cmux or agents: use In the app. Home and Chief explain each step and show the one card you need when something is missing.
+- Comfortable in a terminal: use From the CLI. The commands are short, repeatable, and print a session_id you can use from another terminal.
+- Have an agent working for you already: use Point an agent at this page. The Markdown copy gives it the same sequence without requiring a person to translate the UI.
+- Starting away from your desk: set up the Mac first, then use From your phone. Pairing is the only phone setup; the working check is a message sent from the iPhone and answered in the same chat.
+- Building a team or an integration: start with Cloud machines, Machines, and MCP. They explain machine state, repeatable repository setup, and the protocol surfaces behind the app.
+
+## Know when you are ready
+
+You are set up when the same Cloud chat has a session_id, its first reply, and a second reply after you send more work. Save that session_id; it is the handle you use to return from the CLI, Chief, or your phone.
+
 ## Point an agent at this page
 
 The shortest way in. Paste this one line into Claude Code, Codex or any coding agent on your Mac, opened on the folder you want to work on. The link is this page as plain Markdown, in the cmux repository, so any agent can read it without signing in. The agent reads it and does the rest. It stops only for what you must do yourself: the browser sign-ins and the card that allows a paid machine.
@@ -66,7 +78,7 @@ cmux vm pause NAME
 Open Home and paste this to Chief, with HARNESS changed to claude or codex. Chief runs each step, shows you the reply, and asks before anything that costs money.
 
 ```text
-Start me a chat on cmux Cloud and show me it works: run `cmux whoami`; if I am signed out, run `cmux login` and wait while I finish it in the browser. Then run `cmux chat --on vm --harness HARNESS --prompt 'Say hello in one sentence.' --wait --json` (HARNESS is claude or codex) and show me its reply, then `cmux chat send SESSION_ID 'Say it once more, shorter.' --wait` with the answer's session_id. If a start is refused for a model connection, run `cmux cloud connections`: when none of them serves Cloud, open `cmux://settings/cloud/claude` (Settings > Cloud; `/cloud/chatgpt` or `/cloud/api-key` for those), or connect from here with `cmux cloud connect claude` (I open its link and paste the code back) or `cmux cloud connect chatgpt` (I open its link in a browser on this Mac); not `cmux accounts`, which is CodeRouter. Then start again. If it is refused for a Cloud plan or GitHub, tell me the one card or Settings page that fixes it and run it again once I have. Tell me how long each step took, and that `cmux vm pause NAME` or `cmux vm rm NAME --yes` stops the machine.
+Start me a chat on cmux Cloud and show me it works: run `cmux whoami`; if I am signed out, run `cmux login` and wait while I finish it in the browser. Then run `cmux chat --on vm --harness HARNESS --prompt 'Say hello in one sentence.' --wait --json` (HARNESS is claude or codex) and show me its reply, then `cmux chat send SESSION_ID 'Say it once more, shorter.' --wait` with the answer's session_id. If a start is refused for a model connection, run `cmux cloud connections`: when none of them serves Cloud, open `cmux://settings/cloud/claude` (Settings > Cloud; `/cloud/chatgpt` or `/cloud/api-key` for those), or use `cmux cloud connect chatgpt` (I open its link in a browser on this Mac); not `cmux accounts`, which is CodeRouter. Then start again. If it is refused for a Cloud plan or GitHub, tell me the one card or Settings page that fixes it and run it again once I have. Tell me how long each step took, and that `cmux vm pause NAME` or `cmux vm rm NAME --yes` stops the machine.
 ```
 
 ## From your phone
@@ -83,9 +95,13 @@ The phone is working when the message you sent from it gets an answer in that ch
 
 - Move a chat you already have to Cloud with cmux cloud move, and bring it back with cmux cloud bring-back.
 - Run cmux setup list for every setup task: trust a folder, add another machine, connect GitHub, turn on Computer Use.
-- Stuck? Run cmux cloud diagnostics and read what it names.
+- Stuck or slow? Run cmux cloud diagnostics, then cmux acp machine status. Read the named machine and next action before retrying.
+- Want to see a running service? Open its port in a browser with cmux cloud open-browser, or use the phone for the chat while the Mac keeps the connection.
 
 - [Getting started with cmux-next](getting-started.md)
 - [Cloud machines](cloud.md)
 - [Home and Chief](home-and-chief.md)
 - [Plans and credits](plans.md)
+- [Machines](machines.md)
+- [MCP server](mcp.md)
+- [Network requirements for the iPhone app](network-requirements.md)

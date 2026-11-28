@@ -1,7 +1,7 @@
 // Settings > Appearance > Looks: the card reads the CLI's answers (a verb's JSON, the consent card an
 // install without --yes answers, a refusal in the CLI's own words), says the consent card in the
 // page's words, pins the commit the card showed, and sends `order` every installed id top first.
-// On the page: Appearance leads with the gallery; Install shows the consent card and installs only
+// On the page: Appearance shows the gallery after the theme studio; Install shows the consent card and installs only
 // after it, pinned; an installed look turns off, moves and uninstalls (after asking).
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { installDom } from "./testDom";
@@ -82,7 +82,7 @@ async function open(mock?: MockOptions) {
   return page;
 }
 
-test("Appearance leads with the gallery; Install shows the consent card, then installs pinned", async () => {
+test("Appearance shows the gallery; Install shows the consent card, then installs pinned", async () => {
   await open();
   expect(card()).not.toBeNull();
   // Each tile asked for its own golden sample (no IntersectionObserver here: every tile is near).

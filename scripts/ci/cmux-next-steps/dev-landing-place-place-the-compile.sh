@@ -6,6 +6,6 @@
 set -uo pipefail
 # Why: 2026-11-24-dev-landing-place-1.md
 git init -q --bare "$GAP_REPO"
-timeout 60 git -C "$GAP_REPO" fetch -q --no-tags --filter=tree:0 --depth=300 \
+bash scripts/ci/timeout.sh 60 git -C "$GAP_REPO" fetch -q --no-tags --filter=tree:0 --depth=300 \
   "$GAP_REMOTE" "$SHA" || echo "::warning::no history for the cache distances"
 python3 -I scripts/ci/dev_landing_place.py >> "$GITHUB_OUTPUT"

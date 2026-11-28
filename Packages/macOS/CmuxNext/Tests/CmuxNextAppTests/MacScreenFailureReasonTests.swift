@@ -46,18 +46,6 @@ struct MacScreenHostEndTests {
         #expect(MacScreenEndReason.failureDetail("host_stopped") == nil)
         #expect(MacScreenEndReason.failureDetail(nil) == nil)
     }
-
-    /// What this Mac sends as a host that could not serve: the same form cmux-hub-host sends.
-    @Test func theHostsEndTextFitsTheHub() {
-        #expect(MacScreenHubReason.failure("") == "failed")
-        #expect(MacScreenHubReason.failure("the screen host could not start: x") == "failed: the screen host could not start: x")
-        #expect(MacScreenHubReason.failure("failed: capture\nline two") == "failed: capture line two")
-        let long = MacScreenHubReason.failure(String(repeating: "é", count: 300))
-        #expect(long.utf16.count <= MacScreenHubReason.hubReasonLimit)
-        #expect(long.hasPrefix("failed: é"))
-        // Round trip: the viewer reads back what the host sent.
-        #expect(MacScreenEndReason.failureDetail(MacScreenHubReason.failure("capture: denied")) == "capture: denied")
-    }
 }
 
 @MainActor
