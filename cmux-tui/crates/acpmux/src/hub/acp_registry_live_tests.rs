@@ -4,7 +4,8 @@
 //! agent from the ACP Registry, started the way cmux starts it: `registry::parse` checks the entry, `Agent::launch`
 //! picks how it starts here (on PATH, `npx`, `uvx`), `ChildAgent::spawn` runs it, and [`negotiate`] is the
 //! `initialize` a session sends. No account or model is used: a session that needs a login passes when the agent
-//! says so the way the protocol asks (an error to `session/new` after naming `authMethods`).
+//! says so the way the protocol asks: an error to `session/new` after naming `authMethods`, or ACP's `auth_required`
+//! error (-32000) whose message names the login, which cmux shows as is.
 //!
 //! It is ignored by default and needs two variables, so `cargo test` stays offline:
 //! - `ACP_CONFORMANCE_REGISTRY`: a registry.json (the CDN copy a run fetched);
@@ -15,10 +16,11 @@
 //! - `launch`: cmux finds a way to start the agent here and the process runs;
 //! - `initialize_v1`: the v1 `initialize` cmux sends gets an answer at protocolVersion 1;
 //! - `v2_offer`: with the v2 offer on, [`negotiate`] agrees on 1 or 2 (directly, or by its v1 fallback);
-//! - `session_new`: `session/new` answers a `sessionId`, or asks for a login it named in `authMethods`.
+//! - `session_new`: `session/new` answers a `sessionId`, or asks for a login (named in `authMethods`, or in an
+//!   `auth_required` error's own words).
 
 use super::negotiate;
-use crate::agent::{ChildAgent, Tap};
+use crate::agent::{ChildAgent, Inbound, Tap};
 use crate::config::HarnessProfile;
 use crate::rpc::{RpcError, method};
 use serde_json::{Value, json};
@@ -48,12 +50,47 @@ fn hello() -> Value {
            "clientInfo": {"name": "acpmux", "version": env!("CARGO_PKG_VERSION")}})
 }
 
-async fn start(profile: &HarnessProfile, cwd: &std::path::Path) -> anyhow::Result<Arc<ChildAgent>> {
+/// The agent's last stderr lines, so an agent that exits says why in its case's detail.
+type Stderr = Arc<std::sync::Mutex<std::collections::VecDeque<String>>>;
+
+async fn start(
+    profile: &HarnessProfile,
+    cwd: &std::path::Path,
+) -> anyhow::Result<(Arc<ChildAgent>, Stderr)> {
     let (tx, mut rx) = tokio::sync::mpsc::channel(64);
-    // Drain what the agent sends so its writer never blocks.
-    tokio::spawn(async move { while rx.recv().await.is_some() {} });
+    let stderr: Stderr = Arc::default();
+    let tail = stderr.clone();
+    // Drain what the agent sends so its writer never blocks, keeping its last stderr lines.
+    tokio::spawn(async move {
+        while let Some(msg) = rx.recv().await {
+            if let Inbound::Stderr(line, ..) = msg
+                && !line.trim().is_empty()
+            {
+                let mut tail = tail.lock().unwrap();
+                if tail.len() == 3 {
+                    tail.pop_front();
+                }
+                tail.push_back(line);
+            }
+        }
+    });
     let tap: Tap = Arc::new(|_, _, _| true);
-    ChildAgent::spawn("acp-conformance", profile, cwd, tx, tap).await
+    Ok((ChildAgent::spawn("acp-conformance", profile, cwd, tx, tap).await?, stderr))
+}
+
+/// `detail`, with the agent's last stderr lines when it closed.
+fn said(detail: String, stderr: &Stderr) -> String {
+    let tail = stderr.lock().unwrap();
+    if !detail.contains(crate::agent::AGENT_CLOSED) || tail.is_empty() {
+        return detail;
+    }
+    format!("{detail}; its stderr: {}", tail.iter().cloned().collect::<Vec<_>>().join(" | "))
+}
+
+/// ACP's `auth_required` error (-32000) in the agent's own words: cmux shows that message, which
+/// names the login to run (`auggie login`), when the agent lists no `authMethods` to offer.
+fn auth_required(e: &str) -> bool {
+    e.starts_with("error -32000: ") && e.to_ascii_lowercase().contains("auth")
 }
 
 async fn within<T>(
@@ -123,7 +160,7 @@ async fn a_registry_agent_passes_the_conformance_cases() {
             None
         }
     };
-    if let Some(child) = &child {
+    if let Some((child, stderr)) = &child {
         let init = within(negotiate(hello(), false, |p| {
             let c = child.clone();
             async move { c.request(method::INITIALIZE, p).await }
@@ -138,7 +175,7 @@ async fn a_registry_agent_passes_the_conformance_cases() {
                 false,
                 format!("answered protocolVersion {:?}", n.version),
             ),
-            Err(e) => report.case("initialize_v1", false, e),
+            Err(e) => report.case("initialize_v1", false, said(e.clone(), stderr)),
         }
         match init {
             Ok(n) => {
@@ -159,9 +196,16 @@ async fn a_registry_agent_passes_the_conformance_cases() {
                     Err(e) if auth => {
                         report.case("session_new", true, format!("asks for a login it named ({e})"))
                     }
-                    Err(e) => {
-                        report.case("session_new", false, format!("{e}; no authMethods named"))
-                    }
+                    Err(e) if auth_required(&e) => report.case(
+                        "session_new",
+                        true,
+                        format!("asks for a login in its own words ({e})"),
+                    ),
+                    Err(e) => report.case(
+                        "session_new",
+                        false,
+                        said(format!("{e}; no authMethods named"), stderr),
+                    ),
                 }
             }
             Err(_) => report.case("session_new", false, "initialize failed first"),
@@ -174,7 +218,7 @@ async fn a_registry_agent_passes_the_conformance_cases() {
 
     // A second process for the v2 offer: an agent may close on a version it does not speak.
     match start(&profile, &cwd).await {
-        Ok(child) => {
+        Ok((child, stderr)) => {
             let c = child.clone();
             let agreed = within(negotiate(hello(), true, move |p| {
                 let c = c.clone();
@@ -196,7 +240,7 @@ async fn a_registry_agent_passes_the_conformance_cases() {
                     false,
                     format!("agreed protocolVersion {:?}", n.version),
                 ),
-                Err(e) => report.case("v2_offer", false, e),
+                Err(e) => report.case("v2_offer", false, said(e, &stderr)),
             }
             child.terminate(Duration::from_secs(5)).await;
         }
