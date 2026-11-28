@@ -348,6 +348,206 @@ static RULES: LazyLock<Rules> = LazyLock::new(|| {
     Rules { rules, global, ids, keyword_search, keyword_rules }
 });
 
+/// A credential label in words, any case, a space, `_` or `-` inside it ("Client secret", "API
+/// key", "access token"): the shapes leo-workspace `tools/secret_scrub.py` (`LABEL`) reads, so a
+/// value a person gives after one in prose is masked here as it is redacted there (card
+/// d-08bd4815d1: a "Client secret" label alone on its line with the value below it, and an
+/// "API key: ..." line, reached the chat index in clear; the assignment rule reads only
+/// `client_secret=` / `api_key:` spellings).
+const LABEL: &str = r"(?:client|app|consumer|api|signing|webhook|shared)[ _-]?secret|secret(?:[ _-]?key)?|api[ _-]?key|access[ _-]?key|private[ _-]?key|(?:access|refresh|auth|bearer|api|personal[ _-]access)[ _-]?token|token|password|passwd|passphrase|bearer";
+/// The label alone on its line (a `:` or `=` after it allowed), up to two blank lines, then one
+/// word alone on its line: the word.
+static LABEL_LINE: LazyLock<Regex> = LazyLock::new(|| {
+    compile(&format!(
+        r"(?im)^[ \t]*(?:[-*>#]+[ \t]*)?(?:{LABEL})[ \t]*[:=]?[ \t]*\n(?:[ \t]*\n){{0,2}}[ \t]*([^\s]{{6,512}})[ \t]*$"
+    ))
+    .expect("constant pattern") // crash-allow: constant pattern
+});
+/// The label, then `:` or `=` (or "is"/"was"), then the value, maybe in brackets or quotes.
+static LABEL_INLINE: LazyLock<Regex> = LazyLock::new(|| {
+    compile(&format!(
+        r#"(?i)(?:^|[^\w-])(?:{LABEL})\b["']?[ \t]*(?:[:=][ \t]*|[ \t]+(?:is|was)[ \t]+)[(\[<"'`]?([^\s)\]>"'`]{{8,512}})"#
+    ))
+    .expect("constant pattern") // crash-allow: constant pattern
+});
+/// The label as a word, for the high-entropy runs near it.
+static LABEL_WORD: LazyLock<Regex> = LazyLock::new(|| {
+    compile(&format!(r"(?i)(?:^|[^\w-])((?:{LABEL}))(?:[^\w-]|$)")).expect("constant pattern") // crash-allow: constant pattern
+});
+static LABEL_RUN: LazyLock<Regex> =
+    LazyLock::new(|| compile(r"[A-Za-z0-9_+/=-]{24,}").expect("constant pattern")); // crash-allow: constant pattern
+/// A code expression after a label (`secret = compute_secret(input)`, `token = self.config.token`),
+/// not its value. Port of `secret_scrub.CODE_VALUE`, matched whole; a token prefix is never code.
+static CODE_VALUE: LazyLock<Regex> = LazyLock::new(|| {
+    compile(concat!(
+        r"^(?:(?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*[(\[].*",
+        r"|(?:[A-Za-z_]+\.)+[A-Za-z_]+[)\],;:]*",
+        r"|[a-z]+(?:_[a-z]+)+[)\],;:]*",
+        r#"|f["'](?:\{[^{}]*\})+(?:["'].*)?)$"#,
+    ))
+    .expect("constant pattern") // crash-allow: constant pattern
+});
+static TOKEN_PREFIX: LazyLock<Regex> = LazyLock::new(|| {
+    compile(r"^(?:gh[pousr]_|github_pat_|sk-|xox[abprs]-|AKIA|eyJ)").expect("constant pattern") // crash-allow: constant pattern
+});
+/// How far from a label, on its line, a high-entropy run is taken as its value.
+const NEAR_LABEL: usize = 40;
+/// Words that follow a label in prose ("the api key is missing"), not its value.
+const NOT_A_VALUE: &[&str] = &[
+    "required",
+    "optional",
+    "missing",
+    "expired",
+    "changed",
+    "invalid",
+    "rotated",
+    "revoked",
+    "redacted",
+    "unchanged",
+    "unknown",
+    "needed",
+    "elsewhere",
+    "attached",
+    "included",
+];
+
+/// A path or ref (`/usr/bin`, `~/x`, `./a`, `a/b/c`, `docs/x.md`, `@scope/pkg`), not a value
+/// with a slash in it.
+fn path_like(word: &str) -> bool {
+    if !word.contains('/') {
+        return false;
+    }
+    if word.starts_with(['/', '~', '.', '@']) || word.matches('/').count() >= 2 {
+        return true;
+    }
+    word.split('/').any(|seg| {
+        seg.rsplit_once('.').is_some_and(|(_, ext)| {
+            (1..=6).contains(&ext.len()) && ext.bytes().all(|b| b.is_ascii_alphabetic())
+        })
+    })
+}
+
+/// A file name or `file:line` (`DevTestPassword.swift:12`), an email, or an env var's name.
+fn names_a_thing(word: &str) -> bool {
+    let file = {
+        let base = word.split(':').next().unwrap_or(word);
+        let rest = &word[base.len()..];
+        base.contains('.')
+            && base
+                .split('.')
+                .skip(1)
+                .all(|e| (1..=6).contains(&e.len()) && e.bytes().all(|b| b.is_ascii_alphabetic()))
+            && base.split('.').next().is_some_and(|n| {
+                !n.is_empty()
+                    && n.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+            })
+            && rest
+                .split(':')
+                .skip(1)
+                .all(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+    };
+    let email = word
+        .split_once('@')
+        .is_some_and(|(u, d)| !u.is_empty() && d.contains('.') && !d.contains('@'));
+    let bare = word.trim_start_matches('$').trim_start_matches('{').trim_end_matches('}');
+    let env = bare.contains('_')
+        && bare.starts_with(|c: char| c.is_ascii_uppercase())
+        && bare.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_');
+    file || email || env
+}
+
+/// Whether `value`, given right after a credential label, is the credential: anything with a
+/// letter and a digit, a URL (a share link), or a long random-looking run. `alone`: it sits on
+/// its own line under the label, where a long run of digits is one too. Port of
+/// `secret_scrub._labelled`.
+fn labelled(value: &str, alone: bool) -> bool {
+    let core = value.trim_end_matches(['.', ',', ';', ':', '!', '?', ')']);
+    if core.is_empty()
+        || NOT_A_VALUE.contains(&core.to_ascii_lowercase().as_str())
+        || is_placeholder(core)
+    {
+        return false;
+    }
+    if core.contains("://") {
+        return true;
+    }
+    if path_like(core) || names_a_thing(core) {
+        return false;
+    }
+    let b = core.as_bytes();
+    if b.iter().any(u8::is_ascii_digit) && b.iter().any(u8::is_ascii_alphabetic) {
+        return true;
+    }
+    (core.len() >= 16 && entropy(b) >= 3.0)
+        || (alone && core.len() >= 6 && b.iter().all(u8::is_ascii_digit))
+}
+
+/// Whether `range` sits inside a `[...]` on one line, the shape `mask` writes.
+fn in_mask(text: &[u8], range: &Range<usize>) -> bool {
+    let open = text[..range.start].iter().rposition(|&b| matches!(b, b'[' | b']' | b'\n'));
+    let close = text[range.end..].iter().position(|&b| matches!(b, b'[' | b']' | b'\n'));
+    open.is_some_and(|i| text[i] == b'[') && close.is_some_and(|i| text[range.end + i] == b']')
+}
+
+/// A value after a credential label in words, and a high-entropy run near one on its line.
+fn labelled_values(text: &str) -> Vec<Range<usize>> {
+    let bytes = text.as_bytes();
+    let mut out = Vec::new();
+    for (re, alone) in [(&*LABEL_LINE, true), (&*LABEL_INLINE, false)] {
+        for caps in re.captures_iter(bytes) {
+            let Some(m) = caps.get(1) else { continue };
+            let Ok(value) = std::str::from_utf8(m.as_bytes()) else { continue };
+            // An unquoted code expression is not a value; a quoted one is a literal.
+            let quoted = m.start().checked_sub(1).is_some_and(|i| b"\"'`".contains(&bytes[i]));
+            let code = !quoted
+                && !TOKEN_PREFIX.is_match(m.as_bytes())
+                && CODE_VALUE.is_match(m.as_bytes());
+            if labelled(value, alone) && !code {
+                // Trailing punctuation stays: it is the sentence's, not the value's.
+                let core = value.trim_end_matches(['.', ',', ';', ':', '!', '?', ')']);
+                out.push(m.start()..m.start() + core.len());
+            }
+        }
+    }
+    let spans: Vec<Range<usize>> = LABEL_WORD
+        .captures_iter(bytes)
+        .filter_map(|c| c.get(1))
+        // A mask's own words ("[AWS access key]") are not a label: masking stays idempotent.
+        .filter(|m| !in_mask(bytes, &m.range()))
+        .map(|m| {
+            let line = line_of(bytes, &m.range());
+            m.start().saturating_sub(NEAR_LABEL).max(line.start)
+                ..(m.end() + NEAR_LABEL).min(line.end)
+        })
+        .collect();
+    if spans.is_empty() {
+        return out;
+    }
+    for m in LABEL_RUN.find_iter(bytes) {
+        let w = m.as_bytes();
+        let near = spans.iter().any(|s| {
+            (s.start <= m.start() && m.start() <= s.end) || (s.start <= m.end() && m.end() <= s.end)
+        });
+        let edge = |b: Option<&u8>| {
+            b.is_some_and(|b| b.is_ascii_alphanumeric() || b"_/.:@+=-".contains(b))
+        };
+        if !near
+            || edge(m.start().checked_sub(1).and_then(|i| bytes.get(i)))
+            || edge(bytes.get(m.end()))
+        {
+            continue;
+        }
+        let Ok(word) = std::str::from_utf8(w) else { continue };
+        let mixed = w.iter().any(u8::is_ascii_digit) && w.iter().any(u8::is_ascii_alphabetic);
+        // A name built of short parts (CMUX_E2E_ANTHROPIC_API_KEY) is not a credential.
+        let part = word.split(['-', '_', '/', '.']).map(str::len).max().unwrap_or(0);
+        if mixed && !path_like(word) && entropy(w) >= 3.5 && part >= 16 {
+            out.push(m.range());
+        }
+    }
+    out
+}
+
 static ENTROPY_CANDIDATE: LazyLock<Regex> =
     LazyLock::new(|| compile(r"[A-Za-z0-9+_-]{32,}=*").expect("constant pattern")); // crash-allow: constant pattern
 static DATA_URI: LazyLock<Regex> = LazyLock::new(|| {
@@ -382,6 +582,7 @@ fn looks_random(s: &[u8]) -> bool {
 fn is_placeholder(value: &str) -> bool {
     let v = value.trim_matches(['"', '\'']);
     v.starts_with('<')
+        || v.starts_with("&lt;")
         || v.ends_with(':')
         || v.chars().all(|c| c == '*' || c == 'x' || c == 'X')
         || PLACEHOLDER.is_match(v.as_bytes())
@@ -536,6 +737,15 @@ pub fn find(text: &str) -> Vec<Found> {
             all.push((
                 rules.rules.len(),
                 Found { rule: "cmux-high-entropy", label: "secret", range: m.range() },
+            ));
+        }
+    }
+    for range in labelled_values(text) {
+        let range = on_chars(text, range);
+        if !inside_data(&range) {
+            all.push((
+                rules.rules.len() + 1,
+                Found { rule: "cmux-labelled", label: "secret", range },
             ));
         }
     }

@@ -705,3 +705,42 @@ fn an_older_builds_json_copy_is_read_then_written_anew_and_removed() {
     assert!(again.search(&needle("legacy answer")).contains_key("codex:a"));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A credential pasted into a chat never reaches `chat-index/text-v2.bin` in clear (card
+/// d-08bd4815d1, 2026-11-28: two of Leo's messages held an OAuth client secret below a
+/// "Client secret" label and an "API key: ..." line, and this index kept both). Every value is
+/// fake, built at run time; the shapes are those of leo-workspace `tools/test_secret_scrub.py`'s
+/// `Labelled` corpus, which `secret_scan_tests.rs` asserts too. Both entry points are read: a
+/// chat read whole (`Doc::of_turns`) and one followed by its newest turns (`Doc::edit`).
+#[test]
+fn a_secret_said_in_a_chat_is_not_saved_in_clear() {
+    let hex: String = "3f9a07c2e1b84d5f609e1a2b7cd3e4f5a6b7c8d9e0".chars().take(40).collect();
+    let b64 = format!("Qm9ndXMt{}", "ZmFrZS1zZWNyZXQtdmFsdWUx");
+    let pat = format!("ghp_{}", "aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS4uIo");
+    let said = [
+        format!("Very well\n\nClient secret\n\n{hex}\nTo be honest those users are ours"),
+        format!("API key: {b64}"),
+        format!("use {pat} for the bot"),
+    ];
+    let text = index();
+    // One pass over both chats: the first pass saves at once.
+    text.update(&[chat("a", 1), chat("b", 2)], &|chat| {
+        Some(if chat.session_id == "a" {
+            vec![turn(&said[0], "noted zephyrine")]
+        } else {
+            vec![turn("start", "ok"), turn(&said[1], &said[2])]
+        })
+    });
+    let mut doc = Doc::new(Stamp { updated_ms: 0, messages: None }, &[turn("start", "ok")]);
+    doc.edit(1, &[turn(&said[1], &said[2])], 0);
+    let saved = std::fs::read(&text.path).expect("the index was saved");
+    let held = |s: &str| saved.windows(s.len()).any(|w| w == s.as_bytes());
+    let doc_text = doc.text.to_string();
+    for secret in [&hex, &b64, &pat] {
+        assert!(!held(secret), "text-v2.bin holds a credential in clear ({} bytes)", secret.len());
+        assert!(!doc_text.contains(secret.as_str()), "a followed chat's text holds a credential");
+    }
+    assert!(held("zephyrine") && held("Client secret"), "the words around it are kept");
+    assert!(text.search(&needle("zephyrine")).contains_key("codex:a"), "the chat is still found");
+    let _ = std::fs::remove_file(&text.path);
+}
