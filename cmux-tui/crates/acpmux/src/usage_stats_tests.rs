@@ -48,6 +48,7 @@ fn claude(home: &Path) -> (Source, PathBuf) {
         created_at: ms("2026-10-30T00:00:00Z"),
         argv: Some(vec!["/usr/local/bin/claude".into(), "--autocompact".into(), "200k".into()]),
         env,
+        unprompted: false,
     };
     (source, home.join("projects/-work-repo-x").join(format!("{SID}.jsonl")))
 }
@@ -219,6 +220,7 @@ fn a_codex_rollout_is_found_by_its_day_and_counts_each_token_report_once() {
             "model_auto_compact_token_limit=150000".into(),
         ]),
         env,
+        unprompted: false,
     };
     // Written on the next UTC day: still found next to its creation day.
     let path =
@@ -409,6 +411,7 @@ fn a_record_that_cannot_be_read_is_unknown_not_zero() {
         created_at: now,
         argv: Some(vec!["codex-acp".into()]),
         env,
+        unprompted: false,
     };
     let path = home.path().join(format!("sessions/2026/10/30/rollout-x-{SID}.jsonl"));
     let rate = json!({"timestamp": "2026-10-30T11:00:00Z", "type": "event_msg",
@@ -602,6 +605,7 @@ fn usage_probe() {
         created_at: crate::store::now_ms(),
         argv: None,
         env: BTreeMap::new(),
+        unprompted: false,
     };
     let catalog: crate::catalog::Catalog =
         serde_json::from_str(include_str!("../catalog/models-v1.json")).unwrap();
@@ -837,6 +841,7 @@ fn the_tracker_applies_every_classification() {
             created_at: now,
             argv: Some(vec!["codex-acp".into()]),
             env,
+            unprompted: false,
         };
         (source, home.join(format!("sessions/2026/10/30/rollout-x-{SID}.jsonl")))
     };
@@ -945,6 +950,7 @@ fn an_untimed_repeat_of_a_counted_record_is_not_lost() {
         created_at: now,
         argv: Some(vec!["codex-acp".into()]),
         env,
+        unprompted: false,
     };
     let path = home.path().join(format!("sessions/2026/10/30/rollout-x-{SID}.jsonl"));
     let report = json!({"timestamp": "2026-10-30T11:00:00Z", "type": "event_msg", "payload": {
