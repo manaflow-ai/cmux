@@ -48,6 +48,56 @@ pub(crate) const BUSCTL: &[&str] = &["/usr/bin/busctl", "/bin/busctl"];
 /// How long no move is tried after one failed.
 pub(crate) const RETRY_AFTER: Duration = Duration::from_secs(60);
 
+/// The slice the daemon's own ssh logins (a peer link's ssh, an ssh carry) and the ProxyCommand
+/// hops they run join, each in its own `systemd-run --scope` ([`low_weight`]). The daemon's unit
+/// has `CPUWeight=1000 IOWeight=1000` (`cli/hosts.rs`, "the daemon outranks its work"), and every
+/// child stays in the unit's cgroup: on a shared Linux host (2026-11-28) about 300 ssh logins and
+/// hops ran there at the daemon's weight, ahead of every agent. Here they weigh
+/// [`HELPER_WEIGHT`], the default every agent host's scope has, and the daemon keeps its own.
+pub(crate) const HELPER_SLICE: &str = "acpmuxhelpers.slice";
+
+/// The CPU and IO weight of [`HELPER_SLICE`]'s scopes: systemd's default, an agent host's.
+pub(crate) const HELPER_WEIGHT: u32 = 100;
+
+/// Where `systemd-run` is taken from: system directories only, as [`BUSCTL`].
+pub(crate) const SYSTEMD_RUN: &[&str] = &["/usr/bin/systemd-run", "/bin/systemd-run"];
+
+/// The words before `program` that run it in its own low-weight scope of [`HELPER_SLICE`]:
+/// `systemd-run --scope` registers its own pid and then execs `program`, so the pid, process
+/// group, stdio and environment are `program`'s own, and every child it starts (a ProxyCommand
+/// hop) is in the scope from its first instruction.
+pub(crate) fn helper_argv(systemd_run: &str) -> Vec<OsString> {
+    let weight = |key: &str| OsString::from(format!("{key}={HELPER_WEIGHT}"));
+    vec![
+        systemd_run.into(),
+        "--user".into(),
+        "--scope".into(),
+        "--quiet".into(),
+        "--collect".into(),
+        format!("--slice={HELPER_SLICE}").into(),
+        "-p".into(),
+        weight("CPUWeight"),
+        "-p".into(),
+        weight("IOWeight"),
+        "--".into(),
+    ]
+}
+
+/// The program and leading arguments that run `program` (the daemon's ssh) in its own
+/// low-weight scope ([`HELPER_SLICE`]), where agent hosts move into scopes ([`moves`]) and no
+/// move failed within [`RETRY_AFTER`]; elsewhere (a Mac, a terminal, a test, the user manager's
+/// bus not answering) `program` itself and none. `systemd-run`'s own refusal starts nothing and
+/// says "Failed to start transient scope unit" (`ssh_carry::outcome` reads it as not taken).
+pub(crate) fn low_weight(program: &std::ffi::OsStr) -> (OsString, Vec<OsString>) {
+    #[cfg(all(target_os = "linux", not(test)))]
+    if let Some(mut argv) = linux::helper_prefix() {
+        let first = argv.remove(0);
+        argv.push(program.to_owned());
+        return (first, argv);
+    }
+    (program.to_owned(), Vec::new())
+}
+
 /// The scope unit name of the host with `pid`. `tag` is random per move: a
 /// stale scope of an earlier process with the same pid (a harness that
 /// outlived its host keeps it active) never makes the move fail.
@@ -227,6 +277,16 @@ mod linux {
 
     fn enabled() -> bool {
         daemon_cgroup().is_some() && !backing_off(*FAILED_AT.lock_or_recover(), Instant::now())
+    }
+
+    /// [`helper_argv`] with this machine's `systemd-run`, when the daemon's spawns may use it.
+    #[cfg_attr(test, allow(dead_code))]
+    pub(super) fn helper_prefix() -> Option<Vec<OsString>> {
+        if !enabled() || std::env::var_os("XDG_RUNTIME_DIR").is_none() {
+            return None;
+        }
+        let run = SYSTEMD_RUN.iter().find(|p| std::path::Path::new(p).is_file())?;
+        Some(helper_argv(run))
     }
 
     fn tag() -> Result<String, String> {

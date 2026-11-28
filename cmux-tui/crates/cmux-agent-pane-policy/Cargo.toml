@@ -16,6 +16,8 @@ workspace = true
 cmux-unix-socket = { path = "../cmux-unix-socket" }
 serde.workspace = true
 serde_json.workspace = true
+regex.workspace = true
 # The digest a gesture ticket binds a question's answers by (src/canonical.rs).
 sha2.workspace = true
 unicode-normalization.workspace = true
+unicode-segmentation.workspace = true

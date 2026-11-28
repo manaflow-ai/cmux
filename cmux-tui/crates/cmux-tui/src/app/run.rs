@@ -409,6 +409,7 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
         machine_deleted_rail_index: None,
         machine_provider_reconnect_attempts: 0,
         machine_provider_reconnect_retry_at: None,
+        machine_recovery: None,
         daemon_reconnect: DaemonReconnect::new(session_reconnector),
         pending_machine_replacement: None,
         machine_update_pump: None,

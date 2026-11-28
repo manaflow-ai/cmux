@@ -32,6 +32,36 @@ What CI runs on a PR into `feat-cmux-next` (checked against the workflows on 202
 - Most Linux jobs on our own branches run on the `cmux-linux` label (cmux#48644); fork PRs use
   `ubuntu-24.04`. A few, such as the kit's `runner` job, still pick from `RUNNER_POOLS`.
 
+## Prove an iOS fix: FlowSuite and `cmux ios verify`
+
+Aziz's iOS testing notes, which used to be private team docs, now live in the repo as runnable checks:
+[FlowSuite/](FlowSuite/README.md) (`flows.json`: each flow that broke before, its tests and the paths that
+can break it), [FlowSuite/CHECKLIST.md](FlowSuite/CHECKLIST.md) (what still needs a person, and why) and
+[FlowSuite/REGRESSIONS-2026-11.md](FlowSuite/REGRESSIONS-2026-11.md) (why each November regression
+shipped). You need no other checkout to use them.
+
+1. **Run it on the pushed head.** `cmux ios verify` (or `--pr N`; `--plan` lists the flows and runs
+   nothing). It merges the moved base in, runs the flows your diff can affect on fleet simulators, diffs
+   every screenshot against the last passing proof merged into the base, and posts the proof that the
+   `cmux/ios-fast` gate reads. Without fleet access, run
+   `python3 -I cmux-next-ios/FlowSuite/select_flows.py --base origin/feat-cmux-next --sim-args` and then
+   one `scripts/ci/cmux-next-ios-sim.sh test only=... ui=... video` per line it prints.
+2. **Look at the screenshots yourself.** A green proof is not "fixed". Open the before and after frames of
+   the screen you changed from `artifacts/ios-sim/evidence.zip` (or the proof comment) and check that they show
+   what the PR claims. Put them in the PR body, cropped to the screen, the before frame from the base.
+   Leo, 2026-11-27, about the Workspaces row highlight and the terminal skeleton: "i think even y'all didnt
+   even look at sceenshots for those". A screen that changes more than the diff threshold fails the proof
+   unless the body has `Visual-change: <screen>: <why>`.
+3. **Every iOS regression fix adds a flow, in the same PR.** Add a test that fails on the broken build
+   (a UI test that saves a frame of the bad state), a `flows.json` entry whose `source` is
+   `regression:N`, and a row in the FlowSuite table. `select_flows.py --check` (in `test_select_flows.py`)
+   fails a row that has no flow, or a flow that names a suite that no longer exists. Each later PR that touches
+   those paths then runs the flow with no extra step.
+4. **Check what the phone runs, not what the source says.** A merge is not in anyone's hand until a
+   TestFlight `cmux INTERNAL` build carries the merge commit
+   ([TESTING-ON-YOUR-IPHONE.md](TESTING-ON-YOUR-IPHONE.md)). Report that build's number when you say a
+   fix is out.
+
 ## Try a PR on the person's phone: cmux Dev
 
 The person's own page for every way onto their phone, cmux INTERNAL and iPhone YOLO included: [TESTING-ON-YOUR-IPHONE.md](TESTING-ON-YOUR-IPHONE.md).

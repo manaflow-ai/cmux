@@ -10,13 +10,15 @@ import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:te
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { noChat, user } from "../src/gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
-import { setLinkPlaces } from "../src/agent-session/acpmux/chips/cmuxLinkPlaces";
-import { deeplinks } from "../src/agent-session/acpmux/composer/deeplinks";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { noChat, user } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
+const { setLinkPlaces } = await importWithDom(() => import("../src/agent-session/acpmux/chips/cmuxLinkPlaces"));
+const { deeplinks } = await importWithDom(() => import("../src/agent-session/acpmux/composer/deeplinks"));
 
 const HEX = "16c92e4354fcaf05540386720d78e251";
 const WORKSPACE = `cmux-nightly://workspace/ws_${HEX}`;
