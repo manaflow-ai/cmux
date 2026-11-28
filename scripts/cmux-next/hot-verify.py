@@ -572,6 +572,9 @@ def plan(repo: Path, source: str, app: str | None = None, base: str | None = Non
         # the app's build, so a look that swaps only the daemon would show the change without them.
         out["build"][HELPERS_REASON] = list(helpers)
     out["needs_build"] = bool(out["build"])
+    # Whether a look builds the head's complete app on the fleet: the client (cmuxterm-hq build-fleet/ci-client.py
+    # hot_verify_swift_look) and the display worker read this field, so the rule lives here once.
+    out["fleet_app"] = can_build_swift_app(out)
     return out
 
 
@@ -2335,27 +2338,42 @@ def bundled_resource(path: str) -> bool:
             and not parts[-1].endswith(RESOURCE_NOT_DATA))
 
 
-def can_build_swift_app(planned: dict) -> bool:
-    """Whether a complete fleet app can cover every build-required layer in the plan.
+# Build reasons the head's complete fleet app answers whatever their paths: the fleet's cmux build
+# (cmuxterm-hq build-fleet/recipes/cmux-build.sh) builds the exact head, its web bundles too, and its app FFI from
+# source whenever the head's FFI sources differ from the pinned release (recipes/app-ffi-source.py), so the app
+# carries the PR's FFI. 2026-11-28, cmux#62151: Swift with a Package.swift edit, on an app FFI the NIGHTLY cannot
+# take (cmux_updater ABI 3->4), was refused a look, so cmux/ui-proof could not pass.
+FLEET_APP_REASONS = {
+    HELPERS_REASON, "web ABI", "Rust the app links (FFI)", "Rust the app has and the change lacks",
+    "Rust the app links (FFI), in the commits the app lacks",
+    "Rust the app links (FFI): the app's release is not the change's",
+}
+# A package manifest builds in the complete app like its sources.
+PACKAGE_MANIFESTS = ("Package.swift", "Package.resolved")
 
-    A fleet artifact is the exact head's complete app, so it also carries web or Rust layers
-    that are live-swappable when they accompany a Swift change, and the data files it bundles from
-    Resources/ (bundled_resource). The bundled helpers ride in it too: the project's build phases compile
-    them from the head's cmux-tui (only the FFI is pinned, app-ffi-pin.json). Other build reasons (FFI,
-    manifests, Info.plist) remain an explicit build-required result.
+
+def can_build_swift_app(planned: dict) -> bool:
+    """Whether a complete fleet app of the head covers every build reason in the plan: the look then shows that app
+    (build_swift_app), not layers swapped into NIGHTLY's copy.
+
+    It carries the head's Swift, package manifests, strings, the data files it bundles from Resources/
+    (bundled_resource), its bundled helpers and daemon from the head's cmux-tui, its web and its own app FFI
+    (FLEET_APP_REASONS). Info.plist, entitlements and scripts under Resources/ change what the app is (cmux#63968) and
+    unrelated history has no NIGHTLY before: those remain an explicit build-required result.
     """
     build = planned.get("build")
     if not (planned.get("needs_build") and isinstance(build, dict) and build
-            and set(build) <= {"Swift", "Swift, resources or manifests", "strings", HELPERS_REASON}):
+            and set(build) <= {"Swift", "Swift, resources or manifests", "strings", *FLEET_APP_REASONS}):
         return False
     # A strings catalog rides in the complete app too (cmux#62345: a Swift change with its Localizable.xcstrings
     # copy planned `strings` beside `Swift` and was refused a build, so it could get no look).
     swift = (lambda path: path.endswith(".swift") and not path.endswith("Package.swift"))
     copy = (lambda path: path.endswith((".xcstrings", ".strings")))
+    manifest = (lambda path: path.rsplit("/", 1)[-1] in PACKAGE_MANIFESTS)
     # A Swift change that also adds or edits a crate a bundled helper uses (cmux#38466: a new cmux-conductor-import
     # crate, so Cargo.lock) planned that reason beside Swift and was refused a build, so it could get no look.
-    return all(paths and all(True if reason == HELPERS_REASON else copy(path) if reason == "strings"
-                             else (swift(path) or bundled_resource(path))
+    return all(paths and all(True if reason in FLEET_APP_REASONS else copy(path) if reason == "strings"
+                             else (swift(path) or bundled_resource(path) or manifest(path))
                              for path in paths)
                for reason, paths in build.items())
 
