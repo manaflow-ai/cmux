@@ -72,9 +72,22 @@ export CARGO_TARGET_DIR="$out_root/cargo"
 export MACOSX_DEPLOYMENT_TARGET=14.0
 export IPHONEOS_DEPLOYMENT_TARGET=17.0
 
+# Each target's SDK comes from the selected Xcode, never an inherited SDKROOT or a Command Line
+# Tools xcode-select (its macOS SDK breaks any iOS dylib link: "building for 'iOS', but linking in
+# dylib ... MacOSX27.2.sdk"). Same rule as cmux-next-ios/rust/scripts/build-xcframework.sh.
+sdk_for() {
+  case "$1" in
+    *-apple-ios-sim) xcrun --sdk iphonesimulator --show-sdk-path ;;
+    *-apple-ios) xcrun --sdk iphoneos --show-sdk-path ;;
+    *) xcrun --sdk macosx --show-sdk-path ;;
+  esac
+}
+
 build() {
   echo "==> cargo build cmux-rd-ffi ($1)" >&2
-  (cd "$crate_dir" && cargo build --locked --release --target "$1")
+  local sdk
+  sdk="$(sdk_for "$1")"
+  (cd "$crate_dir" && SDKROOT="$sdk" cargo build --locked --release --target "$1")
   printf '%s\n' "$CARGO_TARGET_DIR/$1/release/$lib_name"
 }
 
