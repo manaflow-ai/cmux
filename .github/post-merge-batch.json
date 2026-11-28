@@ -105,6 +105,18 @@
       ],
       "jobs": {"sweep": "acpmux simulation sweep"}
     },
+    "chat-size-ladder": {
+      "workflow": "chat-size-ladder.yml",
+      "paths": [
+        "cmux-tui/crates/acpmux/**",
+        "cmux-tui/crates/coord-sim/**",
+        "cmux-tui/Cargo.lock",
+        "scripts/measure/chat-size-sweep.sh",
+        "scripts/measure/chat-size-compare.py",
+        ".github/workflows/chat-size-ladder.yml"
+      ],
+      "jobs": {"ladder": "chat-size ladder, base vs head (advisory)"}
+    },
     "swift-acpmux-protocol": {
       "workflow": "swift-acpmux-protocol.yml",
       "paths": [
@@ -314,9 +326,12 @@
         "cmux-tui/crates/cmux-scope/**",
         "cmux-tui/crates/cmux-share-approval/**",
         "cmux-tui/crates/cmux-tab-snapshots/**",
+        "cmux-tui/crates/cmux-tailnet-join/**",
+        "cmux-tui/crates/cmux-tailnet/**",
         "cmux-tui/crates/cmux-terminal-prediction/**",
         "cmux-tui/crates/cmux-terminal-sizing/**",
         "cmux-tui/crates/cmux-unix-socket/**",
+        "cmux-tui/crates/cmux-vault-e2e/**",
         "cmux-tui/crates/cmux-vnc/**",
         "cmux-tui/crates/cmux-window-rules/**",
         "cmux-tui/vendor/crossterm/**",
