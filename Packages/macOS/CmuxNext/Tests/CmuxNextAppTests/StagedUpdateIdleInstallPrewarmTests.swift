@@ -49,6 +49,14 @@ import Testing
         return driver
     }
 
+    /// Sparkle's order: the update found (the driver accepts it in the background), then downloaded and staged.
+    static func stage(_ driver: UpdateDriver, reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void = { _ in }) {
+        // Sparkle owns this state; the driver reads only the item and the reply.
+        let state = unsafeBitCast(NSNull(), to: SPUUserUpdateState.self)
+        driver.showUpdateFound(with: item, state: state, reply: { _ in })
+        driver.showReady(toInstallAndRelaunch: reply)
+    }
+
     static let item = SUAppcastItem(dictionary: [
         "title": "cmux NEXT 2.0.0",
         "pubDate": "Wed, 25 Nov 2026 12:00:00 +0000",
@@ -72,7 +80,7 @@ import Testing
             quit.prewarmStopped = seen.cancelled.withLock { $0 }
         }
         let driver = Self.driver(host: updater)
-        driver.showReady(toInstallAndRelaunch: { _ in })
+        Self.stage(driver)
         #expect(quit.started, "the idle install did not quit the app: \(updater.log.recent)")
         #expect(quit.prewarmStopped == true, "the app started quitting for the install while the pre-warm still ran")
         #expect(updater.log.recent.contains("launch pre-warm of 200: stopped for the install"), "\(updater.log.recent)")
@@ -86,7 +94,7 @@ import Testing
         defer { open.finish() }
         let driver = Self.driver(host: updater)
         let reply = ChoiceRecord()
-        driver.showReady(toInstallAndRelaunch: { choice in MainActor.assumeIsolated { reply.choice = choice } })
+        Self.stage(driver) { choice in MainActor.assumeIsolated { reply.choice = choice } }
         #expect(reply.choice == .install, "the idle install did not reach Sparkle: \(updater.log.recent)")
         // What Sparkle's installer driver does next, in this order, before it sends the installer to stage 2.
         let sparkle = SPUUpdater(hostBundle: .main, applicationBundle: .main, userDriver: driver, delegate: driver)
