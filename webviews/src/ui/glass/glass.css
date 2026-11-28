@@ -808,7 +808,7 @@
   --surface-group-title-font: var(--weight-emphasis) var(--text-body)/var(--text-body--line-height) var(--font-ui);
   --surface-group-body-font: var(--weight-regular) var(--text-detail)/var(--text-detail--line-height) var(--font-ui);
   --surface-group-enter: var(--cmux-motion-standard) var(--cmux-ease-out);
-  --surface-toast-radius: 9px; /* toasts: a rounded rect, never a capsule, even on one line */
+  --surface-toast-radius: 12px; /* toasts: a rounded rect, never a capsule, even on one line */
   --surface-toast-veil: light-dark(color-mix(in srgb, var(--glass-surface) 55%, transparent), color-mix(in srgb, var(--glass-surface) 42%, transparent));
   --surface-toast-rim-top: light-dark(color-mix(in srgb, var(--ds-material-rim-lit) 85%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 30%, transparent));
   --surface-toast-rim-bottom: light-dark(color-mix(in srgb, var(--ds-material-rim-shade) 10%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 6%, transparent));
