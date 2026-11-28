@@ -268,7 +268,7 @@ impl Rig {
             surface: cmux_mobile_host::surface::SurfaceConfig::new(None, 1),
             // The flag under test: viewport sync (cmux#50638), hostd's own gate.
             viewport_sync: cmux_mobile_host::viewport_sync::enabled()
-                .then(cmux_mobile_host::viewport_sync::SelectorConfig::default),
+                .then(cmux_mobile_host::viewport_sync::SelectorConfig::from_env),
         });
         let signaling = FakeSignaling::start(FakeOptions::default()).await;
         let mac_id = uuid::Uuid::new_v4().to_string();
@@ -572,9 +572,10 @@ fn median(mut v: Vec<f64>) -> f64 {
 async fn mac_scroll_to_phone_paint_legs() {
     let trials: usize = std::env::var("LEGS_TRIALS").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
     let flag = format!(
-        "{}+skip:{}",
+        "{}+skip:{}+dgstart:{}",
         std::env::var(cmux_mobile_link::viewport::ENV).unwrap_or_default(),
-        std::env::var(cmux_mobile_host::viewport_sync::SKIP_SUPERSEDED_ENV).unwrap_or_default()
+        std::env::var(cmux_mobile_host::viewport_sync::SKIP_SUPERSEDED_ENV).unwrap_or_default(),
+        std::env::var(cmux_mobile_host::viewport_sync::DATAGRAM_START_ENV).unwrap_or_default()
     );
     for path_name in env_list("LEGS_PATHS", "direct,relay") {
         let path = if path_name == "relay" { Path::Relay } else { Path::Direct };

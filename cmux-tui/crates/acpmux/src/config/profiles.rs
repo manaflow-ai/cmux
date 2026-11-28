@@ -35,8 +35,8 @@ mod env_refs;
 mod sessions;
 use env_refs::is_reference;
 pub use env_refs::{
-    env_ref_names, file_secret, has_env_refs, has_keychain_refs, keychain_lookup,
-    parse_security_password, resolve_env_refs,
+    env_ref_names, file_secret, file_secret_unwrapped, has_env_refs, has_keychain_refs,
+    keychain_lookup, parse_security_password, resolve_env_refs,
 };
 pub use sessions::{
     FieldSelector, SESSION_BUILTIN_ADAPTERS, SESSION_DATA_ADAPTERS, SESSION_FIELDS, SessionsResume,
@@ -259,6 +259,14 @@ pub struct ProfileMeta {
     pub source: ProfileSource,
     /// The file (or cmux.json) the profile came from.
     pub source_path: String,
+    #[serde(skip)]
+    pub content_revision: Option<String>,
+    #[serde(skip)]
+    pub credential_instance: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cloud_enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub endpoint_preset: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
     /// The `icon` value: an agent mark id, a glyph, an emoji, an SF Symbol
@@ -360,6 +368,8 @@ struct FileModels {
 #[serde(deny_unknown_fields)]
 struct ProfileFile {
     schema: Option<u32>,
+    cloud_enabled: Option<bool>,
+    endpoint_preset: Option<String>,
     /// Required in a file; in cmux.json the object key is the id.
     id: Option<String>,
     name: Option<String>,
@@ -448,8 +458,21 @@ fn load_dir(dir: &Path, source: ProfileSource, out: &mut LoadedProfiles) {
         };
         let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned());
         let parsed = parse_profile_toml(&text, &path, stem.as_deref(), source);
+        let parsed = parsed.map(|(id, profile, mut meta, warnings)| {
+            if source == ProfileSource::UserFile
+                && crate::byo_endpoint::Kind::of_env(&profile.env).is_some()
+            {
+                meta.content_revision = Some(content_revision(&text));
+            }
+            (id, profile, meta, warnings)
+        });
         insert(out, parsed);
     }
+}
+
+pub(crate) fn content_revision(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    format!("{:x}", Sha256::digest(text.as_bytes()))
 }
 
 /// The file's text after the size, type and owner checks: a profile runs a
@@ -625,7 +648,12 @@ pub fn parse_profile_toml(
     let file: ProfileFile = toml::from_str(text).map_err(|e| {
         vec![Diagnostic::error(&shown, stem, e.message().to_string(), toml_fix(&e, text))]
     })?;
-    build(file, path, stem, source, None, source == ProfileSource::Managed)
+    build(file, path, stem, source, None, source == ProfileSource::Managed).map(
+        |(id, profile, mut meta, warnings)| {
+            meta.credential_instance = crate::agent_credentials::stored_instance(text);
+            (id, profile, meta, warnings)
+        },
+    )
 }
 
 /// Parse a folder profile (`<folder>/.cmux/harnesses/<id>.toml`, H4) with the
@@ -913,6 +941,10 @@ fn build(
     let meta = ProfileMeta {
         source,
         source_path: shown,
+        content_revision: None,
+        credential_instance: None,
+        cloud_enabled: file.cloud_enabled,
+        endpoint_preset: file.endpoint_preset,
         display_name: file.name,
         icon,
         loaded_icon,
