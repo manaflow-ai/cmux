@@ -216,3 +216,23 @@ fn rejects_oversized_body() {
         Err(MailboxError::BodyTooLarge)
     ));
 }
+
+/// 2026-11-28: a daemon's mailbox kept every message and rewrote them all on each send.
+#[test]
+fn acknowledged_and_old_messages_leave_so_the_state_stays_bounded() {
+    let b = Mailbox::memory();
+    for n in 0..(MAX_ACKED + 50) {
+        let id = format!("a{n}");
+        b.send(input(&id, "r", "x")).unwrap();
+        b.acknowledge("r", &id).unwrap();
+    }
+    b.send(input("q", "r", "queued")).unwrap();
+    let held = |b: &Mailbox| b.inner.lock().unwrap().state.messages.len();
+    assert_eq!(held(&b), MAX_ACKED + 1);
+    for n in 0..(MAX_KEPT + 10) {
+        b.send(input(&format!("k{n}"), "r", "x")).unwrap();
+    }
+    assert_eq!(held(&b), MAX_KEPT);
+    let inner = b.inner.lock().unwrap();
+    assert_eq!(inner.state.messages.len(), inner.state.deliveries.len());
+}
