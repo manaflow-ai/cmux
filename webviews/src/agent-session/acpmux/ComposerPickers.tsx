@@ -172,7 +172,9 @@ type Props = {
   snapshot: AcpmuxSnapshot;
   onModel(modelId: string): void;
   /** A rejected promise (or a throw) means the agent refused the mode: the access chip goes back to the mode in force. */
-  onMode(modeId: string): void | Promise<unknown>;
+  /** `harness` is the agent the chip names (a New Tab's face when its snapshot names none), the one a
+   * pick before the chat has a session starts. */
+  onMode(modeId: string, harness?: string): void | Promise<unknown>;
   onEffort(configId: string, value: string): void;
   /// How long a combo must hold before it counts as recent.
   settleMs?: number;
@@ -1219,7 +1221,12 @@ export function ComposerPickers({
   // (pendingAccessModes) are the ones the machine starts in.
   const accessModes = cloudAsking ? [] : modes;
   const pendingAccessModes: ModeChoice[] = (() => {
-    if (!(holdsModePick || holdsStartMode) || !startMode || (namedStart && isPlan(namedStart.modeId))) return [];
+    // A New Tab whose snapshot names no harness yet still names one on its chips (the picker's face):
+    // its pick starts that one, so the chip is a live menu there too, never the inert placeholder
+    // (probe local-composer-matrix-nightly gui.lc_mode.mode_not_picked: "no mode menu opened").
+    const facePick = startsChat && !summary?.sessionId && chipHarness !== undefined;
+    if (!(holdsModePick || holdsStartMode || facePick) || !startMode || (namedStart && isPlan(namedStart.modeId)))
+      return [];
     const menu =
       pendingMenu ??
       harnessFamilyMenu(
@@ -1556,7 +1563,7 @@ export function ComposerPickers({
           help={t(PICKER_LABELS.modeHelp)}
           refusedReason={t(PICKER_LABELS.modeRefused)}
           approvesAll={summary?.enforcement?.policy === "approve-all"}
-          onMode={onMode}
+          onMode={(modeId) => onMode(modeId, chipHarness)}
           {...(pendingMenu
             ? { heading: t(pendingMenu.heading ?? PICKER_LABELS.mode), numbered: pendingMenu.numbered }
             : {})}
