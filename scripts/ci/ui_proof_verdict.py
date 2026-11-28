@@ -458,6 +458,26 @@ def look_failed(reason: str, pr: str | int = "N", again: bool = False) -> tuple[
     return "failure", f"{LOOK_FAILED}: {why}; {then}"[:140]
 
 
+def look_failed_unless_declared(body: str | None, reason: str, pr: str | int = "N",
+                                again: bool = False) -> tuple[str, str]:
+    """A look that could not run, unless the body says `Visual: none (WHY)`: that head needs no look, so the
+    gate's own success stands. cmux#39287 declared none, yet a look queued before the line sat 3 h with no fleet
+    Mac and its failure turned the gate red and stopped the land (2026-11-28)."""
+    if DECLARED_NONE.search(body or ""):
+        return verdict("web", body or "", {}, [], pr)
+    return look_failed(reason, pr, again)
+
+
+def pr_body(repo: str, pr: str | int, tokens: list[str]) -> str | None:
+    """The PR's body over the first token that reads it; None when none does (the failure then posts as before)."""
+    for token in tokens:
+        try:
+            return (api(f"repos/{repo}/pulls/{pr}", token) or {}).get("body") or ""
+        except Exception:  # noqa: BLE001 - the next token
+            continue
+    return None
+
+
 def look_reason(env) -> str:
     """Why a result run made no record, from the publish job's step outputs (env names as in the workflow)."""
     reason = " ".join(env.get("REASON", "").split())
@@ -636,6 +656,31 @@ def gate_now(repo: str, pr: str, sha: str, token: str, bots: list[str]) -> tuple
     return state, desc
 
 
+POST_REFUSED = "record built, post refused"
+
+
+def post_record(repo: str, pr: int, body: str, tokens: list[str]) -> tuple[bool, str]:
+    """Comment BODY on PR with each token in turn: (posted, the last refusal's own words). The gate trusts only a
+    record from a repository writer or a listed bot App (proof_record.DEFAULT_BOTS), so the tokens are those Apps'.
+    2026-11-28, cmux#62400: the CI pool's one token (pull_requests: read) was refused ("Resource not accessible by
+    integration") with nothing after it, the step's continue-on-error read it as success, and cmux/ui-proof sat
+    pending on a look that had run."""
+    why = "no token"
+    for token in tokens:
+        try:
+            api(f"repos/{repo}/issues/{pr}/comments", token, "POST", {"body": body})
+            return True, ""
+        except Exception as e:  # noqa: BLE001 - the next token
+            why = f"{type(e).__name__}: {e}"
+            if isinstance(e, urllib.error.HTTPError):
+                try:
+                    why += " " + e.read().decode("utf-8", "replace")[:200]
+                except Exception:  # noqa: BLE001
+                    pass
+            print(f"{STATUS_CONTEXT}: record post refused ({why})", file=sys.stderr)
+    return False, why
+
+
 def rerun_gate(repo: str, sha: str) -> str:
     """Rerun the PR's ui proof status job at SHA (gh, the brokered CLI on a fleet host) so it reads a new record."""
     def gh(*args):
@@ -716,6 +761,9 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--suite", choices=proof_record.SUITES)
     r.add_argument("--pushed-at", type=float)
     r.add_argument("--post", action="store_true", help="gh pr comment the record, then rerun the gate job")
+    pr_ = sub.add_parser("post-record", help="comment a built record on POST_TOKENS in turn; on refusal post failure")
+    pr_.add_argument("--file", required=True)
+    pr_.add_argument("--pr", required=True, type=int)
     w = sub.add_parser("report")
     w.add_argument("--days", type=int, default=7)
     w.add_argument("--json", action="store_true")
@@ -732,8 +780,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{STATUS_CONTEXT}: {args.state}: {args.description}" + ("" if ok else " (NOT posted)"))
         return 0
     if args.cmd == "look-failed":
-        state, desc = look_failed(args.reason, args.pr, args.again)
         tokens = [t for t in os.environ.get("TOKENS", "").split() if t]
+        body = pr_body(os.environ.get("REPO", ""), args.pr, tokens)
+        state, desc = look_failed_unless_declared(body, args.reason, args.pr, args.again)
         repo, sha = os.environ.get("REPO", ""), os.environ.get("SHA", "")
         for token in tokens:
             try:
@@ -786,6 +835,27 @@ def main(argv: list[str] | None = None) -> int:
                             str(out / "proof-record.md")], check=True)
             print(rerun_gate(args.repo, args.head), file=sys.stderr)
         return 0 if record["verdict"] == "pass" else 1
+    if args.cmd == "post-record":
+        repo, sha = os.environ.get("REPO", ""), os.environ.get("SHA", "")
+        posters = [t for t in os.environ.get("POST_TOKENS", "").split() if t]
+        ok, why = post_record(repo, args.pr, Path(args.file).read_text(), posters)
+        if ok:
+            print(rerun_gate(repo, sha))
+            return 0
+        desc = f"{POST_REFUSED}: {why}"
+        print(f"::error title=cmux/ui-proof::{desc[:400]}")
+        tokens = [t for t in os.environ.get("TOKENS", "").split() if t]
+        for token in tokens:
+            try:
+                if settled_success(current_status(repo, sha, token)):
+                    print(f"{STATUS_CONTEXT}: already success at {sha[:12]}; the refused post is not posted as failure")
+                    return 1
+            except Exception:  # noqa: BLE001 - unread: post the failure, a later record overturns it
+                continue
+            break
+        posted = post_status("failure", desc, repo, sha, tokens, os.environ.get("RUN_URL", ""))
+        print(f"{STATUS_CONTEXT}: failure: {desc}" + ("" if posted else " (NOT posted)"))
+        return 1
     if args.cmd == "report":
         got = report(os.environ.get("REPO", "manaflow-ai/cmux"), os.environ.get("GH_TOKEN", ""), args.days)
         if args.json:

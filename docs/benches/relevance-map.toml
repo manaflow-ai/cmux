@@ -261,6 +261,15 @@ tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p ghostty-vt a_long_hi
 budget = "under 1,024 row lookups per 8,192-row page (a_long_history_page_looks_up_each_page_not_each_row)"
 
 [[area]]
+name = "Terminal scrollback reads (daemon `read-scrollback`, find, projection parity)"
+# coverage-map.md's row from #62415. Same path as Terminal core (Rust), filed after it, so that area still routes
+# ghostty-vt paths; this one keeps the row joined and names the lookup-count budget its tests assert.
+paths = ["cmux-tui/crates/ghostty-vt"]
+benches = []
+tests = ["cargo test --manifest-path cmux-tui/Cargo.toml -p ghostty-vt a_long_history_page_looks_up_each_page_not_each_row"]
+budget = "under 1,024 row lookups per 8,192-row scrollback page"
+
+[[area]]
 name = "Palette and omnibar"
 paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextPalette"]
 situations = ["main-thread"]
@@ -415,6 +424,24 @@ tests = [
   "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-mobile-host-core",
 ]
 budget = "turn end on the Mac to the banner on the phone at most 5,000 ms p95; ceiling 800 ms"
+
+[[area]]
+name = "Tab strip and tab names"
+# The strip (CmuxNextTabs) and the titles tabs show live outside CmuxNextPages, so a lane on tab names or the
+# strip had no area. Budgets are the counts TabStripRowPasses gives the work tests, not wall time.
+paths = [
+  "Packages/macOS/CmuxNext/Sources/CmuxNextTabs",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/TabTitleResolver.swift",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentChatTabTitle.swift",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/SubagentTabTitles.swift",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionRegistry+TabStripMenu.swift",
+]
+situations = ["main-thread", "visible-ui"]
+benches = ["TabStripSelectionBench", "TabStripFollowsPaneTickBench", "TabSwitchPathBench"]
+tests = [
+  "swift test --package-path Packages/macOS/CmuxNext --filter 'TabSwitchWorkBudgetTests|TabCloseEchoWorkTests|TabStripResizeFrameWorkTests|TabTitle|CompactTabStripTests|TabStripActivationRecolorTests|TabStripMenuTests'",
+]
+budget = "a switch between tabs that show walks 0 rows (0 occlusion, separator or frame passes) at 2, 10 and 30 tabs; a close's echoes walk 0 rows; a key resize that moves no slot edge writes 0 cells"
 
 [[area]]
 name = "Update flow"
