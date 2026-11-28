@@ -15,6 +15,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 from pathlib import Path
@@ -618,7 +619,7 @@ class EntryTimeouts(unittest.TestCase):
         return (f"from pathlib import Path\nimport time\nmarker = Path({str(self.marker)!r})\n"
                 "if not marker.exists():\n    marker.write_text('x')\n    time.sleep(30)\n")
 
-    def judge(self, base: dict[str, str], car: dict[str, str], kinds: set[str], python=()) -> dict:
+    def judge(self, base: dict[str, str], car: dict[str, str], kinds: set[str], python=(), deadline=None) -> dict:
         """The verdict for a car that writes CAR over a tree of BASE, running only KINDS."""
         root = repo(self.tmp.name, {"scripts/cmux-next/check-no-godfiles.sh": "exit 0\n", **base})
         base_sha = git(root, "rev-parse", "HEAD")
@@ -628,7 +629,7 @@ class EntryTimeouts(unittest.TestCase):
         head = git(root, "rev-parse", "HEAD")
         the_plan = {"files": sorted(car), "web": [], "native": [], "cargo": {"changed": False}, "swift": [],
                     "unmapped": [], "python": [{"path": path, "lane": "linux-guard", "why": "changed"} for path in python]}
-        return car_guards.run(root, base_sha, head, "linux", the_plan, {}, kinds=kinds)
+        return car_guards.run(root, base_sha, head, "linux", the_plan, {}, kinds=kinds, deadline=deadline)
 
     @staticmethod
     def status(verdict: dict, name: str) -> str:
@@ -689,9 +690,125 @@ class EntryTimeouts(unittest.TestCase):
                              python=["tests/test_slow.py"])
         self.assertEqual((verdict["status"], self.status(verdict, "python:tests/test_slow.py")), ("fail", "fail"))
 
+    def test_a_slow_car_ends_by_its_deadline_naming_what_it_did_not_run(self):
+        """Run 46068974948: cars pr-62654 and pr-58290 hit the train's 1800 s bound and were killed with no verdict.
+        Every entry takes at most the time the car has left; one that cannot start is `unrun`, the car's guard errs
+        (a train warning naming it), and the run ends near its deadline, not at the entries' own limits."""
+        tests = ["tests/test_slow_a.py", "tests/test_slow_b.py"]
+        with mock.patch.dict(car_guards.TIMEOUT, {"python": 100}), \
+                mock.patch.object(car_guards, "RETRY_TIMEOUT", {"guard": 100, "python": 100}, create=True), \
+                mock.patch.object(car_guards, "MIN_SLICE", 0.5):
+            start = time.monotonic()
+            verdict = self.judge({}, {path: self.SLOW for path in tests}, {"python"}, python=tests, deadline=3)
+            took = time.monotonic() - start
+        self.assertLess(took, 15, "the run outlived its deadline")
+        self.assertEqual(verdict["status"], "error")
+        self.assertEqual({self.status(verdict, f"python:{path}") for path in tests}, {"unrun"})
+        self.assertIn("deadline", next(r["tail"] for r in verdict["results"] if r["status"] == "unrun"))
+
+    def test_no_deadline_leaves_the_entry_limits_alone(self):
+        verdict = self.judge({self.PREPUSH: self.slow_once()}, {"README.md": "car\n"}, {"guard"}, deadline=0)
+        self.assertEqual((verdict["status"], self.status(verdict, "guard:prepush")), ("pass", "pass"))
+
     def test_a_real_failure_of_an_untouched_guard_still_fails(self):
         verdict = self.judge({self.PREPUSH: "import sys\nsys.exit(1)\n"}, {"README.md": "car\n"}, {"guard"})
         self.assertEqual((verdict["status"], self.status(verdict, "guard:prepush")), ("fail", "fail"))
+
+
+class LargeFileShards(unittest.TestCase):
+    """A large planned python file runs as SHARDS commands, its TestCase classes split across them by test count
+    (`python3 FILE ClassA ClassB`), and keeps one verdict: it passes only when every shard passes, and a shard that
+    failed or timed out is named with its classes. Small files run whole, as before."""
+
+    @staticmethod
+    def suite(**classes: str) -> str:
+        """A unittest file with one class per keyword: 'pass', 'fail' or 'slow' (two tests each)."""
+        body = {"pass": "        pass\n", "fail": "        self.fail('red')\n", "slow": "        time.sleep(30)\n"}
+        text = "import time\nimport unittest\n\n"
+        for name, how in classes.items():
+            text += f"class {name}(unittest.TestCase):\n"
+            for n in range(2):
+                text += f"    def test_{n}(self):\n" + body[how]
+            text += "\n"
+        return text + 'if __name__ == "__main__":\n    unittest.main()\n'
+
+    judge = EntryTimeouts.judge
+
+    def setUp(self):
+        EntryTimeouts.setUp(self)  # its timeouts, patched down to seconds; not its cases
+        for patcher in (mock.patch.object(car_guards, "SHARD_MIN_TESTS", 4), mock.patch.object(car_guards, "SHARDS", 2)):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def result(self, verdict: dict, name: str) -> dict:
+        return next(r for r in verdict["results"] if r["name"] == name)
+
+    def test_the_classes_and_their_tests_are_read_from_the_file(self):
+        source = (
+            "import unittest\nclass Mixin:\n    def test_m(self): pass\n"
+            "class A(Mixin, unittest.TestCase):\n    def test_a(self): pass\n"
+            "class B(A):\n    def test_b(self): pass\n"
+            "class Helper:\n    pass\n"
+            "class Empty(unittest.TestCase):\n    def setUp(self): pass\n"
+            'if __name__ == "__main__":\n    unittest.main()\n')
+        self.assertEqual(car_guards.test_classes(source), {"A": 2, "B": 3})
+        self.assertIsNone(car_guards.test_classes(source.replace("unittest.main()", "run()")),
+                          "a file with its own main may not take class names")
+        self.assertIsNone(car_guards.test_classes(source.replace("class B(A):", "class B(Imported):")),
+                          "a class with a base from elsewhere cannot be counted")
+        self.assertIsNone(car_guards.test_classes(source + "def make():\n    class C(unittest.TestCase):\n        pass\n"))
+        self.assertIsNone(car_guards.test_classes(source + "def load_tests(*a):\n    pass\n"))
+
+    def test_a_large_file_splits_by_class_across_the_slots_and_a_small_one_stays_whole(self):
+        root = Path(self.tmp.name)
+        write(root, {"tests/test_big.py": self.suite(A="pass", B="pass", C="pass"),
+                     "tests/test_small.py": self.suite(A="pass")})
+        shards = car_guards.python_entries(root, "tests/test_big.py")
+        self.assertEqual([(e["name"], e["classes"], e["cmd"][1:]) for e in shards],
+                         [("python:tests/test_big.py#1/2", ["A", "C"], ["tests/test_big.py", "A", "C"]),
+                          ("python:tests/test_big.py#2/2", ["B"], ["tests/test_big.py", "B"])])
+        self.assertEqual({e["file"] for e in shards}, {"python:tests/test_big.py"})
+        (small,) = car_guards.python_entries(root, "tests/test_small.py")
+        self.assertEqual((small["name"], small["cmd"][1:]), ("python:tests/test_small.py", ["tests/test_small.py"]))
+        (serial,) = car_guards.python_entries(root, "tests/test_big.py", serial=True)
+        self.assertNotIn("file", serial, "a serial test runs alone and whole")
+
+    def test_a_sharded_file_passes_as_one_result_when_every_shard_passes(self):
+        verdict = self.judge({}, {"tests/test_big.py": self.suite(A="pass", B="pass")}, {"python"},
+                             python=["tests/test_big.py"])
+        self.assertEqual([r["name"] for r in verdict["results"]], ["python:tests/test_big.py"])
+        result = self.result(verdict, "python:tests/test_big.py")
+        self.assertEqual((verdict["status"], result["status"]), ("pass", "pass"))
+        self.assertEqual(sorted(s["name"] for s in result["shards"]),
+                         ["python:tests/test_big.py#1/2", "python:tests/test_big.py#2/2"])
+
+    def test_one_failing_shard_fails_the_file_naming_its_classes(self):
+        verdict = self.judge({}, {"tests/test_big.py": self.suite(A="pass", B="fail")}, {"python"},
+                             python=["tests/test_big.py"])
+        result = self.result(verdict, "python:tests/test_big.py")
+        self.assertEqual((verdict["status"], result["status"]), ("fail", "fail"))
+        self.assertIn("fail, classes: B", result["tail"])
+        self.assertNotIn("classes: A", result["tail"])
+
+    def test_a_timed_out_shard_names_the_classes_that_timed_out(self):
+        verdict = self.judge({}, {"tests/test_big.py": self.suite(A="pass", B="slow")}, {"python"},
+                             python=["tests/test_big.py"])
+        result = self.result(verdict, "python:tests/test_big.py")
+        self.assertEqual((verdict["status"], result["status"]), ("fail", "timeout"))
+        self.assertIn("timed out, classes: B", result["tail"])
+
+    def test_a_class_red_at_the_base_too_is_base_red(self):
+        verdict = self.judge({"tests/test_big.py": self.suite(A="pass", B="fail")},
+                             {"tests/test_big.py": "# the car's edit\n" + self.suite(A="pass", B="fail")}, {"python"},
+                             python=["tests/test_big.py"])
+        self.assertEqual((verdict["status"], self.result(verdict, "python:tests/test_big.py")["status"]), ("pass", "base-red"))
+
+    def test_a_class_the_car_breaks_is_the_cars_even_when_the_base_splits_differently(self):
+        verdict = self.judge({"tests/test_big.py": self.suite(A="pass", B="pass", C="pass")},
+                             {"tests/test_big.py": self.suite(A="pass", B="fail")}, {"python"},
+                             python=["tests/test_big.py"])
+        self.assertEqual((verdict["status"], self.result(verdict, "python:tests/test_big.py")["status"]), ("fail", "fail"))
+
 
 class Tails(unittest.TestCase):
     """A red entry's log names every failure its summary counts (run 45372757083: 6 of 27 `FAIL:` lines survived the

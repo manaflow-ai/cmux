@@ -76,6 +76,13 @@ pub const ACTIVITY_TURN_END_CAPABILITY: &str = "activity-turn-end";
 /// advertises this and counts none of them, so a dev server, a build or a cron job an agent left
 /// running is never paused.
 pub const ACTIVITY_WORKLOAD_CAPABILITY: &str = "activity-workload";
+/// Advertised while some acpmux daemon on the machine has reported to the agent socket and its
+/// count still holds ([`ACP_ACTIVITY_TTL_MS`]): acpmux runs and answers, so a keyed start is the
+/// one-exec enroll into that daemon (cmux-platform `acpmuxEnrollCommand`), not a restart. The
+/// machine pushes this in its status report when it turns on or off (M3, cmuxterm-hq
+/// plans/cloud/ARCHITECTURE-2026-11.md): the Cloud and the client read acpmux's readiness from the
+/// machine, never by polling it. acpmux reports at its start and renews every 20 s.
+pub const ACPMUX_READY_CAPABILITY: &str = "acpmux-ready";
 /// How long acpmux's count of sessions at work holds without a new `acp_activity` line
 /// (acpmux renews it every 20 s, `daemon/cloud_activity.rs`): a
 /// daemon that died mid-turn does not keep the machine awake for good.
@@ -327,6 +334,17 @@ impl DaemonInfo {
             .collect();
         if on && capabilities.iter().any(|c| c == ACTIVITY_CAPABILITY) {
             capabilities.push(ACTIVITY_WORKLOAD_CAPABILITY.to_owned());
+        }
+        DaemonInfo { version: self.version.clone(), capabilities }
+    }
+
+    /// The same block with `acpmux-ready` on (an acpmux daemon's report holds) or off. Apply it
+    /// after [`Self::with_activity`]: it does not depend on the activity stream.
+    pub fn with_acpmux_ready(&self, on: bool) -> DaemonInfo {
+        let mut capabilities: Vec<String> =
+            self.capabilities.iter().filter(|c| *c != ACPMUX_READY_CAPABILITY).cloned().collect();
+        if on {
+            capabilities.push(ACPMUX_READY_CAPABILITY.to_owned());
         }
         DaemonInfo { version: self.version.clone(), capabilities }
     }

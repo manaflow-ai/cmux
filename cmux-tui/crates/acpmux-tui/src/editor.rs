@@ -172,35 +172,35 @@ impl Editor {
     // ---------------------------------------------------------- motions
 
     fn line_start(&self, pos: usize) -> usize {
-        let mut p = pos;
-        while p > 0 && self.chars[p - 1] != '\n' {
+        let mut p = pos.min(self.chars.len());
+        while p > 0 && self.chars.get(p - 1).is_some_and(|c| *c != '\n') {
             p -= 1;
         }
         p
     }
     fn line_end(&self, pos: usize) -> usize {
-        let mut p = pos;
-        while p < self.chars.len() && self.chars[p] != '\n' {
+        let mut p = pos.min(self.chars.len());
+        while self.chars.get(p).is_some_and(|c| *c != '\n') {
             p += 1;
         }
         p
     }
     fn word_start_before(&self, pos: usize) -> usize {
-        let mut p = pos;
-        while p > 0 && !is_word(self.chars[p - 1]) {
+        let mut p = pos.min(self.chars.len());
+        while p > 0 && self.chars.get(p - 1).is_some_and(|c| !is_word(*c)) {
             p -= 1;
         }
-        while p > 0 && is_word(self.chars[p - 1]) {
+        while p > 0 && self.chars.get(p - 1).is_some_and(|c| is_word(*c)) {
             p -= 1;
         }
         p
     }
     fn word_end_after(&self, pos: usize) -> usize {
-        let mut p = pos;
-        while p < self.chars.len() && !is_word(self.chars[p]) {
+        let mut p = pos.min(self.chars.len());
+        while self.chars.get(p).is_some_and(|c| !is_word(*c)) {
             p += 1;
         }
-        while p < self.chars.len() && is_word(self.chars[p]) {
+        while self.chars.get(p).is_some_and(|c| is_word(*c)) {
             p += 1;
         }
         p
@@ -282,7 +282,8 @@ impl Editor {
         if let Some((i, _)) = self.browsing.as_mut() {
             *i = idx;
         }
-        self.chars = self.history[idx].chars().collect();
+        let Some(entry) = self.history.get(idx) else { return };
+        self.chars = entry.chars().collect();
         self.cursor = self.chars.len();
     }
     fn history_newer(&mut self) {
@@ -293,7 +294,8 @@ impl Editor {
             self.browsing = None;
         } else {
             self.browsing = Some((i + 1, draft));
-            self.chars = self.history[i + 1].chars().collect();
+            let Some(entry) = self.history.get(i + 1) else { return };
+            self.chars = entry.chars().collect();
             self.cursor = self.chars.len();
         }
     }
@@ -359,7 +361,7 @@ impl Editor {
     }
 
     pub fn row_text(&self, row: (usize, usize)) -> String {
-        self.chars[row.0..row.1].iter().collect()
+        self.chars.get(row.0..row.1).unwrap_or_default().iter().collect()
     }
 
     /// Number of wrapped rows at `width`, for sizing the composer.
@@ -377,7 +379,8 @@ impl Editor {
         let mut pos = s;
         let mut c = 0;
         while pos < e {
-            let w = self.chars[pos].width().unwrap_or(0);
+            let Some(ch) = self.chars.get(pos) else { break };
+            let w = ch.width().unwrap_or(0);
             if c + w > col {
                 break;
             }

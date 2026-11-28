@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -47,8 +48,13 @@ CATALOG = CHANGES.CATALOG
 
 
 def swift_files(root: Path) -> list[Path]:
-    return sorted(path for path in root.rglob("*.swift")
-                  if SKIP_DIRS.isdisjoint(path.relative_to(root).parts[:-1]))
+    # Prune before descent: filtering rglob's results still walks every build,
+    # vendor and test subtree, even though none can contribute a default.
+    paths = []
+    for directory, children, files in os.walk(root):
+        children[:] = [name for name in children if name not in SKIP_DIRS]
+        paths.extend(Path(directory) / name for name in [*children, *files] if name.endswith(".swift"))
+    return sorted(paths)
 
 
 def swift_defaults(root: Path) -> dict[str, tuple[str, str]]:

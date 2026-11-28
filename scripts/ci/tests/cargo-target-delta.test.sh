@@ -9,8 +9,9 @@
 # - pack without apply packs nothing;
 # - a target linked to a pool tree (the darwin leg) packs through the link, and stays warm.
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/../../cmux-next/tests/lib/git-fixture.sh"
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
-TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+TMP=$(mktemp -d); git_fixture_trap_exit 'rm -rf "$TMP"'
 fail() { echo "FAIL: $*" >&2; exit 1; }
 command -v cargo >/dev/null || fail "cargo is required"
 export RUNNER_TEMP="$TMP/runner-temp"; mkdir -p "$RUNNER_TEMP"
@@ -33,7 +34,7 @@ printf '[package]\nname = "app"\nversion = "0.1.0"\nedition = "2021"\n[dependenc
 echo 'pub fn value() -> u32 { 1 }' > "$repo/ws/core/src/lib.rs"
 echo 'pub fn side() -> u32 { 7 }' > "$repo/ws/side/src/lib.rs"
 echo 'fn main() { println!("{}", core::value()); }' > "$repo/ws/app/src/main.rs"
-git -C "$repo" init -q && git -C "$repo" add -A && git -C "$repo" -c user.name=t -c user.email=t@t commit -qm init
+git_fixture_init "$repo" && git -C "$repo" add -A && git -C "$repo" -c user.name=t -c user.email=t@t commit -qm init
 
 delta() { bash "$repo/scripts/ci/cargo-target-delta.sh" "$@" aarch64-apple-darwin; }
 target="$repo/ws/target"; stamp="$RUNNER_TEMP/delta.stamp"; saved="$TMP/r2"; mkdir -p "$saved"
@@ -43,7 +44,7 @@ leg() {
   find "$repo/ws" -exec touch {} +
   if [[ -d "$saved/delta" ]]; then cp -a "$saved/delta" "$TMP/restored"; fi
   delta apply "$target" "$TMP/restored" "$stamp" > "$TMP/apply.log"
-  (cd "$repo/ws" && CARGO_INCREMENTAL=0 cargo build --offline -v 2>&1) > "$TMP/build.log"
+  (cd "$repo/ws" && CARGO_INCREMENTAL=0 cargo build --target-dir "$target" --offline -v 2>&1) > "$TMP/build.log"
   compiled=$(grep -cE '^ +Compiling ' "$TMP/build.log" || true)
   fresh=$(grep -cE '^ +Fresh ' "$TMP/build.log" || true)
   delta pack "$target" "$stamp" "$TMP/out" > "$TMP/pack.log"
@@ -85,6 +86,23 @@ mkdir -p "$inc/s-new"; ln "$inc/s-old/cgu.o" "$inc/s-new/cgu.o"
 delta pack "$target" "$stamp" "$TMP/out" > "$TMP/pack.log"
 [[ -f "$TMP/out/debug/incremental/crate-x/s-new/cgu.o" ]] || fail "pack keeps a hard-linked incremental unit"
 [[ ! -e "$TMP/out/debug/incremental/crate-x/s-other/cgu.o" ]] || fail "pack leaves an untouched incremental file"
+rm -rf "$target/debug/incremental" "$TMP/out"
+
+# rustc reads only the newest finalized session of a crate: pack drops the older ones, their locks and
+# a session still being written, and keeps the newest session with its lock.
+inc="$target/debug/incremental/crate-y"; mkdir -p "$inc"
+sleep 1.1; touch "$stamp"; : > "$stamp.list"
+for s in s-hokdublowg-0jjusmf-aaa s-hokef11wet-0p07b8k-bbb s-hokezzzzzz-1abcdef-working; do
+  mkdir -p "$inc/$s"; echo unit > "$inc/$s/cgu.o"
+done
+: > "$inc/s-hokdublowg-0jjusmf.lock"; : > "$inc/s-hokef11wet-0p07b8k.lock"
+delta pack "$target" "$stamp" "$TMP/out" > "$TMP/pack.log"
+out_inc="$TMP/out/debug/incremental/crate-y"
+[[ -f "$out_inc/s-hokef11wet-0p07b8k-bbb/cgu.o" && -f "$out_inc/s-hokef11wet-0p07b8k.lock" ]] \
+  || fail "pack keeps the newest incremental session and its lock"
+[[ ! -e "$out_inc/s-hokdublowg-0jjusmf-aaa" && ! -e "$out_inc/s-hokdublowg-0jjusmf.lock" ]] \
+  || fail "pack drops an older incremental session and its lock"
+[[ ! -e "$out_inc/s-hokezzzzzz-1abcdef-working" ]] || fail "pack drops a session still being written"
 rm -rf "$target/debug/incremental" "$TMP/out"
 
 rm -f "$stamp"

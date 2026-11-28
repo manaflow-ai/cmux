@@ -1044,9 +1044,9 @@ jobs:
         with:
           persist-credentials: false
           ref: refs/heads/main
-          # The stale-continuation guard compares the published SHA with the
-          # source SHA. A shallow checkout cannot prove ancestry after fetch.
-          fetch-depth: 0
+          # The stale-continuation guard fetches the published and source
+          # commits' full history itself (--unshallow, below). fetch-depth: 0
+          # fetched every branch and tag: 1563 s of this job (job 141019492820).
 
       - name: Download all accepted variants
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v6.0.0
@@ -1179,7 +1179,11 @@ jobs:
             # refuses an older build. An RC must not move the feed to a lower
             # marketing version, so RC compares versions instead of ancestry.
             if [ -n "$published_sha" ]; then
-              git fetch --no-tags origin "$SOURCE_HEAD_SHA" "$published_sha"
+              # Both commits' whole history, without blobs (git show fetches the
+              # one file it reads): a shallow checkout cannot prove ancestry.
+              unshallow=()
+              if [ "$(git rev-parse --is-shallow-repository)" = true ]; then unshallow=(--unshallow); fi
+              git fetch --no-tags --filter=blob:none "${unshallow[@]}" origin "$SOURCE_HEAD_SHA" "$published_sha"
               if [ "$CHANNEL" = rc ]; then
                 marketing_version() {
                   local project versions

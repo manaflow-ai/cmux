@@ -20,6 +20,7 @@
 //!   the order is only for merging.
 
 pub mod backdrop_switch;
+pub mod build_defaults;
 pub mod chrome_theme;
 pub mod controller;
 pub mod custom;
@@ -34,6 +35,7 @@ pub mod link_rules;
 pub mod looks;
 pub mod managed;
 pub mod notifications;
+pub mod quick_toggles;
 pub mod schema;
 pub mod section_reads;
 pub mod settings_window;
@@ -57,6 +59,7 @@ pub enum OpError {
 /// op that is not its own.
 type AreaCall = fn(&str, &Value) -> Option<Result<Value, OpError>>;
 const AREAS: &[AreaCall] = &[
+    build_defaults::call,
     backdrop_switch::call,
     chrome_theme::call,
     controller::call,
@@ -69,6 +72,7 @@ const AREAS: &[AreaCall] = &[
     layout::call,
     link_rules::call,
     looks::call,
+    quick_toggles::call,
     managed::call,
     notifications::call,
     schema::call,

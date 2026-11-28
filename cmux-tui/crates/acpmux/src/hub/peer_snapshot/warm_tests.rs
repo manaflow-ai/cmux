@@ -157,6 +157,31 @@ fn a_chat_a_bound_evicted_is_not_read_ahead_and_a_kept_one_waits_the_longer_inte
     assert_eq!(muxes(&asks), ["b"]);
 }
 
+#[test]
+fn a_kept_peers_copy_follows_each_ended_turn_and_a_running_turn_waits_the_longer_interval() {
+    let now = Instant::now();
+    let ended = row("b", 900, 0);
+    let mut running = row("b", 900, 0);
+    running["turn"] = json!({"turnId": "t", "startedAt": 5});
+    let kept = Covers::kept(HashMap::from([("b".to_owned(), (Some(42), 890))]));
+    let read_at = HashMap::from([((PEER.to_owned(), "b".to_owned()), (42, now))]);
+    let at = (NOW_MS, now + WARM_EVERY);
+    // fleet-recovery-bench --n 100, 11-27: copies read mid-turn stayed 5 minutes behind, and
+    // 8 of 100 chats moved from a dead host without their last turns.
+    let (asks, ..) = plan(PEER, true, std::slice::from_ref(&ended), &kept, &read_at, at);
+    assert_eq!(muxes(&asks), ["b"], "a kept peer's ended turn is copied after WARM_EVERY");
+    let (asks, _, later) = plan(PEER, true, std::slice::from_ref(&running), &kept, &read_at, at);
+    assert!(asks.is_empty(), "a running turn is not rewritten each interval");
+    assert_eq!(later, Some(now + WARM_AGAIN));
+    // A peer this daemon only reads for its clients keeps the longer interval either way.
+    let (asks, ..) = plan(PEER, false, std::slice::from_ref(&ended), &kept, &read_at, at);
+    assert!(asks.is_empty());
+    // A copy as far as the row costs no read, turn or not.
+    let full = Covers::kept(HashMap::from([("b".to_owned(), (Some(42), 900))]));
+    let (asks, _, later) = plan(PEER, true, std::slice::from_ref(&ended), &full, &read_at, at);
+    assert!(asks.is_empty() && later.is_none());
+}
+
 /// cosmic-gray 11-25, the try of #55956: a fleet whose working chats do not fit the store's
 /// bound, every chat moving each round (in small: the test build keeps about 6 copies and
 /// remembers [`EVICTED_KEYS`] evicted ones, so 2 peers of 7 chats). Once the store is full, a round creates no copy and
