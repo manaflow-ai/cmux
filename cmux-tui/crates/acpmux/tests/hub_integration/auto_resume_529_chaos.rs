@@ -385,13 +385,6 @@ async fn a_529_storm_leaves_no_session_dead_or_silent_and_bounds_the_time_lost()
     );
     assert!(refused > 0 && cut > 0, "the storm cut no turn: {refused} refused, {cut} cut");
     // 1. Nobody dead.
-    if let Some(d) = dead.first() {
-        let id = &ids.iter().find(|(_, n)| *n == d.name).unwrap().0;
-        for e in records(&hub, id).iter().rev().take(25).collect::<Vec<_>>().into_iter().rev() {
-            let m = e.msg.to_string();
-            eprintln!("DEBUGDEAD {} {} {}", e.dir, e.kind, &m[..m.len().min(400)]);
-        }
-    }
     assert!(dead.is_empty(), "{} sessions never completed: {dead:?}", dead.len());
     assert_eq!(exhausted, 0, "a capacity chain gave up");
     // 2. Nobody silent.
