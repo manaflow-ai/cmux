@@ -170,5 +170,7 @@ jobs:
             artifacts/ios-sim/simctl-first-connect.json
             artifacts/ios-sim/simctl-launch-marks.ndjson
             artifacts/ios-sim/simctl.log
+            artifacts/ios-sim/simctl-launch-cold.png
+            artifacts/ios-sim/simctl-launch-warm.png
           retention-days: 3
           if-no-files-found: warn
