@@ -100,14 +100,14 @@ import Testing
         PointerHover.setDebugPointer(nil, in: harness.window)
     }
 
-    /// A pinned tile leads as its list row does: no pin before its icon and title (Leo: "it puts a symbol at the left").
-    @Test func aPinnedTileDrawsNoLeadingPin() throws {
+    /// A pinned workspace row leads with its pin (Lawrence 2026-11-28: "i dont see pinned icon for pinned workspaces
+    /// anymore", a regression of #52050).
+    @Test func aPinnedTileDrawsItsLeadingPin() throws {
         let harness = SidebarHomePinnedDragHarness()
         defer { harness.close() }
         for pin in SidebarHomePinnedDragHarness.pins {
             let row = try harness.item(pin.id)
-            #expect(!row.info.leadingPin, "\(row.titleText): the pinned tile is configured with a leading pin")
-            #expect(row.pinSquareFrame == nil, "\(row.titleText): the pinned tile draws a pin at its left")
+            #expect(row.info.leadingPin, "\(row.titleText): the pinned tile is configured with no leading pin")
         }
     }
 
