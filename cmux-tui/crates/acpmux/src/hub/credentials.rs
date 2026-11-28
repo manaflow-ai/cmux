@@ -390,28 +390,6 @@ impl Hub {
             }
         }
     }
-}
-
-/// How long a start waits for the owner's Mac to send the credential again: about one
-/// reconnect's re-send, so a turn sent as the link comes back takes the credential.
-#[cfg(not(test))]
-pub(super) const OWNER_CREDENTIAL_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
-#[cfg(test)]
-pub(super) const OWNER_CREDENTIAL_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
-
-/// The words the pane shows (`webviews/src/agent-session/acpmux/failureCopy.ts` `NEEDS_MAC`).
-pub const NEEDS_MAC_TEXT: &str = "needs the Mac to sign in: open cmux";
-
-/// The refusal of a start with no owner's credential: typed [`crate::recovery::kind::NEEDS_MAC`].
-pub(super) fn needs_mac(harness: &str) -> RpcError {
-    let name = if harness.starts_with("codex") { "Codex" } else { "Claude" };
-    RpcError::new(-32001, format!("{name} {NEEDS_MAC_TEXT}")).with_data(json!({
-        "reason": crate::recovery::kind::NEEDS_MAC,
-        "errorKind": crate::recovery::kind::NEEDS_MAC,
-        "recovery": "This chat signs in with the credential your Mac sends, and this machine has none \
-                     since it resumed. Open cmux on your Mac: it sends the credential again when it \
-                     reconnects to this machine. Then send the message again.",
-    }))
 
     /// Name and presence of an owner's stored launch connection, for reattachment.
     pub(crate) async fn credential_status(&self, id: &str) -> Result<Value, RpcError> {
@@ -567,6 +545,28 @@ pub(super) fn needs_mac(harness: &str) -> RpcError {
                 .with_data(json!({"reason": "credentials.no_session"}))
         })
     }
+}
+
+/// How long a start waits for the owner's Mac to send the credential again: about one
+/// reconnect's re-send, so a turn sent as the link comes back takes the credential.
+#[cfg(not(test))]
+pub(super) const OWNER_CREDENTIAL_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+#[cfg(test)]
+pub(super) const OWNER_CREDENTIAL_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// The words the pane shows (`webviews/src/agent-session/acpmux/failureCopy.ts` `NEEDS_MAC`).
+pub const NEEDS_MAC_TEXT: &str = "needs the Mac to sign in: open cmux";
+
+/// The refusal of a start with no owner's credential: typed [`crate::recovery::kind::NEEDS_MAC`].
+pub(super) fn needs_mac(harness: &str) -> RpcError {
+    let name = if harness.starts_with("codex") { "Codex" } else { "Claude" };
+    RpcError::new(-32001, format!("{name} {NEEDS_MAC_TEXT}")).with_data(json!({
+        "reason": crate::recovery::kind::NEEDS_MAC,
+        "errorKind": crate::recovery::kind::NEEDS_MAC,
+        "recovery": "This chat signs in with the credential your Mac sends, and this machine has none \
+                     since it resumed. Open cmux on your Mac: it sends the credential again when it \
+                     reconnects to this machine. Then send the message again.",
+    }))
 }
 
 fn withdrawal_pending() -> RpcError {
