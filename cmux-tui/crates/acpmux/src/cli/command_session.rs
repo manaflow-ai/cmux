@@ -96,6 +96,10 @@ pub enum SessionCmd {
         /// released). Default 12h.
         #[arg(long = "for", value_name = "DURATION")]
         hold_for: Option<String>,
+        /// With `--fleet`: the order its chats thaw in when it lifts, comma-separated entries
+        /// as in `--allow` (first match first, the rest after); default: the hold's own.
+        #[arg(long, value_delimiter = ',')]
+        thaw_order: Option<Vec<String>>,
     },
     /// Release a held session (`session hold`): it runs its next prompt as usual. With
     /// `--fleet`: lift the fleet hold.
