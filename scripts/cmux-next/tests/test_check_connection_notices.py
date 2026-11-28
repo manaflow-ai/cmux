@@ -280,6 +280,23 @@ class WebShapes(unittest.TestCase):
         self.assertIn("retryLabel: retry.waiting.transport", out)
         self.assertNotIn("retryState.ts", out, "the label helper only holds the words; the drawing is the offender")
 
+    def test_a_form_submit_is_an_action(self):
+        """A `<form onSubmit>` (ChatGPTDevicePanel's device form) is the person's own connect: an action."""
+        form = """\
+            import { t } from "./i18n";
+            export function DeviceForm({ submit }: { submit: () => void }) {
+              return <form onSubmit={submit}>{t("page.disconnected")}</form>;
+            }
+        """
+        tree = Tree(self)
+        tree.write(f"{WEB}/DeviceForm.tsx", form)
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        tree.write(f"{WEB}/DeviceForm.tsx", form.replace("<form onSubmit={submit}>", "<div>").replace("</form>", "</div>"))
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("DeviceForm shows a connection state", out)
+
     def test_retry_line_held_for_the_shared_bound_passes(self):
         tree = Tree(self)
         tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
@@ -554,6 +571,23 @@ class NativeShapes(unittest.TestCase):
         tree.write(f"{MAC}/RemotePathBadgeView.swift", view)
         code, out = tree.check()
         self.assertEqual(code, 0, out)
+
+    def test_a_nested_failure_types_words_are_an_error_not_its_owner(self):
+        """`extension CloudAgentCredentials.Failure` (CloudModelConnectionNotice.swift) is the error type: its
+        "Not connected" is an outcome, and it no longer lands on its owner `CloudAgentCredentials`."""
+        owner = "struct RemoteCredentials {\n    var token = \"\"\n}\n"
+        failure = ("extension RemoteCredentials.Failure {\n"
+                   "    var line: String { \"Not connected to the host.\" }\n}\n")
+        tree = Tree(self)
+        tree.write(f"{MAC}/RemoteCredentials.swift", owner)
+        tree.write(f"{MAC}/RemoteCredentialsNotice.swift", failure)
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        tree.write(f"{MAC}/RemoteCredentialsNotice.swift", failure.replace("RemoteCredentials.Failure",
+                                                                           "RemoteCredentials.Notice"))
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("RemoteCredentials shows a connection state", out)
 
     def test_ios_connecting_line(self):
         tree = Tree(self)

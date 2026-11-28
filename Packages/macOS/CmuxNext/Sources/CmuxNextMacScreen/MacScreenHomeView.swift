@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextDesign
 public import CmuxNextDevices
+import CmuxNextWakeups
 import Observation
 
 /// What the home page asks of its owner.
@@ -48,6 +49,9 @@ final class MacScreenHomeView: MacScreenThemedView {
     var offlineExpanded = false
     /// The snapshot the rows were last built from (the page's own or a test's), for a rebuild after a local toggle.
     private(set) var built: MacScreenHomeSnapshot?
+    /// Holds This Mac's "Connecting this Mac to the device hub…" for the shared connection bound
+    /// (Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up").
+    let joiningHold = QuietHold(owner: "macScreen.home.thisMacJoining", delay: MacScreenHomeSnapshot.joiningDelay)
     /// `.frame(maxWidth: 620).padding(.horizontal, 32)`: the column's width for the page's.
     private lazy var columnWidth = column.widthAnchor.constraint(equalToConstant: 620)
 
@@ -141,6 +145,9 @@ final class MacScreenHomeView: MacScreenThemedView {
     }
 
     // MARK: Drawing
+
+    /// Builds again from the page's state now (a held note's bound ran out: nothing Observation sees changed).
+    func redraw() { render() }
 
     /// Reads the page's state and builds the rows when it changed; again on every change of what it read.
     private func render() {

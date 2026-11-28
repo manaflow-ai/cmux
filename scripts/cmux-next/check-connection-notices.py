@@ -136,7 +136,7 @@ BOUND_COPIES: tuple[tuple[str, str, int], ...] = (
 
 # A person action on the same unit.
 PERSON_ACTIONS = re.compile(
-    r"(\bonClick\s*=|\bonPress\s*=|<Button\b|<button\b|\bonAction\b|\bprimaryAction\b"  # web
+    r"(\bonClick\s*=|\bonPress\s*=|\bonSubmit\s*=|<Button\b|<button\b|\bonAction\b|\bprimaryAction\b"  # web
     # A web component the unit draws whose name says it is a button and that it hands a handler
     # (`<ConnectButton onConnect={...} />`). A bare `<MarkButton />` is no action by its name alone: one declared
     # or imported here counts only when it acts itself (drawn_actions).
@@ -329,7 +329,12 @@ def units_of(path: str, source: str) -> list[tuple[str, int, int]]:
         m = top.match(line)
         if m:
             name = next(g for g in m.groups() if g)
-            starts.append((i, name.split(".")[0] if path.endswith(".swift") else name))
+            if path.endswith(".swift"):
+                # `extension Owner.Failure` is the error type, not its owner: it keeps its own name, so the error
+                # filter (ERROR_TYPE) drops it instead of its words landing on `Owner`.
+                parts = name.split(".")
+                name = name if len(parts) > 1 and ERROR_TYPE.search(parts[-1]) else parts[0]
+            starts.append((i, name))
     spans = []
     for n, (i, name) in enumerate(starts):
         end = starts[n + 1][0] - 1 if n + 1 < len(starts) else len(lines) - 1

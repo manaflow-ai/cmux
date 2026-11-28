@@ -5,13 +5,6 @@ import { pageIsKey, watchPageKey } from "./pageKey";
 
 export type CloudConnectionReason = "none" | "signedOut" | "off" | "cloudOff";
 
-const reasonLabels = {
-  none: "composer.envNotConnected",
-  signedOut: "turn.signInAgain",
-  off: "picker.cloud.connectionOff",
-  cloudOff: "picker.cloud.connectionOff",
-} as const;
-
 export type CloudServed = {
   runnableFamilies: readonly string[];
   servedHarnesses?: readonly string[];
@@ -46,7 +39,15 @@ export function cloudPickerState(served: CloudServed | undefined, harness: strin
 
 export function cloudPickerReason(served: CloudServed | undefined, harness: string) {
   const family = cloudPickerFamily(served, harness);
-  return reasonLabels[(family && served?.reasons?.[family]) || "none"];
+  switch ((family && served?.reasons?.[family]) || "none") {
+    case "signedOut":
+      return "turn.signInAgain";
+    case "off":
+    case "cloudOff":
+      return "picker.cloud.connectionOff";
+    default:
+      return "composer.envNotConnected";
+  }
 }
 
 /// No readiness answer (including a host that predates runnableFamilies) leaves the local picker.

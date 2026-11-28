@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextDesignTokens
 import CmuxNextDevices
 import Foundation
 
@@ -138,13 +139,17 @@ struct MacScreenHomeSnapshot: Equatable {
                 // says why. Gating the section on registration hid it (and its permissions) for as long as the
                 // hub was unreachable (run 45954248647: socket connect timeouts, no This Mac section).
                 let registered = hub.thisDevice != nil || hub.status == .ready
+                // "Connecting this Mac to the device hub…" waits `joiningDelay` (through `home.joiningHold`).
+                var joining = !registered
+                if case .failed = hub.status { joining = false }
+                home.joiningHold.update(joining) { [weak home] in home?.redraw() }
                 let hubHost = source.hubHost
                 sharing = Sharing(isSharing: hubHost.isSharing, busy: hubHost.busy || !registered,
                                   screenRecordingGranted: home.host.screenRecordingGranted,
                                   accessibilityGranted: home.host.accessibilityGranted,
                                   session: hubHost.session, lastError: hubHost.lastError,
                                   showFirstUse: Self.showsFirstUse(store: source.store, isSharing: hubHost.isSharing),
-                                  hubNote: registered ? nil : Self.hubNote(hub.status))
+                                  hubNote: registered || home.joiningHold.held ? nil : Self.hubNote(hub.status))
             } else {
                 devices = source.box.startupMessage.map(Devices.note) ?? Self.setupDevices(configured: source.box.configured,
                                                                                                restoring: source.box.restoring || source.box.connecting)
@@ -167,6 +172,10 @@ struct MacScreenHomeSnapshot: Equatable {
             return reason.words(detail: detail)
         }
     }
+
+    /// How long This Mac's "Connecting this Mac to the device hub…" waits before it shows: the shared connection
+    /// bound, so a hub that registers under it draws no note at all.
+    static let joiningDelay = NoticeTiming.connectionQuiet
 
     /// What This Mac says while this device is not on the hub yet: connecting, or why it could not register.
     static func hubNote(_ status: DeviceHub.Status) -> String {
