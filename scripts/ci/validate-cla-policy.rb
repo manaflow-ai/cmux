@@ -274,7 +274,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "0aeffcf9241fbc59bd9aa744a882ddbd8c7555ca879855
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "b2eaa9067fc84e471e9d794ceb805e4774dca9c6b43d42d52af6d10f5a060077"
+EXPECTED_GUARD_SCRIPT_DIGEST = "b09e77ca0af6f07389fec818079c319009c9d60ccb0d7abfb8f15a2719427894"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -1301,6 +1301,10 @@ def git_blob_bytes(git_dir, ids)
     header = line.split(" ")
     return nil unless header.length == 3 && header[0] == id && header[1] == "blob" && header[2].match?(/\A[0-9]+\z/)
 
+    # Past the blob fetch cap: the fetch was meant to stop there, so read it
+    # as missing and fall back to the contents API (which rejects it), even
+    # when this host's git or filesystem let the capped fetch finish.
+    return nil if header[2].to_i > GIT_BLOB_FETCH_BLOCKS_EACH * 1024
     fail!("a policy file is too large") if header[2].to_i > MAX_FILE_BYTES
   end
   output = git_output(git_dir, "cat-file", "--batch", stdin_data: request)
@@ -1316,6 +1320,7 @@ def git_blob_bytes(git_dir, ids)
     return nil unless header.length == 3 && header[0] == id && header[1] == "blob" && header[2].match?(/\A[0-9]+\z/)
 
     size = header[2].to_i
+    return nil if size > GIT_BLOB_FETCH_BLOCKS_EACH * 1024
     fail!("a policy file is too large") if size > MAX_FILE_BYTES
     bytes[id] = output.byteslice(newline + 1, size)
     offset = newline + 1 + size + 1
