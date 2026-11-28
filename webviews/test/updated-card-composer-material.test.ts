@@ -61,7 +61,8 @@ test("the shared rim is the composer's top-lit rim", () => {
 // art).
 test("the shared tint is the popups' transient share the composer's card takes, on every window", () => {
   expect(composerStates).toMatch(
-    /--acpmux-stack-tint: color-mix\(in srgb, var\(--acpmux-composer-solid\) var\(--ds-transient-web-tint\)/,
+    // A theme's --cmux-composer-hat-fill wins (55b54cbed634); the fallback is the transient share.
+    /--acpmux-stack-tint: var\(\s*--cmux-composer-hat-fill,\s*color-mix\(in srgb, var\(--acpmux-composer-solid\) var\(--ds-transient-web-tint\)/,
   );
   // Only previous glass (appearance.previousGlass) brings the popover level's art share back.
   const outsidePrevious = (css: string) => css.replace(/[^{}]*data-glass-levels="previous"[^{}]*\{[^}]*\}/g, "");

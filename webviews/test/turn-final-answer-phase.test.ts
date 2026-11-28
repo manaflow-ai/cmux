@@ -1,5 +1,5 @@
 // l10n-allow-file: test fixture replies and commands, not shipped UI.
-import { expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { LIVE_THINKING, WORKED, toggleTurnFold, turnViewFrom } from "../src/agent-session/acpmux/conversation/turns";
 import { viewFolds } from "../src/agent-session/acpmux/conversation/viewFolds";
@@ -32,6 +32,19 @@ const answer = row("answer", "assistant", {
 const summary = row("summary", "turnSummary", { at: 7_000, status: "completed", durationMs: 6_000 });
 const work = [prompt, commentary, call];
 const options = { agentFamily: "codex", working: true, now: 10_000 };
+// These pin how an explicit final answer folds a running turn's work under the `open` live arm they
+// were written for; the shipped `folded` keeps the work under a closed "Working for" from the first
+// call (#51082, live-turn-folds-to-line.test.ts).
+let armsBefore: typeof globalThis.cmuxExperiments;
+beforeEach(() => {
+  armsBefore = globalThis.cmuxExperiments;
+  globalThis.cmuxExperiments = { ...armsBefore, "live-turn-work": "open" };
+});
+afterEach(() => {
+  if (armsBefore === undefined) delete globalThis.cmuxExperiments;
+  else globalThis.cmuxExperiments = armsBefore;
+});
+
 const foldId = "worked-prompt";
 const shownIds = (rows: AcpmuxRow[]) => rows.filter((row) => row.kind !== "date").map((row) => row.id);
 

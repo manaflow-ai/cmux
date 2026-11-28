@@ -122,14 +122,15 @@ const steered: Step[] = [
 
 for (const fold of [undefined, "runs"] as const)
   test(`turn_started > text > tool_call(SendMessage) > tool_call > steer > tool_call: nothing folds until text (claude-turn-fold ${fold ?? "default"})`, async () => {
-    globalThis.cmuxExperiments = fold ? { "claude-turn-fold": fold } : undefined;
+    globalThis.cmuxExperiments = { ...(fold && { "claude-turn-fold": fold }), "live-turn-work": "open" };
     // Mid-turn, after each of: the second call, the steered message, the third call.
     for (const count of [5, 6, 7]) {
       const { view } = await after(steered, count, true);
       expect(view.filter((row) => row.kind === MESSAGE_RUN)).toHaveLength(0);
       expect(view.some((row) => row.kind === "activity")).toBe(true);
     }
-    // The agent's paragraph ends the run. By default (live-turn-work `open`, #48766) nothing folds while
+    // The agent's paragraph ends the run. Under live-turn-work `open` (#48766; the shipped default is
+    // `folded` since #51082, which keeps the calls under a closed "Working for") nothing folds while
     // the turn runs (Leo, 2026-11-21: "i thought we dont fold while you're still going"): every call
     // stays in sight on its own line.
     const said = await after(steered, 8, true);
@@ -139,7 +140,7 @@ for (const fold of [undefined, "runs"] as const)
     globalThis.cmuxExperiments = { ...(fold && { "claude-turn-fold": fold }), "live-turn-work": "runs" };
     const runs = await after(steered, 8, true);
     expect(runs.view.filter((row) => row.kind === MESSAGE_RUN)).toHaveLength(1);
-    globalThis.cmuxExperiments = fold ? { "claude-turn-fold": fold } : undefined;
+    globalThis.cmuxExperiments = { ...(fold && { "claude-turn-fold": fold }), "live-turn-work": "open" };
     // And at turn_result it is folded too.
     const done = await after(steered, steered.length, false);
     const rows: AcpmuxRow[] = done.view;

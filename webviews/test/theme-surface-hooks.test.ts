@@ -61,7 +61,7 @@ const HOOKS: Hook[] = [
     file: "agent-session/acpmux/composerStates.css",
     property: "--acpmux-stack-tint",
     token: "--cmux-composer-hat-fill",
-    today: "color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-glass-popover-tint), transparent)",
+    today: "color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-transient-web-tint), transparent)",
   },
   {
     file: "agent-session/acpmux/subagents/subagents.css",
