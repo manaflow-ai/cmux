@@ -43,7 +43,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import owned_pool_sources as sources  # noqa: E402  (Tree: a working tree or a git ref)
 
 FLOOR_CALL = re.compile(r"job_token_floor\.py\b([^\n|;&>]*)")
-# The twin jobs that already differed when this guard came in (2026-11-28: 75 jobs of 52 workflows), one
+# The twin jobs that already differed when this guard came in (2026-11-28: 74 jobs of 51 workflows), one
 # "PATH<TAB>JOB" per line. The guard fails on a job that newly differs; an entry whose copies agree again is printed
 # for removal but fails nothing, so a twin PR on the other branch never turns this one red.
 KNOWN_DRIFT = Path(__file__).resolve().parent / "workflow_twins_known_drift.tsv"

@@ -30,7 +30,6 @@
 .github/workflows/cloud-journey-prod.yml	journey
 .github/workflows/cloud-journey-prod.yml	preclaim
 .github/workflows/cmux-browser.yml	host-tests
-.github/workflows/cmux-next-crash-notice.yml	notice
 .github/workflows/cmux-next-dev-daily-dispatch.yml	dispatch
 .github/workflows/cmux-next-web-pieces.yml	switch
 .github/workflows/cmux-tui-channel-heal.yml	heal
