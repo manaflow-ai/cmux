@@ -45,11 +45,9 @@ public nonisolated struct TerminalLinkOpener: Sendable, Hashable {
     }
 
     /// The target for `url` opened by the process chain `callers` (the opener's parent first).
+    /// Rust decides (`link_rules.decide`).
     public func decide(_ url: URL, callers: [String]) -> Decision {
-        if let index = rules.firstIndex(where: { $0.matches(url, callers: callers) }) {
-            return Decision(target: rules[index].target, rule: index)
-        }
-        return Decision(target: defaultTarget, rule: nil)
+        decide(request(url, callers: callers))
     }
 
     /// ``decide(_:callers:)``, then a sign-in or device-code page that no rule matched opens in
@@ -57,36 +55,35 @@ public nonisolated struct TerminalLinkOpener: Sendable, Hashable {
     /// (``LinkRouting/keepsSignInPageInCmux(_:)``, `browser.openSignInPagesInCmux`). A rule is the
     /// person's explicit choice and still wins; any other link keeps the default.
     public func decide(_ url: URL, callers: [String], routing: LinkRouting) -> Decision {
-        let decision = decide(url, callers: callers)
-        guard decision.rule == nil, routing.keepsSignInPageInCmux(url) else { return decision }
-        return Decision(target: .cmux, rule: nil)
+        var request = request(url, callers: callers)
+        request["routing"] = routing.jsonValue
+        request["signInPage"] = .bool(SignInPage(url: url) != nil)
+        return decide(request)
     }
 
+    private func request(_ url: URL, callers: [String]) -> [String: JSONValue] {
+        [
+            "opener": .object(["default": defaultTarget.jsonValue, "rules": .array(rules.map { .string($0.text) })]),
+            "url": .string(url.absoluteString),
+            "callers": .array(callers.map(JSONValue.string)),
+        ]
+    }
+
+    private func decide(_ request: [String: JSONValue]) -> Decision {
+        let reply = SettingsRust.answer("link_rules.decide", .object(request))
+        guard let target = reply["target"].flatMap(TerminalLinkOpenerTarget.init(json:)) else {
+            return Decision(target: defaultTarget, rule: nil)
+        }
+        return Decision(target: target, rule: reply["rule"]?.intValue)
+    }
+
+    /// Rust reads the keys and their diagnostics (`link_rules.opener`).
     static func parse(_ root: JSONValue) -> (TerminalLinkOpener, [SettingsDiagnostic]) {
-        var setting = fallback
-        var diagnostics: [SettingsDiagnostic] = []
-        if let value = root.value(at: defaultPath) {
-            if let text = value.stringValue, let target = TerminalLinkOpenerTarget(text) {
-                setting.defaultTarget = target
-            } else {
-                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: defaultPath.joined(separator: "."),
-                                                      message: "expected cmux, system, a browser (chrome, safari, arc, firefox, edge, brave), app:<name> or command:<command>"))
-            }
-        }
-        if let value = root.value(at: rulesPath) {
-            if case .array = value, let lines = LinkRouting.lines(value) {
-                for line in lines {
-                    if let rule = TerminalLinkOpenerRule(line) {
-                        setting.rules.append(rule)
-                    } else {
-                        diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: rulesPath.joined(separator: "."),
-                                                              message: "expected <match> -> <target>, such as caller:aws -> chrome"))
-                    }
-                }
-            } else {
-                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: rulesPath.joined(separator: "."), message: "expected an array of strings"))
-            }
-        }
-        return (setting, diagnostics)
+        let reply = SettingsRust.answer("link_rules.opener", .object(["root": root]))
+        guard let opener = reply["opener"] else { return (fallback, []) }
+        let setting = TerminalLinkOpener(
+            defaultTarget: opener["default"].flatMap(TerminalLinkOpenerTarget.init(json:)) ?? fallback.defaultTarget,
+            rules: (opener["rules"]?.arrayValue ?? []).compactMap(TerminalLinkOpenerRule.init(json:)))
+        return (setting, LinkRouting.linkDiagnostics(reply))
     }
 }

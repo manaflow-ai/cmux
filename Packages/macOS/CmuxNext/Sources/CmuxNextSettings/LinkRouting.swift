@@ -70,36 +70,23 @@ public nonisolated struct LinkRouting: Sendable, Hashable {
     /// on a click) asks for the target the setting does not pick: a link the rules send out
     /// opens in cmux, and one they keep in cmux opens in the default browser. `explicit` is a
     /// click that picked a cmux browser profile (the toggle does not apply, the rules do).
+    /// Rust answers (`link_rules.target`).
     public func target(for url: URL, otherTarget: Bool = false, explicit: Bool = false) -> Target {
-        let scheme = url.scheme?.lowercased()
-        guard browserEnabled, scheme == "http" || scheme == "https" else { return .system }
-        let cmux = opensInCmux(url, explicit: explicit)
-        guard otherTarget else { return cmux ? .cmuxBrowser : .system }
-        return cmux || Self.normalizedHost(url.host ?? "") == nil ? .system : .cmuxBrowser
+        var request = linkRequest(url, explicit: explicit)
+        request["otherTarget"] = .bool(otherTarget)
+        let reply = SettingsRust.answer("link_rules.target", .object(request))
+        return reply["target"]?.stringValue.flatMap(Target.init(rawValue:)) ?? .system
     }
 
     /// True when this http(s) link opens in a cmux browser tab, false when it
     /// goes to the default browser: the cmux browser is off, an external rule matches, the host is
     /// unusable, or, for a link that is not a sign-in page kept in cmux (``keepsSignInPageInCmux(_:)``),
     /// the setting is off (unless `explicit`, a click that picked a cmux browser profile) or the
-    /// host list is set and misses the host.
+    /// host list is set and misses the host. Rust answers (`link_rules.opens_in_cmux`, cmux-config
+    /// `link_rules`: classic's host normalizer and `urlsToAlwaysOpenExternally` matcher).
     public func opensInCmux(_ url: URL, explicit: Bool = false) -> Bool {
-        guard browserEnabled else { return false }
-        if !externalRules.isEmpty, BrowserExternalURLPatternMatcher(patterns: externalRules).matches(url.absoluteString) {
-            return false
-        }
-        guard let host = Self.normalizedHost(url.host ?? "") else { return false }
-        if keepsSignInPageInCmux(url) { return true }
-        guard opensInCmuxBrowser || explicit else { return false }
-        guard !embeddedHosts.isEmpty else { return true }
-        return embeddedHosts.contains { raw in
-            let pattern = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            if pattern.hasPrefix("*.") {
-                guard let suffix = Self.normalizedHost(String(pattern.dropFirst(2))) else { return false }
-                return host == suffix || host.hasSuffix(".\(suffix)")
-            }
-            return Self.normalizedHost(pattern) == host
-        }
+        let reply = SettingsRust.answer("link_rules.opens_in_cmux", .object(linkRequest(url, explicit: explicit)))
+        return reply["opensInCmux"]?.boolValue ?? false
     }
 
     /// Whether `url` is a ``SignInPage`` that ``signInPagesInCmux`` keeps in a cmux browser tab
@@ -108,74 +95,57 @@ public nonisolated struct LinkRouting: Sendable, Hashable {
         browserEnabled && signInPagesInCmux && SignInPage(url: url) != nil
     }
 
-    /// Classic's host normalizer (`RemoteLoopbackProxyAlias.normalizeHost`):
-    /// lowercase, no scheme, path, port, brackets or outer dots, IDN as punycode.
-    static func normalizedHost(_ raw: String) -> String? {
-        var value = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !value.isEmpty else { return nil }
-        if let parsed = URL(string: value)?.host { return trimmedHost(parsed) }
-        if let scheme = value.range(of: "://") { value = String(value[scheme.upperBound...]) }
-        if let slash = value.firstIndex(where: { $0 == "/" || $0 == "?" || $0 == "#" }) { value = String(value[..<slash]) }
-        if value.hasPrefix("[") {
-            if let closing = value.firstIndex(of: "]") {
-                value = String(value[value.index(after: value.startIndex)..<closing])
-            } else {
-                value.removeFirst()
-            }
-        } else if let colon = value.lastIndex(of: ":"), value[value.index(after: colon)...].allSatisfy(\.isNumber),
-                  value.filter({ $0 == ":" }).count == 1 {
-            value = String(value[..<colon])
-        }
-        return trimmedHost(value)
+    /// The link ops' request for `url`: Foundation splits it, and ``SignInPage`` says whether it
+    /// is a sign-in page.
+    func linkRequest(_ url: URL, explicit: Bool = false) -> [String: JSONValue] {
+        [
+            "routing": jsonValue,
+            "url": .string(url.absoluteString),
+            "scheme": .string(url.scheme ?? ""),
+            "host": .string(url.host ?? ""),
+            "signInPage": .bool(SignInPage(url: url) != nil),
+            "explicit": .bool(explicit),
+        ]
     }
 
-    private static func trimmedHost(_ raw: String) -> String? {
-        let trimmed = raw.trimmingCharacters(in: CharacterSet(charactersIn: "."))
-        guard !trimmed.isEmpty else { return nil }
-        return URL(string: "https://\(trimmed)")?.host ?? trimmed
+    /// The setting as the link ops read it (cmux-config `link_rules::Routing::from_json`).
+    var jsonValue: JSONValue {
+        .object([
+            "opensInCmuxBrowser": .bool(opensInCmuxBrowser),
+            "embeddedHosts": .array(embeddedHosts.map(JSONValue.string)),
+            "externalRules": .array(externalRules.map(JSONValue.string)),
+            "browserEnabled": .bool(browserEnabled),
+            "signInPagesInCmux": .bool(signInPagesInCmux),
+            "pullRequestsInGitHubPage": .bool(pullRequestsInGitHubPage),
+        ])
     }
 
+    /// Rust reads the keys and their diagnostics (`link_rules.routing`).
     static func parse(_ root: JSONValue) -> (LinkRouting, [SettingsDiagnostic]) {
-        var setting = fallback
-        var diagnostics: [SettingsDiagnostic] = []
-        guard case .object(let browser)? = root["browser"] else { return (setting, diagnostics) }
-        if let value = browser[enabledPath[1]] {
-            if let flag = value.boolValue {
-                setting.browserEnabled = flag
-            } else {
-                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: enabledPath.joined(separator: "."), message: "expected true or false"))
-            }
+        let reply = SettingsRust.answer("link_rules.routing", .object(["root": root]))
+        guard let routing = reply["routing"]?.objectValue else { return (fallback, []) }
+        let strings = { (key: String) in routing[key]?.arrayValue?.compactMap(\.stringValue) }
+        let setting = LinkRouting(
+            opensInCmuxBrowser: routing["opensInCmuxBrowser"]?.boolValue ?? openDefault,
+            embeddedHosts: strings("embeddedHosts") ?? hostsDefault,
+            externalRules: strings("externalRules") ?? rulesDefault,
+            browserEnabled: routing["browserEnabled"]?.boolValue ?? enabledDefault,
+            signInPagesInCmux: routing["signInPagesInCmux"]?.boolValue ?? signInPagesDefault,
+            pullRequestsInGitHubPage: routing["pullRequestsInGitHubPage"]?.boolValue ?? pullRequestsInGitHubPageDefault)
+        return (setting, linkDiagnostics(reply))
+    }
+
+    /// A link op's `problems` (`[{path, message}]`) as diagnostics.
+    static func linkDiagnostics(_ reply: JSONValue) -> [SettingsDiagnostic] {
+        (reply["problems"]?.arrayValue ?? []).compactMap { problem in
+            guard let path = problem["path"]?.stringValue, let message = problem["message"]?.stringValue else { return nil }
+            return SettingsDiagnostic(kind: .invalidValue, path: path, message: message)
         }
-        for (path, field) in [(signInPagesPath, \LinkRouting.signInPagesInCmux), (pullRequestsInGitHubPagePath, \.pullRequestsInGitHubPage)] {
-            guard let value = browser[path[1]] else { continue }
-            if let flag = value.boolValue {
-                setting[keyPath: field] = flag
-            } else {
-                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: path.joined(separator: "."), message: "expected true or false"))
-            }
-        }
-        // The new key wins; classic's is read only without it.
-        let path = browser[openPath[1]] != nil ? openPath : legacyOpenPath
-        if let value = browser[path[1]] {
-            if let flag = value.boolValue {
-                setting.opensInCmuxBrowser = flag
-            } else {
-                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: path.joined(separator: "."), message: "expected true or false"))
-            }
-        }
-        for (path, field) in [(hostsPath, \LinkRouting.embeddedHosts), (rulesPath, \.externalRules)] {
-            guard let value = browser[path[1]] else { continue }
-            // An array, as the Settings rows accept; classic's line text is only in its preferences.
-            if case .array = value, let lines = lines(value) {
-                setting[keyPath: field] = lines
-            } else {
-                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: path.joined(separator: "."), message: "expected an array of strings"))
-            }
-        }
-        return (setting, diagnostics)
     }
 
     /// An array of strings, or classic's one-per-line text; blank lines and `#` comments dropped.
+    /// Kept for the classic preferences import (``ClassicPreferenceImport``); the cmux.json keys are
+    /// read by Rust (`link_rules::lines`).
     static func lines(_ value: JSONValue) -> [String]? {
         let texts: [String]
         switch value {

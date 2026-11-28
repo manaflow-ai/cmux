@@ -31,36 +31,37 @@ public nonisolated enum TerminalLinkOpenerTarget: Sendable, Hashable {
         "firefox": "Firefox", "edge": "Microsoft Edge", "brave": "Brave Browser",
     ]
 
-    /// Reads a target from its cmux.json text; nil when it names none.
+    /// Reads a target from its cmux.json text; nil when it names none. Rust reads it
+    /// (`link_rules.opener_target`, cmux-config `link_rules::Target::parse`).
     public init?(_ text: String) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let lower = trimmed.lowercased()
-        switch lower {
-        case "cmux": self = .cmux; return
-        case "system", "default": self = .system; return
-        default: break
-        }
-        if lower.hasPrefix("command:") {
-            let command = trimmed.dropFirst("command:".count).trimmingCharacters(in: .whitespaces)
-            guard !command.isEmpty else { return nil }
+        let reply = SettingsRust.answer("link_rules.opener_target", .object(["text": .string(text)]))
+        guard let target = reply["target"].flatMap(Self.init(json:)) else { return nil }
+        self = target
+    }
+
+    /// A target from its op form (`{kind, app?, profile?, command?}`).
+    init?(json: JSONValue) {
+        switch json["kind"]?.stringValue {
+        case "cmux": self = .cmux
+        case "system": self = .system
+        case "app":
+            guard let app = json["app"]?.stringValue else { return nil }
+            self = .app(app, profile: json["profile"]?.stringValue)
+        case "command":
+            guard let command = json["command"]?.stringValue else { return nil }
             self = .command(command)
-            return
+        default: return nil
         }
-        var body = trimmed
-        var profile: String?
-        if let at = body.lastIndex(of: "@") {
-            let name = body[body.index(after: at)...].trimmingCharacters(in: .whitespaces)
-            profile = name.isEmpty ? nil : name
-            body = String(body[..<at])
+    }
+
+    /// The op form of this target, which ``init(json:)`` reads back.
+    var jsonValue: JSONValue {
+        switch self {
+        case .cmux, .system: .object(["kind": .string(kind)])
+        case .app(let app, let profile):
+            .object(["kind": "app", "app": .string(app), "profile": profile.map(JSONValue.string) ?? .null])
+        case .command(let command): .object(["kind": "command", "command": .string(command)])
         }
-        if body.lowercased().hasPrefix("app:") {
-            let app = body.dropFirst("app:".count).trimmingCharacters(in: .whitespaces)
-            guard !app.isEmpty else { return nil }
-            self = .app(app, profile: profile)
-            return
-        }
-        guard let app = Self.presets[body.trimmingCharacters(in: .whitespaces).lowercased()] else { return nil }
-        self = .app(app, profile: profile)
     }
 
     /// The word a control reply names this target by: `cmux`, `system`, `app` or `command`.
@@ -78,16 +79,12 @@ public nonisolated enum TerminalLinkOpenerTarget: Sendable, Hashable {
     /// the command line, and then as a new instance, since a running app ignores the arguments of
     /// a plain open: Chromium browsers (`--profile-directory=`, which hands the URL to the running
     /// browser) and Firefox (`-P`). Nil for other targets.
+    /// Rust answers (`link_rules.launch`).
     public func launch(for url: URL) -> TerminalLinkOpenerLaunch? {
-        guard case .app(let app, let profile) = self else { return nil }
-        let name = app.lowercased()
-        guard let profile else { return TerminalLinkOpenerLaunch(app: app, arguments: [], newInstance: false) }
-        if ["chrome", "chromium", "edge", "brave", "vivaldi", "opera"].contains(where: name.contains) {
-            return TerminalLinkOpenerLaunch(app: app, arguments: ["--profile-directory=\(profile)", url.absoluteString], newInstance: true)
-        }
-        if ["firefox", "librewolf", "zen"].contains(where: name.contains) {
-            return TerminalLinkOpenerLaunch(app: app, arguments: ["-P", profile, "-new-tab", url.absoluteString], newInstance: true)
-        }
-        return TerminalLinkOpenerLaunch(app: app, arguments: [], newInstance: false)
+        guard case .app = self else { return nil }
+        let reply = SettingsRust.answer("link_rules.launch", .object(["target": jsonValue, "url": .string(url.absoluteString)]))
+        guard let launch = reply["launch"], let app = launch["app"]?.stringValue else { return nil }
+        return TerminalLinkOpenerLaunch(app: app, arguments: launch["arguments"]?.arrayValue?.compactMap(\.stringValue) ?? [],
+                                        newInstance: launch["newInstance"]?.boolValue ?? false)
     }
 }
