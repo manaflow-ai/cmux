@@ -185,9 +185,10 @@ async fn where_only_the_dialer_takes_connections_the_answerers_connect_becomes_t
     let (tx, rx) = tokio::sync::oneshot::channel();
     let _claim = punches.claim_nonce(nonce, Claim::Dial(tx));
     let listening = serve_claims(dialer, punches.clone());
+    let (dial_to, answer_to) = ([nowhere], [to_dialer]);
     let (dialed, answered) = tokio::join!(
-        open_toward(pd, &[nowhere], Duration::from_millis(800), Some(nonce)),
-        open_toward(pa, &[to_dialer], Duration::from_millis(800), Some(nonce)),
+        open_toward(pd, &dial_to, Duration::from_millis(800), Some(nonce)),
+        open_toward(pa, &answer_to, Duration::from_millis(800), Some(nonce)),
     );
     assert!(dialed.is_none(), "the dialer's own SYNs reach nothing");
     let (mut answer_side, at) = answered.expect("the answerer's connect reached the dialer");
