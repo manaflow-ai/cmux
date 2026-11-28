@@ -1,0 +1,77 @@
+name: cmux patch bundle
+
+# Signs and publishes the patch bundles (cmuxterm-hq docs/rfd/0224-one-update-system.md, phase 5:
+# a fix to a few files reaches hosts on one build with no new build).
+#
+# Each cmux-tui/patches/<channel>/<target>.json names one bundle; this writes its signed file to
+# files.cmux.com/cmux-tui/bundles/<channel>/<target>.json (scripts/ci/cmux-patch-bundle.py). acpmux
+# reads it on every `host self-update` tick, verifies it with the web update key, writes its files and
+# keeps them only while `acpmux --json daemon status` answers
+# (cmux-tui/crates/acpmux/src/cli/host_self_update_bundle.rs). A bundle changes when someone edits it,
+# so there is no timer: a file lasts its manifest's days (14 unless it says); a dispatch re-signs it.
+#
+# Cost: one small Linux job per push that touches a bundle.
+
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - cmux-tui/patches/**
+      - scripts/ci/cmux-patch-bundle.py
+      - .github/workflows/cmux-patch-bundle.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: sign and publish the patch bundles
+    if: ${{ github.repository_owner == 'manaflow-ai' }}
+    # R2 credentials and the web update signing key.
+    environment:
+      name: artifacts
+      deployment: false
+    concurrency:
+      group: cmux-patch-bundle-${{ github.ref }}
+      cancel-in-progress: false
+    runs-on: cmux-linux
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Sign and publish each bundle
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          manifests=(cmux-tui/patches/*/*.json)
+          if (( ${#manifests[@]} == 0 )); then
+            echo "no patch bundle manifests; nothing to publish"
+            exit 0
+          fi
+          dir="$RUNNER_TEMP/patch-bundle"
+          mkdir -p "$dir" && chmod 700 "$dir"
+          keys=Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json
+          (umask 077 && printf '%s\n' "$SIGNING_KEY" > "$dir/key.pem")
+          trap 'rm -f "$dir/key.pem"' EXIT
+          for manifest in "${manifests[@]}"; do
+            channel=$(basename "$(dirname "$manifest")")
+            target=$(basename "$manifest" .json)
+            object="cmux-tui/bundles/$channel/$target.json"
+            python3 scripts/ci/cmux-patch-bundle.py payload --manifest "$manifest" --target "$target" \
+              --now "$(date +%s)" --root . --out "$dir/$channel.$target.payload.json"
+            python3 scripts/cmux-next/web-ota-pointer.py sign --payload "$dir/$channel.$target.payload.json" \
+              --key "$dir/key.pem" --keys "$keys" --out "$dir/$channel.$target.json"
+            python3 scripts/ci/upload-r2-object.py --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries \
+              --cache-control "public, max-age=60" --content-type application/json \
+              --file "$dir/$channel.$target.json" --key "$object"
+            echo "published $object"
+          done

@@ -64,6 +64,9 @@ pub(super) mod tui;
 #[path = "host_self_update_ring.rs"]
 pub(crate) mod ring_tick;
 
+#[path = "host_self_update_bundle.rs"]
+pub(crate) mod bundle_tick;
+
 #[path = "host_update_watch.rs"]
 pub(super) mod watch;
 use tui::{TuiOutcome, TuiSource};
@@ -1166,6 +1169,31 @@ pub(crate) async fn self_update(
     if !now && let Some(why) = ring_tick::hold(&paths.home, channel, ring_now) {
         refuse(run, &why);
         return skipped(channel, "held", &why, None, json_out);
+    }
+    // The channel's signed patch bundle for this build, kept only while the daemon answers
+    // (RFD 0224 phase 5); held by the same kill switch. It never fails the update.
+    let base = installed_build(&paths.installed);
+    let bundle_state = bundle_tick::state(&paths.home, paths.target);
+    let installed = paths.installed.clone();
+    let bundle = bundle_tick::tick(
+        &paths.home,
+        &R2_FETCH,
+        &ring_keys,
+        channel,
+        paths.target,
+        base.as_deref().and_then(build_commit),
+        ring_now,
+        &mut || {
+            bundle_tick::daemon_probe(
+                &installed,
+                &bundle_state,
+                cmux_signed_envelope::patch_bundle::HEALTH_BOUND,
+            )
+        },
+    )
+    .await;
+    if !json_out && let Some(line) = bundle.line() {
+        eprintln!("acpmux: {line}");
     }
     let controller =
         Controller::configured().map(|url| Controller { url, fetch: &CONTROLLER_FETCH });
