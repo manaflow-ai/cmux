@@ -65,7 +65,7 @@ pub(super) async fn handle(
             };
             let filter = family.clone();
             let listed = tokio::task::spawn_blocking(move || {
-                list(dir.as_deref(), &routes::bindings(&state))
+                list(dir.as_deref(), &state, &routes::bindings(&state))
                     .into_iter()
                     .filter(|a| {
                         filter
@@ -92,17 +92,48 @@ pub(super) async fn handle(
                 .to_owned();
             let enabled = params.get("enabled").and_then(Value::as_bool);
             let name = params.get("name").and_then(Value::as_str).map(str::to_owned);
-            tokio::task::spawn_blocking(move || set(dir.as_deref(), &state, &id, enabled, name))
-                .await
-                .map_err(|e| RpcError::internal(e.to_string()))?
+            let instance = params
+                .get("instance")
+                .map(|value| match value {
+                    Value::Null => Ok(None),
+                    Value::String(id) if !id.is_empty() => Ok(Some(id.clone())),
+                    _ => Err(RpcError::invalid_params(
+                        "instance must be a connection instance or null",
+                    )),
+                })
+                .transpose()?;
+            // Only a daemon that understands cloudUse can apply the revision-checked change.
+            if params.get("servesCloud").is_some() {
+                return Err(RpcError::invalid_params("the connection changed while it was open"));
+            }
+            let cloud_use = params
+                .get("cloudUse")
+                .map(|value| {
+                    let on = value
+                        .as_bool()
+                        .ok_or_else(|| RpcError::invalid_params("servesCloud must be a boolean"))?;
+                    let revision = params["keyRevision"]
+                        .as_str()
+                        .filter(|revision| !revision.is_empty())
+                        .ok_or_else(|| {
+                            RpcError::invalid_params("the connection changed while it was open")
+                        })?;
+                    Ok::<_, RpcError>((on, revision.to_owned()))
+                })
+                .transpose()?;
+            tokio::task::spawn_blocking(move || {
+                set(dir.as_deref(), &state, &id, enabled, name, cloud_use, instance)
+            })
+            .await
+            .map_err(|e| RpcError::internal(e.to_string()))?
         }
     }
 }
 
 /// Every account: the Codex CLI's own login first, then the account routes by
 /// id, then the Claude Code login, each with whether it is its family's default.
-pub(super) fn list(dir: Option<&Path>, bindings: &routes::Bindings) -> Vec<Value> {
-    let mut out = listed(dir);
+pub(super) fn list(dir: Option<&Path>, state: &Path, bindings: &routes::Bindings) -> Vec<Value> {
+    let mut out = listed(dir, state);
     for account in &mut out {
         let mut builtin = account["builtin"].as_bool().unwrap_or(false);
         if account["id"] == CLAUDE_LOGIN_ID {
@@ -131,7 +162,7 @@ pub(super) fn is_default(
     }
 }
 
-fn listed(dir: Option<&Path>) -> Vec<Value> {
+fn listed(dir: Option<&Path>, state: &Path) -> Vec<Value> {
     let mut out = Vec::new();
     if let Ok(builtin) = routes::find(dir, routes::CODEX_LOGIN_ROUTE_ID) {
         let home = builtin.file.account_home.clone().map(PathBuf::from);
@@ -139,8 +170,43 @@ fn listed(dir: Option<&Path>) -> Vec<Value> {
         out.push(view(&builtin, "codex", home.as_deref(), folder.as_deref(), true));
     }
     for route in routes::load(dir).0 {
+        match route.file.kind {
+            // Models lists and manages these grants.
+            RouteKind::ChatgptPlan | RouteKind::ClaudeToken => continue,
+            RouteKind::GrokPlan | RouteKind::CopilotPlan | RouteKind::KimiPlan => {
+                if let Some(provider) = crate::subscriptions::Provider::for_kind(route.file.kind) {
+                    out.push(key_view(
+                        &route,
+                        provider.family(),
+                        provider.signed_in(state, &route.id),
+                    ));
+                }
+                continue;
+            }
+            _ => {}
+        }
+        if route.is_openrouter() {
+            out.push(key_view(&route, "openrouter", true));
+        }
+        if let Some(provider) = route.native_key_provider()
+            && !route.file.families.iter().any(|family| family == provider.name())
+        {
+            out.push(key_view(&route, provider.name(), route.file.secret.is_some()));
+        }
+        if route.file.kind == RouteKind::DirectApiKey
+            && route.file.provider() == "openrouter"
+            && route.file.families.iter().any(|family| family == "claude")
+            && route.file.families.len() > 1
+        {
+            out.push(key_view(&route, "claude", route.file.secret.is_some()));
+        }
         let family = match route.file.families.as_slice() {
-            [f] if f == "codex" || f == "claude" => f.clone(),
+            [f] if f == "codex"
+                || f == "claude"
+                || route.native_key_provider().is_some_and(|provider| provider.name() == f) =>
+            {
+                f.clone()
+            }
             _ => continue,
         };
         if route.id == routes::CODEX_LOGIN_ROUTE_ID {
@@ -247,42 +313,76 @@ fn set(
     id: &str,
     enabled: Option<bool>,
     name: Option<String>,
+    cloud_use: Option<(bool, String)>,
+    instance: Option<Option<String>>,
 ) -> Result<Value, RpcError> {
     let error = |e: routes::RouteError| crate::hub::route_error(&e);
+    if cloud_use.is_some() && !matches!(&instance, Some(Some(_))) {
+        return Err(RpcError::invalid_params("servesCloud needs a connection instance"));
+    }
     if id == CLAUDE_LOGIN_ID && routes::find(dir, id).is_err() {
+        if cloud_use.is_some() {
+            return Err(RpcError::invalid_params("servesCloud needs an API-key connection"));
+        }
         return set_claude_login(state, enabled);
     }
-    let route = routes::find(dir, id).map_err(error)?;
-    // A key, and the Cloud connections whose credential is a reference or the daemon's own token.
-    let key = matches!(
-        route.file.kind,
-        RouteKind::DirectApiKey | RouteKind::ChatgptPlan | RouteKind::ClaudeToken
-    );
-    if !key
-        && (route.file.kind != RouteKind::DirectSubscription
-            || (id != routes::CODEX_LOGIN_ROUTE_ID && route.file.account_home.is_none()))
-    {
-        return Err(RpcError::invalid_params(format!("{id} is not an account")));
-    }
-    let mut file = route.file.clone();
-    if let Some(enabled) = enabled {
-        file.disabled = !enabled;
-    }
-    if let Some(name) = name.filter(|n| !n.trim().is_empty()) {
-        file.name = Some(name.trim().to_owned());
-    }
-    let written = routes::add(dir, id, &file, true).map_err(error)?;
+    let (written, key) = routes::edit(dir, id, |file| {
+        if instance.as_ref().is_some_and(|expected| expected != &file.credential_instance) {
+            return Err(routes::RouteError::BadParams(
+                "the connection changed while it was open".into(),
+            ));
+        }
+        let key = matches!(
+            file.kind,
+            RouteKind::DirectApiKey
+                | RouteKind::ChatgptPlan
+                | RouteKind::ClaudeToken
+                | RouteKind::GrokPlan
+                | RouteKind::CopilotPlan
+                | RouteKind::KimiPlan
+        );
+        if !key
+            && (file.kind != RouteKind::DirectSubscription
+                || (id != routes::CODEX_LOGIN_ROUTE_ID && file.account_home.is_none()))
+        {
+            return Err(routes::RouteError::BadParams(format!("{id} is not an account")));
+        }
+        if let Some((on, revision)) = &cloud_use {
+            let current = super::connections::key_revision(file).ok_or_else(|| {
+                routes::RouteError::BadParams("servesCloud needs an API-key connection".into())
+            })?;
+            if current != *revision {
+                return Err(routes::RouteError::BadParams(
+                    "the connection changed while it was open".into(),
+                ));
+            }
+            file.cloud_enabled = Some(*on);
+        }
+        if let Some(enabled) = enabled {
+            file.disabled = !enabled;
+        }
+        if let Some(name) = name.filter(|n| !n.trim().is_empty()) {
+            file.name = Some(name.trim().to_owned());
+        }
+        Ok(key)
+    })
+    .map_err(error)?;
+    let file = &written.file;
     // An account turned off is no longer a workspace's, a family's or the global default: new chats
     // fall back to the CLI's own login instead of moving onto it by themselves (as a removed route's
     // defaults are cleared). A chat bound to it keeps running on it (`RouteFile::disabled`).
-    if file.disabled {
+    if file.disabled && (cloud_use.is_none() || enabled.is_some()) {
         routes::update_bindings(state, |b| clear_defaults(b, id)).map_err(error)?;
     }
     let family = file.families.first().cloned().unwrap_or_else(|| "codex".into());
     if key {
         let signed_in = match written.file.kind {
             RouteKind::ChatgptPlan => {
-                crate::chatgpt::store::read(state, id).ok().flatten().is_some_and(|r| r.signed_in())
+                crate::chatgpt::store::metadata(state, id).is_some_and(|r| r.signed_in())
+            }
+            RouteKind::GrokPlan | RouteKind::CopilotPlan | RouteKind::KimiPlan => {
+                crate::subscriptions::Provider::for_kind(written.file.kind)
+                    .is_some_and(|provider| provider.signed_in(state, id))
             }
             _ => written.file.secret.is_some(),
         };
@@ -373,7 +473,7 @@ pub(super) fn set_for_test(
     id: &str,
     enabled: Option<bool>,
 ) -> Result<Value, RpcError> {
-    set(dir, state, id, enabled, None)
+    set(dir, state, id, enabled, None, None, None)
 }
 
 #[cfg(test)]

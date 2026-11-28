@@ -2,8 +2,9 @@
 // right; Leo, 2026-11-22: "this is simply logins, done righr."): on a host that lists the sign-in
 // accounts the card opens under the row, on the CLI's own Claude login when it is signed out, else
 // a new Claude account (as the host's `connectClaude` picks); a daemon without the in-place
-// sign-in, or a host that does not list the accounts, keeps `connectClaude` (its terminal sign-in).
+// sign-in, or a host that does not list the accounts, opens the Settings login dialog.
 import { afterAll, afterEach, expect, test } from "bun:test";
+import { act } from "react";
 import { mockModels } from "./mockModels";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
@@ -12,7 +13,7 @@ import type { AccountRowWire } from "../shared/signIn/accountSignIn";
 
 const restore = installDom();
 afterAll(() => restore());
-const { renderPage, click, settle, changeValue } = await import("./testing");
+const { renderPage, click, settle, changeValue, ops } = await import("./testing");
 
 let page: Rendered | null = null;
 afterEach(() => {
@@ -29,6 +30,10 @@ async function open(options: { accounts?: AccountRowWire[] | null; olderDaemon?:
     path: "/settings/models",
     setup: (provider) => {
       provider.models = structuredClone(mockModels.macLogins);
+      if (options.accounts === claudeSignedOut) {
+        provider.models.personal.connections.find((row) => row.id === "claude-login")!.signedIn = false;
+        provider.models.claudeLogin = { phase: "idle", error: null, signedIn: false };
+      }
       if (options.accounts !== null) {
         provider.accounts = {
           ...provider.accounts,
@@ -54,6 +59,8 @@ const card = (rendered: Rendered) =>
 
 test("Sign In Again on a signed-out Claude login signs that login in, in place", async () => {
   const rendered = await open({ accounts: claudeSignedOut });
+  expect(ops(rendered.provider, "cmux.settings.accounts.state")).toHaveLength(1);
+  expect(rendered.provider.accountRuns).toEqual([]);
   await signInAgain(rendered);
   expect(card(rendered)?.dataset.state).toBe("waiting");
   expect(rendered.provider.accountRuns.find((run) => run.action === "signInStart")).toMatchObject({
@@ -73,14 +80,31 @@ test("Sign In Again with the CLI's login signed in adds a new Claude account, in
   expect(rendered.provider.modelRuns.some((run) => run.action === "connectClaude")).toBe(false);
 });
 
-test("a daemon without the in-place sign-in, or a host without the accounts, keeps connectClaude", async () => {
+test("the row opens the Settings Claude login if in-place sign-in is unavailable", async () => {
   for (const options of [{ olderDaemon: true }, { accounts: null }]) {
     const rendered = await open(options);
+    await act(async () =>
+      rendered.provider.setModels({
+        ...rendered.provider.models!,
+        claudeLogin: { phase: "connected", error: null, signedIn: true },
+      }),
+    );
     await signInAgain(rendered);
+    const form = document.querySelector('[data-models-dialog="claude-login"] [data-models-claude-form]')!;
+    const connect = form.querySelector<HTMLButtonElement>('[data-models-action="connectClaude"]')!;
+    expect(connect.disabled).toBe(false);
+    await click(connect);
     expect(rendered.provider.modelRuns.filter((run) => run.action === "connectClaude")).toEqual([
-      { action: "connectClaude" },
+      { action: "connectClaude", cloud: false },
     ]);
     expect(card(rendered)).toBeNull();
+    await act(async () =>
+      rendered.provider.setModels({
+        ...rendered.provider.models!,
+        claudeLogin: { phase: "code", error: null },
+      }),
+    );
+    expect(form.querySelector('input[type="password"]')).not.toBeNull();
     rendered.unmount();
     page = null;
   }
@@ -88,18 +112,35 @@ test("a daemon without the in-place sign-in, or a host without the accounts, kee
 
 test("a finished in-place sign-in reads Models again, so the row shows it", async () => {
   const rendered = await open({ accounts: claudeSignedOut, held: false });
+  const row = () => rendered.container.querySelector('[data-card="models"] [data-connection="claude-login"]')!;
+  expect(row().textContent).toContain("Sign in needed");
   await signInAgain(rendered);
   // The host's Models changed with the sign-in but sent no change: only a fresh read shows it.
-  const models = structuredClone(mockModels.macLogins);
+  const models = structuredClone(rendered.provider.models!);
   const own = models.personal!.connections.find((connection) => connection.id === "claude-login")!;
-  own.email = "signed-in@example.com";
+  own.signedIn = true;
   rendered.provider.models = models;
   const form = rendered.container.querySelector<HTMLElement>('[data-connection-sign-in="claude-login"] .signin')!;
   await changeValue(form.querySelector<HTMLInputElement>("input")!, "pasted-code");
   await click(form.querySelector<HTMLElement>('[data-sign-in-action="continue"]')!);
   await settle();
   expect(card(rendered)?.dataset.state).toBe("signedIn");
-  expect(
-    rendered.container.querySelector('[data-card="models"] [data-connection="claude-login"]')?.textContent,
-  ).toContain("signed-in@example.com");
+  expect(row().textContent).not.toContain("Sign in needed");
+  await click(row().querySelector('[data-menu="connection-claude-login"]')!);
+  expect(document.querySelector('[role="menuitem"][data-value="signOutClaude"]')?.textContent).toBe("Sign Out");
+});
+
+test("Sign In Again renews a standalone ChatGPT plan through its device flow on an in-place host", async () => {
+  const rendered = await open();
+  const models = structuredClone(mockModels.macLogins);
+  const plan = models.personal.connections.find((row) => row.kind === "chatgpt-plan")!;
+  plan.signedIn = false;
+  plan.expiresAt = Math.floor(Date.now() / 1000) - 1;
+  await act(async () => rendered.provider.setModels(models));
+  await click(rendered.container.querySelector('[data-menu="connection-chatgpt"]')!);
+  await click(document.querySelector('[role="menuitem"][data-value="signInAgain"]')!);
+  const form = document.querySelector("[data-models-dialog]")!;
+  await click(form.querySelector('[data-models-action="connectChatGPTDevice"]')!);
+  expect(rendered.provider.modelRuns).toEqual([{ action: "connectChatGPTDevice", openBrowser: true, id: plan.id }]);
+  expect(rendered.provider.accountRuns).toEqual([]);
 });
