@@ -5,6 +5,7 @@ import CmuxNextCloudUI
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
+import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSidebar
 import Foundation
@@ -48,9 +49,7 @@ enum TopPages {
     /// Leaves the active window's top page for its workspace at once (a
     /// History or Bookmarks row opens there). True when a page was left.
     @discardableResult
-    static func leave(_ services: AppServices) -> Bool {
-        services.windows.active?.leaveTopPage() ?? false
-    }
+    static func leave(_ services: AppServices) -> Bool { services.windows.active?.leaveTopPage() ?? false }
 
     private static func registerFlagged(_ provider: WebPageTab, action: ActionID, services: AppServices, reason: String, shows: @escaping (CmuxConfigSnapshot) -> Bool) {
         services.pages.register(provider)
