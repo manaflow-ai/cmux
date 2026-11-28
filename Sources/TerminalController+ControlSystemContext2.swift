@@ -45,7 +45,7 @@ extension TerminalController {
             return .missingAction
         }
 
-        let resolvesMirroredTab = action == "rename"
+        let resolvesMirroredTab = action == "rename" || action == "rename_tab" || action == "clear_name"
         let workspace = resolvesMirroredTab
             ? resolveSurfaceWorkspace(routing: routing, tabManager: tabManager)
             : controlTabActionResolveWorkspace(routing: routing, tabManager: tabManager)
@@ -160,17 +160,29 @@ extension TerminalController {
         }
 
         switch action {
-        case "rename":
+        case "rename", "rename_tab":
             guard let titleRaw = title,
                   !titleRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return .invalidTitle
             }
             let trimmedTitle = titleRaw.trimmingCharacters(in: .whitespacesAndNewlines)
-            workspace.setPanelCustomTitle(panelId: panelId, title: trimmedTitle)
+            // A default or explicitly window-scoped rename targets the mirror
+            // container. Explicit pane renames retain the projected identity.
+            let targetsWindow = action == "rename_tab" || (surfaceID == nil && routing.paneID == nil)
+            let titlePanelID = targetsWindow ? panelId : surfaceId
+            let isRemoteTmuxTarget = workspace.remoteTmuxControlPane(surfaceID: titlePanelID) != nil
+                || workspace.isRemoteTmuxControlContainer(titlePanelID)
+            guard workspace.setPanelCustomTitle(panelId: titlePanelID, title: trimmedTitle) || !isRemoteTmuxTarget else {
+                return .renameFailed
+            }
             return finish(.title(trimmedTitle))
 
         case "clear_name":
-            workspace.setPanelCustomTitle(panelId: panelId, title: nil)
+            let titlePanelID = resolvesMirroredTab ? surfaceId : panelId
+            let isProjectedTmuxPane = workspace.remoteTmuxControlPane(surfaceID: titlePanelID) != nil
+            guard workspace.setPanelCustomTitle(panelId: titlePanelID, title: nil) || !isProjectedTmuxPane else {
+                return .renameFailed
+            }
             return finish(.none)
 
         case "pin":

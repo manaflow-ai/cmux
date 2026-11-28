@@ -175,7 +175,7 @@ import Testing
         )
 
         #expect(result.status == 0, Comment(rawValue: result.stderr))
-        #expect(result.stdout == "fake-tmux <-CC> <attach-session> <-t> <work session>\n")
+        #expect(result.stdout == "fake-tmux <-u> <-CC> <attach-session> <-t> <work session>\n")
     }
 
     @Test func controlModeArgumentsUseRemoteTmuxResolverAfterDestinationGuard() throws {
