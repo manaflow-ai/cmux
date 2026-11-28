@@ -31,22 +31,3 @@ public struct CloudHostReplicaSetRequest: DaemonRequest, CustomStringConvertible
     /// Never prints the token.
     public var description: String { "cloud-host-replica-set(\(apiBaseURL), expires_at: \(expiresAt))" }
 }
-
-/// `cloud-host-replica-clear`: drops the lease. `purge` deletes the cloud
-/// copy first; the lease goes when the cloud confirms.
-public struct CloudHostReplicaClearRequest: DaemonRequest {
-    public typealias Response = CloudHostReplicaState
-    public static let command = "cloud-host-replica-clear"
-    public var purge: Bool
-
-    public init(purge: Bool) {
-        self.purge = purge
-    }
-}
-
-/// `cloud-host-replica-status`.
-public struct CloudHostReplicaStatusRequest: DaemonRequest {
-    public typealias Response = CloudHostReplicaState
-    public static let command = "cloud-host-replica-status"
-    public init() {}
-}

@@ -1208,6 +1208,29 @@ class RepositoryBindingsTests(unittest.TestCase):
         self.assertIn("public var workspace: WorkspaceRef", source)
         self.assertNotIn("detached", source)
 
+    def test_cloud_requests_keep_legacy_nil_capability_gates(self) -> None:
+        bindings = generate.load_bindings(generate.DEFAULT_BINDINGS)
+        files = render(load_ir(generate.DEFAULT_SCHEMA), bindings)
+        names = (
+            "CloudInboxSubscribeRequest", "CloudInboxUnsubscribeRequest", "CloudMessageRequestsRequest",
+            "CloudSessionClearRequest", "CloudSessionStatusRequest", "CloudHostReplicaClearRequest",
+            "CloudHostReplicaStatusRequest", "CloudConversationSubscribeRequest", "CloudConversationUnsubscribeRequest",
+        )
+        for name in names:
+            with self.subTest(request=name):
+                source = files[f"CloudConversations/{name}.generated.swift"]
+                self.assertNotIn("requiredCapability", source)
+        for name in ("CloudSelfHostInfoRequest", "CloudConversationTypingRequest"):
+            with self.subTest(request=name):
+                self.assertIn("requiredCapability", files[f"CloudConversations/{name}.generated.swift"])
+
+    def test_cloud_replica_clear_keeps_explicit_purge_and_always_encodes_it(self) -> None:
+        bindings = generate.load_bindings(generate.DEFAULT_BINDINGS)
+        files = render(load_ir(generate.DEFAULT_SCHEMA), bindings)
+        source = files["CloudConversations/CloudHostReplicaClearRequest.generated.swift"]
+        self.assertIn("public init(purge: Bool)", source)
+        self.assertIn("try container.encode(purge, forKey: .purge)", source)
+
     def test_the_repository_passes_its_own_check(self) -> None:
         """No generated type is still declared by hand in CmuxNextDaemon (the build would fail to compile)."""
         self.assertEqual(

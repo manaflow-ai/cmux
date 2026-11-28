@@ -2835,6 +2835,88 @@
             "the lease names says the person is (`GET /v1/selfhost/info`, asked by the",
             "daemon without a token). Refused (`not_selfhost`) under a bearer lease."
           ]
+        },
+        "cloud-inbox-subscribe": {
+          "name": "CloudInboxSubscribeRequest",
+          "response": "CloudSubscription",
+          "allow_unadvertised_capability": "cloud-conversations-v1",
+          "doc": [
+            "`cloud-inbox-subscribe`: the daemon's shared inbox socket for this connection."
+          ]
+        },
+        "cloud-inbox-unsubscribe": {
+          "name": "CloudInboxUnsubscribeRequest",
+          "response": "EmptyResponse",
+          "allow_unadvertised_capability": "cloud-conversations-v1",
+          "doc": [
+            "`cloud-inbox-unsubscribe`."
+          ]
+        },
+        "cloud-requests-list": {
+          "name": "CloudMessageRequestsRequest",
+          "response": "CloudMessageRequests",
+          "allow_unadvertised_capability": "cloud-conversations-v1",
+          "doc": [
+            "`cloud-requests-list`: the account's open message requests (the Worker's `home.requests.list`,",
+            "plans/cmux-next/home-messaging-invites/DESIGN.md 2.3): invites from people the user is not",
+            "connected to, for the verified email the app's lease is for. Answered with",
+            "`CloudConversationOp.acceptRequest` or `.dismissRequest(block:)`."
+          ]
+        },
+        "cloud-session-clear": {
+          "name": "CloudSessionClearRequest",
+          "response": "CloudSessionState",
+          "allow_unadvertised_capability": "cloud-conversations-v1",
+          "doc": [
+            "`cloud-session-clear`: ends the lease (sign-out, account switch)."
+          ]
+        },
+        "cloud-session-status": {
+          "name": "CloudSessionStatusRequest",
+          "response": "CloudSessionState",
+          "allow_unadvertised_capability": "cloud-conversations-v1",
+          "doc": [
+            "`cloud-session-status`."
+          ]
+        },
+        "cloud-host-replica-clear": {
+          "name": "CloudHostReplicaClearRequest",
+          "response": "CloudHostReplicaState",
+          "allow_unadvertised_capability": "cloud-host-replica-v1",
+          "doc": [
+            "`cloud-host-replica-clear`: drops the lease. `purge` deletes the cloud",
+            "copy first; the lease goes when the cloud confirms."
+          ],
+          "fields": {
+            "purge": {
+              "optional": false,
+              "encode": "always"
+            }
+          }
+        },
+        "cloud-host-replica-status": {
+          "name": "CloudHostReplicaStatusRequest",
+          "response": "CloudHostReplicaState",
+          "allow_unadvertised_capability": "cloud-host-replica-v1",
+          "doc": [
+            "`cloud-host-replica-status`."
+          ]
+        },
+        "cloud-conversation-subscribe": {
+          "name": "CloudConversationSubscribeRequest",
+          "response": "CloudSubscription",
+          "allow_unadvertised_capability": "cloud-conversations-v1",
+          "doc": [
+            "`cloud-conversation-subscribe`: at most 64 per daemon (`too_many_subscriptions`)."
+          ]
+        },
+        "cloud-conversation-unsubscribe": {
+          "name": "CloudConversationUnsubscribeRequest",
+          "response": "EmptyResponse",
+          "allow_unadvertised_capability": "cloud-conversations-v1",
+          "doc": [
+            "`cloud-conversation-unsubscribe`."
+          ]
         }
       }
     },

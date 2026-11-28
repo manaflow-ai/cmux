@@ -47,17 +47,3 @@ public struct CloudSessionSetRequest: DaemonRequest, CustomStringConvertible {
         return "cloud-session-set(\(apiBaseURL), expires_at: \(expiresAt ?? 0))"
     }
 }
-
-/// `cloud-session-clear`: ends the lease (sign-out, account switch).
-public struct CloudSessionClearRequest: DaemonRequest {
-    public typealias Response = CloudSessionState
-    public static let command = "cloud-session-clear"
-    public init() {}
-}
-
-/// `cloud-session-status`.
-public struct CloudSessionStatusRequest: DaemonRequest {
-    public typealias Response = CloudSessionState
-    public static let command = "cloud-session-status"
-    public init() {}
-}

@@ -25,19 +25,6 @@ public struct CloudConversationOpRequest: DaemonRequest {
     }
 }
 
-/// `cloud-conversation-subscribe`: at most 64 per daemon (`too_many_subscriptions`).
-public struct CloudConversationSubscribeRequest: DaemonRequest {
-    public typealias Response = CloudSubscription
-    public static let command = "cloud-conversation-subscribe"
+extension CloudConversationSubscribeRequest {
     public static let maxSubscriptions = 64
-    public var conversation: String
-    public init(conversation: String) { self.conversation = conversation }
-}
-
-/// `cloud-conversation-unsubscribe`.
-public struct CloudConversationUnsubscribeRequest: DaemonRequest {
-    public typealias Response = EmptyResponse
-    public static let command = "cloud-conversation-unsubscribe"
-    public var conversation: String
-    public init(conversation: String) { self.conversation = conversation }
 }
