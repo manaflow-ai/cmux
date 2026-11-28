@@ -67,8 +67,55 @@ class Route(unittest.TestCase):
         self.assertEqual(npb.route([npb.WORKFLOW]), {"swift": True, "helpers": True})
         self.assertEqual(npb.route(["scripts/ci/nightly_pr_build.py"]), {"swift": True, "helpers": True})
 
+    def test_trunk_only_starts_on_no_pull_request_unless_per_pr(self) -> None:
+        # The tip's coalesced push runs it; no PR head starts it (land's ask, the train's tip) unless the switch is 1.
+        name = "nightly-pr-build.yml"
+        callees = pr_router.load_manifest()
+        self.assertTrue(callees[name].get("trunk_only"))
+        repo = {"full_name": "manaflow-ai/cmux"}
+        pr = {"draft": False, "head": {"repo": repo}, "base": {"ref": "feat-cmux-next", "repo": repo},
+              "labels": [{"name": "ready-to-land"}]}
+        tip = {**pr, "head": {"repo": repo, "ref": pr_router.TRAIN_TIP}}
+        for event in ({"action": "labeled", "label": {"name": "ready-to-land"}, "pull_request": pr},
+                      {"action": "labeled", "label": {"name": "full-ci"}, "pull_request": pr},
+                      {"action": "synchronize", "pull_request": tip},
+                      {"action": "opened", "pull_request": {**pr, "labels": []}}):
+            tier = pr_router.head_tier.tier("pull_request", event, land_switch="1", land_full_switch="0")
+            for per_pr, at_land in (("0", "1"), ("", "0"), ("1", "1")):
+                env = {"CI_NIGHTLY_PR_BUILD_AT_LAND": at_land}
+                if per_pr:
+                    env["CI_NIGHTLY_PR_BUILD_PER_PR"] = per_pr
+                with self.subTest(action=event["action"], per_pr=per_pr), mock.patch.dict(os.environ, env):
+                    if not per_pr:
+                        os.environ.pop("CI_NIGHTLY_PR_BUILD_PER_PR", None)
+                    start, why = pr_router.route(event, callees, [npb.WORKFLOW], decided=tier)
+                    if per_pr != "1":
+                        self.assertNotIn(name, start)
+                        self.assertIn("trunk only", why[name])
+        router = (ROOT / ".github/workflows/pr-router.yml").read_text()
+        self.assertIn("CI_NIGHTLY_PR_BUILD_PER_PR: ${{ vars.CI_NIGHTLY_PR_BUILD_PER_PR || '0' }}", router)
+
+    def test_tip_push_runs_once_per_window_from_the_last_tested_tip(self) -> None:
+        text = (ROOT / npb.WORKFLOW).read_text()
+        self.assertRegex(text, r"on:\n  push:\n    branches: \[feat-cmux-next\]\n  workflow_call:")
+        coalesce = re.search(r"^  coalesce:\n((?:    .*\n|\n)*?)(?=^  [a-z])", text, re.M).group(1)
+        self.assertIn("uses: ./.github/workflows/base-coalesce.yml", coalesce)
+        self.assertIn("key: nightly-pr-build", coalesce)
+        self.assertIn("hold_minutes: 30", coalesce)
+        self.assertIn("vars.CI_NIGHTLY_PR_BUILD_COALESCE", coalesce)
+        route = re.search(r"^  route:\n((?:    .*\n|\n)*?)(?=^  [a-z#])", text, re.M).group(1)
+        self.assertIn("needs: [coalesce]", route)
+        self.assertIn("needs.coalesce.outputs.run != 'false'", route)
+        self.assertIn("needs.coalesce.outputs.base", route)
+        # A tip push builds and reports on its own sha; no step reads only the pull request's head.
+        self.assertNotRegex(text, r"github\.event\.pull_request\.head\.sha \}\}")
+
     def test_landing_routes_changed_inputs_without_the_full_tier(self) -> None:
         name = "nightly-pr-build.yml"
+        # The per-PR path (CI_NIGHTLY_PR_BUILD_PER_PR=1) keeps the land-ask rule below.
+        patch = mock.patch.dict(os.environ, {"CI_NIGHTLY_PR_BUILD_PER_PR": "1"})
+        patch.start()
+        self.addCleanup(patch.stop)
         callees = pr_router.load_manifest()
         repo = {"full_name": "manaflow-ai/cmux"}
         pr = {"draft": False, "head": {"repo": repo}, "base": {"ref": "feat-cmux-next", "repo": repo},
@@ -135,14 +182,15 @@ class Record(unittest.TestCase):
         self.assertTrue(key.startswith("nightly-pr-build-arm64-"))
         self.assertEqual(key, json.loads(subprocess.check_output(
             [sys.executable, str(ROOT / "scripts/ci/nightly_pr_build.py"), "keys", "--rev", "HEAD"],
-            text=True, cwd=ROOT).split("keys=", 1)[1])["arm64"])
+            text=True, cwd=ROOT).split("keys=", 1)[1].splitlines()[0])["arm64"])
 
 
 class Keys(unittest.TestCase):
     def test_keys_differ_by_arch_and_are_stable(self) -> None:
         first = npb.keys("HEAD")
         self.assertEqual(sorted(first), sorted([*npb.ARCHS, "helpers"]))
-        self.assertNotEqual(first["arm64"], first["x86_64"])
+        self.assertTrue(first["arm64"].startswith("nightly-pr-build-arm64-"))
+        self.assertEqual(len(set(first.values())), len(first))
         self.assertEqual(first, npb.keys("HEAD"))
 
     def test_source_head_can_predate_the_merge_ref_recipe(self) -> None:
@@ -171,11 +219,28 @@ class Keys(unittest.TestCase):
 
 
 class Workflow(unittest.TestCase):
+    def test_archs_are_slices_the_default_ffi_release_builds(self) -> None:
+        # The app links the pinned CCmuxAppFFI xcframework; an arch it lacks fails every link
+        # (run 46060630916 job 140714069102: x86_64 against the arm64-only pin). The default
+        # release's arch list is the `|| '...'` side of CMUX_APP_FFI_ARCHS (universal=false).
+        release = (ROOT / ".github/workflows/app-ffi-release.yml").read_text()
+        match = re.search(r"CMUX_APP_FFI_ARCHS: \$\{\{ inputs.universal && '[^']*' \|\| '([^']*)' \}\}", release)
+        self.assertIsNotNone(match, "app-ffi-release.yml CMUX_APP_FFI_ARCHS no longer has its universal-or-default shape")
+        built = set(match.group(1).split(","))
+        self.assertLessEqual(set(npb.ARCHS), built, f"nightly_pr_build.ARCHS asks for an arch the pinned FFI lacks: {built}")
+
+    def test_keys_prints_the_matrix_archs(self) -> None:
+        out = subprocess.run([sys.executable, str(ROOT / "scripts/ci/nightly_pr_build.py"), "keys", "--rev", "HEAD"],
+                             cwd=ROOT, check=True, capture_output=True, text=True).stdout
+        archs = [line for line in out.splitlines() if line.startswith("archs=")]
+        self.assertEqual(archs, ["archs=" + json.dumps(list(npb.ARCHS), separators=(",", ":"))])
+
     def test_swift_job_is_the_nightly_compile_as_a_fleet_job(self) -> None:
         text = (ROOT / npb.WORKFLOW).read_text()
         self.assertIn("--script scripts/cmux-next/check-release-compile.sh", text)
         self.assertIn("--arg=--nightly", text)
-        self.assertIn("arch: [arm64, x86_64]", text)
+        self.assertIn("arch: ${{ fromJSON(needs.route.outputs.archs) }}", text)
+        self.assertIn("archs: ${{ steps.keys.outputs.archs }}", text)
         # One arch's red cancels the other arch's wait (the reds are arch-independent).
         self.assertIn("fail-fast: true", text)
         # A cancelled arch cancels its fleet step too, so it does not build for nobody.
@@ -183,7 +248,7 @@ class Workflow(unittest.TestCase):
             "if: ${{ cancelled() && steps.cache.outputs.cache-hit != 'true' && steps.verdict.outputs.passed != 'true' }}", text
         )
         self.assertIn('"$client" cancel "$step" --reason "nightly pr build: job cancelled"', text)
-        self.assertEqual(sorted(npb.ARCHS), ["arm64", "x86_64"])
+        self.assertIn("arm64", npb.ARCHS)
         # The gateway runner refuses any job whose id does not end in -fleet.
         gateway = re.findall(r"^  ([a-z0-9_-]+):\n(?:    .*\n)*?    runs-on: \$\{\{ vars.CI_EVAL_STEP_GATEWAY", text, re.M)
         self.assertTrue(gateway)

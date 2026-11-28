@@ -5,19 +5,44 @@
 # feat-cmux-next push) is fresh here and only what the pull request changed compiles.
 #
 #   scripts/ci/cmux-next-member-tests.sh MEMBER_DIR     (MEMBER_DIR under cmux-tui/, e.g. crates/acpmux)
+#   scripts/ci/cmux-next-member-tests.sh MEMBER_DIR TEST FILTER
+#                                         one of the member's gate test targets only, and only the gate tests whose
+#                                         path holds FILTER (FILTER starts within cmux_next_'s module path, e.g.
+#                                         `it idle_wakeups::cmux_next_`: ci/steps.toml cmux-next-idle-wakeups)
 #
 # Fails when a test fails, when nothing compiles, and when the filter runs no test (as the gate does). A recognized
 # Cargo fetch failure is retried twice, as in the gate.
 set -euo pipefail
-member="${1:?usage: $0 MEMBER_DIR}"
+member="${1:?usage: $0 MEMBER_DIR [TEST FILTER]}"
+only_test="${2:-}"
+filter="${3:-cmux_next_}"
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo/cmux-tui"
 read -r -a args <<<"$(../scripts/ci/cmux-next-daemon-test-packages.sh "$member")"
+if [[ -n "$only_test" ]]; then
+  # The gate's own target only, so the gate's saved target covers it and a red here is a red there.
+  [[ " ${args[*]} " == *" --test $only_test "* ]] || { echo "::error::$member's gate targets (${args[*]}) have no --test $only_test"; exit 2; }
+  [[ "$filter" == *cmux_next_* ]] || { echo "::error::filter $filter selects tests the gate does not run (it holds no cmux_next_)"; exit 2; }
+  args=("${args[0]}" "${args[1]}" --test "$only_test")
+fi
 channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' rust-toolchain.toml)"
 rustup toolchain install "$channel" --profile minimal --component clippy,rustfmt
 # cmux-next-daemon-tests' env, word for word: the saved target's fingerprints hold it.
 export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_HTTP_MULTIPLEXING=false TMPDIR=/tmp CMUX_GHOSTTY_SRC=""
 export GHOSTTY_ZIG_SOURCE=ghostty-next CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2
+# The workspace's heaviest rustc compile one at a time (scripts/ci/cargo-giant-lock.sh, as cargo-groups.sh does when
+# capped). CARGO_BUILD_JOBS=2 still let acpmux (over 10.6 GB at opt-level 0) and cmux-tui-core (5.3 GB), or cmux-tui's
+# lib started on acpmux's metadata, compile at once, and the kernel SIGKILLed acpmux's rustc on the 14-16 GiB pr pipeline
+# / linux runners: cmux-next-idle-wakeups in runs 46170006062 (both attempts) and 46174703227 (cmux#64797, cmux#64815).
+# A wrapper leaves flags and outputs as they were, so the saved target's fingerprints still hold. CARGO_GROUPS_GIANTS
+# overrides the crates; CARGO_GROUPS_NO_GIANT_LOCK=1 turns it off.
+if [[ -z "${CARGO_GROUPS_NO_GIANT_LOCK:-}" ]] && command -v flock >/dev/null 2>&1; then
+  export CARGO_GROUPS_GIANTS="${CARGO_GROUPS_GIANTS:-acpmux cmux_tui_core cmux_tui}"
+  export CARGO_GROUPS_GIANT_LOCK="$(mktemp -d /tmp/cmux-next-giant.XXXXXX)/giant.lock"
+  export CARGO_GROUPS_INNER_WRAPPER="${RUSTC_WRAPPER:-}"
+  export RUSTC_WRAPPER="$repo/scripts/ci/cargo-giant-lock.sh"
+  echo "cmux_next_ tests of $member: giants ($CARGO_GROUPS_GIANTS) compile one at a time"
+fi
 unset CMUX_ZIG ZIG
 ../scripts/ci/cmux-tui-test-target.sh restore
 home="$(mktemp -d /tmp/acpmux-home.XXXXXX)"
@@ -30,7 +55,7 @@ for attempt in 1 2 3; do
   # set -e would end the script on a failing pipeline: keep it off for the test so the retry, the timing line and the
   # daemon cleanup below still run.
   set +e
-  cargo test "${args[@]}" --locked cmux_next_ 2>&1 | tee "$log"
+  cargo test "${args[@]}" --locked "$filter" 2>&1 | tee "$log"
   status=${PIPESTATUS[0]}
   set -e
   if [ "$status" -ne 0 ] && python3 ../scripts/cmux-next/cargo-locks.py explain "$log"; then break; fi
@@ -49,7 +74,7 @@ for attempt in 1 2 3; do
 done
 echo "cmux_next_ tests of $member: cargo test took $((SECONDS - start)) s (exit $status)"
 case "$(head -c 300 "$(command -v cargo)" 2>/dev/null | tr -d '\0')" in
-  *RUSTC_WRAPPER=*sccache*) sccache --show-stats || true ;;
+  *RUSTC_WRAPPER*sccache*|*sccache*RUSTC_WRAPPER*) sccache --show-stats || true ;;
 esac
 # End the daemon of this home and its agents, then delete the home (a path this script made).
 acpmux="$(command -v acpmux || true)"

@@ -1,0 +1,44 @@
+2026-11-28T05:12:21.0696029Z [36;1m  "cmux-app-host" "$(zb 2) -p cmux-app-host --bin cmux-app-host" \[0m
+2026-11-28T05:12:21.0696794Z [36;1m  "cmux-relay" "$(zb 3) -p cmux-relay --bin cmux-relay" \[0m
+2026-11-28T05:12:21.0697555Z [36;1m  "chatmux-relay" "$(zb 4) -p chatmux-relay --bin chatmux-relay" \[0m
+2026-11-28T05:12:21.0698255Z [36;1m  ${acpmux_group[@]+"${acpmux_group[@]}"} \[0m
+2026-11-28T05:12:21.0699183Z [36;1m  "cmux-agent-screen-detection" "$(zb 6) --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml" \[0m
+2026-11-28T05:12:21.0700132Z [36;1m  ${rd[@]+"${rd[@]}"}[0m
+2026-11-28T05:12:21.0701135Z [36;1m# acpmux-standalone is the acpmux program with its build id stamped in the binary[0m
+2026-11-28T05:12:21.0702143Z [36;1m# only: `-p acpmux` stamps the acpmux lib, and every new commit recompiled it, 209 s[0m
+2026-11-28T05:12:21.0703063Z [36;1m# of a warm leg (run 43497362002). "Stage binary" reads it as acpmux.[0m
+2026-11-28T05:12:21.0703886Z [36;1mcp "target/$t/release/acpmux-standalone" "target/$t/release/acpmux"[0m
+2026-11-28T05:12:21.0761928Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-28T05:12:21.0762351Z env:
+2026-11-28T05:12:21.0762680Z   CMUX_GHOSTTY_SRC: 
+2026-11-28T05:12:21.0763082Z   CARGO_NET_RETRY: 10
+2026-11-28T05:12:21.0763477Z   CARGO_HTTP_TIMEOUT: 120
+2026-11-28T05:12:21.0767721Z   BASH_ENV: $({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)
+2026-11-28T05:12:21.0772084Z   GHOSTTY_ZIG_SOURCE: ghostty-next
+2026-11-28T05:12:21.0772564Z   CI_CACHE_R2_BUCKET: cmux-ci-cache-next
+2026-11-28T05:12:21.0773042Z   CMUX_SERVER_RELEASE_KEYS: 
+2026-11-28T05:12:21.0773642Z   ZIG_LOCAL_CACHE_DIR: /home/runner/work/_temp/zig-local-cache
+2026-11-28T05:12:21.0774466Z   BUN_TMPDIR: /home/runner/work/_temp/bun-tmp
+2026-11-28T05:12:21.0775265Z   ACPMUX_BUNDLED_APP_ASSETS_DIR: /home/runner/work/_temp/acpmux-agent-pane-dabd03250d624558
+2026-11-28T05:12:21.0776314Z   CMUX_TUI_RUSTDOC: /home/runner/.rustup/toolchains/1.95.0-x86_64-unknown-linux-gnu/bin/rustdoc
+2026-11-28T05:12:21.0777349Z   CMUX_TUI_DISTRIBUTION_VERSION: 0.0.0-r2.sha-5410a947b68f72c673cf07d8050ffa12c101d45f
+2026-11-28T05:12:21.0778064Z   PACKAGE_NPM: false
+2026-11-28T05:12:21.0778414Z   LTO: fat
+2026-11-28T05:12:21.0778750Z   BUILD_CMUX_RD: true
+2026-11-28T05:12:21.0779155Z ##[endgroup]
+2026-11-28T05:12:21.1106065Z warm target: miss (no sticky disk mounted at /home/runner/cmux-tui-fat-warm); cold build
+2026-11-28T05:12:21.1336653Z cargo groups: 7, CARGO_BUILD_JOBS=8 for group 1, 3 each for the others
+2026-11-28T05:21:25.3990926Z ##[error]The runner has received a shutdown signal. This can happen when the runner service is stopped, or a manually started runner is canceled.
+2026-11-28T05:21:37.9255422Z ##[error]The operation was canceled.
+2026-11-28T05:21:38.3725002Z Cleaning up orphan processes
+2026-11-28T05:21:38.4076499Z Terminate orphan process: pid (595467) (bash)
+2026-11-28T05:21:38.4099983Z Terminate orphan process: pid (595479) (bash)
+2026-11-28T05:21:38.4123543Z Terminate orphan process: pid (595481) (cargo-zigbuild)
+2026-11-28T05:21:38.4139881Z Terminate orphan process: pid (595498) (bash)
+2026-11-28T05:21:38.4157259Z Terminate orphan process: pid (595500) (cargo-zigbuild)
+2026-11-28T05:21:38.4185932Z Terminate orphan process: pid (595820) (cargo)
+2026-11-28T05:21:38.4259402Z Terminate orphan process: pid (595823) (cargo)
+2026-11-28T05:21:38.4436891Z Terminate orphan process: pid (606909) (rustc)
+2026-11-28T05:21:38.4470471Z Terminate orphan process: pid (608670) (rustc)
+2026-11-28T05:21:38.4567604Z Terminate orphan process: pid (614840) (rustc)
+2026-11-28T05:21:38.4813071Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

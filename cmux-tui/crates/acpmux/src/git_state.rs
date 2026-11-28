@@ -206,6 +206,58 @@ fn resolve_ref(git_dir: &Path, common: &Path, name: &str, depth: usize) -> Optio
     })
 }
 
+/// The most loose remote-tracking refs [`is_remote_tip`] reads.
+const MAX_REMOTE_REFS: usize = 4096;
+/// The deepest folder under `refs/remotes/` [`is_remote_tip`] walks into.
+const MAX_REMOTE_DEPTH: usize = 8;
+
+/// Whether `head` is the tip of a remote-tracking branch of `dir`'s repository (a loose ref
+/// under `refs/remotes/` or a `packed-refs` line naming one): a commit a push or a fetch saw
+/// there (RFD 0158 §2, `hub/sidecars.rs`). `None` outside a repository. Bounded: at most
+/// [`MAX_REMOTE_REFS`] loose refs and [`MAX_PACKED_REFS`] of `packed-refs` are read.
+pub fn is_remote_tip(dir: &Path, head: &str) -> Option<bool> {
+    let dir = std::fs::canonicalize(dir).ok()?;
+    let git_dir = find_git_dir(&dir)?;
+    if !is_object_id(head) {
+        return Some(false);
+    }
+    let common = common_dir(&git_dir);
+    let mut budget = MAX_REMOTE_REFS;
+    if loose_tip(&common.join("refs").join("remotes"), head, 0, &mut budget) {
+        return Some(true);
+    }
+    let Some(packed) = open_file(&common.join("packed-refs")) else { return Some(false) };
+    Some(BufReader::new(packed.take(MAX_PACKED_REFS)).lines().map_while(Result::ok).any(|line| {
+        line.split_once(' ')
+            .is_some_and(|(id, name)| id == head && name.trim().starts_with("refs/remotes/"))
+    }))
+}
+
+/// Whether a loose ref at or under `folder` holds `head`, `budget` entries read at most.
+fn loose_tip(folder: &Path, head: &str, depth: usize, budget: &mut usize) -> bool {
+    if depth > MAX_REMOTE_DEPTH {
+        return false;
+    }
+    let Ok(entries) = std::fs::read_dir(folder) else { return false };
+    for entry in entries.map_while(Result::ok) {
+        if *budget == 0 {
+            return false;
+        }
+        *budget -= 1;
+        let Ok(kind) = entry.file_type() else { continue };
+        let path = entry.path();
+        let hit = if kind.is_dir() {
+            loose_tip(&path, head, depth + 1, budget)
+        } else {
+            kind.is_file() && read_trimmed(&path).as_deref() == Some(head)
+        };
+        if hit {
+            return true;
+        }
+    }
+    false
+}
+
 /// A SHA-1 or SHA-256 object id in git's lowercase hex.
 fn is_object_id(text: &str) -> bool {
     matches!(text.len(), 40 | 64) && text.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))

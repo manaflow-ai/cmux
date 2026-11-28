@@ -71,7 +71,7 @@ impl Hub {
         let began = std::time::Instant::now();
         let link_lost = child.host_record().is_some() && !child.is_alive().await;
         drop(child);
-        if !self.hibernate_held(session, link_lost, None).await {
+        if !self.hibernate_held(session, link_lost, None, None).await {
             return Ok(not_paused("stopped"));
         }
         let exit_ms = u64::try_from(began.elapsed().as_millis()).unwrap_or(u64::MAX);

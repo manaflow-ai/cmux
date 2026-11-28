@@ -422,7 +422,11 @@ def test_tree_request_keys_each_revision_in_its_blobless_sparse_checkout() -> No
                                               "--no-checkout", "--branch", "feat-cmux-next")
         git("sparse-checkout", "set", "--cone", "scripts/ci", cwd=checkout)
         git("checkout", "-q", "--detach", requested, cwd=checkout)
-        assert key(checkout, older).returncode != 0, "without the prefetch the older inputs list is not local"
+        # The older inputs list is not local and the script reads no object lazily, but it fetches that one blob
+        # itself: a revision keys by its own list, never the checkout's newer one (before, the newer list named an
+        # input the older revision lacks, and hot-verify plans of such commits stopped on "no cmux-tui tree key").
+        unfetched = key(checkout, older)
+        assert unfetched.returncode == 0 and unfetched.stdout == expected[older].stdout, unfetched.stderr
 
         subprocess.run(("bash", "-c", f'set -euo pipefail\n{prefetch.group(1)}\n'
                         f'prefetch_key_inputs {requested}\nprefetch_key_inputs {older}\n'),
@@ -1713,7 +1717,14 @@ def test_cmux_next_daemon_tests_take_linux_and_the_mac_shadow_never_the_promote_
     document = yaml.load(workflow("cmux-tui-artifacts.yml"), Loader=yaml.BaseLoader)
     jobs = document["jobs"]
     daemon_cells = workflow_jobs.runs_on_cells(jobs["cmux-next-daemon-tests"])
-    assert daemon_cells == ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"]
+    # #64136: a nightly-ref rerun leaves the cmux-linux box that failed it for the reserved GCP Linux
+    # pool (tests/test_cmux_tui_daemon_tests_gate.py routes every context); still never the promote pool.
+    assert daemon_cells == [
+        "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && "
+        "(github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || "
+        "github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}"
+    ], daemon_cells
+    assert "PROMOTE" not in daemon_cells[0], daemon_cells
     assert "cmux-next-daemon-macos-shadow" not in jobs
     shadow_doc = yaml.load(workflow("cmux-next-daemon-macos-shadow.yml"), Loader=yaml.BaseLoader)
     shadow_cells = workflow_jobs.runs_on_cells(shadow_doc["jobs"]["cmux-next-daemon-macos-shadow"])
