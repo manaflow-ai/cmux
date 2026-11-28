@@ -25,11 +25,12 @@
 //! `lastTurn` and the notifications cmux-tui-core posts from it do not move), and its words never
 //! become the chat's `preview` / `lastMessage` (the sidebar line and a later notice's body).
 //!
-//! One thing it does move: a turn of its own that ends cleanly (its `result` is no error, or
-//! Codex's thread went idle) proves the chat works again, so a failed `lastTurn` before it gets
+//! One thing it does move: a turn of its own with an explicit successful result proves the
+//! chat works again, so a failed `lastTurn` before it gets
 //! `recoveredAt` ([`recover_last_turn`]) and the status dot stops reading `failed`
 //! (`views.rs` `status_indicator`). The turn's own outcome is unchanged. Its `ended` record says
-//! `"failed": true` when its `result` was an error, and such a turn recovers nothing. Before,
+//! `"failed": false` on success and `true` on error. Only an explicit success recovers it;
+//! older records and Codex idle notifications with no outcome marker recover nothing. Before,
 //! after one failed turn a chat that went on working through task notifications and `/loop`
 //! ticks kept its red tab icon until the person prompted it again (Leo, 2026-11-27: "this isn't
 //! leaving the tab icon even after you're not erroring anymore").
@@ -137,9 +138,7 @@ impl BackgroundTurns {
                 self.pending = None;
                 let failed = line.get("is_error") == Some(&Value::Bool(true));
                 out.extend(self.end("result").map(|mut ended| {
-                    if failed {
-                        ended.set("failed", json!(true));
-                    }
+                    ended.set("failed", json!(failed));
                     ended
                 }));
             }
@@ -245,18 +244,22 @@ impl BackgroundTurns {
 pub(super) fn recovers(record: &Value) -> bool {
     record.get("state").and_then(Value::as_str) == Some("ended")
         && record.get("reason").and_then(Value::as_str) == Some("result")
-        && record.get("failed") != Some(&Value::Bool(true))
+        // Old journals omitted this field for both success and failure. Only an explicit
+        // successful result proves recovery when replayed by a newer daemon.
+        && record.get("failed") == Some(&Value::Bool(false))
 }
 
 /// A later turn ended cleanly at `at` (a background turn, [`recovers`], or a trigger turn that
 /// completed): a `lastTurn` that did not complete is marked `recoveredAt`, so the status dot
 /// stops reading `failed` or `lost` (the module doc). Its status, error and the unread mark stay.
-pub(super) fn recover_last_turn(last: &mut Option<Value>, at: u64) {
-    let Some(last) = last.as_mut() else { return };
+pub(super) fn recover_last_turn(last: &mut Option<Value>, at: u64) -> bool {
+    let Some(last) = last.as_mut() else { return false };
     let status = last.get("status").and_then(Value::as_str);
     if status.is_some_and(|s| s != "completed") && last.get("recoveredAt").is_none() {
         last.set("recoveredAt", json!(at));
+        return true;
     }
+    false
 }
 
 /// The error of a Claude `result` line that failed on the account's usage or rate limit.
@@ -379,13 +382,16 @@ impl Hub {
     /// Logs a `background_turn` record; one that ends a turn cleanly first marks a failed
     /// `lastTurn` recovered (the module doc), as the journal restore does (`count_restored`).
     fn append_background_record(&self, session: &Session, msg: Value) {
-        if recovers(&msg) {
-            recover_last_turn(
+        let recovered = recovers(&msg)
+            && recover_last_turn(
                 &mut session.meta.lock().unwrap_or_else(|e| e.into_inner()).last_turn,
                 now_ms(),
             );
-        }
         self.append(session, "mux", RECORD_KIND, msg);
+        if recovered {
+            // Handoff drains queued metadata saves; it does not snapshot unsaved mutations.
+            self.save_meta(session);
+        }
     }
 
     /// While an agent host is adopted (`hosts.rs` `adopt_held`): its replay comes before

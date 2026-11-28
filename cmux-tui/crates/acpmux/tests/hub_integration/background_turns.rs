@@ -48,7 +48,11 @@ async fn own_turn_after(
     let said = format!("{command} {} :: {text}", gate.display());
     let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": said}]});
     let answered = c.request(method::SESSION_PROMPT, prompt).await;
-    assert_eq!(answered.is_err(), command == "own-turn-after-fail:", "{answered:?}");
+    assert_eq!(
+        answered.is_err(),
+        matches!(command, "own-turn-after-fail:" | "own-turn-fail-after-fail:"),
+        "{answered:?}"
+    );
     c.request("_acpmux/view", json!({"sessionId": id, "visible": false})).await.unwrap();
     let before = hub.session_summary(&session);
     assert_eq!(before["unread"], false, "{before}");
@@ -126,9 +130,8 @@ async fn a_clean_own_turn_after_a_failed_turn_clears_the_failed_dot() {
     assert!(after["lastTurn"]["recoveredAt"].is_u64(), "{after}");
     assert!(after["indicator"].is_null(), "no longer red, and not a ping either: {after}");
     assert_eq!(after["unread"], false, "{after}");
-    // The journal restore reads it back the same (`count_restored`).
     let marks = records(&hub, &id, "background_turn");
-    assert!(marks.iter().all(|m| m.get("failed").is_none()), "{marks:?}");
+    assert_eq!(marks.last().and_then(|m| m.get("failed")), Some(&json!(false)), "{marks:?}");
     let _ = std::fs::remove_dir_all(root);
 }
 
@@ -136,11 +139,14 @@ async fn a_clean_own_turn_after_a_failed_turn_clears_the_failed_dot() {
 #[cfg(unix)]
 #[tokio::test]
 async fn an_own_turn_that_fails_is_marked_failed_and_recovers_nothing() {
-    let (hub, id, _, root) = own_turn_after("own-turn-fail:", "API Error: 500 boom").await;
+    let (hub, id, before, root) =
+        own_turn_after("own-turn-fail-after-fail:", "API Error: 500 boom").await;
+    assert_eq!(before.get("indicator"), Some(&json!("failed")), "{before}");
     let session = hub.resolve(&id).unwrap();
     let marks = records(&hub, &id, "background_turn");
     assert_eq!(marks.last().unwrap()["failed"], true, "{marks:?}");
     let after = hub.session_summary(&session);
     assert!(after["lastTurn"].get("recoveredAt").is_none(), "{after}");
+    assert_eq!(after.get("indicator"), Some(&json!("failed")), "{after}");
     let _ = std::fs::remove_dir_all(root);
 }
