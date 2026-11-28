@@ -223,6 +223,20 @@ pub(crate) fn plan_folder(
     Ok(Folder::Plain { cwd: same_under_home(cwd, home, target_home)? })
 }
 
+/// Whether the folder a move makes on the target is the chat's own, so its namespace manifest
+/// (`session_manifest.rs`) still holds there and the target rebinds it (`hub/transfer_in.rs`):
+/// the same checkout with nothing left behind (clean, or `changes_go`: `--carry-changes`), or a
+/// plain folder whose files go with it (`files_go`). A folder `--cwd` names (`named`) is
+/// whatever it is there; uncommitted changes left behind may hold the settings or MCP config the
+/// record was made from; a plain folder made empty has none of it. Those record anew there.
+pub(crate) fn same_folder(folder: &Folder, named: bool, files_go: bool, changes_go: bool) -> bool {
+    match folder {
+        _ if named => false,
+        Folder::Plain { .. } => files_go,
+        Folder::Worktree { dirty, .. } | Folder::Bundle { dirty, .. } => !dirty || changes_go,
+    }
+}
+
 /// The path `path` here (under `home`) has under the target's home `target_home`; refused when it
 /// is outside the home or not plain.
 fn same_under_home(path: &Path, home: &Path, target_home: &str) -> Result<String, String> {

@@ -1092,6 +1092,15 @@ jobs:
         timeout-minutes: 2
         run: python3 scripts/cmux-next/check-menu-actions.py
 
+      # #59517 (2026-11-28) called the Hosted Chief's home rules ops by bare name
+      # (`chiefs_tab`); ops.rs answered unknownOp and every debug build stopped at
+      # launch until #64336 added the `cloud.` prefix. Every op name the Swift
+      # app calls must be one cmux-home-rules lists.
+      - name: Swift calls only home rules ops cmux-home-rules answers
+        if: ${{ !cancelled() }}
+        timeout-minutes: 1
+        run: python3 scripts/cmux-next/check-home-rules-ops.py --self-test && python3 scripts/cmux-next/check-home-rules-ops.py
+
       - name: Restore pinned Node 24.22.1 from the CI cache bucket
         if: ${{ !cancelled() }}
         shell: bash
@@ -1672,6 +1681,7 @@ jobs:
             /.github/
             /scripts/ci/install-actionlint.sh
             /scripts/ci/workflow_start_lint.py
+            /.gitmodules
             /scripts/ci/spec_checks.py
 
       - name: Does this change touch a workflow or the lint
