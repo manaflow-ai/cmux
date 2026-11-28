@@ -47,7 +47,7 @@ target_dir="$(cd "$target_dir" && pwd)"
 logs="$(mktemp -d)"
 trap 'rm -rf "$logs"' EXIT
 
-bins=() commands=() dirs=() pids=() starts=() failed=() missing=()
+bins=() commands=() dirs=() pids=() starts=() failed=() missing=() pending_reruns=()
 while (($#)); do
   bins+=("$1") commands+=("$2")
   shift 2
@@ -105,7 +105,7 @@ if [[ -z "${CARGO_BUILD_JOBS:-}" ]]; then
   if [[ -n "$avail_gib" ]] && { [[ -z "$budget" ]] || ((avail_gib < budget)); }; then
     budget=$avail_gib source="MemAvailable"
   fi
-  capped=""
+  capped="" max_par=0
   if [[ -n "$budget" ]]; then
     per=${CARGO_GROUPS_GIB_PER_CORE:-3}
     fit=$((budget / per)); ((fit >= 1)) || fit=1
@@ -125,14 +125,20 @@ if [[ -z "${CARGO_BUILD_JOBS:-}" ]]; then
   # is budget / CARGO_GROUPS_GIB_PER_TOKEN (2) tokens, at least one per group; a third (or more) goes to group 1.
   if [[ -n "$capped" ]]; then
     per_token=${CARGO_GROUPS_GIB_PER_TOKEN:-2}
-    total=$((budget / per_token)); ((total >= groups)) || total=$groups
-    if ((groups > 1)); then
-      jobs=$(((total - (total + 2) / 3) / (groups - 1))); ((jobs >= 1)) || jobs=1
-      lead_jobs=$((total - jobs * (groups - 1))); ((lead_jobs >= 1)) || lead_jobs=1
+    # One token per group is a floor, not a fit: the acpmux and cmux-tui-core rustc (release, one codegen unit, LTO
+    # bitcode) hold more than one token's 2 GiB each, so seven one-token groups still had the kernel SIGKILL them in
+    # a 14 GiB slot (cmux-tui artifacts run 46151055767 at 9be5a10bbb, which has #64759). Capped by memory, only
+    # budget / CARGO_GROUPS_GIB_PER_GROUP (4) groups run at once; the rest start as one ends (group 1 first).
+    per_group=${CARGO_GROUPS_GIB_PER_GROUP:-4}
+    max_par=$((budget / per_group)); ((max_par >= 1)) || max_par=1; ((max_par <= groups)) || max_par=$groups
+    total=$((budget / per_token)); ((total >= max_par)) || total=$max_par
+    if ((max_par > 1)); then
+      jobs=$(((total - (total + 2) / 3) / (max_par - 1))); ((jobs >= 1)) || jobs=1
+      lead_jobs=$((total - jobs * (max_par - 1))); ((lead_jobs >= 1)) || lead_jobs=1
     else
       jobs=$total lead_jobs=$total
     fi
-    echo "cargo groups: $source ${budget} GiB holds ${total} tokens across ${groups} groups at ${per_token} GiB each"
+    echo "cargo groups: $source ${budget} GiB holds ${total} tokens across ${max_par} of ${groups} groups at once, ${per_token} GiB a token, ${per_group} GiB a group"
   fi
   export CARGO_BUILD_JOBS=$jobs
   echo "cargo groups: ${#commands[@]}, CARGO_BUILD_JOBS=$lead_jobs for group 1, $CARGO_BUILD_JOBS each for the others"
@@ -171,6 +177,25 @@ for u in sorted(units, key=lambda u: -(u["start"] + u["duration"]))[:6]:
 PY
 }
 
+# run_group I DIR: group I+1's command in DIR, its output in $logs/N.log and "status end" in $logs/N.done.
+run_group() {
+  local i=$1 n=$(($1 + 1)) status=0
+  export CARGO_TARGET_DIR="$2"
+  if ((n == 1)); then export CARGO_BUILD_JOBS="$lead_jobs"; fi
+  bash -c "set -euo pipefail; ${commands[i]}" > "$logs/$n.log" 2>&1 || status=$?
+  echo "$status $(date +%s)" > "$logs/$n.done"
+  return "$status"
+}
+
+# oom_killed N: group N's log has a rustc or linker "signal: 9, SIGKILL" and the kernel's oom_kill count rose since
+# the groups started, so the runner ran out of memory; not a compile error.
+oom_killed() {
+  local now
+  grep -q 'signal: 9, SIGKILL' "$logs/$1.log" 2>/dev/null || return 1
+  now=$(oom_kills)
+  [[ -n "$oom_before" && -n "$now" ]] && ((now > oom_before))
+}
+
 oom_before=$(oom_kills)
 for i in "${!commands[@]}"; do
   n=$((i + 1))
@@ -182,15 +207,15 @@ for i in "${!commands[@]}"; do
   for b in ${bins[i]}; do
     [[ "$b" == \?* ]] && rm -f "$dir/$triple/release/${b#\?}" "$target_dir/$triple/release/${b#\?}"
   done
+  # Capped by memory: hold this group back until fewer than max_par are running.
+  while ((${max_par:-0} > 0)); do
+    running=0
+    for pid in "${pids[@]:-}"; do [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null && running=$((running + 1)); done
+    ((running < max_par)) && break
+    wait -n || true
+  done
   starts+=("$(date +%s)")
-  (
-    export CARGO_TARGET_DIR="$dir"
-    if ((n == 1)); then export CARGO_BUILD_JOBS="$lead_jobs"; fi
-    status=0
-    bash -c "set -euo pipefail; ${commands[i]}" > "$logs/$n.log" 2>&1 || status=$?
-    echo "$status $(date +%s)" > "$logs/$n.done"
-    exit "$status"
-  ) &
+  run_group "$i" "$dir" &
   pids+=("$!")
 done
 
@@ -205,6 +230,18 @@ for i in "${!pids[@]}"; do
   grouped group "$label"
   cat "$logs/$n.log"
   grouped endgroup
+  if ((status != 0)) && oom_killed "$n"; then
+    # OOM_RERUN_ALONE: two giant crates of one group (acpmux 936k lines and cmux-tui-core 674k in the cmux-tui
+    # group) compile at once when neither depends on the other, and on a 14 GiB pool slot their two rustc
+    # processes outgrow memory.max at any token count that still builds in time: 7 tokens, 3 for group 1, lost
+    # the acpmux rustc to the kernel (Cloud machine channel runs 46151055654 and 46154021183, 2026-11-28; channel
+    # stuck at f3ac175f, lag 138 min against 60). cargo lets the survivor finish ("waiting for other jobs to
+    # finish"), so a rerun keeps every finished unit in the target directory and the killed crate compiles without
+    # its twin. Once, after every other group ended; a second kill fails the group as before.
+    echo "$label: the kernel OOM-killed a process (exit $status); rerunning it once alone, its finished units kept" >&2
+    pending_reruns+=("$i")
+    continue
+  fi
   if ((status != 0)); then
     echo "$label failed (exit $status)" >&2
     failed+=("$n")
@@ -217,6 +254,28 @@ for i in "${!pids[@]}"; do
   # their "bin" (107-175 s, every crate's machine code made in the link), so
   # the channel builds with LTO off (cmux-tui-build-package.yml).
   # Groups under 2 min never set a leg's pace: their units would only be noise.
+  if ((end - starts[i] >= 120)); then
+    timings_summary "${dirs[i]}/cargo-timings/cargo-timing.html" "${starts[i]}"
+  fi
+done
+
+# OOM_RERUN_ALONE (above): each OOM-killed group again, one at a time, with nothing else building.
+for i in ${pending_reruns[@]+"${pending_reruns[@]}"}; do
+  n=$((i + 1))
+  label="cargo group $n (${bins[i]//\?/}) rerun"
+  starts[i]=$(date +%s)
+  (run_group "$i" "${dirs[i]}") || true
+  status=255 end=$(date +%s)
+  [[ -f "$logs/$n.done" ]] && read -r status end < "$logs/$n.done"
+  grouped group "$label"
+  cat "$logs/$n.log"
+  grouped endgroup
+  if ((status != 0)); then
+    echo "$label failed (exit $status)" >&2
+    failed+=("$n")
+    continue
+  fi
+  echo "$label: $((end - starts[i])) s"
   if ((end - starts[i] >= 120)); then
     timings_summary "${dirs[i]}/cargo-timings/cargo-timing.html" "${starts[i]}"
   fi

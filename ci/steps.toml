@@ -1789,6 +1789,7 @@ if want tt-pr-lane-coverage; then python3 tests/test_pr_lane_coverage.py || stat
 if want tt-test-registry; then python3 scripts/ci/validate_test_execution_registry.py --pr-lanes feat-cmux-next --base-sha "$(git rev-parse HEAD^1)" || status=1; fi
 if want tt-swift-test-coverage; then python3 -I scripts/ci/swift_test_coverage.py --base "$(git rev-parse HEAD^1)" || status=1; fi
 if want tt-swift-test-coverage-tests; then python3 -I tests/test_swift_test_coverage.py || status=1; fi
+if want tt-swift-cloud-http; then python3 -I scripts/cmux-next/swift-cloud-http.py --check || status=1; fi
 if want tt-swift-cloud-http-tests; then python3 -I tests/test_swift_cloud_http.py || status=1; fi
 exit "$status"
 '''
@@ -3128,7 +3129,7 @@ inputs = [
   "cmux-tui/crates/acpmux/sandbox/*",
   "cmux-tui/crates/acpmux/schema/acp/v1/*",
   "cmux-tui/crates/acpmux/scripts/*",
-  "cmux-tui/crates/acpmux/skills/acpmux/*",
+  "cmux-tui/crates/acpmux/skills/agents/*",
   "cmux-tui/crates/acpmux/skills/cmux-chat/*",
   "cmux-tui/crates/acpmux/skills/cmux-quota/*",
   "cmux-tui/crates/acpmux/skills/cmux-rich-output/*",
@@ -4361,7 +4362,6 @@ inputs = [
   # The crates CmuxMobileLinkFFI compiles outside cmux-next-ios/, from its Cargo graph (ios_link_ffi_key.closure;
   # `scripts/ci/ios_app_package_paths.py --rust` prints them, --check holds them exact): a shared cmux-tui crate
   # change starts the iOS checks (cmux#55399).
-  "cmux-tui/Cargo.lock",
   "cmux-tui/Cargo.toml",
   "cmux-tui/crates/cmux-agent-pane-policy/**",
   "cmux-tui/crates/cmux-auto-session/**",
@@ -4505,7 +4505,6 @@ inputs = [
   # The crates CmuxMobileLinkFFI compiles outside cmux-next-ios/, from its Cargo graph (ios_link_ffi_key.closure;
   # `scripts/ci/ios_app_package_paths.py --rust` prints them, --check holds them exact): a shared cmux-tui crate
   # change starts the iOS checks (cmux#55399).
-  "cmux-tui/Cargo.lock",
   "cmux-tui/Cargo.toml",
   "cmux-tui/crates/cmux-agent-pane-policy/**",
   "cmux-tui/crates/cmux-auto-session/**",
