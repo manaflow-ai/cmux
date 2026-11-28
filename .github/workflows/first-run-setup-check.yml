@@ -20,6 +20,11 @@ name: first run setup check
 
 # Started by pr-router.yml (scripts/ci/pr_router.json holds its pull_request types and paths).
 on:
+  # Registers the file (a dispatch of an unregistered workflow answers 404); walk-fleet's `if` skips a push run.
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - .github/workflows/first-run-setup-check.yml
   workflow_call:
   workflow_dispatch:
     inputs:

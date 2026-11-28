@@ -10,9 +10,10 @@ name: device-hub entitlement logs
 # cmux-mobile-link-stats.yml uses; the device hub lives in that account).
 on:
   # GitHub only accepts a dispatch for a workflow it has registered, and a dispatch-only file that lives off the
-  # default branch never registers (dispatch by name answers 404). This pull_request trigger, limited to this file,
-  # gives it a run so it registers; the job's `if` below skips that run, so it reads nothing and needs no secret.
-  pull_request:
+  # default branch never registers (dispatch by name answers 404). This push trigger, limited to this file on
+  # feat-cmux-next, gives it a run so it registers; the job's `if` below skips that run, so it reads nothing.
+  push:
+    branches: [feat-cmux-next]
     paths:
       - .github/workflows/device-hub-logs.yml
   workflow_dispatch:
