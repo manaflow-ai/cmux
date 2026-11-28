@@ -506,6 +506,31 @@ try {
         `${origin}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${sessionId(index)}`;
       const firstText = `Answer ${chat.turns}:`;
       const pages: { page: Page; cdp: CDPSession }[] = [];
+      // GROW_HIDDEN=1 hides the older chats before the grow, not after it: the app's own case ("all but the newest
+      // chat hidden" while records arrive), so what an arriving record costs a hidden page is what the grow reads.
+      let hiddenBeforeGrow = false;
+      const hideOlder = async () => {
+        // A chat tab that is not shown: its document turns hidden, as CEF's WasHidden makes it in the app, and it
+        // loses focus, as a tab switched away from does. Headless Chromium emulates focus for every page, so each
+        // chat's composer kept the caret and blinked it: a main frame each blink (~2 a second a page, 0 paints;
+        // every page's in one renderer, the 40 a second the browser-wide traces read). Blurring the field stops it
+        // (TRACE=DIR, run 44093806454: 40 to 0 main frames a second). Only the document's state is faked: Chromium
+        // would still draw a hidden page that asked; minimizing a page's window does not hide it in headless Chromium
+        // (tried: 0 of 19 turned hidden). HIDDEN_FOCUS=1 keeps the old fake (the hidden pages keep their focus).
+        for (const { page } of pages.slice(0, -1))
+          await page.evaluate((blur) => {
+            Object.defineProperty(document, "visibilityState", {
+              configurable: true,
+              get: () => "hidden",
+            });
+            Object.defineProperty(document, "hidden", {
+              configurable: true,
+              get: () => true,
+            });
+            document.dispatchEvent(new Event("visibilitychange"));
+            if (blur) (document.activeElement as HTMLElement | null)?.blur?.();
+          }, !HIDDEN_FOCUS);
+      };
       for (let index = 0; index < count; index++) {
         const page = await context.newPage();
         await page.goto(urlFor(index));
@@ -599,6 +624,10 @@ try {
         if (growProfiler) {
           await growProfiler.send("Profiler.enable");
           await growProfiler.send("Profiler.start");
+        }
+        if (HIDDEN && process.env.GROW_HIDDEN === "1") {
+          await hideOlder();
+          hiddenBeforeGrow = true;
         }
         // GROW_ALLOC=DIR: what the shown page allocates while it grows (V8's sampling heap profiler, counting what
         // the collector already freed, by function) and the renderer work Blink counts over the grow (style recalcs,
@@ -786,28 +815,7 @@ try {
       // Before the settle, so what hiding sets off (each hidden page's visibilitychange work) drains in it, not in the
       // idle windows (run 44055105953: 20 empty chats' idle windows read 10.3/4.0/1.9 % and 7.2/5.2/3.2 % after the
       // hide, with flat 2-4 % settle samples before it and no heap drop in them).
-      if (HIDDEN) {
-        // A chat tab that is not shown: its document turns hidden, as CEF's WasHidden makes it in the app, and it
-        // loses focus, as a tab switched away from does. Headless Chromium emulates focus for every page, so each
-        // chat's composer kept the caret and blinked it: a main frame each blink (~2 a second a page, 0 paints;
-        // every page's in one renderer, the 40 a second the browser-wide traces read). Blurring the field stops it
-        // (TRACE=DIR, run 44093806454: 40 to 0 main frames a second). Only the document's state is faked: Chromium
-        // would still draw a hidden page that asked; minimizing a page's window does not hide it in headless Chromium
-        // (tried: 0 of 19 turned hidden). HIDDEN_FOCUS=1 keeps the old fake (the hidden pages keep their focus).
-        for (const { page } of pages.slice(0, -1))
-          await page.evaluate((blur) => {
-            Object.defineProperty(document, "visibilityState", {
-              configurable: true,
-              get: () => "hidden",
-            });
-            Object.defineProperty(document, "hidden", {
-              configurable: true,
-              get: () => true,
-            });
-            document.dispatchEvent(new Event("visibilitychange"));
-            if (blur) (document.activeElement as HTMLElement | null)?.blur?.();
-          }, !HIDDEN_FOCUS);
-      }
+      if (HIDDEN && !hiddenBeforeGrow) await hideOlder();
       // The pages' own settling (read-ahead, fonts, the first paints, after a burst its drain, and V8's collections after
       // it) is not idle: it is timed from the pages' final state (every record in, the hidden pages hidden) to the
       // start of the first quiet window (SETTLE_QUIET_S above). PROFILE profiles it too, on the shown page (the pages
