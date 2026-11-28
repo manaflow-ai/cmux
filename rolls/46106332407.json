@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/46106332407",
+  "recorded_at": "2026-11-28T04:29:02Z",
+  "reason": "image inputs changed in 3e27bfd15fde8bc483fe7f4c576c79f963cf3eac..028931eb479a68b4a2402ea33676d89a71a178c7; cmux-tui 424832f7b2d7, the newest build published on HEAD (pinned d92f892154f3; latest build 9b73ef66975b is not on HEAD)",
+  "dry_run": false,
+  "cmux_tui": "424832f7b2d7b8b39166d17cfd37c4002954604c",
+  "fixes": [
+    {
+      "sha": "028931eb479a68b4a2402ea33676d89a71a178c7",
+      "mergedAt": "2026-11-28T04:10:54Z",
+      "subject": "cloud image probe: ask a slow clone's daemon for its workspace twice (roll 46100096471) (#63957)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-28T04:29:02Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
