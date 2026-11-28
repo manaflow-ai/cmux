@@ -17,6 +17,14 @@ scripts/cmux-next/check-action-surfaces.sh):
           on a row naming no palette action) lists each one's rows by action id, read here from its `MENUS` list;
           a menu is covered when it is listed there and every row and registry menu it names is offered
           (cmux#51026), and counts as a gap otherwise.
+  shortcut  the same rule for an action with a default keyboard shortcut or chord (`default_shortcut`,
+          `default_chord`): a key a person presses is an action they can search for. Covered without an entry: the
+          palette's own keys (`paletteInternal`: Ctrl-N/P inside the palette) and a shortcut-only live-input action
+          (Cmd-Return in the address bar acts on the text being typed). Counted once `inventoried` names it.
+  setting a Settings-page row cmux-next reads (schemas/settings/settings-schema.json, `page_hidden` false,
+          `consumers` has cmux-next) whose palette surface is not offered (`surfaces.palette.offered`) and gives no
+          reason (`surfaces.palette.reason`, from SettingDescriptor.hiddenFromPalette): every toggle, choice and
+          value on the Settings page is a Set Setting… / Toggle Setting… row. Counted once `inventoried` names it.
   cli     cmux-tui's own grammar verbs (`workspace create`, `tab pin`, `closed reopen`), not app actions, so the
           export does not list them. `cli_verbs` in the keep list holds one entry per verb: {verb, palette} names
           the palette-offered (or FAMILY) action that does the same for a person, {verb, reason} says with
@@ -55,8 +63,11 @@ KEEP = ROOT / "plans/cmux-next/palette-coverage.json"
 SURFACES = ROOT / "plans/cmux-next/action-surfaces.json"
 MENUS = ROOT / "cmux-tui/crates/cmux-action-catalog/src/hand_built_menus.rs"
 CATALOG = ROOT / "plans/cmux-next/action-catalog.json"
+SETTINGS = ROOT / "schemas/settings/settings-schema.json"
 KEY_MAP = ROOT / "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/PaletteKeyMap.swift"
-KINDS = ("action", "menu", "cli")
+KINDS = ("action", "menu", "cli", "shortcut", "setting")
+# Palette decisions a shortcut-only action needs no row for: the palette's own keys, live input under the cursor.
+SHORTCUT_ONLY_COVERED = {"paletteInternal", "liveInput"}
 KEEP_REASON = re.compile(r"keep: \S[^\n]*$")
 # Palette exemptions whose own row stands in for the action (ActionSurface.swift SurfaceExemption).
 FAMILY = {"familyMember", "duplicateOfDefault", "secondaryEngine"}
@@ -102,8 +113,9 @@ def menu_gap(menu: dict, declared: dict | None, offered: set[str], contexts: set
     return None
 
 
-def gaps(surfaces: dict, menus: dict | None = None) -> dict[tuple[str, str], str]:
-    """{(surface, name): what it is} for every CLI or menu action the palette does not offer."""
+def gaps(surfaces: dict, menus: dict | None = None, shortcuts: bool = False) -> dict[tuple[str, str], str]:
+    """{(surface, name): what it is} for every CLI, menu (or, with `shortcuts`, keyboard) action the palette does
+    not offer."""
     out: dict[tuple[str, str], str] = {}
     offered = {a["id"] for a in surfaces.get("actions", []) if a.get("palette") == "offered" or a.get("palette") in FAMILY}
     contexts = set(surfaces.get("context_menus") or {})
@@ -111,17 +123,42 @@ def gaps(surfaces: dict, menus: dict | None = None) -> dict[tuple[str, str], str
     for a in surfaces.get("actions", []):
         palette = a.get("palette")
         cli, main_menu, context = a.get("cli") == "offered", a.get("main_menu"), a.get("context_menu") == "offered"
-        if palette == "offered" or palette in FAMILY or not (cli or main_menu or context):
+        key = shortcuts and bool(a.get("default_shortcut") or a.get("default_chord"))
+        if palette == "offered" or palette in FAMILY or not (cli or main_menu or context or key):
             continue
         if palette == "liveInput" and not cli and not main_menu:
+            continue
+        if palette in SHORTCUT_ONLY_COVERED and key and not (cli or main_menu or context):
             continue
         where = [f"cli `{a.get('cli_name')}`"] if cli else []
         where += [f"{main_menu} menu"] if main_menu else []
         where += [f"right-click {','.join(a.get('context_menus') or [])}"] if context else []
+        where += [f"shortcut {shortcut_text(a)}"] if key else []
         out[("action", a["id"])] = f"{a.get('title')} (palette: {palette}; {'; '.join(where)})"
     for m in surfaces.get("context_menus_not_exported", []):
         if (why := menu_gap(m, declared.get(m["name"]), offered, contexts)) is not None:
             out[("menu", m["name"])] = why
+    return out
+
+
+def shortcut_text(a: dict) -> str:
+    keys = a.get("default_chord") if isinstance(a.get("default_chord"), list) else [a.get("default_shortcut") or {}]
+    return " ".join("-".join([*k.get("modifiers", []), repr(k.get("key", ""))]) for k in keys if isinstance(k, dict))
+
+
+def setting_gaps(schema: dict) -> dict[tuple[str, str], str]:
+    """{("setting", key): what} for every Settings-page row cmux-next reads that the palette neither offers nor
+    gives a reason to skip."""
+    out = {}
+    for r in schema.get("rows", []):
+        palette = (r.get("surfaces") or {}).get("palette") or {}
+        if r.get("page_hidden") or "cmux-next" not in (r.get("consumers") or []):
+            continue
+        if palette.get("offered") or str(palette.get("reason") or "").strip():
+            continue
+        title = r.get("title")
+        title = title.get("text") if isinstance(title, dict) else title
+        out[("setting", r.get("key"))] = f"{title} ({r.get('kind')}; Settings > {r.get('section')})"
     return out
 
 
@@ -471,9 +508,12 @@ def refresh_cli(binary: str, source: str | None) -> int:
 def report() -> dict:
     keep = json.loads(KEEP.read_text())
     surfaces = json.loads(SURFACES.read_text())
-    found = gaps(surfaces, rust_menus(MENUS.read_text()))
-    if "cli" in keep.get("inventoried", []):
+    lists = keep.get("inventoried", [])
+    found = gaps(surfaces, rust_menus(MENUS.read_text()), shortcuts="shortcut" in lists)
+    if "cli" in lists:
         found |= cli_gaps(surfaces, keep)
+    if "setting" in lists:
+        found |= setting_gaps(json.loads(SETTINGS.read_text()))
     gone = missing(found, keep)
     return {"inventoried": keep.get("inventoried", []), "missing": len(gone), "kept": len(found) - len(gone),
             "entries": [{"surface": s, "name": n, "what": w} for (s, n), w in sorted(gone.items())],
@@ -660,6 +700,27 @@ Prose: cmux workspace close --all closes them.
         merged, added, removed = merge_cli(keep, ["a", "b"])
         self.assertEqual(merged["cli_verbs"], [{"verb": "a", "palette": "x"}, {"verb": "b"}])
         self.assertEqual((added, removed), (["b"], ["gone"]))
+
+    def test_shortcut_actions_off_the_palette_are_gaps_once_inventoried(self):
+        key = {"default_shortcut": {"key": "i", "modifiers": ["cmd"]}}
+        self.assertEqual(gaps({"actions": [self.action(**key)]}), {})
+        self.assertIn(("action", "x"), gaps({"actions": [self.action(**key)]}, shortcuts=True))
+        self.assertIn(("action", "x"), gaps({"actions": [self.action(default_chord=[{"key": "k", "modifiers": ["cmd"]}])]},
+                                            shortcuts=True))
+        covered = [self.action(palette=p, **key) for p in ("offered", "familyMember", "paletteInternal", "liveInput")]
+        self.assertEqual(gaps({"actions": covered}, shortcuts=True), {})
+        # A palette-internal key that a menu also offers is still a gap: the menu rule does not exempt it.
+        self.assertIn(("action", "x"), gaps({"actions": [self.action(palette="paletteInternal", main_menu="edit", **key)]},
+                                            shortcuts=True))
+
+    def test_settings_page_rows_off_the_palette_are_gaps_unless_a_reason_says_why(self):
+        def row(offered=False, reason=None, **kw):
+            return {"key": "a.b", "title": {"text": "B"}, "kind": "toggle", "section": "general", "page_hidden": False,
+                    "consumers": ["cmux-next"], "surfaces": {"palette": {"offered": offered, "reason": reason}}, **kw}
+        self.assertIn(("setting", "a.b"), setting_gaps({"rows": [row()]}))
+        for r in (row(offered=True), row(reason="the Density card edits it"), row(page_hidden=True),
+                  row(consumers=["cmux-browser"])):
+            self.assertEqual(setting_gaps({"rows": [r]}), {})
 
     def test_this_tree(self):
         got = report()
