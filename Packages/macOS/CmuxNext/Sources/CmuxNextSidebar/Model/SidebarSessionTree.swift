@@ -38,10 +38,9 @@ public nonisolated struct SidebarPullRequestBadge: Hashable, Sendable {
 
     /// One badge for `items`: the open and merged ones' count and most urgent color, and every
     /// item newest first; nil when none is open or merged and the card would be empty.
+    /// The rule is the reducer's (`sidebar_session_tree` `badge`); one call per row per feed pass.
     public static func combining(items: [SidebarPullRequestItem]) -> SidebarPullRequestBadge? {
-        guard var badge = combining(items.compactMap(\.state.badgeStatus)) else { return nil }
-        badge.items = items.sorted { ($0.createdAt, $0.number, $0.url) > ($1.createdAt, $1.number, $1.url) }
-        return badge
+        RustSidebarSessionTree.badge(items)
     }
 }
 
@@ -92,22 +91,14 @@ public nonisolated struct SidebarPullRequestItem: Hashable, Sendable, Codable {
     /// A pull request page the card may open: `https://github.com/<owner>/<repo>/pull/<n>`, or the
     /// same on `enterpriseHost` (the user's `GH_HOST`). Anything else the summary carried (a peer's,
     /// a harness's) is never opened.
+    /// The rule is the reducer's (`sidebar_session_tree` `openable`); it runs on a click.
     public func isOpenable(enterpriseHost: String? = ProcessInfo.processInfo.environment["GH_HOST"]) -> Bool {
-        guard let parts = URLComponents(string: url), parts.scheme == "https", let host = parts.host?.lowercased(),
-              parts.user == nil, parts.password == nil, parts.port == nil, parts.query == nil, parts.fragment == nil,
-              host == "github.com" || (enterpriseHost.map { !$0.isEmpty && host == $0.lowercased() } ?? false)
-        else { return false }
-        let path = parts.path.split(separator: "/", omittingEmptySubsequences: false)
-        let plain = { (s: Substring) in !s.isEmpty && s.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "-_.".contains($0)) } }
-        return path.count == 5 && path[0].isEmpty && plain(path[1]) && plain(path[2]) && path[3] == "pull"
-            && !path[4].isEmpty && path[4].allSatisfy(\.isASCII) && path[4].allSatisfy(\.isNumber)
+        RustSidebarSessionTree.isOpenable(url, enterpriseHost: enterpriseHost)
     }
 
     /// `owner/repo` of a `https://<host>/owner/repo/pull/N` URL; empty for another.
     public static func repository(of url: String) -> String {
-        let parts = url.split(separator: "/")
-        guard parts.count >= 6, parts[0] == "https:", parts[4] == "pull" else { return "" }
-        return "\(parts[2])/\(parts[3])"
+        RustSidebarSessionTree.repository(of: url)
     }
 }
 
@@ -390,45 +381,39 @@ public final class SidebarSessionTree {
 
     /// Folds or opens the subtree under `id`. `folded`: whether its row draws it folded now (a
     /// parent below the top level starts folded); nil reads the user's own fold.
+    /// It prunes folds that are no longer parents (`save`). The rule is the reducer's (`sidebar_session_tree`
+    /// `toggle`); a refused call changes nothing.
     public func toggle(_ id: WorkspaceID, folded: Bool? = nil) {
-        if folded ?? collapsed.contains(id) {
-            collapsed.remove(id)
-            opened.insert(id)
-        } else {
-            collapsed.insert(id)
-            opened.remove(id)
-        }
-        save()
+        guard let next = RustSidebarSessionTree.toggle(folds, id: id, folded: folded, parents: state?.parents) else { return }
+        apply(next)
     }
 
     /// Opens every fold above `id` (a selected session, or one the needs-you tray goes to) in each of `lists`
     /// (`hidesInFold`): only the parents it draws under there, so a parent in another list, or a cycle, opens nothing.
+    /// The rule is the reducer's (`sidebar_session_tree` `reveal`): each list goes as the ids of `id`'s ancestor chain
+    /// it holds (all the rule reads), so the call stays as small as the chain. It never prunes: it runs for the
+    /// restored selection at launch, while the lanes may still be loading.
     public func reveal(_ id: WorkspaceID, lists: [(WorkspaceID) -> Bool]) {
-        guard let state else { return }
-        var folds = collapsed, opens = opened
-        for list in lists {
-            let ancestors = state.drawnAncestors(of: id, inList: list)
-            for (n, parent) in ancestors.enumerated() {
-                folds.remove(parent)
-                if n < ancestors.count - 1 { opens.insert(parent) } // a parent below the top level
-            }
+        guard let state, !lists.isEmpty else { return }
+        var chain: [WorkspaceID] = [], seen: Set<WorkspaceID> = [id], current = id
+        while let parent = state.parents[current], seen.insert(parent).inserted {
+            chain.append(parent)
+            current = parent
         }
-        guard folds != collapsed || opens != opened else { return }
-        (collapsed, opened) = (folds, opens)
-        save(pruning: false)
+        guard !chain.isEmpty else { return }
+        // `id` too: a cycle back through it draws no ancestors, and the rule only sees that if the list holds it.
+        let held = lists.map { list in Set(([id] + chain).filter(list)) }
+        guard let next = RustSidebarSessionTree.reveal(folds, id: id, parents: state.parents, lists: held) else { return }
+        apply(next)
     }
 
-    /// Saves the folds, dropping each one that is no longer a parent in the live tree (a closed
-    /// workspace, or one whose sub-sessions ended), so the saved list never outgrows the tree. It
-    /// prunes only on the user's own fold while the tree has parents: before the first pass every
-    /// fold is kept, and `reveal` (which runs for the restored selection at launch, while the lanes
-    /// may still be loading) never prunes.
-    private func save(pruning: Bool = true) {
-        if pruning, let parents = state?.parents, !parents.isEmpty {
-            let live = Set(parents.values)
-            collapsed = collapsed.filter(live.contains)
-            opened = opened.filter(live.contains)
-        }
+    private var folds: RustSidebarSessionTree.Folds { .init(collapsed: collapsed, opened: opened) }
+
+    /// Takes the reducer's folds (it drops each fold that is no longer a parent in the live tree on the user's own
+    /// fold, once the tree has parents) and saves them.
+    private func apply(_ next: RustSidebarSessionTree.Folds) {
+        if next.collapsed != collapsed { collapsed = next.collapsed }
+        if next.opened != opened { opened = next.opened }
         defaults.set(collapsed.map(\.rawValue).sorted(), forKey: Self.collapsedKey)
         defaults.set(opened.map(\.rawValue).sorted(), forKey: Self.openedKey)
     }
