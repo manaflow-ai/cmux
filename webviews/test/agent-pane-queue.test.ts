@@ -5,8 +5,8 @@
 // change is a record every client hears (`queue_order`, `queue_updated`, `dequeued`).
 //
 // - ↑ on the empty prompt reaches the last queued prompt; ⌥↑ moves it up, and it keeps focus.
-// - Return edits a queued prompt in its row; it keeps its place. So does the ⋯ menu's Edit message.
-// - The X on a steer the agent has not read takes it back into the composer; what is sent then is
+// - Return edits a queued prompt in its row; it keeps its place. So does the right-click menu's Edit message.
+// - The pencil on a steer the agent has not read takes it back into the composer; what is sent then is
 //   the edited text. One acpmux refuses says Read after this step and stays for the next click.
 // - ⌘Return on a queued prompt does nothing (it means "not now"); Delete removes one.
 // - A queue a failed turn paused says so, and Resume runs it again.
@@ -268,13 +268,13 @@ await requireBrowserLane("agent-pane-queue.test.ts", async () => {
       await page.close();
     });
 
-    // Leo, 2026-10-29: "Plus this fucking edit message thing. It doesn't even fucking work." The ⋯
-    // menu's Edit message opens the prompt in its row, and saving it updates the prompt acpmux sends.
-    test("the ⋯ menu's Edit message edits a queued prompt in its row, and saving updates the prompt acpmux will send", async () => {
+    // Leo, 2026-10-29: "Plus this fucking edit message thing. It doesn't even fucking work." The
+    // right-click menu's Edit message opens the prompt in its row, and saving it updates the prompt
+    // acpmux sends.
+    test("the right-click menu's Edit message edits a queued prompt in its row, and saving updates the prompt acpmux will send", async () => {
       const page = await openChat();
       const row = page.locator('.acpmux-queued[data-prompt-id="q-1"]');
-      await row.hover();
-      await row.locator('[data-menu="queued-more"]').click();
+      await row.locator(".acpmux-queued-text").click({ button: "right" });
       await page.getByRole("menuitem", { name: /^Edit message/ }).click();
       const input = page.getByRole("textbox", { name: "Edit queued prompt" });
       await input.waitFor();
@@ -290,9 +290,9 @@ await requireBrowserLane("agent-pane-queue.test.ts", async () => {
       await page.close();
     });
 
-    // The X (its tooltip Edit message) on a steer the agent has not read: acpmux takes it back, its
+    // The pencil (its tooltip Edit) on a steer the agent has not read: acpmux takes it back, its
     // text comes back into the composer, and the edited text is what is sent.
-    test("the X on a waiting steer puts its text in the composer, and the edited text is what is sent", async () => {
+    test("the pencil on a waiting steer puts its text in the composer, and the edited text is what is sent", async () => {
       const page = await openChat("first", false, "Use the cache dir");
       const bubble = page.locator(".cv-user__bubble", { hasText: "Use the cache dir" });
       await bubble.waitFor();
@@ -313,7 +313,7 @@ await requireBrowserLane("agent-pane-queue.test.ts", async () => {
     });
 
     // Review of #27672: acpmux refuses a withdraw for a moment right after a steer is sent. The row
-    // says Read after this step, the X stays (the pointer leaving draws nothing again), and the next
+    // says Read after this step, the pencil stays (the pointer leaving draws nothing again), and the next
     // click takes the steer back into the composer.
     test("an X acpmux refuses once says Read after this step and stays; the next click takes the steer back", async () => {
       const page = await openChat("first", false, "Use the cache dir", 1);
