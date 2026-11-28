@@ -4,6 +4,8 @@
 .share-dialog-popup {
   --ui-dialog-padding: var(--ds-space-5);
   width: min(480px, calc(100vw - 32px));
+  max-height: calc(88dvh - var(--ds-space-4));
+  overflow-y: auto;
 }
 .share-dialog {
   /* A person row's height (the row button's padding around a control), and an access request
@@ -306,4 +308,21 @@
   .share-dialog__remove-word {
     display: none;
   }
+}
+
+.share-dialog__teams {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  max-height: calc(3 * var(--ds-control-primary));
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.share-dialog__team-add {
+  flex-wrap: wrap;
+}
+.share-dialog__section > .share-dialog__hint {
+  margin: 0;
 }

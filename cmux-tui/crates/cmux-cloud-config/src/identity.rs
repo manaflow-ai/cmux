@@ -87,6 +87,63 @@ pub fn mint_team(
     Ok(requested.map(str::to_owned).or_else(|| active_stack_team.map(backend)))
 }
 
+/// A team a chat can be shared with: its backend id and the name the app shows.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareTeam {
+    pub id: String,
+    pub name: String,
+}
+
+/// One of the account's teams as the app lists them: its Stack id (or the personal team's
+/// backend id) and title.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamRow {
+    pub id: String,
+    pub title: String,
+}
+
+/// The teams a signed-in account can share a chat with: each listed team a token could be
+/// minted for ([`mint_team`] with that team active), so a device restricted to a managed team
+/// offers only that team. None signed out.
+pub fn share_teams(
+    signed_in: bool,
+    rows: &[TeamRow],
+    managed_stack_team: Option<&str>,
+    stack_project_id: &str,
+) -> Vec<ShareTeam> {
+    if !signed_in {
+        return Vec::new();
+    }
+    rows.iter()
+        .filter_map(|row| {
+            let id =
+                mint_team(None, Some(&row.id), managed_stack_team, stack_project_id).ok()??;
+            Some(ShareTeam { id, name: row.title.clone() })
+        })
+        .collect()
+}
+
+/// Whether a team share token may be minted for `requested` (a backend team id): it is one of
+/// [`share_teams`] and the mint for it ([`mint_team`] with the account's active team) names it.
+/// The app asks this before minting and again after, so a changed membership never hands a token
+/// to an old consent.
+pub fn share_team_allowed(
+    requested: &str,
+    signed_in: bool,
+    rows: &[TeamRow],
+    active_stack_team: Option<&str>,
+    managed_stack_team: Option<&str>,
+    stack_project_id: &str,
+) -> bool {
+    share_teams(signed_in, rows, managed_stack_team, stack_project_id)
+        .iter()
+        .any(|team| team.id == requested)
+        && mint_team(Some(requested), active_stack_team, managed_stack_team, stack_project_id)
+            == Ok(Some(requested.to_owned()))
+}
+
 /// A refusal that is the service's trouble, not the account's: a 5xx or 429 status with no owner
 /// code (`http_503`), or a rate limit. The caller retries those; it never reads them as "not a
 /// member of the team".

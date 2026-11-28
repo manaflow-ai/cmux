@@ -160,3 +160,55 @@ fn a_share_install_is_kept_by_its_https_origin() {
     assert_eq!(share_folder_api("install-share-a/b"), None);
     assert_eq!(share_folder_api("other"), None);
 }
+
+fn rows(ids: &[(&str, &str)]) -> Vec<TeamRow> {
+    ids.iter()
+        .map(|(id, title)| TeamRow { id: (*id).to_owned(), title: (*title).to_owned() })
+        .collect()
+}
+
+#[test]
+fn share_teams_are_each_listed_team_by_backend_id_and_none_signed_out() {
+    let project = "proj";
+    let listed = rows(&[("stack-a", "Design"), (TEAM, "Personal")]);
+    let teams = share_teams(true, &listed, None, project);
+    assert_eq!(
+        teams,
+        vec![
+            ShareTeam { id: backend_team_id(project, "stack-a"), name: "Design".to_owned() },
+            ShareTeam { id: TEAM.to_owned(), name: "Personal".to_owned() },
+        ]
+    );
+    assert!(share_teams(false, &listed, None, project).is_empty());
+}
+
+#[test]
+fn a_managed_device_shares_with_only_its_managed_team() {
+    let project = "proj";
+    let listed = rows(&[("stack-a", "Design"), ("stack-m", "Managed")]);
+    let teams = share_teams(true, &listed, Some("stack-m"), project);
+    assert_eq!(
+        teams,
+        vec![ShareTeam { id: backend_team_id(project, "stack-m"), name: "Managed".to_owned() }]
+    );
+}
+
+#[test]
+fn a_share_team_is_allowed_only_while_listed_and_mintable() {
+    let project = "proj";
+    let listed = rows(&[("stack-a", "Design"), ("stack-m", "Managed")]);
+    let design = backend_team_id(project, "stack-a");
+    let managed = backend_team_id(project, "stack-m");
+    assert!(share_team_allowed(&design, true, &listed, Some("stack-a"), None, project));
+    assert!(!share_team_allowed(&design, false, &listed, Some("stack-a"), None, project));
+    assert!(
+        !share_team_allowed(TEAM, true, &listed, Some("stack-a"), None, project),
+        "not a listed team"
+    );
+    assert!(share_team_allowed(&managed, true, &listed, Some("stack-m"), Some("stack-m"), project));
+    assert!(!share_team_allowed(&design, true, &listed, Some("stack-m"), Some("stack-m"), project));
+    assert!(
+        !share_team_allowed(&managed, true, &listed, Some("stack-a"), Some("stack-m"), project),
+        "a managed team that is not active mints nothing"
+    );
+}

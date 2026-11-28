@@ -217,6 +217,37 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             let request: Request = read(request)?;
             json!({ "answer": auth::invite_answer(request.error.as_deref(), request.first_failure_already_member) })
         }
+        // The teams a chat can be shared with (`identity::share_teams`) and, with `requested`, whether
+        // a team share token may be minted for it (`identity::share_team_allowed`): `{teams, allowed}`.
+        b"cloud_identity_share_teams" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                signed_in: bool,
+                #[serde(default)]
+                rows: Vec<identity::TeamRow>,
+                #[serde(default)]
+                requested: Option<String>,
+                #[serde(default)]
+                active_stack_team: Option<String>,
+                #[serde(default)]
+                managed_stack_team: Option<String>,
+                stack_project_id: String,
+            }
+            let request: Request = read(request)?;
+            let managed = request.managed_stack_team.as_deref();
+            json!({
+                "teams": identity::share_teams(request.signed_in, &request.rows, managed, &request.stack_project_id),
+                "allowed": request.requested.as_deref().map(|team| identity::share_team_allowed(
+                    team,
+                    request.signed_in,
+                    &request.rows,
+                    request.active_stack_team.as_deref(),
+                    managed,
+                    &request.stack_project_id,
+                )),
+            })
+        }
         b"cloud_identity_mint_team" => {
             #[derive(Deserialize)]
             #[serde(rename_all = "camelCase")]

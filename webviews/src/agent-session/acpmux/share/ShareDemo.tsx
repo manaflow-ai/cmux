@@ -6,12 +6,13 @@ import { useEffect, useState } from "react";
 import { PresenceStack } from "../multiplayer/Faces";
 import type { Participant } from "../multiplayer/participants";
 import { ShareDialogHost, shareToasts } from "./ShareControl";
-import { shareView, type ChatShare, type ShareCall, type ShareRole } from "./shareState";
+import { shareView, type ChatShare, type ShareCall, type ShareTeam, type ShareRole } from "./shareState";
 import "../header/header.css";
 
 export type ShareDemoProps = {
   viewing: Participant[];
   shares: ChatShare[];
+  teams?: ShareTeam[];
   /** Draw the dialog open. */
   open?: boolean;
   /** Show the copied-link toast. */
@@ -26,16 +27,28 @@ export type ShareDemoProps = {
   unread?: boolean;
 };
 
-function fixtureHost(shares: ChatShare[], fail?: string, unread = false): ShareCall {
+function fixtureHost(shares: ChatShare[], fail?: string, unread = false, teams: ShareTeam[] = []): ShareCall {
   let next = shares.map((share) => ({ ...share }));
   return async (op, params = {}) => {
     if (fail) throw Object.assign(new Error(fail), { code: fail });
     if (op === "state" && unread) throw new Error("share: 503 Service Unavailable");
-    if (op === "state") return { shares: next };
+    if (op === "state") return { shares: next, teams };
     if (op === "link") {
       const made: ChatShare = { ...LINK, shareId: `demo-${next.length}`, createdAt: Date.now() };
       next = [...next, made];
       return { shareId: made.shareId, url: "https://share.example.com/g/demo#secret", expiresAt: made.expiresAt };
+    }
+    if (op === "team") {
+      const made: ChatShare = {
+        ...LINK,
+        shareId: `team-${next.length}`,
+        teamId: String(params.teamId),
+        inviteUrl: `https://share.example.com/i/team-${next.length}`,
+        role: params.role === "talk" ? "talk" : "view",
+        createdAt: Date.now(),
+      };
+      next = [...next, made];
+      return { shareId: made.shareId, inviteUrl: made.inviteUrl, expiresAt: made.expiresAt };
     }
     if (op === "revoke") next = next.filter((share) => share.shareId !== params.shareId);
     // Approve invites the account with the row's role; decline drops the row (the daemon keeps it
@@ -81,8 +94,9 @@ export function ShareDemo({
   unread,
   look,
   chat = "Add retries to the uploader",
+  teams = [],
 }: ShareDemoProps) {
-  const [call] = useState(() => fixtureHost(shares, fail, unread));
+  const [call] = useState(() => fixtureHost(shares, fail, unread, teams));
   const [shown, setShown] = useState(open);
   // The dialog portals out of this tree, so the look is on the root.
   useEffect(() => {
@@ -120,7 +134,7 @@ export function ShareDemo({
             open={shown}
             onOpenChange={setShown}
             call={call}
-            initial={shareView(shares)}
+            initial={shareView(shares, teams)}
           />
         </div>
       </header>

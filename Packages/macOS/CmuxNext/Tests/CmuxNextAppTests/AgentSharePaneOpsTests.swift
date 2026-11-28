@@ -52,7 +52,7 @@ struct AgentSharePaneOpsTests {
                                        AgentSessionShareGuest(guestId: "g2", name: "Bob", joinedAt: 7, state: "left")],
                               invitees: [AgentSessionShareInvitee(account: "ada@x.co", role: "view", invitedAt: 4, state: "invited"),
                                          AgentSessionShareInvitee(account: "cy@x.co", role: "talk", invitedAt: 4, state: "invited")],
-                              role: "view"),
+                              role: "view", teamId: "team-1"),
             AgentSessionShare(shareId: "s2", state: "active", session: "another-chat", surface: 1),
         ]
         let listed = AgentSharePaneState.shares(of: Self.session, in: shares)
@@ -61,6 +61,7 @@ struct AgentSharePaneOpsTests {
         #expect(share["shareId"] as? String == "s1")
         #expect(share["url"] is NSNull, "the link's secret is never kept")
         #expect(share["role"] as? String == "view")
+        #expect(share["teamId"] as? String == "team-1")
         #expect(share["usesLeft"] as? Int == 999)
         let guests = try #require(share["guests"] as? [[String: Any]])
         #expect(guests.map { $0["joined"] as? Bool } == [true, false])
@@ -98,6 +99,8 @@ struct AgentSharePaneOpsTests {
         #expect(plain["role"] == nil, "a daemon older than link roles refuses an unknown field")
         let viewer = try #require(try JSONSerialization.jsonObject(with: encoder.encode(AgentSessionShareCreateRequest(surface: 1, role: "view"))) as? [String: Any])
         #expect(viewer["role"] as? String == "view")
+        let team = try #require(try JSONSerialization.jsonObject(with: encoder.encode(AgentSessionShareCreateRequest(surface: 1, teamId: "team-1"))) as? [String: Any])
+        #expect(team["team_id"] as? String == "team-1")
         let decoded = try JSONDecoder().decode(AgentSessionShare.self, from: Data(#"{"state":"active","share_id":"s","session":"c","surface":1,"created_at":1,"expires_at":2,"expires_in_secs":1,"uses_left":3,"guests":[],"role":"view"}"#.utf8))
         #expect(decoded.role == "view")
     }

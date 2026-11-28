@@ -236,6 +236,19 @@ fn launch_sign_in_and_identity_rules_answer_here() {
         &json!({"requested": null, "activeStackTeam": "team_249f328cf8ed89fd792e", "managedStackTeam": null, "stackProjectId": project}),
     );
     assert_eq!(team["team"], "team_249f328cf8ed89fd792e");
+    // The teams a chat can be shared with, and whether one asked for may be minted.
+    let personal = "team_249f328cf8ed89fd792e";
+    let (_, share) = call(
+        c"cloud_identity_share_teams",
+        &json!({"signedIn": true, "rows": [{"id": personal, "title": "Mine"}], "requested": personal,
+                "activeStackTeam": personal, "managedStackTeam": null, "stackProjectId": project}),
+    );
+    assert_eq!(share, json!({"teams": [{"id": personal, "name": "Mine"}], "allowed": true}));
+    let (_, signed_out) = call(
+        c"cloud_identity_share_teams",
+        &json!({"signedIn": false, "rows": [{"id": personal, "title": "Mine"}], "stackProjectId": project}),
+    );
+    assert_eq!(signed_out, json!({"teams": [], "allowed": null}));
     let (_, check) =
         call(c"cloud_identity_check", &json!({"team": "personal", "refusalCode": "http_503"}));
     assert_eq!(check, json!({"isTeam": false, "transient": true}));

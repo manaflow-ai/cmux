@@ -13,8 +13,10 @@
 //! whatever its share says. A guest the room signed in (`account`, the room's attestation) who
 //! holds the link's secret but is not invited joins by the link as itself (`via: link`, a use
 //! spent): `talk` on any link unless the share was made with `signed_in_role: view`. An invitee
-//! takes its invite's role. Guest prompts carry `approval: "owner"` unless the guest holds its
-//! signed-in account's current Drive invite. Every guest frame re-checks the share (its
+//! takes its invite's role. A team share admits a signed-in account whose team the room attests,
+//! without a secret or a link use. A named invitation still sets that account's role. Guest
+//! prompts carry `approval: "owner"` unless the guest holds its signed-in account's current
+//! Drive invite. Every guest frame re-checks the share (its
 //! state and expiry) and the guest (kicked), and a guest's live stream checks them on every
 //! record. Whatever path ends a share or a guest (a revoke, a kick, the expiry timer, or any verb
 //! that notices the expiry first) closes its bound connections in the same step (`settle`);
@@ -120,8 +122,8 @@ struct Guest {
     account: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     role: Option<Role>,
-    /// `link`: a signed-in guest who joined by the link's secret, not by an invite. It spent a
-    /// use and is forgotten once gone ([`forget_gone`]), as an anonymous link guest is.
+    /// General access by link secret (one use) or attested team membership (no use).
+    /// Absent for explicit invitations and anonymous link guests.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     via: Option<Via>,
     /// The signed-in account's profile picture (`https://`, at most [`MAX_AVATAR_BYTES`]), shown
@@ -130,11 +132,13 @@ struct Guest {
     avatar_url: Option<String>,
 }
 
-/// How a guest with an account joined: by the link's secret (none: by its invite).
+/// A signed-in guest admitted through the share's general access. Keep the original registry
+/// spelling so older daemons can still load every share. The share's immutable team_id
+/// distinguishes a team admission from a link admission.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
 enum Via {
-    Link,
+    #[serde(rename = "link")]
+    GeneralAccess,
 }
 
 impl Guest {
@@ -168,13 +172,15 @@ pub(super) struct ShareTerms {
     pub(super) role: Option<Role>,
     /// What a signed-in guest who joins by the link (not invited) may do: `talk` when none.
     pub(super) signed_in_role: Option<Role>,
+    /// Team required for general access, when selected by the owner.
+    pub(super) team_id: Option<String>,
 }
 
 /// The encoded registry at its largest: `state_file`'s 64 KiB read bound, less a margin.
 const MAX_SAVED_BYTES: usize = 62 * 1024;
 
-/// Whether `shares` stays readable after a restart whatever later happens to it without a new
-/// record: a change that adds records (a share, an invitee, a guest) is refused unless the
+/// Whether `shares` stays readable after a restart through later revocations: a change that
+/// admits records (a share, an invitee, a guest) is refused unless the
 /// registry still fits once every share is ended, every guest kicked and every invitee removed,
 /// with each kick and each room `DELETE` queued, and every share without a room given the largest
 /// one a room's answer may write (`room::adopt`, `room::retire`). Kicks, revokes, expiry, closes
@@ -188,7 +194,23 @@ fn fits(shares: &[LinkShare]) -> bool {
             share.room = Some(json!({"url": "u".repeat(room::MAX_ROOM_URL_BYTES),
                 "host_token": "t".repeat(room::MAX_HOST_TOKEN_BYTES)}));
         }
-        for guest in share.guests.iter_mut().filter(|g| g.state == GuestState::Active) {
+        // Team kicks remove an account, including its other devices. Reserve each account's
+        // tombstone before admitting its first guest so revocation can never overflow the file.
+        if share.team_id.is_some() {
+            for guest in &share.guests {
+                if let Some(account) = &guest.account {
+                    if !share.invitees.iter().any(|invitee| &invitee.account == account) {
+                        share.invitees.push(Invitee {
+                            account: account.clone(),
+                            role: share.role.unwrap_or(Role::View),
+                            invited_at: u64::MAX,
+                            state: InviteState::Removed,
+                        });
+                    }
+                }
+            }
+        }
+        for guest in share.guests.iter_mut().filter(|g| g.state != GuestState::Kicked) {
             guest.state = GuestState::Kicked;
             share.pending_room_ops.push(json!({"op": "kick", "guest_id": guest.guest_id}));
         }
@@ -382,6 +404,9 @@ struct LinkShare {
     /// this says. An invitee keeps its own role.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     role: Option<Role>,
+    /// A team share admits signed-in members through the invite URL. Its secret grants no access.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    team_id: Option<String>,
     /// What a signed-in guest who joins by the link (not invited) may do: `talk` when none, on
     /// any link (a `view` link included); `view` when the owner made the link for viewers only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -428,8 +453,8 @@ impl LinkShare {
                     shown["account"] = json!(account);
                     shown["role"] = json!(g.role);
                 }
-                if let Some(via) = g.via {
-                    shown.set("via", json!(via));
+                if g.via.is_some() {
+                    shown.set("via", json!(if self.team_id.is_some() { "team" } else { "link" }));
                 }
                 if let Some(avatar) = &g.avatar_url {
                     shown.set("avatar_url", json!(avatar));
@@ -459,7 +484,7 @@ impl LinkShare {
                 shown
             })
             .collect();
-        json!({"share_id": self.share_id, "session": self.session, "surface": self.surface,
+        let mut shown = json!({"share_id": self.share_id, "session": self.session, "surface": self.surface,
             "created_at": self.created_at, "expires_at": self.expires_at,
             "expires_in_secs": self.expires_at.saturating_sub(now) / 1000,
             "uses_left": self.uses_left, "state": self.state, "url": null,
@@ -467,7 +492,11 @@ impl LinkShare {
             "room": self.room.as_ref().map(|room| room.get("url").cloned().unwrap_or(Value::Null)),
             "invite_url": self.invite_url(), "role": self.role,
             "signed_in_role": self.signed_in_role, "guests": guests,
-            "invitees": invitees, "requests": requests})
+            "invitees": invitees, "requests": requests});
+        if let Some(team) = &self.team_id {
+            shown.set("team_id", json!(team));
+        }
+        shown
     }
 }
 
@@ -679,6 +708,9 @@ struct Create {
     /// on any link) or `view` (the owner's viewers-only link).
     #[serde(default)]
     signed_in_role: Option<Role>,
+    /// Selects team access. Only a room-attested member or an invited account may join.
+    #[serde(default)]
+    team_id: Option<String>,
     /// The owner's cmux cloud access token, for the room's `PUT` only (never stored).
     #[serde(default)]
     owner_token: Option<String>,
@@ -749,6 +781,9 @@ pub(super) struct Redeem {
     pub(super) attempt_id: String,
     #[serde(default)]
     pub(super) account: Option<String>,
+    /// Supplied only by the authenticated room connection, never by a control-socket request.
+    #[serde(skip_deserializing)]
+    pub(super) team_id: Option<String>,
     /// The signed-in account's profile picture (`https://`, at most 1024 bytes; else dropped).
     #[serde(default)]
     pub(super) avatar_url: Option<String>,
@@ -1123,6 +1158,7 @@ impl LinkShares {
             // watches only.
             let signed_in_role = share.signed_in_role.unwrap_or(Role::Talk);
             let (account, role, via) = match account {
+                None if share.team_id.is_some() => return Err("share.not_invited"),
                 None if !secret_matches() => return Err("share.secret"),
                 None => (None, Some(Role::View), None),
                 Some(account) => {
@@ -1142,19 +1178,32 @@ impl LinkShares {
                             if !secret_matches() {
                                 return Err("share.secret");
                             }
-                            (Some(account), Some(signed_in_role), Some(Via::Link))
+                            (Some(account), Some(signed_in_role), Some(Via::GeneralAccess))
                         }
-                        // A link attempt cannot be replayed as an invite acceptance.
-                        (Some(i), Some(Some(Via::Link))) if i.role == Role::Drive => {
+                        // A link or team attempt cannot be replayed as an invite acceptance.
+                        (Some(i), Some(Some(Via::GeneralAccess))) if i.role == Role::Drive => {
                             return Err("share.not_invited");
                         }
                         (Some(invitee), _) => (Some(account), Some(invitee.role), None),
+                        (None, _) if share.team_id.is_some() => {
+                            if invitee.is_some() {
+                                return Err("share.kicked");
+                            }
+                            if share.team_id != p.team_id {
+                                return Err("share.not_invited");
+                            }
+                            (
+                                Some(account),
+                                Some(share.role.unwrap_or(Role::View)),
+                                Some(Via::GeneralAccess),
+                            )
+                        }
                         // A retry of the account's earlier join by the link: that guest again
                         // (below), with the secret as it came.
-                        (None, Some(Some(Via::Link))) if secret_matches() => {
-                            (Some(account), Some(signed_in_role), Some(Via::Link))
+                        (None, Some(Some(Via::GeneralAccess))) if secret_matches() => {
+                            (Some(account), Some(signed_in_role), Some(Via::GeneralAccess))
                         }
-                        (None, Some(Some(Via::Link))) => return Err("share.secret"),
+                        (None, Some(Some(Via::GeneralAccess))) => return Err("share.secret"),
                         // A retry of a removed account's earlier join says it was removed.
                         (None, Some(_)) => return Err("share.kicked"),
                         // The owner removed this account: the link does not let it back in.
@@ -1164,7 +1213,7 @@ impl LinkShares {
                         // Not invited, holding the link's secret: a link guest that keeps its
                         // account (a use spent).
                         (None, None) if secret_matches() => {
-                            (Some(account), Some(signed_in_role), Some(Via::Link))
+                            (Some(account), Some(signed_in_role), Some(Via::GeneralAccess))
                         }
                         (None, None) => return Err("share.not_invited"),
                     }
@@ -1185,7 +1234,7 @@ impl LinkShares {
                 // A link guest an older daemon recorded without its account (it kept none for
                 // a join by the link) is the same join retried by the link: that guest again.
                 let unrecorded = guest.account.is_none() && guest.via.is_none();
-                if unrecorded && via == Some(Via::Link) {
+                if unrecorded && share.team_id.is_none() && via.is_some() {
                     return match guest.state {
                         GuestState::Active => Ok((reply(guest), false)),
                         GuestState::Kicked => Err("share.kicked"),
@@ -1219,21 +1268,20 @@ impl LinkShares {
                 }
             }
             match (&account, via) {
-                // An invite spends no link use; it bounds the account's live guests instead.
-                (Some(account), None) => {
+                // Invitations and team access bound live devices per account instead of spending a link use.
+                (Some(account), _) if via.is_none() || share.team_id.is_some() => {
                     let live = share
                         .guests
                         .iter()
-                        .filter(|g| g.invited() && g.account.as_ref() == Some(account))
+                        .filter(|g| g.via == via && g.account.as_ref() == Some(account))
                         .filter(|g| g.state == GuestState::Active)
                         .count();
                     if live >= MAX_GUESTS_PER_ACCOUNT {
                         return Err("share.used");
                     }
-                    // The account's ended invited guests go: an invited account may join again
-                    // anyway, so its history only grows the file.
+                    // A fresh admission has its own guest id. Drop the account's ended devices.
                     share.guests.retain(|g| {
-                        !g.invited()
+                        g.via != via
                             || g.account.as_ref() != Some(account)
                             || g.state == GuestState::Active
                     });
@@ -1418,10 +1466,10 @@ impl LinkShares {
         })
     }
 
-    /// Revokes a share (`guest_id: None`) or kicks one guest of it.
+    /// Revokes a share (`guest_id: None`) or kicks a guest (all its account's devices on a team share).
     fn end(&self, directory: Option<&Path>, p: &Named) -> Result<Value, &'static str> {
         let mut schedule_delete = false;
-        let answer = self.with(directory, |shares, _| {
+        let answer = self.with(directory, |shares, now| {
             let share = find(shares, &p.share_id)?;
             let room_hears = share.room.is_some() && share.live().is_ok();
             let Some(guest_id) = &p.guest_id else {
@@ -1435,15 +1483,43 @@ impl LinkShares {
                 schedule_delete = !was_live && share.delete_queued();
                 return Ok((json!({"share_id": share.share_id, "state": share.state}), changed));
             };
-            let guest =
-                share.guests.iter_mut().find(|g| &g.guest_id == guest_id).ok_or("share.unknown")?;
-            let changed = guest.state != GuestState::Kicked;
-            guest.state = GuestState::Kicked;
-            if changed && room_hears {
-                share.pending_room_ops.push(json!({"op": "kick", "guest_id": guest_id}));
+            let guest = share.guests.iter().find(|g| &g.guest_id == guest_id).ok_or("share.unknown")?;
+            let kicked_account = guest.account.clone().filter(|_| share.team_id.is_some());
+            let mut changed = false;
+            for guest in &mut share.guests {
+                let same_account = kicked_account.as_ref().is_some_and(|account| {
+                    guest.account.as_ref() == Some(account)
+                });
+                if (&guest.guest_id == guest_id || same_account) && guest.state != GuestState::Kicked {
+                    guest.state = GuestState::Kicked;
+                    changed = true;
+                    if room_hears {
+                        share.pending_room_ops.push(json!({"op": "kick", "guest_id": guest.guest_id}));
+                    }
+                }
+            }
+            // A team guest is admitted by membership, so the kick must outlast it: the account
+            // keeps a removed invitation, which the team arm answers with `share.kicked`.
+            if let Some(account) = kicked_account {
+                let role = share.role.unwrap_or(Role::View);
+                match share.invitees.iter_mut().find(|i| i.account == account) {
+                    Some(invitee) => {
+                        changed |= invitee.state != InviteState::Removed;
+                        invitee.state = InviteState::Removed;
+                    }
+                    None => {
+                        share.invitees.push(Invitee {
+                            account,
+                            role,
+                            invited_at: now,
+                            state: InviteState::Removed,
+                        });
+                        changed = true;
+                    }
+                }
             }
             Ok((
-                json!({"share_id": share.share_id, "guest_id": guest_id, "state": guest.state}),
+                json!({"share_id": share.share_id, "guest_id": guest_id, "state": GuestState::Kicked}),
                 changed,
             ))
         });

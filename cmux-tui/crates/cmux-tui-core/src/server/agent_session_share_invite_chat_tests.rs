@@ -198,3 +198,27 @@ fn a_new_invite_share_the_room_refuses_ends_with_its_invite() {
     assert_ne!(made["share_id"], shares[0]["share_id"]);
     assert_eq!(list(&mut owner).iter().filter(|s| s["state"] == "active").count(), 1);
 }
+
+#[test]
+fn an_invite_to_a_chat_never_attaches_a_named_invitation_to_a_team_share() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, _mux, surface, mut owner) = bridged("invite-chat-team", &room);
+    let team = "team_0123456789abcdef0123";
+    let team_share = owner.request(json!({"cmd":"agent-session-share-create", "surface":surface,
+        "owner_token":OWNER_TOKEN, "team_id":team, "role":"talk"}));
+    assert_eq!(team_share["ok"], true, "{team_share}");
+    let team_id = team_share["data"]["share_id"].clone();
+    // A named invitation on the team share: the team share now has an invitee.
+    let on_team = owner.request(json!({"cmd":"agent-session-share-invite",
+        "share_id":team_id, "account":"ann@example.com", "role":"view"}));
+    assert_eq!(on_team["ok"], true, "{on_team}");
+    // An invite to the chat must not land on that team share; it makes its own invite share.
+    let made = invited(&mut owner, surface, "bo@example.com", json!({"owner_token":OWNER_TOKEN}));
+    assert_eq!(made["created_share"], true, "{made}");
+    assert_ne!(made["share_id"], team_id);
+    let shares = list(&mut owner);
+    let team_row = shares.iter().find(|s| s["share_id"] == team_id).unwrap();
+    assert_eq!(accounts(team_row), [("ann@example.com".into(), "view".into())]);
+    let invite_row = shares.iter().find(|s| s["share_id"] == made["share_id"]).unwrap();
+    assert_eq!(accounts(invite_row), [("bo@example.com".into(), "talk".into())]);
+}

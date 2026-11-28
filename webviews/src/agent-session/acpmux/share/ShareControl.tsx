@@ -207,6 +207,18 @@ export function ShareDialogHost({
           // Silent (RFD 0077 D2): the row goes, nothing is said here or to them.
           onDecline={(account: string) => void step(() => client.decline(account))}
           onGeneral={general}
+          onTeam={(teamId, role) => void step(() => client.team(teamId, role))}
+          onTeamRemove={(shareId) => void step(() => client.revoke(shareId))}
+          onTeamCopy={(url) =>
+            void step(async () => {
+              if (!(await copyTextResult(url))) throw new Error(translate("share.error.copy"));
+              shareToasts.show({
+                id: "share.copied",
+                title: translate("share.toast.invite"),
+                message: translate("share.toast.inviteDetail"),
+              });
+            })
+          }
           onCopy={copy}
           onDone={() => onOpenChange(false)}
         />

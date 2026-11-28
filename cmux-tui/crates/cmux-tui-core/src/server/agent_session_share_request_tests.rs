@@ -10,7 +10,14 @@ fn scratch(name: &str) -> std::path::PathBuf {
 }
 
 fn terms() -> ShareTerms {
-    ShareTerms { ttl_secs: 3600, uses: 1, create_id: None, role: None, signed_in_role: None }
+    ShareTerms {
+        ttl_secs: 3600,
+        uses: 1,
+        create_id: None,
+        role: None,
+        signed_in_role: None,
+        team_id: None,
+    }
 }
 
 fn made(shares: &LinkShares, dir: Option<&Path>) -> String {
@@ -39,6 +46,7 @@ fn redeem(share_id: &str, account: &str, attempt: &str) -> Redeem {
         name: "Sam".into(),
         attempt_id: attempt.into(),
         account: Some(account.into()),
+        team_id: None,
         avatar_url: None,
     }
 }
