@@ -40,7 +40,14 @@ else
   rm -f "$stamp"
   (cd cmux-next-ios/rust && rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal) || exit 1
   bash scripts/ci/ios_link_ffi.sh 8 || exit 1
-  [[ -n "$key" && -f "$xcf/Info.plist" ]] && printf '%s %s\n' "$key" "$(mtime "$xcf/Info.plist")" > "$stamp"
+  # A Mac build rewrites the bindings, and they still typecheck when stale, so check them against the checked-in
+  # copy here as ci/steps.toml's ios-kit steps do. Without this, a PR whose full ios job is skipped passes with stale
+  # bindings and turns base red (cmux#62170: pane_filter_default checksum 6491 vs 37152, fixed by #64446).
+  if ! git diff --exit-code -- cmux-next-ios/; then
+    echo "::error title=iOS fast verdict::build-xcframework.sh changed tracked files (CmuxMobileLinkFFI.swift or Cargo.lock); run it and commit the result"
+    exit 1
+  fi
+  [[ -n "$key"&& -f "$xcf/Info.plist" ]] && printf '%s %s\n' "$key" "$(mtime "$xcf/Info.plist")" > "$stamp"
   ffi_how="fetched or built"
 fi
 phase "FFI ($ffi_how)" $((SECONDS - t))
