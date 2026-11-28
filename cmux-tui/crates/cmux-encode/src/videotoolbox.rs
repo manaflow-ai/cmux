@@ -162,6 +162,14 @@ crate::framework! {
     }
 }
 
+// The power-efficiency key (macOS 14+), bound apart like the speed keys: without it the session
+// keeps VideoToolbox's default.
+crate::framework! {
+    mod vt_power_sys = "/System/Library/Frameworks/VideoToolbox.framework/VideoToolbox" {
+        static kVTCompressionPropertyKey_MaximizePowerEfficiency: CFStringRef;
+    }
+}
+
 // The sRGB transfer key, bound apart from `cv_sys` like the speed keys: were it missing, the
 // session would tag BT.709 transfer as before rather than fail `frameworks()`.
 crate::framework! {
@@ -256,6 +264,16 @@ fn floor_under_ceiling(floor: i32, ceiling: Option<u8>) -> i32 {
 }
 
 /// Whether a profile runs the frame-size guard: on unless its env var says `off` (a sweep).
+/// The power-efficiency hint `CMUX_RD_VT_POWER_EFFICIENT` asks for: `1` on, `0` off, anything
+/// else (or unset) none, which leaves VideoToolbox's default.
+fn power_efficiency(env: Option<&str>) -> Option<bool> {
+    match env.map(str::trim) {
+        Some("1") => Some(true),
+        Some("0") => Some(false),
+        _ => None,
+    }
+}
+
 fn guard_enabled(env: Option<&str>) -> bool {
     env.map(str::trim) != Some("off")
 }
@@ -588,6 +606,17 @@ fn create_session(
             let no_delay = number_i32(0);
             set(vt_speed_sys::kVTCompressionPropertyKey_MaxFrameDelayCount(), no_delay);
             CFRelease(no_delay);
+        }
+        // Power efficiency, for a measurement only: CMUX_RD_VT_POWER_EFFICIENT=1 asks for it, 0
+        // asks against it, unset leaves VideoToolbox's default (the session as before). A screen
+        // share encodes a frame per change, often hundreds of ms apart, so the encoder idles
+        // between frames; the encode self-test's gap-ms measures what each setting costs then.
+        let power = power_efficiency(std::env::var("CMUX_RD_VT_POWER_EFFICIENT").ok().as_deref());
+        if let Some(efficient) = power.filter(|_| vt_power_sys::available().is_ok()) {
+            set(
+                vt_power_sys::kVTCompressionPropertyKey_MaximizePowerEfficiency(),
+                if efficient { kCFBooleanTrue() } else { kCFBooleanFalse() },
+            );
         }
     }
     Ok(session)
