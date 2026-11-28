@@ -49,6 +49,24 @@ test("capacity, a quit agent and a typed exit keep their own kind", () => {
   expect(failureKind("stream disconnected", undefined, "agent_exited")).toBe("agent-exited");
 });
 
+// cmux#57823: the sr2 gateway's own first-byte deadline is a 503 `overloaded_error`, and the card
+// said "rate limited or out of capacity" while the gateway, not the model, was stuck. It says what
+// happened, with the wait the gateway names; a deadline after the model was called stays capacity.
+test("the gateway's own deadline before calling the model is not a rate limit", () => {
+  const t = translatorFor("en");
+  const sr2 = { name: "Claude Code (sr2 internal)", harness: "claude-sr2" };
+  const stalled =
+    "API Error: 503 subrouter gateway had no response within 1m0s (before the upstream call); retry. This is a server-side issue, usually temporary \u2014 try again in a moment. If it persists, check your inference gateway (127.0.0.1:58741).";
+  expect(failureKind(stalled, sr2)).toBe("gateway-stalled");
+  expect(failureCopy(t, stalled, sr2)).toBe(
+    "Claude Code (sr2 internal)'s gateway did not answer within 1m0s and never reached the model. This is the gateway, not a rate limit: try again, or switch model.",
+  );
+  expect(failureRecovery("gateway-stalled")).toBe("retry");
+  const upstream =
+    "API Error: 503 subrouter gateway had no response within 1m30s (waiting for the upstream's response headers); retry";
+  expect(failureKind(upstream, sr2)).toBe("rate-limited");
+});
+
 // A team Cloud machine takes no personal login (CloudHarnessLoginDecision `guest-not-owner`, guest
 // `team`), so its Claude sign-in failure names that instead of "the provider rejected" and a set-up
 // that would end in the transfer's refusal.

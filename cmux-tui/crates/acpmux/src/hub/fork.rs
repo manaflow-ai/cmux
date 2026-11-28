@@ -15,6 +15,9 @@ use super::*;
 use cmux_json::JsonSet as _;
 use std::sync::atomic::Ordering;
 
+#[path = "fork_plan.rs"]
+mod fork_plan;
+
 /// Why a chat with no turn cannot fork: its agent holds no conversation to copy yet.
 const NOTHING_TO_FORK: &str =
     "the chat has no turn yet, so there is nothing to fork; send a message first";
@@ -359,6 +362,9 @@ impl Hub {
             );
         }
         let cwd = cwd.unwrap_or_else(|| parent_meta.cwd.clone());
+        // Its parent's recorded namespace while it works in the same folder: the fork's Codex
+        // answer is read from it while its digest is the same (`session_manifest.rs`).
+        crate::session_manifest::mark(&mut fork_env, parent_meta.manifest.as_ref(), &cwd);
         // The modern ForkStart route and an explicit own-harness retarget use the same
         // model validation and spawn handling.
         let mut start = start;
@@ -1544,6 +1550,8 @@ impl Hub {
             let mode = if let Some(mode) = requested_mode {
                 super::fork_subagent::check_mode(&fork.meta(), mode)?;
                 Some(mode.to_owned())
+            } else if self.parent_plans(parent.as_deref()) {
+                Some(fork_plan::PLAN.to_owned())
             } else {
                 Box::pin(self.start_mode_for(fork, parent.as_deref())).await
             };
@@ -1551,6 +1559,21 @@ impl Hub {
                 let mut meta = fork.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 meta.modes.get_or_insert_with(|| json!({}))["currentModeId"] = json!(mode);
             }
+        }
+        // The chat's effort, where the new harness has that level: Claude Code takes it at spawn,
+        // another harness once it is up (below). Dropped, a Claude chat on `low` forked onto
+        // Codex ran at Codex's default (Leo's ask c-0e429cbe77).
+        let effort = parent
+            .as_deref()
+            .and_then(|id| self.resolve(id).ok())
+            .and_then(|p| chat_effort(&p.meta()))
+            .filter(|e| e != "default");
+        if target.profile.kind == crate::config::HarnessKind::ClaudeStdio
+            && let Some(e) =
+                effort.as_deref().filter(|e| crate::claude_stdio::takes_effort_at_spawn(e))
+        {
+            fork.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner).effort_request =
+                Some(e.to_owned());
         }
         if let Err(e) = self.child_for(fork).await {
             tracing::warn!(session = %fork.id, "fork child start failed: {e}");
@@ -1589,6 +1612,18 @@ impl Hub {
                 json!({"model": model, "error": e.message}),
             );
         }
+        if target.profile.kind != crate::config::HarnessKind::ClaudeStdio
+            && let Some(e) = effort.as_deref().filter(|e| effort_listed(&fork.meta(), e))
+            && let Err(err) = Box::pin(self.set_config(fork, "effort", json!(e))).await
+        {
+            tracing::warn!(session = %fork.id, effort = %e, "fork effort skipped: {}", err.message);
+            self.append(
+                fork,
+                "mux",
+                "start_default_skipped",
+                json!({"effort": e, "error": err.message}),
+            );
+        }
         // The chat's own level, as a chat it starts inherits it (`start_mode.rs` "Inherit"): its
         // mode where the new harness has it, its full access, its asking, else the harness's own
         // mode; never the level a new chat starts at, which ran a pi chat under `ask` on as a
@@ -1598,6 +1633,7 @@ impl Hub {
         // settles.
         if inherits_mode
             && requested_mode.is_none()
+            && !(self.parent_plans(parent.as_deref()) && fork_plan::offers_plan_mode(&fork.meta()))
             && let Some(mode) = Box::pin(self.start_mode_for(fork, parent.as_deref())).await
             && let Err(e) = Box::pin(self.set_mode(fork, &mode)).await
         {
@@ -1609,6 +1645,10 @@ impl Hub {
                 json!({"modeId": mode, "error": e.message}),
             );
         }
+        // A chat in plan stays in plan on the new harness, where it has plan (`fork_plan.rs`).
+        if requested_mode.is_none() && self.parent_plans(parent.as_deref()) {
+            Box::pin(self.carry_plan(fork)).await;
+        }
         // A refused or unavailable asking mode must refuse the fork, rather than leave
         // it running at a broader level after recording a skipped setting.
         if requested_mode.is_none()
@@ -1618,6 +1658,30 @@ impl Hub {
         }
         Ok(())
     }
+}
+
+/// The thinking effort `m` runs at: Claude Code's (Ultracode too), else the value of its effort
+/// option, whatever the harness calls it (`reasoning_effort` in Codex).
+fn chat_effort(m: &SessionMeta) -> Option<String> {
+    super::model_options::current_effort(m).or_else(|| {
+        let opts = m.config_options.as_deref().and_then(Value::as_array)?;
+        opts.iter()
+            .filter(|o| {
+                o.get("id").and_then(Value::as_str).is_some_and(super::start_defaults::is_effort_id)
+            })
+            .find_map(|o| o.get("currentValue").and_then(Value::as_str).map(str::to_owned))
+    })
+}
+
+/// Whether `m`'s effort option lists `effort` as a value.
+fn effort_listed(m: &SessionMeta, effort: &str) -> bool {
+    let Some(opts) = m.config_options.as_deref().and_then(Value::as_array) else { return false };
+    opts.iter()
+        .filter(|o| {
+            o.get("id").and_then(Value::as_str).is_some_and(super::start_defaults::is_effort_id)
+        })
+        .flat_map(|o| o.get("options").and_then(Value::as_array).into_iter().flatten())
+        .any(|v| v.get("value").and_then(Value::as_str) == Some(effort))
 }
 
 /// A fork that is its parent's sub-session ([`Hub::fork_with_boundary`]).

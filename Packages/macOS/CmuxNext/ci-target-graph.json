@@ -217,6 +217,7 @@
         "CmuxNextPages",
         "CmuxNextPalette",
         "CmuxNextRemoteFetch",
+        "CmuxNextResources",
         "CmuxNextSettings",
         "CmuxNextWakeups",
         "CmuxNextWindowRules"

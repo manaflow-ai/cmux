@@ -301,6 +301,39 @@ struct CloudAgentCredentialRefresherTests {
         #expect(asked.last == "route-claude")
     }
 
+    /// cloud-chat-999 (cmuxterm-hq run 46117963202): the pick of a Claude token saved with an instance
+    /// (Settings > Models, #54956) that cannot be read refused every Cloud start with "The connection is
+    /// temporarily unavailable." A failed read is read again within the bound, then the chat starts on the
+    /// machine's own route as any other unreadable pick does. Gemini and Grok have no other route: they refuse.
+    @Test func anUnreadableInstancePickRetriesThenStartsOnTheMachinesRoute() async throws {
+        let instance = "c0ffee00-0000-4000-8000-000000000001"
+        var failures = 0, reads = 0
+        let credentials = CloudAgentCredentials { _ in
+            reads += 1
+            if reads <= failures { return Data(#"{"error":"nope"}"#.utf8) }
+            return Data(#"{"family":"claude","kind":"claude-token","env":{"ANTHROPIC_AUTH_TOKEN":"sk-ant-oat-fixture"},"credential_instance":"\#(instance)"}"#.utf8)
+        }
+        credentials.setup = CloudSetup(read: {
+            .init(personal: [.init(id: "claude-token", families: ["claude"], servesCloud: true, kind: "claude-token", credentialInstance: instance),
+                             .init(id: "gemini-key", families: ["gemini"], servesCloud: true, kind: "api-key", credentialInstance: instance)],
+                  organization: nil)
+        })
+        failures = 2
+        let launch = try #require(try await credentials.launchCredential(chat: "tab", machine: "m", harness: "claude"))
+        #expect(launch.connectionID == "claude-token" && reads == 3, "two unavailable reads, then the credential")
+
+        reads = 0
+        failures = .max
+        #expect(try await credentials.launchCredential(chat: "tab", machine: "m", harness: "claude") == nil)
+        #expect(reads == CloudAgentCredentials.unavailableRetries + 1, "bounded: then the machine's own route")
+
+        reads = 0
+        await #expect(throws: CloudAgentCredentials.Failure.unavailable(connection: "gemini-key")) {
+            try await credentials.launchCredential(chat: "tab", machine: "m", harness: "gemini")
+        }
+        #expect(reads == 1, "a native harness's pick is not retried here: its start says so")
+    }
+
     @Test func anotherMacCannotDeliverOrWithdrawTheSameNamedConnection() async throws {
         let instance = UUID().uuidString
         let data = try keyReply(kind: "api-key", instance: instance, key: "fixture-key")
