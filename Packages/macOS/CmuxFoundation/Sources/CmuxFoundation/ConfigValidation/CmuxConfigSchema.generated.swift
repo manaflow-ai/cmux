@@ -2023,6 +2023,7 @@ enum CmuxEmbeddedConfigSchema {
           "description": "Enable cmux integration hooks for Claude Code."
         },
         "codexIntegration": {"type": "boolean", "default": true, "description": "Enable cmux integration hooks for Codex. When disabled, cmux no longer wraps the codex command but still tracks live Codex sessions it can observe."},
+        "codexLaunchCommand": {"type": "string", "default": "", "descriptionKey": "schemaDescriptions.automation.codexLaunchCommand", "description": "Command prefix for new and restored Codex terminals, for example subcodex. Shell commands run through the user's interactive login shell; executable files run directly. Codex arguments are forwarded separately. Empty uses normal executable resolution. Applies to newly opened or restored terminals."},
         "canonicalAgentScratch": {"type": "boolean", "default": false, "descriptionKey": "schemaDescriptions.automation.canonicalAgentScratch", "description": "Use a cmux-owned scratch directory for native agent panels, organized per session."},
         "piIntegration": {"type": "boolean", "default": true, "description": "Enable cmux integration hooks for Pi."},
         "claudeBinaryPath": {

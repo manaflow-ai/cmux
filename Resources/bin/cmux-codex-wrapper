@@ -10,14 +10,25 @@
 # Those hook payloads are the source of truth for session identity; the wrapper
 # never predicts fresh-vs-resume state from Codex's command-line syntax.
 #
-# Outside cmux (no CMUX_SURFACE_ID), or when the user opts out
-# (CMUX_CODEX_HOOKS_DISABLED=1), the wrapper does NOTHING but exec the real
-# codex. Every failure path below also execs the real codex, so installing the
-# wrapper can never break `codex`.
+# Outside cmux (no CMUX_SURFACE_ID), the wrapper only execs the real codex.
+# CMUX_CODEX_HOOKS_DISABLED=1 disables injection while preserving an explicitly
+# configured launch command. Without an override, failed hook setup falls back
+# to the real binary as before.
 
 # Deliberately NOT using `set -e`/`set -u`: a wrapper that aborts on any error
 # would break the user's `codex`. Each helper handles its own failures and the
 # script always reaches an `exec "$REAL_CODEX"`.
+
+# A configured launch prefix is user-owned shell code. Keep provider arguments
+# positional: session IDs, prompts and config values must never become shell code.
+cmux_codex_launch_command="${CMUX_CODEX_LAUNCH_COMMAND:-}"
+cmux_codex_launch_command="${cmux_codex_launch_command#"${cmux_codex_launch_command%%[![:space:]]*}"}"
+cmux_codex_launch_command="${cmux_codex_launch_command%"${cmux_codex_launch_command##*[![:space:]]}"}"
+cmux_codex_command_reentry="${CMUX_CODEX_LAUNCH_COMMAND_ACTIVE:-0}"
+unset CMUX_CODEX_LAUNCH_COMMAND_ACTIVE
+if [[ "$cmux_codex_command_reentry" == "1" ]]; then
+    cmux_codex_launch_command=""
+fi
 
 # The effective uid, read once from the kernel. Bash's $EUID is not usable here:
 # macOS /bin/bash 3.2 takes EUID from the environment, and the uid decides which
@@ -664,8 +675,50 @@ fi
 unset CMUX_AGENT_RESTORE_LAUNCH
 unset CMUX_AGENT_RESUME_LAUNCH
 
-# Resolve real codex up front; if it cannot be found we error like a missing
-# binary would (same as the claude wrapper) rather than silently succeeding.
+# Hand off before registering a PID or injecting hooks. A function can fork its
+# child, so only the inner shim that actually execs Codex can own its identity.
+# Exact executable launcher paths need no additional shell.
+if [[ "$IN_CMUX" == "1" && -n "$cmux_codex_launch_command" ]]; then
+    export CMUX_CODEX_LAUNCH_COMMAND_ACTIVE=1
+    # Absolute restore entrypoints may not carry the managed-shim variable.
+    # Recover a separate managed entrypoint or the sibling codex before login
+    # files or an executable launcher can resolve native Codex first.
+    if [[ ! -x "${CMUX_CODEX_WRAPPER_SHIM:-}" ]]; then
+        cmux_codex_launch_shim=""
+        if [[ -n "${CMUX_CODEX_WRAPPER_SHIM_ROOT:-}" ]]; then
+            cmux_codex_launch_shim="${CMUX_CODEX_WRAPPER_SHIM_ROOT%/}/codex"
+        fi
+        if [[ ! -x "$cmux_codex_launch_shim" ]]; then
+            cmux_codex_launch_shim="$(cd "$(dirname "$0")" && pwd)/codex"
+        fi
+        if [[ -x "$cmux_codex_launch_shim" ]] && cmux_codex_wrapper_is_self_or_shim "$cmux_codex_launch_shim"; then
+            export CMUX_CODEX_WRAPPER_SHIM="$cmux_codex_launch_shim"
+        fi
+    fi
+    if [[ -f "$cmux_codex_launch_command" && -x "$cmux_codex_launch_command" ]]; then
+        # Restore can enter the shim by absolute path after the pane's shell
+        # put native Codex first. The launcher's child must re-enter the shim.
+        if [[ -x "${CMUX_CODEX_WRAPPER_SHIM:-}" ]]; then
+            export PATH="${CMUX_CODEX_WRAPPER_SHIM%/*}:$PATH"
+        fi
+        exec "$cmux_codex_launch_command" "$@"
+    else
+        launch_shell="${SHELL:-/bin/zsh}"
+        # Login files (path_helper, Homebrew, conda) can reorder PATH. Repair
+        # shim priority in the command body, after those files have run, so
+        # the function's Codex child still owns its hooks and real PID.
+        case "${launch_shell##*/}" in
+            fish)
+                cmux_codex_launch_path_guard='if test -x "$CMUX_CODEX_WRAPPER_SHIM"; set -gx PATH (dirname -- "$CMUX_CODEX_WRAPPER_SHIM") $PATH; end; '
+                exec "$launch_shell" -lic "$cmux_codex_launch_path_guard$cmux_codex_launch_command \$argv" "$@"
+                ;;
+            *)
+                cmux_codex_launch_path_guard='if [ -x "${CMUX_CODEX_WRAPPER_SHIM:-}" ]; then PATH="${CMUX_CODEX_WRAPPER_SHIM%/*}:$PATH"; export PATH; fi; '
+                exec "$launch_shell" -lic "$cmux_codex_launch_path_guard$cmux_codex_launch_command \"\$@\"" cmux-codex "$@"
+                ;;
+        esac
+    fi
+fi
 REAL_CODEX="$(find_real_codex)" || { echo "Error: codex not found in PATH" >&2; exit 127; }
 
 exec_real_codex_passthrough() {

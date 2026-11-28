@@ -16802,6 +16802,381 @@
           }
         }
       }
+    },
+    "settings.automation.codex.launchCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex Launch Command"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أمر تشغيل Codex"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex-Startbefehl"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comando de inicio de Codex"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commande de lancement de Codex"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex の起動コマンド"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex 실행 명령"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex 启动命令"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex 啟動指令"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naredba za pokretanje Codexa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startkommando til Codex"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comando di avvio di Codex"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពាក្យបញ្ជាចាប់ផ្ដើម Codex"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startkommando for Codex"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Polecenie uruchamiania Codex"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comando de inicialização do Codex"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Команда запуска Codex"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำสั่งเริ่ม Codex"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex başlatma komutu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Команда запуску Codex"
+          }
+        }
+      }
+    },
+    "settings.automation.codex.launchCommand.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "e.g. subcodex"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مثلاً subcodex"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "z. B. subcodex"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "p. ej., subcodex"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "p. ex. subcodex"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例: subcodex"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "예: subcodex"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例如 subcodex"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例如 subcodex"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "npr. subcodex"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "f.eks. subcodex"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ad es. subcodex"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឧ. subcodex"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "f.eks. subcodex"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "np. subcodex"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ex.: subcodex"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "например, subcodex"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เช่น subcodex"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "örn. subcodex"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "наприклад, subcodex"
+          }
+        }
+      }
+    },
+    "settings.automation.codex.launchCommand.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom command for new and restored Codex terminals. Shell commands use your login shell; executable files run directly. Leave empty to use PATH."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أمر مخصص لطرفيات Codex الجديدة والمستعادة. تستخدم أوامر الصدفة صدفة تسجيل الدخول؛ وتُشغَّل الملفات التنفيذية مباشرة. اتركه فارغًا لاستخدام PATH."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eigener Befehl für neue und wiederhergestellte Codex-Terminals. Shell-Befehle nutzen Ihre Login-Shell; ausführbare Dateien starten direkt. Leer lassen, um PATH zu verwenden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comando personalizado para terminales Codex nuevos y restaurados. Los comandos de shell usan su shell de inicio de sesión; los ejecutables se ejecutan directamente. Déjelo vacío para usar PATH."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commande personnalisée pour les terminaux Codex nouveaux et restaurés. Les commandes shell utilisent votre shell de connexion ; les exécutables sont lancés directement. Laissez vide pour utiliser PATH."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規および復元した Codex ターミナルで使うカスタムコマンドです。シェルコマンドはログインシェルで、実行ファイルは直接実行されます。PATH を使う場合は空欄にしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 Codex 터미널과 복원된 Codex 터미널에 사용할 사용자 지정 명령입니다. 셸 명령은 로그인 셸에서, 실행 파일은 직접 실행됩니다. PATH를 사용하려면 비워 두세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建和恢复 Codex 终端时使用的自定义命令。shell 命令在您的登录 shell 中运行；可执行文件直接运行。留空则使用 PATH。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建與還原 Codex 終端機時使用的自訂指令。shell 指令在您的登入 shell 中執行；執行檔則直接執行。留空則使用 PATH。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prilagođena naredba za nove i obnovljene Codex terminale. Naredbe ljuske koriste prijavnu ljusku; izvršne datoteke pokreću se direktno. Ostavite prazno za korištenje PATH."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilpasset kommando til nye og gendannede Codex-terminaler. Shellkommandoer bruger din login-shell; eksekverbare filer køres direkte. Lad feltet være tomt for at bruge PATH."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comando personalizzato per i terminali Codex nuovi e ripristinati. I comandi shell usano la shell di login; i file eseguibili vengono avviati direttamente. Lascia vuoto per usare PATH."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពាក្យបញ្ជាផ្ទាល់ខ្លួនសម្រាប់ស្ថានីយ Codex ថ្មី និងដែលបានស្ដារឡើងវិញ។ ពាក្យបញ្ជាសែលប្រើសែលចូលប្រព័ន្ធរបស់អ្នក រីឯឯកសារដែលអាចប្រតិបត្តិបានដំណើរការដោយផ្ទាល់។ ទុកទទេដើម្បីប្រើ PATH។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Egendefinert kommando for nye og gjenopprettede Codex-terminaler. Skallkommandoer bruker innloggingsskallet ditt; kjørbare filer startes direkte. La feltet stå tomt for å bruke PATH."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niestandardowe polecenie dla nowych i przywracanych terminali Codex. Polecenia powłoki korzystają z powłoki logowania; pliki wykonywalne są uruchamiane bezpośrednio. Pozostaw puste, aby używać PATH."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comando personalizado para terminais Codex novos e restaurados. Comandos de shell usam seu shell de login; arquivos executáveis são executados diretamente. Deixe vazio para usar PATH."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Команда для новых и восстановленных терминалов Codex. Команды оболочки используют оболочку входа; исполняемые файлы запускаются напрямую. Оставьте поле пустым для поиска через PATH."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำสั่งที่กำหนดเองสำหรับเทอร์มินัล Codex ใหม่และที่กู้คืน คำสั่งเชลล์ใช้เชลล์เข้าสู่ระบบของคุณ ส่วนไฟล์ปฏิบัติการจะทำงานโดยตรง เว้นว่างไว้เพื่อใช้ PATH"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni ve geri yüklenen Codex terminalleri için özel komut. Kabuk komutları oturum açma kabuğunuzu kullanır; çalıştırılabilir dosyalar doğrudan çalışır. PATH kullanmak için boş bırakın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Команда для нових і відновлених терміналів Codex. Команди оболонки використовують оболонку входу; виконувані файли запускаються безпосередньо. Залиште поле порожнім для пошуку через PATH."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

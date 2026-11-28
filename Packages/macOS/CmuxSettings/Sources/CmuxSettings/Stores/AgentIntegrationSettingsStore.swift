@@ -42,6 +42,13 @@ public struct AgentIntegrationSettingsStore: AgentIntegrationSettingsReading {
         return value.isEmpty ? nil : value
     }
 
+    /// The configured Codex terminal command, with blank values treated as unset.
+    public var codexLaunchCommand: String? {
+        let value = AutomationCatalogSection().codexLaunchCommand.value(in: defaults)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
+
     public var cursorHooksEnabled: Bool {
         keys.cursorHooksEnabled.value(in: defaults)
     }
