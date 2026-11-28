@@ -20,7 +20,6 @@
 //! A home too long for a unix socket's path gets no options: the ssh config decides, as before.
 
 use super::Peer;
-use crate::home_fs::OpenOptions;
 use sha2::{Digest, Sha256};
 use std::ffi::OsString;
 use std::fs::TryLockError;
@@ -93,14 +92,30 @@ pub(crate) fn options(path: &Path) -> Option<[String; 10]> {
     ])
 }
 
+// test-hook-allow: keyed by peer name and never cleared: each test registers its own peer
+// names (peer_ssh_master_tests.rs), so no test can replace or clear another's entry
+#[cfg(test)]
+static OVERRIDES: std::sync::Mutex<Option<std::collections::HashMap<String, SshMux>>> =
+    std::sync::Mutex::new(None);
+
+/// A test's ssh program and socket directory for the peer named `peer` (never PATH, which
+/// every test shares).
+#[cfg(test)]
+pub(crate) fn override_for_tests(peer: &str, mux: SshMux) {
+    let mut overrides = OVERRIDES.lock().unwrap_or_else(|e| e.into_inner());
+    overrides.get_or_insert_with(Default::default).insert(peer.to_owned(), mux);
+}
+
 impl Peer {
     /// This peer's ssh program and socket directory.
     pub(in crate::peer) fn ssh_mux(&self) -> SshMux {
         #[cfg(test)]
         {
             // A test that set none runs no master options: no socket under a real home.
-            self.ssh_mux_override
-                .get()
+            let overrides = OVERRIDES.lock().unwrap_or_else(|e| e.into_inner());
+            overrides
+                .as_ref()
+                .and_then(|o| o.get(&self.name))
                 .cloned()
                 .unwrap_or(SshMux { program: "ssh".into(), dir: None })
         }
@@ -140,7 +155,7 @@ impl Peer {
         let Some(path) = path.filter(|path| !path.exists()) else {
             return Ok(None);
         };
-        let lock = match OpenOptions::new()
+        let lock = match crate::home_fs::OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)

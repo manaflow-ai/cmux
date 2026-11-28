@@ -44,7 +44,10 @@ class MobileCoreLinuxOnly(unittest.TestCase):
     def test_full_ci_cross_checks_on_the_mac_that_is_already_held(self) -> None:
         steps = self.jobs["ios-simulator-build"]["steps"]
         step = next(s for s in steps if s.get("name") == "Mac cross-check of the mobile-core packages (full-ci)")
-        self.assertEqual(step["if"], "${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}")
+        self.assertEqual(step["if"], "${{ (contains(github.event.pull_request.labels.*.name, 'full-ci')"
+                                     " && (github.event.pull_request.base.ref != 'feat-cmux-next'"
+                                     " || (github.event.action == 'labeled' && github.event.label.name == 'full-ci')"
+                                     " || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}")
         for package in PACKAGES:
             self.assertIn(package, step["run"])
         self.assertIn("require_selected_test_execution.sh", step["run"])

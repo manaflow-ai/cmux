@@ -751,6 +751,7 @@ impl Hub {
                 asked.set("forkOffer", offer);
             }
             self.append(session, "mux", "permission_request", asked);
+            self.watch_permission_stall(session, &permission_id);
             self.background_attention(session);
             self.set_waiting(session, super::WaitReason::of_request(&request));
             // A tool prompt in a chat an agent or a script started is refused once nobody
