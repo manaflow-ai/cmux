@@ -120,8 +120,10 @@ pub(super) fn mem_total_avail() -> Option<(u64, u64)> {
     Some((get("MemTotal")?, get("MemAvailable")?))
 }
 
-/// macOS: `hw.memsize`, and available as Activity Monitor counts it: free, inactive,
-/// speculative and purgeable pages (what the kernel hands out without compressing or swapping).
+/// macOS: `hw.memsize`, and available as total less Activity Monitor's "Memory Used": app
+/// memory (anonymous pages less purgeable), wired and compressed. Counting inactive pages as
+/// free instead read a held 27 GiB as 54% used (Mac round 4b, run 46094358171), since a
+/// hog's touched pages age onto the inactive queue.
 #[cfg(target_os = "macos")]
 pub(super) fn mem_total_avail() -> Option<(u64, u64)> {
     let total = sysctl_u64(c"hw.memsize")?;
@@ -142,11 +144,10 @@ pub(super) fn mem_total_avail() -> Option<(u64, u64)> {
     if kr != libc::KERN_SUCCESS {
         return None;
     }
-    let pages = u64::from(s.free_count)
-        + u64::from(s.inactive_count)
-        + u64::from(s.speculative_count)
-        + u64::from(s.purgeable_count);
-    Some((total, (pages * page).min(total)))
+    let used = u64::from(s.internal_page_count).saturating_sub(u64::from(s.purgeable_count))
+        + u64::from(s.wire_count)
+        + u64::from(s.compressor_page_count);
+    Some((total, total.saturating_sub(used * page)))
 }
 
 #[cfg(target_os = "macos")]
