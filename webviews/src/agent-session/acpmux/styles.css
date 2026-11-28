@@ -1091,8 +1091,10 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-plan-build-item{display:flex;flex-direction:column;min-width:0}
 .acpmux-plan-build-detail{color:var(--agent-muted,color-mix(in srgb,currentColor 62%,transparent));font-size:var(--text-caption);line-height:var(--text-caption--line-height)}
 /* A card key (Esc, ⌘↩) after the label: the one key hint (ui/KeyHint) in the Surface.Keys slot. The slot keeps the
-   button's ink (golden-look-contrast-N.test.ts): its own 62% under the hint's fade read too faint. */
-.acpmux-permission-ask .ui-surface-keys.acpmux-permission-keys{color:inherit}
+   button's ink (golden-look-contrast-N.test.ts): its own 62% under the hint's fade read too faint. The hints in it keep
+   that ink too: ui/keyHint.css fades every hint to 62% of its host, which put the answer's letter under 4.5:1 on a
+   filled button in 25 looks (Y on the accent, N on the quiet one). */
+.acpmux-permission-ask .ui-surface-keys.acpmux-permission-keys,.acpmux-permission-ask .acpmux-permission-keys>.ui-key-hint{color:inherit}
 /* The answer's letter, then its other keys: a faint slash between them reads as "or", never as a chord. */
 .acpmux-permission-ask .acpmux-permission-keys-or{color:color-mix(in srgb,currentColor 75%,transparent);font:var(--text-caption)/1 var(--font-ui)}
 /* A button's shortcut with no card key (ui/KeyHint) a fixed step after the label. */
