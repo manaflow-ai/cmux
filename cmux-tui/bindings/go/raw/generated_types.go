@@ -1828,7 +1828,9 @@ func (value *ChiefWorkTask) UnmarshalJSON(data []byte) error {
 }
 
 type ClientInfo struct {
-	Attached         []ID                     `json:"attached"`
+	Attached []ID `json:"attached"`
+	// The capabilities this connection declared in set-client-info that the daemon recognized, sorted (for example agent-cli-hybrid-v1). Absent from daemons older than this field.
+	Capabilities     *[]string                `json:"capabilities,omitempty"`
 	Client           uint64                   `json:"client"`
 	ConnectedSeconds uint64                   `json:"connected_seconds"`
 	Kind             RequiredNullable[string] `json:"-"`
@@ -1882,14 +1884,15 @@ func (value *ClientInfo) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode ClientInfo: expected object")
 	}
 	var fields struct {
-		Attached         *[]ID                    `json:"attached"`
-		Client           *uint64                  `json:"client"`
-		ConnectedSeconds *uint64                  `json:"connected_seconds"`
-		Kind             RequiredNullable[string] `json:"kind"`
-		Name             RequiredNullable[string] `json:"name"`
-		Self             *bool                    `json:"self"`
-		Sizes            *[]ClientSize            `json:"sizes"`
-		Transport        *ClientTransport         `json:"transport"`
+		Attached         *[]ID                         `json:"attached"`
+		Capabilities     optionalNonNullJSON[[]string] `json:"capabilities"`
+		Client           *uint64                       `json:"client"`
+		ConnectedSeconds *uint64                       `json:"connected_seconds"`
+		Kind             RequiredNullable[string]      `json:"kind"`
+		Name             RequiredNullable[string]      `json:"name"`
+		Self             *bool                         `json:"self"`
+		Sizes            *[]ClientSize                 `json:"sizes"`
+		Transport        *ClientTransport              `json:"transport"`
 	}
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return fmt.Errorf("decode ClientInfo: %w", err)
@@ -1900,6 +1903,12 @@ func (value *ClientInfo) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode ClientInfo: required field attached is missing or null")
 	}
 	decoded.Attached = *fields.Attached
+	if fields.Capabilities.null {
+		return fmt.Errorf("decode ClientInfo: non-nullable field capabilities is null")
+	}
+	if fields.Capabilities.set {
+		decoded.Capabilities = &fields.Capabilities.value
+	}
 	if fields.Client == nil {
 		return fmt.Errorf("decode ClientInfo: required field client is missing or null")
 	}
@@ -4243,6 +4252,59 @@ func (value *ExportedPane) UnmarshalJSON(data []byte) error {
 	}
 	decoded.Surfaces = *fields.Surfaces
 	*value = ExportedPane(decoded)
+	return nil
+}
+
+type FloatingPane struct {
+	// The height, 0 to 1.
+	H float64 `json:"h"`
+	// floating-panes-v1: the pane, still a leaf of the screen's layout; x, y, w and h are its frame as fractions of the screen's pane area.
+	Pane ID `json:"pane"`
+	// The width, 0 to 1.
+	W float64 `json:"w"`
+	// The left edge, 0 to 1.
+	X float64 `json:"x"`
+	// The top edge, 0 to 1.
+	Y float64 `json:"y"`
+}
+
+func (value *FloatingPane) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode FloatingPane: expected object")
+	}
+	var fields struct {
+		H    *float64 `json:"h"`
+		Pane *ID      `json:"pane"`
+		W    *float64 `json:"w"`
+		X    *float64 `json:"x"`
+		Y    *float64 `json:"y"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode FloatingPane: %w", err)
+	}
+	type wire FloatingPane
+	var decoded wire
+	if fields.H == nil {
+		return fmt.Errorf("decode FloatingPane: required field h is missing or null")
+	}
+	decoded.H = *fields.H
+	if fields.Pane == nil {
+		return fmt.Errorf("decode FloatingPane: required field pane is missing or null")
+	}
+	decoded.Pane = *fields.Pane
+	if fields.W == nil {
+		return fmt.Errorf("decode FloatingPane: required field w is missing or null")
+	}
+	decoded.W = *fields.W
+	if fields.X == nil {
+		return fmt.Errorf("decode FloatingPane: required field x is missing or null")
+	}
+	decoded.X = *fields.X
+	if fields.Y == nil {
+		return fmt.Errorf("decode FloatingPane: required field y is missing or null")
+	}
+	decoded.Y = *fields.Y
+	*value = FloatingPane(decoded)
 	return nil
 }
 
@@ -10749,7 +10811,7 @@ type Screen struct {
 	// The screen's layout columns.
 	Columns *[]LayoutColumnNode `json:"columns,omitempty"`
 	// floating-panes-v1: panes above the tiled layout, back to front.
-	Floating *JSONValue `json:"floating,omitempty"`
+	Floating *[]FloatingPane `json:"floating,omitempty"`
 	// The screen group the screen is in.
 	Group Presence[string] `json:"-"`
 	// split-divider-visibility-v1: splits whose divider is hidden.
@@ -10870,7 +10932,7 @@ func (value *Screen) UnmarshalJSON(data []byte) error {
 		ActivePane        *ID                                       `json:"active_pane"`
 		Color             Presence[string]                          `json:"color"`
 		Columns           optionalNonNullJSON[[]LayoutColumnNode]   `json:"columns"`
-		Floating          optionalNonNullJSON[JSONValue]            `json:"floating"`
+		Floating          optionalNonNullJSON[[]FloatingPane]       `json:"floating"`
 		Group             Presence[string]                          `json:"group"`
 		HiddenDividers    optionalNonNullJSON[[]ID]                 `json:"hidden_dividers"`
 		Icon              Presence[string]                          `json:"icon"`

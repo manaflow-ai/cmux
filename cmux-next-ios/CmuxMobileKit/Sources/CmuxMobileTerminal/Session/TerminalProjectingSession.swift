@@ -22,17 +22,18 @@ import os
 /// The phone never resizes the Mac's PTY while it projects (Leo, 2026-11-25:
 /// "do everything at parity on the phone", "why would the Mac on an iPhone
 /// connection ALWAYS be resized down anyways!?"): no claim on attach, on a
-/// full-screen app, or on typing. Settings → Terminal → Fit to Phone off
-/// (``isEnabled``), or the page menu's per program (``isEnabled(for:)``),
-/// uses the Mac's session as it is.
+/// full-screen app, or on typing. Settings → Terminal → Re-wrap on Phone
+/// opts in; Fit to Phone takes precedence when enabled for this program.
 @MainActor
 public final class TerminalProjectingSession: TerminalSession {
-    /// Whether new terminal pages project (Settings → Terminal → Fit to Phone off).
-    public static var isEnabled: Bool { !CmuxMobilePreferences.terminalFitToPhone() }
+    /// Whether new terminal pages opt into phone-side re-wrap.
+    public static var isEnabled: Bool { CmuxMobilePreferences.terminalPhoneProjection() && !CmuxMobilePreferences.terminalFitToPhone() }
 
     /// Whether a new page of `program` projects: its own Fit to Phone choice
     /// (the page menu), else the global setting (`TerminalFitToPhoneMemory`).
-    public static func isEnabled(for program: String) -> Bool { !TerminalFitToPhoneMemory().fitToPhone(for: program) }
+    public static func isEnabled(for program: String, defaults: UserDefaults = .standard) -> Bool {
+        CmuxMobilePreferences.terminalPhoneProjection(defaults) && !TerminalFitToPhoneMemory(defaults: defaults).fitToPhone(for: program)
+    }
 
     /// The Mac's session.
     public let inner: any TerminalSession

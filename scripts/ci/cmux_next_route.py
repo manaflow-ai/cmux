@@ -428,6 +428,8 @@ NATIVE_SCRIPT_INPUTS = (
     "scripts/ci/github_release_asset.py",
     # swiftpm-seed.sh runs this before resolving the app's binary artifacts.
     "scripts/ci/swiftpm_prefetch_binary_artifacts.py",
+    # build-screen-sharing-helper.sh reads the helper's release (and its machine channel) to bundle it.
+    "scripts/ci/screen_sharing_helper_release.py", "scripts/ci/cmux-machine-channel.py",
 )
 # The CI files that route themselves (the router reads them; the replay checks them).
 CI_SELF = (".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py", "scripts/ci/select_package_tests.py")

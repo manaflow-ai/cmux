@@ -8,18 +8,17 @@ import { JSDOM } from "jsdom";
 import { setComposerSettings } from "../src/agent-session/acpmux/composerSettings";
 import { act, createRef, type ComponentProps } from "react";
 import type { Root } from "react-dom/client";
-import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
-import { inlineToken, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
-import {
-  composerCopy,
-  forgetCopy,
-  pastePlan,
-  rememberCopy,
-  writeComposerCopy,
-} from "../src/agent-session/acpmux/composer/composerCopy";
+import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { noChat } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
+const { inlineToken } = await importWithDom(() => import("../src/agent-session/acpmux/attachments"));
+const { composerCopy, forgetCopy, pastePlan, rememberCopy, writeComposerCopy } = await importWithDom(
+  () => import("../src/agent-session/acpmux/composer/composerCopy"),
+);
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [

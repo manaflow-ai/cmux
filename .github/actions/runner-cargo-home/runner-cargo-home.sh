@@ -14,12 +14,31 @@
 # The home is <runner>/_work/.cargo-home: it persists between this runner's jobs,
 # and the hosts' idle-runner eviction skips dot names in _work. The rustup home
 # and the toolchains stay shared; the toolchain is on PATH by its own bin dir.
-# Ephemeral and single-runner hosts, and a job that sets CARGO_HOME itself to
+# A single runner whose ~/.cargo or registry holds entries it cannot write (the
+# Linux pool slots share one crate cache across uids) gets one too. Other
+# ephemeral and single-runner hosts, and a job that sets CARGO_HOME itself to
 # anything but $HOME/.cargo, keep their CARGO_HOME.
 set -euo pipefail
 
 : "${GITHUB_ENV:?GITHUB_ENV is required}"
 : "${GITHUB_PATH:?GITHUB_PATH is required}"
+
+# The registry is a directory before rust-cache restores, never a link. A pool runner keeps
+# HOME between jobs, and the darwin warm-target leg (scripts/ci/machine-channel-warm-target.sh)
+# left ~/.cargo/registry a link into its slot's tree; rust-cache then saved the link, and on a
+# runner without that path its restore made a dangling one, so cargo's first call failed with
+# "failed to create directory ~/.cargo/registry/cache/...: File exists (os error 17)" (acpmux
+# tests, jobs 140850174447 and 140851740236, 2026-11-28; entry
+# v0-rust-cmux-tui-acpmux-tests-ad0a7f2f...). With a directory there, tar cannot lay a saved
+# link over it, so such an entry restores everything else and the job runs.
+registry="${CARGO_HOME:-${HOME:-}/.cargo}/registry"
+if [[ "$registry" == /* ]]; then
+  if [[ -L "$registry" ]]; then
+    echo "::warning::$registry was a link (to $(readlink "$registry")); replaced with a directory"
+    rm -f "$registry"
+  fi
+  mkdir -p "$registry"
+fi
 
 # dtolnay/rust-toolchain writes CARGO_HOME=$HOME/.cargo to GITHUB_ENV: that is
 # the shared home, not a home of the job's own, so it does not count.
@@ -42,8 +61,26 @@ runners=0
 for marker in "$(dirname "$runner_root")"/*/.runner; do
   [[ -f "$marker" ]] && runners=$((runners + 1))
 done
-if [[ "$runners" -lt 2 || ! -f "$runner_root/.runner" ]]; then
-  echo "this runner does not share its HOME with other runner instances; the default CARGO_HOME is kept"
+why=""
+if [[ "$runners" -ge 2 && -f "$runner_root/.runner" ]]; then
+  why="$runners runner instances share $HOME"
+else
+  # A host's registry this user cannot write: the Linux pool slots bind one crate cache
+  # under every slot's ~/.cargo/registry/cache, and a crate another slot's uid fetched (or
+  # a restore of the registry archive unpacked) is 0644 and not ours: cargo then fails with
+  # "failed to open .../cargo-zigbuild-0.20.0.crate: Permission denied (os error 13)"
+  # (run 46104595002, build-linux aarch64 musl, 2026-11-28; job 140826310692, 847 of them).
+  # Three levels reach registry/{cache,src,index}/<index>/<entry>, so the walk stays bounded.
+  registry="$HOME/.cargo/registry"
+  if [[ -e "$HOME/.cargo" && ! -w "$HOME/.cargo" ]]; then
+    why="$HOME/.cargo is not writable by $(id -un)"
+  elif [[ -d "$registry" ]]; then
+    foreign="$(find "$registry" -mindepth 1 -maxdepth 3 \( ! -user "$(id -u)" -o ! -perm -u+w \) -print -quit 2>/dev/null || true)"
+    [[ -z "$foreign" ]] || why="$registry holds entries $(id -un) cannot write (first: $foreign)"
+  fi
+fi
+if [[ -z "$why" ]]; then
+  echo "this runner does not share its HOME with other runner instances and its cargo registry is its own; the default CARGO_HOME is kept"
   exit 0
 fi
 
@@ -57,4 +94,4 @@ for name in config.toml config; do
 done
 echo "CARGO_HOME=$cargo_home" >> "$GITHUB_ENV"
 echo "$cargo_home/bin" >> "$GITHUB_PATH"
-echo "CARGO_HOME=$cargo_home ($runners runner instances share $HOME)"
+echo "CARGO_HOME=$cargo_home ($why)"
