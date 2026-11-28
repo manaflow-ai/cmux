@@ -482,7 +482,11 @@ impl<R: Clone + PartialEq, M> PathSet<R, M> {
 
     /// Remembers the primary route as the winner for `key`, with its connect time, so the
     /// next dial to that peer tries it first. Whether there was one to remember.
-    pub fn remember<K: Eq + std::hash::Hash>(&self, memory: &LastGood<K, R>, key: K) -> bool {
+    pub fn remember<K: Eq + std::hash::Hash + Clone>(
+        &self,
+        memory: &LastGood<K, R>,
+        key: K,
+    ) -> bool {
         let Some(path) = self.selector.current().and_then(|id| self.by_id(id)) else {
             return false;
         };
