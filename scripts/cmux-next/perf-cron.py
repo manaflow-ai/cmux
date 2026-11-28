@@ -1726,6 +1726,24 @@ def goal_harness_fixed(state, cur, newest, changed=None):
     return out
 
 
+def wants_newest(state, cur, tip, tree_ready=lambda sha: True):
+    """Whether the tick looks up newest, the newer measurable tip supersede_for_unread hands the Mac to (pure but for
+    goal_harness_fixed's git diff). One predicate per supersede_for_unread branch that needs a newer tip: a part
+    that never produced a reading and that the tip in flight predates (unread_missing), a tip whose app build failed
+    (build_failed_tip), whose app crashed at launch (launch_dead_tip), whose Mac parts wait for a tree still
+    unpublished (tree_waiting), or a goal part that stored no goal row with a harness the tip fixes
+    (goal_harness_fixed). A branch missing here never fires: newest stays None.
+
+    2026-11-28: cmux#65310 added the launch-dead branch to supersede_for_unread but not to this gate; it fired on tip
+    cdf458ee only because unread_missing (infinite-tabs) also held there, and a launch-dead tip with every part read
+    would have kept its Mac parts to ABANDON_WALL_HOURS with newest None."""
+    if not cur:
+        return False
+    return bool(unread_missing(state, cur) or build_failed_tip(cur) or launch_dead_tip(cur)
+                or (tree_waiting(cur) and not tree_ready(cur["sha"]))
+                or goal_harness_fixed(state, cur, tip))
+
+
 def supersede_for_unread(state, t, newest, supported_parts, changed=None):
     """End the Mac parts still to do of the tip measurement in flight as 'superseded' when a part that never produced a
     reading (unread_missing) runs at newest, the newest measurable commit with a published cmux-tui tree (plan): the
@@ -4459,13 +4477,8 @@ def plan(o):
                 break
     newest = None
     gone_by = state.get("current") or {}
-    if not no_mac and (unread_missing(state, gone_by) or build_failed_tip(gone_by)
-                       or (tree_waiting(gone_by) and not tree_ready(gone_by["sha"]))
-                       or goal_harness_fixed(state, gone_by, tip)):
-        # A part that never produced a reading (unread_parts) and that the tip in flight predates, a tip whose app
-        # build failed (build_failed_tip), one whose Mac parts wait for a tree still unpublished (tree_waiting), or a
-        # goal part that stored no goal row with a harness the tip fixes (goal_harness_fixed):
-        # the newest commit that can run it on the fleet (supersede_for_unread).
+    if not no_mac and wants_newest(state, gone_by, tip, tree_ready):
+        # The newest commit that can run on the fleet, for supersede_for_unread.
         later, _ = first_parent_since(tip, gone_by["sha"], CANDIDATE_DEPTH)
         for i, sha in enumerate(later):
             if sha == gone_by["sha"] or not fleet_runs(sha, tip_version):
