@@ -69,6 +69,8 @@ pub mod dormant;
 pub mod multipath;
 #[path = "wireguard_paths.rs"]
 mod paths;
+#[path = "wireguard_reply_source.rs"]
+mod reply_source;
 pub use multipath::{InterfaceKind, NetInterface, set_cellular_assist, set_interfaces};
 pub use paths::{app_backgrounded, set_app_backgrounded};
 use roam::apply_multipath_to_live_sessions;

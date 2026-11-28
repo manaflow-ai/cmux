@@ -183,15 +183,22 @@ fn copy_key(datagram: &[u8]) -> Option<CopyKey> {
 /// IPv4 target leaves as `::ffff:a.b.c.d` (Darwin refuses an IPv4 sockaddr
 /// on an IPv6 socket) and an IPv4 source comes back as plain IPv4, so the
 /// addresses it sees compare equal to the peer's and STUN servers'.
+///
+/// An IPv4 one answers each peer address from the local address its
+/// datagrams arrive at ([`super::reply_source`]), not the default route's:
+/// a Mac on one subnet over Wi-Fi and Ethernet at once otherwise answers a
+/// phone from an address it never dialed.
 pub(super) struct TunnelSocket {
     socket: UdpSocket,
     v6: bool,
+    reply: Option<super::reply_source::ReplySource>,
 }
 
 impl TunnelSocket {
     pub(super) fn new(socket: UdpSocket) -> Self {
         let v6 = socket.local_addr().is_ok_and(|addr| addr.is_ipv6());
-        Self { socket, v6 }
+        let reply = if v6 { None } else { super::reply_source::ReplySource::enable(&socket) };
+        Self { socket, v6, reply }
     }
 
     fn wire(&self, target: SocketAddr) -> SocketAddr {
@@ -202,6 +209,21 @@ impl TunnelSocket {
     }
 
     pub(super) fn try_send_to(&self, datagram: &[u8], target: SocketAddr) -> io::Result<usize> {
+        if let Some(reply) = &self.reply
+            && let SocketAddr::V4(v4) = target
+            && let Some(local) = reply.source_for(target)
+        {
+            let sent = self.socket.try_io(tokio::io::Interest::WRITABLE, || {
+                super::reply_source::send_from(&self.socket, datagram, v4, local)
+            });
+            match sent {
+                // The address left this machine (a roam): let the OS choose again.
+                Err(error) if matches!(error.raw_os_error(), Some(libc::EADDRNOTAVAIL | libc::EINVAL)) => {
+                    reply.forget(target);
+                }
+                other => return other,
+            }
+        }
         self.socket.try_send_to(datagram, self.wire(target))
     }
 
@@ -210,9 +232,29 @@ impl TunnelSocket {
         cx: &mut Context<'_>,
         buffer: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<SocketAddr>> {
-        self.socket
-            .poll_recv_from(cx, buffer)
-            .map_ok(|source| if self.v6 { canonical(source) } else { source })
+        let Some(reply) = &self.reply else {
+            return self
+                .socket
+                .poll_recv_from(cx, buffer)
+                .map_ok(|source| if self.v6 { canonical(source) } else { source });
+        };
+        loop {
+            std::task::ready!(self.socket.poll_recv_ready(cx))?;
+            let received = self.socket.try_io(tokio::io::Interest::READABLE, || {
+                super::reply_source::recv(&self.socket, buffer.initialize_unfilled())
+            });
+            match received {
+                Ok((len, source, local)) => {
+                    buffer.advance(len);
+                    if let Some(local) = local {
+                        reply.note(source, local, std::time::Instant::now());
+                    }
+                    return Poll::Ready(Ok(source));
+                }
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => continue,
+                Err(error) => return Poll::Ready(Err(error)),
+            }
+        }
     }
 }
 
@@ -1209,6 +1251,56 @@ mod tests {
         let (received, allocations) = counting::allocations(|| underlay.poll_secondary(&mut cx, &mut buffer));
         assert_eq!(received.map(|received| received.origin.addr), Some(Some(peer_addr)));
         assert_eq!(allocations, 0);
+    }
+
+    /// mac-host-route-choice (phone link, 11-27): a Mac with two addresses on
+    /// one subnet (Wi-Fi and USB Ethernet) answered the phone from the default
+    /// route's address, not the one the phone dialed, and the tunnel flapped
+    /// between them. Linux's loopback holds all of 127/8, which stands in for
+    /// the two interfaces: a datagram to 127.0.0.2 is answered from 127.0.0.2
+    /// (before: from 127.0.0.1, the route's source).
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn replies_leave_from_the_address_the_peer_dialed() {
+        let socket = TunnelSocket::new(super::super::bind_udp().unwrap());
+        let port = socket.local_addr().unwrap().port();
+        let phone = UdpSocket::bind("127.0.0.5:0").await.unwrap();
+        let phone_addr = phone.local_addr().unwrap();
+        let mut buffer = [0u8; 64];
+        // One phone probing both addresses: each answer comes from the one probed.
+        for dialed in [Ipv4Addr::new(127, 0, 0, 2), Ipv4Addr::new(127, 0, 0, 3), Ipv4Addr::new(127, 0, 0, 2)]
+        {
+            phone.send_to(b"hello", (dialed, port)).await.unwrap();
+            let source = tokio::time::timeout(
+                Duration::from_secs(1),
+                std::future::poll_fn(|cx| socket.poll_recv_from(cx, &mut ReadBuf::new(&mut buffer))),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            assert_eq!(source, phone_addr);
+            socket.writable().await.unwrap();
+            socket.try_send_to(b"reply", phone_addr).unwrap();
+            let (len, from) = tokio::time::timeout(Duration::from_secs(1), phone.recv_from(&mut buffer))
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(&buffer[..len], b"reply");
+            assert_eq!(
+                from,
+                SocketAddr::from((dialed, port)),
+                "the reply came from an address the phone never dialed"
+            );
+        }
+        // A peer never heard from is sent to as before (the OS picks the source).
+        let cold = UdpSocket::bind("127.0.0.6:0").await.unwrap();
+        socket.try_send_to(b"cold", cold.local_addr().unwrap()).unwrap();
+        let phone = cold;
+        let (len, _) = tokio::time::timeout(Duration::from_secs(1), phone.recv_from(&mut buffer))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(&buffer[..len], b"cold");
     }
 
     /// Review P2 (follow-up 3): the second socket is dual-stack. It reaches
