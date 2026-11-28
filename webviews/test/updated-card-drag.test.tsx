@@ -9,21 +9,15 @@
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
-import { anchorMemory } from "../src/ui/anchors";
 import type { UpdateHighlights } from "../src/pages/changelog/updateHighlights";
-import {
-  dragBox,
-  pressCard,
-  rememberedRow,
-  rememberRow,
-  rowOffset,
-  shownOffset,
-  RUBBER_LEAN,
-  type CardDragHost,
-  type CardPlace,
-  type CardRow,
-} from "../src/pages/changelog/updatedCardDrag";
+import type { CardDragHost, CardPlace, CardRow } from "../src/pages/changelog/updatedCardDrag";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { anchorMemory } = await importWithDom(() => import("../src/ui/anchors"));
+const { dragBox, pressCard, rememberedRow, rememberRow, rowOffset, shownOffset, RUBBER_LEAN } = await importWithDom(
+  () => import("../src/pages/changelog/updatedCardDrag"),
+);
 
 const atBottom: CardPlace = { anchor: "bottom", above: 400, below: 0 };
 

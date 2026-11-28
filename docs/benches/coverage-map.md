@@ -78,6 +78,9 @@ scale. Ranks match the RFD: 1 is the highest risk.
 | 13 | Pane layout | `Packages/macOS/CmuxNext/Sources/CmuxNextLayout` | `LayoutDragBench`, `PaneMotionBench` | 5-200 panes | tests by path | `LayoutIncrementalBoundTests` not written yet (RFD 0199 area 4). |
 | 13 | Terminal core (Rust) | `cmux-tui/crates/ghostty-vt`, `cmux-tui/crates/cmux-terminal-find`, `cmux-tui/crates/cmux-terminal-projection` | `terminal-throughput-quick` | 10k-100k rows | tests by path | No Linux `run` bench (libghostty-vt needs zig); history page-hop test not written yet (RFD 0199 area 10). |
 | 13 | Settings schema and window | `webviews/src/pages/settings` | `webviews/bench/settings-search-visible-only.bench.ts`, `webviews/bench/settings-cards-visible-only.bench.ts` | 160 KB | tests by path | none |
+| 13 | Update flow | `Packages/macOS/CmuxNext/Sources/CmuxNextUpdater`, `Packages/macOS/CmuxNext/Sources/CmuxNextApp/UpdaterService*.swift`, `Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugUpdater.swift`, `cmux-tui/crates/cmux-app-ffi/src/updater`, `cmux-tui/crates/cmux-app-ffi/src/updater.rs`, `cmux-tui/crates/cmux-update-prewarm-core`, `scripts/cmux-next/update-harness` | `post-update` | n/a (counts) | tests by path | Budgets are counts the update tests assert (0 pauses, 1 download, 0 cards, 1 click); `post-update` is manual. |
+| 13 | Launch first frame | `Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch`, `Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Model/SidebarFirstFrame.swift`, `cmux-tui/crates/cmux-launch-shell` | `launch`, `launch-bare`, `TerminalLaunchFrameKeeperBenchTests` | saved window images | tests by path | 0 opaque cover frames is asserted by `cmux-launch-shell` plan tests on Linux; the Swift reveal tests need a Mac. |
+| 13 | Composer hat line (web) | `webviews/src/agent-session/acpmux/subagents` | none | 14 subagents, 6 commands | tests by path | 0 accent words and 0 chips is a real-Chromium test; no bench. |
 
 ## cmux-bench registry
 
@@ -126,6 +129,7 @@ as a gate. `stress` has a dispatch-only compare workflow (`cmux-next-stress-benc
 | `omnibar` | omnibar | n/a | no |
 | `pane-compile` | agent pane web | n/a | no |
 | `pane-resize-drag` | agent chat web | 200-2,000 turns | no |
+| `phone-speed` | iOS terminal | echo, stream and rotate at 100 and 10,000 rows of scrollback (Callgrind Ir, #63285) | yes (`phone-speed-icount`, when its inputs change) |
 | `persona-walk` | first run | fresh install | no |
 | `phone-speed` | iOS | 100 and 10,000 terminal lines | yes (`phone-speed-icount`) |
 | `post-update` | update | n/a | no |
@@ -333,4 +337,4 @@ docs (the ds&a fan-out brief). Each one's correctness test sits beside it.
 |---|---|---|---|---|---|
 | `tools/bench_agent_memory_search.py` | `tools/agent-memory search` | 13k sources | p50 1.7 s → 6 ms (leo-workspace#13282) | yes | `tools/test_agent_memory.py` |
 | `tools/bench_agent_memory_fingerprint.py` | `agent-memory` staleness fingerprint | 13k sources | 3.6 s → 0.69 s (leo-workspace#13291) | yes (runs in a throttled child, off the query path) | `tools/test_agent_memory.py` |
-| `tools/bench_rfd_update.py` | `tools/rfd find` and `rfd update` | 336 and 3,360 docs | at 3,360 docs: query 1,505 → 430 ms; update 6,605 → 1,916 ms, p95 2,492 ms (leo-workspace#13340) | no: the query at 10x and the update p95 are over budget, tracked in leo-workspace#13352 | `tools/test_rfd.py` |
+| `tools/bench_rfd_update.py` | `tools/rfd find` and `rfd update` | 336 and 3,360 docs | at 3,360 docs: query 1,505 → 430 ms (leo-workspace#13340); update p95 2,492 → 1,731 ms (leo-workspace#14288); query p50 639 ms, p95 895 ms on a loaded lane VM (load 13-32) | update: yes (1,731 ms p95, leo-workspace#14288); query: no (639 ms p50 against 300 ms, tracked in leo-workspace#13352) | `tools/test_rfd.py` |
