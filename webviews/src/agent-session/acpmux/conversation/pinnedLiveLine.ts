@@ -186,6 +186,10 @@ function playingOn(thread: HTMLElement, rows: Pinned): Map<Element, Animation[]>
 export function drawPinned(thread: HTMLElement, x: number): void {
   const rows = pinned.get(thread);
   if (!rows || rows.held) return;
+  drawPinRows(thread, rows, x);
+}
+
+function drawPinRows(thread: HTMLElement, rows: Pinned, x: number): void {
   rows.cap = Math.max(0, Math.min(rows.cap, x));
   rows.x = x;
   // Held back by what the thread is drawn away past the line's cap.
@@ -233,8 +237,27 @@ export function pinnedLiveRow(thread: HTMLElement | null): HTMLElement | undefin
 }
 
 /// A placement pass started or retargeted tail glides after taking the pin: update its clips before paint.
-export function refreshPinned(thread: HTMLElement | null): void {
-  if (thread) drawPinned(thread, threadY(thread));
+/// `geometry`: a size observer can settle DOM heights before another placement takes the pin. Rebuild
+/// only the span its held position reaches, plus the first clear predecessor; chase frames keep using
+/// that cache without layout reads. Retain the pin's cap and held offset, so this refresh moves no line.
+export function refreshPinned(thread: HTMLElement | null, geometry = false): void {
+  if (!thread) return;
+  const rows = pinned.get(thread);
+  if (!rows) return;
+  if (!geometry) {
+    drawPinned(thread, threadY(thread));
+    return;
+  }
+  const previous = rows.above;
+  rows.top = rows.live.offsetTop;
+  rows.above = [];
+  rows.listed = new Set();
+  stepUp(rows, rows.live.previousElementSibling);
+  rows.first = rows.next;
+  rows.firstBottom = rows.nextBottom;
+  drawPinRows(thread, rows, rows.held ? rows.x : threadY(thread));
+  // Rows no longer reached by the pin release their old clip in this same refresh.
+  for (const { row } of previous) if (!rows.listed.has(row)) row.style.removeProperty("clip-path");
 }
 
 /// The placement pass begins: what the pin holds the line back by now is what the reader sees. A

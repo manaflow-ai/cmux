@@ -5,8 +5,8 @@
 // overlapping text between the sent out text (from you) and the subequent tool calls/thinking").
 // A reply streams text, thinks, calls a tool, streams more and thinks again, while the page's main
 // thread is kept busy (a long task every few frames, as a loaded Mac's WebKit sees), in a chat that
-// follows its latest line and in one the reader scrolled up a little. On every painted frame, read
-// as the frame paints it (paintedFrames.ts), the ink of each row's text (and of the old words a
+// follows its latest line and in one the reader scrolled up a little. For every rendering frame,
+// snapshot final observer-phase geometry (renderedFrames.ts): the ink of each row's text (and of the old words a
 // status line leaves while they go) is compared with the next row's: no row's text may cross the
 // next row's. Where the rows' boxes cross is reported too.
 //
@@ -17,6 +17,7 @@ import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { envelope } from "../src/agent-session/acpmux/incomingFixture";
 import { installPaintedFrames } from "./support/paintedFrames";
+import { installRenderedFrames } from "./support/renderedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -315,7 +316,7 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
     };
   };
 
-  /// Samples painted geometry; optional observer diagnostics expose states that can heal before paint.
+  /// Snapshots final rendering geometry; optional observer diagnostics expose earlier transient states.
   /// Clipping can reorder ink or hide intervening rows, so box adjacency alone misses collisions.
   const sample = (page: Page, diagnoseObserver = false) =>
     page.evaluate((diagnoseObserver) => {
@@ -432,11 +433,10 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
         }
         return { top, bottom };
       };
-      const read = (frame: number, painted = false) => {
-        const frameId = Math.round(painted ? frame : drivenFrame);
-        if (painted) w.__paintedFrames.add(frameId);
-        else w.__frames += 1;
-        const overlaps = painted ? w.__paintedOverlaps : w.__overlaps;
+      const read = (frame: number, capture = false) => {
+        const frameId = Math.round(capture ? frame : drivenFrame);
+        if (!capture) w.__frames += 1;
+        const overlaps: Pair[] = capture ? [] : w.__overlaps;
         const view = scroller.getBoundingClientRect();
         const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-thread > .acpmux-row")]
           .map((row) => ({ row, rect: row.getBoundingClientRect() }))
@@ -497,12 +497,17 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
           if (farthest && farthest.ink!.bottom - current.ink!.top > 0.5) record(farthest, current);
           if (!farthest || current.ink!.bottom > farthest.ink!.bottom) farthest = current;
         }
+        return overlaps;
       };
       (w as unknown as { __read: (frame: number) => void }).__read = read;
       const observer = diagnoseObserver ? new ResizeObserver(() => read(performance.now())) : undefined;
       observer?.observe(probe);
-      const stopFrames = window.cmuxAfterPaint(
+      const stopFrames = window.cmuxFrameSnapshots(
         (frame) => read(frame, true),
+        (pairs, frame) => {
+          w.__paintedFrames.add(Math.round(frame));
+          w.__paintedOverlaps.push(...pairs);
+        },
         (frame) => {
           drivenFrame = frame;
           w.__drivenFrames += 1;
@@ -593,6 +598,7 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
     test(`${name}: overlap detector distinguishes observer transients from painted collisions`, async () => {
       const page = await browsers.get(name)!.newPage();
       await installPaintedFrames(page);
+      await installRenderedFrames(page);
       try {
         for (const heal of [true, false]) {
           await page.setContent(`<style>
@@ -643,6 +649,7 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
     test(`${name}: overlap detector catches one painted collision repaired on the next frame`, async () => {
       const page = await browsers.get(name)!.newPage();
       await installPaintedFrames(page);
+      await installRenderedFrames(page);
       try {
         for (const busy of [0, 45]) {
           await page.setContent(`<style>
@@ -683,6 +690,7 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
     test(`${name}: overlap detector respects text clipping and visible band ordering`, async () => {
       const page = await browsers.get(name)!.newPage();
       await installPaintedFrames(page);
+      await installRenderedFrames(page);
       const readFixture = async (rows: string) => {
         await page.setContent(`<style>
           body { margin: 0; }
@@ -750,6 +758,7 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
   async function open(name: string) {
     const page = await browsers.get(name)!.newPage({ viewport: { width: 900, height: 640 } });
     await installPaintedFrames(page);
+    await installRenderedFrames(page);
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
@@ -912,7 +921,7 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
           await page.mouse.move(450, 300);
           await page.mouse.wheel(0, -60);
         });
-        await page.locator(".acpmux-row--last-footer").waitFor({ timeout: 60_000 });
+        await page.locator(".acpmux-row--final-footer").waitFor({ timeout: 60_000 });
         // fixed-wait: the reply's last lines drain and its rows come to rest.
         await page.waitForTimeout(800);
         // At rest no row keeps a clip: a tail glide's clip held under the reader's scroll and left on
@@ -966,7 +975,7 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
         // Finish with a known reply, so the recorded history cannot hide missing final content.
         const finalId = `${id}-final`;
         await messageTurn(finalId);
-        await page.locator(".acpmux-row--last-footer").waitFor({ timeout: 60_000 });
+        await page.locator(".acpmux-row--final-footer").waitFor({ timeout: 60_000 });
         // fixed-wait: the last reply's lines drain and its rows come to rest.
         await page.waitForTimeout(800);
         const report = await stop(page);
