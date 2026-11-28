@@ -1802,7 +1802,7 @@ fn steps(
     {
         return outcome;
     }
-    // The fresh name a new machine gets (no listed machine or create has it): a start-session machine of that name is this run's.
+    // The fresh name a new machine gets (no listed machine or create has it); see fresh::own.
     let mut fresh = None;
     let machine = match &wanted {
         Machine::New => {
@@ -1845,7 +1845,7 @@ fn steps(
         start.push("--no-focus".to_owned());
     }
     start.push("--json".to_owned());
-    // On a machine this run makes for itself (`own`), the start is bounded and a stuck machine is given up (fresh.rs); a
+    // On `own`, the start is bounded and a stuck machine is given up (fresh.rs); a
     // `--from-folder` start's copy runs inside the step, so only the app's own stuck answer counts there.
     // A machine still booting at the bound (a cold create: no spare) is waited on while it boots (fresh::Boot).
     let mut boot = own
