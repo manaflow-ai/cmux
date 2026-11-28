@@ -16,7 +16,6 @@
 use crate::inventory::BUILD_OUTPUT;
 use serde::Serialize;
 use std::collections::BTreeSet;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -120,26 +119,30 @@ fn measure(path: &Path, walk: &mut Walk) -> (u64, u64) {
     (bytes, newest)
 }
 
-fn git(root: &Path, args: &[&str], stdin: Option<&[u8]>) -> Option<Vec<u8>> {
-    let mut child = Command::new("git")
+fn git(root: &Path, args: &[&str]) -> Option<Vec<u8>> {
+    let out = Command::new("git")
         .args(["-c", "core.fsmonitor=false"])
         .args(args)
         .current_dir(root)
         .env("GIT_OPTIONAL_LOCKS", "0")
-        .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
-        .stdout(Stdio::piped())
+        .stdin(Stdio::null())
         .stderr(Stdio::null())
-        .spawn()
+        .output()
         .ok()?;
-    if let (Some(input), Some(mut pipe)) = (stdin, child.stdin.take()) {
-        let input = input.to_vec();
-        std::thread::spawn(move || {
-            let _ = pipe.write_all(&input);
-        });
-    }
-    let out = child.wait_with_output().ok()?;
     // check-ignore exits 1 when nothing is ignored; that is an answer too.
     (out.status.success() || out.status.code() == Some(1)).then_some(out.stdout)
+}
+
+/// `git <args> -- <paths>` in chunks that keep each command line short, outputs joined.
+fn git_paths(root: &Path, args: &[&str], paths: &[String]) -> Option<Vec<u8>> {
+    let mut all = Vec::new();
+    for chunk in paths.chunks(256) {
+        let mut argv: Vec<&str> = args.to_vec();
+        argv.push("--");
+        argv.extend(chunk.iter().map(String::as_str));
+        all.extend(git(root, &argv)?);
+    }
+    Some(all)
 }
 
 fn nul_set(bytes: &[u8]) -> BTreeSet<String> {
@@ -196,24 +199,17 @@ pub fn plan(root: &Path, options: &Options) -> Plan {
 
     let (candidates, other_bytes) = build_output_candidates(root, &mut walk);
     let mut checkout_bytes = other_bytes;
-    let inside = git(root, &["rev-parse", "--is-inside-work-tree"], None)
+    let inside = git(root, &["rev-parse", "--is-inside-work-tree"])
         .is_some_and(|b| b.trim_ascii() == b"true");
     let (ignored, tracked) = if !inside {
         skipped = Some("notGit");
         (BTreeSet::new(), BTreeSet::new())
     } else {
-        let mut input = Vec::new();
-        for c in &candidates {
-            // The slash makes `dir/` patterns match without git guessing the kind.
-            input.extend_from_slice(c.as_bytes());
-            input.extend_from_slice(b"/\0");
-        }
-        let ignored =
-            git(root, &["check-ignore", "-z", "--stdin"], Some(&input)).map(|b| nul_set(&b));
+        // The slash makes `dir/` patterns match without git guessing the kind.
+        let dirs: Vec<String> = candidates.iter().map(|c| format!("{c}/")).collect();
+        let ignored = git_paths(root, &["check-ignore", "-z"], &dirs).map(|b| nul_set(&b));
         // Any tracked file inside a candidate keeps it: that folder is part of the checkout.
-        let mut args = vec!["ls-files", "-z", "--"];
-        args.extend(candidates.iter().map(String::as_str));
-        let tracked = if candidates.is_empty() { Some(Vec::new()) } else { git(root, &args, None) };
+        let tracked = git_paths(root, &["ls-files", "-z"], &candidates);
         match (ignored, tracked) {
             (Some(i), Some(t)) => (i, nul_set(&t)),
             _ => {

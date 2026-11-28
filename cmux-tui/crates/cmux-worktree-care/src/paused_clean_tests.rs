@@ -113,7 +113,7 @@ fn nested_node_modules_and_pycache_are_planned() {
 #[test]
 fn outside_git_no_build_output_is_planned() {
     let dir = tempfile::tempdir().unwrap();
-    if git(dir.path(), &["rev-parse", "--is-inside-work-tree"], None)
+    if git(dir.path(), &["rev-parse", "--is-inside-work-tree"])
         .is_some_and(|b| b.trim_ascii() == b"true")
     {
         eprintln!("tempdir sits inside a git work tree; nothing to check here");
