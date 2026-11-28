@@ -113,7 +113,7 @@ import { installPaintedFrames } from "../test/support/paintedFrames";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
 import { classifyFrames, type FrameMetrics, type FrameRail, type FrameRecord } from "./firstLoadFrames";
 import { perfRow } from "./perfRow";
-import { newestPage } from "./daemonPage";
+import { kindsMatch, newestPage } from "./daemonPage";
 import { connectDelay, LinkPipe, linkProfile } from "./linkModel";
 import { goneRows, liveTurnLine, restartSettled } from "./restartSettled";
 import { longRun } from "../src/agent-session/acpmux/sim/scenarios";
@@ -479,7 +479,7 @@ const session: Record<string, unknown> = NO_MODES ? listedBase : { ...listedRow,
 /// The newest page before `beforeSeq`, oldest first, and whether older ones remain: the page the daemon
 /// answers an attach or an older-history read with, cut by count and by `maxBytes` (daemonPage.ts).
 const newest = (limit: number, beforeSeq = Infinity, maxBytes?: unknown, kinds?: unknown) =>
-  newestPage(Array.isArray(kinds) ? events.filter((event) => kinds.includes(event.kind)) : events, {
+  newestPage(Array.isArray(kinds) ? events.filter((event) => kindsMatch(kinds, event)) : events, {
     limit,
     beforeSeq,
     maxBytes,
@@ -1945,12 +1945,6 @@ try {
         const snapshot = w.captureSnapshot(document, theme);
         return { snapshot: snapshot ?? null, miss: snapshot ? "" : w.captureMiss() };
       }, THEME);
-      if (process.env.RAIL_PROBE) {
-        const rail = () => { const r = document.querySelector<HTMLElement>(".acpmux-minimap__rail"); const b = r?.getBoundingClientRect(); return r ? `${b!.top.toFixed(0)}+${b!.height.toFixed(0)} setsize ${r.querySelector("[aria-setsize]")?.getAttribute("aria-setsize")} ticks ${r.querySelectorAll("[data-tick]").length}` : "none"; };
-        console.log(`RAIL_PROBE at copy: ${await page.evaluate(rail)}`);
-        await page.waitForTimeout(4000);
-        console.log(`RAIL_PROBE +4s: ${await page.evaluate(rail)}`);
-      }
       if (TRACE) console.log(`warm bottom band:\n  ${(await page.evaluate(bottomBand)).join("\n  ")}`);
       if (TRACE)
         console.log(
