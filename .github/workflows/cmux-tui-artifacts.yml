@@ -239,7 +239,8 @@ jobs:
   # already on files.cmux.com (tests/test_cmux_tui_feat_publish_order.py).
   coalesce-failed:
     needs: [coalesce, tree-preflight, build-linux, build, build-windows, cmux-next-daemon-tests, publish-tree]
-    if: ${{ always() && needs.coalesce.outputs.claimed == 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
+    # A known compile red (RED_TREE_MARK) builds nothing, so it fails no job: it still re-opens the window for the next push.
+    if: ${{ always() && needs.coalesce.outputs.claimed == 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || needs.tree-preflight.outputs.red_known == 'true') }}
     permissions:
       actions: read
     uses: ./.github/workflows/base-coalesce.yml
@@ -428,6 +429,8 @@ jobs:
       # other owner, no unmarked published tree to test): that job is then
       # skipped and the build starts one runner queue earlier.
       owns_key: ${{ steps.inspect.outputs.owns_key }}
+      # true when this key's builds already failed on a compile error (RED_TREE_MARK): the builds skip.
+      red_known: ${{ steps.red-tree.outputs.cache-hit }}
       stale: ${{ steps.stale.outputs.stale }}
       reuse_key: ${{ steps.reuse-key.outputs.key }}
       reuse_hit: ${{ steps.reuse.outputs.hit }}
@@ -1101,6 +1104,28 @@ jobs:
           fi
           echo "owns_key=$owns_key" >> "$GITHUB_OUTPUT"
 
+      # RED_TREE_MARK: base-coalesce re-opens the window after a red, so the next feat-cmux-next push builds again,
+      # often on the same tree key (11-27/28: 98 build runs, about half red, 3-10 an hour). When an earlier run of
+      # this key failed on a compile error (scripts/ci/cmux_tui_tree_handoff.py job_compile_error; a runner loss,
+      # cancel or OOM does not count), the same input fails the same way: skip the builds. A re-run (attempt > 1)
+      # always builds; vars.NEXT_TUI_RED_TREE_SKIP=0 turns the skip off.
+      - name: Look up a known compile red of this tree key
+        id: red-tree
+        if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && format('{0}', vars.NEXT_TUI_RED_TREE_SKIP) != '0' && steps.inspect.outputs.key != ''
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .cmux-tui-red-tree
+          key: cmux-tui-red-tree-${{ steps.inspect.outputs.key }}
+          lookup-only: true
+
+      - name: Say the builds skip on a known compile red
+        if: steps.red-tree.outputs.cache-hit == 'true'
+        env:
+          KEY: ${{ steps.inspect.outputs.key }}
+        run: echo "::notice::tree key $KEY already failed on a compile error; builds skip (re-run the run to build anyway)"
+
       # Observation only: an unavailable marker must never hold up a build.
       - name: Record tree owner observation
         id: tree-source
@@ -1662,7 +1687,7 @@ jobs:
   build-linux:
     if: >-
       ${{ !cancelled() && needs.tree-preflight.result == 'success' && needs.tree-owner-wait.result != 'failure' &&
-          needs.tree-preflight.outputs.reuse_hit != 'true' &&
+          needs.tree-preflight.outputs.reuse_hit != 'true' && needs.tree-preflight.outputs.red_known != 'true' &&
           needs.tree-preflight.outputs.run_macos == 'true' &&
           (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') }}
     needs: [tree-preflight, tree-owner-wait]
@@ -1725,7 +1750,7 @@ jobs:
   build:
     if: >-
       ${{ !cancelled() && needs.tree-preflight.result == 'success' && needs.tree-owner-wait.result != 'failure' &&
-          needs.tree-preflight.outputs.reuse_hit != 'true' &&
+          needs.tree-preflight.outputs.reuse_hit != 'true' && needs.tree-preflight.outputs.red_known != 'true' &&
           needs.tree-preflight.outputs.run_macos == 'true' &&
           (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') }}
     needs: [tree-preflight, tree-owner-wait]
@@ -1841,7 +1866,7 @@ jobs:
     if: >-
       ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.include_windows &&
           needs.tree-preflight.result == 'success' && needs.tree-owner-wait.result != 'failure' &&
-          needs.tree-preflight.outputs.reuse_hit != 'true' &&
+          needs.tree-preflight.outputs.reuse_hit != 'true' && needs.tree-preflight.outputs.red_known != 'true' &&
           needs.tree-preflight.outputs.run_macos == 'true' &&
           (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') }}
     needs: [tree-preflight, tree-owner-wait]
@@ -2188,7 +2213,7 @@ jobs:
   cmux-next-daemon-tests:
     if: >-
       ${{ !cancelled() && needs.tree-preflight.result == 'success' && needs.tree-owner-wait.result != 'failure' &&
-          needs.tree-preflight.outputs.reuse_hit != 'true' &&
+          needs.tree-preflight.outputs.reuse_hit != 'true' && needs.tree-preflight.outputs.red_known != 'true' &&
           ((needs.tree-preflight.outputs.run_macos == 'true' &&
           (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') && needs.tree-preflight.outputs.daemon_tests == 'true' &&
           needs.tree-preflight.outputs.daemon_marker != 'true') ||
@@ -5325,7 +5350,8 @@ jobs:
     needs: [tree-preflight, publish-tree-tested]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.result == 'success' && needs.publish-tree-tested.result != 'failure' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 5
+    # The dispatch may wait up to the hourly reset (GH_BUDGET_WAIT_MAX_SECONDS: 3600, #64913), so the job outlasts it, as request-image-roll does.
+    timeout-minutes: 65
     continue-on-error: true
     # Secrets only: no deployment. The dispatch's spare token (below) is the cmux-bot App's.
     environment:
@@ -5371,8 +5397,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}
-          # Inside the job's 5 minutes: a wait only when the spare is refused too.
-          GH_BUDGET_WAIT_MAX_SECONDS: 180
+          # Then the CI pool tokens (each its own limit). Only when every one has refused does the dispatch
+          # wait, up to the hourly reset: a 180 s cap dropped run 46154030719's roll (machine channel, 14:47Z).
+          GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+          GH_BUDGET_WAIT_MAX_SECONDS: 3600
           REPO: ${{ github.repository }}
           SHA: ${{ github.sha }}
           KEY: ${{ needs.tree-preflight.outputs.key }}
@@ -6246,7 +6274,8 @@ jobs:
     needs: [publish, verify-publish, adopt-commit-manifest]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && ((needs.verify-publish.result == 'success' && needs.publish.outputs.image_roll_requested != 'true') || (needs.publish.result == 'skipped' && needs.adopt-commit-manifest.result == 'success' && contains(fromJSON('["present","adopted"]'), needs.adopt-commit-manifest.outputs.state))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 5
+    # 65: the dispatch waits for the hourly reset only when every token below has refused it (an hour at most).
+    timeout-minutes: 65
     # Secrets only: no deployment. The dispatch's spare token (below) is the cmux-bot App's.
     environment:
       name: ci-routing-agent
@@ -6291,8 +6320,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}
-          # Inside the job's 5 minutes: a wait only when the spare is refused too.
-          GH_BUDGET_WAIT_MAX_SECONDS: 180
+          # Then the CI pool tokens (each its own limit). Only when every one has refused does the dispatch
+          # wait, up to the hourly reset: a 180 s cap dropped run 46154030719's roll (machine channel, 14:47Z).
+          GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
+          GH_BUDGET_WAIT_MAX_SECONDS: 3600
         run: bash scripts/ci/gh_budget_wait.sh workflow run cloud-vm-image-roll.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next -f commit="$GITHUB_SHA"
 
   # nightly-next is promoted only to a commit whose cmux-tui tree is published
@@ -6493,13 +6524,29 @@ jobs:
       # only from here. 2026-11-25: owner 45636236995 (a feat-cmux-next dispatch) failed its musl
       # leg, this step was skipped as push-only, and nightly-next run 45640205782 stayed green and unbuilt.
       - name: Hand the key to a run that deferred to this one
-        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        id: handoff
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.tree-preflight.outputs.red_known != 'true'
         env:
           GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN || github.token }}
           GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token || env.CI_POOL_GH_TOKEN && github.token || '' }}
           KEY: ${{ needs.tree-preflight.outputs.key }}
           RUN_ID: ${{ github.run_id }}
         run: python3 scripts/ci/cmux_tui_tree_handoff.py --repo "$GITHUB_REPOSITORY" --run-id "$RUN_ID" --key "$KEY"
+
+      # RED_TREE_MARK: the hand-off found a compile red on this key; a later push of the same key skips its builds.
+      - name: Mark the tree key as a compile red
+        if: always() && steps.handoff.outputs.red_tree == 'true' && needs.tree-preflight.outputs.key != ''
+        continue-on-error: true
+        run: mkdir -p .cmux-tui-red-tree && echo "$GITHUB_RUN_ID" > .cmux-tui-red-tree/run_id
+
+      - name: Save the compile-red marker
+        if: always() && steps.handoff.outputs.red_tree == 'true' && needs.tree-preflight.outputs.key != ''
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .cmux-tui-red-tree
+          key: cmux-tui-red-tree-${{ needs.tree-preflight.outputs.key }}
 
   # The run's large build outputs (cmux-tui-<target> 112-193 MB,
   # cmux-tui-dsyms-<target> 290-330 MB) are read only by this run's own jobs (publish, publish-tree,
