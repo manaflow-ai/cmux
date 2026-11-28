@@ -1,12 +1,10 @@
 import { expect, test } from "bun:test";
-import {
-  authBlocksSend,
-  authChipText,
-  canSessionLogin,
-  useRouteAuthSwitch,
-  readSessionAuth,
-} from "../src/agent-session/acpmux/sessionAuth";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { authBlocksSend, authChipText, canSessionLogin, useRouteAuthSwitch, readSessionAuth } = await importWithDom(
+  () => import("../src/agent-session/acpmux/sessionAuth"),
+);
 
 test("pre-send recovery distinguishes first login from an expired or failed login", () => {
   for (const [state, source, label] of [
