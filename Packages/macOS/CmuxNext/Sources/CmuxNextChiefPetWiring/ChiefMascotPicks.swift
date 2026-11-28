@@ -56,7 +56,7 @@ public final class ChiefMascotPicks {
         // Only the default Chief reads the file, and only `home.chiefPetMascot`: the root whole is
         // ~157 KB for some people and the sidebar asks this per Chief per row, which JSON-encoded it
         // each time and blocked the main thread 2-6 s with ~1,100 workspaces (as `JSONValue.keeping`).
-        let read = isDefault(chief) ? file?.keeping([Array(HomeChiefPetSetting.mascotPath)]) : nil
+        let read = file // BEFORE-ARM: pre-#60927 whole-root read, measurement only
         let input = PicksInput(chief: chief, defaultChief: defaultChief, picks: picks, file: read)
         let reply: PickedReply = welcomeRule("welcome.mascotPicked", input, fallback: PickedReply(picked: nil))
         return reply.picked
