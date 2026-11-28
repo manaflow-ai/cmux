@@ -15090,6 +15090,136 @@ public func FfiConverterTypePendingGroupEdit_lower(_ value: PendingGroupEdit) ->
 
 
 /**
+ * An inclusive ABI range, as `initialize` `_meta.acpmux` names it.
+ */
+public struct PhoneAbiRange: Equatable, Hashable {
+    public var min: UInt32
+    public var max: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(min: UInt32, max: UInt32) {
+        self.min = min
+        self.max = max
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension PhoneAbiRange: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePhoneAbiRange: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PhoneAbiRange {
+        return
+            try PhoneAbiRange(
+                min: FfiConverterUInt32.read(from: &buf), 
+                max: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PhoneAbiRange, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.min, into: &buf)
+        FfiConverterUInt32.write(value.max, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePhoneAbiRange_lift(_ buf: RustBuffer) throws -> PhoneAbiRange {
+    return try FfiConverterTypePhoneAbiRange.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePhoneAbiRange_lower(_ value: PhoneAbiRange) -> RustBuffer {
+    return FfiConverterTypePhoneAbiRange.lower(value)
+}
+
+
+/**
+ * A link the phone and the Mac cannot share: which side to update and what the person reads.
+ */
+public struct PhoneLinkIncompatible: Equatable, Hashable {
+    public var side: PhoneUpdateSide
+    /**
+     * One short sentence for the link's status line (under 80 characters).
+     */
+    public var reason: String
+    /**
+     * The Mac's range, when its reply named one.
+     */
+    public var mac: PhoneAbiRange?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(side: PhoneUpdateSide, 
+        /**
+         * One short sentence for the link's status line (under 80 characters).
+         */reason: String, 
+        /**
+         * The Mac's range, when its reply named one.
+         */mac: PhoneAbiRange?) {
+        self.side = side
+        self.reason = reason
+        self.mac = mac
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension PhoneLinkIncompatible: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePhoneLinkIncompatible: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PhoneLinkIncompatible {
+        return
+            try PhoneLinkIncompatible(
+                side: FfiConverterTypePhoneUpdateSide.read(from: &buf), 
+                reason: FfiConverterString.read(from: &buf), 
+                mac: FfiConverterOptionTypePhoneAbiRange.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PhoneLinkIncompatible, into buf: inout [UInt8]) {
+        FfiConverterTypePhoneUpdateSide.write(value.side, into: &buf)
+        FfiConverterString.write(value.reason, into: &buf)
+        FfiConverterOptionTypePhoneAbiRange.write(value.mac, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePhoneLinkIncompatible_lift(_ buf: RustBuffer) throws -> PhoneLinkIncompatible {
+    return try FfiConverterTypePhoneLinkIncompatible.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePhoneLinkIncompatible_lower(_ value: PhoneLinkIncompatible) -> RustBuffer {
+    return FfiConverterTypePhoneLinkIncompatible.lower(value)
+}
+
+
+/**
  * One entry's key: the account (or team), the Mac and the surface (`agent_chats`).
  */
 public struct PhoneReadKey: Equatable, Hashable {
@@ -23196,6 +23326,82 @@ public func FfiConverterTypePhoneReadStoreError_lower(_ value: PhoneReadStoreErr
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
+ * Which side the person updates when the phone and the Mac share no revision.
+ */
+
+public enum PhoneUpdateSide: Equatable, Hashable {
+    
+    /**
+     * This app is older than the Mac's acpmux still serves.
+     */
+    case phone
+    /**
+     * The Mac's acpmux is older than this app still reads.
+     */
+    case mac
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension PhoneUpdateSide: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePhoneUpdateSide: FfiConverterRustBuffer {
+    typealias SwiftType = PhoneUpdateSide
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PhoneUpdateSide {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .phone
+        
+        case 2: return .mac
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: PhoneUpdateSide, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .phone:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .mac:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePhoneUpdateSide_lift(_ buf: RustBuffer) throws -> PhoneUpdateSide {
+    return try FfiConverterTypePhoneUpdateSide.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePhoneUpdateSide_lower(_ value: PhoneUpdateSide) -> RustBuffer {
+    return FfiConverterTypePhoneUpdateSide.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
  * What a feed gives the phone's surface, in order.
  */
 
@@ -25540,6 +25746,54 @@ fileprivate struct FfiConverterOptionTypeParsedCmuxLink: FfiConverterRustBuffer 
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypeParsedCmuxLink.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypePhoneAbiRange: FfiConverterRustBuffer {
+    typealias SwiftType = PhoneAbiRange?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypePhoneAbiRange.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypePhoneAbiRange.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypePhoneLinkIncompatible: FfiConverterRustBuffer {
+    typealias SwiftType = PhoneLinkIncompatible?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypePhoneLinkIncompatible.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypePhoneLinkIncompatible.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -28315,6 +28569,38 @@ public func setTailnetCarrier(mode: String)  {try! rustCall() {
 }
 }
 /**
+ * Reads the Mac's `initialize` result (its JSON): `None` when the phone can read it, including a
+ * Mac that names no `abi` (a build from before the field), or JSON that does not parse.
+ */
+public func phoneAbiCheck(initializeResultJson: String) -> PhoneLinkIncompatible?  {
+    return try!  FfiConverterOptionTypePhoneLinkIncompatible.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_phone_abi_check(
+        FfiConverterString.lower(initializeResultJson),$0
+    )
+})
+}
+/**
+ * The range the phone names in its `initialize` `_meta.acpmux` (`abi`, `abiMin`).
+ */
+public func phoneAbiRange() -> PhoneAbiRange  {
+    return try!  FfiConverterTypePhoneAbiRange_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_phone_abi_range($0
+    )
+})
+}
+/**
+ * Reads the Mac's refusal of the phone's `initialize` (the JSON-RPC error's `data`): the
+ * incompatibility when it is acpmux's `version.incompatible`, else `None`. In the Mac's words
+ * `details.update` is `peer` (the client, this phone, is older) or `self` (the Mac is older).
+ */
+public func phoneAbiRefusal(errorDataJson: String) -> PhoneLinkIncompatible?  {
+    return try!  FfiConverterOptionTypePhoneLinkIncompatible.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_phone_abi_refusal(
+        FfiConverterString.lower(errorDataJson),$0
+    )
+})
+}
+/**
  * Keys held for a detached terminal, typed `typed_ages_ms` ago: why they go now, or none while
  * they wait. `offline_age_ms`: how long the Mac has been called offline, while it is;
  * `progress_age_ms`: how long since the link's last progress (`LinkProgressClock`), if it made
@@ -29781,6 +30067,15 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_set_tailnet_carrier() != 33287) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_phone_abi_check() != 24092) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_phone_abi_range() != 39065) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_phone_abi_refusal() != 29146) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_held_keys_expiry() != 25051) {
