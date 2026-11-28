@@ -145,6 +145,21 @@ impl Translator {
         self.stdin_replies.lock().await.push(hook_reply(rid, output));
     }
 
+    /// Harness magic `continue` (`hub/stop_condition.rs`): the folder's fingerprint, read off the
+    /// runtime and bounded, decides whether a later stop goes to the check again.
+    async fn continue_stop(&self, input: &Value) -> Value {
+        let cwd = input["cwd"].as_str().map(std::path::PathBuf::from);
+        let read = tokio::task::spawn_blocking(move || {
+            cwd.and_then(|cwd| crate::hub::stop_condition::worktree_fingerprint(&cwd))
+        });
+        let fingerprint =
+            match tokio::time::timeout(crate::hub::stop_condition::FINGERPRINT_LIMIT, read).await {
+                Ok(Ok(f)) => f,
+                _ => None,
+            };
+        self.stop_continue.lock().await.on_stop(input, fingerprint)
+    }
+
     async fn hook_callback_output(&self, req: &Value) -> Value {
         let id = req.get("callback_id").and_then(Value::as_str);
         let input = &req["input"];
@@ -152,8 +167,12 @@ impl Translator {
             && self.stop_condition.load(std::sync::atomic::Ordering::Relaxed)
             && input["hook_event_name"].as_str() == Some("Stop")
         {
-            let answer = async { crate::hub::stop_condition::repeat_stop(input) };
-            return within(deadline(STOP_TIMEOUT_S), answer, json!({})).await;
+            if !crate::hub::stop_condition::continue_enabled() {
+                let answer = async { crate::hub::stop_condition::repeat_stop(input) };
+                return within(deadline(STOP_TIMEOUT_S), answer, json!({})).await;
+            }
+            // Its git read is bounded by FINGERPRINT_LIMIT (2 s), inside the hook's 5 s.
+            return within(deadline(STOP_TIMEOUT_S), self.continue_stop(input), json!({})).await;
         }
         let home = self.plugin_hook_home.get().cloned();
         plugin_answer(id == Some(TOOL_CALLBACK), home, &self.acp_session_id, input).await

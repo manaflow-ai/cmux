@@ -43,6 +43,10 @@ final class SidebarScrollBench {
     /// Every this many frames a workspace moves to the top (a notification with
     /// `notifications.attention.moveToTop`); 0 never.
     var moveToTopEvery = 0
+    /// Runs inside each ticking frame, after the ticked rows changed and before they are patched: the app's
+    /// side of those ticks (its row mapping), so its main-thread cost counts in the frame's `patchMs`. It may
+    /// change the ticked rows (`ticked` indexes `rows`). Nil: the sidebar alone, as before.
+    var appTick: ((_ rows: inout [SidebarWorkspace], _ ticked: [Int]) -> Void)?
     private var tick = 0
     var list: SidebarListView { sidebar.list }
     /// Every row view the list has shown, to count the ones a frame made new.
@@ -196,14 +200,15 @@ final class SidebarScrollBench {
     private func applyTicks() {
         tick += 1
         if ticksPerFrame > 0 {
-            var patched: [SidebarWorkspace] = []
+            var ticked: [Int] = []
             for k in 0..<ticksPerFrame {
                 let index = (tick * 7 + k * 31) % rows.count
                 rows[index].status = "Streaming reply, \(tick) tokens"
                 rows[index].lastActivity = Date()
-                patched.append(rows[index])
+                ticked.append(index)
             }
-            _ = model.patchWorkspaces(patched)
+            appTick?(&rows, ticked)
+            _ = model.patchWorkspaces(ticked.map { rows[$0] })
         }
         if moveToTopEvery > 0, tick % moveToTopEvery == 0, var section = model.sections.first,
            let last = section.nodes.lastIndex(where: { if case .workspace = $0 { true } else { false } }) {

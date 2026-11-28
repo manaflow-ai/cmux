@@ -55,7 +55,12 @@ if [ "$1 $2" = "api rate_limit" ]; then
   exit 0
 fi
 # A call on the spare token (GH_TOKEN equal to $SPARE) has its own limit: never refused.
-if [ -n "${SPARE:-}" ] && [ "${GH_TOKEN:-}" = "$SPARE" ]; then echo "spare call $*" >> "$state/log"; echo "ok $*"; exit 0; fi
+if [ -n "${SPARE:-}" ] && [ "${GH_TOKEN:-}" = "$SPARE" ]; then
+  echo "spare call $*" >> "$state/log"
+  # SPARE_DENY: a read-only pool asked to write answers for its permission, not its limit.
+  if [ -n "${SPARE_DENY:-}" ]; then echo "$SPARE_DENY" >&2; exit 1; fi
+  echo "ok $*"; exit 0
+fi
 echo "call $*" >> "$state/log"
 left="$(cat "$state/refusals" 2>/dev/null || echo 0)"
 if [ "$left" -gt 0 ]; then
@@ -195,6 +200,45 @@ class WrapperTests(unittest.TestCase):
                                      "spare call workflow run cmux-next-hot-verify.yml"])
         self.assertIn("the next try goes out on GH_TOKEN_SPARES pool 2 now", result.stderr)
         self.assertEqual(h.waited(), 0)
+
+    def test_a_spare_denied_for_permission_hands_the_call_back_to_its_own_token(self) -> None:
+        # Leo (c-bedbdb1917): "YOU CANNOT HAVE A SINGLE LANE THAT IS UNRELIABLE FOR NIGHTLIES." The nightly jobs
+        # now carry the read-only CI pool tokens as spares; a write (a cancel, a release upload) refused on
+        # github.token's hour must not fail on a pool that cannot write: it goes back and waits as before.
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1", GH_TOKEN="workflow", SPARE="pool1",
+                         GH_TOKEN_SPARES="pool1",
+                         SPARE_DENY="gh: Resource not accessible by integration (HTTP 403)")
+        result = h.gh("release", "upload", "nightly", "x.zip")
+        self.assertEqual(result.returncode, 0, result)
+        self.assertEqual(h.calls(), ["call release upload nightly x.zip", "spare call release upload nightly x.zip",
+                                     "rate_limit", "call release upload nightly x.zip"])
+        self.assertIn("goes back to its own token", result.stderr)
+        self.assertEqual(h.waited(), 1)
+
+    def test_every_nightly_next_gh_job_has_a_second_token(self) -> None:
+        # Leo (c-bedbdb1917): "YOU CANNOT HAVE A SINGLE LANE THAT IS UNRELIABLE FOR NIGHTLIES." Each job on
+        # nightly-next's path whose gh calls ran on github.token alone carries the CI pools' own hours.
+        import yaml
+        jobs = yaml.safe_load((ROOT / ".github" / "workflows" / "nightly.yml").read_text())["jobs"]
+        for name in ("resolve-nightly-cmux-tui-client", "published-build"):
+            spares = jobs[name].get("env", {}).get("GH_TOKEN_SPARES", "")
+            self.assertIn("secrets.CI_POOL_TOKEN_1", spares, name)
+            self.assertIn("secrets.CI_POOL_TOKEN_2", spares, name)
+        # nightly-next-one signs, so no secret sits in its job env (the keychain guard): each step whose gh
+        # runs on github.token before its App token (the leave step) carries the spares itself.
+        token_steps = [step for step in jobs["nightly-next-one"]["steps"]
+                       if step.get("name") == "Leave the push slot to a newer nightly-next push"]
+        self.assertEqual(len(token_steps), 1)
+        for step in token_steps:
+            spares = step["env"].get("GH_TOKEN_SPARES", "")
+            self.assertIn("secrets.CI_POOL_TOKEN_1", spares, step.get("name"))
+            self.assertIn("secrets.CI_POOL_TOKEN_2", spares, step.get("name"))
+
+    def test_a_denied_call_on_its_own_token_still_fails_at_once(self) -> None:
+        h = self.harness(refusals=0, GH_TOKEN="workflow", FAKE_FAIL="gh: Not Found (HTTP 404)")
+        result = h.gh("api", "repos/x/y")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(h.calls(), ["call api repos/x/y"])
 
     def test_every_pool_refused_waits_then_rotates_again(self) -> None:
         h = self.harness(refusals=3, GH_BUDGET_WAIT_MAX_SECONDS="1", GH_TOKEN="workflow", GH_TOKEN_SPARE="bot",
