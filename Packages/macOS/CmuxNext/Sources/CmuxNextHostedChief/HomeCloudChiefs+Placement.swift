@@ -8,7 +8,7 @@ extension HomeCloudChiefs {
         let request = ChiefRules.PlacementRequest(chiefs: self, conversation: conversation, records: records.map {
             .init(id: $0.id, mainConversation: $0.mainConversation, placed: $0.placed)
         })
-        let placement = ChiefRules.rule("chiefs_placement", request, else: ChiefRules.PlacementReply()).placement
+        let placement = ChiefRules.rule(.chiefsPlacement, request, else: ChiefRules.PlacementReply()).placement
         return placement.map { ($0.id, $0.placed) }
     }
 }
