@@ -250,3 +250,25 @@ fn lifecycle_io_errors_preserve_timeout_classification() {
     );
     assert_eq!(exchange_io_error(io::Error::from(io::ErrorKind::Other)), ExchangeError::Transport);
 }
+
+#[test]
+fn only_a_connect_a_later_try_can_pass_is_waited_for() {
+    for kind in [
+        io::ErrorKind::Interrupted,
+        io::ErrorKind::WouldBlock,
+        io::ErrorKind::TimedOut,
+        io::ErrorKind::ConnectionReset,
+        io::ErrorKind::ConnectionAborted,
+    ] {
+        assert!(connect_may_pass_later(&io::Error::from(kind)), "{kind:?} is transient");
+    }
+    // No listener means no session (status says so at once) unless an owner
+    // was just seen going away; a permission error never passes.
+    for kind in
+        [io::ErrorKind::NotFound, io::ErrorKind::ConnectionRefused, io::ErrorKind::PermissionDenied]
+    {
+        assert!(!connect_may_pass_later(&io::Error::from(kind)), "{kind:?} is lasting");
+    }
+    assert!(is_absent(&io::Error::from(io::ErrorKind::ConnectionRefused)));
+    assert!(!is_absent(&io::Error::from(io::ErrorKind::PermissionDenied)));
+}

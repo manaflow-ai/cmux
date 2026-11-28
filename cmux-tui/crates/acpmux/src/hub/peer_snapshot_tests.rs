@@ -120,6 +120,7 @@ fn file_state(path: &Path) -> (u64, std::time::SystemTime, Vec<u8>) {
 }
 
 #[test]
+#[cfg(unix)] // compares inodes
 #[cfg(unix)]
 fn a_write_with_the_same_content_touches_nothing_and_a_changed_one_rewrites_the_file() {
     let dir = cmux_unix_socket::short_test_dir("acpmux-ps");

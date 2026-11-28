@@ -8,16 +8,14 @@ nonisolated extension AgentPaneHostError {
     /// off by an update, still loading, losing the start's lock race, or stopped while the page
     /// keeps looking for it all end without the person. A refusal nothing retries away is said at
     /// once: acpmux missing, another build's daemon (holder or owner known), a daemon on another
-    /// home, a daemon that refused to start from where it is, and this app's daemon stopped
-    /// (`daemonStopped`): the page's own retries are reconnects, which never start a stopped
-    /// daemon (cx-6bgzj), so it said nothing and looked usable for as long as it stayed down
-    /// (cmux#48605); the line's Retry is the `ready` handshake that starts it. A handoff stopping
-    /// it is `daemonRestarting` instead.
+    /// home, and a daemon that refused to start from where it is. This app's daemon stopped
+    /// (`daemonStopped`) ends without the person as well: a reconnect starts the app's own
+    /// stopped daemon (``AcpmuxHost``'s lookup), so the page's retries bring it back and no line
+    /// asks for a Retry meanwhile. A handoff stopping it is `daemonRestarting` instead.
     /// Credit: #27283 drew the restart causes from one Mac's daemon log after an update.
     var isTransient: Bool {
         switch self {
-        case .timedOut, .daemonRestarting, .chiefStarting, .chiefStopped: true
-        case .daemonStopped: false
+        case .timedOut, .daemonRestarting, .daemonStopped, .chiefStarting, .chiefStopped: true
         case .daemonFailed(_, let cause):
             switch cause {
             case .refused, .foreignHome: false

@@ -6,6 +6,7 @@ One axis: **where the agent lives, and the pane model**. Nothing here is a defau
 
 | Setting | Value |
 | --- | --- |
+| `tabs.newTabTemplate` | `"terminal"` |
 | `layout.mainPane` | `"off"` |
 | `layout.newPanePlacement` | `"split"` |
 | `layout.focusFollowsMouse` | `true` |

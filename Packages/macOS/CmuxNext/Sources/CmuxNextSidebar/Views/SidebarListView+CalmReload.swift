@@ -45,7 +45,7 @@ extension SidebarListView {
 
     /// A change waits now: the pointer is over the rows and no drag, drop or landing runs (those
     /// reload at their end, which shows the change).
-    private var holdsModelChangeNow: Bool {
+    var holdsModelChangeNow: Bool {
         guard window != nil, drag == nil, settling == nil, landing == nil, external == nil, !displayed.rows.isEmpty else { return false }
         return pointerIsOverList(self) || pointerIsOnShownHoverCard
     }
