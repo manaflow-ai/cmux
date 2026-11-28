@@ -360,6 +360,11 @@ as asked."
     if let Some(why) = slow {
         words.extend(["--slow".to_owned(), why.to_owned()]);
     }
+    // The call itself: the process registry lists the task under it, so the transcript's Bash
+    // row and the task are one (`hub/bg_registry.rs`).
+    if let Some(call) = input.get("tool_use_id").and_then(Value::as_str).filter(|c| !c.is_empty()) {
+        words.extend(["--tool-call".to_owned(), call.to_owned()]);
+    }
     words.extend(["--".to_owned(), cli.run_vm.as_deref().unwrap_or(command).to_owned()]);
     let mut tool_input = input.get("tool_input").filter(|t| t.is_object())?.clone();
     tool_input.set("command", json!(crate::agent_tools::quoted(&words)));
@@ -663,9 +668,14 @@ pub(crate) fn answer(home: &std::path::Path, session: &str, input: Value) -> Opt
             subagent_call_starts(home, session, &input);
             return None;
         }
+        // Harness magic `router` (RFD 0158 §6, `model_router.rs`): a subagent start with no
+        // model names the one its kind is routed to.
+        Some("PreToolUse") if crate::model_router::starts_subagent(&input) => {
+            return crate::model_router::route(&input);
+        }
         _ => {}
     }
-    let command = input.pointer("/tool_input/command").and_then(Value::as_str)?;
+    input.pointer("/tool_input/command").and_then(Value::as_str)?;
     if input.get("tool_name").and_then(Value::as_str) != Some("Bash") {
         return None;
     }
@@ -676,6 +686,13 @@ pub(crate) fn answer(home: &std::path::Path, session: &str, input: Value) -> Opt
         words.extend(this.args_lossy::<&str>(&[]));
         words
     };
+    // Harness magic `sharedCache` (RFD 0158 §9, `ci_log_cache.rs`): a CI log read goes through
+    // this machine's cache of finished logs. The rewritten call is the one every later rule
+    // reads; with nothing else to say, the answer is the rewrite itself.
+    let mut input = input;
+    let shared = shared_cache(&mut input, &self_words);
+    let shared_answer = |input: &Value| shared.then(|| updated_answer(input)).flatten();
+    let command = input.pointer("/tool_input/command").and_then(Value::as_str)?;
     // A heavy build or test on a Cloud machine with AutoCloud on runs on a fork (RFD 0144
     // piece 3): the class is read from the text first, so no other call reads the settings.
     // With `CMUX_WORK_PLACER=1` the work placer decides instead, from this host's samples
@@ -694,7 +711,9 @@ pub(crate) fn answer(home: &std::path::Path, session: &str, input: Value) -> Opt
         input.pointer("/tool_input/run_in_background").and_then(Value::as_bool) == Some(true);
     let slow = !background && slow_reason(command).is_some() && slow_foreground_on();
     if !background && !slow {
-        let Some(wrapped) = run_vm else { return subagent_mark(&input) };
+        let Some(wrapped) = run_vm else {
+            return subagent_mark(&input).or_else(|| shared_answer(&input));
+        };
         return run_vm_answer(&input, &wrapped);
     }
     let config = crate::agent_tools::mcp_config_path(home, session);
@@ -739,8 +758,43 @@ pub(crate) fn answer(home: &std::path::Path, session: &str, input: Value) -> Opt
     }
     match &run_vm {
         Some(wrapped) => run_vm_answer(&input, wrapped),
-        None => subagent_mark(&input),
+        None => subagent_mark(&input).or_else(|| shared_answer(&input)),
     }
+}
+
+/// Rewrites `input`'s command through the shared CI log cache when the feature is on and the
+/// command reads a log (`ci_log_cache::rewrite`); whether it did.
+fn shared_cache(input: &mut Value, self_words: &dyn Fn() -> Vec<String>) -> bool {
+    let Some(command) = input.pointer("/tool_input/command").and_then(Value::as_str) else {
+        return false;
+    };
+    // The text test first, so no other call reads the settings.
+    if !command.contains("gh run view") || !crate::ci_log_cache::enabled() {
+        return false;
+    }
+    let mut words = self_words();
+    words.extend([crate::ci_log_cache::SUBCOMMAND.to_owned(), "--".to_owned()]);
+    let Some(rewritten) =
+        crate::ci_log_cache::rewrite(command, &crate::agent_tools::quoted(&words))
+    else {
+        return false;
+    };
+    match input.pointer_mut("/tool_input/command") {
+        Some(slot) => {
+            *slot = json!(rewritten);
+            true
+        }
+        None => false,
+    }
+}
+
+/// The answer that runs `input`'s tool input as it now is, permission as before.
+fn updated_answer(input: &Value) -> Option<Value> {
+    let tool_input = input.get("tool_input").filter(|t| t.is_object())?.clone();
+    Some(json!({"hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "updatedInput": tool_input,
+    }}))
 }
 
 /// The call rewritten to run `wrapped` (`acpmux run-vm -- CMD`) in its place, everything else
