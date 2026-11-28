@@ -20,6 +20,7 @@ import { Route as IntegrationsIndexRouteImport } from './routes/integrations/ind
 import { Route as IntegrationsCallbackRouteImport } from './routes/integrations/callback'
 import { Route as PreviewAiUsageRouteImport } from './routes/preview.ai-usage'
 import { Route as PreviewBillingRouteImport } from './routes/preview.billing'
+import { Route as PreviewPolicyRouteImport } from './routes/preview.policy'
 import { Route as OgInviteCodeRouteImport } from './routes/og.invite.$code'
 import { Route as ApiAiGatewayChatCompletionsRouteImport } from './routes/api.ai-gateway.chat.completions'
 import { Route as ApiVertexChatCompletionsRouteImport } from './routes/api.vertex.chat.completions'
@@ -79,6 +80,11 @@ const PreviewBillingRoute = PreviewBillingRouteImport.update({
   path: '/preview/billing',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PreviewPolicyRoute = PreviewPolicyRouteImport.update({
+  id: '/preview/policy',
+  path: '/preview/policy',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const OgInviteCodeRoute = OgInviteCodeRouteImport.update({
   id: '/og/invite/$code',
   path: '/og/invite/$code',
@@ -108,6 +114,7 @@ export interface FileRoutesByFullPath {
   '/integrations/callback': typeof IntegrationsCallbackRoute
   '/preview/ai-usage': typeof PreviewAiUsageRoute
   '/preview/billing': typeof PreviewBillingRoute
+  '/preview/policy': typeof PreviewPolicyRoute
   '/integrations/': typeof IntegrationsIndexRoute
   '/og/invite/$code': typeof OgInviteCodeRoute
   '/api/ai-gateway/chat/completions': typeof ApiAiGatewayChatCompletionsRoute
@@ -124,6 +131,7 @@ export interface FileRoutesByTo {
   '/integrations/callback': typeof IntegrationsCallbackRoute
   '/preview/ai-usage': typeof PreviewAiUsageRoute
   '/preview/billing': typeof PreviewBillingRoute
+  '/preview/policy': typeof PreviewPolicyRoute
   '/integrations': typeof IntegrationsIndexRoute
   '/og/invite/$code': typeof OgInviteCodeRoute
   '/api/ai-gateway/chat/completions': typeof ApiAiGatewayChatCompletionsRoute
@@ -141,6 +149,7 @@ export interface FileRoutesById {
   '/integrations/callback': typeof IntegrationsCallbackRoute
   '/preview/ai-usage': typeof PreviewAiUsageRoute
   '/preview/billing': typeof PreviewBillingRoute
+  '/preview/policy': typeof PreviewPolicyRoute
   '/integrations/': typeof IntegrationsIndexRoute
   '/og/invite/$code': typeof OgInviteCodeRoute
   '/api/ai-gateway/chat/completions': typeof ApiAiGatewayChatCompletionsRoute
@@ -159,6 +168,7 @@ export interface FileRouteTypes {
     | '/integrations/callback'
     | '/preview/ai-usage'
     | '/preview/billing'
+    | '/preview/policy'
     | '/integrations/'
     | '/og/invite/$code'
     | '/api/ai-gateway/chat/completions'
@@ -175,6 +185,7 @@ export interface FileRouteTypes {
     | '/integrations/callback'
     | '/preview/ai-usage'
     | '/preview/billing'
+    | '/preview/policy'
     | '/integrations'
     | '/og/invite/$code'
     | '/api/ai-gateway/chat/completions'
@@ -191,6 +202,7 @@ export interface FileRouteTypes {
     | '/integrations/callback'
     | '/preview/ai-usage'
     | '/preview/billing'
+    | '/preview/policy'
     | '/integrations/'
     | '/og/invite/$code'
     | '/api/ai-gateway/chat/completions'
@@ -208,6 +220,7 @@ export interface RootRouteChildren {
   IntegrationsCallbackRoute: typeof IntegrationsCallbackRoute
   PreviewAiUsageRoute: typeof PreviewAiUsageRoute
   PreviewBillingRoute: typeof PreviewBillingRoute
+  PreviewPolicyRoute: typeof PreviewPolicyRoute
   IntegrationsIndexRoute: typeof IntegrationsIndexRoute
   OgInviteCodeRoute: typeof OgInviteCodeRoute
   ApiAiGatewayChatCompletionsRoute: typeof ApiAiGatewayChatCompletionsRoute
@@ -293,6 +306,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PreviewBillingRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/preview/policy': {
+      id: '/preview/policy'
+      path: '/preview/policy'
+      fullPath: '/preview/policy'
+      preLoaderRoute: typeof PreviewPolicyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/og/invite/$code': {
       id: '/og/invite/$code'
       path: '/og/invite/$code'
@@ -328,6 +348,7 @@ const rootRouteChildren: RootRouteChildren = {
   IntegrationsCallbackRoute: IntegrationsCallbackRoute,
   PreviewAiUsageRoute: PreviewAiUsageRoute,
   PreviewBillingRoute: PreviewBillingRoute,
+  PreviewPolicyRoute: PreviewPolicyRoute,
   IntegrationsIndexRoute: IntegrationsIndexRoute,
   OgInviteCodeRoute: OgInviteCodeRoute,
   ApiAiGatewayChatCompletionsRoute: ApiAiGatewayChatCompletionsRoute,
