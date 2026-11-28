@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Settings > Environment (RFD 0222 (c)1, hq#37585): the person's vault through the local daemon's
 /// `vault-env` op. This only adds the platform origin and install bearer (``VaultEnvRequest``) and
