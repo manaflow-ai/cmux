@@ -36,7 +36,8 @@ export type RowHeight = { width: number; height: number; edge?: string; scale?: 
 /// drawn heights (each names its chat, version and width). `look`, `view` and `registry` are what it was
 /// measured with: another one measures again.
 export type KeptLayout<D, R extends KeptRow = KeptRow> = {
-  drawn: D;
+  /// None for a layout measured ahead (`offerAhead`): no row of it was drawn yet.
+  drawn: D | undefined;
   rows: readonly R[];
   heights: WeakMap<R, RowHeight>;
   look: unknown;
@@ -59,6 +60,9 @@ export class KeptLayouts<D, R extends KeptRow = KeptRow> {
   private kept = new Map<string, KeptLayout<D, R>>();
   /// Chats shown again whose first estimates take their rows' heights from what they left.
   private seeding = new Map<string, Seeding>();
+  /// Chats likely shown next, never shown in this page, whose rows wait to be measured ahead (`offerAhead`).
+  private ahead = new Map<string, readonly R[]>();
+  private aheadListeners = new Set<() => void>();
 
   constructor(
     private readonly limit = KEPT_LAYOUTS,
@@ -119,6 +123,46 @@ export class KeptLayouts<D, R extends KeptRow = KeptRow> {
     return into;
   }
 
+  /// Whether a layout is kept for `sessionId`.
+  has(sessionId: string): boolean {
+    return this.kept.has(sessionId);
+  }
+
+  /// A chat likely shown next was folded and shaped ahead while the page was idle (App.tsx
+  /// `shapeAheadFrom`): its rows wait for a transcript to measure them in an idle slot
+  /// (`takeAhead`, `recordAhead`), so its first show seeds its estimates as a switch back does,
+  /// measuring none of them (settled-page bench, chat_switch). A chat with a kept layout keeps it.
+  offerAhead(sessionId: string, rows: readonly R[]): void {
+    if (this.kept.has(sessionId) || rows.length === 0) return;
+    this.ahead.delete(sessionId);
+    this.ahead.set(sessionId, rows);
+    // ends: each pass deletes the oldest key, so the map holds at most `limit` chats
+    while (this.ahead.size > this.limit) this.ahead.delete(this.ahead.keys().next().value!);
+    for (const listener of this.aheadListeners) listener();
+  }
+
+  /// Calls `listener` when a chat's rows are offered ahead; returns its removal.
+  onAhead(listener: () => void): () => void {
+    this.aheadListeners.add(listener);
+    return () => void this.aheadListeners.delete(listener);
+  }
+
+  /// The oldest chat offered ahead that has no kept layout and is not `shown`, taken off the queue.
+  takeAhead(shown: string | undefined): { sessionId: string; rows: readonly R[] } | undefined {
+    for (const [sessionId, rows] of this.ahead) {
+      this.ahead.delete(sessionId);
+      if (sessionId !== shown && !this.kept.has(sessionId)) return { sessionId, rows };
+    }
+    return undefined;
+  }
+
+  /// Keeps the heights measured ahead for `sessionId`'s rows, unless it was shown meanwhile and keeps
+  /// what it drew.
+  recordAhead(sessionId: string, layout: Omit<KeptLayout<D, R>, "drawn">): void {
+    if (this.kept.has(sessionId)) return;
+    this.record(sessionId, { ...layout, drawn: undefined });
+  }
+
   /// `sessionId` is measured with another look or registry: nothing it kept places a row now.
   forget(sessionId: string): void {
     this.kept.delete(sessionId);
@@ -132,6 +176,7 @@ export class KeptLayouts<D, R extends KeptRow = KeptRow> {
   clear(): void {
     this.kept.clear();
     this.seeding.clear();
+    this.ahead.clear();
   }
 }
 

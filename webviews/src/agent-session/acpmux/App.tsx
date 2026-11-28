@@ -754,7 +754,7 @@ import { MEMORY_OFFER } from "./conversation/memoryInbox";
 import { ReadOnlyPromptCoachRow } from "./rows/PromptCoachRow";
 import { PROMPT_COACH } from "./conversation/promptCoach";
 import { PRESET_APPROVAL } from "./conversation/presetApproval";
-import { type ScrollAnchor, VirtualTranscript } from "./VirtualTranscript";
+import { type ScrollAnchor, VirtualTranscript, layoutAhead } from "./VirtualTranscript";
 import { NO_ROWS, rowKind } from "./virtualTranscriptModel";
 import { turnEndedBetween, cachedSnapshot } from "./snapshotCache";
 import { shownChrome } from "./shownChrome";
@@ -2825,6 +2825,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       pastTurns: leftChatTurns.current,
     });
     aheadFolds.current.set(warmed.sessionId, expanded);
+    // Its rows as the transcript draws them (`turnRowsShownFrom`: no shell run or ask is known yet), measured
+    // ahead in an idle slot (VirtualTranscript `layoutAhead`).
+    const shaped = leftChatTurns.current.get(warmed.sessionId);
+    if (shaped) layoutAhead(warmed.sessionId, shaped.subagents.rows);
     // ends: each pass deletes the oldest key, so the map holds no more chats than turns kept ahead
     while (aheadFolds.current.size > 8) aheadFolds.current.delete(aheadFolds.current.keys().next().value!);
   };

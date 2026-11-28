@@ -780,6 +780,13 @@ function coldOpenRoughAbove(
 /// The layouts of the chats this page's transcripts showed (conversation/keptLayouts.ts).
 const keptLayouts = new KeptLayouts<DrawnHeights, AcpmuxRow>();
 
+/// A chat likely shown next, folded and shaped ahead while the page is idle (App.tsx `shapeAheadFrom`):
+/// a transcript measures its rows in an idle slot, so its first show seeds its estimates from them as a
+/// switch back does (conversation/keptLayouts.ts `offerAhead`).
+export function layoutAhead(sessionId: string, rows: readonly AcpmuxRow[]): void {
+  keptLayouts.offerAhead(sessionId, rows);
+}
+
 function TranscriptView({
   rows: paneRows,
   streams = false,
@@ -3934,6 +3941,52 @@ function TranscriptView({
       registry: rowHeights.current.registry,
     });
   }, [sessionId, drawn, estimated, chatLook, attachmentView]);
+  // The chats offered ahead (`layoutAhead`) are measured here, one an idle slot, with what this
+  // transcript measures with now: the first show of one then measures none of its rows that came out
+  // the same (settled-page bench, chat_switch: its estimate measured every row's text in the switch).
+  const aheadWith = useRef({ sessionId, chatLook, attachmentView, registry, width: scaledRowWidth });
+  aheadWith.current = { sessionId, chatLook, attachmentView, registry, width: scaledRowWidth };
+  useEffect(() => {
+    let idle: number | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const measure = () => {
+      idle = timer = undefined;
+      const now = aheadWith.current;
+      if (now.width <= 0) return;
+      const next = keptLayouts.takeAhead(now.sessionId);
+      if (!next) return;
+      const heights: RowHeights = new WeakMap();
+      layoutConversation(
+        next.rows,
+        now.width,
+        new Map(),
+        (row, measureWidth) => now.registry[rowKind(row)]?.measure?.(row, measureWidth),
+        heights,
+        undefined,
+        next.sessionId,
+      );
+      keptLayouts.recordAhead(next.sessionId, {
+        rows: next.rows,
+        heights,
+        look: now.chatLook,
+        view: now.attachmentView,
+        registry: now.registry,
+      });
+      schedule();
+    };
+    const schedule = () => {
+      if (idle !== undefined || timer !== undefined) return;
+      if (typeof requestIdleCallback === "function") idle = requestIdleCallback(measure, { timeout: 2000 });
+      else timer = setTimeout(measure, 0);
+    };
+    const stop = keptLayouts.onAhead(schedule);
+    schedule();
+    return () => {
+      stop();
+      if (idle !== undefined && typeof cancelIdleCallback === "function") cancelIdleCallback(idle);
+      if (timer !== undefined) clearTimeout(timer);
+    };
+  }, []);
   // A row that draws moves only the rows below it: place them again, measuring none.
   const measured = useMemo(() => {
     const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
