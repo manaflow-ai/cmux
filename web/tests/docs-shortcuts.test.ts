@@ -49,9 +49,11 @@ describe("keyboard shortcuts docs", () => {
       // The default key or chord, then each table alias (Ctrl-Cmd arrows for resize, browser tab keys) once.
       const primary = action.default_chord ? action.default_chord.map(expectedStroke) : action.default_shortcut ? [expectedStroke(action.default_shortcut)] : [];
       const aliases = action.default_aliases.map((alias) => expectedStroke(alias.keys[0]));
-      const expected = [...primary, ...aliases].filter((combo, index, all) => all.findIndex((other) => other.join() === combo.join()) === index);
-      expect({ id: action.id, combos: row.combos, sequence: Boolean(row.sequence) })
-        .toEqual({ id: action.id, combos: expected, sequence: Boolean(action.default_chord) });
+      // A chord stays one sequence; its aliases (agentPane.searchChats: ⌘J K, or ⌘K outside a terminal) are alternatives to it.
+      const expected = action.default_chord ? primary : [...primary, ...aliases].filter((combo, index, all) => all.findIndex((other) => other.join() === combo.join()) === index);
+      const expectedAliases = action.default_chord && aliases.length > 0 ? aliases : undefined;
+      expect({ id: action.id, combos: row.combos, sequence: Boolean(row.sequence), aliases: row.aliases })
+        .toEqual({ id: action.id, combos: expected, sequence: Boolean(action.default_chord), aliases: expectedAliases });
       expect(localizedShortcutText(row.description, "en")).toBe(action.title);
     }
   });
@@ -64,6 +66,8 @@ describe("keyboard shortcuts docs", () => {
     expect(rows.get("nextSurface")!.combos).toContainEqual(["⇧", "⌘", "]"]);
     expect(rows.get("nextSidebarTab")!.combos).not.toContainEqual(["⌃", "PgDn"]);
     expect(rows.get("nextSidebarTab")!.combos).not.toContainEqual(["⌥", "⌘", "→"]);
+    // A chord with an alias: the chord is the sequence, the alias an alternative after it.
+    expect(rows.get("agentPane.searchChats")).toMatchObject({ combos: [["⌘", "J"], ["K"]], sequence: true, aliases: [["⌘", "K"]] });
   });
 
   test("titles are the app's own translations", () => {
