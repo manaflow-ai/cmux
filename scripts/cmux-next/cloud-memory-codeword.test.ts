@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { allSpentDetail } from "./claude-login-pool.ts";
 import { CELLS, judge } from "./cloud-chat-matrix.ts";
 import { codeword, deviceHome, follow, instructions, PROMPT, PUSH_STEP, pushDetail, REPLY_STEP, replyNamesCodeword } from "./cloud-memory-codeword.ts";
 
@@ -40,6 +41,17 @@ describe("agent-memory codeword row", () => {
     expect(judge(cell, [pass(PUSH_STEP), pass("start agent (claude)"), pass("reply")], 0).verdict).toBe("fail");
     expect(judge(cell, [pass("start agent (claude)"), pass("reply"), pass(REPLY_STEP)], 0).verdict).toBe("fail");
     expect(judge(cell, [pass(PUSH_STEP), pass("reply"), { step: REPLY_STEP, status: "fail", ms: 1, detail: "no" }], 1).verdict).toBe("fail");
+  });
+
+  test("every Claude login out of quota skips the row; a refused login still fails it", () => {
+    const cell = CELLS.find((c) => c.id === "claude-memory-codeword")!;
+    const login = (detail: string) => [{ step: PUSH_STEP, status: "pass" as const, ms: 1 }, { step: "pass Claude login", status: "fail" as const, ms: 0, detail }];
+    const spent = judge(cell, login(allSpentDetail({ login: null, slot: null, rotation: [{ slot: 0, status: "spent", reason: "HTTP 429" }], candidates: 1, resetAt: "2026-12-01T03:00:00Z" })), 1);
+    expect(spent.verdict).toBe("skip");
+    expect(spent.why).toContain("resets Dec 1, 3am");
+    const refused = allSpentDetail({ login: null, slot: null, rotation: [{ slot: 0, status: "spent", reason: "HTTP 429" }, { slot: 1, status: "invalid", reason: "HTTP 401" }], candidates: 2, resetAt: null });
+    expect(judge(cell, login(refused), 1).verdict).toBe("fail");
+    expect(judge(cell, login("CLAUDE_CODE_OAUTH_TOKEN is not a `claude setup-token` login"), 1).verdict).toBe("fail");
   });
 
   test("follow turns the person's switch on at the platform", async () => {

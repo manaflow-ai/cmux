@@ -146,6 +146,15 @@ export function allSpentDetail(pick: LoginPick): string {
   return `You've hit your usage limit${words ? ` · resets ${words} (UTC)` : ""}: infra: claude login spent (all ${pick.candidates} slots${refused ? `; ${refused} refused` : ""}); no machine was created`;
 }
 
+/**
+ * Whether a failed login step's detail is allSpentDetail's with every slot spent and none refused: the accounts are
+ * out of quota, not misconfigured. A matrix cell reads that as a skip (like a cell missing its credential); a refused
+ * slot (a revoked or wrong token) stays a failure, so a broken secret never hides as a skip.
+ */
+export function loginsAllSpent(detail: string | undefined): boolean {
+  return /: infra: claude login spent \(all \d+ slots\); no machine was created$/.test(detail ?? "");
+}
+
 /** The summary line for the login rotation: slot and answers, no token. */
 export function rotationLine(pick: LoginPick): string {
   const answers = pick.rotation.map((r) => `slot ${r.slot} ${r.status} (${r.reason})`).join("; ");

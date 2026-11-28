@@ -100,6 +100,11 @@ jobs:
           CMUX_STAGING_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_STAGING_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # The login pool (scripts/cmux-next/claude-login-pool.ts), as cloud-journey-prod.yml passes it: each slot
+          # gets one max_tokens 1 request before any machine and the run takes the first with quota; with every slot
+          # spent the live cells skip, naming the reset (run 46114103877 hit the shared login's weekly limit mid-turn).
+          CMUX_JOURNEY_CLAUDE_OAUTH_POOL: ${{ secrets.CMUX_JOURNEY_CLAUDE_OAUTH_POOL }}
+          CLAUDE_CODE_OAUTH_TOKEN_FALLBACK: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           CMUX_BIN: ${{ steps.build-cmux-tui.outputs.path }}
           CELLS: ${{ inputs.cells }}
         run: |

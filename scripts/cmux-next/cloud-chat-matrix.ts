@@ -28,6 +28,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { loginsAllSpent } from "./claude-login-pool.ts";
 import { PUSH_STEP, REPLY_STEP } from "./cloud-memory-codeword.ts";
 
 export type Cell = {
@@ -198,6 +199,11 @@ export function judge(cell: Cell, steps: Step[], exit: number): Row {
   }
   const reply = steps.find((x) => x.step === "reply" && x.status === "pass")?.detail;
   const failed = steps.filter((x) => x.status === "fail" && !x.step.startsWith("prod:"));
+  // Every Claude login the run was given is out of quota (cloud-journey.ts's pool preflight, before any machine): the
+  // same as a cell missing its credential, so a skip that names the reset, never a red for a reply that could not come.
+  // Run 46114103877 hit the shared login's weekly limit mid-turn and read as a product failure.
+  const spent = failed.find((x) => x.step === "pass Claude login" && loginsAllSpent(x.detail));
+  if (spent) return { cell, verdict: "skip", why: (spent.detail ?? "").slice(0, 200), ms };
   if (cell.proof === "start") {
     // The app's start: a session, or exactly sign_in_required naming this harness. Any other failure fails it.
     const name = `start agent (${cell.agent})`;
