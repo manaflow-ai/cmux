@@ -9,7 +9,7 @@ import CmuxNextPages
 import CmuxNextSettings
 import Foundation
 
-extension InternalPageID {
+nonisolated extension InternalPageID {
     static let homeChannels = InternalPageID(rawValue: "home-channels")
 }
 

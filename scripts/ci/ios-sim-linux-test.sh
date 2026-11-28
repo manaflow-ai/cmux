@@ -5,7 +5,8 @@
 # `xcodebuild build-for-testing`, with its .xctestrun) and ios-sim-xctest-platform.tar.gz (the simulator platform's
 # Developer frameworks), as zips from actions/upload-artifact or bare.
 # Args: suite=NAME (labels the report), skip=TARGET (repeatable: a test target the run leaves out),
-#       only=ID (repeatable: run just these, Target[/Class[/method]]), timeout=SECONDS (default 1800).
+#       only=ID (repeatable: run just these, Target[/Class[/method]]), timeout=SECONDS (default 1800),
+#       target_timeout=SECONDS (default 900: one id's own limit when the run is sharded over phones, below).
 # Output: artifacts/ios-sim-linux/result.tgz with junit.xml, summary.txt and the run's log; exit 0 only when every
 # test that ran passed.
 set -euo pipefail
@@ -13,6 +14,7 @@ set -euo pipefail
 products="${CMUX_CI_PRODUCTS_DIR:-}"
 suite="kit"
 timeout=1800
+target_timeout=900
 skips=()
 onlys=()
 for arg in "$@"; do
@@ -21,6 +23,7 @@ for arg in "$@"; do
     skip=*) skips+=("${arg#skip=}") ;;
     only=*) onlys+=("${arg#only=}") ;;
     timeout=*) timeout="${arg#timeout=}" ;;
+    target_timeout=*) target_timeout="${arg#target_timeout=}" ;;
     *=*) echo "ios-sim-linux-test: unknown argument $arg" >&2; exit 2 ;;
     *) products="$arg" ;;
   esac
@@ -104,20 +107,41 @@ phone="${FLEET_PHONE_CLI:?ios-sim-linux-test: FLEET_PHONE_CLI unset (not a fleet
 command -v "$phone" >/dev/null || { echo "ios-sim-linux-test: FLEET_PHONE_CLI=$phone is not on this host (not a linux-simsdk VM)" >&2; exit 2; }
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 
+# A UI test target (Target ending UITests, e.g. CmuxMobileAppUITests) needs the fleet phone tool's UI runner mode.
+ui_args=()
+for id in "${onlys[@]}"; do [[ "${id%%/*}" == *UITests ]] && ui_args=(--ui); done
+
+# Sharded: the runner may supply a shard tool (FLEET_PHONE_SHARD) that runs the ids over all its phones at once, one
+# id at a time per phone, each with its own timeout, and merges their JUnit. Without it the kit's 17 targets ran one
+# after another on one phone and one slow target spent the whole step: the simsdk run cmuxterm-hq 46062995718 took
+# 719 s in CmuxMobileWorkspacesTests and was still in CmuxMobileLiveTests when its 2400 s claim ran out, so no kit run
+# got a Linux verdict to compare with the Mac's. Each target is one id, so a slow target fails alone, with its log.
+shard="${FLEET_PHONE_SHARD:-}"
+phones="${SIMSDK_PHONES:-4}"
+if [[ -n "$shard" && -f "$shard" && ${#onlys[@]} -gt 1 && "$phones" -gt 1 ]] 2>/dev/null; then
+  [[ "$phones" -le ${#onlys[@]} ]] || phones=${#onlys[@]}
+  (( target_timeout <= timeout )) || target_timeout=$timeout
+  start=$(date +%s)
+  "$phone" pool up "$phones" 2>&1 | tee -a "$log"
+  up=$(( $(date +%s) - start ))
+  rc=0
+  SIMSDK_SHARD_DIR="$out/shard" SIMSDK_HEARTBEAT_S="${SIMSDK_HEARTBEAT_S:-120}" \
+    bash "$shard" --xctestrun "$run" --platform "$work/plat" --junit "$out/junit.xml" --timeout "$target_timeout" \
+    --phones "$phones" "${ui_args[@]}" -- "${onlys[@]}" 2>&1 | tee -a "$log" || rc=${PIPESTATUS[0]}
+  total=$(( $(date +%s) - start ))
+else
 start=$(date +%s)
 "$phone" pool up 1 2>&1 | tee -a "$log"
 up=$(( $(date +%s) - start ))
 
 only_args=()
 for id in "${onlys[@]}"; do only_args+=(--only-testing "$id"); done
-# A UI test target (Target ending UITests, e.g. CmuxMobileAppUITests) needs the fleet phone tool's UI runner mode.
-ui_args=()
-for id in "${onlys[@]}"; do [[ "${id%%/*}" == *UITests ]] && ui_args=(--ui); done
 rc=0
 # pool up 1 makes the phone pool1 and the fleet phone tool's default device is p, so the run names pool1.
 "$phone" -d pool1 test --xctestrun "$run" --platform "$work/plat" "${ui_args[@]}" "${only_args[@]}" \
   --junit "$out/junit.xml" --timeout "$timeout" 2>&1 | tee -a "$log" || rc=${PIPESTATUS[0]}
 total=$(( $(date +%s) - start ))
+fi
 
 python3 -I - "$out/junit.xml" "$suite" "$rc" "$up" "$total" <<'PY' | tee "$out/summary.txt"
 import sys, xml.etree.ElementTree as ET
