@@ -8,7 +8,7 @@ import CmuxNextTabs
 import CmuxNextWakeups
 import Foundation
 
-extension PaneContentView: AgentPaneMoveCoverHost {}
+extension PaneContentView: AgentPaneMoveCoverHost, AgentPaneSavedCoverHost {}
 
 /// An agent tab's content in `pane`, with its changed files opening beside
 /// it: in a new tab of this pane (the file preview is a browser page on a
@@ -94,24 +94,7 @@ struct AgentTabContent {
             // Built while the saved pages still decode: the page once they have, if this pane still shows the chat unpainted.
             images.whenReadEnds(images.slot(key, machine: pane.daemon.machineID)) { [weak pane] in guard let pane, pane.currentTabKey == key, pane.view.launchImageView == nil else { return }; let view = pane.services.agentTabs.existingView(key, machine: pane.daemon.machineID); if view?.model.hasPainted != true { AgentTabContent(pane: pane).drawLastPage(key, until: view) } }
         }
-        guard let imageView = paneView.launchImageView, let view else { return }
-        view.standOverPicture(); view.holdChromiumPageUntilPainted(rebuilt: pane.services.agentTabs.rebuiltAway.remove(key) != nil) // a Chromium New Tab page, or a chat built again for its renderer, draws over the picture only whole, once it painted
-        // The image's limit takes it only once the page has drawn. A chat read at launch can take
-        // longer than that limit (acpmux's attach, and the page holds its first frame until the
-        // chat is read), and the frame it would hand the pane to is empty.
-        paneView.launchImageMayClear = { [weak view] in view?.model.hasPainted ?? true }
-        paneView.onLaunchImageCleared = { [weak view] in
-            view?.pictureBelowWent()
-        }
-        // Once the page has faded in over it (`AgentPaneLoadingView.leave`).
-        view.loadingView.whenRevealed { [weak paneView, weak imageView] in
-            guard let imageView else { return }
-            paneView?.clearLaunchImage(ifShowing: imageView)
-        }
-        view.whenPagePainted { [weak paneView, weak imageView] in
-            guard let imageView else { return }
-            paneView?.clearLaunchImage(ifShowing: imageView)
-        }
+        if paneView.launchImageView != nil, let view { view.holdSavedCover(in: paneView, rebuilt: pane.services.agentTabs.rebuiltAway.remove(key) != nil) }
     }
 
     /// A parked spare taken into this pane draws nothing until WebKit renders it in its new place

@@ -15,6 +15,22 @@ struct AgentPaneSavedCoverRevealTests {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
     }
 
+    private final class SavedCoverHost: NSView, AgentPaneSavedCoverHost {
+        var launchImageView: NSView?
+        var launchImageMayClear: (() -> Bool)?
+        var onLaunchImageCleared: (() -> Void)?
+        var clears = 0
+
+        func clearLaunchImage(ifShowing image: NSView) {
+            guard launchImageView === image else { return }
+            launchImageView = nil
+            clears += 1
+            let cleared = onLaunchImageCleared
+            onLaunchImageCleared = nil
+            cleared?()
+        }
+    }
+
     private func pane(chromium: Bool) async throws -> (AgentPaneView, NSWindow, NSView) {
         _ = NSApplication.shared
         let file = try #require(AgentPageTestRoot.page)
@@ -93,5 +109,26 @@ struct AgentPaneSavedCoverRevealTests {
         #expect(view.loadingView.leftFading == true, "do not accelerate an unpainted watchdog reveal")
         #expect(await revealed(view))
         #expect(saved.superview == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func savedCoverDeadlineWaitsForPaintAndLeavesAReplacementAlone(replaced: Bool) async throws {
+        let (view, window, saved) = try await pane(chromium: true)
+        defer { view.page?.close(); window.close() }
+        let host = SavedCoverHost()
+        host.launchImageView = saved
+        view.holdSavedCover(in: host, rebuilt: false)
+        #expect(host.launchImageMayClear?() == false)
+        #expect(host.clears == 0)
+        let replacement = NSView()
+        if replaced { host.launchImageView = replacement }
+
+        _ = await view.model.respond(to: AgentPaneRequest(body: ["method": "pane.painted"]))
+
+        #expect(host.launchImageMayClear?() == true)
+        #expect(host.clears == (replaced ? 0 : 1))
+        #expect(replaced ? host.launchImageView === replacement : host.launchImageView == nil)
+        _ = await view.model.respond(to: AgentPaneRequest(body: ["method": "pane.painted"]))
+        #expect(host.clears == (replaced ? 0 : 1), "duplicate paint callbacks must not clear twice")
     }
 }
