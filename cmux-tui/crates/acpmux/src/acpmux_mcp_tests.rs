@@ -1572,6 +1572,36 @@ fn a_threads_sender_names_come_from_its_relay_its_name_then_its_key() {
     assert!(thread_sender_names("t-123", &Value::Null).is_empty());
 }
 
+/// 2026-11-28: five inbox_reply answers to notices that
+/// shadow-leo and NOW relayed (`sender.relay` with `by` and `machine`, no session) went to the bare
+/// machine name, which the mesh hub refused 404 `mesh.unknown_recipient`; each was dead-lettered.
+/// Now such a reply is refused up front, naming where that program reads its answer.
+#[test]
+fn a_reply_to_a_program_relays_notice_is_refused_naming_its_answer_path() {
+    let relayed = |by: &str, machine: &str| json!({"messages": [{"from": machine, "sender": {"relay": {"by": by, "machine": machine}}}]});
+    let shadow = relayed("shadow-leo", "vm-2");
+    assert_eq!(thread_program_relays(&shadow), [("shadow-leo".to_owned(), "vm-2".to_owned())]);
+    let why = reply_names("from:vm-2", &shadow).unwrap_err();
+    assert!(why.contains("shadow-leo on vm-2") && why.contains("tools/asks-done"), "{why}");
+    let why = reply_names("from:cp-1", &relayed("now", "cp-1")).unwrap_err();
+    assert!(why.contains("expected_red") && why.contains("not sent"), "{why}");
+    let why = reply_names("t-1", &relayed("glaeda-land", "cp-1")).unwrap_err();
+    assert!(why.contains("glaeda-land") && why.contains("reads no reply"), "{why}");
+    // A relay that names its session is a session's message: answered by name as before.
+    let lane = json!({"messages": [{"from": "vm-1/fork-6",
+        "sender": {"relay": {"by": "lane-gh", "machine": "vm-1", "session": "fork-6"}}}]});
+    assert!(thread_program_relays(&lane).is_empty());
+    assert_eq!(reply_names("from:vm-1/fork-6", &lane).unwrap(), ["vm-1/fork-6"]);
+    // A thread a session also wrote in keeps that session, less the program's machine.
+    let mixed = json!({"messages": [
+        {"from": "cp-1", "sender": {"relay": {"by": "now", "machine": "cp-1"}}},
+        {"from": "coord-a"}
+    ]});
+    assert_eq!(reply_names("from:cp-1", &mixed).unwrap(), ["coord-a"]);
+    // No thread read at all: the key's name, as before.
+    assert_eq!(reply_names("declared:claude-b", &Value::Null).unwrap(), ["claude-b"]);
+}
+
 /// The census of 2026-11-23 (cmuxterm-hq docs/findings/2026-11-23-mcp-tool-error-census.md)
 /// replayed: each refused call shape of wrap_up, run_wait and inbox_reply it counted, by its
 /// keys and value types (names made up), weighted by how often it came. Prints how many of

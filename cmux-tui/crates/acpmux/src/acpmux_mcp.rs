@@ -842,6 +842,45 @@ fn trim_threads(answer: &mut Value) {
     }
 }
 
+/// The program relays among a thread's messages, newest first: `(by, machine)` of each relay
+/// record that names no session (`sender.relay` with `by` and `machine` only). Such a message came
+/// from a program outside any session (shadow-leo, NOW, glaeda-land), so its shown name is the
+/// machine alone, which is no mesh recipient: a send to it is refused 404
+/// `mesh.unknown_recipient` and dead-lettered. 2026-11-28: five
+/// shadow-leo/now notices answered with inbox_reply bounced that way.
+fn thread_program_relays(thread: &Value) -> Vec<(String, String)> {
+    let mut relays: Vec<(String, String)> = Vec::new();
+    for m in thread.get("messages").and_then(Value::as_array).into_iter().flatten() {
+        let Some(relay) = m.pointer("/sender/relay").filter(|r| r.is_object()) else { continue };
+        let text =
+            |k: &str| relay.get(k).and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty());
+        if text("session").is_some() {
+            continue;
+        }
+        let (Some(by), Some(machine)) = (text("by"), text("machine")) else { continue };
+        let pair = (by.to_owned(), machine.to_owned());
+        if !relays.contains(&pair) {
+            relays.push(pair);
+        }
+    }
+    relays
+}
+
+/// Where a program relay's notice is answered, since it reads no reply.
+fn program_relay_answer_path(by: &str) -> &'static str {
+    match by {
+        "shadow-leo" => {
+            "shadow-leo reads an ask's answer from the asks ledger: `tools/asks-done c-ID \"WHY\"` when it is done, `tools/asks-done --reason c-ID \"WHY\"` when it is still open (leo-workspace)"
+        }
+        "now" => {
+            "a NOW FIRE wants a fix (or a dated expected_red with its owned cause), not a reply; `tools/now status --breakage` names each row's next step"
+        }
+        _ => {
+            "a program reads no reply: act on the notice, or `send` to the session that asked for it"
+        }
+    }
+}
+
 /// The names an inbox thread's newest sender goes by, newest message first: its relayed
 /// `HOST/NAME`, its shown name (`from`), then the name in the thread key (`from:NAME[/pr:N]`,
 /// `declared:NAME`). `thread` is `_acpmux/inbox_thread`'s answer.
@@ -869,6 +908,24 @@ fn thread_sender_names(thread_key: &str, thread: &Value) -> Vec<String> {
     names
 }
 
+/// The names `inbox_reply` tries for `thread` (read as `read`): its sender's names less a program
+/// relay's bare machine (`thread_program_relays`), or, when only such a relay sent it, the refusal
+/// that names where that program reads its answer, so no send that is certain to bounce is queued.
+fn reply_names(thread: &str, read: &Value) -> Result<Vec<String>, String> {
+    let programs = thread_program_relays(read);
+    let names: Vec<String> = thread_sender_names(thread, read)
+        .into_iter()
+        .filter(|n| !programs.iter().any(|(_, machine)| machine == n))
+        .collect();
+    match programs.first() {
+        Some((by, machine)) if names.is_empty() => Err(format!(
+            "inbox_reply: thread {thread} was relayed by the program {by} on {machine}, which names no session to answer, so a reply would bounce (mesh.unknown_recipient) and was not sent. {}",
+            program_relay_answer_path(by)
+        )),
+        _ => Ok(names),
+    }
+}
+
 /// `inbox_reply` to a thread whose messages name no session here (`inbox.no_sender`: a sender
 /// on another machine, or one that declared only its name): the thread's sender is read from
 /// the thread and the answer goes to it as `send` sends, and the result says so. The census of
@@ -885,8 +942,12 @@ async fn reply_by_name(
 ) -> Value {
     let params = json!({"sessionId": session, "threadId": thread, "markRead": false});
     let read = daemon.request(method::MUX_INBOX_THREAD, params).await.unwrap_or(Value::Null);
+    let names = match reply_names(thread, &read) {
+        Ok(names) => names,
+        Err(why) => return error_result(why),
+    };
     let mut tried = Vec::new();
-    for name in thread_sender_names(thread, &read).into_iter().take(3) {
+    for name in names.into_iter().take(3) {
         let result = send::send(daemon, &json!({"to": name, "text": text}), None).await;
         if result.get("isError") != Some(&Value::Bool(true)) {
             let why = format!(
