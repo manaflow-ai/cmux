@@ -55,6 +55,8 @@ cmux-health-core = { path = "../cmux-health-core" }
 cmux-launch-image = { path = "../cmux-launch-image" }
 # When a pane's live thumbnail is captured again (cmux-pane-pictures src/ffi.rs: the schedule; the app captures).
 cmux-pane-pictures = { path = "../cmux-pane-pictures" }
+# The design system's rules (cmux-design-core src/ffi.rs, include/cmux_design.h: JSON ops by area).
+cmux-design-core = { path = "../cmux-design-core" }
 # The agent chat transcript's markdown parser (cmux-chat-markdown src/ffi.rs: the parsed document as bytes; the app renders).
 cmux-chat-markdown = { path = "../cmux-chat-markdown" }
 # The remote chat wire: the page's acpmux JSON-RPC in, daemon calls and page frames out as JSON effects (src/ffi.rs).

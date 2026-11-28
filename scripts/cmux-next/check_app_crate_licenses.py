@@ -71,6 +71,7 @@ FIRST_PARTY_GPL = {
     "cmux-keymap",
     "cmux-launch-image",
     "cmux-pane-pictures",
+    "cmux-design-core",
     "cmux-chat-markdown",
     "cmux-acpmux-remote-wire",
     "cmux-screenshots",
