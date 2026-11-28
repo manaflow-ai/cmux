@@ -83,6 +83,41 @@ export function isFreestyleTransient(error: unknown): boolean {
 }
 
 /**
+ * How many size rows of one derive ladder may fail for a reason other than a
+ * 429 and still be asked again, alone, after the concurrent pass. A row is
+ * independent (its own VMs, its own snapshot) and cleans up after itself, so
+ * running it again is safe. Rebake runs 46090591544 (md: the guest session
+ * did not answer while preparing the template terminal) and 46094043731 (2xl:
+ * the daemon wait on the verify VM came back with no status and no output)
+ * each lost one row of six beside five that passed, and promoted nothing. A
+ * real regression fails every row, so past this many the ladder fails fast.
+ */
+export const DERIVE_MAX_RETRIED_ROWS = 2;
+
+/**
+ * What the derive ladder does with a row that threw: `defer` runs it again
+ * alone after the concurrent pass, `fail` ends the ladder. A 429 always
+ * defers (no VM ever started); any other failure defers while fewer than
+ * {@link DERIVE_MAX_RETRIED_ROWS} rows have been retried for one.
+ */
+export function deriveRowFailureAction(error: unknown, retriedRows: number): "defer" | "fail" {
+  if (isFreestyleOverload(error)) return "defer";
+  return retriedRows < DERIVE_MAX_RETRIED_ROWS ? "defer" : "fail";
+}
+
+/**
+ * A VM start Freestyle gave up on: the 429 overload, or 409 VM_NON_RESPONSIVE
+ * ("vm stopped responding: timed out reading from guest agent"), a fresh VM
+ * that never answered its guest agent. Either way no VM came back, so asking
+ * for a new one is safe. Rebake run 46028301324 attempt 3 (11-27) lost a
+ * verify whose first machine had passed to one 409 on the second start.
+ */
+export function isFreestyleStartRetryable(error: unknown): boolean {
+  const e = error as { status?: unknown; code?: unknown } | null;
+  return isFreestyleOverload(error) || (e?.status === 409 && e?.code === "VM_NON_RESPONSIVE");
+}
+
+/**
  * Freestyle answers a VM start it has no capacity for with 429
  * INFRASTRUCTURE_OVERLOADED ("VM start capacity queue wait expired"). The
  * size ladder starts up to twelve VMs at once and the largest shapes queue
@@ -92,7 +127,7 @@ export function isFreestyleTransient(error: unknown): boolean {
  * time Freestyle holds an ask in its queue does not count), and rethrow any
  * other error at once.
  */
-export async function retryFreestyleOverload<T>(label: string, start: () => Promise<T>, budgetMs = 10 * 60_000, firstWaitMs = 15_000, retryable: (error: unknown) => boolean = isFreestyleOverload): Promise<T> {
+export async function retryFreestyleOverload<T>(label: string, start: () => Promise<T>, budgetMs = 10 * 60_000, firstWaitMs = 15_000, retryable: (error: unknown) => boolean = isFreestyleStartRetryable): Promise<T> {
   // The budget is our own backoff between asks, not wall time: Freestyle holds
   // each start in its capacity queue up to ten minutes before it answers 429,
   // so a wall-clock budget was spent by the first ask and the overload was
