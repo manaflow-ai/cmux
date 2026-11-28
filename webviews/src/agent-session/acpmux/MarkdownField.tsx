@@ -26,6 +26,8 @@ import {
   sliceHoldsInline,
   wholeSelected,
   withTextMarksEscaped,
+  INLINE_REMOVE,
+  onlyInline,
 } from "./composer/inlineNode";
 import { inlineCaretPlugin } from "./composer/inlineCaret";
 import { followActionsWidth, flashThumbOnLength } from "./composerScrollLane";
@@ -78,11 +80,11 @@ import { baseKeymap, chainCommands, lift, selectAll } from "@milkdown/kit/prose/
 import { closeHistory, redo, redoDepth, undo, undoDepth } from "@milkdown/kit/prose/history";
 import { keymap } from "@milkdown/kit/prose/keymap";
 import { splitListItem } from "@milkdown/kit/prose/schema-list";
-import { type EditorState, Plugin, Selection, TextSelection } from "@milkdown/kit/prose/state";
+import { EditorState, Plugin, Selection, TextSelection, type Transaction } from "@milkdown/kit/prose/state";
 import { Fragment, type Node as ProseNode, Slice } from "@milkdown/kit/prose/model";
 import type { EditorView } from "@milkdown/kit/prose/view";
 import type { RemarkParser } from "@milkdown/kit/transformer";
-import { $prose, replaceAll } from "@milkdown/kit/utils";
+import { $prose } from "@milkdown/kit/utils";
 import { FADE_BAND_PX } from "./markdownFieldModel";
 import { draftFoot } from "./draftFoot.experiment";
 import { focusRoute } from "../../ui/focusRoute";
@@ -263,6 +265,9 @@ export type MarkdownFieldProps = {
   /// attachment stays their text. Read when a value's tokens become nodes (the editor made, a value
   /// set from outside, `type`); unset, every token-shaped run is taken for an attachment.
   isInlineAttachment?(id: string): boolean;
+  /// The placed attachments' nodes are hidden (Settings' strip view): Backspace and Delete pass over
+  /// them (composer/inlineNode.ts hiddenDelete), so a key never takes out a picture it cannot see.
+  inlineHidden?: boolean;
   /// A copy or cut of the selection (Cmd-C, Cmd-X, the menu's): its runs of text and its placed
   /// attachments in order, its text as the field copies it, and whether it holds the whole draft.
   /// True when the surface wrote the pasteboard itself; the field then takes a cut's selection out.
@@ -345,6 +350,7 @@ function sameMarkdownFieldProps(previous: MarkdownFieldProps, next: MarkdownFiel
     previous.onUnplacedQuotes === next.onUnplacedQuotes &&
     previous.onInlineViews === next.onInlineViews &&
     previous.isInlineAttachment === next.isInlineAttachment &&
+    previous.inlineHidden === next.inlineHidden &&
     previous.onCopy === next.onCopy &&
     previous.onWholeSelection === next.onWholeSelection &&
     previous.onPasteFirst === next.onPasteFirst &&
@@ -360,6 +366,24 @@ function sameMarkdownFieldProps(previous: MarkdownFieldProps, next: MarkdownFiel
 
 /// No command words: a field with no `/` commands colours nothing.
 const NO_SLASH_NAMES: SlashNames = { leading: new Set(), anywhere: new Set() };
+
+/** `tr` with only the part of its document that differs from `next` replaced by `next`'s, so a
+ * selection outside that part maps through unchanged (a whole-document replace moved it to the end). */
+export function replaceChanged(tr: Transaction, next: ProseNode): Transaction {
+  const { doc } = tr;
+  const start = doc.content.findDiffStart(next.content);
+  if (start === null) return tr;
+  const end = doc.content.findDiffEnd(next.content);
+  if (!end) return tr;
+  let { a, b } = end;
+  // A repeated run makes the two ends cross: move both ends past the start.
+  const overlap = start - Math.min(a, b);
+  if (overlap > 0) {
+    a += overlap;
+    b += overlap;
+  }
+  return tr.replace(start, a, next.slice(start, b));
+}
 
 /** Markdown without the serializer's trailing newline, and empty for an empty document.
  * Milkdown writes an empty paragraph as `<br />`; empty lines a prompt starts or ends with
@@ -618,8 +642,9 @@ export function blockwiseMarkdown(doc: ProseNode, serialize: (doc: ProseNode) =>
 }
 
 /// Text the serializer writes unchanged: letters, digits and the punctuation it never escapes
-/// mid-line, starting and ending with a letter, digit or that punctuation, never a space.
-const PLAIN_LINE = /^[A-Za-z0-9,'?!](?:[A-Za-z0-9 ,'?!.]*[A-Za-z0-9,'?!.])?$/;
+/// mid-line, starting with a letter, digit or that punctuation, never a space. It may end in spaces:
+/// the serializer keeps a paragraph's trailing spaces, and every word typed ends in one.
+const PLAIN_LINE = /^[A-Za-z0-9,'?!][A-Za-z0-9 ,'?!.]*$/;
 /// What would make the serializer escape a `.` in such text: a list number at the start (`1.`),
 /// or an autolink literal's `www.` (GFM escapes the dot after a `w` that a word character follows).
 const ESCAPED_DOT = /^\d+\.|[Ww]\.[\w.-]/;
@@ -908,6 +933,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onUnplacedQuotes,
     onInlineViews,
     isInlineAttachment,
+    inlineHidden,
     onCopy,
     onWholeSelection,
     onPasteFirst,
@@ -1006,6 +1032,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onUnplacedQuotes,
     onInlineViews,
     isInlineAttachment,
+    inlineHidden,
     onCopy,
     onWholeSelection,
     onPasteFirst,
@@ -1027,6 +1054,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onUnplacedQuotes,
     onInlineViews,
     isInlineAttachment,
+    inlineHidden,
     onCopy,
     onWholeSelection,
     onPasteFirst,
@@ -1090,6 +1118,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   const refocus = useRef<{ doc: ProseNode; selection: Selection; until: number; owner?: string } | null>(null);
   const owner = useRef(selectionKey);
   owner.current = selectionKey;
+  // The `selectionKey` whose draft the document last took from outside.
+  const drawnFor = useRef(selectionKey);
   const surfacePlugins = useRef(plugins);
   const lines = useRef(multiline);
   const empty = useRef<HTMLSpanElement>(null);
@@ -1107,9 +1137,11 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   const applyAttributes = () => {
     const dom = view.current?.dom;
     if (!dom) return;
+    // Each write is a mutation WebKit lays out again, even of the same value; this runs on every render.
     for (const [name, attribute] of Object.entries(attrs.current ?? {}))
-      if (attribute === undefined) dom.removeAttribute(name);
-      else dom.setAttribute(name, attribute);
+      if (attribute === undefined) {
+        if (dom.hasAttribute(name)) dom.removeAttribute(name);
+      } else if (dom.getAttribute(name) !== attribute) dom.setAttribute(name, attribute);
   };
   // Written only when it changes: each write is an attribute mutation, and this runs on every edit.
   // A draft of blank lines (Shift+Enter in an empty prompt) is not empty: the placeholder stayed on
@@ -1153,6 +1185,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       inlineViews.current.delete(id);
       tellInlineViews();
     },
+    hidden: () => latest.current.inlineHidden === true,
   });
   const inlineKnown = (id: string) => latest.current.isInlineAttachment?.(id) ?? true;
   // Whether this field's editor was made with placed attachments (`placesInline` in `mount`).
@@ -1162,6 +1195,12 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   const copied = (editorView: EditorView, event: ClipboardEvent, cut: boolean) => {
     const surface = latest.current.onCopy;
     const { state } = editorView;
+    // The strip view's hidden nodes are not the person's text: a selection of only them copies and
+    // cuts nothing (composer/inlineNode.ts onlyInline).
+    if (latest.current.inlineHidden && !state.selection.empty && onlyInline(state.selection.content())) {
+      event.preventDefault();
+      return true;
+    }
     if (!surface || state.selection.empty) return false;
     const copy = {
       parts: inlineOn.current ? selectionParts(state) : [],
@@ -1677,7 +1716,18 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
               // focus, as a selectionchange that a busy page (an inbound message drawing) takes well
               // past 100 ms to deliver (Leo 2026-10-21, after another agent's steer). The person's own
               // move there comes with a key or a click, which drop the saved selection first.
-              if (docChanged || !caretAtStart(state)) return null;
+              if (docChanged) {
+                // The draft changed while the field was away (a value from outside: a draft synced
+                // in, a command written): the kept selection follows the edit, so the focus that
+                // brings the keyboard back puts it back in the new text, not WebKit's caret at the
+                // front (Leo: "did we fix the cursor going to the front").
+                if (!transactions[0]?.before.eq(saved.doc)) return null;
+                let selection = saved.selection;
+                for (const tr of transactions) selection = selection.map(tr.doc, tr.mapping);
+                refocus.current = { ...saved, doc: state.doc, selection };
+                return null;
+              }
+              if (!caretAtStart(state)) return null;
             } else if (docChanged) {
               refocus.current = null;
               return null;
@@ -1817,16 +1867,28 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     // (composer/inlineNode.ts placeTokensIn): undo and redo bring back nodes, and token text typed
     // or pasted is never read so. The editor's first document (`undoable` false) is not an edit to
     // undo: undo would bring back the tokens it was made with as text.
-    if (inlineOn.current)
-      editor.current?.action((ctx) => {
-        const parsed = ctx.get(parserCtx)(markdown);
-        const current = ctx.get(editorViewCtx);
-        if (!parsed) return;
-        const { tr, doc } = current.state;
-        tr.replace(0, doc.content.size, new Slice(parsed.content, 0, 0));
-        current.dispatch(placeTokensIn(tr, inlineKnown).setMeta("addToHistory", undoable));
-      });
-    else editor.current?.action(replaceAll(markdown));
+    editor.current?.action((ctx) => {
+      const parsed = ctx.get(parserCtx)(markdown);
+      const current = ctx.get(editorViewCtx);
+      if (!parsed) return;
+      // Only the span that differs is replaced, so the caret and selection outside it stay where the
+      // person left them. Replacing the whole document put the caret at the end, and a value written
+      // while the web view had given the keyboard away left WebKit's caret at the front on return
+      // (Leo: "did we fix the cursor going to the front/general composer fixes yet!?").
+      // The first document, and another chat's draft (the `selectionKey` moved) even with the same text,
+      // are new documents: the caret goes to their end, as a draft opens.
+      const sameChat = drawnFor.current === owner.current;
+      drawnFor.current = owner.current;
+      // The value's tokens become nodes before the compare, so placed attachments compare as nodes.
+      const next = inlineOn.current ? placeTokensIn(EditorState.create({ doc: parsed }).tr, inlineKnown).doc : parsed;
+      const tr =
+        sameChat && undoable
+          ? replaceChanged(current.state.tr, next)
+          : current.state.tr.replace(0, current.state.doc.content.size, new Slice(next.content, 0, 0));
+      // A value from outside is not the person removing a placed attachment (composer/inlineNode.ts INLINE_REMOVE).
+      if (inlineOn.current) tr.setMeta(INLINE_REMOVE, true);
+      if (tr.docChanged) current.dispatch(tr.setMeta("addToHistory", undoable));
+    });
     const current = view.current;
     if (!current) return;
     const tail = /[ \t]+$/.exec(markdown)?.[0];

@@ -46,10 +46,11 @@ import type {
   TailnetState,
   ModelsState,
   LibraryListing,
-  DoctorReport,
   HubState,
-  ConnectionsState,
+  DoctorReport,
   AutocloudState,
+  ConnectionsState,
+  DeveloperTokensState,
 } from "../pages/settings/ops";
 import type { DoctorTreatment } from "../pages/settings/customizeDoctor";
 import type { MockData } from "../pages/passwords/mockProvider";
@@ -84,6 +85,8 @@ export type SettingsPageVariant = VariantBase & {
   keys?: KeysState;
   /** Settings > Integrations fixture state; default the mock's (a waiting Stripe refund). */
   hub?: HubState;
+  /** Settings > Developer fixture state; default the mock's (two personal tokens). */
+  tokens?: DeveloperTokensState;
   /** Settings > Automations fixture state; default the mock's (three automations, one failed run). */
   autocloud?: AutocloudState;
   /** Settings > Connections fixture state; default the mock's (Linear and Sentry connected). */
@@ -94,6 +97,10 @@ export type SettingsPageVariant = VariantBase & {
   tailnet?: TailnetState | null;
   /** Settings > Models fixture state (null: a host without the part); default the mock's Mac logins. */
   models?: ModelsState | null;
+  /** Hold the connection list in flight while the Cloud page draws its loading rows. */
+  modelsLoading?: boolean;
+  /** Hold a provider check while its form draws the checking state. */
+  modelAccessChecking?: boolean;
   /** Settings > Agents over the mock's harness list (`manages: false`: an older acpmux). */
   agents?: Partial<AgentsState>;
   /** Settings > Agents > Add > Endpoint: what the endpoint lists for Fetch Models and the hello
@@ -521,9 +528,6 @@ export type ComponentVariant<P> = VariantBase & {
   experiments?: Record<string, string>;
   /** Gallery-only answers for the component's reply chip/preview host calls. */
   chipHost?: ChipHostFixture;
-  /** Experiment arms the variant pins, by experiment id (experiments/experiment.ts), set before the
-   *  component loads. */
-  experiments?: Record<string, string>;
 };
 
 /**

@@ -68,7 +68,11 @@ async fn every_turn_carries_its_cost_and_the_session_total_at_once() {
 /// spends the budget within the turn), then `budget_50`, `budget_90` and `over_budget`, in that
 /// order, each before the turn's `turn_result`, once each, every turn. Over 60 turns the checks'
 /// p95 and the cost's shown-after-turn p95 stay small: prints a `SPEND_BURN_RECEIPT` line.
+///
+/// Spend warnings are opt-in and read the process environment once, so this runs on its own:
+/// `ACPMUX_SPEND_WARNINGS=1 cargo test -p acpmux --test hub_integration usage_crossing -- --ignored`.
 #[tokio::test]
+#[ignore = "spend warnings are opt-in: needs ACPMUX_SPEND_WARNINGS=1 in the process env"]
 async fn usage_crossing_the_budget_warns_fast_then_50_90_100_in_order() {
     let log = std::env::temp_dir().join(format!("acpmux-burn-sent-{}", uuid::Uuid::now_v7()));
     let env = BTreeMap::from([

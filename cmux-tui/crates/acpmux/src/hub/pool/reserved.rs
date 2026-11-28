@@ -258,10 +258,40 @@ impl Hub {
             .map(|(k, s)| json!({"harness": k.harness, "state": s}))
             .collect();
         let mut answer = json!({"accepted": true, "state": state, "cwd": key.cwd});
+        if state == "none" {
+            // Nothing in the pool holds the reserved key, so the first home chat starts cold.
+            // Say why, so a caller (the Cloud journey) records the cause, not only "none".
+            answer["why"] = Value::String(self.reserved_missing_why(&key));
+        }
         if !spares.is_empty() {
             answer["spares"] = Value::Array(spares);
         }
         Ok(answer)
+    }
+
+    /// Why no pool entry holds `key` right after it was wanted: the pool never holds a remote
+    /// key; an oversize key is never started again; another key in its slot (same folder,
+    /// harness and preset; a personal spare on another model, say) replaced it. Names fields,
+    /// never values (`PoolKey::differing`).
+    fn reserved_missing_why(&self, key: &PoolKey) -> String {
+        if key.origin == Origin::Remote {
+            return "the key is remote-origin, which the pool never holds".to_string();
+        }
+        if lock(&self.pool.oversize).contains(key) {
+            return "the key went over the pool's RSS cap once (oversize) and is not started again"
+                .to_string();
+        }
+        let views = lock(&self.pool.pool).view();
+        if let Some(v) = views.iter().find(|v| {
+            v.key.cwd == key.cwd && v.key.harness == key.harness && v.key.preset == key.preset
+        }) {
+            return format!(
+                "another key holds its slot ({}), differing in {}",
+                v.state,
+                v.key.differing(key).join(", ")
+            );
+        }
+        format!("no pool entry for it ({} entries in the pool)", views.len())
     }
 
     /// The state of the entry for `key`: `ready`, `warming`, `empty` or `none`.

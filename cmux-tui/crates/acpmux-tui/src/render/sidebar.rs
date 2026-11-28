@@ -108,7 +108,8 @@ pub(super) fn draw_sidebar(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
     let mut members: std::collections::HashMap<String, Vec<usize>> =
         std::collections::HashMap::new();
     for &i in &filtered {
-        let g = group_of(&rows[i]);
+        let Some(row) = rows.get(i) else { continue };
+        let g = group_of(row);
         if !members.contains_key(&g) {
             order.push(g.clone());
         }
@@ -123,7 +124,7 @@ pub(super) fn draw_sidebar(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
                 entries.push(Entry::Blank);
             }
             let cwd = idxs.iter().find_map(|&i| {
-                let s = &rows[i];
+                let s = rows.get(i)?;
                 (s.get("peer").is_none())
                     .then(|| s.get("cwd").and_then(Value::as_str).map(str::to_owned))
                     .flatten()
@@ -210,7 +211,7 @@ pub(super) fn draw_sidebar(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
             }
             Entry::Row(idx) => {
                 let idx = *idx;
-                let s = &rows[idx];
+                let Some(s) = rows.get(idx) else { continue };
                 let is_sel = idx == selected;
                 let is_draft = s.get("draft").and_then(Value::as_bool).unwrap_or(false);
                 let name_owned = if is_draft {
@@ -250,7 +251,14 @@ pub(super) fn draw_sidebar(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
                     ("●", row_style.fg(c.warn_fg))
                 } else if status == "waiting" {
                     ("?", row_style.fg(c.attention_fg))
-                } else if matches!(status, "disconnected" | "unreachable") {
+                } else if s
+                    .get("sessionState")
+                    .and_then(|v| v.get("state"))
+                    .and_then(serde_json::Value::as_str)
+                    == Some("errored")
+                    || s.get("sessionState").is_none()
+                        && matches!(status, "disconnected" | "unreachable")
+                {
                     ("!", row_style.fg(c.error_fg))
                 } else if dot > 0 && !is_sel {
                     (
