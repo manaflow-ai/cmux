@@ -1,7 +1,8 @@
 // Mission control's grid (model.ts): a scroller of session tiles that mounts only the rows near the
 // viewport, between a sized stage that keeps the scroll bar true. Each tile reads its own entry, never
 // the list, so a change to one session re-renders one tile.
-import { memo, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { memo, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Button } from "../../ui/Button";
 import { Spinner } from "../../agent-session/acpmux/conversation/icons";
 import { StatusGlyph } from "../../ui/StatusGlyph";
 import {
@@ -42,7 +43,7 @@ function badgeLabel(state: MissionTileState, strings: MissionControlStrings): st
 
 function Badge({ state, label }: { state: MissionTileState; label: string }) {
   return (
-    <span className={`mc-badge mc-badge-${state}`} title={label}>
+    <span className={`mc-badge mc-badge-${state}`} aria-label={label} role="img">
       {state === "working" ? <Spinner size={12} /> : <StatusGlyph name={state} size={12} />}
       <span className="mc-badge-text">{label}</span>
     </span>
@@ -64,8 +65,8 @@ const MissionTileCard = memo(function MissionTileCard({
 }) {
   const label = badgeLabel(tile.state, strings);
   return (
-    <button
-      type="button"
+    <Button
+      bare
       className={`mc-tile mc-tile-${tile.state}`}
       style={style}
       data-tile={tile.id}
@@ -89,7 +90,7 @@ const MissionTileCard = memo(function MissionTileCard({
           {tile.age ? ` · ${tile.age}` : ""}
         </span>
       </span>
-    </button>
+    </Button>
   );
 });
 
@@ -138,7 +139,7 @@ export function MissionControl({
   const { start, end } = visibleRange(count, layout, viewport);
   const counts = useMemo(() => countByState(tiles), [tiles]);
 
-  const mounted = [];
+  const mounted: ReactNode[] = [];
   for (let index = start; index < end; index += 1) {
     const tile = tiles[index]!;
     const row = Math.floor(index / layout.columns);
