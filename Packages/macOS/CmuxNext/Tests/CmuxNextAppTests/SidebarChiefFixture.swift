@@ -81,7 +81,7 @@ final class SidebarChiefFixture {
     private func avatar(_ chief: String) -> SidebarChiefAvatar? {
         avatarCalls += 1
         let settings = harness.settings, picks = picks
-        let faces = HomeService.chiefFaces(chiefs: Set(Self.chiefs), own: [:]) {
+        let faces = HomeChiefAvatars.faces(chiefs: Set(Self.chiefs), own: [:]) {
             ChiefPetSettingsRows.chosenPicture(of: $0, picks: picks, uploads: nil, in: settings.snapshot, file: settings.fileRoot)
         }
         return SidebarChiefAvatar(home: faces[chief])
