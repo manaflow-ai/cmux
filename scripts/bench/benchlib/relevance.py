@@ -405,18 +405,35 @@ def run_one(run: dict, timeout: float, root: Path = ROOT, repeats: int = 1) -> d
 
 
 def run_benches(plan_: dict, timeout: float = 120, root: Path = ROOT, repeats: int = 1,
-                baseline_docs: dict | None = None) -> list[dict]:
+                baseline_docs: dict | None = None, base_root: Path | None = None) -> list[dict]:
     """Every bench the plan's areas name. With baseline_docs (baselines.fetch), each result also carries its
-    baseline and the 3-repeat verdict; only a REGRESSED verdict changes an OK status."""
+    baseline and the 3-repeat verdict; only a REGRESSED verdict changes an OK status.
+
+    A bench with no baseline for this machine class and a base_root (the pull request's base, checked out on this
+    same runner) runs there too, `repeats` times, and its median is the baseline: verdict BASE_REGRESSED or
+    within-baseline, with baseline_source "base". That compare is a notice, never a red (fail open: no recorded
+    baseline means the check warns and passes)."""
     results = [run_one(r, timeout, root, repeats) for r in runs_for(plan_)]
     if baseline_docs is None:
         return results
     from . import baselines
     for r in results:
         value, area = baselines.lookup(baseline_docs, r["areas"], r["cmd"])
-        verdict = baselines.judge(r.get("repeats_s") or [], value) if r["status"] in (OK, OVER) else \
-            baselines.NO_MEASURE
-        r.update(baseline_s=value, baseline_area=area or None, verdict=verdict)
+        measured = r["status"] in (OK, OVER)
+        verdict = baselines.judge(r.get("repeats_s") or [], value) if measured else baselines.NO_MEASURE
+        r.update(baseline_s=value, baseline_area=area or None, verdict=verdict,
+                 baseline_source="nightly" if value is not None else None)
+        if verdict == baselines.NO_BASELINE and base_root is not None and measured:
+            base = run_one({"cmd": r["cmd"], "areas": r["areas"], "budget_s": None}, timeout, base_root, repeats)
+            reps = base.get("repeats_s") or []
+            if base["status"] == OK and len(reps) >= baselines.REPEATS:
+                value = round(statistics.median(reps), 4)
+                verdict = baselines.judge(r["repeats_s"], value)
+                if verdict == baselines.REGRESSED:
+                    verdict = baselines.BASE_REGRESSED  # a notice: the status stays OK
+                r.update(baseline_s=value, baseline_source="base", base_repeats_s=reps, verdict=verdict)
+            else:
+                r.update(base_detail=f"base run {base['status']} {base.get('detail', '')}".strip())
         if verdict == baselines.REGRESSED and r["status"] == OK:
             r["status"] = REGRESSED
     return results

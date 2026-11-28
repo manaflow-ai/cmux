@@ -377,6 +377,9 @@ def cmd_for_paths(argv: list[str]) -> int:
     p.add_argument("--repeats", type=int, default=1, help="--run: measure each bench N times (the baseline rule takes 3)")
     p.add_argument("--baselines", nargs="?", const="", default=None, metavar="URL|DIR",
                    help="--run: compare with the areas' nightly baselines (default store: CMUX_BENCH_BASELINES or R2)")
+    p.add_argument("--base-ref", default="", metavar="REF",
+                   help="--baselines: a bench with no baseline for this machine class also runs at REF (a git "
+                        "worktree on this runner) and compares with it; a notice, never a red")
     p.add_argument("--self-bench", type=int, metavar="N", help="time load + plan on N tracked paths")
     p.add_argument("--scale", type=int, default=1, help="--self-bench: K times the map's rules")
     a = p.parse_args(argv)
@@ -469,8 +472,61 @@ def cmd_for_paths(argv: list[str]) -> int:
         for name, why in sorted(missing.items()):
             print(f"cmux-bench: for-paths: warning: {name}: {why}; its benches pass on budget_s alone (fail open)",
                   file=sys.stderr)
-    return _report_runs(relevance.run_benches(plan, a.timeout, repeats=a.repeats, baseline_docs=docs),
-                        a.markdown, a.json)
+    base_root = None
+    tmp = None
+    try:
+        if docs is not None and a.base_ref and any(
+                not docs.get(ar["name"]) for ar in plan["areas"] if ar.get("run")):
+            tmp, why = _base_worktree(a.base_ref, _base_dirs(plan))
+            if tmp is None:
+                print(f"cmux-bench: for-paths: warning: no worktree at {a.base_ref}: {why}; benches with no "
+                      f"baseline pass on budget_s alone (fail open)", file=sys.stderr)
+            else:
+                base_root = Path(tmp)
+                print(f"cmux-bench: for-paths: benches with no baseline for this machine class compare with "
+                      f"{a.base_ref} on this runner", file=sys.stderr)
+        results = relevance.run_benches(plan, a.timeout, repeats=a.repeats, baseline_docs=docs, base_root=base_root)
+    finally:
+        if tmp is not None:
+            subprocess.run(["git", "worktree", "remove", "--force", tmp], cwd=relevance.ROOT, capture_output=True)
+    return _report_runs(results, a.markdown, a.json)
+
+
+def _base_dirs(plan: dict) -> list[str]:
+    """The top folders a base run needs: scripts/ and docs/ (the bench tooling and its map), each matched path's,
+    and each path a bench command names. A sparse worktree of these takes seconds; the whole tree takes ~30."""
+    from benchlib import relevance
+
+    dirs = {"scripts", "docs"}
+    for ar in plan["areas"]:
+        if not ar.get("run"):
+            continue
+        dirs.update(p.split("/", 1)[0] for p in ar.get("paths") or () if "/" in p)
+        for cmd in ar["run"]:
+            dirs.update(t.split("/", 1)[0] for t in cmd.split() if "/" in t and not t.startswith(("/", "-"))
+                        and (relevance.ROOT / t.split("/", 1)[0]).is_dir())
+    return sorted(dirs)
+
+
+def _base_worktree(ref: str, dirs: list[str]) -> tuple[str | None, str]:
+    """A detached sparse worktree of REF (only DIRS, cone mode) in a fresh temp directory, or None and why
+    (fail open)."""
+    import shutil
+    import tempfile
+
+    from benchlib import relevance
+
+    tmp = tempfile.mkdtemp(prefix="cmux-bench-base-")
+    steps = (["worktree", "add", "--detach", "--no-checkout", "--quiet", tmp, ref],
+             ["-C", tmp, "sparse-checkout", "set", "--cone", *dirs],
+             ["-C", tmp, "checkout", "--quiet", "--detach"])
+    for args in steps:
+        res = subprocess.run(["git", *args], cwd=relevance.ROOT, capture_output=True, text=True, timeout=600)
+        if res.returncode != 0:
+            subprocess.run(["git", "worktree", "remove", "--force", tmp], cwd=relevance.ROOT, capture_output=True)
+            shutil.rmtree(tmp, ignore_errors=True)
+            return None, (res.stderr.strip().splitlines() or [f"exit {res.returncode}"])[-1][:200]
+    return tmp, ""
 
 
 def _report_runs(results: list[dict], markdown: bool, as_json: bool) -> int:
@@ -488,6 +544,8 @@ def _report_runs(results: list[dict], markdown: bool, as_json: bool) -> int:
             budget = f" / budget {r['budget_s']:g} s" if r["budget_s"] is not None else " (no budget_s)"
             if r.get("verdict"):
                 base_s = f"{r['baseline_s']:.3f} s" if r.get("baseline_s") else "none"
+                if r.get("baseline_source") == "base":
+                    base_s += " at base, this runner"
                 reps = ", ".join(f"{x:.3f}" for x in r.get("repeats_s") or [])
                 budget += f" / baseline {base_s} ({r['verdict']}; repeats {reps or '-'})"
             line = f"{r['status']:12s} {took}{budget}  {r['cmd']}" + (f"  ({r['detail']})" if r["detail"] else "")
@@ -499,6 +557,10 @@ def _report_runs(results: list[dict], markdown: bool, as_json: bool) -> int:
         elif r["status"] == relevance.OVER:
             print(f"cmux-bench: for-paths: {r['cmd']} took {r['seconds']} s, over its {r['budget_s']:g} s budget "
                   f"({', '.join(r['areas'])})", file=sys.stderr)
+        elif r.get("verdict") == "slower-than-base":
+            print(f"::notice title=Bench vs base::{r['cmd']}: every repeat ({r['repeats_s']}) is more than 15% over "
+                  f"its base on this runner ({r['baseline_s']} s; base repeats {r['base_repeats_s']}); no nightly "
+                  f"baseline for this machine class, so this is a notice, not a red", file=sys.stderr)
         elif r["status"] == relevance.REGRESSED:
             print(f"cmux-bench: for-paths: {r['cmd']}: every repeat ({r['repeats_s']}) is over the "
                   f"{r['baseline_area']} baseline {r['baseline_s']} s by more than 15%", file=sys.stderr)
