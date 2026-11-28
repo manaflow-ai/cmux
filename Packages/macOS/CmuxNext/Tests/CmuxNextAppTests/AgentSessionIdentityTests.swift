@@ -100,11 +100,16 @@ struct AgentSessionIdentityTests {
                                                          displayName: "Mango", formerSessionNames: ["cosmic-gray/coord"],
                                                          chatTitle: nil, taskSummary: nil)
         #expect(peerQualified == "Mango", "a peer-qualified former name matches its short form")
-        let forced = SidebarMapping.agentRowTitle(workspaceTitle: "claude-sr2-coord", workspaceName: "claude-sr2-coord",
-                                                  workspaceNameSource: .user, workspaceNameRevision: 1, sessionName: "mango",
-                                                  displayName: "Mango", formerSessionNames: ["claude-sr2-coord"],
-                                                  chatTitle: nil, taskSummary: nil)
-        #expect(forced == "claude-sr2-coord", "a rename by a person or agent stays forced")
+        let pinnedThenRenamed = SidebarMapping.agentRowTitle(workspaceTitle: "claude-sr2-coord", workspaceName: "claude-sr2-coord",
+                                                            workspaceNameSource: .user, workspaceNameRevision: 1, sessionName: "mango",
+                                                            displayName: "Mango", formerSessionNames: ["claude-sr2-coord"],
+                                                            chatTitle: nil, taskSummary: nil)
+        #expect(pinnedThenRenamed == "Mango", "a name pinned to the chat's own name follows the chat's later rename")
+        let pinnedNow = SidebarMapping.agentRowTitle(workspaceTitle: "mango", workspaceName: "mango",
+                                                     workspaceNameSource: .user, workspaceNameRevision: 1, sessionName: "mango",
+                                                     displayName: "Mango", formerSessionNames: ["claude-sr2-coord"],
+                                                     chatTitle: "Fix the sidebar", taskSummary: nil)
+        #expect(pinnedNow == "mango", "a name the chat still has stays pinned")
         let unrelated = SidebarMapping.agentRowTitle(workspaceTitle: "Release", workspaceName: "Release",
                                                      workspaceNameSource: .user, sessionName: "mango", displayName: "Mango",
                                                      formerSessionNames: ["claude-sr2-coord"], chatTitle: nil, taskSummary: nil)
