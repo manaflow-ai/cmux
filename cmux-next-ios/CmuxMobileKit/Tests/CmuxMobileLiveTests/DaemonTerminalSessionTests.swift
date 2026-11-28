@@ -1778,10 +1778,11 @@ final class MutableChannel: LinkChannel, @unchecked Sendable {
 
     /// no-hangs 2026-11-24: the channel ends and the link with it, and no new link calls
     /// `reconnect()`. Before, the self-reattach found no link and said "Reattaching…" for
-    /// ever. Now it has its own bound: past it the cached screen stays and the line says
-    /// "Can't reach this terminal" (Retry); manual and automatic retries both recover.
-    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
-    func aSelfReattachWithNoLinkEndsOnCantReachWithRetry(automatic: Bool) async throws {
+    /// ever. With the experiment enabled it has its own bound: past it the cached screen
+    /// stays and the line says "Can't reach this terminal" (Retry); manual and automatic
+    /// retries both recover. With it disabled, the existing wait keeps queued input.
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true], [false, true])
+    func aSelfReattachWithNoLinkRespectsTheExperimentalBound(enabled: Bool, automatic: Bool) async throws {
         let daemon = FakeTerminalDaemon()
         daemon.afterAttach = nil
         let channels = ChannelLog()
@@ -1794,7 +1795,7 @@ final class MutableChannel: LinkChannel, @unchecked Sendable {
             return DaemonClient(channel: channel)
         }
         session.macName = "mini"
-        session.noLinkBound = .milliseconds(300)
+        session.noLinkBound = enabled ? .milliseconds(300) : nil
         session.gaveUpRetryDelay = automatic ? .milliseconds(300) : .seconds(30)
         defer { session.stop() }
         var events: [TerminalSessionEvent] = []
@@ -1805,6 +1806,26 @@ final class MutableChannel: LinkChannel, @unchecked Sendable {
         let start = ContinuousClock.now
         await channels.last?.close(code: "link_closed", reason: "link dropped")
         #expect(try await poll(Self.setup) { !session.isAttached })
+        if !enabled {
+            // Without the experiment, stay in the existing no-link wait past the
+            // enabled bound, keep input, and recover when the link returns.
+            try #require(try await poll(Self.setup) {
+                session.connectionState == .reattaching(mac: "mini")
+            })
+            session.send(Data("ls\r".utf8))
+            try await Task.sleep(for: .milliseconds(600)) // test: twice the enabled bound
+            #expect(session.connectionState == .reattaching(mac: "mini"))
+            #expect(!events.contains { event in
+                if case .connection(.failed) = event { return true }
+                return false
+            })
+            linkUp.up = true
+            session.reconnect()
+            try #require(try await poll(Self.setup) { session.isAttached })
+            #expect(try await poll(Self.setup) { typed(daemon) == [Data("ls\r".utf8)] })
+            #expect(session.connectionState == .attached)
+            return
+        }
         let ended = try await poll(Self.lag) {
             session.connectionState == .failed(message: DaemonTerminalSession.unreachableMessage("mini"))
         }

@@ -1839,8 +1839,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 // reattaching this session) left "Reattaching…" up for ever. Past
                 // `noLinkBound` the cached screen stays and the line says "Can't reach
                 // this terminal" with Retry; a new link's `reconnect()` still attaches.
-                if autoReattaching, noLinkWait == nil {
-                    let bound = noLinkBound
+                if autoReattaching, let bound = noLinkBound, noLinkWait == nil {
                     // task-owner: `noLinkWait`; cancelled by an attach and `stop()`
                     noLinkWait = Task { [weak self] in
                         try? await Task.sleep(for: bound)
@@ -2741,7 +2740,11 @@ public final class DaemonTerminalSession: TerminalSession {
     /// How long a self-reattach that found no link waits for the link's return
     /// before saying "Can't reach this terminal" (with Retry) over the cached screen.
     static let defaultNoLinkBound: Duration = .seconds(30)
-    var noLinkBound = DaemonTerminalSession.defaultNoLinkBound
+    /// Opt in with the app preference `experiments.terminalNoLinkTimeout`.
+    /// Keep the existing no-link wait by default until real-phone verification.
+    /// Tests inject a shorter bound, or nil for the default waiting behavior.
+    var noLinkBound: Duration? = UserDefaults.standard.bool(forKey: "experiments.terminalNoLinkTimeout")
+        ? DaemonTerminalSession.defaultNoLinkBound : nil
     /// The no-link wait's bound, while it runs.
     private var noLinkWait: Task<Void, Never>?
     /// After the retries ran out, a fresh round starts on its own this long later (as well as on
@@ -2770,7 +2773,8 @@ public final class DaemonTerminalSession: TerminalSession {
     }
 
     /// An attach that failed for want of a link (`no-link`): it waits for the link's return,
-    /// which reattaches it, and spends no retry. Self-recovery has its own no-link bound.
+    /// which reattaches it, and spends no retry. Self-recovery has its own no-link bound
+    /// when the experiment is enabled.
     nonisolated static func waitsForTheLink(_ error: any Error) -> Bool {
         (error as? LinkError)?.code == "no-link"
     }
@@ -2783,7 +2787,8 @@ public final class DaemonTerminalSession: TerminalSession {
     /// Now the session attaches again by itself, through the reattach backoff.
     private var autoReattach: Task<Void, Never>?
     /// Recovery started by ``scheduleAutoReattach(_:)``, until attached or stopped.
-    /// A missing link waits up to ``noLinkBound`` before surfacing failure and retrying.
+    /// With the experiment enabled, a missing link waits up to ``noLinkBound`` before
+    /// surfacing failure and retrying.
     private var autoReattaching = false
     /// Asks the link to prove itself now (its quick probe), so a link that
     /// really died is redialed at once instead of after its heartbeat.
