@@ -90,7 +90,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-GIT_COW_VERSION = "2026.11.27"
+GIT_COW_VERSION = "2026.11.28"
 LANDING_REFS = ("origin/feat-cmux-next", "origin/main")
 DEFAULT_BASES = ("origin/feat-cmux-next", "HEAD")
 # The seed moves to the commit asked for once this many files differ.
@@ -899,6 +899,75 @@ def _privileged(*argv: str) -> subprocess.CompletedProcess:
     return subprocess.run(command, capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL)
 
 
+def mount_holders(target: Path, proc: Path = Path("/proc")) -> Tuple[List[str], int]:
+    """The processes holding something inside TARGET, read from PROC as this user: each as "PID (NAME: how)", how
+    being cwd, root, exe, fd N or mmap. Also how many processes it could not read (another user's, without root),
+    so a report never says "nobody" when it only could not look."""
+    inside = str(target).rstrip("/")
+
+    def under(path: str) -> bool:
+        path = path[:-len(" (deleted)")] if path.endswith(" (deleted)") else path
+        return path == inside or path.startswith(inside + "/")
+
+    held: List[str] = []
+    unreadable = 0
+    for entry in sorted(proc.glob("[0-9]*"), key=lambda e: int(e.name) if e.name.isdigit() else 0):
+        if not entry.name.isdigit() or entry.name == str(os.getpid()):
+            continue
+        how: List[str] = []
+        denied = False
+        for link in ("cwd", "root", "exe"):
+            try:
+                if under(os.readlink(entry / link)):
+                    how.append(link)
+            except PermissionError:
+                denied = True
+            except OSError:
+                pass
+        try:
+            for fd in sorted((entry / "fd").iterdir(), key=lambda f: int(f.name) if f.name.isdigit() else 0):
+                try:
+                    if under(os.readlink(fd)):
+                        how.append(f"fd {fd.name}")
+                except OSError:
+                    pass
+        except PermissionError:
+            denied = True
+        except OSError:
+            pass
+        try:
+            mapped = {line.split(None, 5)[5].strip() for line in
+                      (entry / "maps").read_text(encoding="utf-8", errors="replace").splitlines()
+                      if len(line.split(None, 5)) == 6}
+            if any(under(path) for path in mapped):
+                how.append("mmap")
+        except PermissionError:
+            denied = True
+        except OSError:
+            pass
+        if how:
+            try:
+                name = (entry / "comm").read_text(encoding="utf-8").strip()
+            except OSError:
+                name = "?"
+            held.append(f"{entry.name} ({name}: {', '.join(how)})")
+        elif denied:
+            unreadable += 1
+    return held, unreadable
+
+
+def lazy_unmount_note(target: Path, held: List[str], unreadable: int) -> str:
+    """What to say after `umount -l` detached TARGET: the mount lives on until its holders let go, so name them."""
+    if held:
+        who = "still held by " + "; ".join(held[:10]) + (f" and {len(held) - 10} more" if len(held) > 10 else "")
+    else:
+        who = "no holder this user can see"
+    if unreadable:
+        who += f" ({unreadable} process(es) this user cannot read; as root: fuser -vm {target})"
+    return f"plain umount was busy, so it was detached lazily (umount -l): {who}. The overlay stays alive, " \
+           "and its lower in use, until they let go"
+
+
 def collect_overlay_orphan(target: Path) -> str:
     """Finish the removal git could not: unmount TARGET, delete its own layer, the dead gitlink and the folder.
     Returns what it did; OSError when it left TARGET in place. Refuses an unmounted one: everything that checkout
@@ -913,9 +982,13 @@ def collect_overlay_orphan(target: Path) -> str:
                           "left in place. next: wt overlay remount, then remove it again")
         if not no_live_worktree(target):
             raise OSError(f"{target}: git still knows this worktree; left in place")
+        lazy = ""
         done = _privileged("umount", str(target))
         if done.returncode:  # a process still has a file or its cwd inside: detach now, freed when it lets go
+            held, unreadable = mount_holders(target)  # read before the detach, while the paths still name TARGET
             done = _privileged("umount", "-l", str(target))
+            if not done.returncode:
+                lazy = lazy_unmount_note(target, held, unreadable)
         if done.returncode:
             raise OSError(f"umount {target}: {done.stderr.strip()[-300:]}")
         shutil.rmtree(layer, ignore_errors=True)
@@ -927,8 +1000,9 @@ def collect_overlay_orphan(target: Path) -> str:
     if gitlink.is_file() and no_live_worktree(target):
         gitlink.unlink()
     target.rmdir()  # beneath the mount it held only that gitlink: anything else and this refuses
-    return f"{target}: git unregistered this overlay checkout but could not delete its mount; unmounted, its layer " \
+    said = f"{target}: git unregistered this overlay checkout but could not delete its mount; unmounted, its layer " \
            "and folder removed"
+    return f"{said}; {lazy}" if lazy else said
 
 
 def remove_worktree(repo: Path, args: List[str]) -> Tuple[int, str]:
