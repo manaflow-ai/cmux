@@ -51,6 +51,12 @@
 # NIGHTLY carries the new one. 2026-11-28, NIGHTLY 46123570780 (a1502d27, job 140914811903) read
 # "rebuilding" at 08:31Z, took the grace at 08:41Z, and bundled the fallback tree at 08:47Z anyway:
 # 1869 s of a 52 min signer job, while the next push waited for that Mac (incident #1172).
+# CMUX_TUI_TREE_CLIENT_FAILED_ENDS=1 (app-bundle-cmux-tui-client.sh sets it with a fallback tree, as
+# above) ends the wait at the first check that reads the tree's only publisher failed, on any attempt,
+# instead of a second check for a retry to start: a retry re-runs the failed build, which lands the
+# tree long after the signing Mac should have moved on. 2026-11-28, NIGHTLY 46146914237 (59518be6, job
+# 140986654345) read "failed build-linux" at 13:58:48Z, read it again at 14:03:22Z, then bundled the
+# fallback tree: 254 s of the signing Mac for a second look at a completed, failed run.
 #
 # Usage: await-tree-client.sh <tree key> <candidate commit>...
 # Env: CMUX_TUI_PIN_BASE (default https://files.cmux.com/cmux-tui), GH_TOKEN
@@ -76,6 +82,8 @@ unreadable_limit="${CMUX_TUI_TREE_CLIENT_UNREADABLE_CHECKS:-0}"
 unreadable_limit=$((10#$unreadable_limit))
 rebuild_ends="${CMUX_TUI_TREE_CLIENT_REBUILD_ENDS:-0}"
 [[ "$rebuild_ends" == 0 || "$rebuild_ends" == 1 ]] || { echo "error: CMUX_TUI_TREE_CLIENT_REBUILD_ENDS must be 0 or 1" >&2; exit 2; }
+failed_ends="${CMUX_TUI_TREE_CLIENT_FAILED_ENDS:-0}"
+[[ "$failed_ends" == 0 || "$failed_ends" == 1 ]] || { echo "error: CMUX_TUI_TREE_CLIENT_FAILED_ENDS must be 0 or 1" >&2; exit 2; }
 [[ "$wait_seconds" =~ ^[0-9]+$ ]] || { echo "error: CMUX_TUI_TREE_CLIENT_WAIT_SECONDS must be whole seconds" >&2; exit 2; }
 [[ "$rebuild_grace" =~ ^[0-9]+$ ]] || { echo "error: CMUX_TUI_TREE_CLIENT_REBUILD_GRACE_SECONDS must be whole seconds" >&2; exit 2; }
 rebuild_grace=$((10#$rebuild_grace))
@@ -151,6 +159,8 @@ while :; do
     # attempt's failure (a retry may start) and a stalled job (it may get a runner) keep two checks.
     idle_limit=2
     [[ "$stuck" == *" is failed "*"(the last attempt): "* ]] && idle_limit=1
+    # With a fallback tree in hand (CMUX_TUI_TREE_CLIENT_FAILED_ENDS=1), any failed publisher ends it now.
+    [[ "$failed_ends" == 1 && "$stuck" == *" is failed "* ]] && idle_limit=1
     case "$publisher" in
       unknown)
         idle_checks=0 unreadable_checks=$(( unreadable_checks + 1 ))
