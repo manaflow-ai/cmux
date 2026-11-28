@@ -32,6 +32,11 @@ public final class LayoutShiftProbe {
         let rows: () -> [(String, CGRect)]
     }
     @ObservationIgnored private var counter = LayoutShiftCounter()
+    /// Free-form lines a view under study adds (`note`), each prefixed with the frame it came in
+    /// on, so they line up with `moves` (the offline-send dock log, cmux#59189).
+    @ObservationIgnored private var notes: [String] = []
+    @ObservationIgnored private var lastNote: [String: String] = [:]
+    public static let notesKept = 120
     @ObservationIgnored private var link: CADisplayLink?
 
     private init() {
@@ -58,6 +63,14 @@ public final class LayoutShiftProbe {
     /// its card) is not a shift, and native and SwiftUI cells are counted alike.
     public func watch(_ view: UIScrollView, prefix: String, rows: @escaping () -> [(String, CGRect)]) {
         lists.append(WatchedList(view: view, prefix: prefix, rows: rows))
+    }
+
+    /// Adds `line` under `key` for the frame being drawn, unless it repeats that key's last line.
+    /// The first `notesKept` lines are kept (the moves are in a flow's first frames).
+    public func note(_ key: String, _ line: String) {
+        guard lastNote[key] != line, notes.count < Self.notesKept else { return }
+        lastNote[key] = line
+        notes.append("\(counter.frames):\(key) \(line)")
     }
 
     private func listRows() -> [String: LayoutShiftCounter.Row] {
@@ -88,10 +101,11 @@ public final class LayoutShiftProbe {
         let frames = counter.frames, shifts = counter.shiftFrames
         counter.frame(lists.isEmpty ? rows : rows.merging(listRows()) { first, _ in first })
         guard counter.frames != frames, counter.frames == 1 || counter.shiftFrames != shifts || counter.frames % 30 == 0 else { return }
-        let json: [String: Any] = [
+        var json: [String: Any] = [
             "frames": counter.frames, "shiftFrames": counter.shiftFrames,
             "shiftedRows": counter.shiftedRows, "lastMoved": counter.lastMoved, "moves": counter.moves, "rows": rows.count + listRows().count,
         ]
+        if !notes.isEmpty { json["notes"] = notes }
         let data = (try? JSONSerialization.data(withJSONObject: json, options: [.sortedKeys])) ?? Data()
         text = String(data: data, encoding: .utf8) ?? "{}"
     }
