@@ -600,3 +600,52 @@ fn only_an_unlisted_name_with_attempts_left_waits() {
     assert!(!super::unknown_recipient_waits(&unknown, super::UNKNOWN_RECIPIENT_ATTEMPTS));
     assert!(!super::unknown_recipient_waits(&hub_status(403, "mesh.forbidden"), 1));
 }
+
+/// A hub that flaps: it fails every post (503), but something else it answers between them opens
+/// its gate every 3 s (a 4xx for one name is not a passing failure, so `mesh_send::note` opens it).
+/// Each opening used to wake every queued delivery for another post at once: on one control host,
+/// 2026-11-28, that was 250-280 outbox requests a minute and the daemon at 154% CPU for an hour.
+/// One wake per back-off step: fifty deliveries cost their own schedules, not fifty per flap.
+#[tokio::test(start_paused = true)]
+async fn a_flapping_hub_gate_wakes_each_delivery_once_per_back_off_not_per_flap() {
+    const SENDS: usize = 50;
+    const FLAP: Duration = Duration::from_secs(3);
+    const SPAN: Duration = Duration::from_secs(600);
+    let (hub, stub) = setup(StubHub::default());
+    *stub.down_until.lock().unwrap() = Some(tokio::time::Instant::now() + SPAN * 2);
+    let mut ids = Vec::new();
+    for n in 0..SENDS {
+        let params = request(&format!("far-host/lane-{n}"), &format!("prompt-flap-{n}"));
+        let (answer, _, _) = timed_send(&hub, params).await;
+        let queued = answer.unwrap();
+        assert_eq!(queued["status"], "queued", "{queued}");
+        ids.push(queued["deliveryId"].as_str().unwrap().to_owned());
+    }
+    let flapper = {
+        let hub = hub.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(FLAP).await;
+                hub.mesh.gate().answered();
+            }
+        })
+    };
+    let before = stub.posts.lock().unwrap().len();
+    tokio::time::sleep(SPAN).await;
+    flapper.abort();
+    let posts = stub.posts.lock().unwrap().len() - before;
+    let flaps = SPAN.as_secs() / FLAP.as_secs();
+    // An attempt is a store write and a request built whether or not the shut gate then keeps it
+    // from the hub, so attempts, not hub posts (the gate already bounds those), are the cost.
+    let attempts: u32 = ids.iter().map(|id| hub.outbox.get(id).unwrap().attempts).sum();
+    println!(
+        "FLAP sends={SENDS} flaps={flaps} attempts_in_{}s={attempts} hub_posts={posts}",
+        SPAN.as_secs()
+    );
+    // Each delivery's own back-off (2, 5, 10, 30, 60, 120, 300 s: about eight in ten minutes),
+    // and a probe or two per flap for the whole queue. Before: every delivery tried on every
+    // flap and every reopening, 20000 attempts.
+    let bound = SENDS * 8 + flaps as usize * 4;
+    assert!(attempts as usize <= bound, "{attempts} attempts in ten minutes (bound {bound})");
+    assert!(ids.iter().all(|id| !hub.outbox.get(id).unwrap().settled()), "all still kept");
+}

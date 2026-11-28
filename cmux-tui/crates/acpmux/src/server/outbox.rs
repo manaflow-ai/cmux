@@ -1036,10 +1036,40 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                     .get(id)
                     .is_some_and(|d| d.error.as_deref().is_some_and(|e| e.contains(UNLISTED)));
                 let on_open = !delivery.projection_only() && (by_hub || behind_gate) && !unlisted;
+                // A wake for the gate (its reopening, or its opening) tries only as the gate's
+                // probe (`Gate::claim_ahead`); the rest of the queue waits again with no attempt.
+                // A hub that fails most posts and answers something else between them (a 4xx
+                // for one name opens the gate too) opens and shuts it every few seconds, and
+                // each wake was an attempt by every delivery it carries, all but one kept by the
+                // gate: 2026-11-28, a hub at 503 mesh.unavailable for hours, acpmux-outbox at
+                // 250-280 requests a minute and the daemon at 150% CPU on six machines.
+                let own_at = sleep.deadline() + own.saturating_sub(wait);
+                let gate_next = || match hub.mesh.gate().reopens_at() {
+                    Some(at) => own_at.min(at + GATE_JITTER.mul_f64(crate::peer_link::jitter())),
+                    None => own_at,
+                };
                 loop {
                     tokio::select! {
-                        () = &mut sleep => break,
-                        () = &mut opened, if on_open => break,
+                        () = &mut sleep => {
+                            if tokio::time::Instant::now() >= own_at
+                                || hub.mesh.gate().claim_ahead()
+                            {
+                                break;
+                            }
+                            sleep.as_mut().reset(gate_next());
+                        }
+                        () = &mut opened, if on_open => {
+                            opened.set(hub.mesh.gate().opened.notified());
+                            opened.as_mut().enable();
+                            // Spread, so the first post the hub fails shuts the gate before the
+                            // rest of the queue asks it.
+                            tokio::time::sleep(GATE_JITTER.mul_f64(crate::peer_link::jitter()))
+                                .await;
+                            if hub.mesh.gate().claim_ahead() {
+                                break;
+                            }
+                            sleep.as_mut().reset(gate_next());
+                        }
                         () = &mut ready, if on_ready => {
                             // `peer_ready` is one signal for every peer. Another peer's link
                             // coming back leaves this one's as it was: waking for it retried
