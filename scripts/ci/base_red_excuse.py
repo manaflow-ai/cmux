@@ -1330,6 +1330,35 @@ STEP_TABLE_SKIP_IF = "${{ github.event_name != 'pull_request' || github.base_ref
 # A route report the Guard status prints: always read, even for a job the contract does not name (refused as unknown).
 ROUTE_REPORT = r"workflow-guard-[\w-]+|linux_guard_\w+"
 HOOK_REFUSAL = "glaeda-cmux-runner-hook: refused"
+# A step that finds its machine unfit says so in a live annotation tagged `[cmux-ci machine: KIND]` (select-ci-xcode.sh's
+# xcode-pin-missing, apt-ensure.sh's apt-provision): the host lacks what the job pins, so the red is the machine's,
+# never the PR's. cmux#62929's 'cmux-next Release compile (Xcode 26)' (run 46070277122, 2026-11-27) went to
+# aws-m4pro-7-glaeda-6, which has Xcode 26.3 and 26.6 but not the pinned 27.2; its log did not map one to one onto its
+# steps, so it was refused own_red ("does not map one to one") and the land stopped. Read before any step mapping, only
+# on a `##[error]` line (the runner's echo of a script shows `::error::`, never `##[error]`), and refused in
+# merge_hold's setup words, which glaeda-gh reruns once per (head, run). BASE_RED_EXCUSE_MACHINE_TAG=0 turns it off.
+MACHINE_TAG = "[cmux-ci machine: "
+MACHINE_KIND = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\]")
+MACHINE_TAG_ENV = "BASE_RED_EXCUSE_MACHINE_TAG"
+
+
+def machine_fault(log: str | None) -> tuple[str, str] | None:
+    """(KIND, its line) of the first `##[error]` line of LOG tagged `[cmux-ci machine: KIND]` (MACHINE_TAG), else None;
+    None too when MACHINE_TAG_ENV is "0". Linear in LOG: each tag is found once, its line read once."""
+    if not log or os.environ.get(MACHINE_TAG_ENV, "1").strip() == "0":
+        return None
+    at = log.find(MACHINE_TAG)
+    while at >= 0:
+        start = log.rfind("\n", 0, at) + 1
+        end = log.find("\n", at)
+        end = len(log) if end < 0 else end
+        error = log.find("##[error]", start, at)
+        kind = MACHINE_KIND.match(log, at + len(MACHINE_TAG), end)
+        if error >= 0 and kind is not None:
+            return kind[0][:-1], log[error + len("##[error]"):end].strip()
+        at = log.find(MACHINE_TAG, end)
+    return None
+
 VERDICTS = frozenset({"success", "failure"})
 # How far back the base lookup reads. A feat-cmux-next push skips swift-test, so its base verdict comes
 # from the tip Swift suite (main's cmux-next-tip-swift-suite-dispatch.yml, about one run an hour), and
@@ -6247,6 +6276,9 @@ GUARD_WORKFLOWS = {
         "app-store-shelf-pr": _PRODUCT,
         "ios-placeholder-bounds": "reads the iOS app's Swift sources and placeholders.json: a red is the change's "
                                   "own unbound placeholder, never a guard's",
+        "spec-checks": "checks cmux-tui's spec and bindings against the server and client sources; a red the base "
+                       "shares is already only a warning in the job (spec_checks.py run --base), so a red is the "
+                       "change's own",
         "pr-red-checks": _PUBLISH,
         "fast-check-route": "decides from the changed paths which guard jobs run; it checks nothing itself",
         "security-holes": "judges the workflow holes and secrets the change's own diff adds against the base's "
@@ -9900,6 +9932,10 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
     names = job_step_names(repo, job, github, run_reads)
     if refused_at_setup(job, head_log):
         raise Refused(f"'{name}' was refused at setup by its runner; it gets re-run, never excused")
+    if (fault := machine_fault(head_log)) is not None:
+        kind, said = fault
+        raise Refused(f"'{name}' was refused at setup by its runner (job {job.get('id')}: a machine fault, "
+                      f"[cmux-ci machine: {kind}]: {said[:300]}); it gets re-run, never excused")
     if (died := checkout_death(repo, base, sha, job, head_log, github)) is not None:
         raise Refused(f"'{name}' was refused at setup by its runner's {died}; it gets re-run, never excused")
     if name == TREE_HANDOFF_JOB and (said := tree_handoff_quota_only(job, head_log)) is not None:
