@@ -51,20 +51,48 @@ REPEATS = 3
 FETCH_TIMEOUT_S = 3.0
 
 REGRESSED, PASSED, NO_BASELINE, NO_MEASURE = "regressed", "within-baseline", "no-baseline", "not-measured"
+# Every repeat more than THRESHOLD over the base's median on this same runner (no nightly baseline for this
+# machine class): a notice, never a red.
+BASE_REGRESSED = "slower-than-base"
 
 
 def base() -> str:
     return os.environ.get("CMUX_BENCH_BASELINES", DEFAULT_BASE).rstrip("/")
 
 
+def cpu_model() -> str:
+    """The CPU's model string ("AMD EPYC 9454P 48-Core Processor"), or "" when the host does not say."""
+    try:
+        if platform.system() == "Linux":
+            for line in Path("/proc/cpuinfo").read_text(errors="replace").splitlines():
+                key, _, value = line.partition(":")
+                if key.strip() in ("model name", "Model", "cpu model") and value.strip():
+                    return value.strip()
+        elif platform.system() == "Darwin":
+            import subprocess
+            out = subprocess.run(["sysctl", "-n", "machdep.cpu.brand_string"], capture_output=True, text=True,
+                                 timeout=5).stdout.strip()
+            return out
+    except (OSError, ValueError):
+        pass
+    return platform.processor() or ""
+
+
 def machine_class() -> str:
-    """The runner shape a value is only comparable on: OS, CPU architecture, CPU count. CMUX_BENCH_MACHINE_CLASS
-    names it outright (a runner label that hides its shape)."""
+    """The runner shape a value is only comparable on: OS, CPU architecture, CPU count and CPU model. One pool label
+    (linux_4) hands out hosts with different CPUs, and a bench that is 0.096 s on one is 0.124 s on another with the
+    same code (cmux#65157, jobs 141049160036 and 141055688843), so the model is part of the key: a pull request on
+    a CPU the nightly never recorded on finds no baseline and compares with its base on its own runner instead
+    (`--base-ref`). CMUX_BENCH_MACHINE_CLASS names it outright (a runner label that hides its shape)."""
     named = os.environ.get("CMUX_BENCH_MACHINE_CLASS", "").strip()
     if named:
         return slug(named)
     arch = {"amd64": "x86_64", "aarch64": "arm64"}.get(platform.machine().lower(), platform.machine().lower())
-    return f"{platform.system().lower()}-{arch}-{os.cpu_count() or 0}cpu"
+    shape = f"{platform.system().lower()}-{arch}-{os.cpu_count() or 0}cpu"
+    model = cpu_model()
+    if not model:
+        return f"{shape}-cpu-unknown"
+    return f"{shape}-{slug(model, 16)}-{hashlib.sha256(model.encode()).hexdigest()[:6]}"
 
 
 def slug(text: str, keep: int = 48) -> str:
@@ -160,7 +188,7 @@ def documents(results: list[dict], mclass: str, sha: str, now: str | None = None
         reps = [x for x in r.get("repeats_s") or [] if isinstance(x, (int, float))]
         if len(reps) < REPEATS or r.get("status") not in ("ok", "over-budget"):
             continue
-        entry = {"cmd": r["cmd"], "value_s": round(statistics.median(reps), 4), "repeats_s": reps}
+        entry = {"cmd": r["cmd"], "value_s": round(statistics.median(reps), 6), "repeats_s": reps}
         for area in r["areas"]:
             doc = out.setdefault(area, {"schema": SCHEMA, "area": area, "machine_class": mclass, "sha": sha,
                                         "recorded_at": now, "benches": {}})
@@ -177,3 +205,30 @@ def write_dir(docs: dict[str, dict], root: Path) -> list[Path]:
         p.write_text(json.dumps(doc, indent=1, ensure_ascii=False) + "\n")
         written.append(p)
     return written
+
+
+# Mac-only benches: they run on a fleet Mac (cmux-ci, a step submitted from a Linux runner), and their numbers come
+# back as lines in the step's log, not as a command this runner times. Each entry: the bench's stable command name
+# (its bench id), the line it reads, and the relevance-map bench it measures (which names its areas). SidebarChiefLagTests
+# prints "SIDEBAR-CHIEF-LAG <bench> <label> ... p95_ms=..." per run; the nightly runs it REPEATS times in one step.
+LOG_BENCHES = (
+    ("SidebarChiefLagTests ticks after p95_ms",
+     re.compile(r"SIDEBAR-CHIEF-LAG ticks after [^\n]*?\bp95_ms=([0-9.]+)"), "SidebarLagBench"),
+    ("SidebarChiefLagTests scroll after p95_ms",
+     re.compile(r"SIDEBAR-CHIEF-LAG scroll after [^\n]*?\bp95_ms=([0-9.]+)"), "SidebarScrollBench"),
+    ("SidebarChiefLagTests remap after full_pass_ms",
+     re.compile(r"SIDEBAR-CHIEF-LAG remap after [^\n]*?\bfull_pass_ms=([0-9.]+)"), "ChiefFaceFlushBenchTests"),
+)
+
+
+def from_log(text: str, rules) -> list[dict]:
+    """Results (as relevance.run_benches gives them) from a fleet step's log: one per LOG_BENCHES entry, every
+    repeat it printed, in seconds, under each area whose `benches` names it."""
+    out = []
+    for cmd, pattern, bench in LOG_BENCHES:
+        reps = [round(float(m.group(1)) / 1000, 6) for m in pattern.finditer(text)]
+        areas = sorted({r.name for r in rules if r.kind == "area" and bench in r.benches})
+        ok = len(reps) >= REPEATS and areas
+        out.append({"cmd": cmd, "areas": areas, "repeats_s": reps, "status": "ok" if ok else "not-measured",
+                    "detail": "" if ok else f"{len(reps)} of {REPEATS} repeats in the log, areas {areas or 'none'}"})
+    return out

@@ -1,5 +1,6 @@
 import Foundation
 import CCmuxLayoutReducerFFI
+import CmuxNextCompat
 
 nonisolated enum RustSidebarClient {
     /// The first output buffer. A larger reply returns ERR_BUFFER with the
@@ -17,6 +18,7 @@ nonisolated enum RustSidebarClient {
             // The output buffer's own count, not `output.count`: reading `output`
             // inside its mutable-bytes closure is an overlapping access.
             let code: Int32 = data.withUnsafeBytes { requestBytes in operation.withCString { operationCString in output.withUnsafeMutableBytes { outputBytes in cmux_layout_reducer_json(requestBytes.bindMemory(to: UInt8.self).baseAddress, data.count, operationCString, outputBytes.bindMemory(to: UInt8.self).baseAddress, outputBytes.count, &outputLength) } } }
+            BridgeByteMeter.record("sidebar." + operation, sent: data.count, received: min(outputLength, capacity))
             if code == CMUX_LAYOUT_REDUCER_ERR_BUFFER, outputLength > capacity {
                 capacity = outputLength
                 continue

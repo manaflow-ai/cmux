@@ -20,7 +20,6 @@ import {
 import { mockGitCommit, mockGitDiff, mockGitPush, mockGitStatus } from "./mockGit";
 import { mockFileSearch } from "./mockFiles";
 import { dataUrlImageSize } from "./conversation/imageEntries";
-import { sampleAgentHome, type AgentHome } from "./session-info/carriedSectionModel";
 import { lightTurn, loadTurn, streamedReply, streamedTool } from "./loadFixture";
 import {
   journeyCell,
@@ -340,8 +339,6 @@ export class MockAcpmuxSocket {
   /// Stashed drafts by chat, newest first, as acpmux keeps them (stash.rs), without its limits.
   private stash = new Map<string, { id: string; text: string; attachments: unknown[]; at: number }[]>();
   private stashSerial = 0;
-  /** Session Info's Carried memory (`_acpmux/agent_home`): sample files and proposals, settled by resolve. */
-  private agentHome: AgentHome | undefined;
   private handoffs = new MockHandoffs(
     () => this.sessions,
     (source, harness) => {
@@ -1053,30 +1050,6 @@ export class MockAcpmuxSocket {
         this.stash.set(to, [...moving, ...kept].slice(0, 5));
         this.stash.delete(from);
         return { moved: moving.length, ids: source.map((entry) => entry.id) };
-      }
-      // Session Info's Carried memory (acpmux agent_home.rs): sample files and two proposals; a
-      // resolve settles the ones it names, as the daemon would, and refuses an id it does not hold.
-      case "_acpmux/agent_home": {
-        this.agentHome ??= sampleAgentHome(Date.now(), 2);
-        return this.agentHome;
-      }
-      case "_acpmux/agent_home_resolve": {
-        this.agentHome ??= sampleAgentHome(Date.now(), 2);
-        const held = new Set(this.agentHome.proposals.map((proposal) => proposal.id));
-        const ids = (value: unknown) => (Array.isArray(value) ? value.map(String) : []);
-        const accepted = ids(params.accept).filter((id) => held.has(id));
-        const dropped = ids(params.drop).filter((id) => held.has(id) && !accepted.includes(id));
-        const refused = [...ids(params.accept), ...ids(params.drop)]
-          .filter((id) => !held.has(id))
-          .map((id) => ({ id, reason: "unknown proposal" }));
-        const settled = new Set([...accepted, ...dropped]);
-        const revision = (this.agentHome.revision ?? 0) + (accepted.length > 0 ? 1 : 0);
-        this.agentHome = {
-          ...this.agentHome,
-          revision,
-          proposals: this.agentHome.proposals.filter((proposal) => !settled.has(proposal.id)),
-        };
-        return { accepted, dropped, refused, revision };
       }
       // The memory inbox's Accept and Dismiss (acpmux hub/memory.rs): writes nothing here, and logs
       // the `memory_resolved` record the daemon would, with only the offer's facts still open.

@@ -401,6 +401,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         title_asking: false,
         title_failures: 0,
         title_thin: false,
+        start_pool: None,
         last_prompt: None,
         preview: None,
         event_count: 0,
@@ -459,6 +460,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         totals: None,
         harness_cost_usd: None,
         task_cost_usd: None,
+        cache_rebuild: Default::default(),
         pull_requests: vec![],
         pull_request_times: Default::default(),
         closed_pull_requests: vec![],
@@ -481,6 +483,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         fork_of_subagent: None,
         // A new chat starts on Auto; a pick is the chat's own and never a default.
         place_mode: None,
+        manifest: None,
     }
 }
 

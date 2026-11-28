@@ -846,6 +846,10 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   /* A fold or Show more that grows or shrinks decelerates into its new height, never past it. */
   --cmux-motion-settle: 180ms;
   --cmux-ease-settle: cubic-bezier(0.16, 1, 0.3, 1);
+  /* A streamed reply's newest words fading in. Unset (initial) follows the host's fade-in,
+     --agent-motion-in, which ui.animationSpeed scales; a look may set its own. */
+  --cmux-motion-stream: initial;
+  --cmux-ease-stream: initial;
   /* One turn of every spinner (`cmux-spin`); not a transition. */
   --cmux-spinner-period: 2000ms;
 }
@@ -864,6 +868,8 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   --cmux-ease-spring: linear(0, 0.21 6%, 0.53 14%, 0.78 24%, 0.92 34%, 0.985 46%, 1 54.57%, 1);
   --cmux-ease-settle: cubic-bezier(0.16, 1, 0.3, 1);
   --cmux-ease-send: cubic-bezier(0.16, 1, 0.3, 1);
+  --cmux-motion-stream: initial;
+  --cmux-ease-stream: initial;
 }
 /* motion-scale:end */
 /* Hover reveal: a control shown while the pointer is over its row (a message's time and Copy, a

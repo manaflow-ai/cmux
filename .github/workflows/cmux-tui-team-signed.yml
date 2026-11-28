@@ -1,4 +1,5 @@
 name: cmux-tui Team-signed tree
+run-name: cmux-tui Team-signed tree ${{ inputs.commit || github.sha }}
 
 # Signs one feat-cmux-next commit's darwin cmux-tui tree build (bin/cmux and its companions) with the
 # Developer ID identity the NEXT nightly signs with, and publishes the signed set beside the ad-hoc

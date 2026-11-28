@@ -16,6 +16,7 @@
  * deploy and refuses it (plans/cmux-next/release-rails.md).
  */
 import { Effect, Schema } from "effect";
+import type { DeferringHandler } from "../after-response.ts";
 import { REQUIRED_SCHEMA, SCHEMA_CHECK_SQL, schemaCheckParams } from "./schema-requirements.ts";
 import { SqlClient, StoreError } from "./sql.ts";
 
@@ -41,13 +42,13 @@ const LOG = (line: string) => console.error(line);
  */
 export const makeSchemaGate = (
   check: () => Promise<ReadonlyArray<string>>,
-  handler: (request: Request) => Promise<Response>,
+  handler: DeferringHandler,
   log: (line: string) => void = LOG,
-): ((request: Request) => Promise<Response>) => {
+): DeferringHandler => {
   let ready = false;
   const refuse = (message: string) => Response.json({ _tag: "ServiceUnavailable", message }, { status: 503 });
-  return async (request) => {
-    if (ready || new URL(request.url).pathname === "/healthz") return handler(request);
+  return async (request, defer) => {
+    if (ready || new URL(request.url).pathname === "/healthz") return handler(request, defer);
     let problems: ReadonlyArray<string>;
     try {
       problems = await check();
@@ -61,6 +62,6 @@ export const makeSchemaGate = (
       return refuse("Database schema not applied; retry");
     }
     ready = true;
-    return handler(request);
+    return handler(request, defer);
   };
 };

@@ -70,10 +70,19 @@ function harnessEntries(harnesses: Record<string, unknown>, preferred: unknown):
 /// known fields.
 function harnessStart(value: unknown): AcpmuxSnapshot["catalog"][number]["start"] {
   if (!value || typeof value !== "object") return undefined;
-  const { model, effort, modelSource, effortSource } = value as Record<string, unknown>;
+  const { model, effort, modelSource, effortSource, newTab } = value as Record<string, unknown>;
   const source = (raw: unknown) =>
     raw === "saved" || raw === "profile" || raw === "catalog" ? (raw as StartSource) : undefined;
+  const own = newTab && typeof newTab === "object" ? (newTab as Record<string, unknown>) : undefined;
   const start = {
+    ...(own
+      ? {
+          newTab: {
+            ...(typeof own.model === "string" && own.model ? { model: own.model } : {}),
+            ...(source(own.modelSource) ? { modelSource: source(own.modelSource) } : {}),
+          },
+        }
+      : {}),
     ...(typeof model === "string" && model ? { model } : {}),
     ...(typeof effort === "string" && effort ? { effort } : {}),
     ...(source(modelSource) ? { modelSource: source(modelSource) } : {}),
