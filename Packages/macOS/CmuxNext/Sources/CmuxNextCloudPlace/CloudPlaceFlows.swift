@@ -145,6 +145,17 @@ public final class CloudPlaceFlows {
     /// The mode the person picked; a chat with none runs where it is (a chat on Cloud reads Cloud, never Local).
     public func mode(of session: String, onCloud: Bool = false) -> String { modes[session] ?? (onCloud ? "cloud" : "local") }
 
+    /// The choices a chat's place control offers (`place.modes`), from two settings, neither of which
+    /// it changes. Settings > Experiments' Cloud Toggle (`experiments.cloudToggle`): Local, Cloud and
+    /// Auto. Else AutoCloud (`cloud.autoCloud`, Settings > Machines): AutoCloud on or off for this one
+    /// chat, Auto or Local, both ways while it lives. A chat with no pick stays Local: AutoCloud is an
+    /// option per chat, never every chat's default (Leo, 2026-11-27: "we're not putting autocloud as
+    /// THE DEFAULT OPTION FOR EVERY SINGLE CHAT. IT JUST SIMPLY MUST BE AN OPTION."; "we need to be
+    /// able to toggle a chat on and off of autocloud"). Neither: none, and the control is hidden.
+    public nonisolated static func offeredModes(cloudToggle: Bool, autoCloud: Bool) -> [String] {
+        cloudToggle ? ["local", "cloud", "auto"] : autoCloud ? ["local", "auto"] : []
+    }
+
     public func setMode(_ mode: String, of session: String) {
         guard ["local", "cloud", "auto"].contains(mode), modes[session] != mode else { return }
         modes[session] = mode
@@ -385,10 +396,13 @@ public final class CloudPlaceFlows {
     /// `place: {mode, at, cloudName?, move?, blocked?, holders?, keep?, start?}` for the chat header, as JSON; nil with no session.
     /// `blocked`, `holders` and `keep` (Keep Running's lit, used, total, waiting) are Rust's answer (`cloud_move_place_control`, `priority::control`) to `control`'s facts.
     /// `starts`: the sessions folder whose hybrid start drivers say `start` (watched from the first read on).
-    public func placeJSON(session: String?, onCloud: Bool, cloudName: String?, control: ControlFacts? = nil, starts state: URL? = nil) -> Data? {
+    /// `modes`: the choices its control offers (``offeredModes(cloudToggle:autoCloud:)``); nil leaves them out.
+    public func placeJSON(session: String?, onCloud: Bool, cloudName: String?, control: ControlFacts? = nil, starts state: URL? = nil,
+                          modes offered: [String]? = nil) -> Data? {
         if let state { watchStarts(state: state) }
         guard let session else { return nil }
         var place: [String: Any] = ["mode": mode(of: session, onCloud: onCloud), "at": onCloud ? "cloud" : "local"]
+        if let offered { place["modes"] = offered }
         if let cloudName { place["cloudName"] = cloudName }
         // main-actor-ok: one chat's move reducer state, a fixed-shape object of a few hundred bytes (its view).
         if !settled.contains(session), let view = views[session], let move = try? JSONSerialization.jsonObject(with: view) { place["move"] = move }

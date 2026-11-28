@@ -31,6 +31,23 @@ export default componentEntry<Props>({
       props: { look: "menu", place: PLACES.autoLocal, onMode },
       play: open,
     },
+    "autocloud-off": {
+      note: 'Settings > Machines\' AutoCloud on, Cloud Toggle off: this chat with AutoCloud off. Leo, 2026-11-27: "remember we need to be able to toggle a chat on and off of autocloud".',
+      props: { look: "menu", place: PLACES.twoLocal, onMode },
+    },
+    "autocloud-open": {
+      note: "The same chat's menu: two rows, Local (AutoCloud off) and Auto (AutoCloud on); no Cloud row without Cloud Toggle.",
+      props: { look: "menu", place: PLACES.twoLocal, onMode },
+      play: open,
+    },
+    "autocloud-on": {
+      note: "AutoCloud on for this chat, still on this Mac.",
+      props: { look: "menu", place: PLACES.twoAuto, onMode },
+    },
+    "autocloud-on-cloud": {
+      note: "AutoCloud on and moved to its Cloud VM; picking Local brings it back.",
+      props: { look: "menu", place: PLACES.twoAutoCloud, onMode },
+    },
     "menu-auto-cloud": {
       note: "Auto, running on its Cloud VM now: the face says both.",
       props: { look: "menu", place: PLACES.autoCloud, onMode },

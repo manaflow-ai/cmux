@@ -63,6 +63,10 @@ export interface PlaceState {
   readonly keep?: PlaceKeep;
   /// RFD 0080's one computer status for the chat (Rust `cloud_computer_status_live`): what the status line says.
   readonly status?: ComputerStatus;
+  /// The choices the control offers (the app's `CloudPlaceFlows.offeredModes`): all three under Cloud Toggle,
+  /// Local and Auto under AutoCloud alone (AutoCloud off or on for this chat), none while both are off.
+  /// Missing from an older app: the control reads Cloud Toggle's switch, as before.
+  readonly modes?: readonly PlaceMode[];
 }
 
 /// Keep Running's state for one chat: asked for (`priority`), holding a slot (`lit`) or waiting for one, and the plan's slots.
@@ -224,6 +228,9 @@ export function placeOf(value: unknown): PlaceState | undefined {
   const start = hybridStartOf(raw.start);
   const keep = keepOf(raw.keep);
   const status = computerStatusOf(raw.status);
+  const modes = Array.isArray(raw.modes)
+    ? MODES.filter((mode) => (raw.modes as readonly unknown[]).includes(mode))
+    : undefined;
   return {
     mode: raw.mode as PlaceMode,
     at: raw.at === "cloud" ? "cloud" : "local",
@@ -234,6 +241,7 @@ export function placeOf(value: unknown): PlaceState | undefined {
     ...(start ? { start } : {}),
     ...(keep ? { keep } : {}),
     ...(status ? { status } : {}),
+    ...(modes ? { modes } : {}),
   };
 }
 

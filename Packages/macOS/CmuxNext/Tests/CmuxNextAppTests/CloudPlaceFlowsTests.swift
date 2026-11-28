@@ -149,6 +149,25 @@ import Testing
 
     /// A mode picked while the chat moves is refused and leaves the mode alone: Local picked while a local chat moves to
     /// Cloud never reads `mode: local, at: cloud` once the move lands (review of #52230 at 37033a59, F1).
+    /// Leo, 2026-11-27: "remember we need to be able to toggle a chat on and off of autocloud" and "we're not
+    /// putting autocloud as THE DEFAULT OPTION FOR EVERY SINGLE CHAT. IT JUST SIMPLY MUST BE AN OPTION."
+    @Test func autoCloudInSettingsOffersEachChatLocalAndAutoAndChangesNoDefault() throws {
+        #expect(CloudPlaceFlows.offeredModes(cloudToggle: false, autoCloud: false).isEmpty)
+        #expect(CloudPlaceFlows.offeredModes(cloudToggle: false, autoCloud: true) == ["local", "auto"])
+        #expect(CloudPlaceFlows.offeredModes(cloudToggle: true, autoCloud: false) == ["local", "cloud", "auto"])
+        #expect(CloudPlaceFlows.offeredModes(cloudToggle: true, autoCloud: true) == ["local", "cloud", "auto"])
+        let place = flows(Recorder())
+        let read = { (modes: [String]?) in
+            try #require(place.placeJSON(session: "s", onCloud: false, cloudName: nil, modes: modes)
+                .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })
+        }
+        let offered = try read(["local", "auto"])
+        #expect(offered["modes"] as? [String] == ["local", "auto"])
+        // A chat nobody picked for stays Local: offering AutoCloud does not turn it on.
+        #expect(offered["mode"] as? String == "local")
+        #expect(try read(nil)["modes"] == nil)
+    }
+
     @Test func aModePickedMidMoveIsRefusedAndKeepsTheMode() {
         let recorder = Recorder(), host = Host()
         let place = flows(recorder)

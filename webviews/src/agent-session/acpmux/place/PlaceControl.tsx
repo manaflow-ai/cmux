@@ -67,6 +67,7 @@ export function PlaceControl({
   onMode(mode: PlaceMode): void;
 }) {
   const t = useT();
+  const modes = place.modes?.length ? place.modes : MODES;
   const moving = place.move?.state === "moving";
   const rule = t("placeAuto.rule");
   const here = t("place.runsAt", { place: placeName(place, t) });
@@ -90,7 +91,7 @@ export function PlaceControl({
         </MenuButton>
         <MenuPopup label={t("place.label")} side="top" align="start">
           <MenuRadioGroup value={place.mode} onValueChange={(mode) => onMode(mode as PlaceMode)}>
-            {MODES.map((mode) => (
+            {modes.map((mode) => (
               <MenuRadioItem
                 key={mode}
                 value={mode}
@@ -112,7 +113,7 @@ export function PlaceControl({
   if (look === "rows") {
     return (
       <div className="acpmux-place acpmux-place-rows" role="radiogroup" aria-label={t("place.label")} title={here}>
-        {MODES.map((mode) => (
+        {modes.map((mode) => (
           <button
             key={mode}
             type="button"
@@ -144,7 +145,7 @@ export function PlaceControl({
   return (
     <div className="acpmux-place acpmux-place-seg-wrap" data-moving={moving ? "true" : undefined}>
       <div className="acpmux-place-seg" role="radiogroup" aria-label={t("place.label")} title={here}>
-        {MODES.map((mode) => (
+        {modes.map((mode) => (
           <button
             key={mode}
             type="button"

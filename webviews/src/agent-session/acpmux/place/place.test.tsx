@@ -188,6 +188,44 @@ test("the chat's cloud controls draw only while Settings > Experiments' Cloud To
   expect(off.textContent).toBe("");
 });
 
+test("with AutoCloud on in Settings and Cloud Toggle off, the chip offers this chat AutoCloud off and on, both ways", async () => {
+  // Leo, 2026-11-27: "remember we need to be able to toggle a chat on and off of autocloud" and
+  // "we're not putting autocloud as THE DEFAULT OPTION FOR EVERY SINGLE CHAT. IT JUST SIMPLY MUST BE AN OPTION."
+  expect(placeOf({ mode: "local", at: "local", modes: ["auto", "bogus", "local"] })?.modes).toEqual(["local", "auto"]);
+  expect(placeOf({ mode: "local", at: "local" })?.modes).toBeUndefined();
+  setExperimentSwitches({});
+  setHeaderState({ place: { mode: "local", at: "local" } });
+  const chip = await draw(<PlaceChip session="s1" />);
+  expect(chip.textContent).toBe("");
+  await act(async () => setHeaderState({ place: { mode: "local", at: "local", modes: ["local", "auto"] } }));
+  expect(chip.textContent).not.toBe("");
+  expect(chip.querySelector('button[data-menu="Place"]')?.textContent).toBe("Local");
+  await act(async () => root!.unmount());
+  root = undefined;
+  // The two choices, picked both ways: AutoCloud on, then off again.
+  const picks: string[] = [];
+  const two = await draw(<PlaceControl place={PLACES.twoLocal} look="segmented" onMode={(m) => picks.push(m)} />);
+  const radios = [...two.querySelectorAll<HTMLButtonElement>('[role="radio"]')];
+  expect(radios).toHaveLength(2);
+  await act(async () => radios[1]!.click());
+  await act(async () => radios[0]!.click());
+  expect(picks).toEqual(["auto", "local"]);
+  const calls: unknown[] = [];
+  (dom!.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions = {
+    "action.run": (params: unknown) => {
+      calls.push(params);
+      return Promise.resolve();
+    },
+  };
+  const actions = placeActions("s1");
+  actions.setMode("auto");
+  actions.setMode("local");
+  expect(calls).toEqual([
+    { id: "chatPlace.set", session: "s1", mode: "auto" },
+    { id: "chatPlace.set", session: "s1", mode: "local" },
+  ]);
+});
+
 test("the status line beside the place button says place.status, and runs only the actions the app has", async () => {
   const status = {
     session_id: "s1",
@@ -365,7 +403,7 @@ test("the control offers Local, Cloud and Auto, marks the choice, and a pick cal
 test("the rule of Auto is one line and says what moves it", () => {
   const rule = translate("placeAuto.rule");
   expect(rule).not.toContain("\n");
-  for (const word of ["sleeps", "power", "memory", "disk", "10 min", "15 min", "idle"]) expect(rule).toContain(word);
+  for (const word of ["sleeps", "runs low", "10 min", "15 min", "idle"]) expect(rule).toContain(word);
 });
 
 test("the chip's face says the choice, where Auto runs, and a move's destination", async () => {

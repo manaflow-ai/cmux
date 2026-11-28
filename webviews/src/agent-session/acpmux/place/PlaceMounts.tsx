@@ -3,6 +3,7 @@ import { useExperimentSwitch } from "../../../experiments/switches";
 import { CLOUD_TOGGLE_SWITCH } from "../hybrid/hybridModel";
 import { MoveProgress, type MoveProgressLook } from "./MoveProgress";
 import { PlaceControl, type PlaceControlLook } from "./PlaceControl";
+import type { PlaceState } from "./placeModel";
 import { placeActions, type PlaceClaims } from "./usePlace";
 import { useHeaderState } from "../header/headerState";
 import { AutoStatusLine } from "../auto/AutoStatusLine";
@@ -12,6 +13,13 @@ import { statusTicks, type StatusActionId } from "../auto/computerStatus";
 /// (PlaceControl.gallery.tsx and MoveProgress.gallery.tsx compare the other looks).
 const SHIPPED_CONTROL: PlaceControlLook = "menu";
 const SHIPPED_MOVE: MoveProgressLook = "card";
+
+/// Whether the place controls draw: Cloud Toggle's switch, or a `place` whose app offers choices
+/// (`place.modes`: AutoCloud on lets each chat turn AutoCloud on or off, without the experiment).
+function useOffered(place: PlaceState | undefined): boolean {
+  const on = useExperimentSwitch(CLOUD_TOGGLE_SWITCH);
+  return on || (place?.modes?.length ?? 0) > 0;
+}
 
 /// The chat's place control, reading `pane.tabState`'s `place`; nothing while the app reports none.
 export function PlaceChip({
@@ -26,8 +34,8 @@ export function PlaceChip({
   claims?: () => PlaceClaims;
   look?: PlaceControlLook;
 }) {
-  const on = useExperimentSwitch(CLOUD_TOGGLE_SWITCH);
   const { place } = useHeaderState();
+  const on = useOffered(place);
   const actions = useMemo(() => (session ? placeActions(session, say, claims) : undefined), [session, say, claims]);
   if (!on || !place || !actions) return null;
   return <PlaceControl place={place} look={look} onMode={actions.setMode} />;
@@ -48,7 +56,7 @@ export function MoveDock({
 }) {
   const { place } = useHeaderState();
   const actions = useMemo(() => (session ? placeActions(session, say, claims) : undefined), [session, say, claims]);
-  const on = useExperimentSwitch(CLOUD_TOGGLE_SWITCH);
+  const on = useOffered(place);
   const move = place?.move;
   if (!on || !move || !actions || (move.session && session && move.session !== session)) return null;
   return <MoveProgress move={move} look={look} onCancel={actions.cancel} onRetry={actions.retry} />;
@@ -71,8 +79,8 @@ export function ComputerStatusLine({
   /// The queue and draft the page holds, read at a Retry or a Run on This Mac.
   claims?: () => PlaceClaims;
 }) {
-  const on = useExperimentSwitch(CLOUD_TOGGLE_SWITCH);
   const { place } = useHeaderState();
+  const on = useOffered(place);
   const actions = useMemo(() => (session ? placeActions(session, say, claims) : undefined), [session, say, claims]);
   const status = place?.status;
   const ticking = on && status !== undefined && statusTicks(status);
