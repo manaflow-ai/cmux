@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/46116123968",
+  "recorded_at": "2026-11-28T06:52:05Z",
+  "reason": "image inputs changed in 86e97213f187dcba841a9289099af81ef2e5e54f..ec02a548e5f77c08355476772b2634674bb5b226; cmux-tui 86e97213f187, the newest build published on HEAD (pinned 0d15ef715a33; latest build 9b73ef66975b is not on HEAD)",
+  "dry_run": false,
+  "cmux_tui": "86e97213f187dcba841a9289099af81ef2e5e54f",
+  "fixes": [
+    {
+      "sha": "ec02a548e5f77c08355476772b2634674bb5b226",
+      "mergedAt": "2026-11-28T06:20:05Z",
+      "subject": "cloud image smoke: daemon holds run detached with short polls; a failed phase names itself (#64123)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-28T06:52:05Z",
+    "snapshot_id": "sh-3a40b49babb544d989b4444370d0b553",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 46116123968): 35 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "e74b441b4cb098c3d2c558e38387a0be10ba4f35",
+    "image": "cloud-native-auto-86e97213-46116123968-1",
+    "revision": "ci-46116123968-1",
+    "at": "2026-11-28T06:52:05Z"
+  },
+  "rolled_back": false
+}
