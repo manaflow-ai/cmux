@@ -315,7 +315,7 @@ fn wal_file_len(shared: &Shared) -> u64 {
 }
 
 /// Debug seam (`CMUX_TUI_DEBUG_COMMIT_THREADS=1`, off by default): log each registry commit's thread.
-fn log_commit_threads() -> bool {
+pub(crate) fn log_commit_threads() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| {
         std::env::var_os("CMUX_TUI_DEBUG_COMMIT_THREADS").is_some_and(|value| value == "1")
@@ -369,6 +369,17 @@ fn run(shared: &Shared) {
     loop {
         while state.requested <= state.handled && state.forced <= state.synced && !state.stopping {
             state = shared.changed.wait(state).recover_poison();
+            if log_commit_threads() {
+                // Debug seam: each wake of the syncer, with what it found owed (scripts/measure/infinite-items.py).
+                eprintln!(
+                    "cmux-tui: idle-wake sqlite-wal-sync db={} owed={}",
+                    shared
+                        .database_path
+                        .file_name()
+                        .map_or_else(String::new, |n| n.to_string_lossy().into_owned()),
+                    state.requested > state.handled || state.forced > state.synced
+                );
+            }
         }
         if state.stopping && state.committed <= state.synced {
             return;

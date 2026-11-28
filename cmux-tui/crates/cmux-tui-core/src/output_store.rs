@@ -876,12 +876,22 @@ impl OutputStore {
 
     /// Put a log back for a pass `delay` from now (a write backoff).
     fn mark_log_dirty_after(&self, log: &TerminalLog, delay: Duration) {
+        if crate::workspace_registry::wal_durability::log_commit_threads() {
+            eprintln!(
+                "cmux-tui: idle-wake output-store retry terminal={} delay_ms={}",
+                log.terminal_id,
+                delay.as_millis()
+            );
+        }
         log.state.lock().unwrap_or_else(PoisonError::into_inner).dirty = true;
         self.writer.mark_dirty(delay);
     }
 
     /// Put a log back for the next pass (full mode spaces snapshots out).
     fn mark_log_dirty(&self, log: &TerminalLog) {
+        if crate::workspace_registry::wal_durability::log_commit_threads() {
+            eprintln!("cmux-tui: idle-wake output-store again terminal={}", log.terminal_id);
+        }
         log.state.lock().unwrap_or_else(PoisonError::into_inner).dirty = true;
         self.mark_dirty();
     }
