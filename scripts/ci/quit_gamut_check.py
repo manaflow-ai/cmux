@@ -262,7 +262,10 @@ def chat_items(app: App, chat: str) -> list[dict]:
             break
         items += page
         last = page[-1].get("id")
-        if len(page) < 200 or not isinstance(last, int) or last <= after:
+        # A short page is not the end: a page may stop at a byte budget before 200 items (the long chat's 4 KB
+        # turns read back as 19 of 40 answers in every pass, startup-matrix gamut 2026-11-28); only an empty
+        # page or no newer id ends it.
+        if not isinstance(last, int) or last <= after:
             break
         after = last
     return items
@@ -406,8 +409,13 @@ class Gamut:
                     raise RuntimeError(f"long chat turn {t}: {why}")
                 wait_for(quiet, 30, 0.05)
             if not wait_for(lambda: assistant_text(app, chat).count("long turn") >= self.args.long_turns, 60, 0.5):
+                items = chat_items(app, chat)
+                roles = {}
+                for item in items:
+                    roles[str(item.get("role"))] = roles.get(str(item.get("role")), 0) + 1
                 raise RuntimeError(f"the long chat has {assistant_text(app, chat).count('long turn')} of "
-                                   f"{self.args.long_turns} answers")
+                                   f"{self.args.long_turns} answers ({len(items)} items read, by role {roles}; "
+                                   f"state {json.dumps(chat_state(app, chat))[:200]})")
             case["long_messages"] = len(chat_items(app, chat))
         if state == "stream":
             why = send(app, chat, STREAM_PROMPT)
