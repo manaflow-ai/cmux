@@ -340,6 +340,13 @@ class Scope(unittest.TestCase):
                                     f"cmux-tui-spec.yml's acpmux tests job misses acpmux's tests/{name}.rs, which "
                                     f"holds a test a plain run starts: add `--test {name}` to its suites")
             self.assertIn("v2_gate_home", found)
+            # tests/transfer_cli is the session-move matrix (moving chats between machines, their histories, the
+            # pausing; cmuxterm-hq session-move-matrix-probe.yml runs it every 3 h) and no pull request job ran it:
+            # cmux#56653 sent a new hidden first-turn block the test agents did not strip, merged green, and every
+            # matrix cell went red on the next scheduled run (fixed by cmux#60997).
+            self.assertIn("transfer_cli", named["--test"],
+                          "cmux-tui-spec.yml's acpmux tests job misses acpmux's tests/transfer_cli.rs, the session "
+                          "move matrix: add `--test transfer_cli` to its suites")
 
     def test_a_file_of_ignored_gates_starts_no_test(self):
         gate = '#[test]\n#[ignore = "release gate"]\nfn a() {}\n'

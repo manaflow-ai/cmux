@@ -99,7 +99,13 @@ public nonisolated struct AgentPaneTransportEvent: Equatable, Sendable {
         return object
     }
 
-    /// The old host's push: `cmuxAcpmuxTransport.receive(event)` (bridgeSocket.ts).
+    /// The old host's push body for `callAsyncJavaScript`, with ``object`` as its `event` argument:
+    /// one fixed text for every push. A new script text per push (``script``) made WebKit's web process
+    /// keep each one: +8.45 MB/min at 20 pushes a second, flat with this body (RFD 0062, renderer idle growth).
+    static let receiveBody = "window.cmuxAcpmuxTransport?.receive(event);"
+
+    /// The same push as one script text: `cmuxAcpmuxTransport.receive(event)` (bridgeSocket.ts). Benches
+    /// measure its cost; the host pushes ``receiveBody`` with ``object`` instead.
     var script: String {
         let json = (try? JSONSerialization.data(withJSONObject: object)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
         return "window.cmuxAcpmuxTransport?.receive(\(json));"

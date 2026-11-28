@@ -166,13 +166,13 @@ final class AllUIStatesWorkspacesCaptureUITests: UIStateCaptureCase {
                 C.steps([{ Self.openGrid(app) }, { C.longPress(app.buttons.matching(NSPredicate(format: "label ENDSWITH ', tab'")).firstMatch, "a tab card") }])
             },
             Scene(group: g, id: "grid-more-menu", args: Self.list) { app in
-                C.steps([{ Self.openGrid(app) }, { C.tap(app.buttons["More"].firstMatch, "grid More") }])
+                C.steps([{ Self.openGrid(app) }, { C.tap(app.buttons["tabs.overview.more"], "grid More") }])
             },
             Scene(group: g, id: "grid-select-mode", args: Self.list) { app in
                 C.steps([{ Self.openGrid(app) }, { C.longPress(app.buttons.matching(NSPredicate(format: "label ENDSWITH ', tab'")).firstMatch, "a tab card") }, { C.tap(C.label(app, contains: "Select Tabs"), "Select Tabs") }])
             },
             Scene(group: g, id: "close-all-confirm", args: Self.list) { app in
-                C.steps([{ Self.openGrid(app) }, { C.tap(app.buttons["More"].firstMatch, "grid More") }, { C.tap(C.label(app, contains: "Close All"), "Close All Tabs") }])
+                C.steps([{ Self.openGrid(app) }, { C.tap(app.buttons["tabs.overview.more"], "grid More") }, { C.tap(C.label(app, contains: "Close All"), "Close All Tabs") }])
             },
             Scene(group: g, id: "new-tab-menu", args: Self.list) { app in
                 C.steps([{ Self.openGrid(app) }, { C.tap(app.buttons["New"].firstMatch, "New") }])

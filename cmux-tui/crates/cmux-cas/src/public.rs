@@ -360,7 +360,16 @@ fn unpack_xz(
             use std::io::Write as _;
             stdin.write_all(archive)
         });
-        let out = read_tar(stdout, strip);
+        let mut stdout = stdout;
+        // tar stops reading at its end-of-archive marker, while xz may still owe the record padding after
+        // it. Dropping the pipe there killed xz with SIGPIPE on a valid archive, now and then (base red
+        // cas/1 replay W1, 2026-11-27). On success read on to EOF so xz ends on its own; a tar error
+        // still drops the pipe at once, and that error is reported first.
+        let out = read_tar(&mut stdout, strip).and_then(|files| {
+            std::io::copy(&mut stdout, &mut std::io::sink())?;
+            Ok(files)
+        });
+        drop(stdout);
         (out, feeder.join())
     });
     let status = child.wait();

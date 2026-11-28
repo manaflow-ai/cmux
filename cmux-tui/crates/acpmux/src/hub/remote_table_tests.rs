@@ -108,3 +108,42 @@ fn a_fence_orders_against_writers() {
     assert_eq!(table.settled().len(), 2);
     assert!(table.try_write().is_some());
 }
+
+/// cosmic-gray, 2026-11-27: with the writer lock held by a preempted thread, every peer's
+/// notice loop that wanted it parked its tokio worker on the mutex, and with every worker parked
+/// nothing else on the runtime ran (an inbox read hung 60 s, admission leases lapsed). Here two
+/// workers and eight waiting writers: a task that takes no lock (an inbox read's stand-in) must
+/// still answer while the lock is held. Waited for in place, both workers park and it never runs.
+#[test]
+fn writers_waiting_on_a_held_lock_never_park_the_runtime() {
+    let table = Arc::new(RemoteTable::default());
+    let rt =
+        tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+    let held = table.fence();
+    let before = RemoteTable::contended();
+    let waiters: Vec<_> = (0..8)
+        .map(|_| {
+            let table = Arc::clone(&table);
+            rt.spawn(async move {
+                drop(table.write());
+            })
+        })
+        .collect();
+    // The waiters reach the lock first.
+    std::thread::sleep(Duration::from_millis(100));
+    let (tx, rx) = mpsc::channel();
+    let started = std::time::Instant::now();
+    rt.spawn(async move {
+        tokio::task::yield_now().await;
+        let _ = tx.send(());
+    });
+    let answered = rx.recv_timeout(Duration::from_secs(2));
+    let took = started.elapsed();
+    drop(held);
+    for w in waiters {
+        rt.block_on(w).unwrap();
+    }
+    assert!(answered.is_ok(), "a task that takes no lock waited {took:?} behind a held rows lock");
+    assert!(took < Duration::from_millis(500), "it answered in {took:?}");
+    assert!(RemoteTable::contended() - before >= 8);
+}

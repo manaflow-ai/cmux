@@ -5,10 +5,12 @@
 // fails as a refused open does with a retryable `native.timed_out` that names its wait, and a late
 // answer's connection is closed instead of left running.
 import { afterAll, afterEach, beforeAll, expect, jest, test } from "bun:test";
-import { BridgeSocket } from "../src/agent-session/acpmux/bridgeSocket";
-import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
-import { hostIsReconnecting } from "../src/agent-session/acpmux/hostRetry";
-import { AcpWireLog } from "../src/agent-session/acpmux/wire";
+import { importWithDom } from "./support/importWithDom";
+
+const { BridgeSocket } = await importWithDom(() => import("../src/agent-session/acpmux/bridgeSocket"));
+const { AcpmuxDirectClient } = await importWithDom(() => import("../src/agent-session/acpmux/direct"));
+const { hostIsReconnecting } = await importWithDom(() => import("../src/agent-session/acpmux/hostRetry"));
+const { AcpWireLog } = await importWithDom(() => import("../src/agent-session/acpmux/wire"));
 
 /// The open's deadline (bridgeSocket.ts TRANSPORT_OPEN_TIMEOUT_MS), literal so the test reads the
 /// same on a base that has none.

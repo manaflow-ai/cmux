@@ -1194,6 +1194,7 @@ mod tests {
         assert_eq!(session_limits_from_config(&cfg), config);
     }
 
+    #[cfg(unix)]
     #[test]
     fn the_daemon_limits_read_the_configs_session_as_a_whole_load_does() {
         use std::os::unix::fs::PermissionsExt as _;

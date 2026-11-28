@@ -140,7 +140,12 @@ impl Hub {
             match (saving.get(&session.id), every) {
                 // One runs.
                 (Some(None), _) => return,
-                (Some(Some(at)), Some(every)) if at.elapsed() < every => return,
+                // A big checkpoint waits longer (`checkpoint::write_gap`): it is written whole.
+                (Some(Some(at)), Some(every))
+                    if at.elapsed() < super::checkpoint::write_gap(&session.id, every) =>
+                {
+                    return;
+                }
                 _ => {}
             }
             saving.insert(session.id.clone(), None);
@@ -259,6 +264,39 @@ impl Hub {
         visit: &mut dyn FnMut(&RecordHead<'_>) -> bool,
     ) -> anyhow::Result<()> {
         self.store.scan_heads_from(&session.id, from.0, from.1, &mut |head, _| visit(head))
+    }
+
+    /// Under the host link lease, verify a previously incomplete adoption without replaying
+    /// any work handlers. The inbound loop has handled the late host entries normally.
+    pub(in crate::hub) async fn verify_recovery_replay(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        child: &ChildAgent,
+    ) -> bool {
+        if !child.recovery_replay_retryable() || replay_stalls() {
+            return false;
+        }
+        let Some(record) = child.host_record() else { return false };
+        let Some(end) = child.learn_replay_end(REPLAY_STALL).await else { return false };
+        if !child.wait_replayed(end, REPLAY_STALL, REPLAY_CEILING).await
+            || !Self::drain_inbound(session).await
+        {
+            return false;
+        }
+        let incarnation = record.incarnation;
+        let idle = self
+            .read_whole_log(session, move |hub, s| {
+                hub.catch_up(s);
+                hub.fold_open_work(s, &incarnation, Fold::Resume { settled: None })
+                    .0
+                    .can_end_replayed_host()
+            })
+            .await
+            .unwrap_or(false);
+        if idle {
+            child.mark_recovery_replay_complete();
+        }
+        idle
     }
 
     /// Scan the log for the work in flight under host `incarnation`. Agent

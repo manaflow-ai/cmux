@@ -814,3 +814,38 @@ async fn a_stop_hook_block_is_one_update_with_its_reason() {
         "message": {"role": "user", "content": "hook text"}});
     assert!(kinds(&t.inbound(&other).await).is_empty());
 }
+
+/// A pooled Claude Code is warmed with one side question while idle (`WARM`, `hub/pool/start.rs`):
+/// a `side_question` control request whose answer is the request's, never a prompt or a
+/// transcript event; a warm asked while a turn runs is refused before writing anything.
+#[tokio::test]
+async fn a_warm_is_one_idle_side_question_and_refused_in_a_turn() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let req = Message::request(30, WARM, json!({}));
+    let Outbound::Lines(lines) = t.outbound(&req).await else { panic!("an idle warm writes") };
+    assert_eq!(
+        lines,
+        vec![json!({
+            "type": "control_request",
+            "request_id": "side-30",
+            "request": {"subtype": "side_question", "question": WARM_QUESTION},
+        })]
+    );
+    let msgs = t
+        .inbound(&json!({
+            "type": "control_response",
+            "response": {"subtype": "success", "request_id": "side-30",
+                         "response": {"response": "ok", "synthetic": false}}
+        }))
+        .await;
+    assert!(
+        matches!(&msgs[..], [Message::Response { id, result: Some(_), error: None }] if *id == 30),
+        "{msgs:?}"
+    );
+    t.in_turn.store(true, Ordering::SeqCst);
+    let busy = Message::request(31, WARM, json!({}));
+    assert!(matches!(
+        t.outbound(&busy).await,
+        Outbound::Reply(Message::Response { error: Some(_), .. })
+    ));
+}

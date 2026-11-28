@@ -150,7 +150,10 @@ extension AgentPaneView {
                 // whose main thread is stuck never completes it, and the pacer holds its one push in
                 // flight (AgentPaneFramePacer `inFlight`): no second push, tighter than the unacked
                 // bounds the page host needs (``AgentPaneTransport/Limits/maximumUnackedBytes``).
-                self.webView.evaluateJavaScript(event.script) { _, _ in done() }
+                // One fixed body with the push as its argument: a new script text a push grew the web
+                // process for good (RFD 0062). The completion, like evaluateJavaScript's, comes once it ran.
+                self.webView.callAsyncJavaScript(AgentPaneTransportEvent.receiveBody, arguments: ["event": event.object],
+                                                 in: nil, in: .page) { _ in done() }
             }
         }
     }

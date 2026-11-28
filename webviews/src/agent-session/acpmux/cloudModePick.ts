@@ -35,7 +35,7 @@ export function cloudStartModePick(harness: string | undefined): { mode?: string
   return mode ? { mode } : {};
 }
 
-/** Tests only: drops the pick. */
+/** Drops the pick: a page another tab adopts (App.tsx adoption). */
 export function clearCloudModePick(): void {
   held = undefined;
   emit();
@@ -58,8 +58,9 @@ export function cloudSendAgent(
   family: string | undefined,
   harness: string,
   model: string | undefined,
-): { harness?: string; model?: string; mode?: string } {
-  const pick = cloudStartModePick(harness);
+  cloudOnly = false,
+): { harness?: string; model?: string; mode?: string; cloudOnly?: true } {
+  const pick = { ...cloudStartModePick(harness), ...(cloudOnly ? { cloudOnly: true as const } : {}) };
   const agent = cloudStartAgent(family, harness);
   if (!agent.named) return pick;
   // The agent the machine runs: a Mac-only profile (claude-sr2) starts its base agent there, with its model.

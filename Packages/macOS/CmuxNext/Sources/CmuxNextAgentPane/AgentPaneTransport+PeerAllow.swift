@@ -15,15 +15,16 @@ extension AgentPaneTransport {
     func signPeerAllow(_ box: FrameBox, session: String, permission: String, option: String,
                        context: AcpmuxDecisionContexts.Context, ticketPick: Bool) async -> AgentPanePeerApprovals? {
         guard context.allowOnce.contains(option) else { return .onceOnly }
-        guard Self.param("annotations", box) == nil else { return .notes }
+        guard box.withParam("annotations", { $0 == nil }) else { return .notes }
         // cx-ocdz: a key or a posted click never proves the person to another machine.
         guard ticketPick else {
             Self.logger.info("agent pane transport peer allow without the person's ticket: not sent")
             return .notClicked
         }
         var answers = ""
-        if let given = Self.param("answers", box) {
-            guard let digest = AcpmuxSecretKey.canonicalDigest(given) else {
+        // nil: no answers; .some(nil): answers with no canonical form.
+        if let digest = box.withParam("answers", { given -> String?? in given.map { AcpmuxSecretKey.canonicalDigest($0) } }) {
+            guard let digest else {
                 Self.logger.info("agent pane transport peer answer without a canonical form: not sent")
                 return .notes
             }
@@ -49,7 +50,7 @@ extension AgentPaneTransport {
     func signPeerGroupAllow(_ box: FrameBox) async {
         guard remoteApprovals == nil, !remoteWire,
               let session = box.param("sessionId"), let id = box.param("groupId"), let decision = box.param("decision"),
-              decision != "deny", let revision = (Self.param("revision", box) as? NSNumber)?.uint64Value,
+              decision != "deny", let revision = box.withParam("revision", { ($0 as? NSNumber)?.uint64Value }),
               let group = decisions.group(session: session, id: id), group.revision == revision, !group.pending.isEmpty
         else { return }
         let members = group.pending.compactMap { permission, option in

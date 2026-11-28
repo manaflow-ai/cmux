@@ -44,6 +44,29 @@ fn floor(origin: &Store) -> impl FnMut(&Id) -> cmux_session_pack::Result<Vec<u8>
 const T: Duration = Duration::from_secs(5);
 
 #[test]
+fn a_peer_claiming_a_large_truncated_chunk_falls_back_without_reserving_it() {
+    let (a, b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (origin, ids) = filled(a.path(), 1, 16);
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let peer = std::thread::spawn(move || {
+        let (mut conn, _) = listener.accept().unwrap();
+        let mut request = [0u8; 42];
+        conn.read_exact(&mut request).unwrap();
+        conn.write_all(&request[10..]).unwrap();
+        conn.write_all(&((256u32 << 20) + 6).to_le_bytes()).unwrap();
+        conn.write_all(b"tiny").unwrap();
+    });
+    let fresh = Store::new(b.path());
+    let stats = peer::fetch(&fresh, &ids, &[addr], T, &mut floor(&origin)).unwrap();
+    peer.join().unwrap();
+    assert_eq!((stats.peer_chunks, stats.floor_chunks), (0, 1));
+    assert_eq!(stats.dropped.len(), 1);
+    assert!(stats.dropped[0].1.contains("holds 4"), "{stats:?}");
+    assert!(fresh.verified(&ids[0]).unwrap());
+}
+
+#[test]
 fn a_neighbour_holding_everything_means_zero_floor_bytes() {
     let (a, b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let (origin, ids) = filled(a.path(), 40, 256 << 10);
