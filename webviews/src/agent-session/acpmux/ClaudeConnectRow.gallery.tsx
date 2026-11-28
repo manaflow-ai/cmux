@@ -44,7 +44,8 @@ export default componentEntry<Props>({
     "agent-session/acpmux/ConnectCard.tsx#ConnectCard",
   ],
   load: async () => {
-    const { ClaudeConnectRow, useClaudeConnectFlow } = await import("./ClaudeConnectRow");
+    const { ClaudeConnectRow } = await import("./ClaudeConnectRow");
+    const { useClaudeConnectFlow } = await import("./useClaudeConnectFlow");
     const { ClaudeConnectContext } = await import("./claudeConnect");
     const { ConnectCard } = await import("./ConnectCard");
     const Section = ({ children }: { children: ReactNode }) => (
