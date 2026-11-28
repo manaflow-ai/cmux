@@ -3,7 +3,7 @@
 what counts as a regression, and when the one issue opens, comments and closes. Pure functions only (no
 network, no git). Run: python3 -I scripts/cmux-next/tests/test_perf_cron.py (not a CI job, Lawrence 2026-10-23,
 since lifted)."""
-import argparse, contextlib, datetime, hashlib, importlib.util, io, json, os, subprocess, tempfile, threading, time, unittest, urllib.error, urllib.request
+import argparse, contextlib, datetime, hashlib, importlib.util, io, json, os, re, subprocess, tempfile, threading, time, unittest, urllib.error, urllib.request
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -293,6 +293,18 @@ class DecideTests(unittest.TestCase):
         self.assertEqual(cron.part_order(state, ["build", "motion", "sidebar", "fresh", "chat-anim"], t),
                          ["build", "fresh", "chat-anim", "sidebar", "motion"],
                          "only a part with no row anywhere goes before the goal's part")
+
+    def test_chat_snappy_feeds_snappy_enter_paint(self):
+        # snappy-enter-paint: NOW's chat_snappy_send_paint_p95_ms read one run (e7e5eceb, 2026-11-25) for 2 days while
+        # chat-snappy sat behind every stale Mac part.
+        part = cron.PART_BY_NAME["chat-snappy"]
+        self.assertEqual(part.get("goal"), "snappy-enter-paint")
+        self.assertTrue(re.match(part["goal_rows"], "chat_snappy.none.send_paint@cmux20-bench"))
+        self.assertFalse(re.match(part["goal_rows"], "chat_snappy.offline.send_paint@cmux20-bench"))
+        state = cron.empty_state(T0)
+        state["part_stored"] = {"chat-snappy": {"at": cron.iso(at(1))}, "motion": {"at": cron.iso(T0)}}
+        t = at(cron.PART_STALE_HOURS + 2)
+        self.assertEqual(cron.part_order(state, ["build", "motion", "chat-snappy"], t)[:2], ["build", "chat-snappy"])
 
     def test_memory_agents_goes_right_after_the_build_once_due(self):
         # memory-per-chat: the part feeds NOW's chat_memory_vs_empty_ratio; without a goal it sat behind every stale
@@ -1418,7 +1430,12 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(cron.part_for_row("webui.infinite_items.n1000.memory_vs_empty@linux"), "infinite-items")
         self.assertEqual(cron.part_for_row("webui.infinite_items.n10.mb_per_day@linux"), "infinite-items")
         runs = cron.linux_bench_runs("/r", "infinite-items")
-        self.assertEqual(list(runs), ["build", "suite"])  # the build runs first, under its own cap
+        self.assertEqual(list(runs), ["build", "suite", "all-live"])  # the build runs first, under its own cap
+        live, _, _ = runs["all-live"]
+        self.assertIn("--lazy-start=off", live)  # the all-live arm, beside the product (lazy start on) suite
+        self.assertIn("--row-arm=all_live", live)
+        self.assertIn("counts=1000", live)
+        self.assertEqual(cron.part_for_row("webui.infinite_items.all_live.n1000.memory_vs_empty@linux"), "infinite-items")
         self.assertEqual(runs["build"][0], ["bash", "/r/scripts/measure/infinite-items-linux.sh", "build-only"])
         argv, cwd, _ = runs["suite"]
         self.assertEqual(argv[:2], ["bash", "/r/scripts/measure/infinite-items-linux.sh"])
@@ -1432,7 +1449,7 @@ class WebUiTests(unittest.TestCase):
     def test_the_linux_job_cap_covers_every_run_of_the_part(self):
         # 2026-11-17: the fixed 40-minute job cap cancelled infinite-items' build-only run three ticks running, so its
         # job left no result and the part ended yielded_out.
-        self.assertEqual(cron.linux_job_minutes("infinite-items"), 70)
+        self.assertEqual(cron.linux_job_minutes("infinite-items"), 100)  # build, suite, all-live
         self.assertEqual(cron.linux_job_minutes("chat-disk"), 70)
         self.assertEqual(cron.linux_job_minutes("web-ui"), 60)  # the suite\'s shared builds, then its benches
         # web-ui-god's paired rounds build the pane once, stop starting at GOD_PAIRED_DEADLINE_S, the last may run one
@@ -2014,6 +2031,32 @@ class WebUiTests(unittest.TestCase):
             report = json.load(open(os.path.join(out, "report.json")))
         self.assertEqual(report["paired"], rounds)
         self.assertEqual(report["rows"], self.REPORT["rows"])
+
+    def run_two_arms(self, second):
+        first = {"rows": [{"name": "infinite_items.n1000.memory_vs_empty", "p95": 4.31, "unit": "x"}]}
+        runs = {"build": (["true"], "/", {}),
+                "suite": (["python3", "-c", f"import json; print(json.dumps({first!r}))"], "/", {}),
+                "all-live": (["python3", "-c", second], "/", {})}
+        with tempfile.TemporaryDirectory() as out, \
+                mock.patch.object(cron, "linux_bench_runs", lambda root, part: runs), \
+                contextlib.redirect_stdout(io.StringIO()):
+            cron.cmd_run_linux_part(argparse.Namespace(part="infinite-items", out=out, runner_class="ubuntu-24.04"))
+            return [json.load(open(os.path.join(out, n))) for n in ("result.json", "report.json")]
+
+    def test_run_linux_part_keeps_each_arms_rows(self):
+        # infinite-items runs the product arm, then the all-live arm (lazy start off): the second's rows sit beside
+        # the first's (practices gap c155dd8eab85), not in their place.
+        second = {"rows": [{"name": "infinite_items.all_live.n1000.memory_vs_empty", "p95": 12.82, "unit": "x"}]}
+        result, report = self.run_two_arms(f"import json; print(json.dumps({second!r}))")
+        self.assertEqual(result["state"], "done")
+        self.assertEqual([r["name"] for r in report["rows"]],
+                         ["infinite_items.n1000.memory_vs_empty", "infinite_items.all_live.n1000.memory_vs_empty"])
+        self.assertNotIn("incomplete", report)
+        # A failed all-live arm leaves the product arm's rows and a done part, and says so.
+        result, report = self.run_two_arms("import sys; sys.exit(1)")
+        self.assertEqual(result["state"], "done")
+        self.assertEqual([r["name"] for r in report["rows"]], ["infinite_items.n1000.memory_vs_empty"])
+        self.assertEqual(report["incomplete"], ["all-live: no rows (exit 1)"])
 
     def test_terminal_scroll_prepares_ghostty_and_zig_from_the_tip(self):
         """A measured commit whose script predates #50961 has an empty ghostty-next and no Zig: the tip prepares both."""
@@ -5088,7 +5131,8 @@ class StalePartFirstTests(unittest.TestCase):
             for name in ALL if name != "build"}
         # Each stored part carried its goal's rows (goal_rows_missing), so only the stored date makes one due.
         state["part_rows"] = {"webui.god_ratio.transcript_replay.long.token_ms@h": dict(state["part_stored"]["web-ui-god"]),
-                              "hot_swap.mac.focused_pane.p95_ms@h": dict(state["part_stored"]["hot-swap"])}
+                              "hot_swap.mac.focused_pane.p95_ms@h": dict(state["part_stored"]["hot-swap"]),
+                              "chat_snappy.none.send_paint@h": dict(state["part_stored"]["chat-snappy"])}
         return state, now
 
     def test_a_part_past_the_bound_runs_before_a_yielding_one(self):
