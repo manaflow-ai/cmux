@@ -5,7 +5,10 @@ extension HomeCloudChiefs {
     /// paired server runs it, from the Chief tab's Chiefs, else from `records` (the directory's
     /// `chief.list`); nil while neither knows it.
     public func placement(of conversation: String, records: [HomeChiefRecord]) -> (id: String, placed: Bool)? {
-        if let chief = chief(for: conversation) { return (chief.id, chief.brainPlace != nil) }
-        return records.first { $0.mainConversation == conversation }.map { ($0.id, $0.placed) }
+        let request = ChiefRules.PlacementRequest(chiefs: self, conversation: conversation, records: records.map {
+            .init(id: $0.id, mainConversation: $0.mainConversation, placed: $0.placed)
+        })
+        let placement = ChiefRules.rule("chiefs_placement", request, else: ChiefRules.PlacementReply()).placement
+        return placement.map { ($0.id, $0.placed) }
     }
 }

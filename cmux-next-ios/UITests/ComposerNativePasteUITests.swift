@@ -21,7 +21,7 @@ final class ComposerNativePasteUITests: XCTestCase {
 
     @MainActor
     func testAgentChatComposerPastes() throws {
-        try checkPaste(demo: "kbd-chat-empty", field: "chat.composer.field", attachment: "attachment.thumb", expand: "Reply to Claude")
+        try checkPaste(demo: "kbd-chat-empty", field: "chat.composer.field", attachment: "attachment.thumb", expand: "agentChat.composer.collapsed")
     }
 
     @MainActor

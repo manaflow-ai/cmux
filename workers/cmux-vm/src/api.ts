@@ -329,6 +329,21 @@ export const CreateHeaders = Schema.Struct({
   "idempotency-key": Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(255))),
 });
 
+/**
+ * A create's own priority: `background` is a VM made ahead of anyone asking (the platform's spares). It waits behind
+ * every other create for the environment's provider create slots and never takes the last one. It only ever lowers
+ * the caller's own priority, so any caller may send it.
+ */
+export const CreateVmHeaders = Schema.Struct({
+  ...CreateHeaders.fields,
+  "x-cmux-create-priority": Schema.optional(Schema.Literal("background")),
+  /**
+   * When the caller stops waiting for this create (epoch ms). Its wait for a provider create slot spans the time left,
+   * less what the create needs after (limits/create-admission.ts queueWaitFor), instead of a fixed 25 s per try.
+   */
+  "x-cmux-create-deadline": Schema.optional(Schema.String.pipe(Schema.maxLength(20))),
+});
+
 const VmPath = Schema.Struct({ vmId: Schema.String });
 
 const describe = (summary: string, scope: string, details?: string) =>
@@ -383,7 +398,7 @@ export class VmsGroup extends HttpApiGroup.make("vms")
   .add(
     HttpApiEndpoint.post("createVm", "/v1/vms")
       .setPayload(CreateVmRequest)
-      .setHeaders(CreateHeaders)
+      .setHeaders(CreateVmHeaders)
       .addSuccess(CreatedVm, { status: 201 })
       .addError(BadRequest)
       .addError(Forbidden)
