@@ -1,6 +1,7 @@
 import { StableLabel } from "../../../ui/StableLabel";
 import { useT } from "../i18n";
 import type { PullRequestOps } from "./pullRequestOps";
+import { Button } from "../../../ui/Button";
 
 export function PullRequestActions({ ops }: { ops: PullRequestOps }) {
   const t = useT();
@@ -16,9 +17,9 @@ export function PullRequestActions({ ops }: { ops: PullRequestOps }) {
       {!!ops.actions?.length && (
         <div className="acpmux-pr-actions">
           {ops.actions.map((action) => (
-            <button key={action.id} type="button" disabled={!action.enabled} onClick={action.run}>
+            <Button bare key={action.id} type="button" disabled={!action.enabled} onClick={action.run}>
               <StableLabel label={action.label} alternatives={alternatives} />
-            </button>
+            </Button>
           ))}
         </div>
       )}
