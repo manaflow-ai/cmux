@@ -62,6 +62,7 @@ pub mod host_ssh_key;
 pub mod host_steps;
 pub mod host_vault;
 pub mod hosts;
+pub(crate) mod icon_fit;
 pub(crate) mod icon_input;
 pub mod join_input;
 pub(crate) mod last_reply;

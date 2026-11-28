@@ -210,6 +210,16 @@ fn copyable(w: u32, h: u32) -> bool {
 /// it has alpha).
 /// None for a PNG that is not valid or is interlaced (its rows come in passes).
 pub fn downscale(input: impl std::io::Read, max_edge: u32) -> Option<(Vec<u8>, u32, u32)> {
+    scale(input, max_edge, true)
+}
+
+/// [`downscale`] without the [`MARK`] chunk, for a PNG that is not a model copy (a session's
+/// icon, `cli/icon_fit.rs`).
+pub fn downscale_unmarked(input: impl std::io::Read, max_edge: u32) -> Option<(Vec<u8>, u32, u32)> {
+    scale(input, max_edge, false)
+}
+
+fn scale(input: impl std::io::Read, max_edge: u32, mark: bool) -> Option<(Vec<u8>, u32, u32)> {
     let mut decoder = png::Decoder::new(input);
     decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
     // Only one row is held; the default 64 MiB limit is for the whole frame.
@@ -250,7 +260,9 @@ pub fn downscale(input: impl std::io::Read, max_edge: u32) -> Option<(Vec<u8>, u
     encoder.set_depth(png::BitDepth::Eight);
     let mut writer = encoder.write_header().ok()?;
     // Right after IHDR, so [`is_copy`] finds it at a fixed place.
-    writer.write_chunk(png::chunk::tEXt, MARK).ok()?;
+    if mark {
+        writer.write_chunk(png::chunk::tEXt, MARK).ok()?;
+    }
     writer.write_image_data(&pixels).ok()?;
     writer.finish().ok()?;
     Some((bytes, out_w, out_h))
