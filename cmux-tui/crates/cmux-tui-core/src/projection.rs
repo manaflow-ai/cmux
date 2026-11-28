@@ -1745,7 +1745,6 @@ fn mount(
     Ok(projected)
 }
 
-
 #[cfg(not(target_os = "linux"))]
 fn mount(
     _line: &ServeLine,
@@ -1848,12 +1847,11 @@ fn fnv(bytes: &[u8]) -> u64 {
     })
 }
 
-#[cfg(test)]
-#[path = "projection_tests.rs"]
-mod tests;
-
 #[cfg(target_os = "linux")]
 #[path = "projection_nested_swap.rs"]
 mod nested_swap;
+#[cfg(test)]
+#[path = "projection_tests.rs"]
+mod tests;
 #[cfg(target_os = "linux")]
 pub(crate) use nested_swap::swap_link_served;
