@@ -8,6 +8,7 @@ mod completed_selection;
 mod copy_mode;
 mod deferred_input;
 mod docked_workspaces;
+mod frame_work;
 mod graphics_pointer;
 mod host_input;
 mod idle_wait;
@@ -591,6 +592,7 @@ fn test_app_with_events(session: Session) -> (App, Receiver<AppEvent>) {
         machine_deleted_rail_index: None,
         machine_provider_reconnect_attempts: 0,
         machine_provider_reconnect_retry_at: None,
+        machine_recovery: None,
         daemon_reconnect: Default::default(),
         pending_machine_replacement: None,
         machine_update_pump: None,

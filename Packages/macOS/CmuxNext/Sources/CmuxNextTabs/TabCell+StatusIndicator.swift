@@ -17,7 +17,7 @@ extension TabCell: StatusIndicatorConfigClient {
         // same phase (Lawrence 2026-10-20; Chromium's counter-clockwise waiting throbber put two
         // spinners on screen turning opposite ways).
         return StatusIndicatorPlan.make(item.indicator, style: config.style(hint: item.busyStyle),
-                                        animates: config.animatesLoops && isWindowVisible, set: config.iconSet, isStatic: config.isStatic,
+                                        animates: config.animatesLoops && isWindowVisible && isStripShown, set: config.iconSet, isStatic: config.isStatic,
                                         staticShapes: config.staticShapes, working: config.workingLook)
     }
 
