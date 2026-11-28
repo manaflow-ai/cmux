@@ -1,5 +1,5 @@
 {
-  "about": "action.run requests as the cmux CLI's own encoder builds them (cmux-tui cli/tests/action_argument_contract.rs writes this; CMUX_UPDATE_CLI_ACTION_REQUESTS=1 cargo test -p cmux-tui --lib action_argument_contract rewrites it). The app's ArgumentActionContractTests validate each against its catalog.",
+  "about": "action.run requests as the cmux CLI's own encoder builds them (cmux-tui cli/tests/action_argument_contract.rs writes this; CMUX_UPDATE_CLI_ACTION_REQUESTS=1 cargo test -p cmux-tui-lib --lib action_argument_contract rewrites it). The app's ArgumentActionContractTests validate each against its catalog.",
   "requests": [
     {
       "params": {

@@ -16,12 +16,16 @@ import { afterAll, afterEach, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { chat, summary, user } from "../src/gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { PeerLink } from "../src/agent-session/acpmux/peerLink";
-import { LINK_DOWN_SAID_MS, setLinkDownSaidMs } from "../src/agent-session/acpmux/afterDelay";
 import { AUTO_RETRY_FIRST_MS, AUTO_RETRY_MAX_MS } from "../src/agent-session/acpmux/autoRetry";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { chat, summary, user } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
+const { LINK_DOWN_SAID_MS, setLinkDownSaidMs } = await importWithDom(
+  () => import("../src/agent-session/acpmux/afterDelay"),
+);
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [

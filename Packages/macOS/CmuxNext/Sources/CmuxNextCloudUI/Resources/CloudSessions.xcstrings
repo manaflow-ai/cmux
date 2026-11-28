@@ -780,6 +780,33 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Máy `%1$@` không kết nối được nên không có tác tử nào được khởi động trên đó. Kiểm tra máy bằng `cmux cloud machine-status --target machine:%2$@`, rồi chạy lại `cmux cloud start-session --target machine:%2$@ --agent %3$@`."}}
       }
     },
+    "cloud.startSession.newMachineDeleted": {
+      "comment": "A failed start deleted the machine it made; a new chat starts on a new machine. %1$@ machine name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Its new machine `%1$@` was deleted. Start a new chat to try again on a new machine."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "新しいマシン `%1$@` は削除されました。新しいマシンでやり直すには、新しいチャットを始めてください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Die neue Maschine `%1$@` wurde gelöscht. Starte einen neuen Chat, um es auf einer neuen Maschine erneut zu versuchen."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Sa nouvelle machine `%1$@` a été supprimée. Démarrez une nouvelle conversation pour réessayer sur une nouvelle machine."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Su nueva máquina `%1$@` se eliminó. Inicia un chat nuevo para volver a intentarlo en una máquina nueva."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تم حذف الجهاز الجديد `%1$@`. ابدأ محادثة جديدة لإعادة المحاولة على جهاز جديد."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "새 머신 `%1$@`이(가) 삭제되었습니다. 새 머신에서 다시 시도하려면 새 채팅을 시작하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "新机器 `%1$@` 已删除。请开始新的聊天，在新机器上重试。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "新機器 `%1$@` 已刪除。請開始新的聊天，在新機器上重試。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Nova mašina `%1$@` je obrisana. Započni novi chat da pokušaš ponovo na novoj mašini."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Den nye maskine `%1$@` blev slettet. Start en ny chat for at prøve igen på en ny maskine."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "La nuova macchina `%1$@` è stata eliminata. Avvia una nuova chat per riprovare su una nuova macchina."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ម៉ាស៊ីនថ្មី `%1$@` ត្រូវបានលុប។ ចាប់ផ្ដើមការជជែកថ្មី ដើម្បីសាកល្បងម្ដងទៀតលើម៉ាស៊ីនថ្មី។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Den nye maskinen `%1$@` ble slettet. Start en ny chat for å prøve igjen på en ny maskin."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Nowa maszyna `%1$@` została usunięta. Rozpocznij nowy czat, aby spróbować ponownie na nowej maszynie."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "A nova máquina `%1$@` foi excluída. Inicie um novo chat para tentar novamente em uma nova máquina."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Новая машина `%1$@` удалена. Начните новый чат, чтобы попробовать снова на новой машине."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เครื่องใหม่ `%1$@` ถูกลบแล้ว เริ่มแชตใหม่เพื่อลองอีกครั้งบนเครื่องใหม่"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Yeni makine `%1$@` silindi. Yeni bir makinede yeniden denemek için yeni bir sohbet başlatın."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Нову машину `%1$@` видалено. Почніть новий чат, щоб спробувати знову на новій машині."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Máy mới `%1$@` đã bị xóa. Hãy bắt đầu cuộc trò chuyện mới để thử lại trên máy mới."}}
+      }
+    },
     "cloud.startSession.newMachineKept": {
       "comment": "A failed start could not delete the machine it made; it still runs. %1$@ machine name, %2$@ machine id.",
       "extractionState": "manual",

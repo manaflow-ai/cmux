@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Reads (scripts/ci/guard_step_inputs.py; check_pool_affected.py --verify --match check-bridge-on-main.py holds it):
+# guard-inputs: Packages/macOS/CmuxNext/Sources/**/*.swift Packages/**/*.h cmux-tui/crates/**/*.h
 """Ratchet for synchronous Rust bridge calls where they cost the most in CmuxNext.
 
 Leo, 2026-11-27: "can u guys take this thread: https://manaflow-workspace.slack.com/archives/C0CG8V89NER/p1795759419492319".
@@ -129,6 +131,10 @@ ROW_FUNC = re.compile(r"^(flush\w*|passSections|laneRowSource|rowSource|rows?|ro
 ROW_CLOSURE = re.compile(r"\b(chiefAvatar|rowSource|row|rows|cell|avatar)\s*:\s*\{")
 BODY_VAR = re.compile(r"(?<![\w.])var\s+body\s*:\s*some\s+View\b")
 FOR_EACH = re.compile(r"\bForEach\s*\(")
+# A view's event handlers: they run once per tap, key or submit, not per frame or row, so a bridge call in one
+# inside `body` or `ForEach` is not counted (`Button(...) { ... }`, `.onTapGesture(count: 2) { ... }`, `action: { ... }`).
+ACTION_CALL = re.compile(r"(?<![\w.])Button\b|\.(onTapGesture|onLongPressGesture|onSubmit|onKeyPress|onDelete|onMove|onCommand)\b"
+                         r"|\b(action|primaryAction)\s*:\s*(?=\{)")
 FILE_ROOT = re.compile(r"\bfileRoot\b(?!\s*[?!]?\s*(\[|\.value\b|\.objectValue\b))")
 AMBIGUOUS_AT = 3
 NOT_FOLLOWED = {"body", "init", "call", "callData", "description", "id", "value", "hash", "encode", "decode", "map", "flatMap",
@@ -318,8 +324,38 @@ def _slice(tok: tuple[list[int], list[str]], start: int, end: int):
         i += 1
 
 
+def _unqualified(masked: str, offset: int) -> bool:
+    k = offset - 1
+    while k >= 0 and masked[k] in " \t":
+        k -= 1
+    return k < 0 or masked[k] != "."
+
+
+def _local_clean(s: Source, toks: dict[str, tuple], via: dict[str, str]) -> set[str]:
+    """Names S declares whose every declaration in S makes no bridge call and calls nothing in VIA: an unqualified
+    call to one in S is that local declaration (HostsSidebar's pure `holdsConnect`, not CloudMachineRules')."""
+    out: dict[str, bool] = {}
+    for d in s.decls:
+        clean = not SEED.search(s.masked, d.open, d.end) and not any(
+            n in via and n != d.name for _, n in _slice(toks[s.path], d.open, d.end))
+        out[d.name] = out.get(d.name, True) and clean
+    return {n for n, clean in out.items() if clean}
+
+
 def reach(sources: list[Source], toks: dict[str, tuple]) -> dict[str, str]:
-    """{name: the callee it reaches the bridge through} for every followed name that reaches a Rust bridge call."""
+    """{name: the callee it reaches the bridge through} for every followed name that reaches a Rust bridge call.
+    Two passes: the second drops the edges of unqualified calls to a file's own bridge-free declaration."""
+    via = _reach(sources, toks, {})
+    local = {s.path: _local_clean(s, toks, via) for s in sources}
+    return _reach(sources, toks, local) if any(local.values()) else via
+
+
+def local_call(s: Source, offset: int, name: str, local: dict[str, set[str]]) -> bool:
+    """Whether the call to NAME at OFFSET in S is S's own bridge-free declaration of it (see `_local_clean`)."""
+    return name in local.get(s.path, ()) and _unqualified(s.masked, offset)
+
+
+def _reach(sources: list[Source], toks: dict[str, tuple], local: dict[str, set[str]]) -> dict[str, str]:
     counts: dict[str, int] = {}
     for s in sources:
         for d in s.decls:
@@ -331,8 +367,9 @@ def reach(sources: list[Source], toks: dict[str, tuple]) -> dict[str, str]:
         for d in s.decls:
             if not followed(d.name):
                 continue
-            for _, n in _slice(toks[s.path], d.open, d.end):
-                callers.setdefault(n, set()).add(d.name)
+            for o, n in _slice(toks[s.path], d.open, d.end):
+                if not local_call(s, o, n, local):
+                    callers.setdefault(n, set()).add(d.name)
         for m in SEED.finditer(s.masked):
             d = _innermost(s.decls, m.start())
             if d is not None and followed(d.name) and d.name not in via:
@@ -378,14 +415,35 @@ def _row_regions(s: Source) -> list[tuple[int, int, str]]:
     return regions
 
 
+def _action_spans(s: Source) -> list[tuple[int, int]]:
+    """(open, close) of each event-handler closure in S (ACTION_CALL): its trailing or labeled `{ ... }`."""
+    spans = []
+    for m in ACTION_CALL.finditer(s.masked):
+        k = m.end()
+        while k < len(s.masked) and s.masked[k] in " \t\n":
+            k += 1
+        if k < len(s.masked) and s.masked[k] == "(":
+            k = s.closers.get(k, len(s.masked)) + 1
+            while k < len(s.masked) and s.masked[k] in " \t\n":
+                k += 1
+        if k < len(s.masked) and s.masked[k] == "{":
+            spans.append((k, s.closers.get(k, len(s.masked))))
+    return spans
+
+
 def row_hits(sources: list[Source], via: dict[str, str], toks: dict[str, tuple]) -> list[tuple[str, int, str, str]]:
     hits = []
     for s in sources:
         seen_lines: set[int] = set()
+        actions = _action_spans(s)
+        local = {s.path: _local_clean(s, toks, via)}
         for start, end, region in _row_regions(s):
             found = [(m.start(), SEED_NAME) for m in SEED.finditer(s.masked, start, end)]
-            found += [(o, chain(n, via)) for o, n in _slice(toks[s.path], start, end) if n in via]
+            found += [(o, chain(n, via)) for o, n in _slice(toks[s.path], start, end)
+                      if n in via and not (n in local.get(s.path, ()) and _unqualified(s.masked, o))]
             for offset, what in sorted(found):
+                if region in ("var body", "ForEach") and any(a < offset < b for a, b in actions):
+                    continue
                 line = _line_of(s.masked, offset)
                 if line in seen_lines or allowed(s.lines, line - 1):
                     continue

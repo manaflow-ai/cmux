@@ -7,7 +7,7 @@ import Testing
 
 /// The tab x's hover is Helium's at every density (Lawrence 2026-11-13: "need to match the X icon on helium in terms
 /// of hover too"). Chromium's tab_close_button.cc, which Helium keeps: the hover fill is the tab's most-contrasting
-/// ink at 16 % (pressed 14 %), shown at once with no fade (`SetAnimationDuration(0)`), and the x keeps the tab's
+/// ink, white or black, at 16 % (pressed 14 %), shown at once with no fade (`SetAnimationDuration(0)`), and the x keeps the tab's
 /// title color whether hovered or not. Each case reads what a real strip's cell draws.
 @MainActor @Suite(.serialized, .closesItsWindows) struct HeliumCloseHoverTests {
     nonisolated static let presets: [DensityPreset] = [.compact, .cozy, .comfortable, .spacious]
@@ -38,6 +38,9 @@ import Testing
             cell.isCloseHovered = true
             let hover = components(close.backgroundColor)
             #expect(abs((hover.last ?? 0) - 0.16) < 0.005, "\(preset) \(id): hover fill alpha \(hover.last ?? 0), Helium 0.16")
+            // The most-contrasting ink: white on a dark tab, black on a light one (`GetColorWithMaxContrast`).
+            let ink: [CGFloat] = cell.themeScope.tokens.isDark ? [1, 1, 1] : [0, 0, 0]
+            #expect(zip(hover.prefix(3), ink).allSatisfy { abs($0 - $1) < 0.01 }, "\(preset) \(id): hover ink \(hover), want \(ink)")
             #expect(components(glyph.strokeColor) == title, "\(preset) \(id): the x keeps the title's color on hover")
 
             cell.isClosePressed = true
