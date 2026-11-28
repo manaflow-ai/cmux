@@ -24,7 +24,9 @@ function SceneKit() {
   return (
     <TooltipProvider>
       <div style={{ padding: 32, minHeight: 300 }}>
-        <SceneMount mounted={mounted} />
+        <div style={{ width: 180 }}>
+          <SceneMount mounted={mounted} />
+        </div>
         <p data-testid="sdk-hover-away" style={{ marginTop: 160 }}>
           Outside the scene
         </p>
