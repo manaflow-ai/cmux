@@ -236,6 +236,7 @@ pub const ALL: &[Capability] = &[
     host(
         ZSTD_STREAM,
         "(2026-11-24) An `acpmux` channel opened with `args.compressions` listing `zstd-stream-v1` carries every message through one zstd stream kept for the channel's life (`0x01` envelopes, PROTOCOL.md \"acpmux compression\").",
+        &["param:acpmux#compressions"],
     ),
     host(
         BROWSER_STREAM,
