@@ -46,6 +46,7 @@ mod join;
 mod keybinding;
 mod launch_times;
 mod live;
+mod mac_screen_replay;
 mod nightly;
 mod open;
 mod open_link;
@@ -218,6 +219,9 @@ pub(super) enum AppCommand {
         params: Value,
         seconds: u64,
     },
+    /// `app mac-screen-replay`: `mac_screen.replay`, then `mac_screen.state` until the replay's
+    /// pane has presented its frames (app/mac_screen_replay.rs).
+    MacScreenReplay(mac_screen_replay::Replay),
     /// `app chat memory`: `agent.chat.memory` pids, read here (app/chat_memory.rs).
     ChatMemory {
         empty: Value,
@@ -387,6 +391,9 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("app", Some("chat")) if rest.get(1).is_some_and(|verb| verb == "perf") => {
             chat_perf::parse(rest)?
         }
+        // A recorded screen share played through a Screen Sharing tab with no host peer
+        // (`mac_screen.replay`, every build), then its Decode and Present once presented.
+        ("app", Some("mac-screen-replay")) => mac_screen_replay::parse(rest)?,
         ("app", Some("chat")) if rest.get(1).is_some_and(|verb| verb == "memory") => {
             chat_memory::parse(rest)?
         }
@@ -1138,6 +1145,9 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         }
         AppCommand::ChatPerf { params, seconds } => {
             return Ran::Done(chat_perf::run(global, stream, params, seconds));
+        }
+        AppCommand::MacScreenReplay(replay) => {
+            return Ran::Done(mac_screen_replay::run(global, stream, replay));
         }
         AppCommand::ChatMemory { empty } => {
             return Ran::Done(chat_memory::run(global, stream, &empty));
