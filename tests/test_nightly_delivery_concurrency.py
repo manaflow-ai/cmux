@@ -35,6 +35,9 @@ ALLOWED_SHARED: dict[tuple[str, str], str] = {
     ("nightly-next-update-e2e.yml", ""): (
         "a schedule or dispatch run has a group of its own run id; only a pull request's runs share one, "
         "per pull request, and such a run delivers nothing (it installs and updates the published Nightly)"),
+    ("stable-next-update-e2e.yml", ""): (
+        "a schedule or dispatch run has a group of its own run id; only a pull request's runs share one, "
+        "per pull request, and such a run delivers nothing (it installs and updates the published Stable)"),
     ("nightly-next-launch-smoke.yml", ""): (
         "a schedule or dispatch run has a group of its own run id; only a pull request's runs share one, "
         "per pull request, and such a run delivers nothing (it never rolls back or files)"),
