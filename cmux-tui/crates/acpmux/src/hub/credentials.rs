@@ -388,7 +388,11 @@ impl Hub {
     /// harness would only say "Not logged in". A live agent (a host this daemon adopted keeps
     /// the env it started with) needs nothing.
     pub(super) async fn owner_credential_ready(&self, session: &Session) -> Result<(), RpcError> {
-        if !session.read_meta(|m| m.owner_credential) {
+        // Withdrawn by the owner (`credentials.needed` names that) or moved to the machine's own
+        // Claude login: nothing from the Mac is awaited.
+        if !session.read_meta(|m| {
+            m.owner_credential && !m.credential_withdrawn && !uses_claude_machine_login(m)
+        }) {
             return Ok(());
         }
         let deadline = tokio::time::Instant::now() + OWNER_CREDENTIAL_WAIT;
