@@ -6,6 +6,10 @@
 #
 #   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/update-card-resize-drag.sh \
 #     --ref <sha with this script> --artifact artifacts/update-card-drag --arg=--arm=base@<sha> --arg=--arm=head@<sha>
+#
+# Each arm runs dark over a striped backdrop and snapshots the window after every leg (artifacts/update-card-drag/NAME/
+# shots/): UCD-STEP carries card_std/ref_std (the luminance spread over the card and the sidebar above it) and the
+# build's own glass report. For the glass itself pass an arm from before #60682 (95456ab6) as well.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 . scripts/measure/app-at-commit.sh
