@@ -59,12 +59,14 @@ public final class LaunchTypeProbe {
                                mark: @escaping (String) -> Void) {
         guard let probe = LaunchTypeProbe(chatEnvironment: environment, mark: mark) else { return }
         listen { name in
-            switch name {
-            case "agent_pane.page_painted": Task { @MainActor in probe.type() }
-            case "agent_pane.input_echoed": Task { @MainActor in probe.typeDelete() }
-            default: break
-            }
+            guard name == "agent_pane.page_painted" || name == "agent_pane.input_echoed" else { return }
+            Task { @MainActor in probe.heard(name) }
         }
+    }
+
+    /// The chat probe heard `name`: the live chat's first paint types the space, the composer's echo of it the Delete.
+    func heard(_ name: String) {
+        if name == "agent_pane.page_painted" { type() } else { typeDelete() }
     }
 
     /// Types into the key window now (call it at the first window frame, the chat probe at the live chat's first paint).
