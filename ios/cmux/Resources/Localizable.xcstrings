@@ -4839,6 +4839,124 @@
         }
       }
     },
+    "auth.error.code_used": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This code was already used. Please request a new one."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコードはすでに使用されています。新しいコードをリクエストしてください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Code wurde bereits verwendet. Bitte fordern Sie einen neuen an."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce code a déjà été utilisé. Veuillez en demander un nouveau."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم استخدام هذا الرمز بالفعل. يُرجى طلب رمز جديد."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este código ya se usó. Solicita uno nuevo."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이미 사용된 코드입니다. 새 코드를 요청하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此验证码已被使用。请重新获取验证码。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此驗證碼已被使用。請重新索取驗證碼。"
+          }
+        }
+      }
+    },
+    "auth.error.code_attempts_exhausted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Too many incorrect codes. Please request a new one."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "誤ったコードが多すぎます。新しいコードをリクエストしてください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zu viele falsche Codes. Bitte fordern Sie einen neuen an."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trop de codes incorrects. Veuillez en demander un nouveau."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عدد كبير جدًا من الرموز غير الصحيحة. يُرجى طلب رمز جديد."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demasiados códigos incorrectos. Solicita uno nuevo."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잘못된 코드를 너무 많이 입력했습니다. 새 코드를 요청하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "错误验证码次数过多。请重新获取验证码。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "錯誤驗證碼次數過多。請重新索取驗證碼。"
+          }
+        }
+      }
+    },
     "auth.error.config": {
       "extractionState": "manual",
       "localizations": {
