@@ -42,24 +42,7 @@ nonisolated struct PaneCloseReply: Decodable {
 
     /// Rust's answer to `operation` (nil when it does not answer).
     static func call(_ operation: String, _ request: some Encodable) -> PaneCloseReply? {
-        guard let request = try? JSONEncoder().encode(request) else { return nil }
-        var capacity = 2 * request.count + 1024
-        for _ in 0..<2 {
-            var output = [UInt8](repeating: 0, count: capacity)
-            var length = 0
-            let code: Int32 = request.withUnsafeBytes { bytes in
-                operation.withCString { op in
-                    output.withUnsafeMutableBytes { out in
-                        cmux_layout_reducer_json(bytes.bindMemory(to: UInt8.self).baseAddress, request.count, op,
-                                                 out.bindMemory(to: UInt8.self).baseAddress, out.count, &length)
-                    }
-                }
-            }
-            if code == CMUX_LAYOUT_REDUCER_ERR_BUFFER, length > capacity { capacity = length; continue }
-            guard code == CMUX_LAYOUT_REDUCER_OK, length <= capacity else { return nil }
-            return try? JSONDecoder().decode(Self.self, from: Data(output.prefix(length)))
-        }
-        return nil
+        LayoutRules.call(operation, request)
     }
 
     /// The even ratios `pane`'s close leaves its same-axis chain between `old` and `new`.
@@ -117,5 +100,31 @@ nonisolated extension ScreenLayout: Codable {
         case let .splits(root): try c.encode(root, forKey: .splits)
         case let .columns(columns): try c.encode(columns, forKey: .columns)
         }
+    }
+}
+
+/// One call of `cmux_layout_reducer_json`: an op of cmux-layout-reducer's rules (`pane_close_*`, `layout_model_*`;
+/// `schemas/*/vectors.json` hold the answers the Swift rules they replace gave).
+nonisolated enum LayoutRules {
+    /// Rust's answer to `operation` (nil when it does not answer).
+    static func call<Reply: Decodable>(_ operation: String, _ request: some Encodable) -> Reply? {
+        guard let request = try? JSONEncoder().encode(request) else { return nil }
+        var capacity = 2 * request.count + 1024
+        for _ in 0..<2 {
+            var output = [UInt8](repeating: 0, count: capacity)
+            var length = 0
+            let code: Int32 = request.withUnsafeBytes { bytes in
+                operation.withCString { op in
+                    output.withUnsafeMutableBytes { out in
+                        cmux_layout_reducer_json(bytes.bindMemory(to: UInt8.self).baseAddress, request.count, op,
+                                                 out.bindMemory(to: UInt8.self).baseAddress, out.count, &length)
+                    }
+                }
+            }
+            if code == CMUX_LAYOUT_REDUCER_ERR_BUFFER, length > capacity { capacity = length; continue }
+            guard code == CMUX_LAYOUT_REDUCER_OK, length <= capacity else { return nil }
+            return try? JSONDecoder().decode(Reply.self, from: Data(output.prefix(length)))
+        }
+        return nil
     }
 }
