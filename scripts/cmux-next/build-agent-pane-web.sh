@@ -161,6 +161,10 @@ bun scripts/agent-pane/snapshotCss.mjs "$WORK/pane.css" "$WORK/pane-copy.css"
 content_hash() { shasum -a 256 "$1" | cut -c1-16; }
 PANE_CSS="pane.css?h=$(content_hash "$WORK/pane.css")"
 COPY_CSS="pane-copy.css?h=$(content_hash "$WORK/pane-copy.css")"
+# pane.js too: a WebKit pane reloaded onto other web (a web update, a hot-verify look's overlay) kept running
+# the pane.js it had cached under the same name, under the new index.html, and imported chunks the new web does
+# not have: New Tab drew blank ("Importing a module script failed", cmux#64758). A new pane.js is a new URL.
+PANE_JS="pane.js?h=$(content_hash "$WORK/pane/pane.js")"
 
 {
   printf '<!doctype html>\n<html lang="en">\n<head>\n'
@@ -172,7 +176,7 @@ COPY_CSS="pane-copy.css?h=$(content_hash "$WORK/pane-copy.css")"
   # warm load and never an ES module (docs: scripts/measure/pane-compile-ab.mjs). Fetch it while the locale
   # scripts and inline styles load; the script below still runs after the selected language is installed.
   # Nothing else is preloaded: the chunks it loads on use are ES modules `import()` fetches then.
-  printf '<link rel="preload" as="script" href="pane.js" />\n'
+  printf '<link rel="preload" as="script" href="%s" />\n' "$PANE_JS"
   printf '%s\n' "$LOADER"
   # The styles are a file, not a <style>: every chat page of the renderer shares one parsed sheet
   # (Blink keeps a linked sheet's parsed rules in its memory cache), where each page parsed its own
@@ -182,7 +186,7 @@ COPY_CSS="pane-copy.css?h=$(content_hash "$WORK/pane-copy.css")"
   # After the root, before the module: the host's snapshot of this page's chat (a dynamic path the
   # page host answers per page, AgentPageResources.swift; async, as a busy main thread answers it
   # late and the page must not wait), then the script that draws it.
-  printf '</head>\n<body>\n<main id="root"></main>\n<script async src="__snapshot/chat.js"></script>\n<script src="chat-snapshot.js"></script>\n<script src="pane.js"></script>\n</body>\n</html>\n'
+  printf '</head>\n<body>\n<main id="root"></main>\n<script async src="__snapshot/chat.js"></script>\n<script src="chat-snapshot.js"></script>\n<script src="%s"></script>\n</body>\n</html>\n' "$PANE_JS"
 } | perl -pe 's/[ \t]+$//' > "$WORK/index.html"
 
 # KaTeX's rules and fonts load with KaTeX, only when a reply draws math (conversation/Math.tsx,

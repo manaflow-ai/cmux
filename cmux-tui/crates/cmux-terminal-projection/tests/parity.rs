@@ -622,6 +622,23 @@ fn synthetic() -> Vec<Corpus> {
     b += "$ ";
     out.push(corpus("box_drawing_powerline_nerd", (120, 40), &[b.as_bytes()]));
 
+    // Ligatures: a font joins these on screen, but the grid keeps one cell
+    // per character, so the phone must keep every cell (Fira Code, JetBrains
+    // Mono, Cascadia sequences; Latin fi/fl; Arabic lam-alef), also across
+    // the phone's wrap columns.
+    let mut lg = String::new();
+    lg +=
+        "code => -> <- <=> >= <= != !== === == ::: :: |> <| <$> >>= =<< ++ -- ** /* */ // ///\r\n";
+    lg += "www &&& ||| ... ..= ..< ?. ?? #{ #[ #( </ /> <!-- --> ~~> ~@ 0xFF 1x2 fi fl ffi ﬁ ﬂ\r\n";
+    lg += "\x1b[1m=>\x1b[0m \x1b[3m->\x1b[0m \x1b[38;5;208m!==\x1b[0m \x1b[4m<=>\x1b[0m لا سلام\r\n";
+    for cut in [32, 51, 78, 111] {
+        lg += &"y".repeat(cut);
+        lg += "=>->!==<=>|>\r\n";
+    }
+    lg += &"=>".repeat(90);
+    lg += "\r\n$ ";
+    out.push(corpus("ligatures", (120, 40), &[lg.as_bytes()]));
+
     // SGR colours and attributes, across wraps; erase with a background.
     let mut g = String::new();
     for i in 0..8 {
