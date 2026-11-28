@@ -12,12 +12,14 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import io
+import os
 import re
 import struct
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -286,6 +288,38 @@ class SysCrateCoverageTests(unittest.TestCase):
                    if (name, version) not in covered]
         self.assertEqual(missing, [], "run: python3 scripts/ci/macos_stubs.py sys-crates scripts/ci/macos-stubs "
                                       "cmux-tui/Cargo.lock")
+
+    def test_every_locked_objc2_crate_is_classified(self) -> None:
+        # #56513 (iroh) locked objc2-core-wlan and objc2-security-foundation; their #[link(kind = "framework")]
+        # had no stub, so every Linux link of the daemon failed "framework not found for -framework CoreWLAN".
+        lock = (ROOT / LOCK_PATH).read_text()
+        known = set(stubs.SYS_CRATES) | set(stubs.OBJC2_STUBBED_FROM_BINARIES) | stubs.OBJC2_NOT_IN_DAEMON_BUILD
+        new = sorted({name for name, _ in stubs.LOCKED.findall(lock) if name.startswith("objc2")} - known)
+        self.assertEqual(new, [], "a new objc2 binding crate links its framework: add it to SYS_CRATES (then run "
+                                  "macos_stubs.py sys-crates) or to OBJC2_NOT_IN_DAEMON_BUILD in scripts/ci/macos_stubs.py")
+
+    def test_every_sys_crate_framework_has_a_stub(self) -> None:
+        for framework in set(stubs.SYS_CRATES.values()):
+            install, _ = stubs.read_stub(ROOT / "scripts/ci/macos-stubs" / f"{framework}.tbd")
+            self.assertIn(f"/{framework}.framework/", install)
+
+    def test_sys_crates_starts_a_stub_for_a_new_framework(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            src = root / "src" / "objc2-core-wlan-9.9.9" / "src"
+            src.mkdir(parents=True)
+            (src / "lib.rs").write_text('extern "C" {\n    pub static CWErrorDomain: u8;\n}\n'
+                                        'extern "C-unwind" {\n    pub fn CWKeychainDeleteWiFiPassword() -> i32;\n}\n')
+            stub_dir = root / "stubs"
+            stub_dir.mkdir()
+            lock = root / "Cargo.lock"
+            lock.write_text('[[package]]\nname = "objc2-core-wlan"\nversion = "9.9.9"\n')
+            with mock.patch.dict(os.environ, {"SYS_CRATES_SRC": str(root / "src")}):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    stubs.cmd_sys_crates(stub_dir, lock)
+            install, held = stubs.read_stub(stub_dir / "CoreWLAN.tbd")
+            self.assertEqual(install, "/System/Library/Frameworks/CoreWLAN.framework/Versions/A/CoreWLAN")
+            self.assertEqual(held, {"_CWErrorDomain", "_CWKeychainDeleteWiFiPassword"})
 
     def test_the_stubs_hold_the_keychain_search_that_broke_the_link(self) -> None:
         held = stubs.read_stub(ROOT / "scripts/ci/macos-stubs/Security.tbd")[1]
