@@ -1923,6 +1923,8 @@ jobs:
         id: clippy
         env:
           BASE_SHA: ${{ steps.base.outputs.sha }}
+          # The job's timeout-minutes: the autofix's full rebuild is tried only when it ends 10 min before it.
+          CLIPPY_JOB_MINUTES: "40"
           AUTOFIXED_OK: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_PR_AUTOFIX_PUSH == '1' && github.event.pull_request.head.sha || '' }}
         run: python3 "$RUNNER_TEMP/cmux-tui-clippy-changed.py" --repo "$GITHUB_WORKSPACE" --base "$BASE_SHA" ${AUTOFIXED_OK:+--autofixed-ok "$AUTOFIXED_OK"}
 
