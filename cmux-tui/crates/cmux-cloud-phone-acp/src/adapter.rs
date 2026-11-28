@@ -47,6 +47,11 @@ struct Tab {
 
 enum Reply {
     Directory,
+    /// A session the directory did not have yet (a chat started since the last list): the
+    /// directory again, then the same phone request once more.
+    Rediscover {
+        request: Value,
+    },
     Page {
         session: String,
         surface: u64,
@@ -140,6 +145,11 @@ impl Adapter {
     }
 
     pub fn phone(&mut self, request: Value) -> Result<Effects, String> {
+        self.phone_once(request, true)
+    }
+
+    fn phone_once(&mut self, request: Value, rediscover: bool) -> Result<Effects, String> {
+        let original = request.clone();
         let object = request.as_object().ok_or("ACP request must be an object")?;
         let id = object.get("id").cloned();
         if id.as_ref().is_some_and(|v| !v.is_string() && !v.is_number()) {
@@ -187,11 +197,15 @@ impl Adapter {
             return Ok(error(id, -32602, "sessionId is required"));
         };
         let Some(tab) = self.tabs.get(session) else {
-            return Ok(error(
-                id,
-                -32000,
-                "Cloud chat is not in this machine's directory; reconnect to refresh",
-            ));
+            if rediscover {
+                // Refresh the directory and replay the request, instead of asking the phone to.
+                return Ok(self.call(
+                    json!({"cmd":"list-workspaces"}),
+                    id,
+                    Reply::Rediscover { request: original },
+                ));
+            }
+            return Ok(error(id, -32000, "Cloud chat is not in this machine's directory"));
         };
         let surface = tab.surface;
         if method == "_acpmux/attach" || method == "_acpmux/info" {
@@ -281,6 +295,28 @@ impl Adapter {
         Ok(self.call(command, id, Reply::Simple { session: session.into(), surface, kind }))
     }
 
+    /// Takes a `list-workspaces` reply as the directory; the detaches for attached tabs that
+    /// now show another chat (or none).
+    fn take_directory(&mut self, data: &Value) -> Result<Vec<Value>, String> {
+        let tabs = discover(data)?;
+        let next: HashMap<_, _> =
+            tabs.iter().map(|(session, tab)| (tab.surface, session.clone())).collect();
+        let stale: Vec<_> = self
+            .attached
+            .iter()
+            .copied()
+            .filter(|surface| self.surface_sessions.get(surface) != next.get(surface))
+            .collect();
+        let mut detach = Vec::new();
+        for surface in stale {
+            self.attached.remove(&surface);
+            detach.push(json!({"cmd":"agent-session-detach","surface":surface}));
+        }
+        self.surface_sessions = next;
+        self.tabs = tabs;
+        Ok(detach)
+    }
+
     pub fn native(&mut self, response: Value) -> Result<Effects, String> {
         self.native_at(Instant::now(), response)
     }
@@ -310,24 +346,17 @@ impl Adapter {
         let data = response.get("data").cloned().unwrap_or_else(|| json!({}));
         let phone = pending.phone_id;
         match pending.reply {
+            Reply::Rediscover { request } => {
+                let detach = self.take_directory(&data)?;
+                let mut replay = self.phone_once(request, false)?;
+                replay.to_native.splice(0..0, detach);
+                Ok(replay)
+            }
             Reply::Directory => {
-                let tabs = discover(&data)?;
-                let summaries = tabs.values().map(|t| t.summary.clone()).collect::<Vec<_>>();
-                let next: HashMap<_, _> =
-                    tabs.iter().map(|(session, tab)| (tab.surface, session.clone())).collect();
-                let stale: Vec<_> = self
-                    .attached
-                    .iter()
-                    .copied()
-                    .filter(|surface| self.surface_sessions.get(surface) != next.get(surface))
-                    .collect();
+                let detach = self.take_directory(&data)?;
+                let summaries = self.tabs.values().map(|t| t.summary.clone()).collect::<Vec<_>>();
                 let mut reply = answer(phone, json!({"sessions":summaries}));
-                for surface in stale {
-                    self.attached.remove(&surface);
-                    reply.to_native.push(json!({"cmd":"agent-session-detach","surface":surface}));
-                }
-                self.surface_sessions = next;
-                self.tabs = tabs;
+                reply.to_native.extend(detach);
                 Ok(reply)
             }
             Reply::Page { session, surface, info } => {
@@ -851,8 +880,20 @@ mod tests {
     fn cannot_route_unknown_session_or_native_commands_or_unsigned_approvals() {
         let mut a = adapter();
         directory(&mut a);
+        // An unknown session reads the directory once more, then is refused.
+        let asked = phone(&mut a, 2, "_acpmux/attach", json!({"sessionId":"other","surface":7}));
+        assert_eq!(asked.to_native[0]["cmd"], "list-workspaces");
+        let reply = respond(
+            &mut a,
+            &asked.to_native[0],
+            json!({"workspaces":[{"screens":[{"panes":[{"tabs":[
+                {"surface":7,"name":"Cloud chat","conversation":{"agent_session":{"session":"sess_a","harness":"claude"}}}
+            ]}]}]}]}),
+        );
+        assert!(reply.to_native.is_empty());
+        assert_eq!(reply.to_phone.len(), 1);
+        assert!(reply.to_phone[0].get("error").is_some());
         for (method, params) in [
-            ("_acpmux/attach", json!({"sessionId":"other","surface":7})),
             ("agent-session-trust", json!({"surface":7})),
             ("_acpmux/permission_respond", json!({"sessionId":"sess_a","optionId":"allow"})),
             (
@@ -865,6 +906,27 @@ mod tests {
             assert!(reply.to_phone[0].get("error").is_some());
             assert!(reply.to_phone[0].get("result").is_none());
         }
+    }
+
+    #[test]
+    fn a_chat_started_since_the_last_directory_is_found_without_the_phone_reconnecting() {
+        let mut a = adapter();
+        directory(&mut a);
+        let asked = phone(&mut a, 3, "_acpmux/attach", json!({"sessionId":"sess_new"}));
+        assert_eq!(asked.to_native[0]["cmd"], "list-workspaces");
+        assert!(asked.to_phone.is_empty());
+        let replay = respond(
+            &mut a,
+            &asked.to_native[0],
+            json!({"workspaces":[{"screens":[{"panes":[{"tabs":[
+                {"surface":7,"name":"Cloud chat","conversation":{"agent_session":{"session":"sess_a","harness":"claude"}}},
+                {"surface":8,"name":"New chat","conversation":{"agent_session":{"session":"sess_new","harness":"claude"}}}
+            ]}]}]}]}),
+        );
+        assert!(replay.to_phone.is_empty());
+        assert_eq!(replay.to_native.len(), 1);
+        assert_ne!(replay.to_native[0]["cmd"], "list-workspaces");
+        assert_eq!(replay.to_native[0]["surface"], 8);
     }
 
     #[test]

@@ -190,6 +190,8 @@ public struct CloudStartSessionStrings {
 
     /// A team launch would expose a credential from the machine's Claude settings file.
     package static var claudeSettingsSecret: String {
+        // retry-prompt-ok: the start can only work after the person edits their settings file; an unchanged retry
+        // would be refused the same way and each start spends a new machine.
         String(localized: "cloud.startSession.claudeSettingsSecret", defaultValue: "Claude could not start on the team route because its settings file contains a credential that would be copied into the launch. Remove the credential from the settings file and try again.", table: "CloudSessions", bundle: .localizedModule)
     }
 

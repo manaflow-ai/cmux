@@ -107,11 +107,6 @@ public final class VaultModel {
     }
 
     public private(set) var phase: Phase = .loading
-    /// The status read failed and nothing is shown yet: ``VaultScreen`` reads it again on its own (AutoRetry).
-    public var isLoadFailed: Bool {
-        if case .failed = phase { return true }
-        return false
-    }
     public private(set) var status: VaultStatus?
     /// A call is running: actions wait.
     public private(set) var busy = false
@@ -236,18 +231,11 @@ public enum VaultTriggers {
 }
 
 #if DEBUG
-/// Fixed vaults for the gallery's screenshots (`-cmux-mobile-recovery-gallery vault-off|vault-pending|vault-on|vault-failed`);
-/// `failed` answers every status read with an error, so the screen shows its quiet retry.
+/// Fixed vaults for the gallery's screenshots (`-cmux-mobile-recovery-gallery vault-off|vault-pending|vault-on`).
 public struct GalleryVaultService: VaultService {
-    struct Unreachable: LocalizedError {
-        var errorDescription: String? { "The vault service did not answer." }
-    }
-
     let json: String
-    let failing: Bool
 
     public init(state: String) {
-        failing = state == "failed"
         let phone = #"{"id":"dev_phone","kind":"iphone","label":"Leo's iPhone","state":"STATE","safetyCode":"4821 0937","thisDevice":true}"#
         let mac = #"{"id":"dev_mac","kind":"mac","label":"Leo's MacBook Pro","state":"active","safetyCode":"1650 2284","thisDevice":false}"#
         let ipad = #"{"id":"dev_cli","kind":"cli","label":"build-box (cmux CLI)","state":"pending","safetyCode":"7703 1149","thisDevice":false}"#
@@ -267,10 +255,7 @@ public struct GalleryVaultService: VaultService {
         }
     }
 
-    public func status() async throws -> String {
-        if failing { throw Unreachable() }
-        return json
-    }
+    public func status() async throws -> String { json }
     public func turnOn() async throws -> String { json }
     public func approve(code: String) async throws {}
     public func removeDevice(id: String) async throws {}

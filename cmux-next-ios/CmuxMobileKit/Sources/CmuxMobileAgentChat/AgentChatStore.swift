@@ -414,6 +414,8 @@ public final class AgentChatStore {
         }
     }
     /// A prompt or Stop `terminalRoute` could not hand to its terminal (not attached now).
+    // retry-prompt-ok: typing the prompt (with Return) into the terminal later would land in whatever the terminal
+    // is running by then, possibly a shell; the person chooses whether to send it again.
     public static let terminalNotTakingPromptNotice = "Not sent: the terminal isn't connected. Try again in a moment."
     /// Attachments on a terminal's Chat face: the terminal's own composer uploads them.
     public static let terminalAttachmentsNotice = "Not sent: attach files from the Terminal face."
