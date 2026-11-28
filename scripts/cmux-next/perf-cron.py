@@ -352,6 +352,14 @@ PARTS = [
     {"name": "hot-swap", "args": [*MEASURE, "--config=bench", "--suite=graceful-swap"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "graceful-swap",
      "goal": "hot-swap-fast", "goal_rows": r"hot_swap\.mac\.[a-z_]+\.p95_ms@", "run_seconds": 2700},
+    # Goal infinite-tabs-flat: the app with 500 browser tabs, 200 workspaces and 100 chats, all but the front workspace
+    # hibernated, over the same app empty (scripts/measure/infinite-tabs-cron.py over bench_infinite_tabs.py;
+    # infinite_tabs.mac.*, report-only). NOW's infinite_tabs_memory_vs_empty_mac came only from a person's
+    # infinite-tabs.sh step, so it read "hand step, unconfirmed (one run)" and went STALE after 24 h (2026-11-28).
+    # goal_rows: a run that stored no memory_vs_empty row (built under 90 % of what was asked) leaves the part due.
+    {"name": "infinite-tabs", "args": [*MEASURE, "--config=bench", "--suite=infinite-tabs"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "infinite-tabs",
+     "goal": "infinite-tabs-flat", "goal_rows": r"infinite_tabs\.mac\.memory_vs_empty@", "run_seconds": 3600},
     # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
     # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.
@@ -489,7 +497,7 @@ ROW_PARTS = [
     (r"^terminal\.throughput\.", "throughput"), (r"^typing\.", "typing-load"),
     (r"^terminal\.throughput\.", "throughput"), (r"^cef_resize\.", "cef-resize"), (r"^terminal\.scroll\.", "terminal-scroll"),
     (r"^power_user\.native\.", "power-user-native"), (r"^power\.", "power"),
-    (r"^chat_size\.", "chat-size"), (r"^chat_snappy\.", "chat-snappy"), (r"^hot_swap\.", "hot-swap"),
+    (r"^chat_size\.", "chat-size"), (r"^chat_snappy\.", "chat-snappy"), (r"^hot_swap\.", "hot-swap"), (r"^infinite_tabs\.mac\.", "infinite-tabs"),
     (r"^terminal\.key_to_echo\.", "typing"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
     (r"^webui\.state_growth\.", "web-ui-growth"),
@@ -528,7 +536,7 @@ ROW_PARTS = [
 # part's Ghostty idle mW and the app's ratio to it are the terminal row's comparison: shown, not judged (that row has
 # Ghostty's mW as budget). The chat search's fill and the CLI's scan (chat-search) are context for its judged
 # keystroke row: shown, not judged.
-REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|memory\.app_agents\.breakdown\.|cloud\.claim_to_ready"
+REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|infinite_tabs\.mac\.|memory\.app_agents\.breakdown\.|cloud\.claim_to_ready"
                                 r"|acp\.[^.]+\.typing\.(to_listener|to_work|to_frame_frames)$"
                                 r"|acp\.[^.]+\.frame_interval$|acp\.[^.]+-(capped|full|nolimit)\."
                                 r"|launch\.wake_proxy\.awake_echo_ms$"
@@ -2909,7 +2917,7 @@ def supported_parts_at(sha):
                                    capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = "--suite=launch" in text and '"--fresh-copy"' in bench and '"--ready-mark"' in bench
         elif need in ("perf-gate", "launch", "memory-agents", "relaunch", "wake", "power", "chat-size", "cef-resize",
-                      "chat-snappy", "graceful-swap"):
+                      "chat-snappy", "graceful-swap", "infinite-tabs"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = f"--suite={need}" in text
