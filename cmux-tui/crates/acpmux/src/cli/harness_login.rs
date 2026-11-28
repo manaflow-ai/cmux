@@ -480,7 +480,7 @@ pub async fn login(
             drop(started);
             let code = terminal(&argv, &env)?;
             if code != 0 {
-                bail!("{} exited {code}", chosen.name);
+                bail!("{} stopped before it finished (exit {code})", chosen.name);
             }
             Ok(format!("{id}: signed in with {}", chosen.name))
         }
