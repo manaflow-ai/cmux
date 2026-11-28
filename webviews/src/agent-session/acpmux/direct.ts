@@ -59,6 +59,7 @@ import {
   TURN_RETRY,
   type AcpmuxSince,
   type AcpmuxTurnRetry,
+  warmChatMeasure,
 } from "./model";
 import { addSplit, callTokenSplit, NO_TOKENS, resultTokenSplit } from "./tokenSplit";
 import { continuesTurn } from "./turnStart";
@@ -6838,6 +6839,8 @@ export class AcpmuxDirectClient {
     afterSeq?: number,
     guess?: HandshakeGuess,
   ): SentAttach {
+    // The first open's layout setup runs while the answer is on its way (model.ts warmChatMeasure).
+    setTimeout(warmChatMeasure, 0);
     const capabilities = guess ? guess.capabilities : this.capabilities;
     const visible = pageShown();
     const attending = readerHere();
