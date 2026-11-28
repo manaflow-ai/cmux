@@ -512,6 +512,11 @@ export type ClaimCheck = {
 /// session, and its title as the row's text names it (conversation/ForkedFromLine.tsx links it).
 export type ForkedFrom = { parentId: string; chat: string };
 
+/// The person's own prompt (typed here or on another of their devices), not another agent's
+/// message, a task's result or harness bookkeeping: what prompt recall and the scroll rail keep.
+export const sentByPerson = (row: AcpmuxRow) =>
+  row.kind === "user" && !row.incoming && !row.received && !row.untyped && row.from === undefined;
+
 export type AcpmuxRow = {
   id: string;
   version: number;
