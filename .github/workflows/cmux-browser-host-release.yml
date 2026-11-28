@@ -10,10 +10,16 @@ name: cmux-browser-host release
 # the binary, LICENSE (GPL-3.0-or-later) and THIRD_PARTY_LICENSES.md, the
 # committed Linux notices that the version job checks; the release notes link
 # the source commit.
+#
+# A pull request into feat-cmux-next that touches the same paths runs only the
+# version job (release script tests and the Linux notices --check), so a change
+# that makes THIRD_PARTY_LICENSES.linux.md stale is red at its own head, not
+# first on the base push after it merges (base run 46195253794, 2026-11-28: a
+# Cargo.lock change merged with the file stale and every later push failed).
 on:
   push:
     branches: [feat-cmux-next]
-    paths:
+    paths: &release-paths
       - "cmux-tui/crates/cmux-browser-host/**"
       - "cmux-tui/Cargo.lock"
       - "cmux-tui/rust-toolchain.toml"
@@ -26,6 +32,9 @@ on:
       - "LICENSE"
     tags:
       - "cmux-browser-host-v*"
+  pull_request:
+    branches: [feat-cmux-next]
+    paths: *release-paths
 
 permissions: {}
 
@@ -102,6 +111,8 @@ jobs:
 
   build:
     name: build ${{ matrix.target }}
+    # A pull request checks the notices and the release scripts (version) only; the base push builds.
+    if: github.event_name != 'pull_request'
     needs: version
     strategy:
       fail-fast: false
