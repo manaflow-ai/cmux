@@ -147,9 +147,8 @@ export const EVERYWHERE: {
       "While a turn runs, a new row lands under the rows already drawn (over the live line, which stays last): never between or above them, which pushes drawn rows down. The turn's header line has its own entry (header-arrives-late).",
     check: (run) => landed(landings(run).filter((each) => !isHeader(each.kind))),
     known: {
-      "received-sent-as-activity": "received-drawn-late",
       "steer-mid-turn": "cut-reply-footer-late",
-      "permission-wait": "denial-receipt-order",
+      "late-steer": "cut-reply-footer-late",
     },
   },
   {
@@ -305,7 +304,6 @@ export const MAP: MapEntry[] = [
       const rows = last(run);
       return want(!rows.some((row) => row.turn === 1 && row.running), "a command of the ended turn reads as running");
     },
-    open: "The pane keeps the call as running: nothing settles a call left open at its turn's end. Not seen in 13 recorded lane chats (1,500 calls); a harness crash would do it.",
   },
   {
     id: "compaction-at-turn-end",
@@ -609,7 +607,6 @@ export const MAP: MapEntry[] = [
     expected: "A denied command's line and its receipt are drawn in the order they stay in.",
     scenario: "permission-wait",
     check: (run) => landed(landings(run).filter((each) => !isHeader(each.kind))),
-    open: "A command's line is drawn when it ends (a running one is the live line's), and the receipt is drawn at the answer, before the denied call ends.",
   },
 
   // ---- Not played yet. `bun scripts/chat-sim.ts --drift DIR` lists the record kinds no scenario or fixture plays. ----
@@ -688,5 +685,69 @@ export const MAP: MapEntry[] = [
     expected:
       "A row of a running turn never draws 12px shorter than the step before with its fold unchanged (b-mid-turn-shrink).",
     open: "Heights are drawn only in Chrome: the browser lane (test/chat-sim-browser.test.ts) plays every scenario here, on CI. The model run plays each scenario at a narrow width too.",
+  },
+  // ---- Leo's 11-24 and 11-25 reports (#55784, #56293): each is played, and every chat's checks run on it. ----
+  {
+    id: "notice-no-tool-turn",
+    when: "A background task the last turn started ends minutes later; its notice opens a turn that thinks and answers, no tools.",
+    wrong:
+      'Leo, 2026-11-25: "this is extremely strange". The answer was folded inside "Worked for 2m 28s", timed from before the turn\'s own start.',
+    expected: "The answer stands under the notice's line, outside any fold, and the turn's time starts at the notice.",
+    scenario: "notice-no-tool-turn",
+  },
+  {
+    id: "late-steer",
+    when: "The person steers while the agent streams its final answer, and the turn ends right after.",
+    wrong:
+      'Leo, 2026-11-25: "i steer RIGHT before you finish a turn but your completed sent message goes above mine ... worked for above my message and then yours and then boom that\'s it".',
+    expected:
+      "Ended, the turn reads: the prompt, Worked for, the steer, the answer, the footer (chat-sim.test.ts late-steer).",
+    scenario: "late-steer",
+  },
+  {
+    id: "late-steer-mid-tool",
+    when: "The person steers while the agent's last call runs; the call ends, the agent answers, the turn ends.",
+    wrong: "The answer drew over the steer it was written after.",
+    expected: "The steer stands over the answer written after it.",
+    scenario: "late-steer-mid-tool",
+  },
+  {
+    id: "late-steer-compaction",
+    when: "The person steers while the agent compacts its context at the end of its work; the agent answers.",
+    wrong: "The answer drew over the steer, or the compaction's line moved under it.",
+    expected: "The compaction, then the steer, then the answer, each where it first drew.",
+    scenario: "late-steer-compaction",
+  },
+  {
+    id: "think-then-answer",
+    when: "A thought streams in deltas, then the reply streams under it.",
+    wrong: 'Leo, 2026-11-24: "the extra spacing after thinking added more layout shifts".',
+    expected: "Nothing drawn over the reply moves when the thought ends or the reply starts.",
+    scenario: "think-then-answer",
+  },
+  {
+    id: "compact-from-idle",
+    when: "/compact is sent to an idle chat whose agent host hibernated.",
+    wrong:
+      'Leo, 2026-11-25: "the compaction starting from idle should not go from thinking to idle potentially. just the compacting conversation to start with so it skips the unnecesssary animation".',
+    expected: "The turn's first line is the compaction's; no thinking line draws and goes before it.",
+    scenario: "compact-from-idle",
+  },
+  {
+    id: "compact-steer",
+    when: "/compact from idle, and the person steers while it compacts.",
+    wrong:
+      'Leo, 2026-11-25: "the worked for collapsing the compaction and then the next worked for + thinking is weird. layout shifts and awkward looking animations".',
+    expected:
+      "The steer stands the 24 gap under the /compact prompt, and nothing drawn above it moves when the work starts.",
+    scenario: "compact-steer",
+  },
+  {
+    id: "turn-after-reply-gap",
+    when: "A reply ends its turn; three agent messages then start a turn of their own.",
+    wrong:
+      'Leo, 2026-11-25, on about 120 px of nothing under a finished reply\'s actions: "and then this unnecesssary space".',
+    expected: "The next turn's first row stands the 24 gap under the reply's footer, no more.",
+    scenario: "turn-after-reply-gap",
   },
 ];

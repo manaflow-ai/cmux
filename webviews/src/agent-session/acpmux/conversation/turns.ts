@@ -1908,14 +1908,14 @@ export function lateSteersLast(rows: AcpmuxRow[], live = false): AcpmuxRow[] {
   if (late < 0) return rows;
   const answerIndex = answerAt(rows.slice(0, end));
   // The agent's text just over the first late steer moves with the answer: the reply it was writing
-  // when the steer came, held open in its row over the steer while the agent had not read it. Once
-  // the agent read the steer its next words start a row under it (direct.ts `steer_read`), so an
-  // answer already under the steer leaves the words over it in place: those were written before the
-  // read (Leo, 2026-11-17: "the message you sent after my steer... shot up. instead of landing after
-  // my steer prompt"; carriedSteerOrder.test.ts).
+  // when the steer came (acpmux cuts it there into two rows, one each side of the steer, once the
+  // agent read it: direct.ts `steer_read`). Ended, the turn reads its steer and then its whole last
+  // word, with no footer of the cut reply over the steer (Leo, 2026-11-25, above). The words after
+  // the read never draw over the steer (Leo, 2026-11-17: "the message you sent after my steer...
+  // shot up. instead of landing after my steer prompt"), and while the turn runs nothing moves.
   let from = late;
   // ends: from walks back to the first row or the preceding change of author
-  if (answerIndex < late) while (from > 0 && isOwnText(rows[from - 1]!)) from -= 1;
+  while (from > 0 && isOwnText(rows[from - 1]!)) from -= 1;
   const region = rows.slice(from, end);
   const steers = region.filter(isLateSteer);
   const said = region.filter(isOwnText);
