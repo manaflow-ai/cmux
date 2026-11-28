@@ -1278,8 +1278,11 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("$id", key.group(1))
         self.assertIn("GITHUB_RUN_ID", key.group(1))
         self.assertIn('--queue-timeout "$QUEUE_S" --timeout "$RUN_S"', run)
+        # #63019: QUEUE_S defaults to 900 s; repo variable CI_SIM_BENCH_QUEUE_S may restore the old 3600 s, so
+        # the bound holds for the largest of the two.
+        self.assertIn('QUEUE_S="${CI_SIM_BENCH_QUEUE_S:-900}"', run)
         bounds = dict(re.findall(r"\b(QUEUE_S|RUN_S)=(\d+)", run))
-        self.assertLessEqual(int(bounds["QUEUE_S"]) + 5400 + int(bounds["RUN_S"]),
+        self.assertLessEqual(max(900, 3600) + 5400 + int(bounds["RUN_S"]),
                              (jobs["record"]["timeout-minutes"] - 20) * 60)
         self.assertIn('"$client" cancel', run)
         publish = jobs["publish"]
