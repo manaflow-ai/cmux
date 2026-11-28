@@ -2830,7 +2830,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextBrowserAutomationTests",
-            dependencies: ["CmuxNextBrowserAutomation"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextBrowserAutomation"],
             swiftSettings: uiSwiftSettings
         ),
         // The app's provider bridge to the browser host (plans/cmux-next/browser-host.md, step c3).

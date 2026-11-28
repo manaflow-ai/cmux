@@ -9,12 +9,14 @@ import Testing
         try DriverParams(method: "page.goto", json: .object(fields))
     }
 
-    private func message(_ body: () throws(DriverError) -> Void) -> String? {
-        do throws(DriverError) {
+    /// A closure literal does not infer typed throws from its body, so the
+    /// helper takes any error and reads the driver message back.
+    private func message(_ body: () throws -> Void) -> String? {
+        do {
             try body()
             return nil
         } catch {
-            return error.message
+            return (error as? DriverError)?.message ?? "\(error)"
         }
     }
 
