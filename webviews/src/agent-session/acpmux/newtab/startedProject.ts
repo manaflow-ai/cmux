@@ -12,6 +12,17 @@ import { isTemporaryFolder } from "../sessionList";
 // a page whose context was made before the latest send still names it.
 
 const KEY = "cmux.acpmux.newTab.startedProject.v1";
+/// When this run last wrote the default (`Date.now()`): a slow start checks it before it writes.
+const AT_KEY = "cmux.acpmux.newTab.startedProject.at.v1";
+
+/// When this run's pages last wrote the default; 0 for never.
+function rememberedAt(): number {
+  try {
+    return Number(storage()?.getItem(AT_KEY) ?? 0) || 0;
+  } catch {
+    return 0;
+  }
+}
 
 function storage(): Storage | undefined {
   try {
@@ -34,12 +45,17 @@ export function isStartableProject(folder: string | undefined): folder is string
 export function rememberStartedProject(
   folder: string | undefined,
   post: (method: string, params: Record<string, unknown>) => Promise<unknown>,
+  sentAt?: number,
 ): void {
   // A temporary folder (a scratch chat in /tmp) is no project to come back to (cmux#49610).
   if (!isStartableProject(folder) || isTemporaryFolder(folder)) return;
+  // A start that settles after a newer pick or start (another page, while this one's chat was starting)
+  // leaves that newer default as it is.
+  if (sentAt !== undefined && rememberedAt() > sentAt) return;
   const started = folder.replace(/\/+$/, "");
   try {
     storage()?.setItem(KEY, started);
+    storage()?.setItem(AT_KEY, String(Date.now()));
   } catch {
     // A full or blocked store: the app's copy still names it on the next page.
   }
