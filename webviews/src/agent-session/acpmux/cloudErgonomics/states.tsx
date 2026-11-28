@@ -303,6 +303,13 @@ const TURN_FAILURES: readonly TurnFailureFixture[] = [
     error:
       "Your credit balance is too low to access the API. Please go to Plans & Billing to upgrade or purchase credits.",
   },
+  { id: "model-not-found", kind: "model-not-found", error: "model_not_found" },
+  {
+    id: "no-supergrok-access",
+    kind: "no-supergrok-access",
+    error: "HTTP 403",
+    code: "subscription.no_supergrok_access",
+  },
   {
     id: "cloud-auth-expired",
     kind: "cloud-auth-expired",
@@ -372,6 +379,8 @@ export const KINDS: { [kind in FailureKind]: true } = {
   "needs-credits": true,
   "team-cap": true,
   "no-credit": true,
+  "model-not-found": true,
+  "no-supergrok-access": true,
   "cloud-auth-expired": true,
   "rate-limited": true,
   "usage-limit": true,
