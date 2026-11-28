@@ -1545,6 +1545,8 @@ impl Hub {
             let mode = if let Some(mode) = requested_mode {
                 super::fork_subagent::check_mode(&fork.meta(), mode)?;
                 Some(mode.to_owned())
+            } else if self.parent_plans(parent.as_deref()) {
+                Some(super::fork_plan::PLAN.to_owned())
             } else {
                 Box::pin(self.start_mode_for(fork, parent.as_deref())).await
             };
@@ -1599,6 +1601,8 @@ impl Hub {
         // settles.
         if inherits_mode
             && requested_mode.is_none()
+            && !(self.parent_plans(parent.as_deref())
+                && super::fork_plan::offers_plan_mode(&fork.meta()))
             && let Some(mode) = Box::pin(self.start_mode_for(fork, parent.as_deref())).await
             && let Err(e) = Box::pin(self.set_mode(fork, &mode)).await
         {
@@ -1609,6 +1613,10 @@ impl Hub {
                 "start_default_skipped",
                 json!({"modeId": mode, "error": e.message}),
             );
+        }
+        // A chat in plan stays in plan on the new harness, where it has plan (`fork_plan.rs`).
+        if requested_mode.is_none() && self.parent_plans(parent.as_deref()) {
+            Box::pin(self.carry_plan(fork)).await;
         }
         // A refused or unavailable asking mode must refuse the fork, rather than leave
         // it running at a broader level after recording a skipped setting.
