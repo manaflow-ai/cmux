@@ -30,6 +30,11 @@ public nonisolated enum CmuxToastStyle: String, Sendable, CaseIterable, Hashable
     /// tone's color (a spinner while working), the action as a small ink-filled button. A working toast
     /// turns into its result in place.
     case v2
+    /// Today's toast on the glass every other floating surface draws (``OverlayGlassVariant/picked``,
+    /// `.appKitRegular`: Apple's Liquid Glass as it ships, no veil, no second rim), so toasts, dialogs and sheets
+    /// read as one material (RFD 0207). A Toast Playground option only: ``standard`` stays the default, and
+    /// making this the default needs Leo's word.
+    case overlayGlass
 
     /// The style's name in the playground.
     public var title: String {
@@ -46,6 +51,7 @@ public nonisolated enum CmuxToastStyle: String, Sendable, CaseIterable, Hashable
         case .solid: "Solid, no glass"
         case .flat: "Flat"
         case .v2: "Toasts v2: mark and ink Undo"
+        case .overlayGlass: "Overlay glass: matches dialogs and sheets"
         }
     }
 
@@ -64,6 +70,7 @@ public nonisolated enum CmuxToastStyle: String, Sendable, CaseIterable, Hashable
         case .solid: "Opaque theme surface, no glass: the most legible over a busy page."
         case .flat: "The window's background color, a 1 px edge, the button corner, no shadow."
         case .v2: "Quiet glass, a mark in the tone's color (a spinner while working), Undo as a small ink-filled button."
+        case .overlayGlass: "Today's toast on the glass the other overlays draw: clear Liquid Glass, no veil, no second rim."
         }
     }
 
@@ -96,6 +103,7 @@ public nonisolated enum CmuxToastStyle: String, Sendable, CaseIterable, Hashable
         case .v2:
             look.marksTone = true
             look.inkAction = true
+        case .overlayGlass: look.glass = CmuxToastGlass.matching(OverlayGlassVariant.picked)
         }
         return look
     }

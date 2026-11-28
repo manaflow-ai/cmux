@@ -22,6 +22,12 @@ public nonisolated enum CmuxToastGlass: String, Sendable, CaseIterable, TunableC
         }
     }
 
+    /// The toast glass that draws `variant`: the one the other floating surfaces draw is
+    /// ``OverlayGlassVariant/picked``, and the Toast Playground's Overlay glass style follows it (RFD 0207).
+    public static func matching(_ variant: OverlayGlassVariant) -> CmuxToastGlass {
+        allCases.first { $0.variant == variant } ?? .liquidVeil
+    }
+
     /// The overlay surface's variant for this glass.
     public var variant: OverlayGlassVariant {
         switch self {

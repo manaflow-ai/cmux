@@ -104,6 +104,21 @@ struct CmuxToastStyleTests {
         for style in CmuxToastStyle.allCases { #expect(!style.summary.isEmpty) }
     }
 
+    /// RFD 0207: the playground's Overlay glass style draws the toast on the glass the other floating surfaces
+    /// draw (`.appKitRegular` today), and nothing else changes: the default style and the tuned glass stay.
+    @Test func theOverlayGlassStyleMatchesTheOtherOverlays() {
+        let look = CmuxToastStyle.overlayGlass.look
+        #expect(look.glass?.variant == OverlayGlassVariant.picked)
+        #expect(look.glass == .liquid)
+        var standard = CmuxToastStyle.standard.look
+        #expect(standard.glass == nil, "the default style still follows Debug Settings > Toasts > Glass")
+        standard.glass = look.glass
+        #expect(standard == look, "only the glass differs from today's toast")
+        #expect(CmuxToastTunables.glass.defaultValue == .liquidVeil, "the default toast glass is unchanged")
+        #expect(CmuxToastStyleStore(defaults: Self.defaults()).style == .standard)
+        for variant in OverlayGlassVariant.allCases { #expect(CmuxToastGlass.matching(variant).variant == variant) }
+    }
+
     // MARK: The playground
 
     /// The playground shows every style, or one alone (Debug Settings > Toasts > Playground shows), each with
