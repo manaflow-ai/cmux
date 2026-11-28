@@ -1249,9 +1249,9 @@ jobs:
       # The PR Release-build runner, so its cache is reusable; named here, where the fleet-runner guard reads it.
       runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     secrets:
-      CI_CACHE_R2_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
-      CI_CACHE_R2_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
-      CI_CACHE_R2_ACCOUNT_ID: ${{ secrets.CI_CACHE_R2_ACCOUNT_ID }}
+      CI_CACHE_R2_ACCESS_KEY_ID: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
+      CI_CACHE_R2_SECRET_ACCESS_KEY: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
+      CI_CACHE_R2_ACCOUNT_ID: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_ACCOUNT_ID || '' }}
 
   # Why: docs/ci/nightly-workflow-notes/2026-11-26-refresh-test-compilation-cache-1.md
   resolve-nightly-ghostty-cli-helper:

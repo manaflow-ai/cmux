@@ -74,7 +74,7 @@ if ! awk '
   in_cache && /path: build-universal\/CompilationCache\.noindex/ { saw_path[job]=1 }
   in_cache && /key: xcode-compilation-release-/ { saw_key[job]=1 }
   in_cache && /steps\.compilation-cache-key\.outputs\.toolchain/ { saw_toolchain[job]=1 }
-  # The warmer keys by the tip it builds (decide's head_sha, its head_sha input); the app build by the resolved build_sha.
+  # The warmer keys by the tip it builds (the head_sha input decide resolves); the app build by the resolved build_sha.
   job == "refresh" && in_cache && /inputs\.head_sha/ { saw_head_sha[job]=1 }
   job == "build" && in_cache && /needs\.resolve-nightly-cmux-tui-client\.outputs\.build_sha/ { saw_head_sha[job]=1 }
   in_cache && /restore-keys:/ { saw_restore[job]=1 }
@@ -192,7 +192,7 @@ fi
 # Nightlies only on our own Mac minis (tests/test_nightly_owned_minis_only.py): the owned nightly-only pool,
 # or the one nightly mini while vars.CI_NIGHTLY_MINI is set (tests/test_nightly_one_mini.py).
 if ! awk -v refresh_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}" '
-  # The schedule gate and runner are on nightly.yml's caller job, the rest on the called refresh-compilation-cache.
+  # The schedule gate and runner are on the nightly.yml caller job, the rest on the called refresh-compilation-cache.
   /^  refresh-compilation-caches?:/ { in_refresh=1; next }
   in_refresh && /^  [a-zA-Z0-9_-]+:/ { in_refresh=0 }
   # 90 with one-mini mode off; the mode adds room for the glaeda capacity wait (tests/test_nightly_mini_gate_timeouts.py).

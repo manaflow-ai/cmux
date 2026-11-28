@@ -954,7 +954,7 @@ class Wiring(unittest.TestCase):
         self.assertLess(build_at, save_at)
         self.assertEqual(save["with"]["backend"], "r2")
         written = save["with"]["key"]
-        suffix = "${{ needs.decide.outputs.head_sha }}"
+        suffix = "${{ inputs.head_sha }}"  # the head nightly.yml passes its refresh-compilation-caches call
         self.assertEqual(written, "${{ steps.derived-data-seed-key.outputs.scoped }}" + suffix)
         _, scope = named(seeder, "Scope DerivedData seed key")
         self.assertEqual(scope["env"]["FINGERPRINT"], "${{ steps.compilation-cache-key.outputs.fingerprint }}")
@@ -979,7 +979,7 @@ class Wiring(unittest.TestCase):
 
         for path in (ROOT / ".github/workflows").glob("*.yml"):
             text = path.read_text()
-            if "admission-derived-data-" in text and path.name not in {"nightly.yml", "ci-macos.yml", "seed-derived-data.yml",
+            if "admission-derived-data-" in text and path.name not in {"nightly-compilation-cache.yml", "ci-macos.yml", "seed-derived-data.yml",
                                                                         "main-compile-probe.yml"}:
                 self.fail(f"{path.name} names the admission DerivedData seed")
         # Main compile probes adopt the same seed but only read it.
