@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/46197177694",
+  "recorded_at": "2026-11-28T22:57:22Z",
+  "reason": "cmux-tui b579b62ce2c9 changes the image's cmux-tui (pinned 8430f2443622)",
+  "dry_run": false,
+  "cmux_tui": "b579b62ce2c987f3bc53801715acd0c953200b18",
+  "fixes": [
+    {
+      "sha": "515f315b3c4a8dac068214a583a35a816e5e0611",
+      "mergedAt": "2026-11-28T20:23:13Z",
+      "subject": "base red: clippy -D warnings clean in cmux-worktree-care and cmux-cloud-start-core (#64703)"
+    },
+    {
+      "sha": "9229580a0c862d3fb58f5ad2092ec1122768d12a",
+      "mergedAt": "2026-11-28T20:18:47Z",
+      "subject": "swift-out sidebar: layout engine in Rust (step A) (#58055)"
+    },
+    {
+      "sha": "420149ce381a2066eac8b9f4d3581af78f4431ab",
+      "mergedAt": "2026-11-28T20:18:21Z",
+      "subject": "acpmux: the daemon serves /app/ from the patch bundle root first, the shipped copy else (RFD 0224 phase 5) (#65368)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-28T22:57:22Z",
+    "snapshot_id": "sh-f44d981f0414455e8021a48936abe19b",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 46197177694): 35 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "836bd047db1ac13727668aba1406b4d6b141ae98",
+    "image": "cloud-native-auto-b579b62c-46197177694-1",
+    "revision": "ci-46197177694-1",
+    "at": "2026-11-28T22:57:22Z"
+  },
+  "rolled_back": false
+}
