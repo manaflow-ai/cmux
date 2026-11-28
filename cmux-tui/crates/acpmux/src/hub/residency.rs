@@ -194,7 +194,8 @@ impl Hub {
     }
 
     fn residency_hosts(&self) -> Arc<HashSet<String>> {
-        self.residency_hosts
+        self.store_load
+            .residency_hosts
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .read(Instant::now(), Self::read_live_host_sessions)

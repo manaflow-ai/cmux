@@ -122,7 +122,7 @@ async fn residency_counts_a_detached_host_until_it_exits_but_never_a_closed_chat
     hub.detach_child(&session).await;
     hub.set_status(&session, NotWaiting::Idle);
     assert!(session.child.lock().await.is_none(), "no adopted child link");
-    hub.residency_hosts.lock().unwrap().seed([session.id.clone()].into());
+    hub.store_load.residency_hosts.lock().unwrap().seed([session.id.clone()].into());
     let row = hub.session_summary(&session);
     assert_eq!(row["residency"]["resident"], true);
     assert_eq!(row["residency"]["busy"], false);
@@ -136,7 +136,7 @@ async fn residency_counts_a_detached_host_until_it_exits_but_never_a_closed_chat
     assert_eq!(hub.residency_status(&[session.clone()])["countsForCap"], 0);
     assert!(hub.test_reopen(&session.id));
     // Simulate the next read after the detached host exited, without sleeping or changing env.
-    hub.residency_hosts.lock().unwrap().seed(HashSet::new());
+    hub.store_load.residency_hosts.lock().unwrap().seed(HashSet::new());
     assert_eq!(hub.session_summary(&session)["residency"]["resident"], false);
     assert_eq!(hub.residency_status(&[session.clone()])["resident"], 0);
     hub.shutdown_all().await;
