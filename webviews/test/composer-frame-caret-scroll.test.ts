@@ -7,9 +7,7 @@ import { EditorState, Plugin, TextSelection } from "@milkdown/kit/prose/state";
 import { teardownDom } from "./support/domTeardown";
 import { importWithDom } from "./support/importWithDom";
 
-const { frameCaretScroll } = await importWithDom(
-  () => import("../src/agent-session/acpmux/composer/frameCaretScroll"),
-);
+const { frameCaretScroll } = await importWithDom(() => import("../src/agent-session/acpmux/composer/frameCaretScroll"));
 
 test("a typed key scrolls the caret into view on the next frame, once; a selection at once", async () => {
   const dom = new JSDOM("<!doctype html><body></body>", { pretendToBeVisual: true });
@@ -74,7 +72,9 @@ test("a typed key scrolls the caret into view on the next frame, once; a selecti
       expect(frames.size).toBe(0);
       // A selection's scroll is not deferred.
       view.dispatch(
-        view.state.tr.setSelection(TextSelection.create(view.state.doc, 1, view.state.doc.content.size - 1)).scrollIntoView(),
+        view.state.tr
+          .setSelection(TextSelection.create(view.state.doc, 1, view.state.doc.content.size - 1))
+          .scrollIntoView(),
       );
       expect(scrolls).toBe(2);
       expect(frames.size).toBe(0);
