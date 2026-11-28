@@ -570,6 +570,43 @@ def main():
         with open(opts.json, "w") as handle:
             json.dump(report, handle, indent=1)
         print("wrote", opts.json, flush=True)
+    traced_opens(tabs)
+
+
+def traced_opens(tabs, count=30):
+    """Measurement only (a136 scratch, never lands): a Time Profiler trace of `count` more Cmd-Shift-P opens on the
+    terminal tab, after the measured ones, where perf-budgets --profile splits it (sidebar/traces/)."""
+    import threading
+    if not tabs or app is None:
+        return
+    rpc("debug.mouse", {"action": "click", "x": tabs[0][1][0], "y": tabs[0][1][1]})
+    time.sleep(1.0)
+    folder = os.path.join(os.path.dirname(os.path.abspath(opts.out)), "sidebar", "traces")
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, "palette-cmd-shift-p.trace")
+    proc = subprocess.Popen(["xcrun", "xctrace", "record", "--template", "Time Profiler", "--attach", str(app.pid),
+                             "--time-limit", "30s", "--output", path, "--no-prompt"],
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    started = threading.Event()
+
+    def read():
+        for line in proc.stdout or []:
+            if "Starting recording" in line or "Ctrl-C to stop" in line:
+                started.set()
+        started.set()
+
+    threading.Thread(target=read, daemon=True).start()
+    started.wait(60)
+    keys = []
+    for _ in range(count):
+        sample, _ = one_open(KEYS[0][1])
+        if sample:
+            keys.append(sample.get("key"))
+    try:
+        proc.wait(timeout=240)
+    except subprocess.TimeoutExpired:
+        proc.terminate()
+    print(f"TRACED-OPENS {len(keys)} key p50 {statistics.median(keys) if keys else None} trace {path} exit {proc.returncode}", flush=True)
 
 
 try:

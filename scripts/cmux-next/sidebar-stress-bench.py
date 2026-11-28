@@ -737,7 +737,7 @@ def scenario_switch_matrix(pid, size):
     probe = rpc("debug.workspace_switch", {"action": "stop"})  # an older build answers with an error
     timed = isinstance(probe, dict) and "recording" in probe
     out["app_timer"] = timed
-    tr = Trace(pid, f"{size}-switch-matrix", 4 + 3 * 2 * opts.switches * 0.45 + 10)
+    tr = Trace(pid, f"{size}-switch-matrix", int(4 + 3 * 2 * opts.switches * 0.45 + 10))
     tr.__enter__()
     for kind, (a, b) in pairs.items():
         for how in ("click", "cmd_digit", "next_prev"):

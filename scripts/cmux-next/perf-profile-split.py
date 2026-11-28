@@ -181,14 +181,33 @@ def split(path):
     else:
         stacks = stacks_from_sample(open(path, errors="replace").read())
     buckets, tops = {}, {}
+    tree = {}  # measurement-only (a136 scratch): the busy main thread's call tree, root first
     for count, stack in stacks:
         b = classify(stack)
         buckets[b] = buckets.get(b, 0) + count
         if b != "idle":
             key = deciding_frame(stack)[:140]
             tops.setdefault(b, {})[key] = tops.setdefault(b, {}).get(key, 0) + count
+            node = tree
+            for sym, mod in reversed(stack):
+                name = f"{(sym or '?')[:110]} ({(mod or '')[:40]})"
+                entry = node.setdefault(name, [0, {}])
+                entry[0] += count
+                node = entry[1]
     result = summarize(buckets)
     result["top_frames"] = {b: sorted(t.items(), key=lambda kv: -kv[1])[:6] for b, t in tops.items()}
+    lines, floor = [], max(3, result.get("busy_samples", 0) // 400)
+
+    def walk(node, depth):
+        for name, (n, kids) in sorted(node.items(), key=lambda kv: -kv[1][0]):
+            if n < floor:
+                continue
+            lines.append([depth, n, name])
+            if len(lines) < 6000:
+                walk(kids, depth + 1)
+
+    walk(tree, 0)
+    result["call_tree"] = {"floor": floor, "lines": lines}
     return result
 
 
