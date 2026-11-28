@@ -208,7 +208,8 @@ fi
 section rust-cmux-cli "Rust crates: cmux CLI and daemon (bin/cmux)" \
   --lock "$tui_src/cmux-tui/Cargo.lock" --lock-label "cmux-tui/Cargo.lock $tui_label" \
   --root cmux-tui --root acpmux --workspace "$tui_src/cmux-tui" --repo-root "$tui_src" \
-  --first-party 'cmux-tui/crates/*' --first-party 'cmux-tui/bindings/*' ${vm_cli_args[@]+"${vm_cli_args[@]}"}
+  --first-party 'cmux-tui/crates/*' --first-party 'cmux-tui/bindings/*' --first-party 'cmux-tui/bindings/examples/*' \
+  --first-party 'first-party-apps/cloud/server' ${vm_cli_args[@]+"${vm_cli_args[@]}"}
 section rust-cmux-app-host "Rust crates: app host (bin/cmux-app-host)" \
   --lock "$tui_src/cmux-tui/Cargo.lock" --lock-label "cmux-tui/Cargo.lock $tui_label" \
   --root cmux-app-host --workspace "$tui_src/cmux-tui" --repo-root "$tui_src" \
