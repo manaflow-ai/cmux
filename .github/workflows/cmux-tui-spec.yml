@@ -1692,7 +1692,12 @@ jobs:
     # into feat-cmux-next skips it unless labeled full-ci; the post-merge batch runs it, and its few misses are fixed forward.
     if: ${{ (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (((inputs.only == '' || inputs.only == 'clippy') && ((!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true')) && (github.event_name != 'pull_request' || !(startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || startsWith(github.event.pull_request.base.ref, 'lane/')) || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')))))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 40
+    # 70 minutes on feat-cmux-next (the post-merge batch, the only run that writes the R2 cargo cache), 40 elsewhere.
+    # At 40 the batch's cold build hit the cap too (cancelled at 41 min 2026-11-28 09:04, 11:59, 13:40 and 20:07Z),
+    # so the R2 save never ran and every pull request clippy built cold again: 46 of 67 pull request clippy jobs
+    # (18:00-21:10Z) hit 40 min, about 2,200 runner-min with no verdict. One finished batch breaks that loop.
+    # CLIPPY_JOB_MINUTES below must match.
+    timeout-minutes: ${{ github.ref == 'refs/heads/feat-cmux-next' && 70 || 40 }}
     # ghostty-vt-sys builds libghostty-vt from the ghostty-next gitlink with zig, as in
     # cmux-tui.yml (an empty CMUX_GHOSTTY_SRC overrides a runner-level one).
     # CMUX_GHOSTTY_VT_ZIG_CPU=baseline: libghostty-vt for any x86-64 CPU, so the warm target
@@ -1705,6 +1710,8 @@ jobs:
       CMUX_GHOSTTY_SRC: ""
       CMUX_GHOSTTY_VT_ZIG_CPU: baseline
       CI_CACHE_R2_BUCKET: cmux-ci-cache-next
+      # The job's timeout-minutes above (the clippy autofix and the frame work contracts budget from it).
+      CLIPPY_JOB_MINUTES: ${{ github.ref == 'refs/heads/feat-cmux-next' && '70' || '40' }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -1977,8 +1984,7 @@ jobs:
         id: clippy
         env:
           BASE_SHA: ${{ steps.base.outputs.sha }}
-          # The job's timeout-minutes: the autofix's full rebuild is tried only when it ends 10 min before it.
-          CLIPPY_JOB_MINUTES: "40"
+          # The autofix's full rebuild is tried only when it ends 10 min before CLIPPY_JOB_MINUTES (the job's env).
           AUTOFIXED_OK: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_PR_AUTOFIX_PUSH == '1' && github.event.pull_request.head.sha || '' }}
           # Written when every error is in a file the change does not touch (a base red): the ratchet still runs then.
           CMUX_CLIPPY_BASE_RED_FILE: ${{ runner.temp }}/clippy-base-red
@@ -2056,7 +2062,7 @@ jobs:
           # budget instead (red by name), leaving the R2 save its minutes.
           reserve=150
           [[ "$EVENT_NAME" == pull_request ]] || reserve=480
-          deadline=$(( ${CLIPPY_JOB_STARTED:-$(date +%s)} + 40 * 60 - reserve ))
+          deadline=$(( ${CLIPPY_JOB_STARTED:-$(date +%s)} + ${CLIPPY_JOB_MINUTES:-40} * 60 - reserve ))
           check() {
             local name=$1; shift
             local log="$RUNNER_TEMP/frame-work-$name.log" start=$SECONDS rc=0
