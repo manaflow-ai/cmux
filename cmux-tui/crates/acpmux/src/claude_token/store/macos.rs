@@ -7,7 +7,7 @@
 //! (`connections/key.store`) for that reason, rather than writing it themselves.
 //!
 //! Items `security` created before this stay as they are and are read the way they always were
-//! (`profiles::keychain_lookup`'s `security` call): they are told apart by [`KIND`], which only an
+//! (`profiles::keychain_lookup`'s `security` call), and so is one this process does not find: they are told apart by [`KIND`], which only an
 //! item written here carries. They are not rewritten: a differently signed acpmux (a tagged or dev
 //! build) that rewrote one would lock the release build out of it. Adding the key again moves it.
 //!
@@ -38,8 +38,8 @@ const LOCKED: &str = "the login Keychain is locked or unavailable";
 /// What a read found.
 pub enum Read {
     Value(Zeroizing<String>),
-    Missing,
-    /// `security` wrote it: the caller reads it as before.
+    /// `security` wrote it, or the framework does not see it: the caller reads it with `security`,
+    /// as before.
     Legacy,
 }
 
@@ -78,12 +78,22 @@ pub fn read(account: &str) -> Result<Read, String> {
                 .map(|text| Read::Value(Zeroizing::new(text.to_owned())))
                 .map_err(|_| "the Keychain item is not UTF-8 text".to_owned())
         }
-        Err(error) if error.code() == ITEM_NOT_FOUND => Ok(Read::Missing),
-        Err(_) => match kind(account) {
-            Some(Some(kind)) if kind == KIND => Err(OTHER_BUILD.to_owned()),
-            Some(_) => Ok(Read::Legacy),
-            None => Err(LOCKED.to_owned()),
-        },
+        Err(error) => read_refused(error.code(), || kind(account)),
+    }
+}
+
+/// A refused framework read. Not found here is not proof it is gone: this process's Keychain
+/// search list is read once and can lag a `security list-keychains -s` made after it started (a
+/// job's own Keychain, a Keychain added since), while a `security` item there is what `security`
+/// reads. So `security` decides, as it did before acpmux read model keys itself.
+fn read_refused(code: i32, kind: impl FnOnce() -> Option<Option<String>>) -> Result<Read, String> {
+    if code == ITEM_NOT_FOUND {
+        return Ok(Read::Legacy);
+    }
+    match kind() {
+        Some(Some(kind)) if kind == KIND => Err(OTHER_BUILD.to_owned()),
+        Some(_) => Ok(Read::Legacy),
+        None => Err(LOCKED.to_owned()),
     }
 }
 
@@ -101,13 +111,20 @@ pub enum Deleted {
 pub fn delete(account: &str) -> Deleted {
     match without_ui(|| delete_generic_password(SERVICE, account)) {
         Ok(Ok(())) => Deleted::Gone,
-        Ok(Err(error)) if error.code() == ITEM_NOT_FOUND => Deleted::Gone,
-        Ok(Err(_)) => match kind(account) {
-            None => Deleted::Gone,
-            Some(Some(kind)) if kind == KIND => Deleted::Kept(OTHER_BUILD),
-            Some(_) => Deleted::Legacy,
-        },
+        Ok(Err(error)) => delete_refused(error.code(), || kind(account)),
         Err(_) => Deleted::Kept(LOCKED),
+    }
+}
+
+/// A refused framework delete. One this process cannot find still goes to `security`, which sees
+/// the current search list ([`read_refused`]) and answers an item already gone as gone.
+fn delete_refused(code: i32, kind: impl FnOnce() -> Option<Option<String>>) -> Deleted {
+    if code == ITEM_NOT_FOUND {
+        return Deleted::Legacy;
+    }
+    match kind() {
+        Some(Some(kind)) if kind == KIND => Deleted::Kept(OTHER_BUILD),
+        _ => Deleted::Legacy,
     }
 }
 
@@ -144,6 +161,26 @@ mod tests {
         assert!(matches!(read(&account), Ok(Read::Value(v)) if v.as_str() == "sk-test-value"));
         assert_eq!(kind(&account), Some(Some(KIND.to_owned())));
         assert!(matches!(delete(&account), Deleted::Gone));
-        assert!(matches!(read(&account), Ok(Read::Missing)));
+        assert!(matches!(read(&account), Ok(Read::Legacy)));
+    }
+
+    /// The probe's FIRE (11-28): the token item `security` wrote in a Keychain this process's
+    /// search list did not have yet read as not found, and the Cloud start refused the connection.
+    #[test]
+    fn not_found_here_goes_to_security() {
+        let never = || -> Option<Option<String>> { panic!("not found needs no attribute search") };
+        assert!(matches!(read_refused(ITEM_NOT_FOUND, never), Ok(Read::Legacy)));
+        assert!(matches!(delete_refused(ITEM_NOT_FOUND, never), Deleted::Legacy));
+    }
+
+    #[test]
+    fn a_refusal_still_tells_security_items_from_another_build() {
+        let ours = || Some(Some(KIND.to_owned()));
+        let securitys = || Some(None);
+        assert!(matches!(read_refused(INTERACTION_NOT_ALLOWED, ours), Err(e) if e == OTHER_BUILD));
+        assert!(matches!(read_refused(INTERACTION_NOT_ALLOWED, securitys), Ok(Read::Legacy)));
+        assert!(matches!(read_refused(AUTH_FAILED, || None), Err(e) if e == LOCKED));
+        assert!(matches!(delete_refused(AUTH_FAILED, ours), Deleted::Kept(OTHER_BUILD)));
+        assert!(matches!(delete_refused(AUTH_FAILED, securitys), Deleted::Legacy));
     }
 }

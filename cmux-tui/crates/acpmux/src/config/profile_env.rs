@@ -117,15 +117,14 @@ pub fn resolve_env_refs(
         }
         let mut out = String::new();
         let mut rest = value.as_str();
-        while let Some(start) = rest.find("${") {
-            out.push_str(&rest[..start]);
-            let after = &rest[start + 2..];
-            let Some(end) = after.find('}') else {
-                out.push_str(&rest[start..]);
+        while let Some((head, after)) = rest.split_once("${") {
+            out.push_str(head);
+            let Some((inner, tail)) = after.split_once('}') else {
+                out.push_str("${");
+                out.push_str(after);
                 rest = "";
                 break;
             };
-            let inner = &after[..end];
             if let Some(var) = inner.strip_prefix("env:") {
                 let v = lookup_env(var).ok_or_else(|| {
                     format!("env {key}: ${{env:{var}}} is not set in the login environment")
@@ -144,9 +143,11 @@ pub fn resolve_env_refs(
                 out.push_str(&v);
             } else {
                 // `${cwd}`, `${model}`… are expanded elsewhere.
-                out.push_str(&rest[start..start + 2 + end + 1]);
+                out.push_str("${");
+                out.push_str(inner);
+                out.push('}');
             }
-            rest = &after[end + 1..];
+            rest = tail;
         }
         out.push_str(rest);
         *value = out;
@@ -190,9 +191,6 @@ pub fn keychain_lookup(service: &str, account: Option<&str>) -> Result<String, S
         use crate::claude_token::store::macos::{Read, read};
         match read(account)? {
             Read::Value(value) => return Ok(value.as_str().to_owned()),
-            Read::Missing => {
-                return Err("not found (add the key again in Settings > Models)".into());
-            }
             Read::Legacy => {}
         }
     }
@@ -223,6 +221,9 @@ pub fn keychain_lookup(service: &str, account: Option<&str>) -> Result<String, S
     let mut child = cmd.spawn().map_err(|e| format!("cannot run the secret store: {e}"))?;
     match child.wait_timeout(std::time::Duration::from_secs(30)) {
         Ok(Some(status)) if status.success() => {}
+        Ok(Some(_)) if service == crate::claude_token::store::SERVICE => {
+            return Err("not found (add the key again in Settings > Models)".into());
+        }
         Ok(Some(_)) => {
             return Err("not found (add it with `cmux harness secret set`)".into());
         }
@@ -263,7 +264,7 @@ pub fn parse_security_password(stderr: &str) -> Option<String> {
         }
         let bytes: Option<Vec<u8>> = (0..hex.len())
             .step_by(2)
-            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).ok())
+            .map(|i| hex.get(i..i + 2).and_then(|pair| u8::from_str_radix(pair, 16).ok()))
             .collect();
         return String::from_utf8(bytes?).ok();
     }
