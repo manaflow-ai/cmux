@@ -1,4 +1,3 @@
-public import CmuxInstallAuthCore
 public import CmuxNextCompat
 public import Foundation
 

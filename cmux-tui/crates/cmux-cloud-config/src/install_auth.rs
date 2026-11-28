@@ -152,6 +152,8 @@ pub enum Effect {
 /// What the app answers an effect with, or how it starts the machine.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
+// One event a step, read from JSON and consumed: its size never adds up.
+#[allow(clippy::large_enum_variant)]
 pub enum Event {
     Start(Start),
     Session {
@@ -565,7 +567,12 @@ fn reply(status: u16, body: &str) -> Result<Map<String, Value>, Error> {
         });
     };
     if !(200..300).contains(&status) {
-        let code = reply.get("code").and_then(Value::as_str);
+        // A refusal names its code at the top (`{"code": ...}`, the auth routes) or inside `error`
+        // (`{"error": {"code": ...}}`, the build-space gate production answers a dev build with):
+        // either is the refusal's name, so a log says `build_space.not_allowed`, not `http_403`.
+        let code = reply.get("code").and_then(Value::as_str).or_else(|| {
+            reply.get("error").and_then(|error| error.get("code")).and_then(Value::as_str)
+        });
         if code == Some("client.too_old") {
             return Err(Error::ClientTooOld {
                 minimum_version: reply
@@ -663,7 +670,7 @@ fn claims(token: &str) -> Option<Map<String, Value>> {
         return None;
     };
     let mut base: String = payload.replace('-', "+").replace('_', "/");
-    while base.len() % 4 != 0 {
+    while !base.len().is_multiple_of(4) {
         base.push('=');
     }
     match serde_json::from_slice(&STANDARD.decode(base).ok()?).ok()? {

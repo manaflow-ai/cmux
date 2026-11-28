@@ -350,6 +350,36 @@ fn http_answers_are_classified_as_the_swift_did() {
     );
 }
 
+/// A dev build pointed at production is refused by the build-space gate, whose code sits inside
+/// `error`: the refusal names it (cloud-chat-proof run 45746953100 logged only `http_403`), the
+/// personal mint does not rotate, and a top-level code still wins.
+#[test]
+fn a_refusal_whose_code_is_inside_error_is_named_by_that_code() {
+    let gate = json!({ "error": {
+        "code": "build_space.not_allowed",
+        "message": "dev build spaces are not served by the production API; use the dev or staging API",
+    } });
+    let mut run = Run { state: None };
+    run.go(start(Some(record()), None, Mode::Mint));
+    assert_eq!(run.go(http(403, &gate)), Effect::Fail(Error::refused("build_space.not_allowed")));
+    let mut run = Run { state: None };
+    run.go(start(None, None, Mode::Mint));
+    run.go(Event::Session { token: "s".into() });
+    assert_eq!(run.go(http(403, &gate)), Effect::Fail(Error::refused("build_space.not_allowed")));
+    let mut run = Run { state: None };
+    run.go(start(Some(record()), None, Mode::Mint));
+    assert_eq!(
+        run.go(http(401, &json!({ "code": "auth.unauthenticated", "error": { "code": "other" } }))),
+        Effect::Fail(Error::refused("auth.unauthenticated"))
+    );
+    let mut run = Run { state: None };
+    run.go(start(Some(record()), None, Mode::Mint));
+    assert_eq!(
+        run.go(http(403, &json!({ "error": "forbidden" }))),
+        Effect::Fail(Error::refused("http_403"))
+    );
+}
+
 #[test]
 fn an_op_refusal_names_its_code() {
     let mut run = Run { state: None };

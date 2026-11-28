@@ -1,5 +1,4 @@
 public import CMUXAuthCore
-public import CmuxInstallAuthCore
 public import Foundation
 
 /// POSTs install-auth JSON to the API Worker at `baseURL` through the bundled cmux's `cmux cloud install-post`

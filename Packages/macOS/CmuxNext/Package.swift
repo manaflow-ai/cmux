@@ -2240,7 +2240,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
                 .product(name: "CmuxAuthRuntime", package: "CmuxAuthRuntime"),
                 .product(name: "CmuxEgress", package: "CmuxEgress"),
-                .product(name: "CmuxInstallAuthCore", package: "CmuxInstallAuthCore"),
             ],
             swiftSettings: daemonSwiftSettings
         ),
@@ -3114,8 +3113,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
-                // MacInstallTeamAuthTests signs team challenges with the install key.
-                .product(name: "CmuxInstallAuthCore", package: "CmuxInstallAuthCore"),
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
                 // UpdateLoadingIndicatorTests feeds Sparkle's update states.
                 .product(name: "CmuxUpdater", package: "CmuxUpdater"),
@@ -3256,7 +3253,6 @@ let package = !targetsLinux ? Package(
         .package(path: "../../Shared/CmuxGhosttyKit"),
         .package(path: "../../Shared/CmuxLiveCode"),
         .package(path: "../../Shared/CMUXAuthCore"),
-        .package(path: "../../Shared/CmuxInstallAuthCore"),
         .package(path: "../../Shared/CmuxAuthRuntime"),
         .package(path: "../../Shared/CmuxTheme"),
         // App Attest and DeviceCheck: the free tier's device proof (cx-ds09i).
