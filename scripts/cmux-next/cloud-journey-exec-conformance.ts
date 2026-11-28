@@ -45,6 +45,45 @@ export function journeyAcpmuxPieces(gz: Uint8Array, pieceBytes = JOURNEY_ACPMUX_
   return out;
 }
 
+/** How many times one piece's fs/write is tried, and the waits between tries (ms). */
+export const JOURNEY_ACPMUX_WRITE_TRIES = 3;
+export const JOURNEY_ACPMUX_WRITE_BACKOFF_MS = [3_000, 10_000];
+
+type WriteAnswer = { status: number; body?: any };
+
+/** Whether a failed write is worth another try: a gateway answer (vm_unavailable is a 502), or no answer at all. */
+export function journeyAcpmuxWriteRetryable(w: WriteAnswer | null): boolean {
+  if (!w) return true;
+  const code = String(w.body?.error?.code ?? w.body?.code ?? "");
+  return w.status === 0 || w.status === 408 || w.status === 429 || w.status >= 500 || code === "vm_unavailable";
+}
+
+/**
+ * One piece's fs/write, tried up to JOURNEY_ACPMUX_WRITE_TRIES times on a retryable answer (run 46172370728: one 502
+ * vm_unavailable on the first piece cost the whole run its acpmux). Throws with every try's answer when none took.
+ */
+export async function journeyAcpmuxWrite(
+  path: string,
+  send: () => Promise<WriteAnswer>,
+  wait: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+): Promise<number> {
+  const said: string[] = [];
+  for (let attempt = 1; ; attempt++) {
+    let w: WriteAnswer | null = null;
+    try {
+      w = await send();
+      if (w.status >= 200 && w.status < 300 && w.body?.ok !== false) return attempt;
+      said.push(`HTTP ${w.status} ${String(w.body?.error?.code ?? w.body?.code ?? "").slice(0, 60)}`.trim());
+    } catch (e) {
+      said.push(String((e as Error)?.message ?? e).slice(0, 120));
+    }
+    if (attempt >= JOURNEY_ACPMUX_WRITE_TRIES || !journeyAcpmuxWriteRetryable(w)) {
+      throw new Error(`fs/write ${path}: ${said.join("; ")} (${attempt} ${attempt === 1 ? "try" : "tries"})`);
+    }
+    await wait(JOURNEY_ACPMUX_WRITE_BACKOFF_MS[attempt - 1] ?? JOURNEY_ACPMUX_WRITE_BACKOFF_MS.at(-1)!);
+  }
+}
+
 /** Joins the pieces into JOURNEY_ACPMUX_DIR/acpmux, checks it runs, and prints its version on an @@ec line. */
 export function journeyAcpmuxAssemble(pieces: number, sha256: string): string {
   const d = JOURNEY_ACPMUX_DIR;
@@ -84,12 +123,36 @@ export function execConformanceProbe(): string {
 export function execConformanceCargoInstall(): string {
   return [
     PREAMBLE,
-    "command -v cargo >/dev/null && { echo '@@ec cargo already'; exit 0; }",
+    "cargo --version >/dev/null 2>&1 && { echo '@@ec cargo already'; exit 0; }",
     "curl -fsSL --max-time 120 https://sh.rustup.rs -o /tmp/rustup-init.sh",
     "sh /tmp/rustup-init.sh -y -q --profile minimal --default-toolchain stable --no-modify-path >/dev/null 2>&1; s=$?",
     "rm -f /tmp/rustup-init.sh",
     'echo "@@ec cargo_install exit=$s cargo=$(command -v cargo || echo none)"',
     "exit $s",
+  ].join("; ");
+}
+
+/** Starts that install in the background before the acpmux upload, so the two overlap (run 46159895648: the install
+ *  ran past its 300 s exec and was cut mid-toolchain, so the local side saw "rustup could not choose a version of
+ *  cargo" while the routed side, run later, found the finished toolchain: cargo-build-test DIFF exit 1/0). */
+export function execConformanceCargoStart(): string {
+  return [
+    PREAMBLE,
+    "rm -f /tmp/cmux-ec-cargo.done",
+    "if cargo --version >/dev/null 2>&1; then echo 0 > /tmp/cmux-ec-cargo.done; echo '@@ec cargo already'; exit 0; fi",
+    `setsid nohup sh -c ${q(`( ${execConformanceCargoInstall()} ) >/tmp/cmux-ec-cargo.log 2>&1; echo $? > /tmp/cmux-ec-cargo.done`)} </dev/null >/dev/null 2>&1 & echo '@@ec cargo_install started'`,
+  ].join("; ");
+}
+
+/** Waits for the background install, then proves cargo runs, so both sides of a case see one toolchain. */
+export function execConformanceCargoWait(budgetSeconds = 420): string {
+  return [
+    PREAMBLE,
+    `i=0; while [ ! -e /tmp/cmux-ec-cargo.done ] && [ $i -lt ${Math.max(1, Math.floor(budgetSeconds / 5))} ]; do sleep 5; i=$((i+1)); done`,
+    "cargo --version >/dev/null 2>&1 || rustup default stable >/dev/null 2>&1",
+    'v=$(cargo --version 2>&1 | head -1)',
+    'echo "@@ec cargo_ready=$(cargo --version >/dev/null 2>&1 && echo yes || echo no) install_exit=$(cat /tmp/cmux-ec-cargo.done 2>/dev/null || echo unfinished) waited_s=$((i*5)) version=$v"',
+    "cargo --version >/dev/null 2>&1 || tail -5 /tmp/cmux-ec-cargo.log 2>/dev/null",
   ].join("; ");
 }
 
