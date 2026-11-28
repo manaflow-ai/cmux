@@ -167,6 +167,25 @@ struct LayoutShiftCounterTests {
         #expect(counter.moves == ["2:b 60/60->114/60 under new card"])
     }
 
+    /// The late edited-files card (step c7678e3e): `f` lands above a finished turn's actions row
+    /// `a`. Unheld, the list keeps its offset and `a` is pushed 238 pt down; held (the list holds
+    /// the bottom row the reader sees), `a` stays and the row above moves up with the list's scroll.
+    @Test func aRowInsertedAboveTheReaderIsNotAShiftWhenTheListHoldsTheRowsUnderIt() {
+        let w = { (y: CGFloat, h: CGFloat, by: CGFloat) in
+            LayoutShiftCounter.Row(CGRect(x: 0, y: y, width: 390, height: h), .window, scrolled: CGPoint(x: 0, y: by))
+        }
+        var held = LayoutShiftCounter()
+        held.frame(["u": w(457, 64, 0), "a": w(633, 44, 0)])
+        held.frame(["u": w(219, 64, -238), "f": w(395, 230, -238), "a": w(633, 44, -238)])
+        #expect(held.shiftFrames == 0)
+
+        var pushed = LayoutShiftCounter()
+        pushed.frame(["u": w(457, 64, 0), "a": w(633, 44, 0)])
+        pushed.frame(["u": w(457, 64, 0), "f": w(529, 230, 0), "a": w(871, 44, 0)])
+        #expect(pushed.shiftFrames == 1)
+        #expect(pushed.moves == ["2:a 633/44->871/44 dy 238.0 dh 0.0 list 0.0 under new f"])
+    }
+
     @Test func aRowThatLeavesAndComesBackIsComparedOnlyWhileDrawn() {
         var counter = LayoutShiftCounter()
         counter.frame(["a": row(0)])
