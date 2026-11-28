@@ -20,8 +20,8 @@ const LINK = "https://share-staging.cmux.dev/i/AbCdEf0123456789xyzQ"
 const on = (extra: Partial<Record<string, unknown>> = {}, allowed = true) =>
   ({
     ...testEnv,
-    ENVIRONMENT: "staging",
-    WORKER_NAME: "cmux-api-staging",
+    // "test" keeps the local Stack keys (auth.ts); its policy is a non-production one, with the allow list.
+    ENVIRONMENT: "test",
     SHARE_INVITE_MAIL_SEND: "on",
     HOME_INVITES_SEND: "on",
     RESEND_API_KEY: "re_test_not_a_key",
