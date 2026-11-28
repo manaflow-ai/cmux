@@ -123,6 +123,9 @@ pub(super) async fn route(
     let params = super::pairing::gate(conn, m, params)?;
     // So does a teammate through the Cloud carrier, to its verbs (`carrier.rs`).
     let params = super::carrier::gate(hub, conn, m, params)?;
+    if m == crate::rpc::method::MUX_SHUTDOWN {
+        tracing::debug!(target: crate::daemon::HANDOFF_TIMING, "handoff timing: routed");
+    }
     // The app's and webviews' own spans of one user action, into this daemon's Perfetto trace
     // (`perf_trace.rs`): no store, no peer.
     if m == crate::perf_trace::METHOD_SPANS {
@@ -134,6 +137,9 @@ pub(super) async fn route(
         );
     }
     hub.prepare_store_request(m, &params).await;
+    if m == crate::rpc::method::MUX_SHUTDOWN {
+        tracing::debug!(target: crate::daemon::HANDOFF_TIMING, "handoff timing: store gate passed");
+    }
     // The owner's phone a peer daemon vouches for on this request, before any rule reads it.
     super::remote_guard::note_vouched_phone(hub, conn, &params);
     if m == crate::rpc::method::MUX_OWNER_PHONE_CHANGED {
@@ -254,7 +260,10 @@ pub(super) async fn route(
     // Moving a chat to another daemon (`hub/transfer_out.rs`): a bundle holds the whole chat and
     // runs its queue with the rules it was sent under, so only the local socket moves one.
     if m.starts_with("_acpmux/transfer_") {
-        if conn.origin != Origin::Local {
+        // What a move would interrupt is read-only: the app's own pane asks it too, to say so
+        // before its Cloud / Auto / Evacuate (RFD 0063 item 6).
+        let read_only = m == "_acpmux/transfer_interrupts" && conn.origin == Origin::LocalApp;
+        if conn.origin != Origin::Local && !read_only {
             return Err(RpcError::method_not_found(&format!("{m} (local socket only)")));
         }
         // A move's finish may carry the owner's login for the chat's agent (`transfer_in.rs`),
