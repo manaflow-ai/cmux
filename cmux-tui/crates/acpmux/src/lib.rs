@@ -14,6 +14,7 @@
 // there, code only its Unix paths reach is unused on Windows.
 #![cfg_attr(not(unix), allow(dead_code, unused_imports, unused_variables, unused_mut))]
 
+pub mod abi_hello;
 pub mod accept_errors;
 pub(crate) mod acp_key_auth;
 pub mod acpmux_mcp;
@@ -94,6 +95,7 @@ pub mod codex_desktop;
 pub mod codex_repo_gate;
 mod codex_signed_out;
 pub mod complete;
+pub mod compose_wake;
 pub mod computer_use;
 pub mod config;
 pub mod conn_origin;
@@ -151,6 +153,9 @@ pub mod install_share;
 pub mod key_check;
 pub mod memory_follow;
 pub mod model_router;
+pub mod spec_exec;
+mod subscription_store;
+mod subscriptions;
 /// GitHub's MCP server needs the Cloud agent's unix socket (`github_mcp.rs`): elsewhere it is
 /// never offered, and the command says so.
 #[cfg(not(unix))]
@@ -297,6 +302,7 @@ pub mod perf_trace;
 // One host-wide gate for peer links' dials, so many dropped links do not redial in one instant.
 pub mod peer_dial_gate;
 pub(crate) mod peer_notice_outbox;
+pub mod peer_starved;
 // The dialing side of a peer's list stream: the mirror into the index (row 8, part two).
 pub mod peer_mirror;
 pub mod peer_path_stats;
@@ -382,6 +388,7 @@ mod session_handle;
 pub mod session_icon;
 pub mod session_identity;
 pub mod session_liveness;
+pub mod session_manifest;
 pub mod session_name;
 pub mod session_order;
 mod session_scope;
