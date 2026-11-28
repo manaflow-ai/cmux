@@ -96,7 +96,7 @@ jobs:
             --key "interaction-latency-$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
             --artifact artifacts/interaction-latency/results.json --arg "interactions=$keys" \
             2>&1 | tee "$log" || status=1
-          step="$(grep -o -E '\b[0-9a-f]{24}\b' "$log" | head -1)"
+          step="$(grep -o -E '\b[0-9a-f]{24}\b' "$log" | head -1 || true)"
           if [[ -n "$step" ]] && { "$client" artifact "$step" "$RUNNER_TEMP/results/results.json" || "$client" artifact --failed "$step" "$RUNNER_TEMP/results/results.json"; } \
             && python3 -I -c 'import json,sys; json.load(open(sys.argv[1]))' "$RUNNER_TEMP/results/results.json"; then
             echo "ok=true" >> "$GITHUB_OUTPUT"
