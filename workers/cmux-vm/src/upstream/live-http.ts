@@ -55,6 +55,8 @@ export interface UpstreamHttp {
        * or `timeoutMs` loses its answer while the provider carries on.
        */
       readonly backgroundUntil?: number;
+      /** With `backgroundUntil`: seconds before the provider answers 202 (default BACKGROUND_AFTER_SECS). */
+      readonly backgroundAfterSecs?: number;
     },
   ) => Effect.Effect<unknown, UpstreamError>;
   /**
@@ -119,7 +121,7 @@ export function makeUpstreamHttp(config: UpstreamConfig): UpstreamHttp {
       catch: () => new UpstreamError({ operation, status: null }),
     }).pipe(
       Effect.flatMap((result) =>
-        result.ok ? Effect.succeed(result.response) : Effect.fail(new UpstreamError({ operation, status: result.status })),
+        result.ok ? Effect.succeed(result.response) : Effect.fail(new UpstreamError({ operation, status: result.status, ...(result.kind === undefined ? {} : { kind: result.kind }) })),
       ),
     );
 
@@ -135,7 +137,7 @@ export function makeUpstreamHttp(config: UpstreamConfig): UpstreamHttp {
       catch: () => new UpstreamError({ operation, status: response.status }),
     }).pipe(
       Effect.flatMap((result) =>
-        result.ok ? Effect.succeed(result.body) : Effect.fail(new UpstreamError({ operation, status: result.status, ...(result.kind === undefined ? {} : { kind: result.kind }) })),
+        result.ok ? Effect.succeed(result.body) : Effect.fail(new UpstreamError({ operation, status: result.status })),
       ),
     );
 
@@ -144,10 +146,10 @@ export function makeUpstreamHttp(config: UpstreamConfig): UpstreamHttp {
     const sent = request(operation, method, path, {
       body,
       timeoutMs: options?.timeoutMs ?? timeoutMs,
-      ...(until === undefined ? {} : { headers: { [BACKGROUND_AFTER_HEADER]: String(BACKGROUND_AFTER_SECS) } }),
+      ...(until === undefined ? {} : { headers: { [BACKGROUND_AFTER_HEADER]: String(options?.backgroundAfterSecs ?? BACKGROUND_AFTER_SECS) } }),
     });
     const settled = until === undefined ? sent : sent.pipe(Effect.flatMap((response) => response.status === 202
-      ? awaitBackground((op, at, init) => request(op, init.method, at, { timeoutMs: init.timeoutMs }), operation, response, base.origin, until, config.backgroundPollMs ?? DEFAULT_BACKGROUND_POLL_MS)
+      ? awaitBackground((op, at, init) => request(op, init.method, at, { timeoutMs: init.timeoutMs }), operation, response, base.origin, until, config.backgroundPollMs ?? DEFAULT_BACKGROUND_POLL_MS, config.backgroundOutageMs)
       : Effect.succeed(response)));
     return settled.pipe(Effect.flatMap((response) => parse(operation, response)), timedUpstream);
   };
