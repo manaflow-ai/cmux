@@ -1,0 +1,160 @@
+;; The macOS Seatbelt profile acpmux runs a local chat's Claude Code in
+;; (`local_sandbox.rs`, hq RFD "Sandboxing and lockdown for Cloud, AutoCloud
+;; and the app"). On by default (`sessions.sandbox`); every child (Claude's
+;; Bash tool included) inherits it and cannot leave it.
+;;
+;; It is looser than a remote chain's (`remote-chain.sb`): a local chat is the
+;; person's own and keeps today's flows (git, builds, dev servers, editing its
+;; own CLAUDE.md and skills). What it stops is the
+;; prompt-injection path: reading a credential and sending it out, and
+;; writing outside the chat's folders and the toolchains' own state.
+;;
+;; Parameters (sandbox-exec -D, canonical paths, no trailing slash):
+;;   HOME         the home directory
+;;   AGENT_HOME   the agent's HOME (the same folder unless its profile sets one)
+;;   CWD          the chat folder
+;;   ACPMUX_HOME  acpmux's state folder (its socket, the cmux CLI's state)
+;;   SESSION_TMP  the sessions' temporary folders (acpmux makes one per chat)
+;;   HOME_RE, AGENT_HOME_RE  the two homes, regex-escaped
+;; acpmux adds a `(subpath (param "DIRn"))` line per extra folder (the chat's
+;; added folders, a worktree's git folder) at @FOLDERS@, and Claude Code's own
+;; API port at @API_PORT@.
+;; Seatbelt applies the last rule that matches.
+(version 1)
+(allow default)
+(deny file-link)
+
+;; Writes: the chat's folders, the temporary folders, the harness's own state
+;; and the toolchains' caches. Never the rest of home (shell startup files,
+;; LaunchAgents, ~/.gitconfig, ~/.ssh, Documents) or the system.
+(deny file-write* (subpath "/"))
+(allow file-write*
+  (subpath (param "CWD"))
+  (subpath (param "SESSION_TMP"))
+  (subpath (param "ACPMUX_HOME"))
+  (subpath "/private/tmp")
+  (subpath "/private/var/folders")
+  (subpath "/dev")
+  ;; Claude Code and Codex state
+  (subpath (string-append (param "AGENT_HOME") "/.claude"))
+  (regex (string-append "^" (param "AGENT_HOME_RE") "/\\.claude\\.json"))
+  (subpath (string-append (param "AGENT_HOME") "/.codex"))
+  (subpath (string-append (param "AGENT_HOME") "/.cache"))
+  (subpath (string-append (param "AGENT_HOME") "/Library/Caches"))
+  (subpath (string-append (param "AGENT_HOME") "/Library/Logs"))
+  (subpath (string-append (param "AGENT_HOME") "/Library/Application Support/cmux"))
+  ;; toolchains: package caches and build outputs
+  (subpath (string-append (param "AGENT_HOME") "/.cargo/registry"))
+  (subpath (string-append (param "AGENT_HOME") "/.cargo/git"))
+  (subpath (string-append (param "AGENT_HOME") "/.cargo/.package-cache"))
+  (subpath (string-append (param "AGENT_HOME") "/.npm/_cacache"))
+  (subpath (string-append (param "AGENT_HOME") "/.npm/_logs"))
+  (subpath (string-append (param "AGENT_HOME") "/.bun/install/cache"))
+  (subpath (string-append (param "AGENT_HOME") "/.pnpm-store"))
+  (subpath (string-append (param "AGENT_HOME") "/.yarn/cache"))
+  (subpath (string-append (param "AGENT_HOME") "/.gradle/caches"))
+  (subpath (string-append (param "AGENT_HOME") "/.gradle/wrapper/dists"))
+  (subpath (string-append (param "AGENT_HOME") "/.m2/repository"))
+  (subpath (string-append (param "AGENT_HOME") "/Library/org.swift.swiftpm"))
+;; @FOLDERS@
+  )
+
+;; The sandbox policy itself is read by the daemon before each new chat. Keep
+;; cmux's settings trees immutable from inside the sandbox, including the
+;; legacy path used by the one-time macOS migration and an explicit override.
+(deny file-write*
+  (subpath (string-append (param "HOME") "/.config/cmux-next"))
+  (subpath (string-append (param "HOME") "/.config/cmux"))
+  (subpath (string-append (param "AGENT_HOME") "/.config/cmux-next"))
+  (subpath (string-append (param "AGENT_HOME") "/.config/cmux"))
+  (literal (string-append "" (param "CMUX_CONFIG")))
+  (literal (string-append "" (param "CMUX_CONFIG_REAL")))
+  (literal (string-append "" (param "CMUX_LEGACY_CONFIG")))
+  (literal (string-append "" (param "CMUX_AGENT_CONFIG")))
+  (literal (string-append "" (param "CMUX_AGENT_LEGACY_CONFIG"))))
+
+;; A hard link would let a write in a writable folder land on a file outside it.
+(deny file-link)
+
+;; Credentials a local agent never reads, though their tools keep working:
+;; private keys (ssh still finds known_hosts, its config and the agent's
+;; keys through SSH_AUTH_SOCK), cloud and registry tokens, browser cookies
+;; and profiles and system or user Keychains.
+(deny file-read* file-write*
+  (subpath (string-append (param "HOME") "/.ssh"))
+  (subpath (string-append (param "AGENT_HOME") "/.ssh"))
+  (subpath (string-append (param "HOME") "/.secrets"))
+  (subpath (string-append (param "AGENT_HOME") "/.secrets"))
+  (subpath (string-append (param "HOME") "/.aws"))
+  (subpath (string-append (param "AGENT_HOME") "/.aws"))
+  (subpath (string-append (param "HOME") "/.gnupg"))
+  (subpath (string-append (param "AGENT_HOME") "/.gnupg"))
+  (subpath (string-append (param "HOME") "/.kube"))
+  (subpath (string-append (param "HOME") "/.config/gh"))
+  (subpath (param "GH_CONFIG_DIR"))
+  (subpath (param "XDG_GH_CONFIG_DIR"))
+  (subpath (string-append (param "HOME") "/.config/gcloud"))
+  (subpath (string-append (param "HOME") "/.azure"))
+  (literal (string-append (param "HOME") "/.netrc"))
+  (literal (string-append (param "HOME") "/.git-credentials"))
+  (literal (string-append (param "HOME") "/.npmrc"))
+  (literal (string-append (param "HOME") "/.pypirc"))
+  (literal (string-append (param "HOME") "/.docker/config.json"))
+  (literal (string-append (param "HOME") "/.codex/auth.json"))
+  (subpath (string-append (param "HOME") "/Library/Keychains"))
+  (subpath "/Library/Keychains")
+  (subpath (string-append (param "HOME") "/Library/Cookies"))
+  (subpath (string-append (param "HOME") "/Library/Application Support/Google/Chrome"))
+  (subpath (string-append (param "HOME") "/Library/Application Support/Firefox"))
+  (subpath (string-append (param "HOME") "/Library/Application Support/BraveSoftware"))
+  (subpath (string-append (param "HOME") "/Library/Application Support/Arc"))
+  (subpath (string-append (param "HOME") "/Library/Safari"))
+  (subpath (string-append (param "AGENT_HOME") "/.ssh"))
+  (subpath (string-append (param "AGENT_HOME") "/.secrets"))
+  (subpath (string-append (param "AGENT_HOME") "/.aws"))
+  (subpath (string-append (param "AGENT_HOME") "/.gnupg"))
+  (subpath (string-append (param "AGENT_HOME") "/.kube"))
+  (subpath (string-append (param "AGENT_HOME") "/.config/gh"))
+  (subpath (string-append (param "AGENT_HOME") "/.config/gcloud"))
+  (subpath (string-append (param "AGENT_HOME") "/.azure"))
+  (literal (string-append (param "AGENT_HOME") "/.netrc"))
+  (literal (string-append (param "AGENT_HOME") "/.git-credentials"))
+  (literal (string-append (param "AGENT_HOME") "/.npmrc"))
+  (literal (string-append (param "AGENT_HOME") "/.pypirc"))
+  (literal (string-append (param "AGENT_HOME") "/.docker/config.json"))
+  (literal (string-append (param "AGENT_HOME") "/.codex/auth.json"))
+  (subpath (string-append (param "AGENT_HOME") "/Library/Keychains"))
+  (subpath "/Library/Keychains")
+  (subpath (string-append (param "AGENT_HOME") "/Library/Cookies"))
+  (subpath (string-append (param "AGENT_HOME") "/Library/Application Support/Google/Chrome"))
+  (subpath (string-append (param "AGENT_HOME") "/Library/Application Support/Firefox"))
+  (subpath (string-append (param "AGENT_HOME") "/Library/Application Support/BraveSoftware"))
+  (subpath (string-append (param "AGENT_HOME") "/Library/Application Support/Arc"))
+  (subpath (string-append (param "AGENT_HOME") "/Library/Safari")))
+;; ssh's own non-secret files stay readable: without known_hosts and its
+;; config, git over ssh stops even with keys in the agent.
+(allow file-read*
+  (literal (string-append (param "HOME") "/.ssh"))
+  (literal (string-append (param "HOME") "/.ssh/config"))
+  (literal (string-append (param "HOME") "/.ssh/known_hosts"))
+  (regex (string-append "^" (param "HOME_RE") "/\\.ssh/[^/]+\\.pub$"))
+  (regex (string-append "^" (param "AGENT_HOME_RE") "/\\.ssh/[^/]+\\.pub$"))
+  (literal (string-append (param "HOME") "/.aws/config"))
+  (literal (string-append (param "AGENT_HOME") "/.aws/config")))
+
+;; No process outside the sandbox: no launchd jobs, no app launches.
+(deny job-creation)
+(deny lsopen)
+
+;; Network: loopback (dev servers, local model routes) and outbound only to
+;; ports 443, 80 and 22 (git over ssh). Unix sockets stay closed except for
+;; macOS's resolver socket. In particular, Docker's socket must not proxy
+;; unrestricted host access into this profile.
+(deny network-outbound)
+(allow network-outbound
+  (remote ip "*:443")
+  (remote ip "*:80")
+  (remote ip "*:22")
+  (remote ip "localhost:*")
+  (remote unix-socket (path-literal "/private/var/run/mDNSResponder")))
+;; @API_PORT@

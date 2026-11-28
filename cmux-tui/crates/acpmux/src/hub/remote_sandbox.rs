@@ -165,7 +165,7 @@ pub(super) fn endpoint(
 /// `env.ANTHROPIC_BASE_URL` of the user's Claude settings file
 /// (`<home>/.claude/settings.json`; a remote chain never runs with another
 /// `CLAUDE_CONFIG_DIR`, `REFUSED_ENV`).
-pub(super) fn user_settings_endpoint(home: &Path) -> Option<String> {
+pub(crate) fn user_settings_endpoint(home: &Path) -> Option<String> {
     let text = std::fs::read_to_string(home.join(".claude").join("settings.json")).ok()?;
     let v: Value = serde_json::from_str(&text).ok()?;
     v.pointer("/env/ANTHROPIC_BASE_URL").and_then(Value::as_str).map(str::to_owned)
