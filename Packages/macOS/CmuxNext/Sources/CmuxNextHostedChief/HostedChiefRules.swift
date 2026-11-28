@@ -6,11 +6,6 @@ import Foundation
 /// `cloud/chiefs.rs` and `cloud/reach.rs`, ops `chiefs_*` and `reach_*`) through ``HomeEngineRules``.
 /// The Swift types the views use stay; these are the JSON shapes of the ops.
 nonisolated enum ChiefRules {
-    /// The Rust area these ops live in: `cmux_home_call` names an op `area.name` and answers `unknown op` for a bare
-    /// name, which stopped every Debug build at launch on `chiefs_tab` (base red, the fix of
-    /// https://github.com/manaflow-ai/cmux/pull/55847).
-    private static let area = "cloud."
-
     /// A rule that cannot fail on its input: a failure is a cmux-app-ffi without the op (its pin
     /// predates it), so debug builds stop and release builds answer `fallback`.
     static func rule<In: Encodable, Out: Decodable>(_ op: String, _ input: In, else fallback: @autoclosure () -> Out) -> Out {
