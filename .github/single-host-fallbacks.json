@@ -425,25 +425,25 @@
       "fallback": "ci-owned-pool-rescue watches attempt 1 of every nightly-next push run; a job still waiting on an owned pool past CI_OWNED_POOL_RESCUE_SECONDS plus one QUEUE_ROUND_SECONDS (owned_pool_rescue.py: 90 + 900 s by default, 600 + 900 s at most) gets the run cancelled and re-run. Attempt 2 never reads the owned output, so the job takes pick-nightly-sign-runner.runner, then vars.MACOS_RUNNER_26, then blacksmith-6vcpu-macos-26",
       "after_minutes": 25,
       "served_by": "the owned std Macs (every std runner, CI_OWNED_POOL_SLOTS)",
-      "note": "nightly.yml verify-signed-nightly and verify-final-dmg-nightly on attempt 1 of a nightly-next push run only (pick-nightly-sign-runner.owned, cmux#25783); they hold no secret."
+      "note": "nightly.yml verify-signed-nightly and verify-final-dmg-nightly took this label on attempt 1 of a nightly-next push run only, through pick-nightly-sign-runner.owned (cmux#25783), which is retired: nightly-next-one signs nightly-next. They hold no secret."
     },
     "glaeda-light-xcode-26.6": {
       "fallback": "ci-owned-pool-rescue watches attempt 1 of every nightly-next push run; a job still waiting on an owned pool past CI_OWNED_POOL_RESCUE_SECONDS plus one QUEUE_ROUND_SECONDS (owned_pool_rescue.py: 90 + 900 s by default, 600 + 900 s at most) gets the run cancelled and re-run. Attempt 2 never reads the owned output, so the job takes pick-nightly-sign-runner.runner, then vars.MACOS_RUNNER_26, then blacksmith-6vcpu-macos-26",
       "after_minutes": 25,
       "served_by": "the owned light Macs (every light runner, CI_OWNED_POOL_SLOTS)",
-      "note": "nightly.yml verify-signed-nightly and verify-final-dmg-nightly on attempt 1 of a nightly-next push run only (pick-nightly-sign-runner.owned, cmux#25783); they hold no secret."
+      "note": "nightly.yml verify-signed-nightly and verify-final-dmg-nightly took this label on attempt 1 of a nightly-next push run only, through pick-nightly-sign-runner.owned (cmux#25783), which is retired: nightly-next-one signs nightly-next. They hold no secret."
     },
     "glaeda-root-std-xcode-26.6": {
       "fallback": "ci-owned-pool-rescue watches attempt 1 of every nightly-next push run; a job still waiting on an owned pool past CI_OWNED_POOL_RESCUE_SECONDS plus one QUEUE_ROUND_SECONDS (owned_pool_rescue.py: 90 + 900 s by default, 600 + 900 s at most) gets the run cancelled and re-run. Attempt 2 never reads the owned output, so the job takes pick-nightly-sign-runner.runner, then vars.MACOS_RUNNER_26, then blacksmith-6vcpu-macos-26",
       "after_minutes": 25,
       "served_by": "the owned std Macs' root runners (CI_OWNED_POOL_SLOTS)",
-      "note": "nightly.yml verify-signed-nightly and verify-final-dmg-nightly on attempt 1 of a nightly-next push run only (pick-nightly-sign-runner.owned, cmux#25783); they hold no secret."
+      "note": "nightly.yml verify-signed-nightly and verify-final-dmg-nightly took this label on attempt 1 of a nightly-next push run only, through pick-nightly-sign-runner.owned (cmux#25783), which is retired: nightly-next-one signs nightly-next. They hold no secret."
     },
     "glaeda-root-light-xcode-26.6": {
       "fallback": "ci-owned-pool-rescue watches attempt 1 of every nightly-next push run; a job still waiting on an owned pool past CI_OWNED_POOL_RESCUE_SECONDS plus one QUEUE_ROUND_SECONDS (owned_pool_rescue.py: 90 + 900 s by default, 600 + 900 s at most) gets the run cancelled and re-run. Attempt 2 never reads the owned output, so the job takes pick-nightly-sign-runner.runner, then vars.MACOS_RUNNER_26, then blacksmith-6vcpu-macos-26",
       "after_minutes": 25,
       "served_by": "the owned light Macs' root runners (CI_OWNED_POOL_SLOTS)",
-      "note": "nightly.yml verify-signed-nightly and verify-final-dmg-nightly on attempt 1 of a nightly-next push run only (pick-nightly-sign-runner.owned, cmux#25783); they hold no secret."
+      "note": "nightly.yml verify-signed-nightly and verify-final-dmg-nightly took this label on attempt 1 of a nightly-next push run only, through pick-nightly-sign-runner.owned (cmux#25783), which is retired: nightly-next-one signs nightly-next. They hold no secret."
     },
     "glaeda-side-std-xcode-26.6": {
       "fallback": "ci-owned-pool-rescue watches attempt 1 of every nightly-next push run; a job still waiting on an owned pool past CI_OWNED_POOL_RESCUE_SECONDS plus one QUEUE_ROUND_SECONDS (owned_pool_rescue.py: 90 + 900 s by default, 600 + 900 s at most) gets the run cancelled and re-run. Attempt 2 never reads the owned output, so build-nightly-app takes pick-nightly-build-runner.blacksmith, then blacksmith-6vcpu-macos-26",

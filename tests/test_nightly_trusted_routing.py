@@ -34,9 +34,9 @@ WORKFLOW_FILE = Path(os.environ.get('NIGHTLY_WORKFLOW_FILE', ROOT / '.github/wor
 DOC = workflow_jobs.document(nightly_expand(WORKFLOW_FILE.read_text()))
 # The nightly signer jobs: the JIT nightly label on every attempt (a fork: hosted Ubuntu), never Blacksmith.
 SIGNER_JOBS = ('signer-build', 'signer-app', 'signer-dmg')
-# They, their picker and the cmux NIGHTLY-identity copy's release-signer jobs (all on the signer route itself)
+# They and the cmux NIGHTLY-identity copy's release-signer jobs (all on the signer route itself)
 # have their own routes, outside the 16/32 rule.
-SIGNER_ROUTE_JOBS = SIGNER_JOBS + ('pick-nightly-sign-runner', 'legacy-signer-app', 'legacy-signer-dmg')
+SIGNER_ROUTE_JOBS = SIGNER_JOBS + ('legacy-signer-app', 'legacy-signer-dmg')
 TAIL_CONTROL_JOBS = (
     'visual-gate-nightly-verdict', 'report-visual-gate-nightly',
     'report-nightly-failure', 'close-nightly-failure-issue', 'report-nightly-shelf-red',
@@ -102,7 +102,6 @@ OWNED_SECRET_JOBS = {
     'sign-live-code-variant': "signs, notarizes and publishes nightly-next-one's live code variant on the same signer label",
     'decide': 'reads the routing App key (ci-routing-agent) to place early controls; a credentialed control',
     'pick-nightly-build-runner': 'reads the routing App key (ci-routing-agent) to pick the build mini; a credentialed control',
-    'pick-nightly-sign-runner': 'reads the routing App key (ci-routing-agent) to pick the signer; a credentialed control',
     'find-nightly-next-recovery': 'reads the routing App key (ci-routing-agent) to pick the recovery signer; a credentialed control',
     'route-visual-gate-nightly': 'reads the routing App key (ci-routing-agent) to pick the visual gate mini; a credentialed control',
     'pick-nightly-next-signer': 'reads the glaeda-route App key for a read-only token to pick the signer Mac; a credentialed control',
@@ -456,13 +455,13 @@ class NightlyTrustedRouting(unittest.TestCase):
         self.assertEqual(uses, ['build-nightly-ghostty-cli-helper', 'build-nightly-inputs', 'verify-final-dmg-nightly',
                                 'verify-recovered-nightly-next', 'verify-signed-nightly'])
         steps = sorted(name for name, job in DOC['jobs'].items() if 'CI_NIGHTLY_NEXT_BUILD_RUNNER' in str(job.get('steps', '')))
-        # The verify jobs' owned pick (pick-nightly-sign-runner) offers the same labels as the build's; its
-        # signing pick and the recovery's (find-nightly-next-recovery) offer only the signing label.
-        self.assertEqual(steps, ['pick-nightly-build-runner', 'pick-nightly-sign-runner'])
+        # Only the build's pick offers these labels; the recovery's (find-nightly-next-recovery) offers only the
+        # signing label.
+        self.assertEqual(steps, ['pick-nightly-build-runner'])
         # Their OWNED_LABELS is the signer's label as a literal: no variable chooses it.
         signing = sorted(name for name, job in DOC['jobs'].items()
                          if any((step.get('env') or {}).get('OWNED_LABELS') == SIGNING_SLOT for step in job.get('steps', [])))
-        self.assertEqual(signing, ['find-nightly-next-recovery', 'pick-nightly-sign-runner'])
+        self.assertEqual(signing, ['find-nightly-next-recovery'])
         self.assertNotIn('CI_NIGHTLY_SIGNING_POOL', str(DOC['jobs']))
 
     def test_ghostty_helper_takes_owned_macos_26_then_the_nightly_slot(self):
