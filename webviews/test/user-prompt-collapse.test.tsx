@@ -452,7 +452,9 @@ try {
       expect(durationReads).toBe(0);
       click(toggle()!);
       expect(body().classList.contains("is-clamped")).toBe(false);
-      expect(durationReads).toBe(1);
+      // The toggle takes its new height in one frame since #60630 (no collapsible animates height,
+      // transcript-motion-model rule 7), so it reads no fold duration either.
+      expect(durationReads).toBe(0);
     } finally {
       foldMotion.duration = duration;
       foldMotion.reducedMotion = reducedMotion;
