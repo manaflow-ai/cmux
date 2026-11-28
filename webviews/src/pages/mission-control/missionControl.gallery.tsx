@@ -13,7 +13,12 @@ type Props = { count: number; thumbs?: boolean; badge?: MissionBadgePlace; metri
 function MissionControlGallery({ count, thumbs, badge, metrics }: Props) {
   return (
     <div style={{ height: 560 }}>
-      <MissionControl tiles={fixtureTiles(count, { thumbs })} strings={FIXTURE_STRINGS} badge={badge} metrics={metrics} />
+      <MissionControl
+        tiles={fixtureTiles(count, { thumbs })}
+        strings={FIXTURE_STRINGS}
+        badge={badge}
+        metrics={metrics}
+      />
     </div>
   );
 }
