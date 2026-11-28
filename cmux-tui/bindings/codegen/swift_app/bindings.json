@@ -37,12 +37,7 @@
               "type": "AgentState"
             }
           },
-          "response": "generate",
-          "response_fields": {
-            "agents": {
-              "type": "[AgentStatus]"
-            }
-          }
+          "response": "generate"
         },
         "report-agent": {
           "name": "ReportAgentRequest",
@@ -195,6 +190,76 @@
             }
           },
           "response": "hand-written"
+        }
+      },
+      "objects": {
+        "AgentStatus": {
+          "type": "AgentRecord",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable"
+          ],
+          "doc": [
+            "One `list-agents` row and the `agents` list a snapshot carries: a terminal's agent state."
+          ],
+          "order": [
+            "surface",
+            "terminal_id",
+            "state",
+            "source",
+            "session",
+            "agent",
+            "agent_session_id",
+            "updated_at_ms",
+            "since_ms",
+            "last_prompt"
+          ],
+          "omit": [
+            "status"
+          ],
+          "fields": {
+            "surface": {
+              "type": "SurfaceID"
+            },
+            "terminal_id": {
+              "type": "ResourceID",
+              "optional": true,
+              "decode": "((try? container.decodeIfPresent(String.self, forKey: .terminalID)) ?? nil).flatMap { $0.isEmpty ? nil : ResourceID(rawValue: $0) }",
+              "doc": [
+                "The terminal's public id (`term_…`, `terminal_id`): a terminal restored or reopened into a",
+                "new tab keeps it while its tab's surface changes, so the store matches a status to the tabs",
+                "that show its terminal by it (cmux#49392). Nil from an older daemon: the surface alone; empty reads nil."
+              ]
+            },
+            "state": {
+              "type": "AgentState",
+              "default": ".unknown",
+              "lenient": true
+            },
+            "source": {
+              "type": "String",
+              "optional": true
+            },
+            "agent_session_id": {
+              "optional": true,
+              "decode": "((try? container.decodeIfPresent(String.self, forKey: .agentSessionID)) ?? nil).flatMap { $0.isEmpty ? nil : $0 }",
+              "doc": [
+                "The harness's own session id a hook reported (`agent_session_id`): hook reports publish no",
+                "`session`, so this is how a `cmux://agent` link finds the terminal. Nil from an older daemon; empty reads nil."
+              ]
+            },
+            "updated_at_ms": {
+              "default": "0"
+            },
+            "since_ms": {
+              "lenient": true
+            },
+            "last_prompt": {
+              "optional": true,
+              "decode": "((try? container.decodeIfPresent(String.self, forKey: .lastPrompt)) ?? nil).flatMap { $0.isEmpty ? nil : $0 }"
+            }
+          }
         }
       }
     },
@@ -596,9 +661,19 @@
             "moves and comes to the front. Build it from a `FloatingPaneSnapshot.Frame` with",
             "`init(pane:mode:frame:transaction:)`."
           ],
-          "order": ["pane", "mode", "x", "y", "w", "h", "transaction"],
+          "order": [
+            "pane",
+            "mode",
+            "x",
+            "y",
+            "w",
+            "h",
+            "transaction"
+          ],
           "fields": {
-            "mode": { "type": "Mode" }
+            "mode": {
+              "type": "Mode"
+            }
           },
           "response": "hand-written"
         },
