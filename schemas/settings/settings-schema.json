@@ -537,6 +537,7 @@
               "sidebar.groupBy",
               "sidebar.detailedStatusIcons",
               "sidebar.showTimestamps",
+              "sidebar.relativeTimestamps",
               "sidebar.settleFinished",
               "sidebar.showAgentSessions",
               "sidebar.showColors",
@@ -1378,7 +1379,6 @@
               "agentPane.display.sessionInfo.sections.changes",
               "agentPane.display.sessionInfo.sections.usage",
               "agentPane.display.sessionInfo.sections.connectors",
-              "agentPane.display.sessionInfo.sections.carried",
               "agentPane.display.environment.placement",
               "agentPane.display.layout.messages",
               "agentPane.display.layout.composer",
@@ -1428,6 +1428,7 @@
               "agentPane.display.harnessPlacement",
               "agentPane.display.modelChipIcon",
               "agentPane.display.modelPickerStyle",
+              "agentPane.display.ownHarnessUpdatesOnly",
               "agentPane.display.queueing",
               "agentPane.display.promptCoach"
             ],
@@ -1503,10 +1504,28 @@
               "agentPane.savedPrompts",
               "agents.defaultPermissionMode",
               "agents.promptCache",
+              "agents.env",
+              "agents.envExclude",
+              "agents.additionalDirectories",
+              "agents.sandbox.mode",
+              "agents.sandbox.network",
               "agents.claudeOutputStyle",
               "agents.codexPersonality",
               "agents.commitAttribution",
               "agents.claudeCodeInboxRelay",
+              "agents.defaults.claude.model",
+              "agents.defaults.claude.effort",
+              "agents.defaults.codex.model",
+              "agents.defaults.codex.effort",
+              "agents.titles.model",
+              "agents.providers.claude.path",
+              "agents.providers.claude.home",
+              "agents.providers.claude.args",
+              "agents.providers.claude.env",
+              "agents.providers.codex.path",
+              "agents.providers.codex.home",
+              "agents.providers.codex.args",
+              "agents.providers.codex.env",
               "app.warnBeforeClosingAgentSession"
             ],
             "title" : {
@@ -2612,6 +2631,7 @@
               "labs.pauseAgentMachines",
               "customize.fromTheApp",
               "labs.agentCustomization",
+              "labs.chatMultiplayer",
               "labs.commentThreads",
               "labs.previousBuild",
               "labs.teamCompute",
@@ -2665,6 +2685,7 @@
               "experiments.attachmentTypeIcons",
               "experiments.quietConnect",
               "experiments.forum",
+              "experiments.feed",
               "experiments.foldSummaryCounts",
               "experiments.cloudDiskBar",
               "experiments.browserProfileCard",
@@ -12226,6 +12247,141 @@
       "title" : {
         "key" : "settings.updates.web",
         "text" : "Web UI Updates"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.updates",
+        "text" : "Updates"
+      },
+      "help" : {
+        "key" : "settings.updates.webCas.help",
+        "text" : "Web UI updates download only what changed, or the whole update when that fails."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "updates.webCas",
+      "keywords" : [
+        "update",
+        "web",
+        "ota",
+        "download",
+        "chunks",
+        "cas",
+        "delta",
+        "nightly"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : true,
+      "path" : [
+        "updates",
+        "webCas"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : false,
+          "operations" : [
+
+          ],
+          "reason" : "a feature gate, not a choice (RFD 0166, 2026-11-27); cmux.json only",
+          "row" : null
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.updates.webCas",
+        "text" : "Fetch Web UI Updates by Chunks"
       },
       "validation" : "portable"
     },
@@ -35868,7 +36024,7 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Takiyasha the Witch and the Skeleton Spectre — Utagawa Kuniyoshi"
+            "text" : "Takiyasha and the Skeleton Spectre — Utagawa Kuniyoshi"
           },
           "value" : "kuniyoshi-takiyasha"
         },
@@ -35910,7 +36066,7 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Walking on a Mountain Path in Spring — Ma Yuan"
+            "text" : "Spring Walk on a Mountain Path — Ma Yuan"
           },
           "value" : "ma-yuan-spring-path"
         },
@@ -36496,7 +36652,7 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Takiyasha the Witch and the Skeleton Spectre — Utagawa Kuniyoshi"
+            "text" : "Takiyasha and the Skeleton Spectre — Utagawa Kuniyoshi"
           },
           "value" : "kuniyoshi-takiyasha"
         },
@@ -37476,7 +37632,7 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Walking on a Mountain Path in Spring — Ma Yuan"
+            "text" : "Spring Walk on a Mountain Path — Ma Yuan"
           },
           "value" : "ma-yuan-spring-path"
         },
@@ -38078,7 +38234,7 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Takiyasha the Witch and the Skeleton Spectre — Utagawa Kuniyoshi"
+            "text" : "Takiyasha and the Skeleton Spectre — Utagawa Kuniyoshi"
           },
           "value" : "kuniyoshi-takiyasha"
         },
@@ -39058,7 +39214,7 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Walking on a Mountain Path in Spring — Ma Yuan"
+            "text" : "Spring Walk on a Mountain Path — Ma Yuan"
           },
           "value" : "ma-yuan-spring-path"
         },
@@ -39479,7 +39635,7 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Takiyasha the Witch and the Skeleton Spectre — Utagawa Kuniyoshi"
+            "text" : "Takiyasha and the Skeleton Spectre — Utagawa Kuniyoshi"
           },
           "value" : "kuniyoshi-takiyasha"
         },
@@ -40459,7 +40615,7 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Walking on a Mountain Path in Spring — Ma Yuan"
+            "text" : "Spring Walk on a Mountain Path — Ma Yuan"
           },
           "value" : "ma-yuan-spring-path"
         },
@@ -73564,152 +73720,6 @@
     },
     {
       "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.agentChat",
-        "text" : "Agent Chat"
-      },
-      "help" : {
-        "key" : "settings.agentPane.display.sessionInfo.sections.carried.help",
-        "text" : "The MCP servers and carried the chat has."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "agentPane.display.sessionInfo.sections.carried",
-      "keywords" : [
-        "agent",
-        "chat",
-        "acp",
-        "display",
-        "session",
-        "info",
-        "thread",
-        "details",
-        "section",
-        "show",
-        "hide",
-        "carried",
-        "memory",
-        "instructions"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "agentPane",
-        "display",
-        "sessionInfo",
-        "sections",
-        "carried"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:agentPane.display.sessionInfo.sections.carried"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.agentPane.display.sessionInfo.sections.carried",
-        "text" : "Session Info: Carried memory"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         "left",
         "right",
         "off"
@@ -77133,6 +77143,146 @@
       "title" : {
         "key" : "settings.agentPane.display.modelPickerStyle",
         "text" : "Model Picker Style"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.ownHarnessUpdatesOnly.help",
+        "text" : "The model menu offers an update for this chat's agent only, not for every agent on this Mac."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.ownHarnessUpdatesOnly",
+      "keywords" : [
+        "agent",
+        "chat",
+        "model",
+        "picker",
+        "menu",
+        "update",
+        "updates",
+        "harness",
+        "codex",
+        "claude"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "ownHarnessUpdatesOnly"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.ownHarnessUpdatesOnly"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.ownHarnessUpdatesOnly",
+        "text" : "Only This Chat's Agent Updates"
       },
       "validation" : "portable"
     },
@@ -91387,6 +91537,145 @@
       "title" : {
         "key" : "settings.sidebar.showTimestamps",
         "text" : "Show Timestamps"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.relativeTimestamps.help",
+        "text" : "With Show Timestamps on, a change today reads as its age, such as 5m or 2h, not its time."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.relativeTimestamps",
+      "keywords" : [
+        "sidebar",
+        "timestamps",
+        "relative",
+        "age",
+        "ago",
+        "elapsed",
+        "minutes",
+        "hours",
+        "time",
+        "rows"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "relativeTimestamps"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:sidebar.relativeTimestamps"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.sidebar.relativeTimestamps",
+        "text" : "Relative Timestamps"
       },
       "validation" : "portable"
     },
@@ -132692,6 +132981,142 @@
         true,
         false
       ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.labs",
+        "text" : "Labs"
+      },
+      "help" : {
+        "key" : "settings.labs.chatMultiplayer.help",
+        "text" : "Teammates you share a chat with show when they view it and when they type."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "labs.chatMultiplayer",
+      "keywords" : [
+        "labs",
+        "multiplayer",
+        "share",
+        "shared",
+        "teammate",
+        "presence",
+        "typing",
+        "together",
+        "chat"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "labs",
+        "chatMultiplayer"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:labs.chatMultiplayer"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.labs.chatMultiplayer",
+        "text" : "Chat Multiplayer"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "consumers" : [
@@ -132961,143 +133386,6 @@
       "title" : {
         "key" : "settings.labs.previousBuild",
         "text" : "Go Back to Previous Build"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.labs",
-        "text" : "Labs"
-      },
-      "help" : {
-        "key" : "settings.labs.teamCompute.help",
-        "text" : "Show your team's compute allotment and each member's use in Settings > Cloud."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "labs.teamCompute",
-      "keywords" : [
-        "labs",
-        "team",
-        "compute",
-        "allotment",
-        "usage",
-        "cloud",
-        "members",
-        "spend"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "labs",
-        "teamCompute"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "advanced",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:labs.teamCompute"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.labs.teamCompute",
-        "text" : "Team Compute"
       },
       "validation" : "portable"
     },
@@ -138511,6 +138799,143 @@
         "text" : "Experiments"
       },
       "help" : {
+        "key" : "settings.experiments.feed.help",
+        "text" : "Read every update in one feed: agents that finished or wait on you, approvals, pull requests, CI and notifications, newest first."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "experiments.feed",
+      "keywords" : [
+        "experiments",
+        "experimental",
+        "prototype",
+        "feed",
+        "updates",
+        "inbox",
+        "notifications",
+        "agents"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "experiments",
+        "feed"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:experiments.feed"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.experiments.feed",
+        "text" : "Feed"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.experiments",
+        "text" : "Experiments"
+      },
+      "help" : {
         "key" : "settings.experiments.foldSummaryCounts.help",
         "text" : "A finished turn's Worked for line also says what it hides, such as ran 4 commands, edited 2 files."
       },
@@ -139043,6 +139468,140 @@
       "title" : {
         "key" : "settings.experiments.appStoreFeatures",
         "text" : "App Store Features"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.experiments",
+        "text" : "Experiments"
+      },
+      "help" : {
+        "key" : "settings.experiments.compactionThresholdInsight.help",
+        "text" : "Show when Claude automatically compacted a chat and how to lower the context it carries between turns."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "experiments.compactionThresholdInsight",
+      "keywords" : [
+        "usage",
+        "efficiency",
+        "compaction",
+        "context",
+        "tokens"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "experiments",
+        "compactionThresholdInsight"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:experiments.compactionThresholdInsight"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.experiments.compactionThresholdInsight",
+        "text" : "Compaction Threshold Insight"
       },
       "validation" : "portable"
     },
@@ -139617,140 +140176,6 @@
       "title" : {
         "key" : "settings.agentPane.openCitationsInEditor",
         "text" : "Open File Citations in Text Editor"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.experiments",
-        "text" : "Experiments"
-      },
-      "help" : {
-        "key" : "settings.experiments.compactionThresholdInsight.help",
-        "text" : "Show when Claude automatically compacted a chat and how to lower the context it carries between turns."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "experiments.compactionThresholdInsight",
-      "keywords" : [
-        "usage",
-        "efficiency",
-        "compaction",
-        "context",
-        "tokens"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "experiments",
-        "compactionThresholdInsight"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "advanced",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:experiments.compactionThresholdInsight"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.experiments.compactionThresholdInsight",
-        "text" : "Compaction Threshold Insight"
       },
       "validation" : "portable"
     },
@@ -143482,6 +143907,751 @@
     },
     {
       "accepts" : [
+        {
+
+        },
+        {
+          "*" : "★",
+          "Work" : ""
+        }
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : {
+
+      },
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agents.env.help",
+        "text" : "Variables every new chat's agent and its tools get. A value an agent profile already sets wins."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.env",
+      "keywords" : [
+        "environment",
+        "env",
+        "variables",
+        "agent",
+        "claude",
+        "codex",
+        "shell"
+      ],
+      "kind" : "string_map",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "env"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "★",
+        [
+
+        ],
+        {
+          "Work" : 1
+        }
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.env"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.env",
+        "text" : "Agent Environment"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "ws-1",
+          "2B7F0C3A-workspace"
+        ]
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agents.envExclude.help",
+        "text" : "Variable names agents never get, such as AWS_SECRET_ACCESS_KEY or AWS_*."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.envExclude",
+      "keywords" : [
+        "environment",
+        "env",
+        "exclude",
+        "hide",
+        "secret",
+        "variables",
+        "agent"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "envExclude"
+      ],
+      "placeholder" : {
+        "key" : "settings.agents.envExclude.placeholder",
+        "text" : "NAME or PREFIX_*"
+      },
+      "refuses" : [
+        "ws-1",
+        [
+          1
+        ],
+        [
+          ""
+        ],
+        {
+
+        }
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.envExclude"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.envExclude",
+        "text" : "Hidden from Agents"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "/Users/ada/src",
+          "~/notes"
+        ]
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agents.additionalDirectories.help",
+        "text" : "Added to every new chat's Sources. Use full or ~/ paths."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.additionalDirectories",
+      "keywords" : [
+        "folders",
+        "directories",
+        "add-dir",
+        "additional",
+        "sources",
+        "agent",
+        "claude",
+        "codex"
+      ],
+      "kind" : "folder_list",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "additionalDirectories"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "/Users/ada/src",
+        [
+          "relative/path"
+        ],
+        [
+          1
+        ]
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.additionalDirectories"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.additionalDirectories",
+        "text" : "Folders Every Chat Sees"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "permissionMode",
+        "workspaceWrite"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.sandboxPermissionMode",
+            "text" : "Follow Permission Mode"
+          },
+          "value" : "permissionMode"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.sandboxWorkspaceWrite",
+            "text" : "Workspace Only"
+          },
+          "value" : "workspaceWrite"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "permissionMode",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agents.sandboxMode.help",
+        "text" : "Workspace Only keeps agents' writes inside their workspace and turns full-access modes off."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.sandbox.mode",
+      "keywords" : [
+        "sandbox",
+        "workspace",
+        "write",
+        "seatbelt",
+        "bubblewrap",
+        "full access",
+        "agent",
+        "claude",
+        "codex"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "sandbox",
+        "mode"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.sandbox.mode"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.sandboxMode",
+        "text" : "Agent Sandbox"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "harness",
+        "allow"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.sandboxNetworkHarness",
+            "text" : "Harness Default"
+          },
+          "value" : "harness"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.sandboxNetworkAllow",
+            "text" : "Allow"
+          },
+          "value" : "allow"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "harness",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agents.sandboxNetwork.help",
+        "text" : "Allow lets Codex's workspace sandbox reach the network."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.sandbox.network",
+      "keywords" : [
+        "sandbox",
+        "network",
+        "internet",
+        "codex",
+        "network_access",
+        "agent"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "sandbox",
+        "network"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.sandbox.network"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.sandboxNetwork",
+        "text" : "Sandbox Network"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "agent",
         "default",
         "Explanatory",
@@ -144098,6 +145268,1982 @@
       "title" : {
         "key" : "settings.agents.claudeCodeInboxRelay",
         "text" : "Add Message Relay to Claude Code"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agents.defaults.claude.model.help",
+        "text" : "A model id such as claude-opus-5-5. Empty starts on the last model you picked."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.defaults.claude.model",
+      "keywords" : [
+        "model",
+        "default model",
+        "new chat",
+        "claude",
+        "claude code"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "defaults",
+        "claude",
+        "model"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.defaults.claude.model"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.defaults.claude.model",
+        "text" : "Claude Code Model for New Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "auto",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.effortLastUsed",
+            "text" : "Last Used"
+          },
+          "value" : "auto"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.effortLow",
+            "text" : "Low"
+          },
+          "value" : "low"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.effortMedium",
+            "text" : "Medium"
+          },
+          "value" : "medium"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.effortHigh",
+            "text" : "High"
+          },
+          "value" : "high"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.effortXHigh",
+            "text" : "Extra High"
+          },
+          "value" : "xhigh"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.effortMax",
+            "text" : "Max"
+          },
+          "value" : "max"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "auto",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agents.defaults.claude.effort.help",
+        "text" : "How hard a new chat thinks. Last Used keeps the last effort you picked."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.defaults.claude.effort",
+      "keywords" : [
+        "effort",
+        "reasoning",
+        "thinking",
+        "reasoning effort",
+        "model_reasoning_effort",
+        "new chat",
+        "claude",
+        "claude code"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "defaults",
+        "claude",
+        "effort"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.defaults.claude.effort"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.defaults.claude.effort",
+        "text" : "Claude Code Effort for New Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agents.defaults.codex.model.help",
+        "text" : "A model id such as gpt-6.2-sol. Empty starts on the last model you picked."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.defaults.codex.model",
+      "keywords" : [
+        "model",
+        "default model",
+        "new chat",
+        "codex",
+        "codex"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "defaults",
+        "codex",
+        "model"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.defaults.codex.model"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.defaults.codex.model",
+        "text" : "Codex Model for New Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "auto",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.effortLastUsed",
+            "text" : "Last Used"
+          },
+          "value" : "auto"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.effortLow",
+            "text" : "Low"
+          },
+          "value" : "low"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.effortMedium",
+            "text" : "Medium"
+          },
+          "value" : "medium"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.effortHigh",
+            "text" : "High"
+          },
+          "value" : "high"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.effortXHigh",
+            "text" : "Extra High"
+          },
+          "value" : "xhigh"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.effortMax",
+            "text" : "Max"
+          },
+          "value" : "max"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "auto",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agents.defaults.codex.effort.help",
+        "text" : "How hard a new chat thinks. Last Used keeps the last effort you picked."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.defaults.codex.effort",
+      "keywords" : [
+        "effort",
+        "reasoning",
+        "thinking",
+        "reasoning effort",
+        "model_reasoning_effort",
+        "new chat",
+        "codex",
+        "codex"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "defaults",
+        "codex",
+        "effort"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.defaults.codex.effort"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.defaults.codex.effort",
+        "text" : "Codex Effort for New Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "haiku",
+        "sonnet",
+        "opus"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.textModelHaiku",
+            "text" : "Haiku"
+          },
+          "value" : "haiku"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.textModelSonnet",
+            "text" : "Sonnet"
+          },
+          "value" : "sonnet"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.textModelOpus",
+            "text" : "Opus"
+          },
+          "value" : "opus"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "haiku",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agents.titles.model.help",
+        "text" : "The Claude model that writes chat titles and summaries."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.titles.model",
+      "keywords" : [
+        "title",
+        "titles",
+        "summary",
+        "summaries",
+        "text generation",
+        "model",
+        "haiku",
+        "naming"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "titles",
+        "model"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.titles.model"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.titles.model",
+        "text" : "Text Generation Model"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agents.providers.claude.path.help",
+        "text" : "The Claude Code program new chats run. Empty uses the one on your PATH."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.providers.claude.path",
+      "keywords" : [
+        "claude",
+        "claude code",
+        "agent",
+        "provider",
+        "harness",
+        "path",
+        "binary",
+        "program",
+        "executable",
+        "command"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "providers",
+        "claude",
+        "path"
+      ],
+      "placeholder" : {
+        "key" : null,
+        "text" : "/usr/local/bin/claude"
+      },
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.providers.claude.path"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.providers.claude.path",
+        "text" : "Claude Code Program"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agents.providers.claude.home.help",
+        "text" : "Where Claude Code keeps its settings and sign-in (CLAUDE_CONFIG_DIR). Empty uses ~/.claude."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.providers.claude.home",
+      "keywords" : [
+        "claude",
+        "claude code",
+        "agent",
+        "provider",
+        "harness",
+        "home",
+        "config dir",
+        "CLAUDE_CONFIG_DIR",
+        "folder"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "providers",
+        "claude",
+        "home"
+      ],
+      "placeholder" : {
+        "key" : null,
+        "text" : "~/.claude-work"
+      },
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.providers.claude.home"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.providers.claude.home",
+        "text" : "Claude Code Home Folder"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "ws-1",
+          "2B7F0C3A-workspace"
+        ]
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agents.providers.claude.args.help",
+        "text" : "Arguments added when cmux starts Claude Code, one per entry."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.providers.claude.args",
+      "keywords" : [
+        "claude",
+        "claude code",
+        "agent",
+        "provider",
+        "harness",
+        "args",
+        "arguments",
+        "flags",
+        "launch",
+        "command line"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "providers",
+        "claude",
+        "args"
+      ],
+      "placeholder" : {
+        "key" : null,
+        "text" : "--verbose"
+      },
+      "refuses" : [
+        "ws-1",
+        [
+          1
+        ],
+        [
+          ""
+        ],
+        {
+
+        }
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.providers.claude.args"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.providers.claude.args",
+        "text" : "Claude Code Launch Arguments"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        {
+
+        },
+        {
+          "*" : "★",
+          "Work" : ""
+        }
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : {
+
+      },
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agents.providers.claude.env.help",
+        "text" : "Variables Claude Code starts with. Keep keys and tokens out: use cmux harness secret."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.providers.claude.env",
+      "keywords" : [
+        "claude",
+        "claude code",
+        "agent",
+        "provider",
+        "harness",
+        "env",
+        "environment",
+        "variables"
+      ],
+      "kind" : "string_map",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "providers",
+        "claude",
+        "env"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "★",
+        [
+
+        ],
+        {
+          "Work" : 1
+        }
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.providers.claude.env"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.providers.claude.env",
+        "text" : "Claude Code Environment"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agents.providers.codex.path.help",
+        "text" : "The Codex program new chats run. Empty uses the one on your PATH."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.providers.codex.path",
+      "keywords" : [
+        "codex",
+        "codex",
+        "agent",
+        "provider",
+        "harness",
+        "path",
+        "binary",
+        "program",
+        "executable",
+        "command"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "providers",
+        "codex",
+        "path"
+      ],
+      "placeholder" : {
+        "key" : null,
+        "text" : "/usr/local/bin/codex"
+      },
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.providers.codex.path"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.providers.codex.path",
+        "text" : "Codex Program"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agents.providers.codex.home.help",
+        "text" : "Where Codex keeps its settings and sign-in (CODEX_HOME). Empty uses ~/.codex."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.providers.codex.home",
+      "keywords" : [
+        "codex",
+        "codex",
+        "agent",
+        "provider",
+        "harness",
+        "home",
+        "config dir",
+        "CODEX_HOME",
+        "folder"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "providers",
+        "codex",
+        "home"
+      ],
+      "placeholder" : {
+        "key" : null,
+        "text" : "~/.codex-work"
+      },
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.providers.codex.home"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.providers.codex.home",
+        "text" : "Codex Home Folder"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "ws-1",
+          "2B7F0C3A-workspace"
+        ]
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agents.providers.codex.args.help",
+        "text" : "Arguments added when cmux starts Codex, one per entry."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.providers.codex.args",
+      "keywords" : [
+        "codex",
+        "codex",
+        "agent",
+        "provider",
+        "harness",
+        "args",
+        "arguments",
+        "flags",
+        "launch",
+        "command line"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "providers",
+        "codex",
+        "args"
+      ],
+      "placeholder" : {
+        "key" : null,
+        "text" : "--verbose"
+      },
+      "refuses" : [
+        "ws-1",
+        [
+          1
+        ],
+        [
+          ""
+        ],
+        {
+
+        }
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.providers.codex.args"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.providers.codex.args",
+        "text" : "Codex Launch Arguments"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        {
+
+        },
+        {
+          "*" : "★",
+          "Work" : ""
+        }
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : {
+
+      },
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agents.providers.codex.env.help",
+        "text" : "Variables Codex starts with. Keep keys and tokens out: use cmux harness secret."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.providers.codex.env",
+      "keywords" : [
+        "codex",
+        "codex",
+        "agent",
+        "provider",
+        "harness",
+        "env",
+        "environment",
+        "variables"
+      ],
+      "kind" : "string_map",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "providers",
+        "codex",
+        "env"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "★",
+        [
+
+        ],
+        {
+          "Work" : 1
+        }
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.providers.codex.env"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.providers.codex.env",
+        "text" : "Codex Environment"
       },
       "validation" : "portable"
     },

@@ -74,6 +74,12 @@ class Fake(dev_build.System):
     def alive(self, pid):
         return pid in self.processes
 
+    def launch_env(self, pid):
+        return ""
+
+    def age_seconds(self, pid):
+        return getattr(self, "age", None)
+
     def wait(self, pids, timeout):
         return [pid for pid in pids if pid in self.processes]
 
@@ -126,9 +132,117 @@ class DevBuildStopTests(unittest.TestCase):
         dev_build.claim("t", "s-1")
         self.assertTrue(dev_build.verdict("t", with_app, None).startswith("keep"), "acpmux unreachable")
         self.assertTrue(dev_build.verdict("t", with_app, {"s-1": "running"}).startswith("keep"))
-        self.assertTrue(dev_build.verdict("t", with_app, {"s-1": "idle"}).startswith("keep"))
+        self.assertTrue(dev_build.verdict("t", with_app, {"s-1": "idle"}).startswith("keep"), "idle, no time known")
         self.assertTrue(dev_build.verdict("t", with_app, {"s-1": "closed"}).startswith("idle"))
         self.assertTrue(dev_build.verdict("t", with_app, {"other": "running"}).startswith("idle"))
+
+    def test_a_chat_idle_past_the_limit_is_done_with_its_build(self):
+        # Issue 63351: the owning chat's last turn ended 42 hours ago and its build kept 83 processes.
+        with_app = LEFT_BEHIND + [APP]
+        dev_build.claim("t", "s-1")
+        now = 1_795_821_955.0
+        hours_ago = lambda h: (now - h * 3600) * 1000  # noqa: E731
+        row = dev_build.chat_row({"state": "idle", "lastTurn": {"endedAt": hours_ago(42)}, "updatedAt": hours_ago(42),
+                                  "bgTasksRunning": 0, "commandsRunning": 0})
+        self.assertTrue(dev_build.verdict("t", with_app, {"s-1": row}, now=now).startswith("idle: its chat s-1 has been idle for 42h"))
+        # Recent, busy, running or waiting on the person: kept.
+        recent = dev_build.chat_row({"state": "idle", "lastTurn": {"endedAt": hours_ago(1)}})
+        self.assertTrue(dev_build.verdict("t", with_app, {"s-1": recent}, now=now).startswith("keep"))
+        touched = dev_build.chat_row({"state": "idle", "lastTurn": {"endedAt": hours_ago(42)}, "updatedAt": hours_ago(1)})
+        self.assertTrue(dev_build.verdict("t", with_app, {"s-1": touched}, now=now).startswith("keep"), "newest stamp wins")
+        busy = dev_build.chat_row({"state": "idle", "lastTurn": {"endedAt": hours_ago(42)}, "bgTasksRunning": 1})
+        self.assertTrue(dev_build.verdict("t", with_app, {"s-1": busy}, now=now).startswith("keep"), "a background task runs")
+        for state in ("running", "waiting", "stuck"):
+            row = dev_build.chat_row({"state": state, "lastTurn": {"endedAt": hours_ago(42)}})
+            self.assertTrue(dev_build.verdict("t", with_app, {"s-1": row}, now=now).startswith("keep"), state)
+
+    def test_the_chat_that_launched_an_unclaimed_app_owns_it(self):
+        # A build opened with `open` or unzipped from a fleet artifact never ran `claim`; the app's
+        # own environment still names the chat whose shell launched it.
+        class Launched(Fake):
+            def launch_env(self, pid):
+                assert pid == APP.pid
+                return f"{APP.command} ACPMUX_SESSION_ID=fake-arg TERM=xterm ACPMUX_SESSION_ID=s-9 CMUX_TAG=t"
+        with_app = LEFT_BEHIND + [APP]
+        system = Launched(with_app)
+        self.assertEqual(dev_build.owner("t", with_app, system, {"s-9": "idle"})["session"], "s-9")
+        self.assertTrue(dev_build.verdict("t", with_app, {"s-9": "closed"}, system).startswith("idle: its chat s-9"))
+        self.assertTrue(dev_build.verdict("t", with_app, {"s-9": "running"}, system).startswith("keep"))
+        # A stale inherited id (a terminal under an agent, another daemon's chat) owns nothing.
+        self.assertIsNone(dev_build.owner("t", with_app, system, {"s-1": "idle"}))
+        self.assertTrue(dev_build.verdict("t", with_app, {"s-1": "closed"}, system).startswith("keep: app running, no chat owns it"))
+        # A claim wins over the launch environment; no session anywhere (the Tag Opener) is kept.
+        dev_build.claim("t", "s-1")
+        self.assertEqual(dev_build.owner("t", with_app, system, {"s-9": "idle"})["session"], "s-1")
+        (dev_build.CLAIMS_DIR / "t.json").unlink()
+        self.assertTrue(dev_build.verdict("t", with_app, {}, Fake(with_app)).startswith("keep: app running, no chat owns it"))
+        # An id only in the arguments (no readable environment) is matched like any: it must be listed.
+        self.assertEqual(dev_build.launch_session("/x/cmux DEV ACPMUX_SESSION_ID=s-2"), "s-2")
+
+    def test_a_claimed_chat_this_daemon_does_not_list_is_gone_only_after_the_limit(self):
+        with_app = LEFT_BEHIND + [APP]
+        dev_build.claim("t", "elsewhere")
+        young, old = Fake(with_app), Fake(with_app)
+        young.age, old.age = 3600.0, 13 * 3600.0
+        self.assertTrue(dev_build.verdict("t", with_app, {"s-1": "idle"}, young).startswith("keep: its chat elsewhere is not listed"))
+        self.assertTrue(dev_build.verdict("t", with_app, {"s-1": "idle"}, Fake(with_app)).startswith("keep"), "age unknown")
+        self.assertTrue(dev_build.verdict("t", with_app, {"s-1": "idle"}, old).startswith("idle: its chat elsewhere is gone"))
+
+    def test_queued_work_a_scheduled_wake_or_a_working_child_keeps_the_build(self):
+        with_app = LEFT_BEHIND + [APP]
+        dev_build.claim("t", "s-1")
+        now = 1_795_821_955.0
+        old = (now - 42 * 3600) * 1000
+        for field, value in (("queued", 2), ("inboxDueAt", now * 1000), ("workingBelow", True),
+                             ("subagentsRunning", 1), ("pendingPermissions", [{"id": "p"}]), ("subsessionsWaiting", 1)):
+            row = dev_build.chat_row({"state": "idle", "lastTurn": {"endedAt": old}, field: value})
+            self.assertTrue(dev_build.verdict("t", with_app, {"s-1": row}, now=now).startswith("keep"), field)
+        self.assertIsNone(dev_build.chat_row({"state": "idle"})["quietSinceMs"])
+
+    def test_the_sweep_rejudges_on_fresh_state_and_never_quits_an_app_it_did_not_judge(self):
+        # Judged idle on the first read; the chat wakes before the stop: kept.
+        fake = Fake(LEFT_BEHIND + [APP])
+        dev_build.claim("t", "s-1")
+        reads = iter([{"s-1": "closed"}, {"s-1": "running"}])
+        lines = []
+        self.assertTrue(dev_build.sweep(fake, ["tt"], False, lambda: next(reads), log=lines.append))
+        self.assertEqual(fake.signals, [])
+        self.assertIn("t: keep: its chat s-1 is running", lines)
+        # An instance the sweep did not judge (launched since) is left alone.
+        self.assertEqual(dev_build.stop("t", fake, log=lines.append, expected_apps=[999]), [])
+        self.assertEqual(fake.signals, [])
+
+    def test_one_sweep_at_a_time(self):
+        fake = Fake(LEFT_BEHIND)
+        lines = []
+        with dev_build.sweep_lock() as held:
+            self.assertTrue(held)
+            self.assertTrue(dev_build.sweep(fake, [], False, lambda: {}, log=lines.append))
+        self.assertEqual(fake.signals, [], "the second sweep left it to the first")
+        self.assertIn("another dev-build sweep is running", lines[0])
+
+    def test_settings_and_arguments(self):
+        self.assertEqual(dev_build._idle_hours(None), 12)
+        self.assertEqual(dev_build._idle_hours("nope"), 12)
+        self.assertEqual(dev_build._idle_hours("0"), 12, "never every chat")
+        self.assertEqual(dev_build._idle_hours("3"), 3)
+        self.assertEqual(dev_build.parse_etime("01-22:39:02"), ((24 + 22) * 60 + 39) * 60 + 2)
+        self.assertEqual(dev_build.parse_etime("05:06"), 306)
+        self.assertIsNone(dev_build.parse_etime(""))
+        with self.assertRaises(SystemExit):
+            dev_build.main(["stop", "--tag", "t", "--except", "u"])
+
+    def test_all_idle_ends_finished_tags_but_spares_the_one_being_launched(self):
+        fake = Fake(LEFT_BEHIND)
+        original_system, original_states = dev_build.System, dev_build.acpmux_states
+        dev_build.System, dev_build.acpmux_states = (lambda: fake), (lambda: {})
+        try:
+            self.assertEqual(dev_build.main(["stop", "--all-idle", "--except", "t"]), 0)
+            self.assertIn(103, fake.processes, "the spared tag's helpers")
+            self.assertEqual(dev_build.main(["stop", "--all-idle"]), 0)
+            self.assertNotIn(103, fake.processes)
+        finally:
+            dev_build.System, dev_build.acpmux_states = original_system, original_states
 
     def test_parse_ps_keeps_spaces_in_commands(self):
         rows = dev_build.parse_ps("  1     0 /sbin/launchd\n 42 1 /a b/cmux DEV t.app/Contents/MacOS/cmux DEV -psn\n 7 1 gone\nbad\n",
@@ -140,6 +254,7 @@ class DevBuildStopTests(unittest.TestCase):
         reload = (ROOT / "scripts/reload.sh").read_text()
         self.assertIn('python3 "$SCRIPT_DIR/dev-build.py" stop --tag "$TAG_SLUG"', reload)
         self.assertIn('python3 "$SCRIPT_DIR/dev-build.py" claim --tag "$TAG_SLUG" --quiet', reload)
+        self.assertIn('python3 "$SCRIPT_DIR/dev-build.py" stop --all-idle --except "$TAG_SLUG" --detach', reload)
 
 
 if __name__ == "__main__":
