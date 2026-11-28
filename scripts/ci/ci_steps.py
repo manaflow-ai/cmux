@@ -76,6 +76,12 @@ trusts the same `inputs` with the same tree. Steps that read the event (the advi
 is a miss. Off: CI_STEP_RESULTS=off; controller: CI_STEP_RESULTS_URL (default the fleet's). Outside Actions it
 is off unless CI_STEP_RESULTS=on (a build fleet job: CI_STEP_RESULTS_REPO, _SHA, _RUN_URL, _RUNNER name the
 run, CI_STEP_RESULTS_WRITE=0 makes it read only).
+
+CI_STEP_KEY_JOB_BLOCK=1 keys pr-pipeline.yml by the step's own job block as it runs (no comment, blank line or the
+job's `timeout-minutes`, job_block_hash), not the whole file's blob id. pr-pipeline.yml changed 34 times in the 34 h
+to 11-28 20:48Z, most of them a `linux` timeout raised for a new step or another job's edit, so every post-merge
+batch window moved every step's key: five batches in a row reused 0 of 80-91 linux steps (runs 46113542594 ..
+46164328032), each linux job 1.9-2.8 h. Unset or 0: the whole file's blob id, as before.
 """
 
 from __future__ import annotations
@@ -96,7 +102,7 @@ import tomllib
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -371,10 +377,54 @@ def head_tree(root: Path) -> str | None:
         return None
 
 
+WORKFLOW_PATH = ".github/workflows/pr-pipeline.yml"
+
+
+def job_block_hash(text: str, job: str) -> str | None:
+    """sha256 of `jobs.<job>` in pr-pipeline.yml as it runs: its lines less comments, blank lines and the job's own
+    `timeout-minutes` (a step's bound is its table entry's `timeout`, already in the key). None: no such job."""
+    lines: list[str] = []
+    in_jobs = found = False
+    for line in text.splitlines():
+        if re.match(r"^\S", line):
+            in_jobs = line.rstrip() == "jobs:"
+            found = False
+            continue
+        head = re.match(r"^  ([A-Za-z0-9_-]+):\s*(#.*)?$", line)
+        if in_jobs and head:
+            found = head.group(1) == job
+            if found:
+                lines.append(line.split("#", 1)[0].rstrip())
+            continue
+        if not found or not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if re.match(r"^    timeout-minutes:", line):
+            continue
+        lines.append(re.sub(r"\s+#\s.*$", "", line).rstrip())
+    if not lines:
+        return None
+    return hashlib.sha256("\n".join(lines).encode("utf-8", "surrogateescape")).hexdigest()
+
+
+def job_blocks(root: Path, env: Mapping[str, str], jobs: Iterable[str]) -> dict[str, str]:
+    """Each job's job_block_hash at the checkout, when CI_STEP_KEY_JOB_BLOCK=1; empty otherwise or unreadable."""
+    if env.get("CI_STEP_KEY_JOB_BLOCK", "") != "1":
+        return {}
+    try:
+        text = (root / WORKFLOW_PATH).read_text(encoding="utf-8", errors="surrogateescape")
+    except OSError:
+        return {}
+    return {j: h for j in sorted(set(jobs)) if (h := job_block_hash(text, j))}
+
+
 def step_key(step: Step, table: Table, files: list[tuple[str, str, str]], tree: str, paths: list[str] | None,
-             env: dict[str, str]) -> str:
-    """The step's input hash: what it runs, where, and every tracked file its inputs match."""
+             env: dict[str, str], blocks: Mapping[str, str] | None = None) -> str:
+    """The step's input hash: what it runs, where, and every tracked file its inputs match. BLOCKS (job_blocks)
+    keys pr-pipeline.yml by the step's job block instead of the file's blob id."""
     oids = {path: oid for path, _mode, oid in files}
+    pipeline = {p: oids.get(p, "") for p in PIPELINE_PATHS if p != "ci/steps.toml"}
+    if blocks and step.job in blocks:
+        pipeline[WORKFLOW_PATH] = f"job:{blocks[step.job]}"
     if step.inputs:
         pattern = re.compile("|".join(f"(?:{glob_pattern(g).pattern})" for g in step.inputs))
         matched: list | str = [[path, mode, oid] for path, mode, oid in files if pattern.match(path)]
@@ -387,7 +437,7 @@ def step_key(step: Step, table: Table, files: list[tuple[str, str, str]], tree: 
         "step": {f: getattr(step, f) for f in Step.__dataclass_fields__ if f not in ("title", "about", "pr_scope")},
         "setup": table.setup.get(step.job, ""),
         "tools": {t: table.tools[t] for t in sorted(step.needs)},
-        "pipeline": {p: oids.get(p, "") for p in PIPELINE_PATHS if p != "ci/steps.toml"},
+        "pipeline": pipeline,
         "machine": {v: env.get(v, "") for v in MACHINE_VARS},
         "files": matched,
         "changed": changed,
@@ -570,7 +620,8 @@ def reuse_passes(table: Table, steps: list[Step], paths: list[str] | None, store
     tree = head_tree(root) if files is not None else None
     if files is None or tree is None:
         return [], {}, set()
-    keys = {s.name: step_key(s, table, files, tree, paths, env) for s in candidates}
+    blocks = job_blocks(root, env, (s.job for s in candidates))
+    keys = {s.name: step_key(s, table, files, tree, paths, env, blocks) for s in candidates}
     with ThreadPoolExecutor(max_workers=min(16, len(candidates))) as pool:
         found = dict(zip(keys, pool.map(lambda s: store.lookup(keys[s.name], s.name, audited(keys[s.name], env)),
                                         candidates)))

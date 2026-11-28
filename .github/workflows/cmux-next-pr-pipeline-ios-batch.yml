@@ -132,6 +132,8 @@ jobs:
     # The batch is this commit's only run of the `alone` steps (nothing re-runs it): they run on a red job too.
     env:
       CI_RUN_ALONE_ON_RED: "1"
+      # ci_steps.py CI_STEP_KEY_JOB_BLOCK: key pr-pipeline.yml by this job's block, so a batch reuses passes (default off).
+      CI_STEP_KEY_JOB_BLOCK: ${{ vars.CI_STEP_KEY_JOB_BLOCK || '0' }}
     needs: [ios-runner]
     if: ${{ (inputs.only == '' || inputs.only == 'ios') && github.repository == 'manaflow-ai/cmux' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.ios-runner.outputs.retry_runs_on || needs.ios-runner.outputs.runs_on) }}
@@ -268,6 +270,8 @@ jobs:
       # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
       id-token: write
     env:
+      # ci_steps.py CI_STEP_KEY_JOB_BLOCK: key pr-pipeline.yml by this job's block, so a batch reuses passes (default off).
+      CI_STEP_KEY_JOB_BLOCK: ${{ vars.CI_STEP_KEY_JOB_BLOCK || '0' }}
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
     steps:
