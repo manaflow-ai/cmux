@@ -33,6 +33,18 @@ prepare_variant() {
   local feed_url="$3"
   local app_plist="$app_dir/cmux.app/Contents/Info.plist"
 
+  if [ "$TRACK" = "nightly-next" ]; then
+    # NEXT owns update downloads in CmuxUpdater. Keep Sparkle's shared automatic-update
+    # preference available to classic cmux while preventing SPUAutomaticUpdateDriver from
+    # bypassing the app-owned policy when this bundle starts.
+    /usr/libexec/PlistBuddy -c "Set :SUAllowsAutomaticUpdates false" "$app_plist" >/dev/null 2>&1 \
+      || /usr/libexec/PlistBuddy -c "Add :SUAllowsAutomaticUpdates bool false" "$app_plist"
+    if [ "$(/usr/libexec/PlistBuddy -c "Print :SUAllowsAutomaticUpdates" "$app_plist")" != false ]; then
+      echo "NEXT bundle must disable Sparkle automatic downloads" >&2
+      exit 1
+    fi
+  fi
+
   /usr/libexec/PlistBuddy -c "Set :CFBundleName ${CHANNEL_APP_NAME}" "$app_plist"
   /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName ${CHANNEL_APP_NAME}" "$app_plist"
   /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier ${bundle_id}" "$app_plist"
