@@ -2256,7 +2256,11 @@ jobs:
     # os=linux...": the name, steps and marker name no runner OS.
     # A rerun leaves the pool that failed it: 2026-11-28 run 46107444639 failed this job on hetzner-2
     # (cargo registry EACCES), and with no retry runner a promote waits on that one pool.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
+    # The nightly path takes the one-job nightly VM on every attempt (a fresh VM each time, no slot cap): on a
+    # cmux-linux slot (memory.max 14 GiB) the acpmux and cmux-tui-core test rustc were SIGKILLed every window run
+    # since 13Z 2026-11-28 (run 46179078616, job 141084477118, cmux-runner-pool-c1a-0205-2), and the
+    # cmux-gcp-nightly-x64 pool's two-slot VMs cap a slot the same.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-jit-x64' || 'cmux-linux' }}
     # 60 was the green run's whole length: job 137409209815 (7d439038, 2026-11-23,
     # cmux-runner-pool) took 59:56: setup 11 min (runner 2:20, checkout 2,
     # supersede check 1:40, Zig packages 2:16), the test compile 22:40 on a

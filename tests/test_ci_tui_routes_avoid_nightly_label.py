@@ -203,8 +203,8 @@ def test_daemon_tests_never_take_a_mac() -> None:
                 "refs/heads/nightly-next", "refs/heads/feat-cmux-next")
             if context["github.repository_owner"] != "manaflow-ai":
                 assert label == "ubuntu-24.04", where
-            elif int(context["github.run_attempt"]) > 1 and nightly:  # a nightly rerun leaves the pool that failed it
-                assert label == "cmux-gcp-nightly-x64", (where, label)
+            elif nightly:  # the one-job nightly VM on every attempt: a 14 GiB slot OOMs the acpmux test rustc
+                assert label == "cmux-gcp-nightly-jit-x64", (where, label)
             else:
                 assert label == "cmux-linux", (where, label)
 

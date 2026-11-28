@@ -280,7 +280,12 @@ jobs:
                   darwin_builder == "linux" and target["target"].endswith("-apple-darwin")
               )
               if target["darwin_on_linux"]:
-                  target["runner"] = os.environ["LINUX_RUNNER"]
+                  # The Mac legs cross-built on Linux compile the same fat-LTO acpmux giant as the musl legs, so on
+                  # the nightly path they take LINUX_FAT_RUNNER too: on a cmux-linux slot (memory.max 14 GiB) the
+                  # acpmux lib's rustc was SIGKILLed alone under the giant lock, four tries, and no tree published
+                  # from 13Z to 20:30Z 2026-11-28 (cmux-tui-artifacts run 46179078616, job 141088848848,
+                  # cmux-runner-pool-c1c-0321: "memory.max 14 GiB, MemAvailable 29 GiB of 31 GiB").
+                  target["runner"] = os.environ["LINUX_FAT_RUNNER"] or os.environ["LINUX_RUNNER"]
                   target["cross"] = True
 
           target_set = os.environ["TARGET_SET"]

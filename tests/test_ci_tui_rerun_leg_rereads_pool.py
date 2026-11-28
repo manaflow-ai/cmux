@@ -95,14 +95,25 @@ class DaemonTestsRunner(unittest.TestCase):
         }
         return route(jobs["cmux-next-daemon-tests"]["runs-on"], context)
 
-    def test_first_attempt_keeps_the_shared_pool(self) -> None:
-        self.assertEqual(self.label(1), "cmux-linux")
-        self.assertEqual(self.label(1, "workflow_dispatch"), "cmux-linux")
+    def test_the_nightly_path_takes_the_one_job_vm_on_every_attempt(self) -> None:
+        # A cmux-linux slot (memory.max 14 GiB) SIGKILLed the acpmux test rustc every window run from 13Z
+        # 2026-11-28 (run 46179078616); a one-job VM has no slot cap and is fresh on each attempt.
+        for attempt in (1, 2, 3):
+            self.assertEqual(self.label(attempt), "cmux-gcp-nightly-jit-x64")
+            self.assertEqual(self.label(attempt, ref="refs/heads/nightly-next"), "cmux-gcp-nightly-jit-x64")
+            self.assertEqual(self.label(attempt, "workflow_dispatch", "refs/heads/main"), "cmux-gcp-nightly-jit-x64")
 
-    def test_a_nightly_rerun_leaves_the_pool_that_failed_it(self) -> None:
-        self.assertEqual(self.label(2), RETRY_LINUX)
-        self.assertEqual(self.label(3, ref="refs/heads/nightly-next"), RETRY_LINUX)
-        self.assertEqual(self.label(2, "workflow_dispatch", "refs/heads/main"), RETRY_LINUX)
+    def test_a_main_push_keeps_the_shared_pool(self) -> None:
+        self.assertEqual(self.label(1, ref="refs/heads/main"), "cmux-linux")
+        self.assertEqual(self.label(2, ref="refs/heads/main"), "cmux-linux")
+
+    def test_mac_legs_cross_built_on_linux_take_the_fat_runner(self) -> None:
+        # The darwin_on_linux legs compile the same fat-LTO acpmux as the musl legs (run 46179078616, job
+        # 141088848848: SIGKILLed alone under memory.max 14 GiB), so they take LINUX_FAT_RUNNER when it is set.
+        text = (ROOT / ".github" / "workflows" / "cmux-tui-build-package.yml").read_text(encoding="utf-8")
+        block = text[text.index('if target["darwin_on_linux"]:'):]
+        block = block[:block.index("target_set = ")]
+        self.assertIn('target["runner"] = os.environ["LINUX_FAT_RUNNER"] or os.environ["LINUX_RUNNER"]', block)
 
     def test_a_pr_rerun_never_takes_the_reserved_label(self) -> None:
         self.assertEqual(self.label(2, "pull_request", "refs/pull/1/merge"), "cmux-linux")

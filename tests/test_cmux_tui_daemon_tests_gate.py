@@ -88,8 +88,8 @@ class DaemonTestsGateTests(unittest.TestCase):
                 "refs/heads/nightly-next", "refs/heads/feat-cmux-next")
             if context["github.repository_owner"] != "manaflow-ai":
                 expected = "ubuntu-24.04"
-            elif int(context["github.run_attempt"]) > 1 and nightly:
-                expected = "cmux-gcp-nightly-x64"
+            elif nightly:  # one-job VM, every attempt: a 14 GiB slot OOMs the acpmux test rustc (run 46179078616)
+                expected = "cmux-gcp-nightly-jit-x64"
             else:
                 expected = "cmux-linux"
             self.assertEqual(route(runs_on, context), expected, context)
