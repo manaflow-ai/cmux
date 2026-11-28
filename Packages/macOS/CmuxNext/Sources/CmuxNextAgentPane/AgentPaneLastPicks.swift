@@ -6,10 +6,14 @@ public nonisolated struct AgentPaneLastPicks: Codable, Sendable, Equatable {
     public nonisolated struct Pick: Codable, Sendable, Equatable {
         public var harness: String
         public var model: String
+        /// The level picked with it: only Cloud's pick (``cloud``) carries one, so a Cloud level comes back
+        /// with its model. This Mac's level is its acpmux's saved default. nil is encoded as no key.
+        public var effort: String?
 
-        public init(harness: String, model: String) {
+        public init(harness: String, model: String, effort: String? = nil) {
             self.harness = harness
             self.model = model
+            self.effort = effort
         }
     }
 
@@ -80,6 +84,9 @@ public nonisolated struct AgentPaneRememberedPick: Sendable, Equatable {
     /// The agent pick is for a Cloud machine (`place: "cloud"`): it is Cloud's last pick
     /// (``AgentPaneLastPicks/cloud``), never this Mac's.
     public var forCloud = false
+    /// The level picked with a Cloud pick (`effort`, with `place: "cloud"`); nil keeps the level last
+    /// picked on the same agent.
+    public var effort: String?
 
     /// A folder (absolute) or a GitHub repository (`github:owner/name`), at most 4096 characters.
     public static func isCloudPick(_ value: String) -> Bool {

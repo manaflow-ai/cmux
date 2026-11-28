@@ -836,6 +836,7 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextBrowserTests",
       "targets": [
         "CmuxNextBrowser",
+        "CmuxNextBrowserCore",
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextRemoteFetch",
@@ -1933,6 +1934,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost",
       "targets": [
         "CmuxNextAgentPane",
+        "CmuxNextBrowserCore",
         "CmuxNextCloud",
         "CmuxNextCompat",
         "CmuxNextDaemon",
@@ -1955,6 +1957,7 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextMobileHostTests",
       "targets": [
         "CmuxNextAgentPane",
+        "CmuxNextBrowser",
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextMobile",
@@ -2022,6 +2025,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextAgentIntegrations",
         "CmuxNextBrowserImport",
         "CmuxNextCompat",
