@@ -86,9 +86,7 @@ struct AgentChatPlacement {
                 return .success(result)
             } catch let refusal as AgentTabRefusal {
                 return .failure(ActionWorkFailure(refusal.message))
-            } catch {
-                return .failure(ActionWorkFailure(RefusalStrings.agentTabCreateFailed))
-            }
+            } catch { daemon.logger.error("new-conversation-tab (agent, placement) failed: \(String(describing: error), privacy: .public)"); return .failure(ActionWorkFailure(RefusalStrings.agentTabCreateFailed)) }
         }
     }
 
@@ -123,8 +121,6 @@ struct AgentChatPlacement {
                              "workspace": .string(workspace.id)])
         } catch let failure as AgentTabRefusal {
             return .failure(ActionWorkFailure(failure.message))
-        } catch {
-            return .failure(ActionWorkFailure(RefusalStrings.agentTabCreateFailed))
-        }
+        } catch { daemon.logger.error("new-conversation-tab (agent, open chat) failed: \(String(describing: error), privacy: .public)"); return .failure(ActionWorkFailure(RefusalStrings.agentTabCreateFailed)) }
     }
 }
