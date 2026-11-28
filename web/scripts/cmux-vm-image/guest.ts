@@ -21,6 +21,12 @@ const HOME_PREFIX = 'export HOME="${HOME:-$(getent passwd $(id -u) | cut -d: -f6
 export const STEP_TIMEOUT_MS = 300_000;
 
 /**
+ * What a step's error adds when the step ran out of time (status 124 from the guest's `timeout` or the exec cap, 137
+ * after its kill), so bake.ts can tell a stalled builder (isStallError) from a step that failed on its own.
+ */
+export const timedOutSuffix = (code: number) => (code === 124 || code === 137 ? ` (status ${code}, timed out)` : "");
+
+/**
  * FREESTYLE_API_KEY, or FREESTYLE_API_KEY_FILE (a path; the key is read here and never
  * printed), so an operator passes the key by path instead of through a shell variable.
  */
@@ -291,7 +297,7 @@ export class StepLog {
     if (r.code !== 0 || secs >= SLOW_STEP_PROBE_SECS) await this.logIoProbe(vm, label, `after status=${r.code} ${secs.toFixed(1)}s`);
     if (r.code !== 0) {
       this.log(`STEP FAILED [${label}] status=${r.code} (${secs.toFixed(1)}s)\nstdout: ${r.stdout.slice(-3000)}\nstderr: ${r.stderr.slice(-3000)}`);
-      throw new Error(`step ${label} failed`);
+      throw new Error(`step ${label} failed${timedOutSuffix(r.code)}`);
     }
     this.log(`ok [${label}] ${secs.toFixed(1)}s :: ${r.stdout.trim().split("\n").slice(-3).join(" | ")}`);
     return r.stdout;
@@ -366,7 +372,7 @@ export class StepLog {
         if (code !== 0) {
           const why = code === 124 || code === 137 ? ` (its ${budgetSecs} s budget ran out)` : "";
           this.log(`STEP FAILED [${label}] status=${code}${why} (${secs.toFixed(1)}s)\nstdout: ${stdout.slice(-3000)}\nstderr: ${stderr.slice(-3000)}`);
-          throw new Error(`step ${label} failed`);
+          throw new Error(`step ${label} failed${timedOutSuffix(code)}`);
         }
         if (secs * 1000 > options.budgetMs / 2) this.log(`SLOW_STEP [${label}] ${secs.toFixed(1)}s of its ${budgetSecs}s budget`);
         this.log(`ok [${label}] ${secs.toFixed(1)}s :: ${stdout.trim().split("\n").slice(-3).join(" | ")}`);
@@ -377,7 +383,7 @@ export class StepLog {
         // provider's, and go to the caller as that error (inventory.ts retries a cut or timed-out connection).
         if (pollError !== undefined) throw pollError;
         this.log(`STEP FAILED [${label}] no status after ${((now() - t0) / 1000).toFixed(1)}s (budget ${budgetSecs}s)`);
-        throw new Error(`step ${label} failed: no status`);
+        throw new Error(`step ${label} failed: no status (timed out)`);
       }
     }
   }
