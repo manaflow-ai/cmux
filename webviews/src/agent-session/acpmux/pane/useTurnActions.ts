@@ -43,7 +43,7 @@ import type { Folds } from "../conversation/viewFolds";
 import type { AcpmuxDirectClient } from "../direct";
 import { translate } from "../i18n";
 import { sessionLink } from "../links";
-import { GITHUB_CONNECT_ACTION, type GitHubConnectOffer } from "../conversation/githubConnect";
+import { GITHUB_CONNECT_ACTION, SERVICE_CONNECT_ACTION, type GitHubConnectOffer } from "../conversation/githubConnect";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { postNative } from "../native";
 import { openPicker } from "../pickerOpeners";
@@ -560,6 +560,17 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
             // An agent's ask for an org (settings_ask `connection:github:ORG`): the Mac connects
             // another account even when one is connected (GitHubConnections.swift `connect`).
             ...(org && !repo && { org }),
+            ...(returnTo && { returnTo }),
+          }).then(() => undefined);
+        },
+        // Any other connection (a hosted call's `mcp_server.needs_auth`, settings_ask
+        // `connection:linear`): the app's `connections.connect`, Settings > Connections' own flow,
+        // with this chat's link to come back to.
+        connectService: (service) => {
+          const returnTo = sessionLink(owner);
+          return callNative("action.run", {
+            id: SERVICE_CONNECT_ACTION,
+            service,
             ...(returnTo && { returnTo }),
           }).then(() => undefined);
         },

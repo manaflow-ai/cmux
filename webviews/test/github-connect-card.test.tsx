@@ -13,6 +13,7 @@ import {
   githubConnectCall,
   githubConnectNeed,
   isGitHubRepo,
+  serviceConnectCall,
   settingsAskCall,
 } from "../src/agent-session/acpmux/conversation/githubConnect";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
@@ -321,11 +322,11 @@ test("one line, one filled Connect GitHub; the tap names the repository; back fr
   const { sent, asked } = await render(async () => undefined);
   expect(card()!.getAttribute("data-github-connect")).toBe("idle");
   expect(card()!.textContent).toContain("GitHub isn't connected for this chat, so it can't reach acme/web");
-  expect(buttons()).toEqual(["Connect GitHub"]);
+  expect(buttons()).toEqual(["Sign in with GitHub"]);
   expect([...card()!.querySelectorAll(".cv-turn-error__primary")].map((element) => element.textContent)).toEqual([
-    "Connect GitHub",
+    "Sign in with GitHub",
   ]);
-  await press("Connect GitHub");
+  await press("Sign in with GitHub");
   expect(asked).toEqual(["acme/web"]);
   expect(card()!.getAttribute("data-github-connect")).toBe("waiting");
   expect(card()!.textContent).toContain("Finish on GitHub");
@@ -344,7 +345,7 @@ test("one line, one filled Connect GitHub; the tap names the repository; back fr
 
 test("the waiting card's Continue is the same step by hand, sent once", async () => {
   const { sent } = await render(async () => undefined);
-  await press("Connect GitHub");
+  await press("Sign in with GitHub");
   await press("Continue");
   await leave();
   await back();
@@ -357,7 +358,7 @@ test("a Connect the app did not run says why, with the button that tries again",
   const { asked } = await render(async () => {
     if (refuse) throw new NativeError({ code: "unavailable", userMessage: reason, details: { reason } });
   });
-  await press("Connect GitHub");
+  await press("Sign in with GitHub");
   expect(card()!.getAttribute("data-github-connect")).toBe("refused");
   expect(card()!.getAttribute("role")).toBe("alert");
   expect(card()!.textContent).toContain(reason);
@@ -444,13 +445,15 @@ test("popover arm: the ask opens a Needs you popover once, its Connect names the
     const chip = () => host.querySelector<HTMLButtonElement>(".cv-settings-ask-chip");
     const popup = () => dom.window.document.querySelector(".cv-settings-ask-popover");
     expect(host.querySelector("[data-settings-ask]")?.getAttribute("data-settings-ask")).toBe("popover");
-    expect(chip()?.textContent).toContain("Connect GitHub");
+    expect(chip()?.textContent).toContain("Sign in with GitHub");
     // Opened by itself, with the Needs you header and the one control, no focus taken.
     expect(popup()).not.toBeNull();
     expect(popup()!.textContent).toContain("Needs you");
     expect(popup()!.textContent).toContain("manaflow-ai");
     expect(popup()!.contains(dom.window.document.activeElement)).toBe(false);
-    const connectButton = [...popup()!.querySelectorAll("button")].find((b) => b.textContent === "Connect GitHub")!;
+    const connectButton = [...popup()!.querySelectorAll("button")].find(
+      (b) => b.textContent === "Sign in with GitHub",
+    )!;
     await act(async () => connectButton.click());
     expect(orgs).toEqual(["manaflow-ai"]);
     expect(popup()!.textContent).toContain("Finish on GitHub");
@@ -474,4 +477,145 @@ test("popover arm: the ask opens a Needs you popover once, its Connect names the
   } finally {
     globalThis.cmuxExperiments = before;
   }
+});
+
+// Slice 3 of cmuxterm-hq docs/design/integrations.md: any other cmux connection (Linear, Sentry, ...)
+// draws the same card, when a hosted call's sign-in lapsed (cmux-platform `mcp_server.needs_auth`) or
+// the agent asked for the service by name (settings_ask `connection:linear`).
+const NEEDS_AUTH = "The linear MCP server's sign-in expired or was revoked; reconnect it in Settings > Connections";
+const hosted = (
+  output: string,
+  title = "mcp__cmux-hosted__linear_list_issues",
+  status: Tool["status"] = "failed",
+): Tool => ({
+  id: "call-hosted",
+  title,
+  kind: "other",
+  status,
+  inputSummary: "{}",
+  output,
+});
+const platformError = (message = NEEDS_AUTH) =>
+  JSON.stringify({
+    isError: true,
+    content: [{ type: "text", text: message }],
+    structuredContent: { error: { code: "mcp_server.needs_auth", message } },
+  });
+
+test("a hosted call's needs_auth names the connection from the platform's own error, never from content", () => {
+  expect(serviceConnectCall(hosted(platformError()))).toEqual({ reason: "needs-reauth", service: "linear" });
+  // The harness kept only the text block.
+  expect(serviceConnectCall(hosted(NEEDS_AUTH))).toEqual({ reason: "needs-reauth", service: "linear" });
+  // A team server's tools carry a suffix; the message names the connection itself.
+  expect(serviceConnectCall(hosted(platformError(), "mcp__cmux-hosted__sentry_a1b2c3_search"))?.service).toBe("linear");
+  // A key-based connection that refused its credential.
+  expect(
+    serviceConnectCall(
+      hosted("The sentry MCP server refused its credential; remove it and add it again with a new token"),
+    ),
+  ).toEqual({ reason: "needs-reauth", service: "sentry" });
+  // Code mode behind the folding `cmux` server: `{ok: false, error: {error}}`.
+  expect(
+    serviceConnectCall(
+      hosted(
+        JSON.stringify({
+          ok: false,
+          message: NEEDS_AUTH,
+          error: { error: { code: "mcp_server.needs_auth", message: NEEDS_AUTH } },
+        }),
+        "mcp__cmux__code",
+      ),
+    ),
+  ).toEqual({ reason: "needs-reauth", service: "linear" });
+  // Not a hosted server, not failed, a shell, or the line buried in content: no card.
+  expect(serviceConnectCall(hosted(NEEDS_AUTH, "mcp__linear__list_issues"))).toBeUndefined();
+  expect(serviceConnectCall(hosted(NEEDS_AUTH, undefined, "completed"))).toBeUndefined();
+  expect(serviceConnectCall({ ...hosted(NEEDS_AUTH), command: "cat notes.md", kind: "execute" })).toBeUndefined();
+  expect(serviceConnectCall(hosted(`notes:\n${NEEDS_AUTH}`))).toBeUndefined();
+  expect(
+    serviceConnectCall(hosted(JSON.stringify({ content: [{ type: "text", text: platformError() }] }))),
+  ).toBeUndefined();
+  // A malformed or GitHub name is never passed on.
+  expect(serviceConnectCall(hosted(NEEDS_AUTH.replace("linear", "-evil")))).toBeUndefined();
+  expect(serviceConnectCall(hosted(NEEDS_AUTH.replace("linear", "github")))).toBeUndefined();
+});
+
+test("settings_ask connection:SERVICE draws that service's card; a scoped or malformed one draws none", () => {
+  expect(settingsAskCall(ask({ target: "connection:linear", why: "The bug is filed in Linear." }))).toEqual({
+    reason: "asked",
+    service: "linear",
+    why: "The bug is filed in Linear.",
+  });
+  expect(settingsAskCall(ask({ target: "connection:Sentry" }))).toEqual({ reason: "asked", service: "sentry" });
+  expect(settingsAskCall(ask({ target: "connection:linear:team" }))).toBeUndefined();
+  expect(settingsAskCall(ask({ target: "connection:li near" }))).toBeUndefined();
+  // Without the prefix only GitHub reads as a connection.
+  expect(settingsAskCall(ask({ target: "linear" }))).toBeUndefined();
+});
+
+test("a turn whose hosted call lost its sign-in carries the service's card on its footer", () => {
+  const rows: AcpmuxRow[] = [
+    {
+      id: "activity-1",
+      version: 1,
+      at: 1,
+      kind: "activity",
+      items: [{ id: "i-1", tool: hosted(platformError()) }],
+    } as unknown as AcpmuxRow,
+  ];
+  expect(githubConnectNeed(rows)).toEqual({ reason: "needs-reauth", service: "linear", callId: "call-hosted" });
+});
+
+async function renderService(
+  githubConnect: Partial<{ connectService: (service: string) => Promise<void> }> | undefined,
+  need: NonNullable<AcpmuxRow["githubConnect"]> = { reason: "needs-reauth", service: "linear", callId: "call-1" },
+) {
+  const sent: string[] = [];
+  const actions = githubConnect
+    ? {
+        githubConnect: {
+          connect: async () => {
+            throw new Error("GitHub's Connect ran for a service card");
+          },
+          continue: async () => void sent.push("Continue"),
+          ...githubConnect,
+        },
+      }
+    : {};
+  dom.window.document.hasFocus = () => false;
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider value={actions}>
+        <TurnFooter row={{ ...footer(), githubConnect: need }} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  return { sent };
+}
+
+test("a service card: one line, Connect Linear runs connections.connect for linear; back, one Continue", async () => {
+  const asked: string[] = [];
+  const { sent } = await renderService({ connectService: async (service) => void asked.push(service) });
+  expect(card()!.getAttribute("data-connect-service")).toBe("linear");
+  expect(card()!.textContent).toContain("This chat's Linear connection needs signing in again");
+  expect(buttons()).toEqual(["Connect Linear"]);
+  await press("Connect Linear");
+  expect(asked).toEqual(["linear"]);
+  expect(card()!.textContent).toContain("Finish signing in to Linear");
+  await leave();
+  await back();
+  expect(sent).toEqual(["Continue"]);
+  expect(card()!.textContent).toContain("Back from Linear");
+});
+
+test("a service card an agent asked for names it; a host without connections.connect shows the line alone", async () => {
+  await renderService(
+    { connectService: async () => undefined },
+    { reason: "asked", service: "cloudflare-docs", callId: "call-2" },
+  );
+  expect(card()!.textContent).toContain("This chat needs Cloudflare Docs connected");
+  expect(buttons()).toContain("Connect Cloudflare Docs");
+  await renderService({}, { reason: "asked", service: "sentry", callId: "call-3" });
+  expect(card()!.textContent).toContain("This chat needs Sentry connected");
+  expect(buttons().filter((label) => label?.startsWith("Connect"))).toEqual([]);
 });

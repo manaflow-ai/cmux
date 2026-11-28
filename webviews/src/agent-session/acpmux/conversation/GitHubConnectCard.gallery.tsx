@@ -64,6 +64,18 @@ const asked = (org = "manaflow-ai", why?: string): GitHubConnectNeed => ({
   callId: "call-ask",
 });
 
+/// A cmux connection other than GitHub: a hosted call's lapsed sign-in, or the agent's ask by name.
+const service = (
+  name: string,
+  reason: GitHubConnectNeed["reason"] = "needs-reauth",
+  why?: string,
+): GitHubConnectNeed => ({
+  reason,
+  service: name,
+  ...(why && { why }),
+  callId: "call-service",
+});
+
 let rows = 0;
 
 export default componentEntry<Props>({
@@ -120,6 +132,13 @@ export default componentEntry<Props>({
                   : "https://github.com/apps/cmux/installations/new/permissions",
               );
             },
+            // A service card (Linear, Sentry, ...): the host runs `connections.connect` for it.
+            connectService: async (service: string) => {
+              record.asked.push(service);
+              if (walk === "refuse")
+                throw new NativeError({ code: "unavailable", userMessage: `Sign in to cmux to connect ${service}.` });
+              record.opened.push(`https://mcp.${service}.app/authorize`);
+            },
             continue: async () => void record.sent.push("Continue"),
           },
         }),
@@ -154,6 +173,41 @@ export default componentEntry<Props>({
   },
   styles: () => Promise.all([import("../styles.css"), import("./conversation.css")]),
   variants: {
+    // Slice 3 of cmuxterm-hq docs/design/integrations.md: the same card for any other connection.
+    "service-needs-auth-dark": {
+      note: "A hosted Linear call found its sign-in expired (mcp_server.needs_auth): one line, Connect Linear. Dark page.",
+      props: { need: service("linear"), scheme: "dark" },
+    },
+    "service-needs-auth-light": {
+      note: "A hosted Sentry call found its sign-in expired: one line, Connect Sentry. Light page.",
+      props: { need: service("sentry"), scheme: "light" },
+    },
+    "service-asked-needs": {
+      note: "The agent asked for Notion by name (settings_ask connection:notion), Needs you arm.",
+      props: {
+        need: service("notion", "asked", "The spec lives in Notion; connect it and I'll read it."),
+        askArm: "needs",
+      },
+    },
+    "service-asked-popover": {
+      note: "The agent asked for Linear by name, Popover arm: the chip and its one row.",
+      props: { need: service("linear", "asked"), askArm: "popover", scheme: "dark" },
+    },
+    "service-waiting": {
+      note: "After Connect Linear: finish signing in to Linear; the chat goes on when the person is back.",
+      props: { need: service("linear"), phase: { kind: "waiting", left: true } },
+    },
+    "service-refused": {
+      note: "The app did not run Connect for the service: its reason, Try again.",
+      props: {
+        need: service("cloudflare-docs"),
+        phase: { kind: "refused", reason: "Sign in to cmux to connect Cloudflare Docs." },
+      },
+    },
+    "service-walk": {
+      note: "Live: tap Connect Linear; the sign-in page opens; back in the chat, Continue goes by itself.",
+      props: { need: service("linear"), walk: "fresh" },
+    },
     // Leo, 2026-11-25: "what about just a simple styled consistently popover for that specific
     // setting? a la something similar to needs you or whatever". The agent's settings_ask card, one
     // per arm of settings-ask-card (default: needs).

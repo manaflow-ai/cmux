@@ -4,6 +4,11 @@
 // already covers the repository) does the rest and returns to this chat, and the card sends the
 // chat's Continue once the person is back, so the session goes on by itself. Its look is the
 // turn's failure card's (TurnRows.tsx TurnFailure), the notice the reader already knows.
+//
+// The same card connects any other cmux connection (Linear, Sentry, ...: `need.service`), when a
+// hosted call's sign-in lapsed (`mcp_server.needs_auth`) or the agent asked for the service by name
+// (`settings_ask` `connection:linear`): its line and its Connect NAME button run the app's
+// `connections.connect`, Settings > Connections' own flow, and come back to this chat the same way.
 import { useContext, useEffect, useState } from "react";
 import { Popover } from "../../../ui/Popover";
 import { usePopoverTrigger } from "../../../ui/popoverTrigger";
@@ -12,7 +17,7 @@ import { actionRefusal } from "../actionRefusal";
 import { experimentArm } from "../../../experiments/experiment";
 import { turnErrorCard } from "./turnErrorCard.experiment";
 import { settingsAskCard } from "./settingsAskCard.experiment";
-import { GitHubMark } from "./icons";
+import { Connectors, GitHubMark } from "./icons";
 import "../needsYou/needsYou.css";
 import { useTranscriptReadOnly } from "./readOnly";
 import { TurnActionsContext } from "./turnActions";
@@ -24,6 +29,69 @@ import {
   type GitHubConnectOffer,
   type GitHubConnectPhase,
 } from "./githubConnect";
+
+/// A catalog name's title on the card: the names cmux's connections catalog ships, else the name
+/// with its words capitalized (`cloudflare-docs` -> Cloudflare Docs).
+const SERVICE_TITLES: Record<string, string> = {
+  atlassian: "Atlassian",
+  jira: "Jira",
+  confluence: "Confluence",
+  linear: "Linear",
+  sentry: "Sentry",
+  notion: "Notion",
+  vercel: "Vercel",
+  slack: "Slack",
+  stripe: "Stripe",
+  pagerduty: "PagerDuty",
+  posthog: "PostHog",
+  "hugging-face": "Hugging Face",
+  huggingface: "Hugging Face",
+  figma: "Figma",
+  asana: "Asana",
+  supabase: "Supabase",
+  cloudflare: "Cloudflare",
+  gitlab: "GitLab",
+  hubspot: "HubSpot",
+  intercom: "Intercom",
+  paypal: "PayPal",
+  zapier: "Zapier",
+  neon: "Neon",
+  netlify: "Netlify",
+  monday: "monday.com",
+  box: "Box",
+  canva: "Canva",
+  webflow: "Webflow",
+  wix: "Wix",
+  square: "Square",
+  plaid: "Plaid",
+};
+
+export function serviceTitle(name: string): string {
+  return (
+    SERVICE_TITLES[name] ??
+    name
+      .split("-")
+      .filter(Boolean)
+      .map((word) => word[0]!.toUpperCase() + word.slice(1))
+      .join(" ")
+  );
+}
+
+/// The card's words for one need: GitHub's, or a catalog service's with its title.
+function cardWords(need: GitHubConnectNeed, t: ReturnType<typeof useT>) {
+  if (!need.service) return undefined;
+  const service = serviceTitle(need.service);
+  return {
+    cause:
+      need.reason === "asked"
+        ? (need.why ?? t("serviceConnect.asked", { service }))
+        : t("serviceConnect.needsReauth", { service }),
+    waiting: t("serviceConnect.finish", { service }),
+    continuing: t("serviceConnect.continuing", { service }),
+    notRun: t("serviceConnect.notRun", { service }),
+    button: t("serviceConnect.connect", { service }),
+  };
+}
 
 const CAUSE: Record<GitHubConnectNeed["reason"], StringKey> = {
   "not-connected": "githubConnect.notConnected",
@@ -58,30 +126,37 @@ export function GitHubConnectCardView({
   const askArm = asked ? experimentArm(settingsAskCard) : undefined;
   const arm = askArm === "needs" ? "card" : (askArm ?? experimentArm(turnErrorCard));
   const repo = need.repo;
-  const cause = asked
-    ? (need.why ??
-      (repo
-        ? t("githubConnect.askedOrg", { org: repo })
-        : need.org
-          ? t("githubConnect.askedOrg", { org: need.org })
-          : t("githubConnect.asked")))
-    : need.reason === "not-covered" && repo
-      ? t("githubConnect.notCoveredRepo", { repo })
-      : repo && need.reason === "not-connected"
-        ? t("githubConnect.notConnectedRepo", { repo })
-        : t(CAUSE[need.reason]);
+  const words = cardWords(need, t);
+  const Mark = words ? Connectors : GitHubMark;
+  const cause = words
+    ? words.cause
+    : asked
+      ? (need.why ??
+        (repo
+          ? t("githubConnect.askedOrg", { org: repo })
+          : need.org
+            ? t("githubConnect.askedOrg", { org: need.org })
+            : t("githubConnect.asked")))
+      : need.reason === "not-covered" && repo
+        ? t("githubConnect.notCoveredRepo", { repo })
+        : repo && need.reason === "not-connected"
+          ? t("githubConnect.notConnectedRepo", { repo })
+          : t(CAUSE[need.reason]);
   const line =
     phase.kind === "waiting"
-      ? t("githubConnect.finishOnGitHub")
+      ? (words?.waiting ?? t("githubConnect.finishOnGitHub"))
       : phase.kind === "continuing"
-        ? t("githubConnect.continuing")
+        ? (words?.continuing ?? t("githubConnect.continuing"))
         : phase.kind === "refused"
-          ? (phase.reason ?? t("githubConnect.notRun"))
+          ? (phase.reason ?? words?.notRun ?? t("githubConnect.notRun"))
           : cause;
+  const button = words?.button;
   if (askArm === "popover")
     return (
       <SettingsAskPopover
         line={line}
+        button={button}
+        service={need.service}
         phase={phase}
         offer={offer}
         onConnect={onConnect}
@@ -94,6 +169,7 @@ export function GitHubConnectCardView({
       <section
         className="cv-settings-ask cv-github-connect"
         data-github-connect={phase.kind}
+        data-connect-service={need.service}
         data-settings-ask="needs"
         role={phase.kind === "refused" ? "alert" : undefined}
         aria-live={phase.kind === "refused" ? undefined : "polite"}
@@ -101,10 +177,10 @@ export function GitHubConnectCardView({
       >
         <div className="cv-settings-ask__header">{t("githubConnect.needsYou")}</div>
         <div className="cv-settings-ask__row">
-          <GitHubMark size={16} className="cv-settings-ask__icon" />
+          <Mark size={16} className="cv-settings-ask__icon" />
           <span className="cv-settings-ask__line text-fg">{line}</span>
           {offer && phase.kind !== "continuing" && (
-            <ConnectButton phase={phase} onConnect={onConnect} onContinue={onContinue} />
+            <ConnectButton phase={phase} button={button} onConnect={onConnect} onContinue={onContinue} />
           )}
         </div>
       </section>
@@ -113,17 +189,18 @@ export function GitHubConnectCardView({
     <div
       className={`cv-turn-note cv-turn-error cv-turn-error--${arm}${arm === "card" ? " ui-glass" : ""} cv-github-connect`}
       data-github-connect={phase.kind}
+      data-connect-service={need.service}
       data-settings-ask={askArm}
       role={phase.kind === "refused" ? "alert" : undefined}
       aria-live={phase.kind === "refused" ? undefined : "polite"}
     >
       <span className="cv-turn-error__cause">
-        {arm !== "note" && <GitHubMark size={arm === "card" ? 16 : 14} className="cv-turn-error__icon" />}
+        {arm !== "note" && <Mark size={arm === "card" ? 16 : 14} className="cv-turn-error__icon" />}
         <span className="text-fg">{line}</span>
       </span>
       {offer && phase.kind !== "continuing" && (
         <span className="cv-turn-error__actions">
-          <ConnectButton phase={phase} onConnect={onConnect} onContinue={onContinue} />
+          <ConnectButton phase={phase} button={button} onConnect={onConnect} onContinue={onContinue} />
         </span>
       )}
     </div>
@@ -142,6 +219,8 @@ const shownAsks = new Set<string>();
 /// away, and the chip opens it again.
 function SettingsAskPopover({
   line,
+  button,
+  service,
   phase,
   offer,
   onConnect,
@@ -149,6 +228,8 @@ function SettingsAskPopover({
   askKey,
 }: {
   line: string;
+  button?: string;
+  service?: string;
   phase: GitHubConnectPhase;
   offer: boolean;
   onConnect?: () => void;
@@ -168,6 +249,7 @@ function SettingsAskPopover({
     <div
       className="cv-settings-ask-anchor cv-github-connect"
       data-github-connect={phase.kind}
+      data-connect-service={service}
       data-settings-ask="popover"
       aria-live="polite"
     >
@@ -180,8 +262,12 @@ function SettingsAskPopover({
         {...trigger}
       >
         <span className="cv-settings-ask-chip__dot" aria-hidden="true" />
-        <GitHubMark size={14} className="cv-settings-ask__icon" />
-        <span className="cv-settings-ask-chip__label">{done ? line : t("githubConnect.connect")}</span>
+        {service ? (
+          <Connectors size={14} className="cv-settings-ask__icon" />
+        ) : (
+          <GitHubMark size={14} className="cv-settings-ask__icon" />
+        )}
+        <span className="cv-settings-ask-chip__label">{done ? line : (button ?? t("githubConnect.connect"))}</span>
       </button>
       <Popover
         id={trigger["aria-controls"]}
@@ -203,9 +289,13 @@ function SettingsAskPopover({
             <span className="acpmux-needs-you-title">{t("githubConnect.needsYou")}</span>
           </div>
           <div className="cv-settings-ask__row">
-            <GitHubMark size={16} className="cv-settings-ask__icon" />
+            {service ? (
+              <Connectors size={16} className="cv-settings-ask__icon" />
+            ) : (
+              <GitHubMark size={16} className="cv-settings-ask__icon" />
+            )}
             <span className="cv-settings-ask__line text-fg">{line}</span>
-            {offer && <ConnectButton phase={phase} onConnect={onConnect} onContinue={onContinue} />}
+            {offer && <ConnectButton phase={phase} button={button} onConnect={onConnect} onContinue={onContinue} />}
           </div>
         </div>
       </Popover>
@@ -217,10 +307,13 @@ function SettingsAskPopover({
 /// page is open.
 function ConnectButton({
   phase,
+  button,
   onConnect,
   onContinue,
 }: {
   phase: GitHubConnectPhase;
+  /// The button's words (a service's Connect NAME); else Sign in with GitHub.
+  button?: string;
   onConnect?: () => void;
   onContinue?: () => void;
 }) {
@@ -238,7 +331,7 @@ function ConnectButton({
       disabled={phase.kind === "opening"}
       onClick={onConnect}
     >
-      {phase.kind === "refused" ? t("githubConnect.tryAgain") : t("githubConnect.connect")}
+      {phase.kind === "refused" ? t("githubConnect.tryAgain") : (button ?? t("githubConnect.connect"))}
     </button>
   );
 }
@@ -265,7 +358,9 @@ function continueOnce(
 export function GitHubConnectCard({ need, phaseKey }: { need: GitHubConnectNeed; phaseKey: string }) {
   const { githubConnect } = useContext(TurnActionsContext);
   const readOnly = useTranscriptReadOnly();
-  const offer: GitHubConnectOffer | undefined = readOnly ? undefined : githubConnect;
+  // A service card needs the host's `connections.connect`; a host without it draws the line alone.
+  const offer: GitHubConnectOffer | undefined =
+    readOnly || (need.service && !githubConnect?.connectService) ? undefined : githubConnect;
   const [phase, setPhase] = useState<GitHubConnectPhase>(() => cardPhase(phaseKey));
   const set = (next: GitHubConnectPhase) => storePhase(phaseKey, setPhase, next);
   useEffect(() => setPhase(cardPhase(phaseKey)), [phaseKey]);
@@ -296,7 +391,8 @@ export function GitHubConnectCard({ need, phaseKey }: { need: GitHubConnectNeed;
   const connect = () => {
     if (!offer) return;
     set({ kind: "opening" });
-    offer.connect(need.repo, need.org).then(
+    const started = need.service ? offer.connectService!(need.service) : offer.connect(need.repo, need.org);
+    started.then(
       () => cardPhase(phaseKey).kind === "opening" && set({ kind: "waiting", left: false }),
       (error: unknown) => set({ kind: "refused", reason: actionRefusal(error) }),
     );

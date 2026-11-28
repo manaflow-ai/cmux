@@ -767,9 +767,9 @@ public final class AgentPaneModel {
             return AgentPaneReply.success()
         case .attentionOpen where !transport.gestures.consume(): return Self.transportFailure(.gestureRequired)
         case .attentionOpen(let tab): return attentionTabs?.open(tab) == true ? AgentPaneReply.success() : Self.unsupported("chat.attention.open")
-        case .runAction(let id, let session, let environment, let handoff, let app, let repo, let returnTo, let org, let mode, let queued, let hasDraft, let sessions, let priority):
+        case .runAction(let id, let session, let environment, let handoff, let app, let repo, let returnTo, let org, let mode, let queued, let hasDraft, let sessions, let priority, let service):
             return runAction(id, session: session, environment: environment, handoff: handoff, app: app, repo: repo, returnTo: returnTo, org: org,
-                             mode: mode, queued: queued, hasDraft: hasDraft, sessions: sessions, priority: priority)
+                             mode: mode, queued: queued, hasDraft: hasDraft, sessions: sessions, priority: priority, service: service)
         case .editorsList: return onEditorsList.map { AgentPaneReply.success($0()) } ?? Self.unsupported("editors.list")
         case .jump(let target, let id): guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }; onJump(target, id); return AgentPaneReply.success()
         case .chooseFolder where remoteChat: return Self.unsupported("workspace.chooseFolder")

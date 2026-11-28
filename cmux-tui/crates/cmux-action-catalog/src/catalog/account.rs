@@ -21,6 +21,20 @@ pub static ACTIONS: &[Action] = &[
         waits_for_result: true,
         ..Action::DEFAULT
     },
+    // A chat's inline Connect card for a cmux connection other than GitHub (webviews
+    // githubConnect.ts `SERVICE_CONNECT_ACTION`): Settings > Integrations > Connections' own flow
+    // for the one service the card names. Only from the card, on the person's tap.
+    Action {
+        id: "connections.connect",
+        group: GROUP,
+        title: t("AccountsActions", "action.connections.connect", "Connect a Service"),
+        keywords: &["connection", "integration", "sign in", "linear", "sentry", "notion"],
+        category: "cloud",
+        symbol: "link",
+        surface_plan: SurfacePlan { palette: Decision::Exempt("paletteInternal"), cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), mcp_exemption: Some("credentials"), ..SurfacePlan::DEFAULT },
+        waits_for_result: true,
+        ..Action::DEFAULT
+    },
     Action {
         id: "accounts.show",
         group: GROUP,
