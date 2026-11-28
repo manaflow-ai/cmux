@@ -426,7 +426,47 @@ def main(argv: list[str]) -> int:
         if not rate_limited(error):
             raise
         print("Attribution skipped: GitHub's API rate limit refused a read; the next push run attributes this red.")
+        git_only_suspects(argv)
         return 0
+
+
+MAX_GIT_SUSPECTS = 20
+
+
+def git_only_suspects(argv: list[str]) -> list[int]:
+    """With the API spent, name the pull requests in last-known-green..SHA from local git alone.
+
+    The rate-limited run of 2026-11-25 18:45Z (cmux#55714 broke CmuxNext's test compile) told no
+    culprit, and the next red run skipped attribution, so the red sat 3.7 h until base-reds pushed a
+    fix (retro rb124e0f2). Git needs no API: the step summary and a warning annotation (written by
+    the runner, no quota) list the squash subjects' PRs, so a reader of the run has the suspects.
+    """
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--sha", default="")
+    parser.add_argument("--last-known-green", default="")
+    parser.add_argument("--summary", type=Path)
+    args, _ = parser.parse_known_args(argv)
+    chain = first_parent_chain(args.last_known_green, args.sha)
+    if chain is None:
+        print("No git-only suspects: last-known-green..head is not in the fetched history.")
+        return []
+    numbers: list[int] = []
+    for _, subject in chain:
+        number = subject_pr(subject)
+        if number and number not in numbers:
+            numbers.append(number)
+    direct = sum(1 for _, subject in chain if not subject_pr(subject))
+    shown = numbers[-MAX_GIT_SUSPECTS:]
+    listed = ", ".join(f"#{n}" for n in shown) or "none"
+    more = f" (newest {len(shown)} of {len(numbers)})" if len(shown) < len(numbers) else ""
+    text = (f"cmux-next push attribution (git only, API rate limited): {len(chain)} commits after "
+            f"last-known-green {args.last_known_green[:12]}; pull requests{more}: {listed}"
+            + (f"; {direct} commits name no PR" if direct else "") + ".")
+    print(f"::warning title=cmux-next push attribution::{text}")
+    if args.summary:
+        with args.summary.open("a", encoding="utf-8") as stream:
+            stream.write(f"### cmux-next push attribution\n\n{text}\n")
+    return numbers
 
 
 def attribute(argv: list[str]) -> int:

@@ -1,6 +1,6 @@
 ---
 name: cmux-customization
-description: "Customize cmux for its user: cmux-next.json (or classic cmux.json) actions, commands, layouts, buttons, Command Palette, Dock, sidebar and app settings, shortcuts, notifications, browser routing, terminal preferences, the examples library, and views of their own (a sidebar or Session Info section built as the customize app)."
+description: "Customize cmux: cmux-next.json (or cmux.json) actions, commands, layouts, buttons, palette, Dock, sidebar, settings, shortcuts, notifications, browser routing, terminal, own views."
 ---
 
 # cmux Customization
@@ -42,9 +42,8 @@ Key surface: `actions`, named entries with `type: "command"` (`command`) or `typ
 
 ## Yolo path: a speculative chat UI change is a pack, never a core edit
 
-An opinionated or speculative change to how the chat looks does not edit the default UI (Leo, 2026-11-25, in
-short: keep speculative extras out of the default UI). It ships as a pack he can try on, keep or revert. Design: cmuxterm-hq
-`docs/design/yolo-path.md`.
+An opinionated or speculative change to how the chat looks does not edit the default UI. It ships as a pack the
+person can try on, keep or revert.
 
 1. Write the CSS (no `@import`, no `url()` but `data:`) to a scratch file; a component variant instead reads a
    default-off setting and the pack sets it with `--set`.
@@ -52,7 +51,7 @@ short: keep speculative extras out of the default UI). It ships as a pack he can
    changes nothing live; its last line is the `wrap_up` actions.
 3. End the turn with those actions: Try it on (live now, back by itself in 10 minutes), Keep, Revert.
 4. A PR that only adds or changes such a pack or default-off setting carries the `yolo-path` label and lands on
-   green CI. Only Leo's ask flips a default.
+   green CI. Only the person's ask flips a default.
 
 ## Workflow
 
@@ -150,6 +149,8 @@ top, so a block copies between the two:
   "ui.animationSpeed": "fast",
   // The terminal theme's own colors, as appearance.themeEdits of the theme above.
   "colors": { "background": "#16161e", "foreground": "#c0caf5", "accent": "#bb9af7" },
+  // One look for both appearances: name a pair ("light:Rose Pine Dawn,dark:Rose Pine") and add
+  // "light": {...} and "dark": {...} inside "colors"; each paints only its side, over the plain colors.
   // Or a Ghostty theme block:
   // "ghostty": ["background = #16161e", "foreground = #c0caf5", "palette = 4=#7aa2f7"]
 }
@@ -313,8 +314,8 @@ The same settings by hand, in `~/.config/cmux/cmux-next.json` (or a theme file):
 ## Make a view
 
 When someone asks for a view of their own (a sidebar section, a Session Info
-section, "a view of the PRs from the last 24h"), write the customize app in
-`~/.config/cmux/customize`: `cmux-app.json` (id `local/customize`, manifest v2)
+section, "a view of the PRs from the last 24h"), run `cmux customize paths` and write the customize app
+in the folder labeled `views`: `cmux-app.json` (id `local/customize`, manifest v2)
 and `main.js`, a classic script that uses the scene globals (`VStack`, `Row`,
 `ForEach`, `EmptyState`, ...) and ends with
 `globalThis.__cmuxAppExports = { ... }`. cmux watches the folder: every save

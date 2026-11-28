@@ -59,9 +59,19 @@ export const SCALES = [0.8, 0.9, 1, 1.1, 1.25, 1.5] as const;
  * the app's default; the others are pictures behind the window's glass, as the app draws a picture
  * the user picked (frame/background.ts): `painting`, a bundled public-domain painting, then
  * synthetic ones: a light photo-like gradient, a dark one, and a busy high-contrast one, the worst
- * case for text.
+ * case for text; then real photographs: a light one (snowy dunes), a dark one (a city at night) and a
+ * busy one (a market stall), as glass is judged over the photos people set.
  */
-export const BACKGROUNDS = ["painting", "none", "light", "dark", "busy"] as const;
+export const BACKGROUNDS = [
+  "painting",
+  "none",
+  "light",
+  "dark",
+  "busy",
+  "photo-light",
+  "photo-dark",
+  "photo-busy",
+] as const;
 export type GalleryBackground = (typeof BACKGROUNDS)[number];
 
 /**

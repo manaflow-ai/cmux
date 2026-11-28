@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { cycleRate, interpolate, majorGcEnds, marginalRatio, marginals, ratioInterval } from "../bench/ladderRatio";
+import {
+  cycleRate,
+  interpolate,
+  majorGcEnds,
+  marginalRatio,
+  marginals,
+  ratioInterval,
+  steadyStart,
+} from "../bench/ladderRatio";
 
 describe("sim-ladder marginal ratio", () => {
   test("a constant cost per item reads flat", () => {
@@ -114,5 +122,31 @@ describe("sim-ladder whole collection cycles", () => {
     expect(ends.pid).toBe(1);
     expect(ends.ends).toEqual([370, 6_800_000, 12_100_000]);
     expect(ends.heaps).toEqual([9e8, 8e8, 8e8]);
+  });
+});
+
+describe("sim-ladder steady cycles after the forced collection", () => {
+  test("the early tight cycle is left out: chats x100 ends 41.1, 84.2, 295.4 s read 97 ms/s, not 119", () => {
+    // Cumulative CPU (ms) at each end: the tight cycle cost 227 ms/s over 43.1 s, the grown one 97 over 211.2 s.
+    const ends = [41.1, 84.2, 295.4];
+    const cpu = [0, 227 * 43.1, 227 * 43.1 + 97 * 211.2];
+    expect(steadyStart(ends)).toBe(1);
+    const all = cycleRate(ends, ends, cpu)!;
+    const steady = cycleRate(ends.slice(steadyStart(ends)), ends, cpu)!;
+    expect(all.rate).toBeCloseTo(119.3, 0);
+    expect(steady.rate).toBeCloseTo(97, 6);
+  });
+  test("two tight cycles in a row both go: x50 ends 30.2, 39.5, 108.8, 205.3 s keep from 39.5", () => {
+    expect(steadyStart([30.2, 39.5, 108.8, 205.3])).toBe(1);
+    expect(steadyStart([0, 4, 15, 100, 200])).toBe(2);
+  });
+  test("cycles of even length all count (x10: 7.5, 16.3, 31.0, 50.0 s)", () => {
+    expect(steadyStart([7.5, 16.3, 31.0, 50.0])).toBe(0);
+  });
+  test("one cycle always stays, and fewer than two ends leave nothing to drop", () => {
+    expect(steadyStart([0, 1, 100])).toBe(1);
+    expect(steadyStart([0, 100])).toBe(0);
+    expect(steadyStart([5])).toBe(0);
+    expect(steadyStart([])).toBe(0);
   });
 });

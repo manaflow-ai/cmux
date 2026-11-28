@@ -3,20 +3,20 @@
 // one calm blue accent for focus and the prompt rule.
 {
   "name": "Workbench",
-  "description": "A cool neutral dark: blue-gray near-black, a darker sidebar, light-gray text, one calm blue.",
+  "description": "Dark: blue-gray near-black, one calm blue.",
 
   "appearance.theme": "Builtin Dark",
   // The window, sidebar and pages take that theme too, over an App Theme of your own.
   "appearance.appTheme": "followTerminal",
-  "colors": { "background": "#16181c", "foreground": "#d7dae0", "selection": "#2a3038", "accent": "#6ea8fe" },
+  "colors": { "background": "#16181c", "foreground": "#d7dae0", "selection": "#6b7a8e", "accent": "#6ea8fe" },
   "appearance.accent": "theme",
   "ghostty": [
     "background = #16181c",
     "foreground = #d7dae0",
     "cursor-color = #6ea8fe",
     "cursor-text = #16181c",
-    "selection-background = #2a3038",
-    "selection-foreground = #d7dae0"
+    "selection-background = #6b7a8e",
+    "selection-foreground = #16181c"
   ],
 
   "appearance.background": "none",

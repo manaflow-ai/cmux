@@ -116,3 +116,38 @@ test("own bot door links to where Slack shows the token", async () => {
     page.unmount();
   }
 });
+
+test("a connected Slack shows the Chief's awake allowance and resets it to the default", async () => {
+  const page = await renderPage({
+    path: "/settings/accounts",
+    setup(provider) {
+      provider.slack = connection;
+      provider.slackAllowance = 3600;
+    },
+  });
+  try {
+    await settle();
+    const card = () => page.container.querySelector('[data-card="slack-awake"]')!;
+    expect(card().textContent).toContain("Slack awake time");
+    expect(card().textContent).toContain("Others can keep your Chief awake 1 h a day.");
+    expect(card().textContent).toContain("Nobody has woken your Chief from Slack today.");
+    const reset = [...card().querySelectorAll("button")].find((b) => b.textContent === "Use default")!;
+    await click(reset);
+    expect(ops(page.provider, "cmux.settings.slack.awake")).toEqual([{}, { allowance_seconds: null }]);
+    expect(card().textContent).toContain("Others can keep your Chief awake 2 h a day.");
+    expect([...card().querySelectorAll("button")].some((b) => b.textContent === "Use default")).toBe(false);
+  } finally {
+    page.unmount();
+  }
+});
+
+test("a disconnected Slack never asks for the awake allowance", async () => {
+  const page = await renderPage({ path: "/settings/accounts" });
+  try {
+    await settle();
+    expect(page.container.querySelector('[data-card="slack-awake"]')).toBeNull();
+    expect(ops(page.provider, "cmux.settings.slack.awake")).toHaveLength(0);
+  } finally {
+    page.unmount();
+  }
+});

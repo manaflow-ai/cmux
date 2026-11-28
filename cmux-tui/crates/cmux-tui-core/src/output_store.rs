@@ -47,7 +47,7 @@ mod parked_trim;
 mod recovery;
 pub(crate) mod segments;
 pub(crate) mod snapshot;
-pub(crate) use recovery::RecoveryCut;
+pub(crate) use recovery::{RecoveryCut, RecoveryRace};
 mod start;
 mod tail;
 mod writer;

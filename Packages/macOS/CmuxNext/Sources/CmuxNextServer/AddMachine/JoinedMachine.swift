@@ -139,8 +139,7 @@ extension JoinedMachine {
     }
 }
 
-/// Where New Workspace on a joined Mac reached through the hub stands, as the Machines page reads it
-/// (`cmux.machines.openJoined`, webviews/src/pages/machines/types.ts `JoinedDialAnswer`).
+/// Where New Workspace on a joined Mac reached through the hub stands (``SignedInMachineDial/open(_:)``).
 public nonisolated enum JoinedDialAnswer: Equatable, Sendable {
     /// The other Mac allowed it, and the workspace opened there.
     case opened

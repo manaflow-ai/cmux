@@ -58,6 +58,9 @@ pub struct CarrierDials {
     kept_stream: Latencies,
     pipe: CallCounts,
     cheap: CallCounts,
+    /// The newest circuit's stages, whole: a bench reads one dial's split (the rings above
+    /// mix every dial the process made).
+    last: std::sync::Mutex<Option<Stages>>,
 }
 
 /// How many calls of one kind rode a kept circuit and how many opened a new one.
@@ -87,6 +90,12 @@ impl CarrierDials {
             self.answer.record(answer);
         }
         self.circuit.record(stages.total());
+        *self.last.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(*stages);
+    }
+
+    /// The newest circuit's stages; None before the first.
+    pub fn last(&self) -> Option<Stages> {
+        *self.last.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// A call opened a stream on a kept circuit that was already open, in `took`.

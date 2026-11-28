@@ -299,6 +299,16 @@ fn send_unkeyed(
                  the send shortly"
             )));
         }
+        // A direct report of this terminal whose journal echo the roster has not folded (being
+        // appended, retried after a failed append, or past the roster's cursor), or whose echo was
+        // given up: the roster may hold the agent's state from before the report.
+        if surface.terminal_public_id().is_some_and(|terminal| mux.agent_report_unsettled(terminal))
+        {
+            return Err(DeliveryClassifiedError::known_not_delivered(anyhow::anyhow!(
+                "agent state not recorded yet: the terminal's last agent report is not in the \
+                 agent roster yet; retry the send shortly"
+            )));
+        }
         // Only this surface's own terminal's record: a surface with no terminal id fails closed
         // (an unfiltered roster would name another terminal's agent).
         let agent = surface.terminal_public_id().cloned().and_then(|terminal| {
@@ -362,6 +372,7 @@ fn send_unkeyed(
         })?;
     }
     mux.note_terminal_input(&surface, client);
+    mux.control_clients.last_inputs.note(surface.id, client);
     Ok(json!({}))
 }
 
@@ -591,6 +602,7 @@ pub(super) fn send_key(
     mux.wait_for_creating_input_flush(&surface);
     surface.write_bytes_replying(&encoded, reply)?;
     mux.note_terminal_input(&surface, client);
+    mux.control_clients.last_inputs.note(surface.id, client);
     Ok(json!({}))
 }
 

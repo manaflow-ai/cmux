@@ -1,7 +1,9 @@
 //! C ABI of the screen stream's rules (`include/cmux_rd_screen.h`): the
 //! `screen_*` JSON ops of `cmux_rd_screen::json`, for a process that runs a
 //! screen stream host outside the app (cmux Remote's Screen Sharing worker,
-//! cmux-vnc-host). They open `libcmux_rd_screen.dylib` and hand it to
+//! cmux-vnc-host), and the `vnc_*` ops of `cmux_vnc::json` for the RFB client
+//! such a host runs against Screen Sharing (Packages/Shared/CmuxVNC's
+//! `VNCRules`). They open `libcmux_rd_screen.dylib` and hand it to
 //! Packages/Shared/CmuxVNCWebRTC's `ScreenRules`; the app answers the same
 //! ops through cmux-layout-reducer-ffi and the phone through
 //! cmux-mobile-link-ffi, all three calling `cmux_rd_screen::json::respond`.
@@ -19,7 +21,7 @@ pub const ERR_NULL: i32 = -1;
 pub const ERR_INVALID: i32 = -2;
 pub const ERR_BUFFER: i32 = -3;
 pub const ERR_PANIC: i32 = -4;
-/// No `screen_*` op of that name.
+/// No `screen_*` or `vnc_*` op of that name.
 pub const ERR_UNKNOWN: i32 = -5;
 
 #[unsafe(no_mangle)]
@@ -76,10 +78,17 @@ pub unsafe extern "C" fn cmux_rd_screen_json(
 fn answer(operation: &CStr, request: &[u8]) -> Result<Vec<u8>, i32> {
     use cmux_rd_screen::json::{self, JsonError};
     let operation = operation.to_str().map_err(|_| ERR_INVALID)?;
-    let answer = json::respond(operation, request).map_err(|error| match error {
-        JsonError::UnknownOperation(_) => ERR_UNKNOWN,
-        JsonError::Invalid(_) => ERR_INVALID,
-    })?;
+    let answer = if operation.starts_with(cmux_vnc::json::OPERATION_PREFIX) {
+        cmux_vnc::json::respond(operation, request).map_err(|error| match error {
+            cmux_vnc::json::JsonError::UnknownOperation(_) => ERR_UNKNOWN,
+            cmux_vnc::json::JsonError::Invalid(_) => ERR_INVALID,
+        })?
+    } else {
+        json::respond(operation, request).map_err(|error| match error {
+            JsonError::UnknownOperation(_) => ERR_UNKNOWN,
+            JsonError::Invalid(_) => ERR_INVALID,
+        })?
+    };
     serde_json::to_vec(&answer).map_err(|_| ERR_INVALID)
 }
 

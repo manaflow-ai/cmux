@@ -126,3 +126,39 @@ test("a switch away before the frame never reads the chat it left", async () => 
     act(() => root.unmount());
   }
 });
+
+test("a re-run before the frame keeps the switch's fresh read", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { useSessionAuth } = await import("../src/agent-session/acpmux/sessionAuth");
+  const reads: string[] = [];
+  const read = async (query: { sessionId: string } | { target: unknown }, refresh?: boolean) => {
+    reads.push(`${"sessionId" in query ? query.sessionId : "target"}:${refresh ? "probe" : "cached"}`);
+    return { state: "ready" };
+  };
+  const Probe = ({ sessionId, observed }: { sessionId: string; observed: number }) => {
+    useSessionAuth({ sessionId }, read, 0, 0, observed);
+    return null;
+  };
+  const root: Root = createRoot(document.getElementById("root")!);
+  try {
+    await act(async () => root.render(<Probe sessionId="chat-a" observed={0} />));
+    await act(async () => {
+      paint();
+      await until(() => reads.length === 1);
+    });
+    expect(reads).toEqual(["chat-a:probe"]);
+
+    // The switch defers its read; an observation that lands before the frame runs the effect again.
+    // The read that goes out is still the switch's: one read, after the frame, and a fresh one.
+    await act(async () => root.render(<Probe sessionId="chat-b" observed={0} />));
+    await act(async () => root.render(<Probe sessionId="chat-b" observed={1} />));
+    expect(reads).toEqual(["chat-a:probe"]);
+    await act(async () => {
+      paint();
+      await until(() => reads.length === 2);
+    });
+    expect(reads).toEqual(["chat-a:probe", "chat-b:probe"]);
+  } finally {
+    act(() => root.unmount());
+  }
+});

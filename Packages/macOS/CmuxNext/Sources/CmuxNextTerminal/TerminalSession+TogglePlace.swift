@@ -37,7 +37,7 @@ extension TerminalSession {
 /// (a plain read joins soft-wrapped rows and loses that). A free function, not a
 /// ``TerminalSurfaceView`` member: that type is over its size budget (check-no-godfiles.sh).
 @MainActor
-private func rowsText(_ view: TerminalSurfaceView, from start: ghostty_point_s, to end: ghostty_point_s) -> String? {
+func rowsText(_ view: TerminalSurfaceView, from start: ghostty_point_s, to end: ghostty_point_s) -> String? {
     guard let surface = view.surface else { return nil }
     let selection = ghostty_selection_s(top_left: start, bottom_right: end, rectangle: true)
     var text = ghostty_text_s()

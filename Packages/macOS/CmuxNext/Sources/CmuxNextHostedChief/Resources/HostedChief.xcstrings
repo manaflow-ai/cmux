@@ -662,7 +662,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Say what to do: status, take_over, hand_back or request_human."
+            "value": "Unknown action. Try status."
           }
         },
         "ja": {

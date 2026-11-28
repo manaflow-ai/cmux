@@ -192,6 +192,7 @@ fn json_text(value: &impl serde::Serialize) -> String {
 impl PeerRow {
     /// `summary`, packed.
     pub fn new(summary: &Value) -> Self {
+        super::remote_table::under_writer::built();
         let hot = Hot::of(summary);
         let Some(map) = summary.as_object() else {
             return Self { base: json_text(summary).into(), hot, ..Self::default() };

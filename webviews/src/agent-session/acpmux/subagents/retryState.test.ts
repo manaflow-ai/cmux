@@ -1,5 +1,5 @@
 // l10n-allow-file: test fixture subagent names and tasks, not shipped UI.
-import { describe, expect, jest, test } from "bun:test";
+import { describe, expect, test, jest } from "bun:test";
 import { translate } from "../i18n";
 import { sessionEntry } from "../sessionList";
 import { SubagentFold } from "./subagentFold";
@@ -16,9 +16,9 @@ import {
   retryLabel,
   RETRY_METHOD,
   runRetry,
+  type RetryTarget,
   untilNotBusy,
   type RetryNote,
-  type RetryTarget,
 } from "./retryState";
 
 // The daemon's shapes (hb-acpmux, 2026-10-26): a subagent of `_meta.acpmux.subagents` carries
@@ -167,10 +167,12 @@ describe("the fold keeps a subagent's retry", () => {
   test("the summary card's started-chat rows and counts read it", () => {
     const chat = { sessionId: "s", title: "Push relay", state: "failed" as const, retry: FIXTURE.subagentRetry };
     expect(sessionStatus(chat)).toBe("running");
-    expect(sessionStateText(translate, chat)).toMatchObject({
+    expect(sessionStateText(translate, chat, () => true)).toMatchObject({
       text: "Retrying (2/4) after a capacity error",
       working: true,
     });
+    // Before the retry has waited the shared bound, the row reads running: the turning ring, no word.
+    expect(sessionStateText(translate, chat, () => false)).toMatchObject({ text: "", working: true });
     expect(sessionStatus({ ...chat, state: "idle" })).toBe("done");
   });
 

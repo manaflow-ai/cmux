@@ -155,6 +155,26 @@ struct ImportScannerTests {
         #expect(Self.scanner(try Home()) { _ in .missing }.scan().allSatisfy { $0.kind != .conductor })
     }
 
+    /// Move this Mac to AutoCloud counts git checkouts one level under the roots `cmux migrate
+    /// plan laptop` reads, and only while `cloud.autoCloud` is on (off by default).
+    @Test func autoCloudCountsCheckoutsOnlyWhenOffered() throws {
+        let home = try Home(["code/app/.git/HEAD", "code/web/.git", "Projects/api/.git/HEAD",
+                             // Not checkouts: a folder with no `.git`, a file, a checkout two levels down, a root not read.
+                             "code/notes/README", "code/todo.md", "src/group/nested/.git/HEAD", "Desktop/site/.git/HEAD"])
+        let off = ImportScanner(home: home.url, environment: ImportEnvironment(homeDirectory: home.url, locateApp: { _ in nil }), probe: { _ in .missing })
+        #expect(off.scan().allSatisfy { $0.kind != .autoCloud })
+
+        var on = off
+        on.offersAutoCloud = true
+        let found = try #require(on.scan().first { $0.kind == .autoCloud })
+        #expect(found.id == "cloud.moveThisMac" && found.count == 3 && found.access == .ready)
+        #expect(found.name == ImportSuggestionStrings.moveToAutoCloud)
+
+        let empty = try Home(["code/notes/README"])
+        #expect(ImportScanner(home: empty.url, environment: ImportEnvironment(homeDirectory: empty.url, locateApp: { _ in nil }),
+                              probe: { _ in .missing }, offersAutoCloud: true).autoCloud() == nil)
+    }
+
     @Test func iTermProfilesAndTheirColors() throws {
         let color = { (r: Double, g: Double, b: Double) in ["Red Component": r, "Green Component": g, "Blue Component": b] }
         let plist: [String: Any] = [

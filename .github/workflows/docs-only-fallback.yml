@@ -41,11 +41,13 @@ jobs:
       missing: ${{ steps.plan.outputs.missing }}
     steps:
       - name: Checkout the planner
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-          # The merge commit's parent too: merge_commit_files lists the changed paths with git when the REST reads fail.
+          # The merge commit and its parents' trees: merge_files() and merge_commit_files() list the changed paths
+          # with git, no API call.
           fetch-depth: 2
+          filter: blob:none
           sparse-checkout: |
             scripts/ci/docs_only_paths.py
             scripts/ci/workflow_paths_cover_inputs.py
@@ -87,6 +89,7 @@ jobs:
       checks: read
       contents: read
       pull-requests: write
+      statuses: read
 
   cmux-next-pr-autofix:
     name: cmux-next-pr-autofix (fallback)
@@ -114,6 +117,7 @@ jobs:
     permissions:
       actions: read
       contents: read
+      statuses: read
 
   web-validation:
     name: web-validation (fallback)

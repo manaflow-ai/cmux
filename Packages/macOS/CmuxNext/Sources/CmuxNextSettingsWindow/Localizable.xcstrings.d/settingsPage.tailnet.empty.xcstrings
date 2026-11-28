@@ -8,127 +8,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+            "value" : "Turn on tailnet joins above to add Cloud machines."
           }
         },
         "ar" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+            "state" : "translated",
+            "value" : "فعّل الانضمام إلى tailnet أعلاه لإضافة أجهزة Cloud."
           }
         },
         "bs" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+            "state" : "translated",
+            "value" : "Uključi pridruživanja tailnetu iznad da dodaš Cloud mašine."
           }
         },
         "da" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+            "state" : "translated",
+            "value" : "Slå tailnet-tilslutning til ovenfor for at tilføje Cloud-maskiner."
           }
         },
         "de" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+            "state" : "translated",
+            "value" : "Schalte oben Tailnet-Beitritte ein, um Cloud-Maschinen hinzuzufügen."
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+            "state" : "translated",
+            "value" : "Activa las uniones a la tailnet arriba para añadir máquinas Cloud."
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+            "state" : "translated",
+            "value" : "Activez les adhésions au tailnet ci-dessus pour ajouter des machines Cloud."
           }
         },
         "it" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+            "state" : "translated",
+            "value" : "Attiva gli accessi alla tailnet sopra per aggiungere macchine Cloud."
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+            "state" : "translated",
+            "value" : "上で tailnet への参加をオンにすると Cloud マシンを追加できます。"
           }
         },
         "km" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+            "state" : "translated",
+            "value" : "បើកការចូលរួម tailnet ខាងលើ ដើម្បីបន្ថែមម៉ាស៊ីន Cloud។"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+            "state" : "translated",
+            "value" : "Cloud 머신을 추가하려면 위에서 tailnet 참가를 켜세요."
           }
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+            "state" : "translated",
+            "value" : "Slå på tailnet-tilkobling ovenfor for å legge til Cloud-maskiner."
           }
         },
         "pl" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+            "state" : "translated",
+            "value" : "Włącz dołączanie do tailnetu powyżej, aby dodać maszyny Cloud."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+            "state" : "translated",
+            "value" : "Ative as entradas na tailnet acima para adicionar máquinas Cloud."
           }
         },
         "ru" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+            "state" : "translated",
+            "value" : "Включите присоединение к tailnet выше, чтобы добавить машины Cloud."
           }
         },
         "th" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+            "state" : "translated",
+            "value" : "เปิดการเข้าร่วม tailnet ด้านบนเพื่อเพิ่มเครื่อง Cloud"
           }
         },
         "tr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+            "state" : "translated",
+            "value" : "Cloud makineleri eklemek için yukarıdan tailnet katılımlarını açın."
           }
         },
         "uk" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+            "state" : "translated",
+            "value" : "Увімкніть приєднання до tailnet вище, щоб додати машини Cloud."
           }
         },
         "vi" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+            "state" : "translated",
+            "value" : "Bật tham gia tailnet ở trên để thêm máy Cloud."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+            "state" : "translated",
+            "value" : "在上方打开 tailnet 加入，即可添加 Cloud 机器。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+            "state" : "translated",
+            "value" : "在上方開啟 tailnet 加入，即可新增 Cloud 機器。"
           }
         }
       }

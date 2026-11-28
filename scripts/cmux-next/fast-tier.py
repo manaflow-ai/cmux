@@ -356,15 +356,30 @@ def run_build(root, argv, cwd, what, log_lock):
     refusals = []
     stop_after_error = argv[0] == "swift" and len(argv) > 1 and argv[1] == "build"
     compiler_error = False
+    # After a task's failure header the build reads on for the compiler's own words (see SWIFT_TASK_FAILED).
+    drain_left, drain_timer = None, None
     for output_line in proc.stdout:
         with log_lock:
             print(f"[{what}] {output_line.rstrip()}", flush=True)
         if STALE_LOCK_HINT in output_line:
             refusals.append(output_line)
-        if stop_after_error and SWIFT_COMPILER_ERROR.search(output_line):
+        if not stop_after_error:
+            continue
+        if drain_left is None and SWIFT_TASK_FAILED.search(output_line):
+            drain_left = SWIFT_DRAIN_LINES
+            drain_timer = threading.Timer(SWIFT_DRAIN_SECONDS, stop_tree, args=(proc.pid,))
+            drain_timer.daemon = True
+            drain_timer.start()
+            continue
+        if drain_left is not None:
+            drain_left -= 1
+        if SWIFT_COMPILER_ERROR.search(output_line) or drain_left == 0:
             compiler_error = True
             stop_tree(proc.pid)
             break
+    if drain_timer is not None:
+        drain_timer.cancel()
+        compiler_error = True
     if compiler_error:
         try:
             proc.wait(timeout=5)
@@ -384,7 +399,19 @@ STALE_LOCK_HINT = "--locked was passed"
 # Swift emits the first actionable compiler diagnostic before it finishes the
 # remaining files. The build has no useful work after that diagnostic and can
 # otherwise keep a Mac runner busy for tens of minutes.
-SWIFT_COMPILER_ERROR = re.compile(r"\b(?:fatal\s+)?error:", re.IGNORECASE)
+# Only a diagnostic's own head counts: `path:line:col: error:` or a line that starts
+# `error:`. A warning's source excerpt (` 446 |  func f(_ error: Error)`) holds the same
+# word, and matching it there stopped a clean CmuxNext build (seed run 45854893499).
+SWIFT_COMPILER_ERROR = re.compile(r"^(?:[^\s|][^|]*?:\d+(?::\d+)?: )?(?:fatal\s+)?error: ", re.IGNORECASE)
+
+# Swift Build (Xcode 27's `swift build`) heads a failed task `error: SwiftCompile normal arm64 X.swift failed with a
+# nonzero exit code. Command line: ...` and prints the compiler's own output (its diagnostic, or a crash's stack dump)
+# after that head. Stopping at the head hid the cause: fast tier job 140640571539 failed on
+# DevicesCategoryLayoutTests.swift with no diagnostic. The build reads on to the next diagnostic head, for at most
+# SWIFT_DRAIN_LINES lines or SWIFT_DRAIN_SECONDS, then stops.
+SWIFT_TASK_FAILED = re.compile(r"^error: .* failed with a nonzero exit code\b")
+SWIFT_DRAIN_LINES = 400
+SWIFT_DRAIN_SECONDS = 90
 
 
 def stale_lock_explained(root, refusals):

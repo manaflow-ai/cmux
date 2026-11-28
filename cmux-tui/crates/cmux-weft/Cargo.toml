@@ -34,4 +34,5 @@ x25519-dalek.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
+cmux-egress = { workspace = true, features = ["capture"] }
 proptest = { version = "1", default-features = false, features = ["std"] }

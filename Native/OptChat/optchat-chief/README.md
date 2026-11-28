@@ -21,9 +21,8 @@ Two engines run a turn (`OPTCHAT_CHIEF_ENGINE`):
   id>`, and each summary is one too (see [Harnesses and cache
   layout](#harnesses-and-cache-layout)); no Messages API is called. The
   harness is one setting (`OPTCHAT_CHIEF_HARNESS`). By default it is
-  acpmux's own Claude Code adapter (`claude_stdio`): `claude-cr` when acpmux
-  has a configured CodeRouter route (`coderouterClaudeRoute`), else `claude`,
-  the user's own login. claude-sr (the subrouter pool) only when set; codex
+  acpmux's own Claude Code adapter (`claude_stdio`) running `claude`, the
+  user's own login. claude-sr (the subrouter pool) only when set; codex
   or any acpmux harness also work.
   Claude Code's Task/Agent subagents are denied (their steps would be
   logged as the Chief's); `chief agents` starts agents instead. So are
@@ -574,7 +573,7 @@ replies).
 | `OPTCHAT_CHIEF_EFFORT` | `medium` (Taelin runs Opus 5.5 at medium); acpmux: only on a Claude or codex harness | the turn effort: native `output_config.effort`, acpmux `effort` of each turn session |
 | `OPTCHAT_CHIEF_LINK_PREVIEWS` | on | `0`: a reply line that is only a URL stays text instead of a link card ([Link previews](#link-previews)) |
 | `OPTCHAT_CHIEF_SERVER_FALLBACK` | off | native: `1` sends `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`) |
-| `OPTCHAT_CHIEF_HARNESS` | `MUX_HARNESS`, else `claude-cr` when acpmux has a configured CodeRouter route, else `claude` | acpmux: the harness of each turn session, and of the compactor unless `OPTCHAT_COMPACTOR_HARNESS` names another |
+| `OPTCHAT_CHIEF_HARNESS` | `MUX_HARNESS`, else `claude` | acpmux: the harness of each turn session, and of the compactor unless `OPTCHAT_COMPACTOR_HARNESS` names another |
 | `MUX_HARNESS` | `claude` (acpmux resolves it through `defaults.claude.prefer`) | acpmux: the children's default harness, and the turn harness when `OPTCHAT_CHIEF_HARNESS` is unset |
 | `MUX_POLICY` | `approve-all` | acpmux: permission policy of each turn session |
 | `ACPMUX_SOCKET`, `ACPMUX_HOME` | `~/.acpmux/acpmux.sock` | the acpmux daemon |
@@ -1515,7 +1514,7 @@ compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
   (`OPTCHAT_COMPACTOR_MODEL`, `OPTCHAT_COMPACTOR_EFFORT` or engine.json's
   `compactor-model` pick another), on a Claude route whatever the turns run
   on: a Claude turn harness's own (claude-sr stays claude-sr), else
-  `claude` (the configured CodeRouter route, else the user's own login).
+  `claude` (the user's own login).
   Only `OPTCHAT_COMPACTOR_HARNESS` or engine.json's `compactor-harness`
   picks another harness; the turns' harness (a codex Chief) never does. An account without the model builds
   with the turn model, logged once. Haiku and the turns' model have
@@ -1583,8 +1582,8 @@ compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
   `room`, `sizeCheck(tries, room)` measures against the room, and
   `finishLine(cut, line)` adds the prefix.
 - **Compactor refusals (section 4.1).** A node the compactor model declines
-  is built by `claude-sonnet-5` (fewer safeguard categories) instead of
-  being retried forever. On the acpmux route a refusal arrives as acpmux
+  keeps its input, cut to the room, as its line instead of being retried
+  forever; no other model builds it unless `Config::fallback_model` names one. On the acpmux route a refusal arrives as acpmux
   sends it: a JSON-RPC error (code -32603) whose message is Claude Code's
   refusal text, which always links `anthropic.com/legal/aup`; a usage limit
   or an overload is not a refusal and is retried. Other failures retry with

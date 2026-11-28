@@ -11,8 +11,9 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use cmux_migrate::apply::{self, Cloud, Created, Event, Local, PatchRoute, WorkPatch};
+use cmux_migrate::apply::{self, Cloud, Created, Event, Local, LocalWork, PatchRoute};
 use cmux_migrate::ledger::{Ledger, Load};
+use cmux_migrate::preview::Preview;
 use cmux_migrate::sources::competitors::{self, Product, Route};
 use cmux_migrate::sources::{compose, devcontainer, laptop, nix, ssh_host};
 use cmux_migrate::{Plan, Step};
@@ -22,7 +23,7 @@ use super::cloud_start_chat::{Ran, Runner, SelfRunner, shell_quote, step_result}
 use super::{GlobalArgs, OutputMode};
 
 pub(super) const USAGE: &str = "\
-usage: cmux migrate plan SOURCE [--json] [--out FILE]
+usage: cmux migrate plan SOURCE [--json] [--out FILE] [--preview]
        cmux migrate apply PLAN.json|SOURCE [--only KEY]... [--dry-run] [--headless [--backend B]]
        cmux migrate undo SOURCE_ID --yes
        cmux migrate status
@@ -132,9 +133,21 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Command {
-    Plan { source: String, out: Option<PathBuf> },
-    Apply { from: String, only: Vec<String>, dry_run: bool, headless: Option<String> },
-    Undo { source_id: String },
+    /// `preview`: print what a confirmation shows (cmux_migrate::preview) instead of the plan.
+    Plan {
+        source: String,
+        out: Option<PathBuf>,
+        preview: bool,
+    },
+    Apply {
+        from: String,
+        only: Vec<String>,
+        dry_run: bool,
+        headless: Option<String>,
+    },
+    Undo {
+        source_id: String,
+    },
     Status,
     Routes,
 }
@@ -142,8 +155,8 @@ pub(super) enum Command {
 pub(super) fn parse(words: &[String]) -> Result<Command, String> {
     let (verb, rest) = words.split_first().ok_or("a verb: plan, apply, undo, status, routes")?;
     let mut positional = Vec::new();
-    let (mut out, mut only, mut dry_run, mut headless, mut backend, mut yes) =
-        (None, Vec::new(), false, false, None::<String>, false);
+    let (mut out, mut only, mut dry_run, mut headless, mut backend, mut yes, mut preview) =
+        (None, Vec::new(), false, false, None::<String>, false, false);
     let mut it = rest.iter();
     while let Some(word) = it.next() {
         let mut value = |flag: &str| it.next().cloned().ok_or(format!("{flag} needs a value"));
@@ -154,6 +167,7 @@ pub(super) fn parse(words: &[String]) -> Result<Command, String> {
             "--dry-run" => dry_run = true,
             "--headless" => headless = true,
             "--yes" => yes = true,
+            "--preview" => preview = true,
             flag if flag.starts_with("--") => return Err(format!("unknown option {flag}")),
             _ => positional.push(word.clone()),
         }
@@ -170,7 +184,7 @@ pub(super) fn parse(words: &[String]) -> Result<Command, String> {
         }
     };
     match verb.as_str() {
-        "plan" => Ok(Command::Plan { source: one("SOURCE")?, out }),
+        "plan" => Ok(Command::Plan { source: one("SOURCE")?, out, preview }),
         "apply" => Ok(Command::Apply {
             from: one("PLAN.json or SOURCE")?,
             only,
@@ -203,7 +217,7 @@ fn run(global: &GlobalArgs, output: OutputMode, command: Command) -> Result<i32,
             });
             Ok(0)
         }
-        Command::Plan { source, out } => {
+        Command::Plan { source, out, preview } => {
             if let Some(product) = product_named(&source)
                 && !matches!(product, Product::Codespaces | Product::Coder | Product::Gitpod)
             {
@@ -216,6 +230,20 @@ fn run(global: &GlobalArgs, output: OutputMode, command: Command) -> Result<i32,
             if let Some(out) = out {
                 std::fs::write(&out, format!("{text}\n"))
                     .map_err(|e| format!("{}: {e}", out.display()))?;
+            }
+            if preview {
+                let preview = Preview::of(&plan, &load_ledger()?);
+                print_answer(
+                    output,
+                    &serde_json::to_value(&preview).unwrap_or(Value::Null),
+                    || {
+                        format!(
+                            "{} project(s) to move, {} already moved",
+                            preview.moving, preview.already
+                        )
+                    },
+                );
+                return Ok(0);
             }
             print_answer(output, &serde_json::to_value(&plan).unwrap_or(Value::Null), || {
                 plan_words(&plan)
@@ -871,56 +899,13 @@ impl HomeLocal {
             Err(_) => real.display().to_string(),
         }
     }
-
-    fn git(&self, checkout: &Path, args: &[&str]) -> Result<String, String> {
-        let overrides = cmux_git::filter_overrides(checkout).map_err(|e| e.to_string())?;
-        let out = cmux_git::run::run_git_within(
-            checkout,
-            &overrides,
-            args,
-            64 << 20,
-            Duration::from_secs(60),
-        )
-        .map_err(|e| format!("git {}: {e}", args.first().unwrap_or(&"")))?;
-        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
-    }
 }
 
 impl HomeLocal {
-    /// Unpushed commits and the working tree of a checkout here, against the commit it shares
-    /// with its upstream (else the remote's default branch), which the machine checks out first.
-    fn local_work_patch(&self, checkout: &str) -> Result<WorkPatch, String> {
-        let dir = self.real(checkout);
-        let line = |args: &[&str]| {
-            self.git(&dir, args).ok().map(|o| o.trim().to_owned()).filter(|o| !o.is_empty())
-        };
-        let upstream = line(&["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"])
-            .or_else(|| line(&["rev-parse", "--abbrev-ref", "origin/HEAD"]));
-        let base = upstream.as_deref().and_then(|up| line(&["merge-base", up, "HEAD"]));
-        let branch = line(&["symbolic-ref", "--short", "-q", "HEAD"]);
-        let commits = match &base {
-            Some(base) => {
-                self.git(&dir, &["format-patch", "--stdout", "--binary", &format!("{base}..HEAD")])?
-            }
-            None => String::new(),
-        };
-        let mut work = self.git(&dir, &["-c", "core.quotepath=off", "diff", "--binary", "HEAD"])?;
-        // Untracked files as new-file diffs written here: git's own route (`add -N`) would touch the real index.
-        let untracked = self.git(&dir, &["ls-files", "--others", "--exclude-standard", "-z"])?;
-        let mut total = 0u64;
-        for path in untracked.split('\0').filter(|p| !p.is_empty()).take(2000) {
-            let Ok(meta) = std::fs::metadata(dir.join(path)) else { continue };
-            if !meta.is_file()
-                || meta.len() > apply::MAX_FILE_BYTES
-                || total + meta.len() > apply::MAX_CARRY_BYTES
-            {
-                continue;
-            }
-            let Ok(text) = std::fs::read_to_string(dir.join(path)) else { continue };
-            total += meta.len();
-            work.push_str(&new_file_diff(path, &text));
-        }
-        Ok(WorkPatch { commits, work, base, branch })
+    /// The local work of a checkout here, read by the same script a remote source runs.
+    fn local_work(&self, checkout: &str) -> Result<LocalWork, String> {
+        let dir = self.real(checkout).display().to_string();
+        apply::parse_work(&bounded("sh", &["-s"], Some(&apply::work_script(&dir)))?)
     }
 }
 
@@ -969,13 +954,13 @@ impl Local for HomeLocal {
         source: &cmux_migrate::Source,
         project: &str,
         checkout: &str,
-    ) -> Result<WorkPatch, String> {
+    ) -> Result<LocalWork, String> {
         match apply::patch_route(source, project) {
-            PatchRoute::Local => self.local_work_patch(checkout),
+            PatchRoute::Local => self.local_work(checkout),
             PatchRoute::Remote { program, args } => {
                 let args: Vec<&str> = args.iter().map(String::as_str).collect();
-                let out = bounded(&program, &args, Some(&apply::remote_patch_script(checkout)))?;
-                apply::parse_remote_patch(&out)
+                let out = bounded(&program, &args, Some(&apply::work_script(checkout)))?;
+                apply::parse_work(&out)
             }
             PatchRoute::Unsupported(why) => Err(why),
         }
@@ -984,24 +969,6 @@ impl Local for HomeLocal {
     fn now_ms(&self) -> i64 {
         self.epoch_ms + i64::try_from(self.started.elapsed().as_millis()).unwrap_or(0)
     }
-}
-
-/// A unified diff that adds `path` with `text` (what `git diff` prints for a new file).
-pub(super) fn new_file_diff(path: &str, text: &str) -> String {
-    let mut out = format!("diff --git a/{path} b/{path}\nnew file mode 100644\n");
-    if text.is_empty() {
-        return out;
-    }
-    let lines: Vec<&str> = text.split_inclusive('\n').collect();
-    out.push_str(&format!("--- /dev/null\n+++ b/{path}\n@@ -0,0 +1,{} @@\n", lines.len()));
-    for line in lines {
-        out.push('+');
-        out.push_str(line);
-        if !line.ends_with('\n') {
-            out.push_str("\n\\ No newline at end of file\n");
-        }
-    }
-    out
 }
 
 fn tail(text: &str, max: usize) -> String {

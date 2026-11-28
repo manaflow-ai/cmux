@@ -84,6 +84,15 @@ EDIT_READS: dict[tuple[str, str], tuple[frozenset[str], str]] = {
     ("pr-checks.yml", "pull_request"): (frozenset({"body"}), "its advisory job's PR size step reads the `Size:` "
         "line and UI review its section (the pick step runs only what the edit moved); none of its steps fails a "
         "pull request"),
+    ("cloud-resume-matrix.yml", "pull_request"): (frozenset({"body"}), "opt-in: a `resume-matrix: run` or "
+        "`resume-matrix: full` line in the body starts it, and its job `if:` skips an edit that leaves the body "
+        "as it was (#54761); not a merge gate"),
+    ("cloud-wake-echo.yml", "pull_request"): (frozenset({"body"}), "opt-in: a `wake-echo: run` line in the "
+        "body starts it, and its job `if:` skips an edit that leaves the body as it was (#54761); not a merge "
+        "gate"),
+    ("gallery-advisory.yml", "pull_request"): (frozenset({"body"}), "advisory: re-runs only when a body edit "
+        "adds or drops a `Gallery:` or `Visual-change:` line (#56329); other edits take a -noop concurrency "
+        "group and skip"),
 }
 
 # A comment event whose jobs may start on any comment or review, and why.

@@ -534,6 +534,20 @@ class PullRequestShardsTest(unittest.TestCase):
         self.touched("webviews/package.json")
         self.assertEqual(ps.pick(self.root, "HEAD^1", "HEAD", 3)[0], [1, 2, 3])
 
+    def test_a_selection_past_one_environment_variable_still_splits(self) -> None:
+        """A full-ci closure named every test file inline in CMUX_WEB_TEST_FILES: past 128 KiB the exec failed with
+        E2BIG and the pick ran all 8 shards (run 45937345076). The list goes through CMUX_WEB_TEST_FILES_FROM."""
+        import webviews_pr_shards as ps  # noqa: PLC0415
+        names = subprocess.run(["git", "ls-files", "*.test.ts", "*.test.tsx"], cwd=ROOT / "webviews",
+                               capture_output=True, text=True, check=True).stdout.split()
+        selected = {wa.WEB + name for name in names}
+        if sum(len(name) + 1 for name in names) < 131072:
+            self.skipTest("fewer test files than one environment variable holds")
+        split = [ps.shard_files(ROOT, shard, 8, selected) for shard in range(1, 9)]
+        self.assertEqual(set().union(*split), selected)
+        self.assertEqual(sum(map(len, split)), len(selected))  # each file in one shard
+        self.assertEqual(ps.shard_files(ROOT, 1, 8, set()), ps.shard_files(ROOT, 1, 8, None))
+
     def test_files_of_lists_the_named_shards_files_webviews_relative(self) -> None:
         """react-apps-base-early replays base reds only among these (RFD 0023 item 3): the picked shards' own split."""
         import webviews_pr_shards as ps  # noqa: PLC0415
@@ -547,13 +561,20 @@ class PullRequestShardsTest(unittest.TestCase):
         finally:
             ps.shard_files = real
         self.assertEqual(seen, [1, 2])
+        # Shard 1 runs touched tests from the other shards' shares (--direct-out): those are its files too.
+        ps.shard_files = lambda repo, shard, count, selected: split[shard]
+        try:
+            self.assertEqual(ps.files_of(self.root, "HEAD^1", "HEAD", 3, [1], {"1": ["test/other.test.ts"]}),
+                             ["test/a.test.ts", "test/other.test.ts"])
+        finally:
+            ps.shard_files = real
 
     def test_a_picked_shard_past_1_owns_only_its_touched_tests(self) -> None:
         """--direct-out: touched tests past shard 1 fold into shard 1's one job (up to FOLD_MAX), not any shard's closure share."""
         import webviews_pr_shards as ps  # noqa: PLC0415
         self.touched("webviews/src/leaf.ts")
-        split = {1: set(), 2: {"webviews/test/leaf.test.ts", "webviews/test/a.test.ts"}, 3: {"webviews/test/other.test.ts"},
-                 4: set()}
+        split = {1: {"webviews/test/a.test.ts"}, 2: {"webviews/test/leaf.test.ts", "webviews/test/b.test.ts"},
+                 3: {"webviews/test/other.test.ts"}, 4: set()}
         real = ps.shard_files
         ps.shard_files = lambda repo, shard, count, selected: split[shard]
         try:
@@ -590,14 +611,14 @@ class PullRequestShardsTest(unittest.TestCase):
                 self.assertTrue(set(sample) <= set(range(2, 13)))
                 self.assertEqual((shards, own), ([1, *sample], {1: []}))
                 self.assertIn(ps.SAMPLE_WHY, why)
-            # A source edit beside it adds its touched tests as one job, unless a sampled shard already runs them.
+            # A source edit beside it adds its touched tests to shard 1, unless a sampled shard already runs them.
             self.touched(".github/workflows/ci-web.yml", "webviews/src/leaf.ts")
             sample = ps.sampled_shards(git(self.root, "rev-parse", "HEAD").strip(), 12)
             shards, _, own = ps.pick(self.root, "HEAD^1", "HEAD", 12)
             if 5 in sample:
                 self.assertEqual((shards, own), ([1, *sample], {1: []}))
             else:
-                self.assertEqual((shards, own), (sorted({1, 5, *sample}), {1: [], 5: ["test/leaf.test.ts"]}))
+                self.assertEqual((shards, own), ([1, *sample], {1: ["test/leaf.test.ts"]}))
         finally:
             ps.shard_files = real
         # A build input beside it still runs every shard.
