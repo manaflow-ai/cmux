@@ -134,6 +134,19 @@ jobs:
             echo "suspended launch $i: $out"
             sample "$pid" 5 5 -mayDie -file "artifacts/ios-sim/premain-sample-$i.txt" >/dev/null 2>&1 &
             sp=$!; sleep 0.5; kill -CONT "$pid"; wait "$sp"
+            # sample can't name dyld_sim or sim shared-cache frames; atos on the live pid can.
+            addrs=$(grep -oE 'unknown binary>\)  \[0x[0-9a-f]+\]' "artifacts/ios-sim/premain-sample-$i.txt" | grep -oE '0x[0-9a-f]+' | sort -u)
+            if [ -n "$addrs" ]; then
+              syms=$(atos -p "$pid" $addrs 2>&1)
+              paste <(echo "$addrs") <(echo "$syms") > "artifacts/ios-sim/premain-atos-$i.txt" || true
+              python3 - "artifacts/ios-sim/premain-sample-$i.txt" "artifacts/ios-sim/premain-atos-$i.txt" <<'PY' || true
+          import re, sys
+          m = dict(l.rstrip("\n").split("\t", 1) for l in open(sys.argv[2]) if "\t" in l)
+          t = open(sys.argv[1]).read()
+          t = re.sub(r"\?\?\?  \(in <unknown binary>\)  \[(0x[0-9a-f]+)\]", lambda g: m.get(g.group(1), g.group(0)) + "  [" + g.group(1) + "]", t)
+          open(sys.argv[1].replace(".txt", "-sym.txt"), "w").write(t)
+          PY
+            fi
             xcrun simctl terminate "$u" "$bid" >/dev/null 2>&1; sleep 2
           done
           kill "$lp" 2>/dev/null; xcrun simctl delete "$u" || true
