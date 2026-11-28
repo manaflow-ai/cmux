@@ -61,6 +61,27 @@ class WhichWindowsCount(unittest.TestCase):
         self.assertEqual(self.over([win("Anything", everywhere, alpha=0.0)]), [])
         self.assertEqual(self.over([win("Anything", [100, 100, 1, 500])]), [])  # a hairline
 
+    def test_the_recorders_cursor_overlay_does_not(self):
+        # The overlay's real CGWindowList owner name has a space; the old list named only CuaDriver and cua-driver.
+        self.assertEqual(self.over([win("Cua Driver", [40, 40, 1000, 600], layer=25)]), [])
+
+    def test_only_windows_above_the_apps_window_count(self):
+        # CGWindowList is front to back: a banner before the app's window covers it; Finder's desktop and
+        # WindowManager's strip after it are behind it, though their bounds overlap the content.
+        app = win("cmux NIGHTLY", WINDOW, pid=APP_PID)
+        marker = win("tab-switch-tools", [0, 0, 24, 24], pid=MARKER_PID, layer=25)
+        banner = win("NotificationCenter", [400, 300, 300, 100], layer=23)
+        behind = [win("Finder", [0, 0, 2000, 1200]), win("WindowManager", [40, 200, 80, 300])]
+        found = self.over([marker, banner, app, *behind])
+        self.assertEqual([w["owner"] for w in found], ["NotificationCenter"])
+        self.assertEqual(self.over([marker, app, *behind]), [])
+        # A window between the marker and the app's window still counts: the marker is not the app's window.
+        self.assertEqual([w["owner"] for w in self.over([marker, banner, app])], ["NotificationCenter"])
+
+    def test_a_sample_without_the_apps_window_keeps_every_window(self):
+        found = self.over([win("Finder", [0, 0, 2000, 1200]), win("cmux NIGHTLY", [40, 40, 30, 30], pid=APP_PID)])
+        self.assertEqual([w["owner"] for w in found], ["Finder"])
+
     def test_a_window_outside_the_measured_rects_does_not(self):
         # Over the window's top band (above the content, right of the sidebar) and off the window: no measured rect.
         above = [300, 40, 200, 8]  # y 40..48 points = 0..3.8 px, content starts at 20 px
@@ -89,6 +110,13 @@ class RoundsInTime(unittest.TestCase):
     def test_the_apps_own_windows_are_never_kept(self):
         self.assertEqual(self.log().samples[0][1], [])
 
+    def test_a_window_behind_the_app_is_never_kept(self):
+        log = foreign.ForeignLog({APP_PID, MARKER_PID}, WINDOW, SCALE)
+        log.add(1.0, [win("securityd", [400, 300, 300, 150]), win("cmux NIGHTLY", WINDOW, pid=APP_PID),
+                      win("Finder", [0, 0, 2000, 1200]), win("WindowManager", [40, 200, 80, 300])])
+        self.assertEqual(foreign.owners(log.samples[0][1]), ["securityd"])
+        self.assertEqual(foreign.owners(log.between(0.0, 2.0, [CONTENT, SIDEBAR])), ["securityd"])
+
     def test_exclude_splits_the_rounds(self):
         log = self.log()
         spans = {"a": (0.0, 2.0), "b": (4.0, 6.0), "c": (8.0, 10.0)}
@@ -96,6 +124,69 @@ class RoundsInTime(unittest.TestCase):
         kept, lost = foreign.exclude(switches, lambda s: log.between(*spans[s["label"]], [CONTENT, SIDEBAR]))
         self.assertEqual([s["label"] for s in kept], ["a", "c"])
         self.assertEqual([(x["label"], x["foreign_window"]) for x in lost], [("b", "securityd+NotificationCenter")])
+
+
+class OnlyWhatCanHideThePixels(unittest.TestCase):
+    """The windows of the 2026-11-17 run on a 1920x1080 worker, as its report listed them for every round (all of its
+    rounds were excluded): the desktop layer, the notification overlay and a computer-use helper's overlay are on screen
+    in every round and cover nothing; the alert, Settings, Finder and the rest are real windows in front of the app."""
+
+    DISPLAY = [0, 0, 1920, 1080]
+    APP = [200, 100, 1400, 900]  # the app window, global points
+    RECTS = ((220, 40, 1400, 900), (0, 0, 220, 900))  # content and sidebar, px at scale 1
+    DESKTOP = win("WindowManager", [0, 0, 1920, 1080], pid=510, layer=-2147483624)
+    NOTIFICATION_OVERLAY = win("Notification Center", [0, 0, 1920, 1080], pid=623, layer=21)
+    HELPER_OVERLAY = win("computer-use helper", [0, 0, 1920, 1080], pid=56515, layer=0)
+    ALERT = win("UserNotificationCenter", [830, 188, 260, 250], pid=69119, layer=8)
+    SETTINGS = win("System Settings", [648, 151, 740, 625], pid=508, layer=0)
+    REAL = [ALERT, win("Finder", [500, 161, 920, 436], pid=703),
+            win("universalAccessAuthWarn", [729, 225, 461, 213], pid=49533),
+            SETTINGS, win("cmux showcase", [1110, 44, 7, 941], pid=70933)]
+
+    def app(self):
+        return win("cmux NIGHTLY", self.APP, pid=APP_PID)
+
+    def over(self, windows, display=DISPLAY):
+        return foreign.foreign_over(windows, {APP_PID, MARKER_PID}, self.RECTS, self.APP, 1.0, display)
+
+    def test_the_desktop_below_the_app_covers_nothing(self):
+        # No display argument: z-order alone puts the desktop below the app.
+        found = foreign.foreign_over([self.app(), self.DESKTOP], {APP_PID, MARKER_PID}, self.RECTS, self.APP, 1.0)
+        self.assertEqual(found, [])
+
+    def test_the_desktop_and_full_display_overlays_cover_nothing(self):
+        sample = [self.NOTIFICATION_OVERLAY, self.HELPER_OVERLAY, self.app(), self.DESKTOP]
+        self.assertEqual(self.over(sample), [])
+
+    def test_the_alert_or_settings_over_the_app_count(self):
+        for real in (self.ALERT, self.SETTINGS):
+            sample = [self.NOTIFICATION_OVERLAY, real, self.HELPER_OVERLAY, self.app(), self.DESKTOP]
+            self.assertEqual(foreign.owners(self.over(sample)), [real["owner"]])
+
+    def test_every_real_window_of_the_run_still_counts(self):
+        sample = [self.NOTIFICATION_OVERLAY, *self.REAL, self.HELPER_OVERLAY, self.app(), self.DESKTOP]
+        self.assertEqual(foreign.owners(self.over(sample)), [w["owner"] for w in self.REAL])
+
+    def test_a_window_off_the_app_or_behind_it_does_not(self):
+        off = win("Finder", [1700, 1000, 200, 60], pid=703)
+        behind = win("System Settings", [648, 151, 740, 625], pid=508)
+        self.assertEqual(self.over([off, self.app(), behind, self.DESKTOP]), [])
+
+    def test_an_invisible_window_in_front_does_not(self):
+        self.assertEqual(self.over([win("Anything", [648, 151, 740, 625], alpha=0.0), self.app()]), [])
+
+    def test_the_round_record_keeps_every_window_with_its_verdict(self):
+        log = foreign.ForeignLog({APP_PID, MARKER_PID}, self.APP, 1.0, self.DISPLAY)
+        log.add(1.0, [self.NOTIFICATION_OVERLAY, self.ALERT, self.HELPER_OVERLAY, self.app(), self.DESKTOP])
+        seen = {w["owner"]: w for w in log.seen(0.0, 2.0, self.RECTS)}
+        self.assertEqual(set(seen), {"Notification Center", "UserNotificationCenter", "computer-use helper",
+                                     "WindowManager"})
+        verdict = {k: seen["WindowManager"][k] for k in ("above", "overlay", "visible", "intersects", "covers")}
+        self.assertEqual(verdict, {"above": False, "overlay": True, "visible": True, "intersects": True,
+                                   "covers": False})
+        self.assertEqual((seen["Notification Center"]["overlay"], seen["Notification Center"]["covers"]), (True, False))
+        self.assertTrue(seen["UserNotificationCenter"]["covers"])
+        self.assertEqual(foreign.owners(log.between(0.0, 2.0, self.RECTS)), ["UserNotificationCenter"])
 
 
 class RunGate(unittest.TestCase):

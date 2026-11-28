@@ -2,9 +2,9 @@
 //! (RFD 0007, seed bundles: a projected `.git` switching to the machine's own fetch,
 //! [`crate::git_swap`]).
 //!
-//! The link goes into the upper layer by `renameat2`: `RENAME_NOREPLACE` when the upper layer has
-//! nothing at the name, `RENAME_EXCHANGE` when git already copied the folder up (its writes are
-//! in the new folder too, which the caller made from the merged view). Every later lookup of the
+//! The link goes into an untouched upper layer by `renameat2(RENAME_NOREPLACE)`. Once a mutation
+//! has been admitted, the folder stays projected: a fingerprint cannot account for an open
+//! temporary file or a Git transaction between writes. Every later lookup of the
 //! name answers the link, under a new number, so the kernel never sees one number change kind. A
 //! process that already holds the old folder (a `git` mid-command, its cwd) keeps reading the
 //! manifest's tree below it, as an open folder renamed away on a disk does: the old number is
@@ -13,16 +13,19 @@
 use std::ffi::CString;
 use std::os::unix::ffi::OsStrExt as _;
 
-use super::{EEXIST, EIO, ENOENT, ENOTDIR, Inner, Kind, Node, Overlay, Path, PoisonError, Type};
+use super::Type;
+use super::{EEXIST, EIO, ENOENT, ENOTDIR, Entry, Inner, Kind, Node, Overlay, Path, PoisonError};
 use super::{fs, join};
 
-const RENAME_NOREPLACE: u32 = 1;
-const RENAME_EXCHANGE: u32 = 2;
+#[cfg(not(target_os = "linux"))]
+use crate::upper::RENAME_EXCHANGE;
+use crate::upper::RENAME_NOREPLACE;
 
+/// `renameat2` on Linux (the raw syscall, as `Upper::rename` makes it: musl has no wrapper).
+#[cfg(target_os = "linux")]
 fn rename2(from: &Path, to: &Path, flags: u32) -> Result<(), i32> {
     let from = CString::new(from.as_os_str().as_bytes()).map_err(|_| EIO)?;
     let to = CString::new(to.as_os_str().as_bytes()).map_err(|_| EIO)?;
-    // The raw syscall, as `Upper::rename` makes it (musl has no `renameat2` wrapper).
     // SAFETY: two valid C strings and `AT_FDCWD` for both (absolute paths).
     let done = unsafe {
         libc::syscall(
@@ -41,6 +44,32 @@ fn rename2(from: &Path, to: &Path, flags: u32) -> Result<(), i32> {
     }
 }
 
+/// `renameatx_np` on macOS, Linux's flags turned into its own, as `Upper::rename` does.
+#[cfg(not(target_os = "linux"))]
+fn rename2(from: &Path, to: &Path, flags: u32) -> Result<(), i32> {
+    if flags & !(RENAME_NOREPLACE | RENAME_EXCHANGE) != 0 {
+        return Err(super::EINVAL);
+    }
+    let mut own = 0;
+    if flags & RENAME_NOREPLACE != 0 {
+        own |= libc::RENAME_EXCL;
+    }
+    if flags & RENAME_EXCHANGE != 0 {
+        own |= libc::RENAME_SWAP;
+    }
+    let from = CString::new(from.as_os_str().as_bytes()).map_err(|_| EIO)?;
+    let to = CString::new(to.as_os_str().as_bytes()).map_err(|_| EIO)?;
+    // SAFETY: two valid C strings and `AT_FDCWD` for both (absolute paths).
+    let done = unsafe {
+        libc::renameatx_np(libc::AT_FDCWD, from.as_ptr(), libc::AT_FDCWD, to.as_ptr(), own)
+    };
+    if done < 0 {
+        Err(std::io::Error::last_os_error().raw_os_error().unwrap_or(EIO))
+    } else {
+        Ok(())
+    }
+}
+
 impl Overlay {
     /// Replaces the lower folder at top-level `name` with a link naming `target`, atomically for
     /// every lookup through the mount. Returns the folder's old number; the caller then tells the
@@ -49,17 +78,20 @@ impl Overlay {
         if name.is_empty() || name.contains('/') {
             return Err(super::EINVAL);
         }
+        let mutation = self.mutation.replace_pristine()?;
         let _swap = self.swap.write().unwrap_or_else(PoisonError::into_inner);
         let index = self.lower(name).ok_or(ENOENT)?;
         if self.manifest.entry(index).map(|entry| entry.kind) != Some(Kind::Dir) {
             return Err(ENOTDIR);
         }
-        let upper_now = match self.upper.stat(name) {
-            Ok(stat) if stat.is_dir() => Some(stat),
+        match self.upper.stat(name) {
+            // A restored overlay can already contain edits from the previous mount, even
+            // though this instance's admission gate has seen no mutation yet.
+            Ok(stat) if stat.is_dir() => return Err(libc::EBUSY),
             Ok(_) => return Err(EEXIST),
-            Err(ENOENT) => None,
+            Err(ENOENT) => {}
             Err(errno) => return Err(errno),
-        };
+        }
         let old = {
             let inner = self.lock();
             inner.inos.get(name).copied().unwrap_or(u64::from(index) + 1)
@@ -67,18 +99,16 @@ impl Overlay {
         let link = self.scratch_path();
         std::os::unix::fs::symlink(target, &link).map_err(|error| super::io_errno(&error))?;
         let at = self.upper.path().join(name);
-        let flags = if upper_now.is_some() { RENAME_EXCHANGE } else { RENAME_NOREPLACE };
-        if let Err(errno) = rename2(&link, &at, flags) {
+        if let Err(errno) = rename2(&link, &at, RENAME_NOREPLACE) {
             let _ = fs::remove_file(&link);
             return Err(errno);
         }
+        // A failed attempt leaves the untouched mount eligible for another swap. Keep
+        // admissions excluded until both the filesystem and inode state are updated.
+        mutation.replacement_committed();
         {
             let mut inner = self.lock();
-            Self::retire(&mut inner, name, old, index, self.manifest.len() as u64);
-        }
-        // The folder git copied up before the swap (its writes are in `target` too).
-        if upper_now.is_some() {
-            let _ = fs::remove_dir_all(&link);
+            Self::retire(&mut inner, name, old, index, self.manifest.head_len() as u64);
         }
         Ok(old)
     }
@@ -121,7 +151,8 @@ impl Overlay {
 
     pub(super) fn readdir_retired(&self, index: u32) -> Vec<(u64, Type, String)> {
         let path = self.manifest.path_of(index);
-        let (_, children) = self.manifest.children(index);
+        let children: Vec<Entry> =
+            self.manifest.children(index).map(|(_, entry)| entry.clone()).collect();
         let mut inner = self.lock();
         children
             .iter()

@@ -24,7 +24,7 @@
 #          [--app-id <ASC app id>] [--bundle-id <id>] [--app-name <ASC record name>]
 #          [--what-to-test <text>]
 #
-#   --ref                 commit to build (default HEAD); the source is `git archive` of it
+#   --ref                 commit to build (default HEAD); build only source recorded at this commit
 #   --marketing-version   CFBundleShortVersionString (default: project.yml MARKETING_VERSION, the
 #                         configuration's own when it sets one); must be >= every version
 #                         already uploaded to the app record
@@ -78,6 +78,7 @@
 #   CMUX_MOBILE_SIGN_IDENTITY   SHA-1 of the distribution identity (default: the first one in
 #                       the keychain that the profile authorizes)
 #   CMUX_MOBILE_BUILDS_ROOT     output root (default ~/cmux-mobile-builds)
+#   CMUX_MOBILE_SPM_CACHE       Swift package clones, kept between builds (default <root>/.cache/spm)
 #   CMUX_MOBILE_XCFRAMEWORK     use this CmuxMobileLinkFFI.xcframework instead of the cache or a build
 #
 #   CMUX_MOBILE_CI_ASC=1        CI only (.github/workflows/ios-internal-nightly.yml): App Store
@@ -201,6 +202,7 @@ name="$(date -u +%Y%m%d)-$short-testflight"
 out="$root/$name"
 work="$root/.work/$name"
 cache="$root/.cache"
+spm_cache=${CMUX_MOBILE_SPM_CACHE:-$cache/spm}
 private=$(mktemp -d); chmod 700 "$private"
 trap 'rm -rf "$private"' EXIT
 
@@ -436,7 +438,18 @@ log "cmux-next-ios $config archive $sha -> $out"
 # --- Source (the commit only) ----------------------------------------------
 paths=(cmux-next-ios Packages vendor/stack-auth-swift-sdk-prerelease AppIcon.icon
        cmux-tui schemas backend/catalog backend/packages plans/cmux-next skills mux samples)
-git -C "$repo" archive --format=tar "$sha" "${paths[@]}" | tar -x -C "$work/src"
+if [[ ${CMUX_INTERNAL_SPARSE_ARCHIVE:-0} == 1 ]]; then
+  # git archive can prefetch excluded blobs in a partial clone. Materialize
+  # the tracked build inputs from this commit, even if the worktree is dirty.
+  (
+    export GIT_INDEX_FILE="$private/source.index"
+    git -C "$repo" -c core.sparseCheckout=false read-tree "$sha"
+    git -C "$repo" ls-files --error-unmatch -z -- "${paths[@]}" ':(exclude)cmux-next-ios/verify' |
+      git -C "$repo" checkout-index --prefix="$work/src/" -z --stdin
+  )
+else
+  git -C "$repo" archive --format=tar "$sha" "${paths[@]}" | tar -x -C "$work/src"
+fi
 
 # --- CmuxMobileLinkFFI.xcframework (gitignored; same cache key as demo-build.sh) ------
 key=$(printf '%s\n' "$(git -C "$repo" rev-parse "$sha:cmux-next-ios/rust")" \
@@ -455,8 +468,29 @@ else
   log "xcframework: building (key $key)"
   mkdir -p "$cache/cmux-mobile-rust-target"
   ln -s "$cache/cmux-mobile-rust-target" "$work/src/cmux-next-ios/rust/target"
-  JOBS=${JOBS:-8} bash "$work/src/cmux-next-ios/rust/scripts/build-xcframework.sh" > "$out/logs/xcframework.log" 2>&1 \
-    || { tail -30 "$out/logs/xcframework.log"; exit 1; }
+  # Bounded. A cold build takes 4.6 min on a 6-vCPU Blacksmith Mac (run 45871646299), but on fleet Macs the
+  # step before "xcodebuild archive" ran 65-70 min (runs 45752138226, 45760129544) and run 45875722526 sat
+  # 70+ min, holding every later INTERNAL dispatch behind the builder's one-run concurrency group until the
+  # job's 90 min limit. Past the bound the build is stopped and its log tail printed, so a slow Mac fails in
+  # minutes and says where it stalled. The build runs in its own process group so cargo dies with it.
+  xcf_minutes=${CMUX_MOBILE_XCFRAMEWORK_MINUTES:-20}
+  set -m
+  JOBS=${JOBS:-8} bash "$work/src/cmux-next-ios/rust/scripts/build-xcframework.sh" > "$out/logs/xcframework.log" 2>&1 &
+  xcf_pid=$!
+  set +m
+  xcf_start=$SECONDS
+  while kill -0 "$xcf_pid" 2>/dev/null; do
+    if (( SECONDS - xcf_start > xcf_minutes * 60 )); then
+      kill -TERM -- "-$xcf_pid" 2>/dev/null || true
+      sleep 5
+      kill -KILL -- "-$xcf_pid" 2>/dev/null || true
+      wait "$xcf_pid" 2>/dev/null || true
+      tail -40 "$out/logs/xcframework.log"
+      die "xcframework build passed its ${xcf_minutes} min bound on $(hostname -s) (a cold build takes about 5 min; CMUX_MOBILE_XCFRAMEWORK_MINUTES raises it)"
+    fi
+    sleep 5
+  done
+  wait "$xcf_pid" || { tail -30 "$out/logs/xcframework.log"; exit 1; }
   rm -rf "$cache/xcframework/$key"; mkdir -p "$cache/xcframework/$key"
   cp -R "$xcf_dest" "$cache/xcframework/$key/"
 fi
@@ -468,7 +502,7 @@ grep -q "^  $config: release" project.yml || die "$sha has no $config configurat
 archive="$out/CmuxMobileApp.xcarchive"
 args=(-project CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration "$config"
       -destination 'generic/platform=iOS' -archivePath "$archive"
-      -derivedDataPath "$work/dd" -clonedSourcePackagesDirPath "$cache/spm"
+      -derivedDataPath "$work/dd" -clonedSourcePackagesDirPath "$spm_cache"
       MARKETING_VERSION="$marketing" CURRENT_PROJECT_VERSION="$build_number"
       CMUX_MOBILE_SOURCE_COMMIT="$sha")
 [[ $production == 0 ]] || args+=(CMUX_MOBILE_PROD_API_BASE="$api_base")
@@ -482,6 +516,42 @@ else
          CMUX_MOBILE_SERVICE_EXTENSION_PROFILE="$svc_profile_uuid"
          CMUX_MOBILE_ASSOCIATED_DOMAINS="$associated_domains")
 fi
+# Swift packages: resolve on their own, with bounded backoff, then archive with
+# no package fetch. On 11-26 GitHub answered a fleet Mac's clones of
+# apple/swift-asn1 and swift-crypto with 403 (runs 45733165601, 45752138226),
+# so the archive failed after its 65 min xcframework build. A 403 or 429 there
+# refuses the machine's address for a while; it says nothing about the commit.
+# The clones stay in $spm_cache between builds (the INTERNAL builder points a fleet Mac's at a
+# directory under its home, not the job's temp), so a build whose pins are already cloned
+# resolves from them with no GitHub fetch (-skipPackageUpdates). A pin the clones lack fails
+# that read and the bounded network resolve below runs. Every git transfer SwiftPM starts aborts
+# after 60 s under 1 KiB/s instead of hanging on a reset stream (curl 92, early EOF).
+mkdir -p "$spm_cache"
+export GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=http.lowSpeedLimit GIT_CONFIG_VALUE_0=1024 \
+  GIT_CONFIG_KEY_1=http.lowSpeedTime GIT_CONFIG_VALUE_1=60
+log "swift packages: resolve ($spm_cache)"
+resolve_waits=(0 60 180 300)
+kept_resolved=0
+if [[ -d "$spm_cache/repositories" ]] && [[ -n "$(ls -A "$spm_cache/repositories" 2>/dev/null)" ]] \
+   && xcodebuild -resolvePackageDependencies -project CmuxMobileApp.xcodeproj -scheme CmuxMobileApp \
+        -clonedSourcePackagesDirPath "$spm_cache" -skipPackageUpdates > "$out/logs/resolve.log" 2>&1; then
+  echo "swift packages: resolved from the kept clones, no fetch"
+  kept_resolved=1
+fi
+for i in "${!resolve_waits[@]}"; do
+  [[ $kept_resolved == 0 ]] || break
+  [[ ${resolve_waits[$i]} == 0 ]] || { echo "swift packages: GitHub refused the fetch; trying again in ${resolve_waits[$i]} s"; sleep "${resolve_waits[$i]}"; }
+  if xcodebuild -resolvePackageDependencies -project CmuxMobileApp.xcodeproj -scheme CmuxMobileApp \
+       -clonedSourcePackagesDirPath "$spm_cache" > "$out/logs/resolve.log" 2>&1; then
+    break
+  fi
+  if ! grep -Eq "returned error: (403|429|5[0-9][0-9])|badResponseStatusCode\((403|429|5[0-9][0-9])\)|Could not resolve host|Connection (reset|refused|timed out)|early EOF|RPC failed|Operation too slow|curl 92" "$out/logs/resolve.log" \
+     || (( i == ${#resolve_waits[@]} - 1 )); then
+    grep -E "error:|fatal:" "$out/logs/resolve.log" | sort -u | head -20
+    die "swift package resolve failed (logs/resolve.log)"
+  fi
+done
+args+=(-disableAutomaticPackageResolution)
 log "xcodebuild archive"
 xcodebuild archive "${args[@]}" > "$out/logs/archive.log" 2>&1 \
   || { grep -E "error:|ARCHIVE FAILED" "$out/logs/archive.log" | sort -u | head -20; die "archive failed (logs/archive.log)"; }
@@ -496,7 +566,7 @@ if [[ -z "$from_archive" && -n "${CMUX_MOBILE_SIMULATOR_APP:-}" ]]; then
   log "xcodebuild build (iphonesimulator) -> $CMUX_MOBILE_SIMULATOR_APP"
   sim_args=(-project CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration "$config"
             -destination 'generic/platform=iOS Simulator' -derivedDataPath "$work/dd-sim"
-            -clonedSourcePackagesDirPath "$cache/spm"
+            -clonedSourcePackagesDirPath "$spm_cache"
             MARKETING_VERSION="$marketing" CURRENT_PROJECT_VERSION="$build_number" CMUX_MOBILE_SOURCE_COMMIT="$sha"
             CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER=)
   [[ $production == 0 ]] || sim_args+=(CMUX_MOBILE_PROD_API_BASE="$api_base")
@@ -508,11 +578,21 @@ if [[ -z "$from_archive" && -n "${CMUX_MOBILE_SIMULATOR_APP:-}" ]]; then
 fi
 
 # --- Checks on any app bundle ------------------------------------------------
+# The binary and review-rule checkers are the built commit's, not this script's: the
+# INTERNAL builder runs this script from rc/cnx-ios-builder, which moves only when an
+# admin fast-forwards it, so its own copies fall behind the code they judge. From
+# 2026-11-24 every nightly failed signing because the builder's copy still forbade the
+# App Review demo's MockTerminalSession, which #47190 ships and #53308 allowed.
+built_checker() {  # <path in the repo> -> a copy from $sha (this checkout's when $sha lacks it)
+  local rel=$1 dst="$work/checkers/$1"
+  mkdir -p "$(dirname "$dst")"
+  if git -C "$repo" show "$sha:$rel" > "$dst" 2>/dev/null; then echo "$dst"; else echo "$repo/$rel"; fi
+}
 check_app() {  # <CmuxMobileApp.app>
   local app=$1 info="$1/Info.plist" bad=()
-  bash "$script_dir/check-production-binary.sh" "$app" "$bundle_id" "$binary_mode"
+  bash "$(built_checker cmux-next-ios/scripts/check-production-binary.sh)" "$app" "$bundle_id" "$binary_mode"
   # What App Store Connect rejects only after the upload (ITMS-90626, 90683, ...).
-  python3 -I "$repo/scripts/cmux-next/check-app-store-rules.py" --app "$app" || die "$app breaks an App Store review rule"
+  python3 -I "$(built_checker scripts/cmux-next/check-app-store-rules.py)" --app "$app" || die "$app breaks an App Store review rule"
   [[ "$(plutil -extract CmuxMobileStackEnvironment raw "$info" 2>/dev/null)" == "$stack_env" ]] || bad+=("CmuxMobileStackEnvironment (want '$stack_env')")
   [[ "$(plutil -extract CFBundleShortVersionString raw "$info")" == "$marketing" ]] || bad+=("CFBundleShortVersionString")
   [[ "$(plutil -extract CFBundleVersion raw "$info")" == "$build_number" ]] || bad+=("CFBundleVersion")

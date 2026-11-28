@@ -535,8 +535,6 @@ final class BrowserHibernation {
         let threshold = setting.freezeSeconds
         var recheck: Double?
         let candidates = hidden.filter { candidate in
-            // A command thawed it outside this planner (`WebKitTab.resumeIfSuspended`): it freezes again.
-            if let tab = cache.browsers[candidate.key]?.tab, (freezer(tab) as? any BrowserFreezeReporting)?.isFrozen == false { frozen.remove(candidate.key) }
             guard !frozen.contains(candidate.key), !freezeProbing.contains(candidate.key),
                   let tab = cache.browsers[candidate.key]?.tab, let page = freezer(tab), !page.freezeDropsExtensionEvents else { return false }
             if let kept = freezeKeptAt[candidate.key], let threshold {
@@ -605,13 +603,13 @@ final class BrowserHibernation {
             return
         }
         frozen.insert(key)
-        (page as? any BrowserFreezeReporting)?.onFrozenPageLost = { [weak self] in self?.frozenPageLost(key) }
+        (page as? any BrowserFreezeReporting)?.onFrozenPageChange = { [weak self] change in self?.frozenPageChanged(key, change) }
         cache?.trace(key, "frozen")
     }
 
-    /// A frozen page's process ended: WebKit keeps it suspended for good and raises on every call into it
-    /// (#44019), so it is discarded with the history it holds and restores in a new page when shown.
-    private func frozenPageLost(_ key: String) {
+    /// Woken by a command (issue 51079): asked again after `freezeSeconds`. Lost (#44019): discarded, restored when shown.
+    private func frozenPageChanged(_ key: String, _ change: BrowserFrozenPageChange) {
+        guard change == .lost else { if frozen.remove(key) != nil { freezeKeptAt[key] = now(); replan() }; return }
         guard frozen.remove(key) != nil, let cache, cache.lifecycle.phase(key) == .mountedHidden, !probing.contains(key),
               let state = (cache.browsers[key]?.tab as? any BrowserHibernationSource)?.hibernationState() else { return }
         prepared[key] = (state, nil, "frozen-page-lost")
@@ -806,7 +804,7 @@ final class BrowserHibernation {
         )
         placeholder.onWake = { [weak self] wake in self?.wakeForNavigation(key, wake) }
         placeholder.onPictureShown = { [weak self] in self?.wakeLog.pictureShown(key) }
-        if let snapshot = saved.snapshot { snapshots.insert(snapshot, for: key) }
+        if let snapshot = saved.snapshot { snapshots.insert(snapshot, for: key); cache.phonePictures?.offerThumbnail(snapshot.image, tab: key); cache.keepFrameOnDisk(snapshot.image, for: key) } // also the phones' picture (a page never shown sent none), and on disk for the next run's card and first frame
         cache.swapPage(key, with: placeholder)
         cache.dormantTabs.set(key, true)
         hiddenAt[key] = nil
@@ -869,7 +867,7 @@ final class BrowserHibernation {
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Bool] else { return unanswered(tab) }
             // The recorder knows the person's edits (`BrowserPageBusy`); a page loaded before it compares every field.
             return PageProbe(playingMedia: PageProbe.tabPlays(tab.state.media, muted: tab.state.isAudioMuted) || (object["media"] ?? true), mediaSession: PageProbe.resumable(tab.state.media), editedForm: busy.editedForm ?? object["form"] ?? true,
-                             capturing: busy.capturing, webAudio: busy.audio, beforeUnload: busy.beforeUnload,
+                             mediaPlays: PageProbe.plays(tab.state.media) || (object["plays"] ?? false), capturing: busy.capturing, webAudio: busy.audio, beforeUnload: busy.beforeUnload,
                              unloadHandler: busy.unloadHandler, webRTC: busy.webRTC,
                              connectedDevice: busy.connectedDevice, unreadableFrame: busy.unreadableFrame)
         } catch {

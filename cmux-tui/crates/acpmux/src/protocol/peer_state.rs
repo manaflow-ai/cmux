@@ -53,11 +53,16 @@ pub enum MachineLink {
     /// A Cloud machine that is paused; it resumes on use. Not sent by acpmux yet (the Cloud
     /// carrier does not carry acpmux until carrier slice 3); a renderer draws it when sent.
     Paused,
+    /// Not dialed, on purpose: nothing has used it since this daemon started, or its link closed
+    /// after it went unused (`peer_demand.rs`). Using it connects it; it was reachable when last
+    /// linked, unless it is `offline` instead. Folded to `connected` for an older app, which then
+    /// lets a person pick it, and the pick connects it.
+    Idle,
 }
 
 impl MachineLink {
     /// Every state, in the order of the enum: a renderer's table test walks it.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Connected,
         Self::Connecting,
         Self::Reconnecting,
@@ -67,12 +72,13 @@ impl MachineLink {
         Self::AuthFailed,
         Self::UpdateRequired,
         Self::Paused,
+        Self::Idle,
     ];
 
     /// Its `state` for an app that knows only the five older words.
     pub fn folded(self) -> PeerLinkState {
         match self {
-            Self::Connected => PeerLinkState::Connected,
+            Self::Connected | Self::Idle => PeerLinkState::Connected,
             Self::Connecting => PeerLinkState::Connecting,
             Self::Reconnecting | Self::Restarting => PeerLinkState::Reconnecting,
             Self::Degraded => PeerLinkState::Degraded,
@@ -94,6 +100,7 @@ impl MachineLink {
             Self::AuthFailed => "authFailed",
             Self::UpdateRequired => "updateRequired",
             Self::Paused => "paused",
+            Self::Idle => "idle",
         }
     }
 }
@@ -127,6 +134,65 @@ pub enum DownCause {
     PeerDown,
     /// The peer refused this daemon's token.
     Auth,
+}
+
+/// Why a peer's route last went down (`downReason`): what the failed dial or the dropped path
+/// ran into, typed from the error that raised it (an `io::ErrorKind`, an HTTP status, ssh's
+/// failure class), never guessed from its text. When every path of a cold connect failed with
+/// different kinds, the one a person can act on first is kept ([`DialFail::rank`]). Null
+/// before any route went down, or when no failure so far had a type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum DialFail {
+    /// The dial or its upgrade ran past its deadline.
+    Timeout,
+    /// The machine answered and refused the connection (nothing listens there).
+    Refused,
+    /// The peer refused this daemon's token or this computer's ssh login.
+    Auth,
+    /// The path carrying the link died while another answered: the link moved there.
+    PathChanged,
+    /// No route to the machine: the network or host is unreachable, or its name did not
+    /// resolve.
+    Unreachable,
+}
+
+impl DialFail {
+    /// Every kind, in the order of the enum: a renderer's table test walks it.
+    pub const ALL: [Self; 5] =
+        [Self::Timeout, Self::Refused, Self::Auth, Self::PathChanged, Self::Unreachable];
+
+    /// Its wire word (`downReason`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Timeout => "timeout",
+            Self::Refused => "refused",
+            Self::Auth => "auth",
+            Self::PathChanged => "pathChanged",
+            Self::Unreachable => "unreachable",
+        }
+    }
+
+    /// Which of several paths' failures names the connect's: a refused token or login first
+    /// (a person must act), then a refusal, no route, a timeout (the least telling: a slow
+    /// path and a dead one look the same).
+    pub fn rank(self) -> u8 {
+        match self {
+            Self::Auth => 0,
+            Self::Refused => 1,
+            Self::Unreachable => 2,
+            Self::Timeout => 3,
+            Self::PathChanged => 4,
+        }
+    }
+}
+
+/// `downReason` as this build reads it: a word it does not know is null, never a refused note.
+fn known_dial_fail<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<DialFail>, D::Error> {
+    let word = Option::<serde_json::Value>::deserialize(deserializer)?;
+    Ok(word.and_then(|word| serde_json::from_value(word).ok()))
 }
 
 /// What a dial writes first in its error when it could get no relay ticket (`hub_carrier.rs`):
@@ -203,7 +269,7 @@ impl OfflineReason {
 }
 
 /// `_acpmux/peer_state_changed`, to every watching connection (`_acpmux/watch`) when a peer's
-/// link changes (`link`, `carrier`, `cause`, `reason` or `nextRetryAt`), never twice for the same one: a
+/// link changes (`link`, `carrier`, `cause`, `reason`, `downReason` or `nextRetryAt`), never twice for the same one: a
 /// peer that is added sends its first state, and one that is removed a last `offline` with
 /// `error: "removed"`. Listed as the `peerStateEvents` feature.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -231,6 +297,16 @@ pub struct PeerStateChanged {
     /// What a person does about `reason`; null when there is none.
     #[serde(default)]
     pub action: Option<OfflineAction>,
+    /// The composer status dot's item for this link (`composer_status::machine_link_item`);
+    /// null while the link is up or paused, and from an older acpmux.
+    #[serde(default)]
+    pub status: Option<super::composer_status::StatusItem>,
+    /// Why the route last went down (a failed dial, or a path that died while another
+    /// answered); null before any did, or when no failure so far had a type. Kept while the
+    /// link is up again, so a surface can say why it moved. A word this build does not know (a
+    /// newer daemon's) reads as null, so the rest of the note still lands.
+    #[serde(default, deserialize_with = "known_dial_fail")]
+    pub down_reason: Option<DialFail>,
     /// The last frame from the peer, ms since the epoch.
     pub last_seen: Option<u64>,
     /// Why the link is down, when it is.
@@ -242,6 +318,41 @@ pub struct PeerStateChanged {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every down reason's wire word is serde's, and a note without one (an older daemon's)
+    /// still parses.
+    #[test]
+    fn every_down_reason_has_one_wire_word() {
+        for fail in DialFail::ALL {
+            assert_eq!(serde_json::to_value(fail).unwrap(), fail.as_str());
+        }
+        let mut note = serde_json::to_value(PeerStateChanged {
+            peer: "b".into(),
+            state: PeerLinkState::Reconnecting,
+            link: MachineLink::Reconnecting,
+            carrier: None,
+            cause: Some(DownCause::PeerDown),
+            since: 1,
+            next_retry_at: None,
+            reason: None,
+            action: None,
+            status: None,
+            down_reason: Some(DialFail::PathChanged),
+            last_seen: None,
+            error: None,
+            at: 2,
+        })
+        .unwrap();
+        assert_eq!(note["downReason"], "pathChanged");
+        note.as_object_mut().unwrap().remove("downReason");
+        let older: PeerStateChanged = serde_json::from_value(note.clone()).unwrap();
+        assert_eq!(older.down_reason, None);
+        // A newer daemon's word this build does not know: the note still parses.
+        note["downReason"] = "proxyBlocked".into();
+        let newer: PeerStateChanged = serde_json::from_value(note).unwrap();
+        assert_eq!(newer.down_reason, None);
+        assert_eq!(newer.state, PeerLinkState::Reconnecting);
+    }
 
     /// Every whole state folds to exactly one older word, and the wire word is serde's.
     #[test]
@@ -255,6 +366,7 @@ mod tests {
         }
         assert_eq!(MachineLink::Restarting.folded(), PeerLinkState::Reconnecting);
         assert_eq!(MachineLink::AuthFailed.folded(), PeerLinkState::Offline);
+        assert_eq!(MachineLink::Idle.folded(), PeerLinkState::Connected);
     }
 
     /// Every reason has one wire word (the design's kebab-case words) and its own action.

@@ -4,7 +4,7 @@
 # commit and never sees the push token.
 #
 # The workflow's Changed areas step decides the repairs (GRAPH, STRINGS, SDK, CAPABILITIES, SHORTCUTS, APPHOST,
-# ACTIONS, SETTINGS, RATCHETS, CLOUD, LOCKS, FMT, CLIPPY: true or false); the Mac job hands on its verdicts
+# ACTIONS, SETTINGS, RATCHETS, CLOUD, LOCKS, ACPMUXIR, IOSFFI, FMT, CLIPPY: true or false); the Mac job hands on its verdicts
 # (EXPORTS_VERIFIED, SETTINGS_VERIFIED) and its exports (EXPORTS_DIR, when it made any); the
 # webviews-fmt job hands on WEBVIEWS_PATCH. The CI target graph is dumped from REPO's own manifest
 # in the pinned Swift 6.2 Linux container (ci-target-graph.py).
@@ -84,6 +84,8 @@ fi
 [[ "${RATCHETS:-}" == true ]] && args+=(--ratchets)
 [[ "${CLOUD:-}" == true ]] && args+=(--cloud-clients)
 [[ "${LOCKS:-}" == true ]] && args+=(--locks)
+[[ "${ACPMUXIR:-}" == true ]] && args+=(--acpmux-ir)
+[[ "${IOSFFI:-}" == true ]] && args+=(--ios-ffi)
 [[ "${FMT:-}" == true ]] || args+=(--no-fmt)
 if [[ "${CLIPPY:-}" == true && -n "${CLIPPY_CHANGED:-}" && -s "$CLIPPY_CHANGED" ]]; then
   "${CMUX_BASE_AUTOFIX_CLIPPY:-$here/autofix-clippy.sh}" --affected "$repo" <"$CLIPPY_CHANGED" \

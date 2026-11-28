@@ -3,10 +3,12 @@
 
 use crate::json::JsonField;
 use std::collections::HashMap;
+use std::time::Duration;
 
 use cmux_server::cloud_http::RequestDeadline;
 
 use cmux_server_core::install_key::{InstallKey, SystemRandom};
+use cmux_tui_util::retry::Patience;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -67,6 +69,16 @@ pub trait Http {
         _headers: &[(&str, &str)],
     ) -> Result<(u16, Value), String> {
         Err("this Cloud transport sends no other method".to_owned())
+    }
+
+    /// One request whose answer comes back as bytes, within its own time and size bounds (the
+    /// Auto mode routes, `auto_session.rs`: a held request, and chunks that are not JSON).
+    /// Transports opt in; the default refuses.
+    fn raw(
+        &self,
+        _request: &cmux_server::cloud_http::RawRequest<'_>,
+    ) -> Result<cmux_server::cloud_http::Response, String> {
+        Err("this Cloud transport sends no raw request".to_owned())
     }
 
     /// Drops any pooled connection, so the next request dials a fresh one (after a pause, a pooled connection is
@@ -393,6 +405,7 @@ pub fn bind_machine(
             return BindResult::Retry(format!("carrier.json write: {e}"));
         }
     }
+    keep_sccache(store, &file.sccache);
     let saved = serde_json::to_string(&bound).unwrap_or_default();
     if let Err(e) = store.write(BOUND_FILE, &format!("{saved}\n"), 0o600) {
         return BindResult::Retry(format!("bound.json write: {e}"));
@@ -409,6 +422,32 @@ pub fn bind_machine(
     store.remove(BIND_FILE);
     store.remove(BIND_UNANSWERED_FILE);
     BindResult::Bound(Box::new(bound), first_ticket)
+}
+
+/// The bind's compiler cache settings (`sccache_env.rs`): kept with the section, removed without
+/// one (or with a refused one), so a machine runs with the cache only while its last bind named
+/// it. Best effort: the cache is optional, so a failed write never fails the bind.
+fn keep_sccache(store: &mut dyn Store, section: &super::wire::SccacheSection) {
+    use super::wire::SccacheSection;
+    use crate::sccache_env::{KEPT_FILE, file_text, names};
+    match section {
+        SccacheSection::Env(vars) => match store.write(KEPT_FILE, &file_text(vars), 0o600) {
+            Ok(()) => {
+                eprintln!("cmux-host: cloud: bind: compiler cache settings kept: {}", names(vars));
+            }
+            Err(e) => {
+                eprintln!("cmux-host: cloud: bind: sccache.json write: {e}; compiler cache off");
+                store.remove(KEPT_FILE);
+            }
+        },
+        SccacheSection::Refused(why) => {
+            eprintln!(
+                "cmux-host: cloud: bind: the `sccache` section is refused ({why}); compiler cache off"
+            );
+            store.remove(KEPT_FILE);
+        }
+        SccacheSection::Absent => store.remove(KEPT_FILE),
+    }
 }
 
 /// How long a bind token can live: it expires 15 minutes after the machine
@@ -469,11 +508,41 @@ pub struct CloudClient<H: Http> {
     key: InstallKey,
     rng: SystemRandom,
     cached: Option<(String, u64)>,
+    edge: Edge,
+}
+
+/// The machine's platform edge sign-in (cmux-platform `MachineEdgeTokenRoute.ts`): the Freestyle
+/// rule pinned to this VM adds the machine's edge token, so the bearer is minted without the
+/// install key at all. Asked first on a machine whose edge name resolves; any failure falls back
+/// to the install key's challenge.
+pub const EDGE_TOKEN_URL: &str = "https://platform.cmux.internal/v1/cloud/machine-identity/token";
+const EDGE_HOST: &str = "platform.cmux.internal:443";
+
+/// Whether this client signs in through the platform edge: asked once per client.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Edge {
+    Unprobed,
+    Absent,
+    At(String),
 }
 
 impl<H: Http> CloudClient<H> {
     pub fn new(http: H, bound: Bound, key: InstallKey) -> CloudClient<H> {
-        CloudClient { http, bound, key, rng: SystemRandom::new(), cached: None }
+        CloudClient {
+            http,
+            bound,
+            key,
+            rng: SystemRandom::new(),
+            cached: None,
+            edge: Edge::Unprobed,
+        }
+    }
+
+    /// Signs in through the edge at `url` instead of probing for it (tests, and a caller
+    /// that already knows the edge answers).
+    pub fn with_edge(mut self, url: Option<&str>) -> CloudClient<H> {
+        self.edge = url.map_or(Edge::Absent, |u| Edge::At(u.to_owned()));
+        self
     }
 
     pub fn bound(&self) -> &Bound {
@@ -493,6 +562,7 @@ impl<H: Http> CloudClient<H> {
         let key = InstallKey::from_pkcs8(self.key.pkcs8(), &self.rng).ok()?;
         let mut client = CloudClient::new(http, self.bound.clone(), key);
         client.cached = self.cached.clone();
+        client.edge = self.edge.clone();
         Some(client)
     }
 
@@ -503,7 +573,7 @@ impl<H: Http> CloudClient<H> {
     /// A bearer token, cached until one minute before it expires.
     /// `now_wall_ms` is wall-clock time (the server's `expires_at` is).
     pub fn token(&mut self, now_wall_ms: u64) -> Result<String, String> {
-        if self.bound.api_origin != self.bound.env.api_origin() {
+        if !self.bound.env.allows_api_origin(&self.bound.api_origin) {
             self.cached = None;
             return Err("Cloud origin differs from the original environment".into());
         }
@@ -511,6 +581,9 @@ impl<H: Http> CloudClient<H> {
             && expires.saturating_sub(60_000) > now_wall_ms
         {
             return Ok(token.clone());
+        }
+        if let Some(access) = self.edge_token() {
+            return Ok(access);
         }
         let ids = json!({ "user": self.bound.user, "install": self.bound.install });
         let (status, challenge): (_, Challenge) = self.auth_post("/v1/auth/challenge", &ids)?;
@@ -540,6 +613,40 @@ impl<H: Http> CloudClient<H> {
             "signature": signature,
         });
         let (status, token): (_, Token) = self.auth_post("/v1/auth/token", &body)?;
+        self.accept(status, token)
+            .ok_or_else(|| "Cloud token differs from the original enrollment".to_owned())
+    }
+
+    /// A bearer minted through the platform edge, when this machine has one and it answers with
+    /// a token for exactly this enrollment. None falls back to the install key.
+    fn edge_token(&mut self) -> Option<String> {
+        if self.edge == Edge::Unprobed {
+            // Unit tests never reach a real edge, even on a Cloud machine whose name resolves.
+            let resolves = !cfg!(test)
+                && std::net::ToSocketAddrs::to_socket_addrs(EDGE_HOST)
+                    .is_ok_and(|mut a| a.next().is_some());
+            self.edge = if resolves { Edge::At(EDGE_TOKEN_URL.to_owned()) } else { Edge::Absent };
+        }
+        let Edge::At(url) = &self.edge else { return None };
+        let (status, value) = self.http.post(url, &json!({}), None).ok()?;
+        if status != 200 {
+            eprintln!(
+                "cmux-host: cloud: edge sign-in refused (HTTP {status}); using the install key"
+            );
+            return None;
+        }
+        let token: Token = serde_json::from_value(value).ok()?;
+        let access = self.accept(status, token);
+        if access.is_none() {
+            eprintln!(
+                "cmux-host: cloud: edge sign-in answered another enrollment; using the install key"
+            );
+        }
+        access
+    }
+
+    /// Caches and answers `token` when it is a bearer for exactly this enrollment.
+    fn accept(&mut self, status: u16, token: Token) -> Option<String> {
         // A team SSH binding (team_ssh::sync::client_bound) records no grant,
         // so it pins user, install and team only.
         let grant_ok = self.bound.grant.is_empty() || token.grant == self.bound.grant;
@@ -556,11 +663,11 @@ impl<H: Http> CloudClient<H> {
             || token.expires_at > 9_007_199_254_740_991
         {
             self.cached = None;
-            return Err("Cloud token differs from the original enrollment".into());
+            return None;
         }
         let access = token.access_token;
         self.cached = Some((access.clone(), token.expires_at));
-        Ok(access)
+        Some(access)
     }
 
     fn auth_post<T: serde::de::DeserializeOwned>(
@@ -574,14 +681,16 @@ impl<H: Http> CloudClient<H> {
         Ok((status, serde_json::from_value(value).map_err(|_| malformed())?))
     }
 
-    /// A bounded GET with the response's `Retry-After` (the carrier keyset fetch): only to the
-    /// bound environment's own API origin, and at most 1 MiB.
+    /// A bounded GET with the response's `Retry-After` (the carrier keyset fetch): only to an
+    /// API origin the bound environment allows, and at most 1 MiB.
     pub(super) fn request_with_headers(
         &self,
         path: &str,
         deadline: &RequestDeadline,
     ) -> Result<cmux_server::cloud_http::Response, String> {
-        if self.bound.api_origin != self.bound.env.api_origin() || deadline.remaining().is_none() {
+        if !self.bound.env.allows_api_origin(&self.bound.api_origin)
+            || deadline.remaining().is_none()
+        {
             return Err("bounded Cloud request unavailable".into());
         }
         let response = self
@@ -684,9 +793,12 @@ impl<H: Http> CloudClient<H> {
 
     /// One page of the repositories this machine's team linked to GitHub
     /// (`GET /v1/integrations/github/repos` on the API as its `vm` install).
+    /// A read: a transient outage is retried ([`patiently`]).
     pub fn github_repos(&mut self, ask: &super::github_repos::ReposAsk, now_wall_ms: u64) -> Value {
         let team = self.bound.team.clone();
-        super::github_repos::answer(ask, &team, |path| self.get_as_install(path, now_wall_ms))
+        super::github_repos::answer(ask, &team, |path| {
+            patiently("GitHub's repository list", || self.get_as_install(path, now_wall_ms))
+        })
     }
 
     /// The person's connected GitHub account (`GET /v1/me/github` as this
@@ -695,7 +807,9 @@ impl<H: Http> CloudClient<H> {
     /// (`carrier_ticket.rs`): the machine names itself; the caller nothing.
     pub fn carrier_ticket(&mut self, now_wall_ms: u64) -> Value {
         let path = super::carrier_ticket::path(&self.bound.machine);
-        let answer = self.post_empty_with_token(&path, now_wall_ms);
+        // A second mint after a lost reply only leaves an unused ticket to expire.
+        let answer =
+            patiently("a carrier ticket", || self.post_empty_with_token(&path, now_wall_ms));
         super::carrier_ticket::reply_for(&answer)
     }
 
@@ -709,6 +823,52 @@ impl<H: Http> CloudClient<H> {
             let token = client.token(now_wall_ms).ok()?;
             client.http.send(&call.method, &url, call.body.as_ref(), Some(&token), &headers).ok()
         };
+        let mut once = || match send(self) {
+            None => Answer::Transport,
+            Some((401, _)) => {
+                self.cached = None;
+                send(self).map_or(Answer::Transport, |(status, body)| Answer::Http { status, body })
+            }
+            Some((status, body)) => Answer::Http { status, body },
+        };
+        // Only a call that cannot apply twice is repeated, and only when nothing came back: any
+        // status, a 5xx included, is the caller's answer.
+        let repeatable = key.is_some() || matches!(call.method.as_str(), "GET" | "HEAD");
+        let answer = if repeatable {
+            let mut patience = Patience::new("the apps request", PATIENCE).quiet();
+            loop {
+                let answer = once();
+                if answer != Answer::Transport || !patience.sleep(None) {
+                    break answer;
+                }
+            }
+        } else {
+            once()
+        };
+        super::apps_call::reply_for(&answer, &self.bound.machine)
+    }
+
+    /// `cmux machine request` as this machine's `vm` install (`machine_request.rs`, checked
+    /// before it gets here): the op names this machine, never the caller's.
+    pub fn machine_request(
+        &mut self,
+        ask: &super::machine_request::MachineAsk,
+        now_wall_ms: u64,
+    ) -> Value {
+        let request = super::machine_request::request(ask, &self.bound.machine);
+        let answer = self.op(&request, now_wall_ms);
+        super::machine_request::reply_for(&answer)
+    }
+
+    /// One MCP message to the platform's `/mcp` as this machine's `vm` install (`mcp_call.rs`,
+    /// checked before it gets here). A 401 drops the cached bearer and retries once.
+    pub fn mcp_call(&mut self, call: &super::mcp_call::McpCall, now_wall_ms: u64) -> Value {
+        let url = format!("{}{}", self.bound.env.platform_origin(), super::mcp_call::MCP_PATH);
+        let headers = super::mcp_call::headers();
+        let send = |client: &mut Self| -> Option<(u16, Value)> {
+            let token = client.token(now_wall_ms).ok()?;
+            client.http.send("POST", &url, Some(&call.body), Some(&token), &headers).ok()
+        };
         let answer = match send(self) {
             None => Answer::Transport,
             Some((401, _)) => {
@@ -717,11 +877,13 @@ impl<H: Http> CloudClient<H> {
             }
             Some((status, body)) => Answer::Http { status, body },
         };
-        super::apps_call::reply_for(&answer, &self.bound.machine)
+        super::mcp_call::reply_for(&answer)
     }
 
     pub fn github_status(&mut self, now_wall_ms: u64) -> Value {
-        let answer = self.platform_get(super::github_status::STATUS_PATH, now_wall_ms);
+        let answer = patiently("the GitHub status", || {
+            self.platform_get(super::github_status::STATUS_PATH, now_wall_ms)
+        });
         super::github_status::reply_for(&answer)
     }
 
@@ -776,6 +938,38 @@ impl<H: Http> CloudClient<H> {
         (id, answer)
     }
 
+    /// One raw request on this machine's API origin as its `vm` install (`auto_session.rs`):
+    /// `request.url` is the route's path and its bearer is filled in here. `None` when no
+    /// answer came. As [`Self::post_as_install`], only a 401 or an `auth.*` 403 drops the
+    /// cached bearer and retries once.
+    pub fn raw_as_install(
+        &mut self,
+        request: &cmux_server::cloud_http::RawRequest<'_>,
+        now_wall_ms: u64,
+    ) -> Option<cmux_server::cloud_http::Response> {
+        let url = self.url(request.url);
+        let send = |client: &mut Self| -> Option<cmux_server::cloud_http::Response> {
+            let token = client.token(now_wall_ms).ok()?;
+            let signed =
+                cmux_server::cloud_http::RawRequest { url: &url, bearer: Some(&token), ..*request };
+            client.http.raw(&signed).ok()
+        };
+        let answer = send(self)?;
+        let stale = answer.status == 401
+            || (answer.status == 403
+                && serde_json::from_slice::<Value>(&answer.bytes).is_ok_and(|body| {
+                    body.field("error")
+                        .field("code")
+                        .as_str()
+                        .is_some_and(|c| c.starts_with("auth."))
+                }));
+        if stale {
+            self.cached = None;
+            return send(self);
+        }
+        Some(answer)
+    }
+
     /// One POST as the `vm` install. Only a 401 or an `auth.*` 403 drops the
     /// cached bearer and retries once: a `policy.denied` is the answer, not
     /// a stale bearer.
@@ -806,5 +1000,32 @@ impl<H: Http> CloudClient<H> {
     pub fn op(&mut self, request: &OpRequest, now_wall_ms: u64) -> Answer {
         let body = json!({ "op": request.op, "params": request.params });
         self.post_with_token("/v1/ops", &body, now_wall_ms)
+    }
+}
+
+/// How long a socket ask's Cloud read waits out a transient outage: short, since the agent's
+/// one GitHub worker answers asks in turn (`github_minter.rs`), and the caller retries too.
+#[cfg(not(test))]
+pub(super) const PATIENCE: Duration = Duration::from_secs(6);
+#[cfg(test)]
+pub(super) const PATIENCE: Duration = Duration::from_secs(1);
+
+/// Whether a later send of the same request can pass: nothing came back or the platform failed
+/// (5xx). A 429 is returned to the caller once so its reset metadata remains authoritative. This
+/// transport does not expose response headers, so retrying would risk ignoring a longer
+/// `Retry-After` than the JSON body contains.
+fn transient(answer: &Answer) -> bool {
+    matches!(answer, Answer::Transport | Answer::Http { status: 500 | 502 | 503 | 504, .. })
+}
+
+/// `send`, repeated through a transient failure ([`transient`]) for at most [`PATIENCE`];
+/// the last answer when the time is spent or the failure is not transient.
+pub(super) fn patiently(what: &str, mut send: impl FnMut() -> Answer) -> Answer {
+    let mut patience = Patience::new(what, PATIENCE).quiet();
+    loop {
+        let answer = send();
+        if !transient(&answer) || !patience.sleep(None) {
+            return answer;
+        }
     }
 }

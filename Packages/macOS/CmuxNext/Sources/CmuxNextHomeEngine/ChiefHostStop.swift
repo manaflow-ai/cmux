@@ -1,5 +1,6 @@
 public import CmuxNextAgentPane
 import CmuxNextCompat
+import CmuxNextHomeModel
 import Darwin
 public import Foundation
 
@@ -27,13 +28,18 @@ public nonisolated enum ChiefHostStop {
     @discardableResult
     static func askToHandOffWhenIdle(home: ChiefHome, isChiefHost: (pid_t) -> Bool = ChiefHostStop.isChiefHost,
                                      signal: (pid_t, Int32) -> Bool = { kill($0, $1) == 0 }) -> pid_t? {
-        guard let pid = runningHostPID(home: home, isChiefHost: isChiefHost) else { return nil }
-        let mark = home.root.appendingPathComponent("state/host.handoff")
+        let running = runningHostPID(home: home, isChiefHost: isChiefHost)
+        guard running != nil else { return nil }
         // concurrency-allow: a small local file read; callers run off the main actor
-        guard let text = try? String(contentsOf: mark, encoding: .utf8),
-              let named = text.split(separator: "\n").first.flatMap({ pid_t($0.trimmingCharacters(in: .whitespaces)) }),
-              named == pid, signal(pid, SIGUSR1) else { return nil }
+        let mark = try? String(contentsOf: home.root.appendingPathComponent("state/host.handoff"), encoding: .utf8)
+        let target = try? HomeRules.chiefBrain("handoff_target", HandoffRequest(runningPid: running, mark: mark)) as ChiefBrainPidReply
+        guard let pid = target?.pid, signal(pid, SIGUSR1) else { return nil }
         return pid
+    }
+
+    private nonisolated struct HandoffRequest: Encodable {
+        var runningPid: Int32?
+        var mark: String?
     }
 
     /// The pid of the host that holds the home's lock: the pid in the lock's
@@ -44,10 +50,15 @@ public nonisolated enum ChiefHostStop {
     public nonisolated static func runningHostPID(home: ChiefHome, isChiefHost: (pid_t) -> Bool = ChiefHostStop.isChiefHost) -> pid_t? {
         let lock = home.root.appendingPathComponent("state/host.lock")
         // concurrency-allow: a small local file read; callers run off the main actor or at a brain exit
-        guard let text = try? String(contentsOf: lock, encoding: .utf8),
-              let pid = text.split(separator: "\n").first.flatMap({ pid_t($0.trimmingCharacters(in: .whitespaces)) }),
-              pid > 1, isChiefHost(pid) else { return nil }
+        let text = try? String(contentsOf: lock, encoding: .utf8)
+        guard text != nil,
+              let pid = (try? HomeRules.chiefBrain("lock_pid", LockRequest(text: text)) as ChiefBrainPidReply)?.pid,
+              isChiefHost(pid) else { return nil }
         return pid
+    }
+
+    private nonisolated struct LockRequest: Encodable {
+        var text: String?
     }
 
     /// Quit, end sessions: the Chief home's host, then its acpmux daemon, so nothing of the Chief outlives the quit
@@ -59,7 +70,11 @@ public nonisolated enum ChiefHostStop {
     /// (``ChiefHome/usesAppAcpmux``), so its turn, compactor and subagents end with the person's
     /// agents; else the Home Chief's sessions, which its own daemon's end covers.
     public nonisolated static func appAcpmuxEndKeep(chiefUsesAppAcpmux: Bool) -> AcpmuxQuit.Keep {
-        chiefUsesAppAcpmux ? .nothing : .chief
+        nonisolated struct Request: Encodable { var chiefUsesAppAcpmux: Bool }
+        nonisolated struct Reply: Decodable { var keep: String }
+        let reply = try? HomeRules.chiefBrain("app_acpmux_end_keep", Request(chiefUsesAppAcpmux: chiefUsesAppAcpmux)) as Reply
+        // Unknown reply: keep the Chief's sessions (the safer side: nothing of the person's ends).
+        return reply?.keep == "nothing" ? .nothing : .chief
     }
 
     @concurrent public static func endChiefSessions(home: ChiefHome, bundledBin: URL?) async {
@@ -93,8 +108,21 @@ public nonisolated enum ChiefHostStop {
     /// Whether a process with executable `path` and process name `processName` (nil: not this
     /// user's) is the helper's executable.
     static func isFilesHostLauncher(path: String?, processName: String?) -> Bool {
-        guard let path, processName != nil else { return false }
-        return path.hasSuffix("/" + FilesHost.executableName)
+        hostProcess(path: path, processName: processName)?.isFilesHostLauncher ?? false
+    }
+
+    private nonisolated struct ProcessRequest: Encodable {
+        var path: String?
+        var processName: String?
+    }
+
+    private nonisolated struct ProcessReply: Decodable {
+        var isChiefHost: Bool
+        var isFilesHostLauncher: Bool
+    }
+
+    private static func hostProcess(path: String?, processName: String?) -> ProcessReply? {
+        try? HomeRules.chiefBrain("host_process", ProcessRequest(path: path, processName: processName))
     }
 
     /// The executable path of `pid` (`proc_pidpath`), nil when it fails: no such process, or
@@ -111,8 +139,7 @@ public nonisolated enum ChiefHostStop {
     /// after an update); its process name is then the only fact left. Only a pid the held lock
     /// names reaches this check, and only one of this user's processes (`processName`).
     static func isChiefHost(path: String?, processName: String?) -> Bool {
-        if let path { return path.hasSuffix("/" + HomeBrainHost.bundledChiefName) }
-        return processName == HomeBrainHost.bundledChiefName
+        hostProcess(path: path, processName: processName)?.isChiefHost ?? false
     }
 
     /// The kernel's name of `pid` (`pbi_name`, else `pbi_comm`) when it is one of this user's

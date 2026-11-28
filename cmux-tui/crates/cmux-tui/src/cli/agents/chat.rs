@@ -234,6 +234,12 @@ pub(in crate::cli) fn note_started(chat: Chat) {
     *STARTED.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(chat);
 }
 
+/// The chat this process last started here ([`note_started`]), whatever its id: the hybrid
+/// start (chat_start/hybrid_start.rs) hands it to the driver that moves it to Cloud.
+pub(in crate::cli) fn last_started() -> Option<Chat> {
+    STARTED.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+}
+
 /// The chat `id` names when this process started it here ([`note_started`]): its scope is
 /// known and its acpmux too, so `cmux chat --prompt … --wait` reaches it with no lookup, no
 /// app call and no session snapshot (goal local-instant-start).
@@ -268,8 +274,13 @@ pub(super) fn scoped_chat(global: &GlobalArgs, target: &str) -> Result<Chat, Cal
     };
     let workspace =
         info.pointer("/sessionEnv/CMUX_WORKSPACE_ID").and_then(Value::as_str).map(workspace_key);
-    let keys = session_workspace_keys(global)?;
-    if !workspace.as_ref().is_some_and(|key| keys.contains(key)) {
+    let snapshot = session_snapshot(global)?;
+    let in_workspace =
+        workspace.as_ref().is_some_and(|key| session_workspace_keys(&snapshot).contains(key));
+    // A chat that came here by a move (Bring Back Local, `cmux link agent move`) runs with no
+    // workspace in its env: the move's guard clears the env it brought (`transfer_guard.rs`), and
+    // the app shows it in a workspace it opened for it. Its tab there puts it in this session.
+    if !in_workspace && !shown_in_session(global, &snapshot, &chat) {
         return Err(not_run(
             "chat.out_of_scope",
             format!("chat {chat} does not run in a workspace of this cmux session"),
@@ -297,6 +308,12 @@ pub(in crate::cli) fn chat_peers(global: &GlobalArgs) -> Result<Value, String> {
     acp::peers(app_acpmux(global).as_deref())
 }
 
+/// Where the acpmux the app's chats use would place new work (`_acpmux/place`): a new chat's Auto
+/// reads this Mac's room from it (`chat_start/auto_place.rs`).
+pub(in crate::cli) fn chat_place_verdict(global: &GlobalArgs) -> Result<Value, String> {
+    acp::place(app_acpmux(global).as_deref())
+}
+
 /// A workspace key in one comparable form: lowercase, without dashes (the
 /// app hands sessions the key's uppercase UUID form). As the daemon's
 /// `agent_message_policy::workspace_key`.
@@ -304,18 +321,69 @@ pub(super) fn workspace_key(value: &str) -> String {
     value.chars().filter(|ch| *ch != '-').flat_map(char::to_lowercase).collect()
 }
 
-/// The keys of this cmux session's workspaces (`extra.key`), from the
-/// session snapshot `agents_snapshot` reads.
-fn session_workspace_keys(global: &GlobalArgs) -> Result<HashSet<String>, CallFailure> {
-    let snapshot = mcp::agent_resource(global, super::snapshot_plan())
-        .map_err(|error| CallFailure { kind: FailureKind::NotRun, error, idempotency_key: None })?;
-    Ok(snapshot["workspaces"]
+/// This cmux session's snapshot (its workspaces and tabs), as `agents_snapshot` reads it from
+/// the daemon.
+fn session_snapshot(global: &GlobalArgs) -> Result<Value, CallFailure> {
+    mcp::agent_resource(global, super::snapshot_plan()).map_err(|error| CallFailure {
+        kind: FailureKind::NotRun,
+        error,
+        idempotency_key: None,
+    })
+}
+
+/// The keys of this cmux session's workspaces (`extra.key`), from its daemon snapshot.
+fn session_workspace_keys(snapshot: &Value) -> HashSet<String> {
+    snapshot["workspaces"]
         .as_array()
         .into_iter()
         .flatten()
         .filter_map(|workspace| workspace["extra"]["key"].as_str())
         .map(workspace_key)
-        .collect())
+        .collect()
+}
+
+/// Whether a tab of this cmux session shows chat `chat`: a workspace of the app's topology
+/// (`snapshot.get`) whose tabs show the chat (`agent_session`), and that workspace one of this
+/// session's (the daemon snapshot's, which holds only this session's workspaces). No app (CI, a
+/// headless agent): no tab shows it.
+fn shown_in_session(global: &GlobalArgs, snapshot: &Value, chat: &str) -> bool {
+    let Ok(app) =
+        mcp::agent_app(global, "snapshot.get", json!({}), super::super::app::READ_TIMEOUT, None)
+    else {
+        return false;
+    };
+    let Some(topology) = app.get("topology") else { return false };
+    shown_in_workspace(snapshot, topology, chat)
+}
+
+/// [`shown_in_session`]'s check on the two snapshots: the daemon's SNAPSHOT of this session and
+/// the app's TOPOLOGY.
+pub(super) fn shown_in_workspace(snapshot: &Value, topology: &Value, chat: &str) -> bool {
+    fn shows(value: &Value, chat: &str) -> bool {
+        match value {
+            Value::Object(object) => {
+                object
+                    .get("agent_session")
+                    .and_then(Value::as_str)
+                    .is_some_and(|session| session.strip_prefix("acp:").unwrap_or(session) == chat)
+                    || object.values().any(|child| shows(child, chat))
+            }
+            Value::Array(values) => values.iter().any(|value| shows(value, chat)),
+            _ => false,
+        }
+    }
+    let ours: HashSet<&str> = snapshot["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|workspace| workspace["id"].as_str())
+        .collect();
+    topology["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|workspace| workspace["id"].as_str().is_some_and(|id| ours.contains(id)))
+        .any(|workspace| shows(workspace, chat))
 }
 
 /// The caller's own chat: the acpmux session acpmux started it in.
@@ -369,6 +437,104 @@ fn format_mark(c: char) -> bool {
     )
 }
 
+/// Where a prompt acpmux accepted for a chat waits, when its queue still holds it
+/// (`_acpmux/queue_get` found it), from the chat's `_acpmux/info`: `{state: "queued",
+/// waits_for, reason, queued}`, with the agent still starting, a turn running, or a failed turn's
+/// hold that waits for a resume. None when it is not in the queue: it went in.
+pub(super) fn waiting_in_chat(info: &Value, in_queue: bool) -> Option<Map<String, Value>> {
+    if !in_queue {
+        return None;
+    }
+    let flag = |key: &str| info.get(key).and_then(Value::as_bool) == Some(true);
+    let (waits_for, reason) = if flag("queuePaused") {
+        (
+            "resume",
+            "the chat's last turn failed, so its queue is paused: the message waits there until \
+             the chat is resumed (Resume in the cmux app)",
+        )
+    } else if flag("starting") {
+        (
+            "agent_start",
+            "the chat's agent is still starting: the message waits in its queue and goes in \
+             once the agent is ready",
+        )
+    } else if info.get("turn").is_some_and(|turn| !turn.is_null()) {
+        (
+            "turn_end",
+            "the chat is running a turn: the message waits in its queue and goes in when that \
+             turn ends",
+        )
+    } else {
+        ("queue", "the message waits in the chat's queue behind earlier prompts")
+    };
+    let mut out = Map::new();
+    out.insert("state".into(), json!("queued"));
+    out.insert("waits_for".into(), json!(waits_for));
+    out.insert("reason".into(), json!(reason));
+    if let Some(queued) = info.get("queued").and_then(Value::as_u64) {
+        out.insert("queued".into(), json!(queued));
+    }
+    Some(out)
+}
+
+/// The most bytes of a failed turn's reason a transcript item carries.
+const TURN_ERROR_MAX: usize = 4096;
+
+/// What acpmux's `turn_result` for a failed turn says of why (`hub/turns.rs` `finish_turn`):
+/// `error` (its text: `errorText`, `error`, or an error object's `message`, the dead agent's
+/// stderr tail included), and the code, kind, recovery, detail and source beside it, each masked.
+/// Empty for a turn that did not fail and said nothing.
+pub(super) fn turn_failure(msg: &Value) -> Map<String, Value> {
+    let mut out = Map::new();
+    let text = |value: &Value| -> Option<String> {
+        match value {
+            Value::String(text) => Some(text.trim().to_owned()),
+            Value::Object(object) => object
+                .get("message")
+                .or_else(|| object.get("text"))
+                .and_then(Value::as_str)
+                .map(|text| text.trim().to_owned()),
+            _ => None,
+        }
+        .filter(|text| !text.is_empty())
+    };
+    let error = ["errorText", "error"].into_iter().find_map(|key| msg.get(key).and_then(text));
+    if let Some(error) = error {
+        let mut error = acpmux::secret_scan::mask(&error);
+        if error.len() > TURN_ERROR_MAX {
+            let mut cut = TURN_ERROR_MAX;
+            while !error.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            error.truncate(cut);
+            error.push('…');
+        }
+        out.insert("error".into(), json!(error));
+    }
+    for (from, to) in [
+        ("errorCode", "error_code"),
+        ("code", "code"),
+        ("errorKind", "error_kind"),
+        ("errorSource", "error_source"),
+        ("recovery", "recovery"),
+        ("detail", "detail"),
+    ] {
+        match msg.get(from) {
+            Some(Value::String(value)) if !value.is_empty() => {
+                out.insert(to.into(), json!(acpmux::secret_scan::mask(value)));
+            }
+            Some(value @ (Value::Number(_) | Value::Bool(_))) => {
+                out.insert(to.into(), value.clone());
+            }
+            _ => {}
+        }
+    }
+    if let Some(stalled) = msg.get("stalledMs").and_then(Value::as_u64) {
+        out.insert("stalled_ms".into(), json!(stalled));
+    }
+    out
+}
+
 /// Refuses `chat` when it is the caller's own: a chat never prompts or
 /// interrupts itself.
 pub(super) fn refuse_own_chat(chat: &str, target: &str) -> Result<(), CallFailure> {
@@ -393,6 +559,7 @@ fn send(
 ) -> Result<Value, CallFailure> {
     let found = scoped_chat(global, target)?;
     refuse_own_chat(&found.id, target)?;
+    let socket = found.socket().map(Path::to_path_buf);
     let chat = found.id;
     let key = match idempotency_key {
         Some(key) => key.to_owned(),
@@ -455,6 +622,21 @@ fn send(
     if sent.failed {
         result.set("state", json!("failed"));
     }
+    // acpmux took it, but took is not in: a chat still starting its agent, running a turn or
+    // holding its queue after a failed turn keeps it in its queue, out of the transcript. The
+    // receipt says where it waits and why, never a bare `delivered` (a mid-start send on
+    // a Mac, 2026-11-25, said delivered and never showed).
+    if result["state"] == "delivered"
+        && let Some(prompt_id) = sent.message["id"].as_str()
+        && let Ok(in_queue) = acp::in_queue(&chat, prompt_id, socket.as_deref())
+        && in_queue
+        && let Ok((_, info)) = acp::lookup(&chat, socket.as_deref())
+        && let Some(waiting) = waiting_in_chat(&info, in_queue)
+    {
+        for (key, value) in waiting {
+            result.set(&key, value);
+        }
+    }
     if !sent.problems.is_empty() {
         result.set("problems", json!(sent.problems));
     }
@@ -510,18 +692,10 @@ pub(in crate::cli) fn page_of_events(
     page
 }
 
-/// The transcript items of `target` after `after`, each whole (no per-item cut) and masked as a
-/// read masks them: the turn `cmux chat --wait` waited on (turn.rs), read from its prompt on.
-pub(in crate::cli) fn turn_items(
-    global: &GlobalArgs,
-    target: &str,
-    after: u64,
-) -> Result<Vec<Value>, CallFailure> {
-    turn_items_of(&scoped_chat(global, target)?, after)
-}
-
-/// [`turn_items`] of a chat already found (and scope-checked) with [`scoped_chat`]: `cmux chat
-/// --wait` finds its chat once and reads it with no second lookup (turn.rs).
+/// The transcript items of a chat already found (and scope-checked) with [`scoped_chat`] after
+/// `after`, each whole (no per-item cut) and masked as a read masks them: the turn `cmux chat
+/// --wait` waited on, read from its prompt on. It finds its chat once and reads it with no second
+/// lookup (turn.rs).
 pub(in crate::cli) fn turn_items_of(found: &Chat, after: u64) -> Result<Vec<Value>, CallFailure> {
     let chat = &found.id;
     // Every event from the turn's prompt on, not a read's page: the turn's end must be in it,
@@ -715,6 +889,9 @@ impl Transcript {
                     let status = msg["status"].as_str().unwrap_or("completed");
                     let mut extra = Map::new();
                     extra.insert("status".into(), json!(status));
+                    // Why a turn failed travels with its end, masked: `chat send --wait`'s
+                    // `chat.turn_failed` and every reader of the item say it.
+                    extra.extend(turn_failure(msg));
                     self.push(seq, "turn_end", String::new(), extra);
                 }
                 _ => {}
@@ -857,7 +1034,7 @@ impl Transcript {
 }
 
 #[cfg(unix)]
-pub(super) mod acp {
+pub(in crate::cli) mod acp {
     //! The acpmux linked into this binary: the one at `socket` (the app's own, `agent.acpmux`),
     //! else the one at the home `cmux acp` uses (`ACPMUX_SOCKET` first). A chat verb never starts
     //! the acpmux daemon.
@@ -946,6 +1123,35 @@ pub(super) mod acp {
             .map_err(|error| format!("{error:#}"))
     }
 
+    /// Whether `session`'s queue still holds prompt `prompt_id` (`_acpmux/queue_get` finds it);
+    /// false once it went in or left. An acpmux that cannot say answers an error.
+    pub(in crate::cli) fn in_queue(
+        session: &str,
+        prompt_id: &str,
+        socket: Option<&Path>,
+    ) -> Result<bool, String> {
+        read_on(socket, async |client| {
+            match client
+                .request(
+                    acpmux::rpc::method::MUX_QUEUE_GET,
+                    json!({"sessionId": session, "promptId": prompt_id}),
+                )
+                .await
+            {
+                Ok(found) => Ok(found.get("promptId").is_some_and(|id| id == prompt_id)),
+                Err(error) => {
+                    let error = format!("{error:#}");
+                    // Not queued: it ran, or never was (`hub/queue_approve.rs` `not_waiting`).
+                    if error.contains("queue.not_found") || error.contains("no prompt waits") {
+                        Ok(false)
+                    } else {
+                        Err(anyhow::anyhow!(error))
+                    }
+                }
+            }
+        })
+    }
+
     /// The id and `_acpmux/info` of the session `key` names.
     pub(in crate::cli) fn lookup(
         key: &str,
@@ -973,6 +1179,11 @@ pub(super) mod acp {
         block_on(async {
             client(socket).await?.request(acpmux::rpc::method::SESSION_NEW, params).await
         })
+    }
+
+    /// The acpmux's placement verdict (`_acpmux/place`), as `acpmux machine pick` reads it.
+    pub(super) fn place(socket: Option<&Path>) -> Result<Value, String> {
+        block_on(async { client(socket).await?.request("_acpmux/place", json!({})).await })
     }
 
     /// The acpmux's peers (`_acpmux/peers`), as `acpmux host` reads them.
@@ -1056,6 +1267,101 @@ pub(super) mod acp {
                            "timeoutMs": timeout_ms}),
                 )
                 .await
+        })
+    }
+
+    /// `_acpmux/wait` on `session` until it reaches one of `until` (`running`, `ready`,
+    /// `closed`, ...), at most `timeout`: the daemon answers on the chat's own events, so a
+    /// waiter learns of a turn's start or end when acpmux records it, with no polling.
+    pub(in crate::cli) fn wait_until(
+        session: &str,
+        until: &[&str],
+        timeout: std::time::Duration,
+        socket: Option<&Path>,
+    ) -> Result<Value, String> {
+        let timeout_ms = u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX);
+        read_on(socket, async |client| {
+            client
+                .request(
+                    acpmux::rpc::method::MUX_WAIT,
+                    json!({"sessions": [session], "until": until, "timeoutMs": timeout_ms}),
+                )
+                .await
+        })
+    }
+
+    /// Sets `session`'s tags `set` (`_acpmux/tag`), each living `ttl_seconds`.
+    pub(in crate::cli) fn set_tags(
+        session: &str,
+        set: &Value,
+        ttl_seconds: u64,
+        socket: Option<&Path>,
+    ) -> Result<Value, String> {
+        read_on(socket, async |client| {
+            client
+                .request(
+                    acpmux::rpc::method::MUX_TAG,
+                    json!({"sessionId": session, "set": set, "ttlSeconds": ttl_seconds}),
+                )
+                .await
+        })
+    }
+
+    /// The acpmux's harness catalog (`_acpmux/harnesses`: `harnesses`, `families`,
+    /// `defaultHarness`, `defaults`), the one a new chat there resolves its agent from; the dial
+    /// and the answer together at most `timeout` (a daemon still reading its login shell answers
+    /// once it has; a dial waits for a daemon that is starting). Its own connection, as
+    /// [`new_session`] has: it runs on a thread of its own beside the start's other reads.
+    pub(in crate::cli) fn harnesses(
+        socket: Option<&Path>,
+        timeout: std::time::Duration,
+    ) -> Result<Value, String> {
+        block_on(async {
+            tokio::time::timeout(timeout, async {
+                client(socket).await?.request(acpmux::rpc::method::MUX_HARNESSES, json!({})).await
+            })
+            .await
+            .map_err(|_| anyhow::anyhow!("no answer in {} ms", timeout.as_millis()))?
+        })
+    }
+
+    /// Follows `session`'s live `session/update`s on a connection of its own (`_acpmux/attach`,
+    /// hidden, no history: the attach subscribes it) and hands each update's params to `each`
+    /// until `each` says stop, the daemon closes the connection, or `deadline` passes.
+    pub(in crate::cli) fn follow_updates(
+        session: &str,
+        socket: Option<&Path>,
+        deadline: std::time::Instant,
+        mut each: impl FnMut(&Value) -> bool,
+    ) -> Result<(), String> {
+        use acpmux::rpc::{Message, method};
+        block_on(async {
+            let client = client(socket).await?;
+            let mut notes = client
+                .notifications()
+                .await
+                .ok_or_else(|| anyhow::anyhow!("notifications already taken"))?;
+            client
+                .request(
+                    method::MUX_ATTACH,
+                    json!({"sessionId": session, "limit": 0, "visible": false}),
+                )
+                .await?;
+            let end = tokio::time::Instant::from_std(deadline);
+            loop {
+                let Ok(Some(note)) = tokio::time::timeout_at(end, notes.recv()).await else {
+                    return Ok(());
+                };
+                let Message::Notification { method: name, params } = note else { continue };
+                if name == method::MUX_DISCONNECTED {
+                    return Ok(());
+                }
+                let params = params.unwrap_or(Value::Null);
+                let ours = params.get("sessionId").and_then(Value::as_str) == Some(session);
+                if name == method::SESSION_UPDATE && ours && !each(&params) {
+                    return Ok(());
+                }
+            }
         })
     }
 

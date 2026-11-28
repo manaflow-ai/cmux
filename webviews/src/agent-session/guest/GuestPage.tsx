@@ -16,12 +16,14 @@
 import "./guest.css";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { AvatarContext } from "../../pages/home-channels/avatars";
+import { useAutoRetry } from "../acpmux/autoRetry";
+import { useQuietConnect, useLasting } from "../../ui/lasting";
 import { useT } from "../acpmux/i18n";
 import type { AcpmuxSnapshot } from "../acpmux/model";
 import type { GuestFeed } from "./GuestTranscript";
 import { Face, PresenceStack } from "../acpmux/multiplayer/Faces";
 import { displayName, participant, type Participant } from "../acpmux/multiplayer/participants";
-import { GuestComposer, GuestMessages } from "./GuestComposer";
+import { GuestComposer, GuestMessages, GuestQueue, runsAfterTurn } from "./GuestComposer";
 import { GuestPrompts } from "./guestPrompts";
 import { GuestSendQueue } from "./guestSendQueue";
 import {
@@ -44,8 +46,8 @@ import {
   type ShareSocketLike,
 } from "./shareSocket";
 
-/** What ended the page: the share's end, or a redeem the room refused for good. */
-export type GuestEnded = GuestEnd | "used";
+/** What ended the page: the share's end, or a redeem the room refused for good (spent, or this guest left). */
+export type GuestEnded = GuestEnd | "used" | "left";
 
 export type TranscriptModule = typeof import("./GuestTranscript");
 let transcriptChunk: Promise<TranscriptModule> | undefined;
@@ -92,7 +94,26 @@ export function startGuestPage(loadSheet?: () => Promise<unknown>): void {
 /** Tries to load the transcript's chunk again after a failed load: 1 s, 2 s, 4 s ... up to 30 s apart. */
 const CHUNK_RETRY_FIRST_MS = 1_000;
 const CHUNK_RETRY_MAX_MS = 30_000;
+/// The failed loads after which the page reloads (once): the browser may keep a failed module fetch
+/// for the page's life (#38101 F1), so asking the same import again cannot land.
+const CHUNK_RELOAD_AFTER = 2;
+/// The tab's last reload for a failed chunk; one within `CHUNK_RELOAD_GAP_MS` keeps asking instead,
+/// so a chunk that cannot load anywhere never reloads the page in a loop.
+const CHUNK_RELOAD_KEY = "cmux.guest.chunkReloadAt";
+const CHUNK_RELOAD_GAP_MS = 5 * 60_000;
 const reloadWindow = () => window.location.reload();
+
+/// Whether this tab may reload for a failed chunk now, and if so records that it did.
+function mayReloadForChunk(): boolean {
+  try {
+    const last = Number(window.sessionStorage.getItem(CHUNK_RELOAD_KEY) ?? 0);
+    if (Date.now() - last < CHUNK_RELOAD_GAP_MS) return false;
+    window.sessionStorage.setItem(CHUNK_RELOAD_KEY, String(Date.now()));
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /** The fed client's id for the one chat a guest sees; the room never names the owner's session. */
 const GUEST_SESSION = "guest-chat";
@@ -103,7 +124,14 @@ const ENDED_TEXT = {
   closed: "guest.ended.revoked",
   kicked: "guest.ended.kicked",
   used: "guest.ended.used",
+  left: "guest.ended.left",
 } as const;
+
+/** The muted next step under an ended page's title: a spent or expired link takes a new one. */
+const ENDED_NEXT: Partial<Record<GuestEnded, "guest.ended.askNewLink">> = {
+  expired: "guest.ended.askNewLink",
+  used: "guest.ended.askNewLink",
+};
 
 /** A redeem error that ends the page, else undefined (the guest may try again). */
 export function endedBy(error: RedeemError): GuestEnded | undefined {
@@ -111,20 +139,68 @@ export function endedBy(error: RedeemError): GuestEnded | undefined {
   if (error === "share.revoked") return "revoked";
   if (error === "share.closed") return "closed";
   if (error === "share.kicked") return "kicked";
-  if (error === "share.used" || error === "share.left") return "used";
+  if (error === "share.used") return "used";
+  if (error === "share.left") return "left";
   return undefined;
 }
 
-export function EndedPage({ reason }: { reason: GuestEnded }) {
+export function EndedPage({ reason, invite = false }: { reason: GuestEnded; invite?: boolean }) {
   const t = useT();
+  // An account invite (`/i/<id>`) expires as an invite, and a new one comes from the owner too.
+  const title = invite && reason === "expired" ? "guest.ended.inviteExpired" : ENDED_TEXT[reason];
+  const next = invite && reason === "expired" ? "guest.ended.askNewInvite" : ENDED_NEXT[reason];
   return (
     <main className="guest-card" data-testid="guest-ended">
-      <h1 className="guest-card__title">{t(ENDED_TEXT[reason])}</h1>
+      <h1 className="guest-card__title">{t(title)}</h1>
+      {next && <p className="guest-card__detail">{t(next)}</p>}
     </main>
   );
 }
 
-/** What a failed join says: invites name the account's problem; else offline, or try again. */
+/**
+ * A join that failed only because the owner's computer or the network was away (`share.host_offline`,
+ * `failed`): Join's click is asked again on the shared backoff (autoRetry.ts; the redeem's attempt id
+ * makes a repeat the same attempt, redeem.ts), with no "try again" (Leo, 2026-11-22: "vacuous decisions
+ * like that should be just done").
+ */
+function joinsAgain(error: RedeemError | undefined): boolean {
+  return error === "share.host_offline" || error === "failed";
+}
+
+/**
+ * A join card's state: `join` runs the person's Join; a failure `joinsAgain` covers runs it again by
+ * itself, the button reading Joining… meanwhile, and says nothing until it has lasted (`stillTrying`,
+ * one quiet line). Any other failure is `error`, said at once.
+ */
+function useJoin<Args extends unknown[]>(onJoin: (...args: Args) => Promise<RedeemError | undefined>) {
+  const [joining, setJoining] = useState(false);
+  const [failed, setFailed] = useState<RedeemError>();
+  const asked = useRef<Args | undefined>(undefined);
+  const join = (...args: Args) => {
+    asked.current = args;
+    setJoining(true);
+    setFailed(undefined);
+    void onJoin(...args).then((error) => {
+      setJoining(false);
+      setFailed(error);
+    });
+  };
+  const again = joinsAgain(failed) ? failed : undefined;
+  const { stillTrying } = useAutoRetry(
+    again,
+    () => {
+      if (asked.current) join(...asked.current);
+    },
+    { busy: joining },
+  );
+  return { joining: joining || again !== undefined, error: again ? undefined : failed, stillTrying, join };
+}
+
+/**
+ * What a failed join says: invites name the account's problem; else the link's (an away host or a
+ * dropped connection never reaches here: `useJoin` joins again by itself). `signIn`
+ * is where to sign in (an invite's own address); a link's join signs in at its own page.
+ */
 function JoinError({ error, signIn }: { error: RedeemError; signIn?: string }) {
   const t = useT();
   if (error === "share.unauthorized" && signIn)
@@ -136,11 +212,36 @@ function JoinError({ error, signIn }: { error: RedeemError; signIn?: string }) {
         </a>
       </>
     );
-  if (error === "share.not_invited") return <>{t("guest.invite.notInvited")}</>;
+  // A link's signed-in join whose sign-in lapsed: not a connection problem; sign in on this page.
+  if (error === "share.unauthorized")
+    return (
+      <>
+        {t("guest.join.signInExpired")}{" "}
+        <a className="guest-card__link" href={signInHere()}>
+          {t("guest.join.signInAgain")}
+        </a>
+      </>
+    );
+  if (error === "share.not_invited")
+    return (
+      <>
+        {t("guest.invite.notInvited")}
+        {signIn && (
+          <>
+            {" "}
+            <a className="guest-card__link" href={signIn}>
+              {t("guest.invite.otherAccount")}
+            </a>
+          </>
+        )}
+      </>
+    );
   if (error === "share.unverified") return <>{t("guest.invite.unverified")}</>;
-  if (error === "share.host_offline") return <>{t("guest.join.hostOffline")}</>;
   return <>{t("guest.join.failed")}</>;
 }
+
+/** This page's own address: signing in again comes back to the same link (secret fragment kept). */
+const signInHere = () => (typeof window === "undefined" ? "" : window.location.pathname + window.location.search);
 
 /** An invite's join: the room already signed this visitor in, so no name field, only Join. */
 export function InviteJoinPage({
@@ -153,17 +254,11 @@ export function InviteJoinPage({
   onJoin: () => Promise<RedeemError | undefined>;
 }) {
   const t = useT();
-  const [joining, setJoining] = useState(false);
-  const [error, setError] = useState<RedeemError>();
+  const { joining, error, stillTrying, join } = useJoin(onJoin);
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (joining) return;
-    setJoining(true);
-    setError(undefined);
-    void onJoin().then((failed) => {
-      setJoining(false);
-      setError(failed);
-    });
+    join();
   };
   return (
     <main className="guest-card" data-testid="guest-invite">
@@ -174,10 +269,12 @@ export function InviteJoinPage({
           {joining ? t("guest.join.joining") : t("guest.join.button")}
         </button>
       </form>
-      {error && (
+      {error ? (
         <p className="guest-card__error" role="alert">
           <JoinError error={error} signIn={signIn} />
         </p>
+      ) : (
+        stillTrying && <output className="guest-card__detail">{t("guest.join.stillTrying")}</output>
       )}
     </main>
   );
@@ -185,29 +282,30 @@ export function InviteJoinPage({
 
 export function JoinPage({
   hasSecret,
+  signIn,
   onJoin,
 }: {
   /** False when the link lost its secret part: Join is off and the page says so. */
   hasSecret: boolean;
+  /**
+   * Where a visitor with a cmux account signs in and comes back to this same link (the room's
+   * hosted sign-in, as an invite's); none on a link that lost its secret, where it could not help.
+   */
+  signIn?: string;
   /** Redeems with the name; resolves to the error to show, or undefined once joined. */
   onJoin: (name: string) => Promise<RedeemError | undefined>;
 }) {
   const t = useT();
   const [typed, setTyped] = useState("");
-  const [joining, setJoining] = useState(false);
-  const [error, setError] = useState<RedeemError>();
+  const { joining, error, stillTrying, join } = useJoin(onJoin);
   const name = joinName(typed);
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (!name || joining || !hasSecret) return;
-    setJoining(true);
-    setError(undefined);
-    void onJoin(name).then((failed) => {
-      setJoining(false);
-      setError(failed);
-    });
+    join(name);
   };
   const message = !hasSecret ? t("guest.join.badLink") : error ? <JoinError error={error} /> : undefined;
+  const quiet = !message && stillTrying;
   return (
     <main className="guest-card">
       <h1 className="guest-card__title">{t("guest.join.title")}</h1>
@@ -221,24 +319,51 @@ export function JoinPage({
           value={typed}
           maxLength={64}
           autoComplete="name"
-          disabled={!hasSecret}
+          disabled={!hasSecret || joining}
           onChange={(event) => setTyped(event.target.value)}
         />
         <button className="guest-join__button" type="submit" disabled={!name || joining || !hasSecret}>
           {joining ? t("guest.join.joining") : t("guest.join.button")}
         </button>
       </form>
-      {message && (
+      {message ? (
         <p className="guest-card__error" role="alert">
           {message}
+        </p>
+      ) : (
+        quiet && <output className="guest-card__detail">{t("guest.join.stillTrying")}</output>
+      )}
+      {signIn && hasSecret && (
+        <p className="guest-card__detail" data-testid="guest-join-sign-in">
+          {t("guest.join.signInOffer")}{" "}
+          <a className="guest-card__link" href={signIn}>
+            {t("guest.invite.signInButton")}
+          </a>
         </p>
       )}
     </main>
   );
 }
 
-/** The signed-in account a link guest joins as: its name and picture from the room's `whoami`. */
-export type SignedIn = { name: string; avatarUrl?: string };
+/**
+ * A link's sign-in: the room's hosted sign-in (the one an invite's `/i/<id>` uses), back to this
+ * `/g/<id>` with no query. The secret is not in it: the page kept it in this tab's sessionStorage
+ * (redeem.ts takeGuestLink), which the same tab finds again on its return.
+ */
+export const linkSignIn = (shareId: string) => `/g/${encodeURIComponent(shareId)}?sign_in=1`;
+
+/**
+ * The signed-in account a link guest joins as: its name and picture from the room's `whoami`, and
+ * the link's role when the room names it (`talk` may send, `view` watches).
+ */
+export type SignedIn = { name: string; avatarUrl?: string; linkRole?: GuestRole };
+
+/** The signed-in join's line, by the link's role; a room that names none keeps the hedged line. */
+const JOIN_AS_DETAIL = {
+  talk: "guest.join.asDetailTalk",
+  view: "guest.join.asDetailView",
+  unknown: "guest.invite.detail",
+} as const;
 
 /**
  * A link's join for a visitor signed in to cmux: "Join as <name>" with their picture, and a quiet
@@ -265,8 +390,7 @@ export function JoinAsPage({
     if (editing && !editingAtStart) field.current?.focus();
   }, [editing, editingAtStart]);
   const edit = () => setEditing(true);
-  const [joining, setJoining] = useState(false);
-  const [error, setError] = useState<RedeemError>();
+  const { joining, error, stillTrying, join } = useJoin(onJoin);
   const name = editing ? joinName(typed) : account.name;
   const face: Participant = {
     id: "guest-join-as",
@@ -276,17 +400,12 @@ export function JoinAsPage({
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (!name || joining) return;
-    setJoining(true);
-    setError(undefined);
-    void onJoin(name).then((failed) => {
-      setJoining(false);
-      setError(failed);
-    });
+    join(name);
   };
   return (
     <main className="guest-card" data-testid="guest-join-as">
       <h1 className="guest-card__title">{t("guest.join.title")}</h1>
-      <p className="guest-card__detail">{t("guest.invite.detail")}</p>
+      <p className="guest-card__detail">{t(JOIN_AS_DETAIL[account.linkRole ?? "unknown"])}</p>
       <form className="guest-join" onSubmit={submit}>
         {editing ? (
           <>
@@ -300,6 +419,7 @@ export function JoinAsPage({
               value={typed}
               maxLength={64}
               autoComplete="name"
+              disabled={joining}
               ref={field}
               onChange={(event) => setTyped(event.target.value)}
             />
@@ -321,10 +441,12 @@ export function JoinAsPage({
           {t("guest.join.editName")}
         </button>
       )}
-      {error && (
+      {error ? (
         <p className="guest-card__error" role="alert">
           <JoinError error={error} />
         </p>
+      ) : (
+        stillTrying && <output className="guest-card__detail">{t("guest.join.stillTrying")}</output>
       )}
     </main>
   );
@@ -357,7 +479,7 @@ export function LiveChat({
   name?: string;
   /** The signed-in account's picture this guest joined with, for its own chip. */
   avatar?: string;
-  /** This guest's role: only `talk` sends (a composer); `view` or none watches. */
+  /** Talk and Drive can send. Only Drive can stop an active turn. */
   role?: GuestRole;
   /** This guest's own messages (guestPrompts.ts). */
   prompts: GuestPrompts;
@@ -365,7 +487,7 @@ export function LiveChat({
   openSocket?: (url: string) => ShareSocketLike;
   /** Loads the transcript's chunk (loadGuestTranscript; tests and the gallery hand in a failing one). */
   loadTranscript?: () => Promise<TranscriptModule>;
-  /** Reloads the page when Retry's load fails too (tests hand in a spy). */
+  /** Reloads the page once a chunk load failed twice (tests hand in a spy). */
   reloadPage?: () => void;
   onEnded: (reason: GuestEnd) => void;
 }) {
@@ -374,6 +496,10 @@ export function LiveChat({
   const [chat, setChat] = useState<GuestChat>({});
   const [people, setPeople] = useState<GuestParticipant[]>([]);
   const [connection, setConnection] = useState<GuestConnection>("connecting");
+  // Connecting and reconnecting heal on their own and offer nothing to do: the line waits out the
+  // shared bound (ui/lasting.ts `CONNECTION_QUIET_MS`, with Quiet Connections on), so a join or a blip that lands under it
+  // says nothing (Leo, 2026-11-14: "i also want all our connectivity stuff to shut up").
+  const linkDownLasting = useQuietConnect(connection !== "live");
   const [hasMore, setHasMore] = useState(false);
   const [expanded, setExpanded] = useState(() => new Set<string>());
   const socket = useRef<ShareSocket | undefined>(undefined);
@@ -395,20 +521,24 @@ export function LiveChat({
   // The socket opens on the first commit; the records it brings wait for the transcript's chunk,
   // in arrival order, if they come first.
   const [transcript, setTranscript] = useState<TranscriptModule>();
-  // The chunk failed to load: the page says so with Retry, and keeps trying on its own.
+  // The chunk failed to load: the page keeps trying on its own and says nothing until the failure
+  // has lasted (then one quiet line, no Retry: Leo, 2026-11-22, "vacuous decisions like that should
+  // be just done").
   const [loadFailed, setLoadFailed] = useState(false);
-  const retryLoad = useRef<(() => void) | undefined>(undefined);
+  const stillLoading = useLasting(loadFailed);
   useEffect(() => {
     let stopped = false;
     let client: GuestFeed | undefined;
     const waiting: ((client: GuestFeed) => void)[] = [];
     const withClient = (run: (client: GuestFeed) => void) => (client ? run(client) : waiting.push(run));
     // A failed chunk load (a dropped connection) tries again until it lands or the chat goes away.
-    // The browser may keep a failed module fetch for the page's life, so a Retry that fails again
-    // reloads the page (this tab's join is in sessionStorage, so it opens the chat again).
+    // The browser may keep a failed module fetch for the page's life, so a load that failed
+    // `CHUNK_RELOAD_AFTER` times reloads the page once (this tab's join is in sessionStorage, so it
+    // opens the chat again).
     let retry: ReturnType<typeof setTimeout> | undefined;
     let attempt = 0;
-    const load = (delay: number, byRetry = false) => {
+    let failures = 0;
+    const load = (delay: number) => {
       clearTimeout(retry);
       retry = undefined;
       const mine = ++attempt;
@@ -423,23 +553,29 @@ export function LiveChat({
         () => {
           // Only the newest attempt schedules the next one.
           if (stopped || client || mine !== attempt) return;
-          if (byRetry) return reloadPage();
+          failures += 1;
+          if (failures === CHUNK_RELOAD_AFTER && mayReloadForChunk()) return reloadPage();
           setLoadFailed(true);
           retry = setTimeout(() => load(Math.min(delay * 2, CHUNK_RETRY_MAX_MS)), delay);
         },
       );
     };
-    retryLoad.current = () => load(CHUNK_RETRY_FIRST_MS, true);
     load(CHUNK_RETRY_FIRST_MS);
     const stop = () => {
       stopped = true;
       clearTimeout(retry);
-      retryLoad.current = undefined;
       waiting.length = 0;
       client?.dispose();
     };
+    // The room cookie is shared across tabs. Reconnect only as the guest this tab redeemed.
+    const url = new URL(socketUrl, document.baseURI);
+    url.searchParams.set("guest_id", guestId);
     const room = new ShareSocket(
-      { url: socketUrl, unresolved: () => prompts.held(), ...(openSocket ? { open: openSocket } : {}) },
+      {
+        url: url.href,
+        unresolved: () => prompts.held(),
+        ...(openSocket ? { open: openSocket } : {}),
+      },
       {
         snapshot: (next) => {
           setChat(next.chat);
@@ -479,7 +615,7 @@ export function LiveChat({
       stop();
       pageArrived.current?.();
     };
-  }, [socketUrl, openSocket, prompts, typing, sendQueue, loadTranscript, reloadPage]);
+  }, [guestId, socketUrl, openSocket, prompts, typing, sendQueue, loadTranscript, reloadPage]);
 
   const loadOlder = useCallback(
     () =>
@@ -515,9 +651,18 @@ export function LiveChat({
     prompts.add(text);
     sendQueue.queued();
   };
+  // Try again on a refused message: back to sending with its own id, through the paced outbox.
+  const retry = (clientId: string) => {
+    prompts.retry(clientId);
+    sendQueue.queued();
+  };
   const viewing = people
     .filter((person) => person.viewing !== false && !isMe(person.id, guestId))
     .flatMap((person) => participant(person.id, person.name) ?? []);
+  // This guest's own approved message is the "Sent" line below already.
+  const waiting = (snapshot?.queue ?? []).filter(
+    (entry) => runsAfterTurn(entry) && !(entry.author && isMe(entry.author.id, guestId)),
+  );
   return (
     // Faces and chips ask no owner's avatar service (GuestTranscript's boundary does the same).
     <AvatarContext.Provider value={undefined}>
@@ -547,20 +692,13 @@ export function LiveChat({
               onLoadOlder={loadOlder}
             />
           )}
-          {loadFailed ? (
-            <div className="guest-live__notice guest-live__notice--failed" role="alert">
-              {t("guest.live.loadFailed")}{" "}
-              <button className="guest-live__retry" type="button" onClick={() => retryLoad.current?.()}>
-                {t("retry.action")}
-              </button>
-            </div>
-          ) : (
-            connection !== "live" && (
-              <output className="guest-live__notice">
-                {t(connection === "connecting" ? "guest.live.connecting" : "guest.live.reconnecting")}
-              </output>
-            )
-          )}
+          {loadFailed
+            ? stillLoading && <output className="guest-live__notice">{t("guest.live.stillLoading")}</output>
+            : linkDownLasting && (
+                <output className="guest-live__notice">
+                  {t(connection === "connecting" ? "guest.live.connecting" : "guest.live.reconnecting")}
+                </output>
+              )}
         </div>
         {snapshot?.permission && (
           <output className="guest-live__ask">
@@ -569,12 +707,23 @@ export function LiveChat({
           </output>
         )}
         <div className="guest-live__dock">
-          <GuestMessages prompts={mine} me={me} owner={ownerName} />
-          {/* Only a `talk` guest sends; no role (an answer that named none) or `view` watches. */}
-          {role === "talk" ? (
+          <GuestQueue queue={waiting} owner={owner} />
+          <GuestMessages
+            prompts={mine}
+            me={me}
+            owner={ownerName}
+            onRetry={role === "talk" || role === "drive" ? retry : undefined}
+          />
+          {/* A `talk` or `drive` guest sends (a Drive invite can also stop the active turn); no role or `view` watches. */}
+          {role === "talk" || role === "drive" ? (
             <GuestComposer
               initialText={prompts.draft()}
               onSend={send}
+              onStop={
+                role === "drive" && snapshot?.isWorking && connection === "live"
+                  ? () => socket.current?.send({ t: "cancel" })
+                  : undefined
+              }
               onDraft={(draft) => {
                 prompts.keepDraft(draft);
                 typing.input(draft);
@@ -614,7 +763,7 @@ export type GuestPageProps = {
   openSocket?: (url: string) => ShareSocketLike;
   /** Loads the transcript's chunk (default loadGuestTranscript). */
   loadTranscript?: () => Promise<TranscriptModule>;
-  /** Reloads the page when Retry's load fails too (default window.location.reload). */
+  /** Reloads the page once a chunk load failed twice (default window.location.reload). */
   reloadPage?: () => void;
   /** Starts on the ended page (the gallery's ended states). */
   ended?: GuestEnded;
@@ -705,12 +854,13 @@ export function GuestPage({
     if (final) setEnded(final);
     return result.error;
   };
-  if (ended) return <EndedPage reason={ended} />;
+  if (ended) return <EndedPage reason={ended} invite={invite} />;
   if (!guestId && invite) return <InviteJoinPage signIn={`/i/${encodeURIComponent(shareId)}`} onJoin={acceptInvite} />;
   // Nothing until the room says who this is (at most WHOAMI_WAIT_MS), so the join never swaps.
   if (!guestId && !who) return <main className="guest-card" aria-busy="true" />;
   if (!guestId && who?.signedIn) return <JoinAsPage account={who} editing={editName} onJoin={join} />;
-  if (!guestId) return <JoinPage hasSecret={!!secret} onJoin={join} />;
+  if (!guestId)
+    return <JoinPage hasSecret={!!secret} signIn={whoami ? linkSignIn(shareId) : undefined} onJoin={join} />;
   return (
     <LiveChat
       guestId={guestId}

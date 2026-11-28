@@ -39,6 +39,7 @@ fn seed(machine: Option<&str>) -> Record {
         stash_known: true,
         filling: None,
         hop: None,
+        snapshot: None,
     }
 }
 

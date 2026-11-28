@@ -3,7 +3,7 @@
 //! folder (the app `local/customize`, which stays theirs and on top).
 //!
 //! ```text
-//! ~/.config/cmux/setups/                 (Roots::setups_dir)
+//! ~/.config/cmux-next/setups/            (Roots::setups_dir)
 //!   layers.json                          the layers that are on, top first
 //!   setup-OWNER-NAME/cmux-app.json ...   one setup's views, as the app local/setup-OWNER-NAME
 //! ```
@@ -60,6 +60,29 @@ pub fn name(id: &str) -> String {
 /// The app id the layer of setup `id` loads as.
 pub fn app_id(id: &str) -> String {
     format!("local/{}", name(id))
+}
+
+/// The app id a setup repo's views carry in the repo (`customize/cmux-app.json`), which the layer is
+/// written over with its own ([`app_id`]).
+pub const REPO_APP: &str = "local/customize";
+
+/// The settings whose value names an app: a whole New Tab page (`cmux.newtab/1`) shows only once
+/// `tabs.newTabApp` picks it.
+const APP_SETTINGS: &[&str] = &["tabs.newTabApp"];
+
+/// Setup `id`'s settings as they install over its own layer: a setting that names the repo's views
+/// app ([`REPO_APP`], what a look's `tabs.newTabApp` says in its repo) names the layer's app
+/// instead, `local/setup-OWNER-NAME`. So a New Tab look picks its own page, never the person's own
+/// `local/customize`; two looks each pick their own, and the higher one's pick shows (`cmux setup
+/// order`, `off`). Called only for a setup that has views; any other value stays as written.
+pub fn point_at_layer(settings: &mut BTreeMap<String, Value>, id: &str) {
+    for key in APP_SETTINGS {
+        if let Some(value) = settings.get_mut(*key)
+            && value.as_str() == Some(REPO_APP)
+        {
+            *value = Value::String(app_id(id));
+        }
+    }
 }
 
 /// Whether logical path `path` is a views file (`customize/...`).
@@ -147,6 +170,65 @@ pub fn remove_layer(setups_dir: &Path, layer: &str) -> Result<(), Error> {
         return Ok(());
     }
     remove_dir(&setups_dir.join(layer))
+}
+
+/// Layer `layer`'s files as they are, at their paths inside its folder
+/// (empty: no folder). Views are text; a file that is not is refused.
+pub fn read_layer(setups_dir: &Path, layer: &str) -> Result<BTreeMap<String, String>, Error> {
+    let mut files = BTreeMap::new();
+    if plain_relative(layer).is_none() || layer.contains('/') {
+        return Ok(files);
+    }
+    let root = setups_dir.join(layer);
+    if !root.is_dir() {
+        return Ok(files);
+    }
+    let mut pending = vec![root.clone()];
+    while let Some(dir) = pending.pop() {
+        for entry in std::fs::read_dir(&dir)? {
+            let path = entry?.path();
+            if path.is_dir() {
+                pending.push(path);
+                continue;
+            }
+            let Ok(relative) = path.strip_prefix(&root) else { continue };
+            let text = String::from_utf8(std::fs::read(&path)?).map_err(|_| {
+                Error::Setup(format!("{layer}/{} is not a text file", relative.display()))
+            })?;
+            files.insert(relative.to_string_lossy().replace('\\', "/"), text);
+        }
+    }
+    Ok(files)
+}
+
+/// Puts layer `layer`'s folder back holding exactly `files` (paths inside
+/// it, from [`read_layer`]), whole: into a folder of its own first.
+pub fn put_layer(
+    setups_dir: &Path,
+    layer: &str,
+    files: &BTreeMap<String, String>,
+) -> Result<(), Error> {
+    if plain_relative(layer).is_none() || layer.contains('/') {
+        return Err(Error::Setup(format!("{layer:?} is not a layer folder name")));
+    }
+    let fresh = setups_dir.join(format!(".{layer}.new"));
+    remove_dir(&fresh)?;
+    for (inner, text) in files {
+        let relative = plain_relative(inner)
+            .ok_or_else(|| Error::Setup(format!("{inner} is not a plain path in {layer}")))?;
+        let file = fresh.join(relative);
+        if let Some(parent) = file.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&file, text)?;
+    }
+    let live = setups_dir.join(layer);
+    remove_dir(&live)?;
+    if files.is_empty() {
+        return Ok(());
+    }
+    std::fs::rename(&fresh, &live)?;
+    Ok(())
 }
 
 fn remove_dir(dir: &Path) -> Result<(), Error> {

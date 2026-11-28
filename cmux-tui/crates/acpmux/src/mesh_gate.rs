@@ -4,7 +4,9 @@
 //! answer, no connection) the gate is shut. From then on one post may probe the hub per window,
 //! and the window doubles with each failure from [`FIRST_WINDOW`] up to [`MAX_WINDOW`] (or the
 //! hub's own `retryAfterSeconds` when that is longer). Every other send is queued in the outbox
-//! without asking the hub. The first post the hub takes opens the gate again.
+//! without asking the hub. The first post the hub takes opens the gate again, and wakes every
+//! queued delivery waiting on its back-off ([`Gate::opened`], RFD 0086 item 2): the outbox drains
+//! the moment the hub is back instead of each send's next scheduled try (up to minutes later).
 //!
 //! A hub that answers ok never pays for this: an open gate is one atomic load.
 
@@ -25,6 +27,8 @@ pub struct Gate {
     failures: AtomicU32,
     /// Until when no post may go; a probe moves it on as it claims its slot.
     until: Mutex<Option<Instant>>,
+    /// Woken when a shut gate opens: the outbox's hub deliveries end their retry wait on it.
+    pub opened: tokio::sync::Notify,
 }
 
 impl Gate {
@@ -49,10 +53,18 @@ impl Gate {
 
     /// The hub took a post (or answered with a refusal of its own): open.
     pub fn answered(&self) {
-        if self.failures.load(SeqCst) != 0 {
-            self.failures.store(0, SeqCst);
+        if self.failures.swap(0, SeqCst) != 0 {
             *self.until.lock_or_recover() = None;
+            self.opened.notify_waiters();
         }
+    }
+
+    /// When the gate lets its next probe go, while shut.
+    pub fn reopens_at(&self) -> Option<Instant> {
+        if !self.shut() {
+            return None;
+        }
+        *self.until.lock_or_recover()
     }
 
     /// A post failed in a way that passes: shut it for the next window, or `retry_after` when the
@@ -80,58 +92,5 @@ fn window(failures: u32) -> Duration {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// `ms` milliseconds after a fixed start.
-    fn at(ms: u64) -> Instant {
-        static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
-        *START.get_or_init(Instant::now) + Duration::from_millis(ms)
-    }
-
-    fn ms(d: Duration) -> u64 {
-        u64::try_from(d.as_millis()).unwrap()
-    }
-
-    #[test]
-    fn an_open_gate_lets_every_post_go() {
-        let gate = Gate::default();
-        assert!((0..100).all(|_| gate.may_try_at(at(5))));
-    }
-
-    #[test]
-    fn a_shut_gate_lets_one_probe_go_per_window_and_the_window_doubles() {
-        let gate = Gate::default();
-        gate.failed_at(at(1_000), None);
-        // Within the first window nothing goes.
-        assert!(!gate.may_try_at(at(1_500)));
-        // At its end one probe goes; the others in that window do not.
-        assert!(gate.may_try_at(at(2_000)));
-        assert!(!gate.may_try_at(at(2_000)));
-        assert!(!gate.may_try_at(at(2_900)));
-        // The probe failed too: two seconds now.
-        gate.failed_at(at(2_100), None);
-        assert!(!gate.may_try_at(at(3_500)));
-        assert!(gate.may_try_at(at(4_100)));
-        // A hundred failures in a row still wait one minute at most.
-        for _ in 0..100 {
-            gate.failed_at(at(10_000), None);
-        }
-        assert!(gate.may_try_at(at(10_000 + ms(MAX_WINDOW))));
-        // An answer opens it.
-        gate.answered();
-        assert!(!gate.shut());
-        assert!((0..10).all(|_| gate.may_try_at(at(10_001))));
-    }
-
-    #[test]
-    fn the_hubs_retry_after_is_kept_up_to_the_cap() {
-        let gate = Gate::default();
-        gate.failed_at(at(0), Some(Duration::from_secs(10)));
-        assert!(!gate.may_try_at(at(9_999)));
-        assert!(gate.may_try_at(at(10_000)));
-        let gate = Gate::default();
-        gate.failed_at(at(0), Some(Duration::from_secs(3_600)));
-        assert!(gate.may_try_at(at(ms(MAX_WINDOW))));
-    }
-}
+#[path = "mesh_gate_tests.rs"]
+mod tests;

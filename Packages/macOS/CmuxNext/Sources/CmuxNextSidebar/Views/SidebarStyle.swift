@@ -91,7 +91,11 @@ enum SidebarStyle {
     /// The leading icon column's box (grid.md 3: 16 compact, 20 comfortable, wider when the text size grows the
     /// glyph). Leading icon frames take this box and draw their glyph, at its own `iconBox` size, centered in it,
     /// so the text column is one 8 pt gap after the frame at both densities.
-    static var iconColumnBox: CGFloat { columns(rowWidth: 0).iconBox }
+    static var iconColumnBox: CGFloat {
+        // `columns(rowWidth:)`'s icon box, read without the grid's trailing insets (they read the row inset, which reads
+        // the glyph size, which reads this).
+        SidebarColumns.iconBox(comfortable: SidebarDensityTokens.isComfortable, minIconBox: iconBox, override: iconColumnOverride)
+    }
     /// A workspace row's leading glyph: the size an icon takes beside the
     /// row title (cap height and stroke matched to the text).
     static var kindGlyphSize: CGFloat { .iconRowSize(forLabelPointSize: titleFont.pointSize) }
@@ -128,6 +132,18 @@ enum SidebarStyle {
             : Metrics.densityToken("sidebarIconColumn").map { _ in iconColumnBox }
         return SidebarOpticalGlyph(target: rowGlyphOpticalSide, box: tabBox)
     }
+    /// The width Home's house draws at the rows' optical glyph size (``rowGlyphOptics``): its ink is fitted by its height,
+    /// so it is wider than the square. The rows sit so this house centers under the red traffic light
+    /// (``SidebarRowTuning/outerInset``), which every row frame reads, so it is one multiply.
+    @MainActor static var homeGlyphInkWidth: CGFloat { rowGlyphOpticalSide * homeGlyphWidthRatio }
+    /// The house's ink width over the extent the optical fit holds to the glyph size, measured once: the house's drawing
+    /// does not change while the app runs (the icon pack's overlay is fixed at launch, `IconPack.overlaid`).
+    @MainActor private static let homeGlyphWidthRatio: CGFloat = {
+        let probe = NSImage.icon(IconName.home, size: 32)  // Home's house (SidebarBuiltIn.home.icon)
+        guard let ink = SidebarGlyphInk.shared.box(of: probe, glyph: "sidebar.homeProbe"),
+              SidebarOpticalGlyph.fittedExtent(ink.size) > 0 else { return 1 }
+        return ink.width / SidebarOpticalGlyph.fittedExtent(ink.size)
+    }()
     /// Reserve the icon column only when a visible icon precedes the title.
     static func titleTextX(leading: CGFloat, iconSide: CGFloat, swatch: Bool = false) -> CGFloat {
         columns(rowWidth: 0, leadingOffset: leading - titleLeading).text(hasLeadingMark: iconSide > 0)
@@ -135,8 +151,9 @@ enum SidebarStyle {
     /// Workspace title geometry shared by realized rows and virtualized parents of tab rows. A left-rail row with no
     /// symbol, emoji or favicon takes no slot: its bar sits in the leading inset, so its title starts on the one left
     /// edge (Lawrence 2026-11-09, "red dot on left feels weird"; it kept the swatch's slot after #25705).
-    static func workspaceTitleX(icon: WorkspaceIcon?, treeDepth: Int) -> CGFloat {
-        columns(rowWidth: 0, depth: treeDepth).text(hasLeadingMark: icon != nil || textOnlyKeepsIconSlot)
+    /// `reservesIconSlot`: a leading status mark (`sidebar.workspaceRow.statusPlacement` `leading`) keeps the slot.
+    static func workspaceTitleX(icon: WorkspaceIcon?, treeDepth: Int, reservesIconSlot: Bool = false) -> CGFloat {
+        columns(rowWidth: 0, depth: treeDepth).text(hasLeadingMark: icon != nil || reservesIconSlot || textOnlyKeepsIconSlot)
             - WorkspaceRowView.labelInset
     }
     static func titleXAfterLeadingMark(_ x: CGFloat) -> CGFloat {

@@ -43,6 +43,16 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "pr-wait",
+        &[
+            (
+                "Wait for the checks at the head you pushed, at most an hour",
+                "acpmux pr-wait 1234 --repo octo/app --sha 0123abcd --timeout 3600",
+            ),
+            ("Wait until a pull request merges or closes", "acpmux pr-wait 1234 --until merged"),
+        ],
+    ),
+    (
         "who-else",
         &[
             (
@@ -379,4 +389,48 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             ("The same board as JSON", "acpmux --json board"),
         ],
     ),
+    (
+        "scorecard",
+        &[
+            (
+                "Compare each feature on against off over the last day",
+                "acpmux scorecard --since 24h --by feature",
+            ),
+            (
+                "The 10 sessions that spent most this week",
+                "acpmux scorecard --since 7d --by session --limit 10",
+            ),
+        ],
+    ),
+    (
+        "fetch",
+        &[
+            (
+                "Download a file, checking its digest",
+                "acpmux fetch https://example.com/model.bin -o model.bin --sha256 0123abcd",
+            ),
+            (
+                "Download a release tarball",
+                "acpmux fetch https://example.com/a.tar.gz --output a.tar.gz",
+            ),
+        ],
+    ),
+    (
+        "role",
+        &[
+            ("Claim a goal for this session", "acpmux role claim goal:ci-linux-on-pool"),
+            ("List every role held here", "acpmux role ls"),
+        ],
+    ),
+    (
+        "role release",
+        &[
+            ("Give a goal up", "acpmux role release goal:ci-linux-on-pool"),
+            (
+                "Give it up for another session",
+                "acpmux role release goal:ci-linux-on-pool --session coord",
+            ),
+        ],
+    ),
+    ("role ls", &[("List every role and successor entry here", "acpmux role ls")]),
 ];

@@ -9,13 +9,19 @@
 //!   choices. One being moved, or one that moved away already, never moves.
 //! - A folder in a git checkout on a branch becomes a fresh worktree of the same branch on the
 //!   target (`Folder::Worktree`), its subfolder kept. The branch is pushed first, so the target
-//!   checks out what this machine has. A detached HEAD or a checkout with no `origin` is refused;
-//!   so are uncommitted changes, unless `--carry-changes` (they go with the chat,
+//!   checks out what this machine has. A detached HEAD is refused; so are uncommitted changes, unless `--carry-changes` (they go with the chat,
 //!   `session_move_carry.rs`) or `--leave-dirty` (they then stay on this machine and the move's
 //!   record says so). `leave_dirty` below is either: the folder may be dirty.
+//! - A checkout with no `origin`, or one whose `origin` is not an owner/name remote (a local
+//!   path, a `file://` URL, a nested group the target cannot clone by name), has nowhere to push
+//!   a branch the target can fetch (and a move never adds a remote to it): its branches and tags go as a `git bundle` and become a fresh repository at the same path
+//!   under the target's home as its top folder (`Folder::Bundle`), with no remote; uncommitted
+//!   changes go as for any branch.
 //! - Any other folder under this machine's home maps to the same path under the target's home
-//!   (`~/Projects/x` stays `~/Projects/x`), made there if missing (`Folder::Plain`). Its files do
-//!   not move. A folder outside the home is refused: pass `--cwd`.
+//!   (`~/Projects/x` stays `~/Projects/x`), made there if missing (`Folder::Plain`). Its files go
+//!   with it, packed by `cli/run/session_move_files.rs` (secrets and heavy folders stay and are
+//!   named; a folder over 64 MiB packed is refused, naming `--cwd`), unless `--cwd` names the
+//!   folder there. A folder outside the home is refused: pass `--cwd`.
 //! - A checkout on a shared default branch (`main`, `master`, or the branch `origin/HEAD` names)
 //!   never pushes that branch: other people's work lands there, and a move that pushed it would
 //!   either fail (origin moved on) or publish this machine's unpushed commits to everyone. Its
@@ -65,6 +71,10 @@ pub(crate) enum Folder {
         dirty: bool,
         snapshot: bool,
     },
+    /// A checkout with no `origin`: its branches and tags carried as a `git bundle` into a fresh
+    /// repository at `top` on the target (the same path under its home), `branch` checked out,
+    /// then `subdir` inside it. No remote is added on either side.
+    Bundle { top: String, branch: String, subdir: String, dirty: bool },
 }
 
 /// Whether the chat `summary` (`_acpmux/info`) may move now; the reason when not. With
@@ -183,11 +193,8 @@ pub(crate) fn plan_folder(
         if !plain_branch(branch) {
             return Err(format!("branch {branch:?} is not a plain branch name"));
         }
-        let Some(url) = c.origin.as_deref() else {
-            return Err(format!("{} has no origin remote to push {branch} to", c.top.display()));
-        };
-        let repo = repo_slug(url)
-            .ok_or_else(|| format!("origin of {} is not an owner/name remote", c.top.display()))?;
+        // An origin that is not an owner/name remote goes as no origin does: as a bundle.
+        let repo = c.origin.as_deref().and_then(repo_slug);
         if c.dirty && !leave_dirty {
             return Err(format!(
                 "{} has uncommitted changes: commit them, pass --carry-changes to bring them, or --leave-dirty to move without them",
@@ -198,6 +205,12 @@ pub(crate) fn plan_folder(
         if !subdir.is_empty() && !super::hosts::plain_path(&format!("/{subdir}")) {
             return Err(format!("subfolder {subdir:?} is not a plain path"));
         }
+        let (Some(repo), Some(url)) = (repo, c.origin.as_deref()) else {
+            // No owner/name origin: nowhere to push, so the repository itself goes
+            // (`Folder::Bundle`).
+            let top = same_under_home(&c.top, home, target_home)?;
+            return Ok(Folder::Bundle { top, branch: branch.to_owned(), subdir, dirty: c.dirty });
+        };
         return Ok(Folder::Worktree {
             repo,
             url: url.to_owned(),
@@ -207,8 +220,14 @@ pub(crate) fn plan_folder(
             snapshot: shared_branch(branch, c.default_branch.as_deref()),
         });
     }
-    let rel = under(cwd, home).ok_or_else(|| {
-        format!("{} is outside this machine's home: pass --cwd for the target", cwd.display())
+    Ok(Folder::Plain { cwd: same_under_home(cwd, home, target_home)? })
+}
+
+/// The path `path` here (under `home`) has under the target's home `target_home`; refused when it
+/// is outside the home or not plain.
+fn same_under_home(path: &Path, home: &Path, target_home: &str) -> Result<String, String> {
+    let rel = under(path, home).ok_or_else(|| {
+        format!("{} is outside this machine's home: pass --cwd for the target", path.display())
     })?;
     let base = match target_home.trim_end_matches('/') {
         "" => "/",
@@ -221,7 +240,7 @@ pub(crate) fn plan_folder(
     if !super::hosts::plain_path(&cwd) {
         return Err(format!("{cwd:?} is not a plain path"));
     }
-    Ok(Folder::Plain { cwd })
+    Ok(cwd)
 }
 
 #[cfg(test)]

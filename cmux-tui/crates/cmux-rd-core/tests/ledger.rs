@@ -141,9 +141,16 @@ fn shard(
 #[test]
 fn reassembly_stamps_first_shard_complete_and_release() {
     let mut r = Reassembler::new(200_000);
-    let key =
-        FrameBody { t_capture_us: 1, ref_frame: REF_NONE, access_unit: vec![9; 2_000] }.encode();
-    let next = FrameBody { t_capture_us: 2, ref_frame: 1, access_unit: vec![8; 2_000] }.encode();
+    let key = FrameBody {
+        t_capture_us: 1,
+        ref_frame: REF_NONE,
+        ltr_token: None,
+        access_unit: vec![9; 2_000],
+    }
+    .encode();
+    let next =
+        FrameBody { t_capture_us: 2, ref_frame: 1, ltr_token: None, access_unit: vec![8; 2_000] }
+            .encode();
     let len = 1_100;
     let mut push = |frame, index, body: &[u8], at| {
         let (h, payload) = shard(frame, index, 2, body, len);
@@ -157,4 +164,86 @@ fn reassembly_stamps_first_shard_complete_and_release() {
     let stamps: Vec<_> =
         out.iter().map(|f| (f.frame, f.first_shard_us, f.last_shard_us, f.released_us)).collect();
     assert_eq!(stamps, vec![(1, 50, 500, 500), (2, 100, 300, 500)]);
+}
+
+/// Data shards `0..count` of `body` and `fec` parity shards, each with its header.
+fn shards_with_parity(
+    frame: u32,
+    count: u16,
+    fec: u16,
+    body: &[u8],
+    len: usize,
+) -> Vec<(DatagramHeader, Vec<u8>)> {
+    let mut out: Vec<_> = (0..count).map(|i| shard(frame, i, count, body, len)).collect();
+    let data: Vec<&[u8]> = out.iter().map(|(_, p)| p.as_slice()).collect();
+    let parity = cmux_rd_core::fec::encode(&data, usize::from(fec)).expect("parity");
+    for (h, _) in &mut out {
+        h.fec_count = fec;
+    }
+    for (j, p) in parity.into_iter().enumerate() {
+        let index = count + j as u16;
+        let header = DatagramHeader {
+            kind: DatagramKind::Fec,
+            index,
+            fec_count: fec,
+            transport_seq: index,
+            ..out[0].0
+        };
+        out.push((header, p));
+    }
+    out
+}
+
+#[test]
+fn last_shard_is_the_shard_that_made_the_frame_decodable() {
+    let key = FrameBody {
+        t_capture_us: 1,
+        ref_frame: REF_NONE,
+        ltr_token: None,
+        access_unit: vec![9; 2_000],
+    }
+    .encode();
+    let next =
+        FrameBody { t_capture_us: 2, ref_frame: 1, ltr_token: None, access_unit: vec![8; 2_000] }
+            .encode();
+    let len = 1_100;
+
+    // FEC-recovered: data shard 1 is lost; the parity shard at 200 makes it decodable.
+    let mut r = Reassembler::new(200_000);
+    let s = shards_with_parity(1, 2, 1, &key, len);
+    assert!(r.push(&s[0].0, &s[0].1, 100).is_empty());
+    let out = r.push(&s[2].0, &s[2].1, 200);
+    let stamps: Vec<_> =
+        out.iter().map(|f| (f.frame, f.first_shard_us, f.last_shard_us, f.released_us)).collect();
+    assert_eq!(stamps, vec![(1, 100, 200, 200)]);
+    assert_eq!(out[0].body.access_unit, vec![9; 2_000]);
+
+    // In-order release: frame 2 is decodable at 300 (data) and its parity still arrives
+    // at 400 while it waits for frame 1, which completes at 500 by a parity shard. Frame
+    // 2's last shard stays 300 (not the later surplus parity), its release is 500.
+    let mut r = Reassembler::new(200_000);
+    let k = shards_with_parity(1, 2, 1, &key, len);
+    let n = shards_with_parity(2, 2, 1, &next, len);
+    assert!(r.push(&k[0].0, &k[0].1, 50).is_empty());
+    assert!(r.push(&n[0].0, &n[0].1, 100).is_empty());
+    assert!(r.push(&n[1].0, &n[1].1, 300).is_empty());
+    assert!(r.push(&n[2].0, &n[2].1, 400).is_empty());
+    let out = r.push(&k[2].0, &k[2].1, 500);
+    let stamps: Vec<_> =
+        out.iter().map(|f| (f.frame, f.first_shard_us, f.last_shard_us, f.released_us)).collect();
+    assert_eq!(stamps, vec![(1, 50, 500, 500), (2, 100, 300, 500)]);
+    assert!(out.iter().all(|f| f.released_us >= f.last_shard_us));
+
+    // Through the ledger: Reassembly reads release minus last shard, distinct stamps.
+    let mut l = StageLedger::new();
+    for f in &out {
+        l.on_shard(0, f.frame, len, f.first_shard_us);
+        l.on_released(0, f.frame, f.last_shard_us, f.released_us);
+    }
+    let rows: Vec<_> = l.rows().map(|r| (r.viewer.last_shard_us, r.viewer.released_us)).collect();
+    assert_eq!(rows, vec![(Some(500), Some(500)), (Some(300), Some(500))]);
+    let summary = l.summary(None, &[]);
+    let reassembly = summary.stages.iter().find(|s| s.def.name == "Reassembly").expect("row");
+    let p = reassembly.value.expect("reassembly samples");
+    assert_eq!((p.n, p.p50_ms, p.p95_ms), (2, 0.0, 0.2));
 }

@@ -126,6 +126,8 @@ impl Harness {
             resends: 0,
             resent_at: 0,
             relay_post: None,
+            relay_unreached: false,
+            direct_maybe: false,
             open_on_peer: false,
             pin: None,
             proof: None,
@@ -223,6 +225,8 @@ impl Harness {
                         panic!("an update closure panicked");
                     })
                 }));
+                // `update` hands its save to the disk writer: it lands under this step's disk.
+                assert!(crate::disk_writer::flush(std::time::Duration::from_secs(30)));
                 let present = self.oracle.memory().iter().any(|e| e.id == id);
                 assert_eq!(panicked.is_err(), present, "the closure ran for a missing delivery");
                 // What a panicking closure changed before its panic is a change like any other:

@@ -82,63 +82,6 @@ class FleetCacheTests(unittest.TestCase):
         self.helper.write_text("#!/bin/bash\necho COMPILATION_CACHE_ENABLE_PLUGIN=YES\n")
         self.assert_local()
 
-    def writer_host(self, event="push", ref="refs/heads/nightly-next", repo="manaflow-ai/cmux",
-                    workflow="nightly.yml", opt_in="1"):
-        """This host's node signs (its fleet-cas.env names the sign key), inside a GitHub job."""
-        (self.cache / "fleet-cas.env").write_text("FLEET_CAS_STORE=127.0.0.1:7451\n"
-                                                  "FLEET_CAS_SIGN_KEY=/Users/cmux/.config/glaeda/fleet-cas-writer.key\n")
-        self.env.update({"GITHUB_ACTIONS": "true", "GITHUB_EVENT_NAME": event, "GITHUB_REF": ref,
-                         "GITHUB_REPOSITORY": repo,
-                         "GITHUB_WORKFLOW_REF": f"{repo}/.github/workflows/{workflow}@{ref}",
-                         "CMUX_FLEET_CAS_TRUSTED_WRITER": opt_in,
-                         "CMUX_FLEET_CAS_WRITER_LOCAL_CAS": str(self.root / "nightly-local-cas")})
-
-    def test_trusted_nightly_on_the_writer_writes_through_the_node_on_its_own_local_cas(self):
-        for event in ("push", "workflow_dispatch"):
-            for ref in ("refs/heads/main", "refs/heads/nightly-next"):
-                with self.subTest(event=event, ref=ref):
-                    self.writer_host(event=event, ref=ref)
-                    settings = self.settings()
-                    self.assertIn(f"COMPILATION_CACHE_REMOTE_SERVICE_PATH={self.cache}/fleet-cas.sock", settings)
-                    self.assertIn(f"COMPILATION_CACHE_CAS_PATH={self.root}/nightly-local-cas", settings)
-                    # Never the catch-up fill's CAS, which the fill empties at its start.
-                    self.assertNotIn(f"COMPILATION_CACHE_CAS_PATH={self.cache}/cas", settings)
-
-    def test_untrusted_jobs_on_the_writer_sign_nothing(self):
-        cases = {
-            "pull request": dict(event="pull_request", ref="refs/pull/1/merge"),
-            "pull_request_target": dict(event="pull_request_target", ref="refs/heads/main"),
-            "fork": dict(repo="someone/cmux"),
-            "lane branch push": dict(ref="refs/heads/lane/x"),
-            "feat-cmux-next push": dict(ref="refs/heads/feat-cmux-next"),
-            "schedule": dict(event="schedule", ref="refs/heads/main"),
-            "other workflow": dict(workflow="ci-macos.yml"),
-            "no opt-in": dict(opt_in=""),
-        }
-        for name, case in cases.items():
-            with self.subTest(name):
-                self.writer_host(**case)
-                self.assert_local()
-
-    def test_writer_host_outside_actions_keeps_the_fill_path(self):
-        self.writer_host(event="pull_request", ref="refs/pull/1/merge")
-        self.env["GITHUB_ACTIONS"] = ""
-        self.assertIn(f"COMPILATION_CACHE_CAS_PATH={self.cache}/cas", self.settings())
-
-    def test_reader_host_is_unchanged_for_pull_requests(self):
-        self.writer_host(event="pull_request", ref="refs/pull/1/merge")
-        (self.cache / "fleet-cas.env").write_text("FLEET_CAS_STORE=127.0.0.1:7451\n")
-        self.assertIn(f"COMPILATION_CACHE_CAS_PATH={self.cache}/cas", self.settings())
-
-    def test_nightly_next_one_opts_in_only_for_trusted_refs(self):
-        workflow = (ROOT / ".github/workflows/nightly.yml").read_text()
-        job = workflow.split("\n  nightly-next-one:\n", 1)[1].split("\n    steps:", 1)[0]
-        trusted = ("(vars.NIGHTLY_FLEET_CAS_WRITE != 'off' && github.repository == 'manaflow-ai/cmux' && "
-                   "(github.event_name == 'push' || github.event_name == 'workflow_dispatch') && "
-                   "(github.ref == 'refs/heads/main' || github.ref == 'refs/heads/nightly-next'))")
-        self.assertIn(f"      CMUX_CI_FLEET_CACHE_OFF: ${{{{ {trusted} && '' || '1' }}}}\n", job)
-        self.assertIn(f"      CMUX_FLEET_CAS_TRUSTED_WRITER: ${{{{ {trusted} && '1' || '' }}}}\n", job)
-
     def test_disabled_cache_never_probes_node(self):
         self.env["CMUX_CI_DISABLE_COMPILATION_CACHE"] = "1"
         marker = self.root / "probed"
@@ -170,6 +113,8 @@ class FleetCacheTests(unittest.TestCase):
                         scripts / "nightly-steps/release-build-summary.sh")
         # The SourcePackages preflight; with no .spm-cache here it resolves nothing.
         shutil.copyfile(ROOT / "scripts/ci/spm_artifact_preflight.py", scripts / "spm_artifact_preflight.py")
+        # Sourced before the preflight (#58915); with no proxy configured it probes nothing.
+        shutil.copyfile(ROOT / "scripts/ci/github-egress-direct.sh", scripts / "github-egress-direct.sh")
         (scripts / "run-with-helper-prebuild.py").write_text(
             "import os,sys\na=sys.argv[sys.argv.index('--')+1:]\nos.execvp(a[0],a)\n")
         wrapper = scripts / "run-xcodebuild-with-diagnostics.sh"
@@ -222,6 +167,8 @@ class FleetCacheTests(unittest.TestCase):
                         scripts / "nightly-steps/release-build-summary.sh")
         # The SourcePackages preflight; with no .spm-cache here it resolves nothing.
         shutil.copyfile(ROOT / "scripts/ci/spm_artifact_preflight.py", scripts / "spm_artifact_preflight.py")
+        # Sourced before the preflight (#58915); with no proxy configured it probes nothing.
+        shutil.copyfile(ROOT / "scripts/ci/github-egress-direct.sh", scripts / "github-egress-direct.sh")
         (scripts / "run-with-helper-prebuild.py").write_text(
             "import os,sys\na=sys.argv[sys.argv.index('--')+1:]\nos.execvp(a[0],a)\n")
         wrapper = scripts / "run-xcodebuild-with-diagnostics.sh"
@@ -304,6 +251,46 @@ class FleetCacheTests(unittest.TestCase):
                                                           STUB_FAIL_EVERY_BUILD="1")
         self.assertEqual(result.returncode, 124)
         self.assertEqual(count.read_text().strip(), "2")
+
+    def test_a_crashed_build_service_retries_once_without_the_fleet_cache_too(self):
+        """Xcode's build service crashing mid-build ends with status 65 and "Build again to continue"
+        (nightly-next run 46020152626, no compile error in its tree). That build gets one more try, also on
+        a cold-cache run; a crash on the retry too ends red, and there is no third build."""
+        crash = "error: unexpected service error: The Xcode build system has crashed. Build again to continue."
+        result, count, args_log = self._run_nightly_release_stub(crash, DECIDE_COLD_CACHE_DISABLE="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(count.read_text().strip(), "2")
+        self.assertIn("build service crashed", result.stdout + result.stderr)
+        # Xcode 27.2 crashes replaying cached diagnostics (runs 46024218260, 46026219141, 46033303025), so the
+        # retry builds with the compilation cache off; the first build kept it on.
+        attempts = args_log.read_text().split("---\n")[1:]
+        self.assertIn("COMPILATION_CACHE_ENABLE_CACHING=YES\n", attempts[0])
+        self.assertIn("COMPILATION_CACHE_ENABLE_CACHING=NO\n", attempts[1])
+        self.assertIn("without the compilation cache", result.stdout + result.stderr)
+        result, count, _ = self._run_nightly_release_stub(crash, DECIDE_COLD_CACHE_DISABLE="1",
+                                                          STUB_FAIL_EVERY_BUILD="1")
+        self.assertEqual(result.returncode, 65)
+        self.assertEqual(count.read_text().strip(), "2")
+
+    def test_a_build_service_crash_in_a_large_log_is_seen_under_pipefail(self):
+        """The real Release log runs to about 110k lines. With `awk | grep -q` under pipefail, grep left at the
+        first match, awk failed writing the rest, and the crash read as no crash, so the no-cache retry never
+        ran (nightly-next runs 46074261734, 46076637784, 46079235693)."""
+        log = self.root / "big-release.log"
+        crash = "error: unexpected service error: The Xcode build system has crashed. Build again to continue."
+        filler = "".join(f"CompileSwift normal arm64 /src/File{i}.swift\n" for i in range(200000))
+        log.write_text(filler[: len(filler) // 2] + crash + "\n" + filler + "xcodebuild exit status: 65\n")
+        lib = ROOT / "scripts/cmux-next/lib/compilation-cache.sh"
+        result = subprocess.run(["bash", "-euo", "pipefail", "-c",
+                                 f"source '{lib}'; cmux_next_build_service_crashed '{log}' && echo crashed || echo none"],
+                                text=True, capture_output=True)
+        self.assertEqual(result.stdout.strip(), "crashed", result.stderr)
+        clean = self.root / "clean-release.log"
+        clean.write_text(filler + "xcodebuild exit status: 65\n" + crash + "\n")
+        result = subprocess.run(["bash", "-euo", "pipefail", "-c",
+                                 f"source '{lib}'; cmux_next_build_service_crashed '{clean}' && echo crashed || echo none"],
+                                text=True, capture_output=True)
+        self.assertEqual(result.stdout.strip(), "none", result.stderr)
 
     def test_the_job_summary_names_the_retry_s_cache_from_the_first_build(self):
         """Only a retry of a fleet-cache build is "after the fleet cache failed"; a cold-cache first build
@@ -400,8 +387,9 @@ class FleetCacheTests(unittest.TestCase):
         self.assertIn("local_cache_settings+=(\"$setting\")", step)
         self.assertIn('settings=("${local_cache_settings[@]}")', step)
         self.assertIn('${settings[@]+"${settings[@]}"}', step)
-        self.assertIn('run_release_build 1', step)
-        self.assertIn("retrying the Release build once with the local cache", step)
+        self.assertIn("retry_mode=1\n", step)
+        self.assertIn('run_release_build "$retry_mode"', step)
+        self.assertIn("echo 'with the local cache'", step)
         self.assertIn('exit "$release_status"', step)
 
 

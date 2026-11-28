@@ -14,6 +14,7 @@ mod agent_share;
 mod agent_side_question;
 mod agent_transcript;
 mod app_store;
+mod appearance_mode;
 pub mod args;
 mod auto_archive;
 mod automations;
@@ -37,6 +38,7 @@ mod divider;
 mod extension;
 mod file_page;
 mod files_pane;
+mod forum;
 mod git;
 mod hang_reports;
 mod help_link;
@@ -151,6 +153,7 @@ pub static GROUPS: &[&[Action]] = &[
     help_link::ACTIONS,
     density::ACTIONS,
     chrome_style::ACTIONS,
+    appearance_mode::ACTIONS,
     backdrop::ACTIONS,
     pane_background::ACTIONS,
     divider::ACTIONS,
@@ -170,6 +173,7 @@ pub static GROUPS: &[&[Action]] = &[
     joined_machine::ACTIONS,
     app_store::ACTIONS,
     automations::ACTIONS,
+    forum::ACTIONS,
     tasks::ACTIONS,
     phone::ACTIONS,
     files_pane::ACTIONS,

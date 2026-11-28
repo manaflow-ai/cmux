@@ -77,23 +77,23 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
     public var subagentsRunning = 0
     public var subagentNames: [String] = []
     public var commandsRunning = 0
+    /// The prompts waiting behind the chat's turn (acpmux `queued`); 0 from an older acpmux.
+    public var queued = 0
+    /// The chat's latest subagents, oldest first (at most 8, acpmux `recentSubagents`), and how many it started in
+    /// all (`subagentsSeen`): the sidebar lists them under the chat's row. Empty and 0 from an older acpmux.
+    public var subagents: [Subagent] = []
+    public var subagentsSeen = 0
     /// The chat carries acpmux's `archived` tag (one not past its `expires_at`): a hidden page of it
     /// gives back its memory at once (HiddenChatPages).
     public var archived = false
     /// When the chat was archived (Unix ms), from the `archived` tag's value (`_acpmux/archive` writes
     /// the time); nil when it is not archived or the tag holds no time (`"1"`, `"true"`).
     public var archivedAtMs: UInt64?
-    /// Where the chat stands and its next action, as acpmux keeps them after each turn a person
-    /// started (`rollingSummary.text`, `rollingSummary.next`, acpmux `hub/rolling_summary.rs`);
-    /// nil before the first, and from an older acpmux.
-    public var summary: String?
-    public var nextAction: String?
 
     public init(model: String? = nil, turnStartedAtMs: UInt64? = nil, prompt: String? = nil,
                 laneState: String? = nil, laneSinceMs: UInt64? = nil, cwd: String? = nil,
                 contextTokens: Int? = nil, contextWindow: Int? = nil, costUsd24h: Double? = nil, promptIsNotice: Bool = false,
-                subagentsRunning: Int = 0, subagentNames: [String] = [], commandsRunning: Int = 0, archived: Bool = false,
-                summary: String? = nil, nextAction: String? = nil) {
+                subagentsRunning: Int = 0, subagentNames: [String] = [], commandsRunning: Int = 0, archived: Bool = false) {
         self.model = model
         self.turnStartedAtMs = turnStartedAtMs
         self.prompt = prompt
@@ -108,8 +108,31 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
         self.subagentNames = subagentNames
         self.commandsRunning = commandsRunning
         self.archived = archived
-        self.summary = summary
-        self.nextAction = nextAction
+    }
+
+    /// One of the chat's latest subagents (acpmux `recentSubagents[]`).
+    public struct Subagent: Hashable, Sendable {
+        public var id: String
+        /// The subagent that started it; nil for one the chat started.
+        public var parent: String?
+        /// Its name, else its task, as acpmux masked and cut it.
+        public var title: String?
+        /// `running`, `done`, `failed` or `stopped`.
+        public var state: String
+
+        public init(id: String, parent: String? = nil, title: String? = nil, state: String) {
+            (self.id, self.parent, self.title, self.state) = (id, parent, title, state)
+        }
+    }
+
+    /// A summary's `recentSubagents`: each entry with an id and a state; others are skipped.
+    static func subagents(_ value: Any?) -> [Subagent] {
+        (value as? [Any] ?? []).compactMap { item in
+            guard let item = item as? [String: Any], let id = item["id"] as? String, !id.isEmpty,
+                  let state = item["state"] as? String, !state.isEmpty else { return nil }
+            let text = { (key: String) in (item[key] as? String).flatMap { $0.isEmpty ? nil : $0 } }
+            return Subagent(id: id, parent: text("parent"), title: text("title"), state: state)
+        }
     }
 
     /// Whether a summary's `tags` hold an `archived` tag in force: a value (`"1"`, `"true"`), or a tag
@@ -148,7 +171,6 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
         }
         let lane = summary["lane"] as? [String: Any]
         let usage = summary["usageStats"] as? [String: Any]
-        let rolling = summary["rollingSummary"] as? [String: Any]
         // A count acpmux could not read is null; a negative or non-finite one is no count.
         let amount = { (value: Any?) -> Double? in
             guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
@@ -167,9 +189,11 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
                                      subagentsRunning: count(summary["subagentsRunning"]),
                                      subagentNames: (summary["subagentNames"] as? [Any] ?? []).compactMap(text),
                                      commandsRunning: count(summary["commandsRunning"]),
-                                     archived: archived(summary),
-                                     summary: text(rolling?["text"]), nextAction: text(rolling?["next"]))
+                                     archived: archived(summary))
         if detail.archived { detail.archivedAtMs = archivedAtMs(summary) }
+        detail.subagents = subagents(summary["recentSubagents"])
+        detail.subagentsSeen = count(summary["subagentsSeen"])
+        detail.queued = count(summary["queued"])
         return detail == AgentChatDetail() ? nil : detail
     }
 
@@ -249,13 +273,14 @@ public nonisolated struct AgentTurnStates: Hashable, Sendable {
     /// new state (nil: no indicator, or purged), its last message (`lastMessage`, cx-13w3.1) and
     /// whether its notifications are muted. Nil when the line names no session state.
     public static func change(_ params: [String: Any])
-        -> (session: String, state: AgentTurnState?, lastMessage: String?, muted: Bool, title: String?, generatedTitle: String?, sessionName: String?)? {
+        -> (session: String, state: AgentTurnState?, lastMessage: String?, muted: Bool, title: String?, generatedTitle: String?, sessionName: String?,
+            identity: AgentSessionIdentity?)? {
         guard let id = params["sessionId"] as? String else { return nil }
-        if params["kind"] as? String == "purged" { return (id, nil, nil, false, nil, nil, nil) }
+        if params["kind"] as? String == "purged" { return (id, nil, nil, false, nil, nil, nil, nil) }
         guard let summary = params["session"] as? [String: Any] else { return nil }
         let session = summary["sessionId"] as? String ?? id
         return (session, AgentTurnState.of(summary: summary), lastMessage(summary), muted(summary),
-                title(summary), title(summary, includingPrompt: false), sessionName(summary))
+                title(summary), title(summary, includingPrompt: false), sessionName(summary), AgentSessionIdentity.of(summary: summary))
     }
 
     /// A summary's chat title as the page names it (sessionList.ts `sessionTitle`): the name the
@@ -265,8 +290,11 @@ public nonisolated struct AgentTurnStates: Hashable, Sendable {
     /// (``promptGist(_:)``): a Chief subagent's `<chat>` view never names its tab. The latest
     /// prompt only stands in while acpmux reports no title at all. Nil when the chat has none yet.
     /// A name that reads as an id or a counter (`cloud-item-14`, ``isOpaqueName(_:)``) yields to
-    /// the title or prompt, and stands in only while the chat has neither.
+    /// the title or prompt, and stands in only while the chat has neither. The name a person or the agent
+    /// gave the session (acpmux `displayName`, ``AgentSessionIdentity``) comes before all of them; the real
+    /// title (`includingPrompt` false) stays the chat's own.
     public static func title(_ summary: [String: Any], includingPrompt: Bool = true) -> String? {
+        if includingPrompt, let given = AgentSessionIdentity.displayName(summary) { return given }
         guard includingPrompt, let name = sessionName(summary) else { return chatTitle(summary, includingPrompt: includingPrompt) }
         return isOpaqueName(name) ? chatTitle(summary, includingPrompt: true) ?? name : name
     }
@@ -285,6 +313,14 @@ public nonisolated struct AgentTurnStates: Hashable, Sendable {
         }
     }
 
+    /// Whether someone renamed the chat (acpmux `rename`): it has former names, and its title is the one
+    /// the new name gave it (`titleSource` `named`, hub/turns.rs `rename_as`). That title is real: the
+    /// sidebar row and the workspace it names follow the rename (Leo, 2026-11-22: "I DON'T KNOW WHO'S BEEN
+    /// RENAMED TO WHAT THE PROPAGATION OF RENAMES ARE INCOMPLETE").
+    static func isRenamed(_ summary: [String: Any]) -> Bool {
+        summary["titleSource"] as? String == "named" && !((summary["formerNames"] as? [Any])?.isEmpty ?? true)
+    }
+
     /// The agent's title, else (with `includingPrompt`) the latest prompt, as ``title(_:includingPrompt:)`` reads them.
     private static func chatTitle(_ summary: [String: Any], includingPrompt: Bool) -> String? {
         if !includingPrompt {
@@ -293,7 +329,7 @@ public nonisolated struct AgentTurnStates: Hashable, Sendable {
             // may feed durable workspace auto-naming; an absent source is an
             // older daemon and is intentionally treated as unknown.
             let source = summary["titleSource"] as? String
-            guard let source, ["harness", "generated", "adopted"].contains(source) else { return nil }
+            guard let source, ["harness", "generated", "adopted"].contains(source) || isRenamed(summary) else { return nil }
         }
         if let title = summary["title"] as? String, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return promptGist(title)
@@ -422,6 +458,10 @@ public final class AgentTurnStateStore {
         var generatedTitle: String?
         /// The launcher/session name, when it is user-readable rather than harness-generated.
         var sessionName: String?
+        /// Who the session is (acpmux `displayName`, `formerNames`, `icon`).
+        var identity: AgentSessionIdentity?
+        /// ``identity``'s icon drawn once (``AgentTurnStateStore/iconArt(for:)``); cleared when the identity changes.
+        @ObservationIgnored var iconArt: HarnessIconLookup.Art??
         /// The model and running turn (`AgentChatDetail`), for the hover card.
         var detail: AgentChatDetail?
         /// The session whose agent started this one (acpmux `startedBy`); nil for a root. Not
@@ -502,6 +542,14 @@ public final class AgentTurnStateStore {
     /// first record: a subagent starting, another machine's chat, a watch page (Leo's NIGHTLY 2026-11-21: 167 of 193
     /// chat tabs had no record, and those rows mapped again from the display frame on each new session anywhere).
     @ObservationIgnored var awaited: [String: AgentTurnRecordSignal] = [:]
+    /// The names of chats on other machines (a Cloud machine's, an SSH machine's), keyed by host and session
+    /// (``AgentTurnStateStore/remoteKey(host:session:)``): what each chat's page read of its summary over its
+    /// remote wire (``noteRemote(_:host:machine:)``). No watch of this Mac reaches those machines' acpmux, so without
+    /// them a Cloud chat's tab and workspace never took its title (cmux#55668).
+    @ObservationIgnored var remoteSessions: [String: Session] = [:]
+    /// The machine (this Mac's id of the remote daemon) each host's names came from: a host is only ever one machine's,
+    /// and a host two machines claim is ``contestedRemoteHost`` and noted from no machine again.
+    @ObservationIgnored var remoteHostMachines: [String: String] = [:]
     /// The most records the store keeps: far above any real list (Leo's daemon lists 10,790
     /// sessions); a bound for a watch that keeps listing new ids.
     @ObservationIgnored public var recordCap = 40_000
@@ -563,14 +611,15 @@ public final class AgentTurnStateStore {
     /// machine's turn is not this Mac's (design audit 2026-11-18 finding 7). Its chat facts (title, last message)
     /// stay as before: the Chief pet reads a peer's chat's last message by session id.
     public func apply(session: String, sessionName: String? = nil, state: AgentTurnState?, lastMessage: String?, muted: Bool, title: String?,
-                      generatedTitle: String? = nil, detail: AgentChatDetail?, recordsTimeline: Bool = true,
+                      generatedTitle: String? = nil, identity: AgentSessionIdentity? = nil, detail: AgentChatDetail?, recordsTimeline: Bool = true,
                       source: String = AgentTurnStateStore.localSource, peer: AgentPeerRow? = nil, peerName: String? = nil) {
         let held = record(session)
         held.source = source
         if let name = peerName ?? peer?.name {
             if recordsTimeline, held.peers[name]?.state == .working, peer?.state != .working { turnEnded(session, folder: (detail ?? held.detail)?.cwd) }
             if held.peers[name] != peer { held.peers[name] = peer }
-            writeFacts(held, sessionName: sessionName, lastMessage: lastMessage, muted: muted, title: title, generatedTitle: generatedTitle, detail: detail)
+            writeFacts(held, sessionName: sessionName, lastMessage: lastMessage, muted: muted, title: title, generatedTitle: generatedTitle,
+                       identity: identity, detail: detail)
             return
         }
         if recordsTimeline, held.state == .working, state != .working { turnEnded(session, folder: (detail ?? held.detail)?.cwd) }
@@ -581,7 +630,8 @@ public final class AgentTurnStateStore {
             }
         }
         setState(state, session: session)
-        writeFacts(held, sessionName: sessionName, lastMessage: lastMessage, muted: muted, title: title, generatedTitle: generatedTitle, detail: detail)
+        writeFacts(held, sessionName: sessionName, lastMessage: lastMessage, muted: muted, title: title, generatedTitle: generatedTitle,
+                   identity: identity, detail: detail)
         // A peer's row (returned above) is another daemon's session; a closing watch (no timeline) knows nothing
         // new, so its archived chats stay listed while it reconnects.
         if detail != nil || recordsTimeline {
@@ -595,12 +645,16 @@ public final class AgentTurnStateStore {
 
     /// Writes a record's chat facts; only what changed.
     private func writeFacts(_ record: Session, sessionName: String?, lastMessage: String?, muted: Bool, title: String?, generatedTitle: String?,
-                            detail: AgentChatDetail?) {
+                            identity: AgentSessionIdentity?, detail: AgentChatDetail?) {
         if record.lastMessage != lastMessage { record.lastMessage = lastMessage }
         if record.muted != muted { record.muted = muted }
         if record.title != title { record.title = title }
         if record.generatedTitle != generatedTitle { record.generatedTitle = generatedTitle }
         if record.sessionName != sessionName { record.sessionName = sessionName }
+        if record.identity != identity {
+            record.identity = identity
+            record.iconArt = nil
+        }
         if record.detail != detail { record.detail = detail }
     }
 
@@ -609,12 +663,13 @@ public final class AgentTurnStateStore {
     /// `keepingPeers` rows (by session id, then peer): a change pushed while the page's later
     /// parts were read is newer than the page. Every other peer row of such a session is the page's.
     public func replace(states: AgentTurnStates, lastMessages: [String: String], muted: Set<String>,
-                        titles: [String: String], generatedTitles: [String: String] = [:], sessionNames: [String: String] = [:], details: [String: AgentChatDetail],
+                        titles: [String: String], generatedTitles: [String: String] = [:], sessionNames: [String: String] = [:],
+                        identities: [String: AgentSessionIdentity] = [:], details: [String: AgentChatDetail],
                         source: String = AgentTurnStateStore.localSource, peers: [String: [String: AgentPeerRow]] = [:], keeping: Set<String> = [],
                         keepingPeers: [String: Set<String>] = [:]) {
         let own = sessions.compactMap { $0.value.source == source ? $0.key : nil }
         let listed = Set(states.bySession.keys).union(lastMessages.keys).union(muted)
-            .union(titles.keys).union(generatedTitles.keys).union(sessionNames.keys).union(details.keys).union(peers.keys)
+            .union(titles.keys).union(generatedTitles.keys).union(sessionNames.keys).union(identities.keys).union(details.keys).union(peers.keys)
         let ids = listed.union(own)
         defer {
             // A session of this watch that its whole list no longer has: acpmux dropped it.
@@ -623,7 +678,7 @@ public final class AgentTurnStateStore {
         for id in ids.union(keepingPeers.keys) {
             if !keeping.contains(id), keepingPeers[id] == nil {
                 apply(session: id, sessionName: sessionNames[id], state: states[id], lastMessage: lastMessages[id], muted: muted.contains(id),
-                      title: titles[id], generatedTitle: generatedTitles[id], detail: details[id], source: source)
+                      title: titles[id], generatedTitle: generatedTitles[id], identity: identities[id], detail: details[id], source: source)
             }
             var rows = peers[id] ?? [:]
             let held = record(id)
@@ -653,7 +708,7 @@ public final class AgentTurnStateStore {
     public func clearLive(source: String = AgentTurnStateStore.localSource) {
         for (id, record) in sessions where record.source == source {
             apply(session: id, sessionName: record.sessionName, state: nil, lastMessage: nil, muted: false, title: record.title,
-                  generatedTitle: record.generatedTitle, detail: nil, recordsTimeline: false, source: source)
+                  generatedTitle: record.generatedTitle, identity: record.identity, detail: nil, recordsTimeline: false, source: source)
             if !record.peers.isEmpty { record.peers = [:] }
         }
     }

@@ -437,16 +437,35 @@ impl AppVm {
         Ok(vm)
     }
 
-    /// Evaluates the app's main script and calls `__cmuxAppInit`.
+    /// Calls `__cmuxAppInit`, then evaluates the app's main script: the app's
+    /// identity, settings (the manifest defaults under the person's values), the ops
+    /// it may call, locale and strings are set before its first line runs, so a
+    /// top-level `cmux.app.settings()` reads them, as a render does.
     pub fn init(&mut self, params: InitParams) -> Result<(), VmError> {
+        self.init_with_state(params, None)
+    }
+
+    /// [`Self::init`] with the values a previous host kept (`cmux.state`):
+    /// `init.state` seeds them. A value over the caps
+    /// ([`crate::protocol::kept_state_refusal`]) is dropped with a log line.
+    pub fn init_with_state(
+        &mut self,
+        params: InitParams,
+        state: Option<Value>,
+    ) -> Result<(), VmError> {
+        let state = state.filter(|values| {
+            let bytes = values.to_string().len();
+            match crate::protocol::kept_state_refusal(values, bytes) {
+                Some(why) => {
+                    self.shared.borrow_mut().log("warn", &why);
+                    false
+                }
+                None => true,
+            }
+        });
         let main = params.main;
         let mut options = rquickjs::context::EvalOptions::default();
         options.filename = params.main_name;
-        if let Err(error) =
-            self.enter("main", move |ctx| ctx.eval_with_options::<(), _>(main, options))?
-        {
-            return Err(VmError::Init(format!("main: {error}")));
-        }
         let init = json!({
             "app": params.app,
             "settings": params.settings,
@@ -455,15 +474,22 @@ impl AppVm {
             "knownOps": params.known_ops,
             "locale": params.locale.unwrap_or_else(|| "en".to_string()),
             "strings": if params.strings.is_object() { params.strings } else { json!({}) },
+            "state": state.unwrap_or_else(|| json!({})),
         })
         .to_string();
         match self
             .enter("init", move |ctx| call_global::<_, String>(ctx, "__cmuxAppInit", (init,)))?
         {
-            Ok(result) if result.is_empty() => Ok(()),
-            Ok(result) => Err(VmError::Init(result)),
-            Err(error) => Err(VmError::Init(error)),
+            Ok(result) if result.is_empty() => {}
+            Ok(result) => return Err(VmError::Init(result)),
+            Err(error) => return Err(VmError::Init(error)),
         }
+        if let Err(error) =
+            self.enter("main", move |ctx| ctx.eval_with_options::<(), _>(main, options))?
+        {
+            return Err(VmError::Init(format!("main: {error}")));
+        }
+        Ok(())
     }
 
     /// Mounts an export; `Ok(None)` when it rendered, `Ok(Some(message))` when the app refused.
@@ -925,7 +951,17 @@ fn install_native<'js>(
             }
             let (mount, ops) = (text(&mount)?, text(&ops)?);
             let bytes = mount.len() + ops.len();
-            s.borrow_mut().push(FromHost::Scene { mount, ops: parse(&ops) }, bytes);
+            let mut ops = parse(&ops);
+            // `Particles {choreography}` (particles.rs): a refused document goes out as null,
+            // with a log line naming the first bad path.
+            let mut refused = crate::particles::sanitize_scene_ops(&mut ops);
+            // Motion props (motion.rs, `cmux.motion/1`): canonical values, an invalid one as null.
+            refused.extend(crate::motion::sanitize_scene_ops(&mut ops));
+            let mut shared = s.borrow_mut();
+            for message in refused {
+                shared.log("warn", &message);
+            }
+            shared.push(FromHost::Scene { mount, ops }, bytes);
             Ok(())
         })?,
     )?;
@@ -978,6 +1014,25 @@ fn install_native<'js>(
                 Ok(())
             },
         )?,
+    )?;
+    let (s, g) = (shared.clone(), gate.clone());
+    native.set(
+        "keepState",
+        Function::new(ctx.clone(), move |json: V<'js>| -> rquickjs::Result<()> {
+            if g.stopped() {
+                return Ok(());
+            }
+            let json = text(&json)?;
+            let bytes = json.len();
+            let values = parse(&json);
+            let mut shared = s.borrow_mut();
+            // Over a cap: a log line, and the supervisor keeps the last state it got.
+            match crate::protocol::kept_state_refusal(&values, bytes) {
+                Some(why) => shared.log("warn", &why),
+                None => shared.push(FromHost::State { values }, bytes),
+            }
+            Ok(())
+        })?,
     )?;
     let (s, g) = (shared.clone(), gate.clone());
     native.set(

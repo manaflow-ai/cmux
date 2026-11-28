@@ -39,16 +39,27 @@ class Release(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp)
-        self.helper = self.tmp / "cmux NIGHTLY Screen Sharing.app"
-        (self.helper / "Contents/MacOS").mkdir(parents=True)
-        (self.helper / "Contents/MacOS/cmux-screen-sharing").write_bytes(b"host")
-        self.write_id(release.BUNDLE_ID)
+        self.helper = self.make_helper("cmux NIGHTLY Helper.app")
         self.codesign = self.tmp / "codesign"
         self.say(NIGHTLY_REQUIREMENT)
         os.environ["CMUX_CODESIGN_TOOL"] = str(self.codesign)
         self.addCleanup(os.environ.pop, "CMUX_CODESIGN_TOOL", None)
         self.zip = self.tmp / "helper.zip"
         self.zip.write_bytes(b"zip bytes")
+        # An iconutil that writes the iconset's PNGs, in name order, as the .icns: `-c icns SET -o OUT`.
+        self.iconutil = self.tmp / "iconutil"
+        self.iconutil.write_text('#!/bin/sh\nset -e\n[ "$1" = -c ] && [ "$2" = icns ] && [ "$4" = -o ]\n'
+                                 'cat "$3"/*.png > "$5"\n')
+        self.iconutil.chmod(0o755)
+        os.environ["CMUX_ICONUTIL_TOOL"] = str(self.iconutil)
+        self.addCleanup(os.environ.pop, "CMUX_ICONUTIL_TOOL", None)
+
+    def make_helper(self, name):
+        self.helper = self.tmp / name
+        (self.helper / "Contents/MacOS").mkdir(parents=True)
+        (self.helper / "Contents/MacOS/cmux-screen-sharing").write_bytes(b"host")
+        self.write_id(release.BUNDLE_ID)
+        return self.helper
 
     def write_id(self, bundle_id):
         with open(self.helper / "Contents/Info.plist", "wb") as f:
@@ -97,6 +108,46 @@ class Release(unittest.TestCase):
         self.write_id("com.cmuxterm.cua")
         self.assertEqual(self.run_main("check", str(self.helper), "--team", "7WLXT3NR37")[0], 1)
 
+    def test_check_takes_the_name_from_before_the_rename_and_no_other(self):
+        # A commit from before 5167d1f0 builds "cmux NIGHTLY Screen Sharing.app"; its helper still signs.
+        legacy = self.make_helper("cmux NIGHTLY Screen Sharing.app")
+        code, out, err = self.run_main("check", str(legacy), "--team", "7WLXT3NR37")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out.strip(), NIGHTLY_REQUIREMENT)
+        for name in ("cmux DEV Helper.app", "cmux NIGHTLY.app", "cmux NIGHTLY Helper (GPU).app"):
+            with self.subTest(name):
+                self.assertEqual(self.run_main("check", str(self.make_helper(name)), "--team", "7WLXT3NR37")[0], 1)
+
+    def test_a_record_of_a_helper_from_before_the_rename_still_verifies(self):
+        # Published records name no bundle: one of an old "Screen Sharing.app" zip reads back as before.
+        legacy = self.make_helper("cmux NIGHTLY Screen Sharing.app")
+        record = self.tmp / "helper.json"
+        code, _, err = self.run_main("record", "--zip", str(self.zip), "--helper", str(legacy), "--team",
+                                     "7WLXT3NR37", "--key", KEY, "--commit", COMMIT, "--out", str(record))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.run_main("verify-record", str(record), "--key", KEY, "--zip", str(self.zip))[0], 0)
+
+    def test_the_workflow_zips_the_bundle_the_build_makes(self):
+        # bundle-screen-sharing-helper.sh names the helper "$name$SUFFIX.app" (LEGACY_SUFFIX before the
+        # rename); cmux-tui-team-signed.yml zipped the old name after 5167d1f0 renamed it, and every
+        # signing run failed in ditto (run 45108313285). Every name the workflow looks for is one of
+        # HELPER_NAMES, the new one first, and each zip or record step takes the bundle it found.
+        bundle = (ROOT / "scripts/cmux-next/bundle-screen-sharing-helper.sh").read_text()
+        suffix = re.search(r'^SUFFIX="([^"]*)"$', bundle, re.M).group(1)
+        legacy = re.search(r'^LEGACY_SUFFIX="([^"]*)"$', bundle, re.M).group(1)
+        self.assertEqual(release.HELPER_NAME, f"{release.APP_NAME}{suffix}.app")
+        self.assertEqual(release.LEGACY_HELPER_NAME, f"{release.APP_NAME}{legacy}.app")
+        self.assertEqual(release.HELPER_NAMES, (release.HELPER_NAME, release.LEGACY_HELPER_NAME))
+        workflow = (ROOT / ".github/workflows/cmux-tui-team-signed.yml").read_text()
+        loops = re.findall(r'for name in ((?:"[^"]+" ?)+); do', workflow)
+        self.assertEqual(len(loops), 2, "build-helper and sign-helper each look for the bundle by name")
+        for loop in loops:
+            self.assertEqual(tuple(re.findall(r'"([^"]+)"', loop)), release.HELPER_NAMES)
+        for line in workflow.splitlines():
+            if "ditto -c" in line or "--helper " in line:
+                self.assertNotRegex(line, r"NIGHTLY (Helper|Screen Sharing)\.app", line.strip())
+        self.assertNotIn("Library/cmux NIGHTLY Screen Sharing.app", workflow)
+
     def test_record_verify_and_objects(self):
         record = self.tmp / "helper.json"
         code, _, err = self.run_main("record", "--zip", str(self.zip), "--helper", str(self.helper), "--team",
@@ -124,6 +175,29 @@ class Release(unittest.TestCase):
         with open(app / "Contents/Info.plist", "rb") as f:
             info = plistlib.load(f)
         self.assertEqual((info["CFBundleIdentifier"], info["CFBundleName"]), ("com.cmuxterm.app.nightly", "cmux NIGHTLY"))
+
+    def test_stub_app_carries_the_nightlys_icon(self):
+        """Austin: the try helper showed the generic blank icon; the stub must name an icns the bundle script copies."""
+        code, out, err = self.run_main("stub-app", str(self.tmp / "stub"))
+        self.assertEqual(code, 0, err)
+        app = Path(out.strip())
+        with open(app / "Contents/Info.plist", "rb") as f:
+            info = plistlib.load(f)
+        self.assertEqual(info["CFBundleIconFile"], "AppIcon-Nightly")
+        icon_set = ROOT / "Assets.xcassets/AppIcon-Nightly.appiconset"
+        names = sorted(f"icon_{n}x{n}{s}.png" for n in (16, 32, 128, 256, 512) for s in ("", "@2x"))
+        by_name = {f"icon_{n}x{n}{s}.png": icon_set / f"{n}{s}.png" for n in (16, 32, 128, 256, 512) for s in ("", "@2x")}
+        expected = b"".join(by_name[name].read_bytes() for name in names)
+        self.assertEqual((app / "Contents/Resources/AppIcon-Nightly.icns").read_bytes(), expected)
+        self.assertEqual(sorted(p.name for p in (app / "Contents/Resources").iterdir()), ["AppIcon-Nightly.icns"])
+
+    def test_stub_app_refuses_an_icon_set_missing_a_size(self):
+        icons = self.tmp / "icons"
+        shutil.copytree(ROOT / "Assets.xcassets/AppIcon-Nightly.appiconset", icons)
+        (icons / "512@2x.png").unlink()
+        code, _, err = self.run_main("stub-app", str(self.tmp / "stub"), "--icon-set", str(icons))
+        self.assertEqual(code, 1)
+        self.assertIn("512@2x.png", err)
 
     def test_the_cli_and_ci_name_the_same_zip(self):
         helper_rs = (ROOT / "cmux-tui/crates/cmux-tui/src/cli/app/try_cmd/helper.rs").read_text()

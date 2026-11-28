@@ -1,6 +1,7 @@
 //! What every seed must hold (HQ#6740). Each invariant reads what the run left: the app's view
 //! (what it sent, what it was told), the daemon's log on the simulated disk, and what the agent
-//! was given. An invariant is one entry of [`INVARIANTS`]; new ones plug in there.
+//! was given. An invariant is one entry of [`INVARIANTS`]; new ones plug in there, each with a
+//! broken run it must catch in `sim.rs`'s `MUTATIONS` (a check never shown to fail proves nothing).
 //!
 //! Not checked yet, with the hook each needs:
 //!
@@ -94,7 +95,56 @@ pub const INVARIANTS: &[Invariant] = &[
         name: "a resumed chat ends as an uninterrupted one",
         check: resumed_equals_uninterrupted,
     },
+    Invariant { name: "every hub is gone with its simulation", check: hubs_dropped },
+    Invariant {
+        name: "every send is answered within the liveness budget once faults heal",
+        check: answered_within_budget,
+    },
 ];
+
+/// How long after a send is due, or after the plan's last fault heals if that is later, its
+/// answer may take. Faults in the plan always heal, so "no prompt or steer is lost" alone holds
+/// for a client that takes until [`crate::app::GIVE_UP`] (30 min) to get through: a reconnect
+/// loop that never settles, or a retry that keeps picking the dead path, passes it. This bound
+/// is the liveness half (a deterministic simulator's "no state convergence" check, reading note
+/// hq docs/reading/2026-11-21-tigerbeetle-vopr-simulation.md): once the network and daemon are
+/// healthy, the system must converge in bounded time, not just eventually.
+///
+/// The app's own waits set its floor: QUIET (20 s) to notice a silent connection, a 5 s connect
+/// timeout, 500 ms backoff, then the replayed turn; the sweep's latest answer is printed in the
+/// run's summary (`sim: latest answer after heal`), so the budget can be tightened on data.
+pub const LIVENESS_BUDGET: std::time::Duration = std::time::Duration::from_secs(180);
+
+/// How long past its deadline (due time or last heal, whichever is later) each answered send
+/// took: (prompt id, its lateness). Sends with no answer are left to `none_lost`.
+pub fn answer_lateness(o: &Outcome) -> Vec<(String, std::time::Duration)> {
+    let Some(ready) = o.app.ready_at else { return Vec::new() };
+    o.app
+        .items
+        .iter()
+        .filter_map(|(s, i)| {
+            let at = i.answered_at?;
+            let from = ready + s.at.max(o.app.calm_after);
+            Some((s.prompt_id.clone(), at.saturating_sub(from)))
+        })
+        .collect()
+}
+
+fn answered_within_budget(run: &Run) -> Result<(), String> {
+    for o in std::iter::once(&run.faulty).chain(run.uninterrupted.as_ref()) {
+        for (id, late) in answer_lateness(o) {
+            if late > LIVENESS_BUDGET {
+                return Err(format!(
+                    "{id} was answered {} after it was due and every fault had healed \
+                     (budget {}): the system recovers, but not in bounded time",
+                    world::human(late),
+                    world::human(LIVENESS_BUDGET)
+                ));
+            }
+        }
+    }
+    Ok(())
+}
 
 /// Invariants the design asks for that no check covers yet, each with the hook it needs (see the
 /// module text). Every run prints them, so a green run never reads as having checked them.
@@ -105,6 +155,17 @@ pub const NOT_CHECKED: &[&str] =
 pub fn check(run: &Run) -> Result<(), String> {
     for inv in INVARIANTS {
         (inv.check)(run).map_err(|e| format!("{}: {e}", inv.name))?;
+    }
+    Ok(())
+}
+
+/// A hub kept alive past its simulation keeps its audit thread, runtime and fds (~13 MB a
+/// seed): the known-gap sweep's runner ran out of memory on it (a strong `Hub` in the session
+/// tap, `hub/tap.rs`).
+fn hubs_dropped(run: &Run) -> Result<(), String> {
+    let (alive, built) = run.hubs;
+    if alive > 0 {
+        return Err(format!("{alive} of {built} hubs outlived the simulation"));
     }
     Ok(())
 }

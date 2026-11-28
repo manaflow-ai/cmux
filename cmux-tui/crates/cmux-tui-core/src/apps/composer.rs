@@ -16,7 +16,7 @@
 //! whose insert text an earlier app already offers is dropped too, so the
 //! row never shows two chips that do the same thing.
 //!
-//! The person's saved prompts (`~/.config/cmux/commands/NAME.md`, written by `cmux agent-config
+//! The person's saved prompts (`~/.config/cmux-next/commands/NAME.md`, written by `cmux agent-config
 //! commands add --agent cmux` or Settings > Skills > New Command) come first in the commands, read
 //! from their folder on each call, so a new one is in the next chat's `/` menu with no restart.
 
@@ -97,21 +97,19 @@ pub(super) struct MentionParams {
     limit: Option<u32>,
 }
 
-fn string(entry: &Value, key: &str) -> Option<String> {
+pub(super) fn string(entry: &Value, key: &str) -> Option<String> {
     entry.get(key).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string)
 }
 
 /// The options of `interface` for every app that contributes, with the
 /// app's id and name, in app id order.
-fn places<'a>(inner: &'a Inner, interface: &str) -> Vec<(&'a str, String, &'a Value)> {
-    if inner.safe_mode.is_some() {
-        return Vec::new();
-    }
+pub(super) fn places<'a>(inner: &'a Inner, interface: &str) -> Vec<(&'a str, String, &'a Value)> {
     inner
         .mirror
         .apps
         .iter()
         .filter(|(_, record)| record.installed && record.enabled && !record.hidden)
+        .filter(|(app, _)| !super::safe_mode_bisect::held_off(inner, app))
         .filter_map(|(app, _)| {
             let manifest = &inner.catalog.packages.get(app)?.manifest;
             let options = manifest.get("implements")?.get(interface)?.get("options")?;

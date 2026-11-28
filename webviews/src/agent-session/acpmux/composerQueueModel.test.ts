@@ -11,3 +11,12 @@ describe("heldReason", () => {
     expect(heldReason({ waking: true })).toBeUndefined();
   });
 });
+
+import { uniqueById } from "./composerQueueModel";
+
+describe("uniqueById", () => {
+  test("a prompt listed twice draws once, at its first place", () => {
+    const list = [{ id: "a" }, { id: "b" }, { id: "a" }, { id: "c" }, { id: "b" }];
+    expect(uniqueById(list).map((entry) => entry.id)).toEqual(["a", "b", "c"]);
+  });
+});

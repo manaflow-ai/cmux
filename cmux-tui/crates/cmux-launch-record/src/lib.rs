@@ -4,6 +4,8 @@
 //! Reading, for a dependent crate: `LaunchRecord::read(path)` validates the
 //! whole file, `LaunchRecord::version()` is its format version, and
 //! `LaunchRecord::windows()` yields a `WindowView` per window, front first.
+//! `LaunchRecord::written_at_ms()` and `WindowView::sidebar_width` (v3) let the shell take the
+//! newer of this record and the daemon's launch snapshot: `newer_launch_geometry`.
 //! tests/public_api.rs pins that surface.
 use std::ffi::{CStr, c_char};
 use std::fs::{self, File, OpenOptions};
@@ -13,13 +15,14 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Version 2 adds scale, appearance, full screen and the display frame, and
 /// replaces the image path with an image key. Version 3 adds, after the socket path, the
-/// daemon registry id the windows belonged to. Versions 1 and 2 still read.
+/// daemon registry id the windows belonged to and then `written_at_ms` (u64 LE), and, at the
+/// end of each window, `sidebar_width` (f64 LE). Versions 1 and 2 still read, with both 0.
 pub const FORMAT_VERSION: u16 = 3;
 /// A record file larger than this is rejected unread; the writer never exceeds it.
 pub const MAX_BYTES: usize = 64 * 1024;
 const MAGIC: &[u8; 8] = b"CMUXLR01";
-/// Smallest encoded v2 window: empty strings, no tabs. Bounds FFI counts.
-const WINDOW_MIN_BYTES: usize = 103;
+/// Smallest encoded v3 window: empty strings, no tabs. Bounds FFI counts.
+const WINDOW_MIN_BYTES: usize = 111;
 
 /// Startup work is explicitly classified so a new task cannot accidentally
 /// move ahead of the first committed frame.
@@ -78,6 +81,8 @@ pub struct WindowRecord {
     pub screen_frame: Frame,
     pub visible_workspace_id: String,
     pub visible_tab_ids: Vec<String>,
+    /// The window's sidebar width in points (v3); 0.0 means unknown.
+    pub sidebar_width: f64,
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct SidebarRow {
@@ -93,9 +98,12 @@ pub struct LaunchRecordData {
     pub session_socket_path: String,
     /// The daemon registry id (its session) the windows belonged to; empty when unknown.
     pub session_registry_id: String,
+    /// Wall-clock Unix milliseconds when the record was encoded (`unix_now_ms`), the clock of the
+    /// daemon launch snapshot's `written_at_ms`. 0 means unknown: older than any snapshot.
+    pub written_at_ms: u64,
 }
 
-/// A validated record (v1 or v2). See `read`, `windows`, `front_window`.
+/// A validated record (v1, v2 or v3). See `read`, `windows`, `front_window`.
 pub struct LaunchRecord {
     bytes: Vec<u8>,
     version: u16,
@@ -105,6 +113,7 @@ pub struct LaunchRecord {
     sidebar_start: usize,
     socket: (usize, usize),
     registry: (usize, usize),
+    written_at_ms: u64,
 }
 impl std::fmt::Debug for LaunchRecord {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -159,6 +168,7 @@ impl LaunchRecord {
         }
         let socket = p.string_span()?;
         let registry = if version >= 3 { p.string_span()? } else { (0, 0) };
+        let written_at_ms = if version >= 3 { p.u64()? } else { 0 };
         if p.position() != bytes.len() {
             return None;
         }
@@ -171,12 +181,13 @@ impl LaunchRecord {
             sidebar_start,
             socket,
             registry,
+            written_at_ms,
         })
     }
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
-    /// 1 or 2; a v1 record's windows read with the v2 fields defaulted.
+    /// 1, 2 or 3; older records' windows read with the newer fields defaulted.
     pub fn version(&self) -> u16 {
         self.version
     }
@@ -200,6 +211,11 @@ impl LaunchRecord {
     pub fn session_registry_id(&self) -> &str {
         span_str(&self.bytes, self.registry).unwrap_or("")
     }
+    /// Wall-clock Unix milliseconds when the record was written, the daemon launch snapshot's
+    /// `written_at_ms` clock. 0 (every v1 or v2 record) means unknown: older than any snapshot.
+    pub fn written_at_ms(&self) -> u64 {
+        self.written_at_ms
+    }
     /// The first window, `windows().next()`.
     pub fn front_window(&self) -> Option<WindowView<'_>> {
         self.windows().next()
@@ -209,7 +225,8 @@ impl LaunchRecord {
 ///
 /// A v1 window reads with `backing_scale` 0.0 (unknown), an empty
 /// `image_key`, `appearance` 0, `appearance_follows_system` 0, `fullscreen` 0
-/// and a zero `screen_frame`; its image pixel size is what v1 stored.
+/// and a zero `screen_frame`; its image pixel size is what v1 stored. A v1 or
+/// v2 window reads with `sidebar_width` 0.0 (unknown).
 pub struct WindowView<'a> {
     bytes: &'a [u8],
     pub id: &'a str,
@@ -233,6 +250,8 @@ pub struct WindowView<'a> {
     /// The frame of the window's display when written.
     pub screen_frame: Frame,
     pub visible_workspace_id: &'a str,
+    /// The window's sidebar width in points when written; 0.0 (v1, v2) means unknown.
+    pub sidebar_width: f64,
     tabs_start: usize,
     tabs: usize,
 }
@@ -298,6 +317,36 @@ impl<'a> Iterator for TabIter<'a> {
     }
 }
 
+/// Which saved geometry the first frame uses: this launch record's, or the daemon launch
+/// snapshot's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GeometrySource {
+    Record,
+    Snapshot,
+}
+
+/// The newer of the launch record and the daemon launch snapshot, by their `written_at_ms`.
+/// The record wins only when strictly newer and known (nonzero); a tie goes to the snapshot.
+pub fn newer_launch_geometry(
+    record_written_at_ms: u64,
+    snapshot_written_at_ms: u64,
+) -> GeometrySource {
+    if record_written_at_ms != 0 && record_written_at_ms > snapshot_written_at_ms {
+        GeometrySource::Record
+    } else {
+        GeometrySource::Snapshot
+    }
+}
+
+/// Wall-clock Unix milliseconds, computed as the daemon launch snapshot computes its
+/// `written_at_ms`.
+pub fn unix_now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or_default()
+}
+
 fn frame_is_usable(f: Frame) -> bool {
     [f.x, f.y, f.width, f.height].iter().all(|n| n.is_finite()) && f.width > 0.0 && f.height > 0.0
 }
@@ -355,6 +404,7 @@ fn encode(r: &LaunchRecordData) -> Result<Vec<u8>, &'static str> {
         for t in &w.visible_tab_ids {
             put_string(&mut o, t)?
         }
+        o.extend_from_slice(&w.sidebar_width.to_le_bytes());
     }
     for s in &r.sidebar_rows {
         put_string(&mut o, &s.id)?;
@@ -363,6 +413,7 @@ fn encode(r: &LaunchRecordData) -> Result<Vec<u8>, &'static str> {
     }
     put_string(&mut o, &r.session_socket_path)?;
     put_string(&mut o, &r.session_registry_id)?;
+    o.extend_from_slice(&r.written_at_ms.to_le_bytes());
     if o.len() > MAX_BYTES {
         return Err("record exceeds 64 KiB");
     };
@@ -407,6 +458,9 @@ impl<'a> Parser<'a> {
     fn u16(&mut self) -> Option<u16> {
         Some(u16::from_le_bytes(self.take(2)?.try_into().ok()?))
     }
+    fn u64(&mut self) -> Option<u64> {
+        Some(u64::from_le_bytes(self.take(8)?.try_into().ok()?))
+    }
     fn string_span(&mut self) -> Option<(usize, usize)> {
         let n = self.u16()? as usize;
         let s = self.p;
@@ -427,6 +481,10 @@ fn parse_window(p: &mut Parser<'_>, version: u16) -> Option<()> {
     let n = p.u16()? as usize;
     for _ in 0..n {
         p.string_span()?;
+    }
+    if version >= 3 {
+        // Sidebar width.
+        p.take(8)?;
     }
     Some(())
 }
@@ -493,6 +551,7 @@ fn decode_window(b: &[u8], mut p: usize, version: u16) -> Option<(WindowView<'_>
     for _ in 0..tabs {
         p = read_span(b, p)?.1
     }
+    let sidebar_width = if version >= 3 { read_f64(b, &mut p)? } else { 0.0 };
     Some((
         WindowView {
             bytes: b,
@@ -510,6 +569,7 @@ fn decode_window(b: &[u8], mut p: usize, version: u16) -> Option<(WindowView<'_>
             fullscreen: flags[2],
             screen_frame,
             visible_workspace_id: span_str(b, ws)?,
+            sidebar_width,
             tabs_start: ts,
             tabs,
         },
@@ -550,7 +610,8 @@ pub struct CmuxLaunchWindow {
     pub fullscreen: u8,
 }
 
-/// v2 fields follow the v1 fields so their offsets are unchanged.
+/// v2 fields follow the v1 fields, and v3's `sidebar_width` the v2 fields, so earlier offsets
+/// are unchanged.
 #[repr(C)]
 pub struct CmuxLaunchWindowInput {
     pub frame_x: f64,
@@ -575,6 +636,8 @@ pub struct CmuxLaunchWindowInput {
     pub appearance: u8,
     pub appearance_follows_system: u8,
     pub fullscreen: u8,
+    /// The window's sidebar width in points; 0 when unknown.
+    pub sidebar_width: f64,
 }
 
 #[repr(C)]
@@ -598,6 +661,7 @@ unsafe fn input_data(
     sidebar_count: usize,
     socket: *const c_char,
     registry: &str,
+    written_at_ms: u64,
 ) -> Option<LaunchRecordData> {
     // A window needs at least WINDOW_MIN_BYTES encoded bytes; a sidebar row needs six.
     // Reject impossible counts before allocating or dereferencing an array.
@@ -613,6 +677,7 @@ unsafe fn input_data(
         sidebar_rows: Vec::with_capacity(sidebar_count),
         session_socket_path: unsafe { c_string(socket)? }.to_owned(),
         session_registry_id: registry.to_owned(),
+        written_at_ms,
     };
     for i in 0..window_count {
         let w = unsafe { &*windows.add(i) };
@@ -654,6 +719,7 @@ unsafe fn input_data(
             },
             visible_workspace_id: workspace,
             visible_tab_ids: tabs,
+            sidebar_width: w.sidebar_width,
         });
     }
     for i in 0..sidebar_count {
@@ -669,7 +735,7 @@ unsafe fn input_data(
 
 /// Writes a bounded launch record through the app FFI. Null pointers, invalid UTF-8,
 /// impossible counts and records over 64 KiB return false without touching the destination.
-/// `windows[0]` is the front window.
+/// `windows[0]` is the front window. It records no registry id and stamps `written_at_ms` now.
 ///
 /// # Safety
 /// Non-null pointers must reference readable, NUL-terminated strings or arrays
@@ -692,12 +758,15 @@ pub unsafe extern "C" fn cmux_launch_record_write(
             sidebar_count,
             socket,
             c"".as_ptr(),
+            unix_now_ms(),
         )
     }
 }
 
 /// `cmux_launch_record_write` that also records the daemon registry id the windows belong to
-/// (`registry_id`, the handshake's): stage 0 draws no image of another session's windows.
+/// (`registry_id`, the handshake's): stage 0 draws no image of another session's windows. It
+/// writes `written_at_ms` as given: wall-clock Unix milliseconds (`unix_now_ms`, the daemon
+/// launch snapshot's clock) when the caller built the record; 0 means unknown.
 ///
 /// # Safety
 /// As `cmux_launch_record_write`; `registry_id` is a readable NUL-terminated string.
@@ -710,15 +779,16 @@ pub unsafe extern "C" fn cmux_launch_record_write_registry(
     sidebar_count: usize,
     socket: *const c_char,
     registry_id: *const c_char,
+    written_at_ms: u64,
 ) -> bool {
     let (Some(path), Some(registry)) =
         (unsafe { c_string(path) }, unsafe { c_string(registry_id) })
     else {
         return false;
     };
-    let Some(data) =
-        (unsafe { input_data(windows, window_count, sidebars, sidebar_count, socket, registry) })
-    else {
+    let Some(data) = (unsafe {
+        input_data(windows, window_count, sidebars, sidebar_count, socket, registry, written_at_ms)
+    }) else {
         return false;
     };
     write_atomic(path, &data).is_ok()
@@ -832,451 +902,5 @@ pub unsafe extern "C" fn cmux_launch_record_windows(
     count
 }
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use proptest::prelude::*;
-    const BUILD: &str = "1234-abcdef0";
-    const SCREEN: Frame = Frame { x: 0., y: 0., width: 1512., height: 982. };
-    fn window(id: &str) -> WindowRecord {
-        WindowRecord {
-            id: id.into(),
-            frame: Frame { x: 100., y: 50., width: 800., height: 600. },
-            display_id: 7,
-            background_rgba: [1, 2, 3, 4],
-            bar_rgba: [5, 6, 7, 8],
-            image_key: format!("{BUILD}/{id}/3"),
-            image_pixel_width: 1600,
-            image_pixel_height: 1200,
-            backing_scale: 2.0,
-            appearance: 1,
-            appearance_follows_system: 1,
-            fullscreen: 0,
-            screen_frame: SCREEN,
-            visible_workspace_id: "ws".into(),
-            visible_tab_ids: vec!["tab".into()],
-        }
-    }
-    fn sample() -> LaunchRecordData {
-        LaunchRecordData {
-            windows: vec![window("w")],
-            sidebar_rows: vec![SidebarRow {
-                id: "s".into(),
-                title: "Side".into(),
-                icon_key: "folder".into(),
-            }],
-            session_socket_path: "/tmp/sock".into(),
-            session_registry_id: "reg-1".into(),
-        }
-    }
-    /// The v1 encoding, as the previous writer produced it.
-    fn encode_v1(r: &LaunchRecordData) -> Vec<u8> {
-        let mut o = Vec::from(&MAGIC[..]);
-        for n in [1, r.windows.len(), r.sidebar_rows.len()] {
-            put_u16(&mut o, n);
-        }
-        for w in &r.windows {
-            put_string(&mut o, &w.id).unwrap();
-            put_frame(&mut o, w.frame);
-            o.extend_from_slice(&w.display_id.to_le_bytes());
-            o.extend_from_slice(&w.background_rgba);
-            o.extend_from_slice(&w.bar_rgba);
-            put_string(&mut o, "/tmp/f.png").unwrap();
-            o.extend_from_slice(&w.image_pixel_width.to_le_bytes());
-            o.extend_from_slice(&w.image_pixel_height.to_le_bytes());
-            put_string(&mut o, &w.visible_workspace_id).unwrap();
-            put_u16(&mut o, w.visible_tab_ids.len());
-            for t in &w.visible_tab_ids {
-                put_string(&mut o, t).unwrap();
-            }
-        }
-        for s in &r.sidebar_rows {
-            for v in [&s.id, &s.title, &s.icon_key] {
-                put_string(&mut o, v).unwrap();
-            }
-        }
-        put_string(&mut o, &r.session_socket_path).unwrap();
-        o
-    }
-    #[test]
-    fn round_trip() {
-        let b = encode(&sample()).unwrap();
-        let r = LaunchRecord::from_bytes(b).unwrap();
-        let w = r.front_window().unwrap();
-        assert_eq!(w.id, "w");
-        assert_eq!(w.visible_tab_ids().collect::<Vec<_>>(), vec!["tab"]);
-        assert_eq!(r.session_socket_path(), "/tmp/sock")
-    }
-    #[test]
-    fn v3_carries_the_registry_id_and_a_v2_record_reads_without_one() {
-        let data = sample();
-        let bytes = encode(&data).unwrap();
-        assert_eq!(LaunchRecord::from_bytes(bytes.clone()).unwrap().session_registry_id(), "reg-1");
-        // The same record as v2: no registry string after the socket path.
-        let mut v2 = bytes[..bytes.len() - 2 - "reg-1".len()].to_vec();
-        v2[8..10].copy_from_slice(&2u16.to_le_bytes());
-        let r = LaunchRecord::from_bytes(v2.clone()).unwrap();
-        assert_eq!(
-            (r.version(), r.session_registry_id(), r.session_socket_path()),
-            (2, "", "/tmp/sock")
-        );
-        // A v3 label without the registry string is malformed.
-        v2[8..10].copy_from_slice(&3u16.to_le_bytes());
-        assert!(LaunchRecord::from_bytes(v2).is_none());
-        // The C entry without a registry id writes it empty.
-        let dir = TestDir::new();
-        let path = std::ffi::CString::new(dir.record().to_str().unwrap()).unwrap();
-        assert!(unsafe {
-            cmux_launch_record_write(
-                path.as_ptr(),
-                std::ptr::null(),
-                0,
-                std::ptr::null(),
-                0,
-                c"s".as_ptr(),
-            )
-        });
-        assert_eq!(LaunchRecord::read(dir.record()).unwrap().session_registry_id(), "");
-        assert!(unsafe {
-            cmux_launch_record_write_registry(
-                path.as_ptr(),
-                std::ptr::null(),
-                0,
-                std::ptr::null(),
-                0,
-                c"s".as_ptr(),
-                c"reg-2".as_ptr(),
-            )
-        });
-        assert_eq!(LaunchRecord::read(dir.record()).unwrap().session_registry_id(), "reg-2");
-    }
-    #[test]
-    fn round_trip_every_v2_field() {
-        let mut data = sample();
-        let w = &mut data.windows[0];
-        w.backing_scale = 1.5;
-        w.appearance = 1;
-        w.appearance_follows_system = 0;
-        w.fullscreen = 1;
-        w.screen_frame = Frame { x: -1920., y: 120.5, width: 1920., height: 1080. };
-        w.visible_tab_ids = vec!["a".into(), "b".into()];
-        let r = LaunchRecord::from_bytes(encode(&data).unwrap()).unwrap();
-        assert_eq!(r.version(), 3);
-        let v = r.front_window().unwrap();
-        let w = &data.windows[0];
-        let back = WindowRecord {
-            id: v.id.into(),
-            frame: v.frame,
-            display_id: v.display_id,
-            background_rgba: v.background_rgba,
-            bar_rgba: v.bar_rgba,
-            image_key: v.image_key.into(),
-            image_pixel_width: v.image_pixel_width,
-            image_pixel_height: v.image_pixel_height,
-            backing_scale: v.backing_scale,
-            appearance: v.appearance,
-            appearance_follows_system: v.appearance_follows_system,
-            fullscreen: v.fullscreen,
-            screen_frame: v.screen_frame,
-            visible_workspace_id: v.visible_workspace_id.into(),
-            visible_tab_ids: v.visible_tab_ids().map(String::from).collect(),
-        };
-        assert_eq!(&back, w);
-        // And through the FFI writer and reader.
-        let dir = TestDir::new();
-        let path = std::ffi::CString::new(dir.record().to_str().unwrap()).unwrap();
-        let c = |s: &str| std::ffi::CString::new(s).unwrap();
-        let (id, key, ws, tabs) = (c(&w.id), c(&w.image_key), c("ws"), [c("a"), c("b")]);
-        let tab_ptrs = tabs.iter().map(|t| t.as_ptr()).collect::<Vec<_>>();
-        let input = CmuxLaunchWindowInput {
-            frame_x: w.frame.x,
-            frame_y: w.frame.y,
-            frame_width: w.frame.width,
-            frame_height: w.frame.height,
-            display_id: w.display_id,
-            background_rgba: w.background_rgba,
-            bar_rgba: w.bar_rgba,
-            image_pixel_width: w.image_pixel_width,
-            image_pixel_height: w.image_pixel_height,
-            window_id: id.as_ptr(),
-            image_key: key.as_ptr(),
-            visible_workspace_id: ws.as_ptr(),
-            visible_tab_ids: tab_ptrs.as_ptr(),
-            visible_tab_count: 2,
-            backing_scale: w.backing_scale,
-            screen_frame_x: w.screen_frame.x,
-            screen_frame_y: w.screen_frame.y,
-            screen_frame_width: w.screen_frame.width,
-            screen_frame_height: w.screen_frame.height,
-            appearance: w.appearance,
-            appearance_follows_system: w.appearance_follows_system,
-            fullscreen: w.fullscreen,
-        };
-        let socket = c("/tmp/sock");
-        assert!(unsafe {
-            cmux_launch_record_write(path.as_ptr(), &input, 1, std::ptr::null(), 0, socket.as_ptr())
-        });
-        let mut written = data.clone();
-        written.sidebar_rows.clear();
-        // cmux_launch_record_write records no registry id.
-        written.session_registry_id.clear();
-        assert_eq!(fs::read(dir.record()).unwrap(), encode(&written).unwrap());
-        let mut out = CmuxLaunchWindow::default();
-        assert!(unsafe { cmux_launch_record_front_window(path.as_ptr(), &mut out) });
-        assert_eq!(
-            (out.backing_scale, out.appearance, out.appearance_follows_system, out.fullscreen),
-            (1.5, 1, 0, 1)
-        );
-        assert_eq!(
-            [
-                out.screen_frame_x,
-                out.screen_frame_y,
-                out.screen_frame_width,
-                out.screen_frame_height
-            ],
-            [-1920., 120.5, 1920., 1080.]
-        );
-        assert_eq!(
-            unsafe { CStr::from_ptr(out.image_key.as_ptr()) }.to_str().unwrap(),
-            w.image_key
-        );
-    }
-    #[test]
-    fn rejects() {
-        let mut b = encode(&sample()).unwrap();
-        b.push(0);
-        assert!(LaunchRecord::from_bytes(b).is_none());
-        for version in [0, FORMAT_VERSION + 1] {
-            let mut b = encode(&sample()).unwrap();
-            b[8..10].copy_from_slice(&version.to_le_bytes());
-            assert!(LaunchRecord::from_bytes(b).is_none())
-        }
-        // A v2 body labelled v1 does not parse as v1.
-        let mut b = encode(&sample()).unwrap();
-        b[8] = 1;
-        assert!(LaunchRecord::from_bytes(b).is_none())
-    }
-    #[test]
-    fn v1_record_reads_with_defaults() {
-        let data = sample();
-        let r = LaunchRecord::from_bytes(encode_v1(&data)).unwrap();
-        assert_eq!(r.version(), 1);
-        let w = r.front_window().unwrap();
-        assert_eq!((w.id, w.frame, w.display_id), ("w", data.windows[0].frame, 7));
-        assert_eq!((w.image_pixel_width, w.image_pixel_height), (1600, 1200));
-        assert_eq!(w.visible_tab_ids().collect::<Vec<_>>(), vec!["tab"]);
-        assert_eq!((w.image_key, w.backing_scale, w.screen_frame), ("", 0.0, Frame::default()));
-        assert_eq!((w.appearance, w.appearance_follows_system, w.fullscreen), (0, 0, 0));
-        assert_eq!(r.sidebar_rows().next().unwrap().title, "Side");
-        assert_eq!(r.session_socket_path(), "/tmp/sock");
-    }
-    #[test]
-    fn ffi_windows_front_first_and_bounded_by_cap() {
-        let dir = TestDir::new();
-        let path = std::ffi::CString::new(dir.record().to_str().unwrap()).unwrap();
-        let mut data = sample();
-        data.windows = ["front", "middle", "back"].map(window).to_vec();
-        write_atomic(dir.record(), &data).unwrap();
-        let mut out = [CmuxLaunchWindow::default(); 4];
-        let ids = |out: &[CmuxLaunchWindow]| {
-            out.iter()
-                .map(|w| {
-                    unsafe { CStr::from_ptr(w.window_id.as_ptr()) }.to_str().unwrap().to_owned()
-                })
-                .collect::<Vec<_>>()
-        };
-        assert_eq!(unsafe { cmux_launch_record_windows(path.as_ptr(), out.as_mut_ptr(), 4) }, 3);
-        assert_eq!(ids(&out), ["front", "middle", "back", ""]);
-        let mut two = [CmuxLaunchWindow::default(); 2];
-        assert_eq!(unsafe { cmux_launch_record_windows(path.as_ptr(), two.as_mut_ptr(), 2) }, 3);
-        assert_eq!(ids(&two), ["front", "middle"]);
-        assert_eq!(
-            unsafe { cmux_launch_record_windows(path.as_ptr(), std::ptr::null_mut(), 0) },
-            3
-        );
-        assert_eq!(
-            unsafe { cmux_launch_record_windows(path.as_ptr(), std::ptr::null_mut(), 1) },
-            0
-        );
-        assert_eq!(unsafe { cmux_launch_record_windows(std::ptr::null(), out.as_mut_ptr(), 4) }, 0);
-        // One unusable window makes the whole call fail, zeroing what it wrote.
-        data.windows[2].id = "x".repeat(65);
-        write_atomic(dir.record(), &data).unwrap();
-        assert_eq!(unsafe { cmux_launch_record_windows(path.as_ptr(), out.as_mut_ptr(), 4) }, 0);
-        assert_eq!(ids(&out[..3]), ["", "", ""]);
-    }
-
-    struct TestDir(std::path::PathBuf);
-    impl TestDir {
-        fn new() -> Self {
-            static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-            let path = std::env::temp_dir().join(format!(
-                "cmux-launch-record-test-{}-{}-{}",
-                std::process::id(),
-                SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos(),
-                NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-            ));
-            fs::create_dir(&path).unwrap();
-            Self(path)
-        }
-        fn record(&self) -> std::path::PathBuf {
-            self.0.join("record")
-        }
-    }
-    impl Drop for TestDir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
-
-    #[test]
-    fn exact_cap_and_one_byte_over() {
-        // Zero windows/rows, then a socket string; both are structurally valid.
-        for version in [1u8, 2] {
-            for extra in [0, 1] {
-                let mut bytes = Vec::from(&b"CMUXLR01\x00\x00\x00\x00\x00\x00"[..]);
-                bytes[8] = version;
-                bytes.extend_from_slice(&((MAX_BYTES - 16 + extra) as u16).to_le_bytes());
-                bytes.resize(MAX_BYTES + extra, b'x');
-                let dir = TestDir::new();
-                fs::write(dir.record(), &bytes).unwrap();
-                assert_eq!(LaunchRecord::from_bytes(bytes).is_some(), extra == 0);
-                assert_eq!(LaunchRecord::read(dir.record()).is_some(), extra == 0);
-            }
-        }
-        // The writer stops at the same bound.
-        let mut data = sample();
-        let length = encode(&data).unwrap().len();
-        data.session_socket_path.push_str(&"x".repeat(MAX_BYTES - length));
-        assert_eq!(encode(&data).unwrap().len(), MAX_BYTES);
-        data.session_socket_path.push('x');
-        assert!(encode(&data).is_err());
-    }
-
-    #[test]
-    fn atomic_write_preserves_previous_on_invalid_input() {
-        let dir = TestDir::new();
-        let mut data = sample();
-        write_atomic(dir.record(), &data).unwrap();
-        data.windows[0].id = "replacement".into();
-        write_atomic(dir.record(), &data).unwrap();
-        assert_eq!(
-            LaunchRecord::read(dir.record()).unwrap().front_window().unwrap().id,
-            "replacement"
-        );
-        let previous = fs::read(dir.record()).unwrap();
-        data.session_socket_path = "x".repeat(MAX_BYTES);
-        assert!(write_atomic(dir.record(), &data).is_err());
-        assert_eq!(fs::read(dir.record()).unwrap(), previous);
-        assert_eq!(fs::read_dir(&dir.0).unwrap().count(), 1);
-        assert!(LaunchRecord::read(dir.0.join("missing")).is_none());
-    }
-
-    #[test]
-    fn ffi_strings_are_terminated_or_output_is_zero() {
-        let dir = TestDir::new();
-        let path = std::ffi::CString::new(dir.record().to_str().unwrap()).unwrap();
-        for (id_len, key_len, expected) in [(64, 1024, true), (65, 1024, false), (64, 1025, false)]
-        {
-            let mut data = sample();
-            data.windows[0].id = "w".repeat(id_len);
-            data.windows[0].image_key = "p".repeat(key_len);
-            write_atomic(dir.record(), &data).unwrap();
-            let mut out = CmuxLaunchWindow { display_id: 999, ..Default::default() };
-            assert_eq!(
-                unsafe { cmux_launch_record_front_window(path.as_ptr(), &mut out) },
-                expected
-            );
-            if expected {
-                assert_eq!(
-                    unsafe { CStr::from_ptr(out.window_id.as_ptr()) }.to_bytes().len(),
-                    id_len
-                );
-                assert_eq!(
-                    unsafe { CStr::from_ptr(out.image_key.as_ptr()) }.to_bytes().len(),
-                    key_len
-                );
-            } else {
-                assert_eq!(out.display_id, 0);
-                assert_eq!(out.frame_width, 0.0);
-                assert!(out.window_id.iter().chain(out.image_key.iter()).all(|&v| v == 0));
-            }
-        }
-        let mut out = CmuxLaunchWindow { display_id: 999, ..Default::default() };
-        assert!(!unsafe { cmux_launch_record_front_window(std::ptr::null(), &mut out) });
-        assert_eq!(out.display_id, 0);
-        let mut data = sample();
-        data.windows[0].image_key = "a\0b".into();
-        write_atomic(dir.record(), &data).unwrap();
-        assert!(!unsafe { cmux_launch_record_front_window(path.as_ptr(), &mut out) });
-        assert_eq!(out.display_id, 0);
-        // A v1 record still reads, with an empty key and defaulted v2 fields.
-        fs::write(dir.record(), encode_v1(&sample())).unwrap();
-        assert!(unsafe { cmux_launch_record_front_window(path.as_ptr(), &mut out) });
-        assert_eq!((out.display_id, out.backing_scale, out.image_key[0]), (7, 0.0, 0));
-    }
-
-    #[test]
-    fn ffi_rejects_impossible_counts_before_dereference() {
-        assert!(
-            unsafe {
-                input_data(std::ptr::null(), usize::MAX, std::ptr::null(), 0, std::ptr::null(), "")
-            }
-            .is_none()
-        );
-        assert!(
-            unsafe {
-                input_data(std::ptr::null(), 0, std::ptr::null(), usize::MAX, std::ptr::null(), "")
-            }
-            .is_none()
-        );
-    }
-
-    #[test]
-    fn window_min_bytes_matches_encoding() {
-        let mut data = sample();
-        data.sidebar_rows.clear();
-        data.session_socket_path.clear();
-        let empty = encode(&LaunchRecordData { windows: vec![], ..data.clone() }).unwrap().len();
-        let w = &mut data.windows[0];
-        (w.id, w.image_key, w.visible_workspace_id, w.visible_tab_ids) =
-            (String::new(), String::new(), String::new(), vec![]);
-        assert_eq!(encode(&data).unwrap().len() - empty, WINDOW_MIN_BYTES);
-    }
-
-    #[test]
-    fn unicode_round_trip_and_invalid_utf8_rejected() {
-        let mut data = sample();
-        data.sidebar_rows[0].title = "作業 🦀".into();
-        data.windows[0].image_key = format!("{BUILD}/画面/1");
-        let bytes = encode(&data).unwrap();
-        let r = LaunchRecord::from_bytes(bytes).unwrap();
-        assert_eq!(r.sidebar_rows().next().unwrap().title, data.sidebar_rows[0].title);
-        assert_eq!(r.front_window().unwrap().image_key, data.windows[0].image_key);
-        let mut invalid = encode(&sample()).unwrap();
-        invalid[16] = 0xff; // First window id.
-        assert!(LaunchRecord::from_bytes(invalid).is_none());
-    }
-
-    #[test]
-    fn stage_zero_is_closed_over_allowlist() {
-        assert!(stage_zero_task_is_allowed(LaunchTask {
-            name: "read_launch_record",
-            stage: LaunchStage::Shell
-        }));
-        assert!(stage_zero_task_is_allowed(LaunchTask {
-            name: "restore_everything",
-            stage: LaunchStage::Rest
-        }));
-        assert!(!stage_zero_task_is_allowed(LaunchTask {
-            name: "restore_everything",
-            stage: LaunchStage::Shell
-        }));
-    }
-
-    proptest! {
-        #[test]
-        fn arbitrary_bytes_never_panic(bytes in proptest::collection::vec(any::<u8>(), 0..(MAX_BYTES + 128))) {
-            let _ = LaunchRecord::from_bytes(bytes);
-        }
-    }
-}
+#[path = "tests.rs"]
+mod tests;

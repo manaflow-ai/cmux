@@ -1,0 +1,54 @@
+// Workbench Light: the same dense workbench in daylight. A cool off-white page (#f6f7f9), the
+// sidebar one step deeper (#eceef2) behind a hairline, blue-gray ink, and the calm blue a step
+// deeper (#2f6fd6) so it still marks focus on white.
+{
+  "name": "Workbench Light",
+  "description": "Light: off-white, blue-gray text, one calm blue.",
+
+  "appearance.theme": "Builtin Light",
+  // The window, sidebar and pages take that theme too, over an App Theme of your own.
+  "appearance.appTheme": "followTerminal",
+  "colors": { "background": "#f6f7f9", "foreground": "#1d2330", "selection": "#d9e2f0", "accent": "#2f6fd6" },
+  "appearance.accent": "theme",
+  "ghostty": [
+    "background = #f6f7f9",
+    "foreground = #1d2330",
+    "cursor-color = #2f6fd6",
+    "cursor-text = #f6f7f9",
+    "selection-background = #d9e2f0",
+    "selection-foreground = #1d2330"
+  ],
+
+  "appearance.background": "none",
+  "appearance.fontSmoothing": "antialiased",
+
+  // Layout: flat panes with a hairline between the sidebar and the work, everything tight.
+  "appearance.chromeStyle": "flat-sidebar-line",
+  "appearance.borders": "default",
+  "appearance.titleAreaTone": "oneColor",
+  "appearance.density": "compact",
+
+  // Proportions: a narrow 232 pt sidebar of 24 pt rows, 12 pt chrome text, a 30 pt tab strip.
+  "appearance.metrics.sidebarWidth": 232,
+  "appearance.metrics.sidebarRowHeight": 24,
+  "appearance.metrics.chromeFontSize": 12,
+  "appearance.metrics.tabStripHeight": 30,
+  "appearance.metrics.tabFontSize": 12,
+  "appearance.metrics.columnGap": 0,
+  "appearance.metrics.dividerThickness": 1,
+
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#eceef2",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "sidebar.sectionLook": "lines",
+  "appearance.surfaces.agentPane.color": "#f6f7f9",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "appearance.surfaces.tabBar.color": "#eceef2",
+  "appearance.surfaces.tabBar.opacity": 1,
+  "appearance.surfaces.splitDivider.color": "#d5d9e0",
+  "appearance.surfaces.splitDivider.opacity": 1,
+
+  "appearance.statusIndicator.style": "braille",
+
+  "terminal.fontSize": 12
+}

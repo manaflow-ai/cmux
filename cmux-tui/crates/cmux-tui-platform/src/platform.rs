@@ -536,11 +536,16 @@ pub fn config_path() -> Option<PathBuf> {
     config_dir().map(preferred_config_path)
 }
 
+/// cmux's folder under the config base: `cmux-next` on macOS, where `cmux`
+/// is cmux Classic's; `cmux` elsewhere.
+#[cfg(not(windows))]
+const CONFIG_DIR_NAME: &str = if cfg!(target_os = "macos") { "cmux-next" } else { "cmux" };
+
 #[cfg(not(windows))]
 fn config_dir() -> Option<PathBuf> {
     env_path("XDG_CONFIG_HOME")
-        .map(|config_home| config_home.join("cmux"))
-        .or_else(|| home_dir().map(|home| home.join(".config").join("cmux")))
+        .map(|config_home| config_home.join(CONFIG_DIR_NAME))
+        .or_else(|| home_dir().map(|home| home.join(".config").join(CONFIG_DIR_NAME)))
 }
 
 #[cfg(windows)]
@@ -1035,6 +1040,65 @@ pub fn foreground_job_name(pid: u32) -> Option<String> {
 pub fn shell_holds_foreground(pid: u32) -> bool {
     foreground_process_group(pid)
         .is_some_and(|leader| leader == pid || crate::kinfo_proc::login_session_shell(pid, leader))
+}
+
+/// Whether the shell of a terminal whose PTY child is `pid` runs any process of its own: a
+/// foreground job, a background job (`cmd &`), a suspended one (vim after ^Z), or a program its
+/// startup files left running. On macOS a terminal's PTY child can be login(1), whose one child
+/// is the shell: the shell's children are read then. `None` when it cannot be told (the process
+/// table did not answer, login(1) has no or several children, or the platform has no reader):
+/// a caller that would end the shell keeps it running then.
+pub fn shell_has_children(pid: u32) -> Option<bool> {
+    let children = child_pids(pid)?;
+    #[cfg(target_os = "macos")]
+    if crate::kinfo_proc::KinfoProc::read(pid).is_some_and(|child| child.command() == b"login") {
+        return match children.as_slice() {
+            [shell] => child_pids(*shell).map(|children| !children.is_empty()),
+            [] => None,
+            _ => Some(true),
+        };
+    }
+    Some(!children.is_empty())
+}
+
+/// The pids whose parent is `pid`; `None` when the kernel did not answer.
+#[cfg(target_os = "linux")]
+pub fn child_pids(pid: u32) -> Option<Vec<u32>> {
+    // A shell is one thread, so its main thread's list holds every child.
+    let children = std::fs::read_to_string(format!("/proc/{pid}/task/{pid}/children")).ok()?;
+    Some(children.split_whitespace().filter_map(|child| child.parse::<u32>().ok()).collect())
+}
+
+/// The pids whose parent is `pid`; `None` when the kernel did not answer.
+#[cfg(target_os = "macos")]
+pub fn child_pids(pid: u32) -> Option<Vec<u32>> {
+    let pid = libc::pid_t::try_from(pid).ok()?;
+    // SAFETY: a null buffer asks libproc for the size it needs.
+    let count = unsafe { libc::proc_listchildpids(pid, std::ptr::null_mut(), 0) };
+    let count = usize::try_from(count).ok()?;
+    if count == 0 {
+        return Some(Vec::new());
+    }
+    let mut children = vec![0 as libc::pid_t; count];
+    let bytes =
+        libc::c_int::try_from(children.len().saturating_mul(size_of::<libc::pid_t>())).ok()?;
+    // SAFETY: `children` owns a writable buffer of exactly `bytes` bytes.
+    let written = unsafe { libc::proc_listchildpids(pid, children.as_mut_ptr().cast(), bytes) };
+    let written = usize::try_from(written).ok()?;
+    Some(
+        children
+            .into_iter()
+            .take(written.min(count))
+            .filter(|child| *child > 0)
+            .filter_map(|child| u32::try_from(child).ok())
+            .collect(),
+    )
+}
+
+/// The pids whose parent is `pid`; `None`: this platform has no reader.
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+pub fn child_pids(_pid: u32) -> Option<Vec<u32>> {
+    None
 }
 
 #[cfg(target_os = "linux")]

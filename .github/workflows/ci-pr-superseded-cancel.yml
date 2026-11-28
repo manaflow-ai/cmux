@@ -1,0 +1,51 @@
+name: CI PR run cleanup
+
+# One dispatcher owns both pull-request run cleanup paths:
+# - synchronize cancels runs on older heads with cancel_superseded_pr_runs.py.
+# - closed joins ci.yml's pull-request concurrency group so merged/closed PR runs end.
+# The closed event's job is skipped; concurrency cancellation does the work
+# before a runner is allocated. Release, nightly and promote workflows are never
+# selected by the cancellation script.
+on:
+  pull_request:
+    types: [closed, synchronize]
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.event.action == 'closed' && (contains(github.event.pull_request.labels.*.name, 'no-janitor') && format('ci-pr-closed-kept-{0}', github.event.pull_request.number) || format('CI-refs/pull/{0}/merge', github.event.pull_request.number)) || format('ci-pr-superseded-cancel-{0}', github.event.pull_request.number) }}
+  cancel-in-progress: true
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (expired fetch fallback retained for reproducibility).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
+jobs:
+  cancel:
+    name: Cancel runs on older heads
+    if: github.repository == 'manaflow-ai/cmux' && github.event.action == 'synchronize' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'no-janitor')
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 3
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Check out the cancel script
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/cancel_superseded_pr_runs.py
+            scripts/ci/shed_superseded_runs.py
+            scripts/ci/deadline_http.py
+            /.gitmodules
+          sparse-checkout-cone-mode: false
+
+      - name: Cancel this pull request's runs on older heads
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SELF_RUN_ID: ${{ github.run_id }}
+        run: python3 scripts/ci/cancel_superseded_pr_runs.py

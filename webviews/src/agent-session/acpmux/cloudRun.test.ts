@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { inlineToken, promptBlocks, type ComposerAttachment } from "./attachments";
 import { setCloudPlanForTest } from "./cloudMachines";
 import type { AcpmuxHostConfig } from "./direct";
+import { cloudSendAgent } from "./cloudModePick";
 import {
   cloudFolderGrants,
   cloudPageRefusal,
@@ -36,6 +37,18 @@ test("sign-in recovery can be reused after its card resets", async () => {
   retry.reset();
   await expect(retry()).resolves.toBe(true);
   expect(starts).toBe(2);
+});
+
+test("an explicit Cloud Gemini pick stays on Cloud even when a local first turn is possible", async () => {
+  const cloudStart = { task: "fix it", cwd: "/Users/me/paint" };
+  const cloudPick = cloudSendAgent("gemini", "gemini", "gemini-3.1-pro-preview", true);
+  const localPick = cloudSendAgent("claude", "claude", "sonnet");
+  const call = async (_method: string, params: Record<string, unknown>) => {
+    if (params.cloudOnly !== true) throw { code: "run_on_this_mac" };
+    expect(params).toMatchObject({ harness: "gemini", model: "gemini-3.1-pro-preview", cloudOnly: true });
+  };
+  expect(cloudRunsHere(await startCloudChat(call, { ...cloudStart, ...localPick }))).toBe(true);
+  expect(await startCloudChat(call, { ...cloudStart, ...cloudPick })).toEqual({ ok: true });
 });
 
 test("a reset while a sign-in is out leaves the next card its own retry", async () => {
@@ -558,13 +571,12 @@ test("a Cloud start waits only for the grant of the folder it sends", async () =
   expect(host.calls.at(-1)).toBe("cloud.startChat");
 });
 
-test("the pane builds its Cloud start from grantedCloudStart and hands every Cloud pick's grant to it", () => {
+test("the pane builds its Cloud start from grantedCloudStart and uses the existing New Tab folder grants", () => {
   const source = readFileSync(join(import.meta.dir, "App.tsx"), "utf8");
   expect(source).toMatch(/const \[cloudFolderGrant\] = useState\(\(\) => cloudFolderGrants\(\)\);/);
   expect(source).toMatch(
     /const \[startCloud\] = useState\(\(\) =>\s*grantedCloudStart\(\s*pickedChatCloudCall\(reservedCloudCall\(callNative, cloudReservation\), \(ms\) => harnessSwitch\.pickSession\(ms\)\),\s*cloudFolderGrant,?\s*\),?\s*\);/,
   );
-  expect(source).toMatch(/cloudFolderGrant\.granting\(\s*folder\.cwd,\s*pickFolder\(callNative, folder\.cwd/);
   // The New Tab page's pick is drawn in the pane body (pane/PaneBody.tsx).
   const body = readFileSync(join(import.meta.dir, "pane", "PaneBody.tsx"), "utf8");
   expect(body).toMatch(/newTabProjectPick\(callNative, cloudOfferable, cloudFolderGrant\.granting\)/);

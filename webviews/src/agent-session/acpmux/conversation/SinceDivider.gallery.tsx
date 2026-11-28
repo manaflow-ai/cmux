@@ -7,7 +7,8 @@
 // stand in for what the app's applyTheme sets (--cmux-app-* from cmux-theme-tokens app_theme.rs):
 // the component reads only those tokens. References: chat apps' unread line (a rule with a NEW
 // tag at its end), their "N new messages since" bar, and the accent "New" line with a "New messages"
-// pill; the glass of Jump to latest (cmux-design-references cmux-next/live/
+// pill; the terminal chat's "157 new messages" rule, a hairline broken by a centered muted count
+// (Leo, 2026-11-15: "we needto properly do somthing like this in the gui somehow"); the glass of Jump to latest (cmux-design-references cmux-next/live/
 // transcript-jump-to-latest-glass-too-transparent). The whole pane with the jump pair is
 // agent-pane.unread-marker.
 import type React from "react";
@@ -65,10 +66,16 @@ function Reply({ text }: { text: string }) {
 /// The new turn's "Worked for" line, drawn with the transcript's own classes (conversation.css), the
 /// toggle's included: its divider sits a foot gap under its words, and the mark must light that
 /// divider, not draw its own over the words' bottom (manaflow-ai/cmux#51002).
-function Worked() {
+function Worked({ tokens = false }: { tokens?: boolean }) {
   return (
     <div className="cv-worked has-divider is-toggle" style={{ color: "var(--agent-muted)" }}>
-      Worked for 31s
+      <span className="cv-worked__label">{tokens ? "Worked for 4m 12s" : "Worked for 31s"}</span>
+      {tokens && (
+        <span className="cv-worked__count">
+          <span aria-hidden="true">·</span>
+          <span className="cv-worked__tokens">679.9K tokens</span>
+        </span>
+      )}
     </div>
   );
 }
@@ -84,9 +91,13 @@ type Props = {
   none?: boolean;
   /// The next row is the running turn's "Working for" line (row kind `working`), not a finished one.
   working?: boolean;
+  /// The messages under the line ("157 new messages"); 0 for a line not counted yet ("New").
+  count?: number;
   /// The next row is a "Background task finished" line, no Worked for divider: the mark draws its own
   /// rule, centred in the gap (manaflow-ai/cmux#51747).
   task?: boolean;
+  /// The Worked for line carries its time and tokens, the widest it gets: the tag must keep off it.
+  tokens?: boolean;
 };
 
 /// A "Background task finished" line (BackgroundTurnLine.tsx), the turn's tail: 8 px under the row
@@ -114,7 +125,9 @@ function UnreadLooks({
   mode = "expanded",
   none = false,
   working = false,
+  count = 157,
   task = false,
+  tokens = false,
 }: Props) {
   const gap = task ? TAIL_GAP : TURN_GAP;
   return (
@@ -141,6 +154,7 @@ function UnreadLooks({
             onJump={() => {}}
             mode={mode}
             forceShown
+            {...(count > 0 && { count })}
           />
         </div>
       )}
@@ -152,7 +166,7 @@ function UnreadLooks({
           from the model (the line's row is 0 px, model.ts), so the row's own min-height and bottom
           padding (.acpmux-row) never move the next one; here they would, so they are off. */}
       <div
-        className="acpmux-row"
+        className="acpmux-row acpmux-sinceDivider"
         style={
           {
             position: "relative",
@@ -183,6 +197,7 @@ function UnreadLooks({
             look={look}
             read={read}
             dwellMs={60 * 60_000}
+            {...(count > 0 && { count })}
           />
         )}
       </div>
@@ -199,7 +214,7 @@ function UnreadLooks({
           ...(task && { minHeight: 0 }),
         }}
       >
-        {task ? <TaskLine /> : <Worked />}
+        {task ? <TaskLine /> : <Worked tokens={tokens} />}
       </div>
       <Reply text="Missing fields now default instead of failing; I added a test for each one." />
       <Reply text="The fuzz corpus ran clean for 10 minutes. The PR is ready for review." />
@@ -219,12 +234,40 @@ export default componentEntry<Props>({
   load: async () => UnreadLooks,
   variants: {
     "line-worked": {
-      note: "B (shipped): folded into the next turn's Worked for line: New at its end and its rule lit in the accent; no height, it fades back to the plain rule.",
+      note: 'B (shipped): folded into the next turn\'s Worked for line: "157 new messages" at its end and its rule lit in the accent; no height, it fades back to the plain rule.',
       props: { part: "line", theme: "dark", look: "worked" },
     },
+    "line-worked-tokens": {
+      note: 'B over the widest Worked for line (time and tokens): the tag keeps to its row at every width, "157 new messages" where there is room, "New" where it is tight, and at ultra tight "New" shrinks toward the line\'s end and fades (Leo, 2026-11-22: "at ultra tightness the new can shrink well and fade").',
+      props: { part: "line", theme: "dark", look: "worked", tokens: true },
+    },
+    "line-worked-uncounted": {
+      note: 'B before the rows are counted (or past the count\'s reach): "New" at its end, as before.',
+      props: { part: "line", theme: "dark", look: "worked", count: 0 },
+    },
     "line-thin": {
-      note: "A: a thin accent hairline across the middle of the turn gap, no word and no pill; no height, it fades and narrows away.",
+      note: 'A: a thin accent hairline across the middle of the turn gap, "157 new messages" muted at its center, as the terminal chat draws it; no height, it fades and narrows away toward the words.',
       props: { part: "line", theme: "dark", look: "line" },
+    },
+    "line-thin-few": {
+      note: 'A after a short absence: "3 new messages". The count grows in place as rows arrive; only the words widen, never the row.',
+      props: { part: "line", theme: "dark", look: "line", count: 3 },
+    },
+    "line-thin-one": {
+      note: 'A with one message: "1 new message", the singular.',
+      props: { part: "line", theme: "dark", look: "line", count: 1 },
+    },
+    "line-thin-capped": {
+      note: 'A past the cap: "999+ new messages", so counting stays bounded however long the chat ran.',
+      props: { part: "line", theme: "dark", look: "line", count: 4_210 },
+    },
+    "line-thin-uncounted": {
+      note: "A before the rows are counted: the plain hairline, no words.",
+      props: { part: "line", theme: "dark", look: "line", count: 0 },
+    },
+    "line-thin-light": {
+      note: "A with its count in the light theme.",
+      props: { part: "line", theme: "light", look: "line" },
     },
     "line-pill": {
       note: "C: a small New pill alone at the end of the turn gap, no rule; no height, it fades out.",
@@ -267,12 +310,16 @@ export default componentEntry<Props>({
       props: { part: "line", theme: "image", look: "worked" },
     },
     "banner-expanded": {
-      note: "Chosen: the glass bar at the top start, 3 new turns since 3:42 PM | Mark read | collapse chevron.",
+      note: "Chosen: the glass bar at the top start, the line's count: 157 new messages since 3:42 PM | Mark read | collapse chevron.",
       props: { part: "banner", theme: "dark", mode: "expanded" },
     },
     "banner-collapsed": {
       note: "Collapsed: a small pill with the arrow and the count; the chevron expands it again.",
       props: { part: "banner", theme: "dark", mode: "collapsed" },
+    },
+    "banner-turns": {
+      note: "Before the line's rows are counted: the turns acpmux counted, 3 new turns since 3:42 PM.",
+      props: { part: "banner", theme: "dark", mode: "expanded", count: 0 },
     },
     "banner-light": {
       note: "Expanded in the light theme.",

@@ -7,6 +7,7 @@ it was a new red on 9 of 40 sampled red pull request runs (2026-10-30). The hist
 so guards_new_reds.py --flaky keeps it a warning, while a test a push really broke stays the change's.
 """
 import io
+import os
 import itertools
 import json
 from pathlib import Path
@@ -14,6 +15,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import textwrap
 import time
 import unittest
 import zipfile
@@ -99,13 +101,18 @@ class ShardSize(unittest.TestCase):
         for name in WEBVIEW_JOBS:
             runs_on = self.jobs[name]["runs-on"]
             self.assertNotIn("linux_16", runs_on, name)
-            self.assertEqual(runs_on, one_linux_label.CANONICAL, name)
+            # #50078 (Leo, 2026-11-23): the React shards read CI_REACT_SHARD_RUNNER first; unset, they take cmux-linux.
+            self.assertEqual(runs_on, one_linux_label.CANONICAL.replace("|| 'cmux-linux'", "|| vars.CI_REACT_SHARD_RUNNER || 'cmux-linux'"), name)
+            for kind in ("push", "same-repository pull request"):
+                knob = {**EVENTS[kind], "vars.CI_REACT_SHARD_RUNNER": "cmux-linux-react"}
+                self.assertEqual(evaluate(runs_on, knob), "cmux-linux-react", f"{name} {kind}")
+            for kind in ("fork pull request", "fork repository"):
+                knob = {**EVENTS[kind], "vars.CI_REACT_SHARD_RUNNER": "cmux-linux-react"}
+                self.assertEqual(evaluate(runs_on, knob), "ubuntu-24.04", f"{name} {kind}")
             self.assertEqual(evaluate(runs_on, EVENTS["push"]), "cmux-linux", name)
             self.assertEqual(evaluate(runs_on, EVENTS["same-repository pull request"]), "cmux-linux", name)
             self.assertEqual(evaluate(runs_on, EVENTS["fork pull request"]), "ubuntu-24.04", name)
             self.assertEqual(evaluate(runs_on, EVENTS["fork repository"]), "ubuntu-24.04", name)
-            forked = {**EVENTS["fork pull request"], "vars.CI_FORK_LINUX_RUNNER": "ubuntu-24.04-large"}
-            self.assertEqual(evaluate(runs_on, forked), "ubuntu-24.04-large", name)
 
     def test_a_post_merge_batch_shard_reads_the_owned_runner(self):
         """Run 44990794651's batch shards read linux_4 (a workflow_dispatch is neither a push nor a pull request) and
@@ -255,6 +262,78 @@ class Known(unittest.TestCase):
         pushes = history.record(pushes, "sha1", 1001, {FILE: True}, "same")
         base, replay = history.known(pushes, "same", head)
         self.assertEqual((base, replay), ({TEST: True, f"{FILE} > new test": True}, [other]))
+
+
+class HeldRedFiles(unittest.TestCase):
+    """A pull request's shards leave files red on the base for a day to the batch runs (ci-web.yml, held-red-files)."""
+
+    def pushes(self, *verdicts, start=0, step=3600 * 6):
+        out = []
+        for i, verdict in enumerate(verdicts):
+            out = history.record(out, f"sha{i}", start + i * step, {TEST: False} if verdict is False else {FILE: True}, f"k{i}")
+        return out
+
+    def test_a_file_red_on_every_push_for_a_day_is_held(self):
+        pushes = self.pushes(True, False, False, False, False, False)  # red from 6 h to 30 h
+        self.assertEqual(history.held_red_files(pushes, 30 * 3600, 24),
+                         [{"file": FILE, "first": "sha1", "hours": 24.0}])
+        # Under a day red, a green on the newest push, off (0 h), or the change edits the file: it runs.
+        self.assertEqual(history.held_red_files(pushes, 30 * 3600, 25), [])
+        self.assertEqual(history.held_red_files(self.pushes(False, False, False, False, False, True), 30 * 3600, 24), [])
+        self.assertEqual(history.held_red_files(pushes, 30 * 3600, 0), [])
+        self.assertEqual(history.held_red_files(pushes, 30 * 3600, 24, {FILE}), [])
+
+    def test_a_history_older_than_the_hours_holds_nothing(self):
+        pushes = self.pushes(False, False, False, False, False, False)
+        self.assertEqual(history.held_red_files(pushes, 30 * 3600 + 25 * 3600, 24), [])
+        # Pushes newer than the merge parent are not read.
+        self.assertEqual(history.held_red_files(pushes, 3 * 3600, 24), [])
+
+    def test_the_command_writes_the_list(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path, out, changed = Path(tmp) / "h.json", Path(tmp) / "held", Path(tmp) / "changed"
+            path.write_text(json.dumps({"runs": self.pushes(True, False, False, False, False, False)}), encoding="utf-8")
+            changed.write_text("src/other.ts\n", encoding="utf-8")
+            done = subprocess.run([sys.executable, str(SCRIPT), "held-red-files", str(path), "--before", str(30 * 3600),
+                                   "--hours", "24", "--changed", str(changed), "--out", str(out)],
+                                  capture_output=True, text=True, check=False)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertEqual(out.read_text(encoding="utf-8"), FILE + "\n")
+            self.assertIn(f"HELD RED {FILE} since sha1", done.stdout)
+
+
+class KnownHeldRed(unittest.TestCase):
+    """A red no push at the merge parent's key answers, held red on the base's last pushes at any inputs, is a base red
+    without a replay (job 137269052440: 0 answered at its key, 168 files replayed for 55 min)."""
+
+    NOW = 1001 + 3600
+
+    def test_red_on_the_last_two_pushes_at_other_inputs_is_a_base_red(self):
+        pushes = runs(False, False, keys=["a", "b"])
+        self.assertEqual(history.known(pushes, "same", {TEST: False}, now=self.NOW), ({TEST: False}, []))
+        # A file that crashed on the base (a file-level red) holds red for the head's file-level red too.
+        self.assertEqual(history.known(runs(None, None, keys=["a", "b"]), "same", {FILE: False}, now=self.NOW),
+                         ({FILE: False}, []))
+
+    def test_one_red_a_green_after_it_or_an_old_red_still_replays(self):
+        for pushes in (runs(False, keys=["a"]), runs(False, True, keys=["a", "b"]), runs(True, False, keys=["a", "b"])):
+            self.assertEqual(history.known(pushes, "same", {TEST: False}, now=self.NOW), ({}, [FILE]), pushes)
+        # The newest red over a day before now: the base may have fixed it since.
+        old = self.NOW + history.HELD_RED_AGE_S
+        self.assertEqual(history.known(runs(False, False, keys=["a", "b"]), "same", {TEST: False}, now=old), ({}, [FILE]))
+
+    def test_a_file_crash_says_nothing_for_a_named_test_and_a_new_red_keeps_the_file_whole(self):
+        # The crash run is skipped: the two named reds around it hold.
+        pushes = runs(False, None, False, keys=["a", "b", "c"])
+        self.assertEqual(history.known(pushes, "same", {TEST: False}, now=self.NOW + 2), ({TEST: False}, []))
+        head = {TEST: False, f"{FILE} > new test": False}
+        self.assertEqual(history.known(runs(False, False, keys=["a", "b"]), "same", head, now=self.NOW), ({}, [FILE]))
+
+    def test_the_exact_key_still_decides_first(self):
+        # Green twice at the merge parent's key: the change's red, whatever older pushes held.
+        pushes = runs(False, False, keys=["a", "b"]) + [dict(r, sha=f"x{i}", time=2000 + i)
+                                                        for i, r in enumerate(runs(True, True))]
+        self.assertEqual(history.known(pushes, "same", {TEST: False}, now=2001), ({TEST: True}, []))
 
 
 class KnownReds(unittest.TestCase):
@@ -896,6 +975,32 @@ class Fetch(unittest.TestCase):
         get, _ = self.serve(listed(item(1, "2026-11-08T10:00:00Z")), {1: artifact_zip("nope")})
         self.assertEqual(history.fetch("o/r", "feat-cmux-next", None, get=get)[::2], ([], False))
 
+    def test_a_rate_limited_list_is_listed_again_after_its_reset_within_the_wait(self):
+        # Ticks 45026611875 and 45037396919 (2026-11-22): a 403 with no quota left saved no history for a day.
+        flaky_runs = runs(True, False)
+        get, calls = self.serve(listed(item(1, "2026-11-08T10:00:00Z")), {1: artifact_zip(flaky_runs)})
+        limited = {"x-ratelimit-remaining": "0", "x-ratelimit-reset": "1600"}
+        answers = [(403, limited, b"")]
+
+        def first_limited(url, token):
+            if answers:
+                calls.append((url, token))
+                return answers.pop()
+            return get(url, token)
+        slept = []
+        found, _, read = history.fetch("o/r", "feat-cmux-next", None, get=first_limited, wait=900,
+                                       sleep=slept.append, clock=lambda: 1000)
+        self.assertEqual((found, read, slept), (flaky_runs, True, [600 + history.RATE_WAIT_SLACK_S]))
+        # A reset past the wait, no wait, or a 403 that is not a rate limit: no sleep, unread.
+        for wait, headers in ((300, limited), (0, limited), (900, {})):
+            answers[:] = [(403, headers, b"")]
+            slept.clear()
+            self.assertEqual(history.fetch("o/r", "feat-cmux-next", None, get=first_limited, wait=wait,
+                                           sleep=slept.append, clock=lambda: 1000)[::2], ([], False))
+            self.assertEqual(slept, [])
+        self.assertEqual(history.rate_wait(429, {"Retry-After": "30"}, 0), 30.0)
+        self.assertIsNone(history.rate_wait(404, limited, 0))
+
     def test_the_command_always_writes_a_history_and_exits_zero(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "h" / "history.json"
@@ -1053,6 +1158,186 @@ class Workflow(unittest.TestCase):
         end = re.search(r"\n  [a-z][a-z0-9-]*:\n", text[start + 1:])
         return text[start:start + 1 + end.start()] if end else text[start:]
 
+    def test_bundle_consumers_install_once_built_outputs_and_reject_bad_manifests(self):
+        """Execute each consumer with instrumented builders: shards/replays never silently recompile artifacts."""
+        import yaml
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        cases = [("react-apps-check-shard", "Build the web bundles", "head", "head", "", False),
+                 ("react-apps-base-early", "Build base web bundles", "base", "head", "base", False),
+                 ("react-apps-base-check", "Build head web bundles", "head", "head", "", False),
+                 ("react-apps-base-check", "Build base web bundles", "base", "head", "base", False),
+                 ("react-apps-base-check", "Build base web bundles", "head", "head", "", False),
+                 ("react-apps-base-check", "Build base web bundles", "base", "head", "", True)]
+        for job, name, key, head, base, compiles in cases:
+            script = next(s["run"] for s in jobs[job]["steps"] if s.get("name") == name)
+            for valid in (True, False):
+                with self.subTest(job=job, name=name, key=key, base=base, valid=valid), tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    (root / "scripts/cmux-next").mkdir(parents=True)
+                    (root / "scripts/ci").mkdir(parents=True)
+                    (root / "webviews").mkdir()
+                    (root / "scripts/cmux-next/web-bundle-key.py").write_text("import os; print(os.environ['KEY'])")
+                    verifier = "import os,sys; sys.exit(0 if os.environ['VALID'] == '1' else 1)"
+                    (root / "scripts/ci/compile_preflight.py").write_text(verifier)
+                    (root / "compile_preflight.py").write_text(verifier)
+                    builder = root / "scripts/cmux-next/build-web-bundles.sh"
+                    builder.write_text('#!/bin/bash\nprintf "%s\\n" "$*" >> "$RUNNER_TEMP/builds"\n')
+                    builder.chmod(0o755)
+                    bun = root / "bun"
+                    bun.write_text("#!/bin/bash\nexit 0\n")
+                    bun.chmod(0o755)
+                    env = dict(os.environ, RUNNER_TEMP=tmp, PATH=tmp + os.pathsep + os.environ["PATH"],
+                               GITHUB_EVENT_NAME="pull_request", BASE_ARTIFACT=base, HEAD_ARTIFACT=head, KEY=key, VALID="1" if valid else "0")
+                    result = subprocess.run(["bash", "-e", "-c", script], cwd=root, env=env, capture_output=True, text=True)
+                    if valid or compiles:
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        calls = (root / "builds").read_text().splitlines()
+                        self.assertEqual(len(calls), 1)
+                        self.assertEqual(calls[0].startswith("--force"), compiles)
+                        if not compiles:
+                            self.assertIn("--from", calls[0])
+                    else:
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertFalse((root / "builds").exists(), "invalid output must not trigger a duplicate fallback build")
+        source = next(s["run"] for s in jobs["react-apps-check-shard"]["steps"] if s.get("id") == "source-build")
+        self.assertIn("check-webviews-bun-version.sh", source)
+        self.assertIn("verify:tanstack-router", source)
+        self.assertIn('if [ "$GITHUB_EVENT_NAME" != pull_request ]; then', source)
+        self.assertEqual(source.count("build-webviews-app.sh"), 1)
+
+    def test_non_pr_historical_sources_keep_their_old_build_path_when_producer_skips(self):
+        import yaml
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        shard = jobs["react-apps-check-shard"]
+        steps = {s.get("id"): s for s in shard["steps"]}
+        def enabled(expression, event_name):
+            context = {"github.event_name": event_name, "needs.web-subarea-scope.result": "success",
+                       "needs.react-apps-head-bundles.result": "skipped", "inputs.web": "true",
+                       "inputs.only": "", "needs.web-subarea-scope.outputs.react_apps": "true"}
+            body = expression.removeprefix("${{").removesuffix("}}")
+            body = re.sub(r"\b(?:github|vars|needs|inputs)(?:\.[A-Za-z_*][\w*-]*)+",
+                          lambda m: repr(context.get(m.group(0), "")), body)
+            return eval(body.replace("!cancelled()", "True").replace("&&", " and ").replace("||", " or "),
+                        {"__builtins__": {}}, {"true": True, "false": False, "contains": lambda a, b: b in a})
+        for event_name in ("workflow_dispatch", "push"):
+            with self.subTest(event=event_name), tempfile.TemporaryDirectory() as tmp:
+                self.assertFalse(enabled(jobs["react-apps-head-bundles"]["if"], event_name))
+                self.assertTrue(enabled(shard["if"], event_name), "skipped producer cannot skip non-PR tests")
+                root = Path(tmp)
+                (root / "scripts/cmux-next").mkdir(parents=True)
+                for name in ("scripts/build-webviews-app.sh", "scripts/cmux-next/build-web-bundles.sh"):
+                    path = root / name
+                    path.write_text('#!/bin/bash\nprintf "%s\\n" "$*" >> "$RUNNER_TEMP/builds"\n')
+                    path.chmod(0o755)
+                # Deliberately no manifest helper, R2 action or source-key script: a historical probe predates them.
+                env = dict(os.environ, RUNNER_TEMP=tmp, GITHUB_EVENT_NAME=event_name, RESTORED="")
+                for step in ("source-build", "bundles"):
+                    result = subprocess.run(["bash", "-e", "-c", steps[step]["run"]], cwd=root, env=env,
+                                            capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual((root / "builds").read_text().splitlines(), ["--check --skip-typecheck", "--force"])
+
+    def test_early_bundle_plan_builds_only_for_known_red_files_and_distinct_sources(self):
+        import yaml
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        plan = next(s["run"] for s in jobs["web-subarea-scope"]["steps"] if s.get("id") == "base-bundle-plan")
+        producer = jobs["react-apps-base-bundles"]
+        self.assertIn("base_bundle_ref != ''", producer["if"])
+        self.assertIn("base_bundle_same != 'true'", producer["if"])
+        for red, same in ((False, False), (True, False), (True, True)):
+            with self.subTest(red=red, same=same), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "scripts/cmux-next").mkdir(parents=True)
+                (root / "scripts/ci").mkdir(parents=True)
+                (root / "scripts/ci/webviews_test_history.py").write_text(SCRIPT.read_text())
+                (root / "scripts/cmux-next/web-bundle-key.py").write_text("from pathlib import Path; print(Path('input').read_text())")
+                (root / "webviews/test").mkdir(parents=True)
+                (root / "webviews/test/one.test.ts").write_text("test")
+                (root / "input").write_text("base")
+                env = git_fixture_env.fixture_env(dict(os.environ, RUNNER_TEMP=tmp, GITHUB_OUTPUT=str(root / "output"), REACT_APPS_CLASS="full"))
+                def git(*args):
+                    return subprocess.check_output(["git", *args], cwd=root, env=env, text=True).strip()
+                git("init", "-q")
+                git("add", ".")
+                git("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qm", "base")
+                base = git("rev-parse", "HEAD")
+                if not same:
+                    (root / "input").write_text("head")
+                git("add", ".")
+                git("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-qm", "head")
+                head = git("rev-parse", "HEAD")
+                duration = root / "webviews-durations"
+                duration.mkdir()
+                (duration / "base-reds.json").write_text(json.dumps({"inputs": "fixture", "red": ["test/one.test.ts > test"] if red else []}))
+                (duration / "manifest.json").write_text("{}")
+                result = subprocess.run(["bash", "-e", "-c", plan], cwd=root, env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(git("rev-parse", "HEAD"), head, "planning restores the source checkout")
+                output = (root / "output").read_text() if (root / "output").exists() else ""
+                self.assertEqual("ref=" in output, red)
+                self.assertEqual("same=true" in output, red and same)
+                if red:
+                    self.assertIn(base, output)
+
+    def test_a_pull_request_shard_stopped_before_its_results_is_red(self):
+        """A SIGTERM'd test step under continue-on-error left the shard green, so a failed-job rerun never retried it
+        and the base check failed on every attempt (cmux#49337, run 44955291325). The gate step fails it."""
+        shard = self.job("react-apps-check-shard")
+        gate = shard[shard.index("      - name: Fail on the gate checks"):]
+        self.assertIn("WEBVIEW_TESTS: ${{ steps.webview-tests.outcome }}", gate)
+        script = gate[gate.index("run: |") + len("run: |"):]
+        script = textwrap.dedent(script.split("\n      - name: ")[0])
+        script = script[:script.index("for gate in")] + 'exit "$failed"\n'
+        with tempfile.TemporaryDirectory() as tmp:
+            results = Path(tmp) / "webviews-head-results.json"
+            def run(event, outcome):
+                env = dict(os.environ, GITHUB_EVENT_NAME=event, WEBVIEW_TESTS=outcome, HEAD_RESULTS=str(results))
+                return subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True).returncode
+            self.assertEqual(run("pull_request", "failure"), 1)
+            self.assertEqual(run("push", "failure"), 0)
+            self.assertEqual(run("pull_request", "success"), 0)
+            results.write_text("{}")
+            self.assertEqual(run("pull_request", "failure"), 0)
+
+    def test_cache_only_history_stays_out_of_the_artifact_across_pushes(self):
+        import yaml
+        steps = {s["name"]: s for s in yaml.safe_load(WORKFLOW.read_text())["jobs"]["webviews-test-history"]["steps"]}
+        restore = steps["Restore the history"]["run"]
+        stage = steps["Stage the history for the cache"]
+        self.assertIn("steps.history-restore.outputs.fresh", stage["env"]["CACHE_ONLY"])
+        self.assertIn("steps.history-restore.outputs.fresh != 'true'", steps["Save the history"]["if"])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = root / "output"
+            history_file = root / "webviews-test-history/history.json"
+            cached = root / ".webviews-test-history-cache/history.json"
+            env = git_fixture_env.fixture_env({"RUNNER_TEMP": tmp, "GITHUB_OUTPUT": str(output),
+                                               "BRANCH": "base", "GITHUB_REPOSITORY": "o/r"})
+            # The fourth push restores the complete, unmarked cache saved after the artifact recovered.
+            pushes = [
+                ("cold cache", [], True),
+                ("cache after bootstrap", [0], True),
+                ("artifact recovered", ["canonical"], False),
+                ("complete cache", ["canonical", 2], False),
+            ]
+            for push, (source, expected_runs, cache_only) in enumerate(pushes):
+                with self.subTest(source=source):
+                    output.write_text("")
+                    fetch = "return 1"
+                    if source == "artifact recovered":
+                        fetch = """printf '%s' '{"runs":["canonical"]}' > "$3" """
+                    subprocess.run(["bash", "-eu", "-c", "python3() { " + fetch + "; }\n" + restore],
+                                   cwd=root, env=env, check=True)
+                    fresh = output.read_text().strip() == "fresh=true"
+                    self.assertEqual(fresh, cache_only)
+                    runs = json.loads(history_file.read_text())["runs"]
+                    self.assertEqual(runs, expected_runs)
+                    # The record command serializes the runs, dropping any cache metadata.
+                    history_file.write_text(json.dumps({"runs": runs + [push]}))
+                    subprocess.run(["bash", "-eu", "-c", stage["run"]], cwd=root,
+                                   env={**env, "CACHE_ONLY": str(fresh).lower()}, check=True)
+                    self.assertEqual(json.loads(cached.read_text()).get("cache_only", False), fresh)
+
     def test_pushes_save_the_history_and_pull_requests_only_read_it(self):
         upkeep = self.job("webviews-test-history")
         self.assertIn("github.event_name == 'push'", upkeep)
@@ -1066,16 +1351,30 @@ class Workflow(unittest.TestCase):
         # takes a key of its own and every restore takes the newest by prefix. The path is relative to the workspace
         # in both, since the cache version hashes the path as written and runner.temp differs between runners.
         scope = self.job("web-subarea-scope")
+        # The base check read the history over the API alone, and a 403 there replayed every red file (2026-11-21).
+        base_check = self.job("react-apps-base-check")
         for text, key in ((upkeep, "webviews-test-history-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}"),
-                          (scope, "webviews-test-history-${{ github.base_ref }}-${{ github.run_id }}")):
+                          (scope, "webviews-test-history-${{ github.base_ref }}-${{ github.run_id }}"),
+                          (base_check, "webviews-test-history-${{ github.base_ref }}-${{ github.run_id }}")):
             self.assertIn(f"key: {key}\n", text)
             paths = re.findall(r"path: ([^\n]+)\n\s+key: webviews-test-history-", text)
             self.assertTrue(paths)
-            self.assertEqual(set(paths), {".webviews-test-history-cache/history.json"})
+            # r2-cache.sh saves directories. Passing history.json itself quietly skips the upload.
+            self.assertEqual(set(paths), {".webviews-test-history-cache"})
+            self.assertIn("cached=.webviews-test-history-cache/history.json", text)
         self.assertIn("restore-keys: webviews-test-history-${{ github.ref_name }}-\n", upkeep)
         self.assertIn("restore-keys: webviews-test-history-${{ github.base_ref }}-\n", scope)
-        self.assertIn("actions/cache/save@", upkeep)
-        self.assertNotIn("actions/cache/save@", scope)
+        self.assertIn("uses: ./.github/actions/cache-save\n", upkeep)
+        self.assertNotIn("cache-save", scope)
+        self.assertIn("restore-keys: webviews-test-history-${{ github.base_ref }}-\n", base_check)
+        self.assertNotIn("cache-save", base_check)
+        self.assertIn("webview test history: the Actions cache's copy", base_check)
+        # R2, not the GitHub cache: that store is over its 10 GB cap and evicted the base's history before pull
+        # requests read it (2026-11-25), so base comparisons missed. Every save and restore of it names the backend.
+        for text in (upkeep, scope, base_check):
+            self.assertNotIn("actions/cache/", text.split("webviews-test-history-")[0][-400:])
+            self.assertEqual(len(re.findall(r"backend: r2\n\s+path: \.webviews-test-history-cache\n", text)),
+                             len(re.findall(r"path: \.webviews-test-history-cache\n\s+key:", text)))
         # Optional upkeep: every step keeps going, so a stalled download or save never reddens a push. Only the last
         # step, which names reds stuck on the base, may turn the job red, and it runs after the history is saved.
         steps = upkeep.split("\n      - name: ")[1:]
@@ -1259,15 +1558,18 @@ class Workflow(unittest.TestCase):
         import yaml
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         early, check = jobs["react-apps-base-early"], jobs["react-apps-base-check"]
-        self.assertEqual(early["needs"], "web-subarea-scope")  # alongside the head shards, not after them
+        self.assertIn("web-subarea-scope", early["needs"])
+        self.assertIn("react-apps-base-bundles", early["needs"])
+        self.assertNotIn("react-apps-check-shard", early["needs"])  # alongside tests, not after them
         # Off pull requests unless labelled full-ci (1.10% of PR runner-minutes, no red caught, 11-13..19), and never
         # a need of the base check: a skipped need would skip the required replay.
         self.assertNotIn("react-apps-base-early", check["needs"])
         self.assertIn("react-apps-check-shard", check["needs"])
         self.assertIs(early["continue-on-error"], True)
-        self.assertEqual(early["if"], check["if"].replace(
-            "github.event_name == 'pull_request' && ",
-            "github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci') && ", 1))
+        self.assertIn("contains(github.event.pull_request.labels.*.name, 'full-ci')", early["if"])
+        self.assertIn("!cancelled()", early["if"])
+        self.assertIn("!cancelled()", check["if"])  # skipped early producer must not skip the late replay
+        self.assertIn("needs.react-apps-check-shard.result == 'success'", check["if"])
         sys.path.insert(0, str(ROOT / "tests"))
         import workflow_jobs  # noqa: PLC0415
         self.assertEqual(workflow_jobs.runs_on(early), workflow_jobs.runs_on(check))

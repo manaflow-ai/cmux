@@ -45,7 +45,7 @@ import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bench_launch import BenchApp  # noqa: E402
+from bench_launch import BenchApp, bundle_executable  # noqa: E402
 from daemon_teardown import end_terminals  # noqa: E402
 
 STATIC_PAGE_HTML = "<!doctype html><title>idle</title><h1>static page</h1><p>no script, no animation</p>"
@@ -53,16 +53,17 @@ STATIC_PAGE_HTML = "<!doctype html><title>idle</title><h1>static page</h1><p>no 
 # ---------------------------------------------------------------------------
 # Process usage (proc_pid_rusage, RUSAGE_INFO_V4)
 
-_libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
-_libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+import macos_libs  # noqa: E402
+
+_libproc = macos_libs.library("/usr/lib/libproc.dylib")
+_libc = macos_libs.library("/usr/lib/libSystem.B.dylib")
 
 
 class _Timebase(ctypes.Structure):
     _fields_ = [("numer", ctypes.c_uint32), ("denom", ctypes.c_uint32)]
 
 
-_tb = _Timebase()
-_libc.mach_timebase_info(ctypes.byref(_tb))
+_tb = macos_libs.timebase_of(_libc, _Timebase())
 
 
 def usage(pid: int):
@@ -292,9 +293,9 @@ def main():
 
     tag = args.tag
     bundle = args.app or os.path.expanduser(f"~/Library/Developer/Xcode/DerivedData/cmux-{tag}/Build/Products/Debug/cmux DEV {tag}.app")
-    binary = os.path.join(bundle, "Contents/MacOS/cmux DEV")
-    if not os.path.exists(binary):
+    if not os.path.isdir(bundle):
         raise SystemExit(f"bench-idle: no app at {bundle}")
+    bundle_executable(bundle)  # a bench (Release) build's executable is not `cmux DEV`: its Info.plist names it
     if args.fresh:
         # Saved tabs (a restored Chromium tab starts CEF) would change every scenario.
         # NEXT's own folder and an older build's in classic's (a new build adopts that one at launch).

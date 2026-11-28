@@ -18,15 +18,9 @@
   --acpmux-minimap-rest: var(--agent-muted);
   --acpmux-minimap-text: var(--agent-text);
   --acpmux-minimap-card: color-mix(in srgb, var(--agent-text) 7.5%, var(--acpmux-minimap-base));
-  --acpmux-minimap-card-ring: color-mix(in srgb, var(--agent-text) 5%, var(--acpmux-minimap-base));
   /* The Codex rail's spring curve up to its end, run over the scale's micro step (120 ms): it reaches
      full length at 58.75% and stays there, never past it (Lawrence: no bounce in any motion). */
   --acpmux-minimap-spring: linear(0, 0.398 10%, 0.682 20%, 0.843 30%, 0.925 40%, 0.972 50%, 1 58.75%, 1);
-}
-/* appearance.borders none clears the popover's rim in place, as it clears the popups'. */
-:root[data-borders="none"] .acpmux-minimap,
-:root[data-borders="none"] .acpmux-minimap__card {
-  --acpmux-minimap-rim: transparent;
 }
 .acpmux-minimap__rail {
   position: absolute;
@@ -37,6 +31,20 @@
   isolation: isolate;
   will-change: transform;
   animation: acpmux-minimap-in var(--cmux-motion-micro) cubic-bezier(0.23, 1, 0.32, 1);
+}
+/* The prompt rail fades in only when it appears in a chat already drawn without it (ThreadMinimap.tsx
+   `data-arrive`): a chat opened, switched to or drawn again after a restart paints its rail final on
+   the first frame, as it paints its rows (Leo, 2026-11-25: "and then the scroll rail re-rednered").
+   The full-height map (ScrollMap.tsx) keeps its fade. */
+.acpmux-minimap__rail:not(.acpmux-scrollmap):not([data-arrive]) {
+  animation: none;
+}
+/* A selection drag that began in the text (ThreadMinimap.tsx textPress): the rail and its strip take
+   no pointer until it ends, so a drag along the pane edge keeps selecting and never reveals, widens or
+   captures the rail (Leo, 2026-11-22: "a lot of awkwardness when you try to e.g. copy text along this area"). */
+.acpmux-minimap__rail[data-text-press],
+.acpmux-minimap__strip[data-text-press] {
+  pointer-events: none !important;
 }
 .acpmux-minimap__strip {
   position: absolute;
@@ -66,6 +74,7 @@
    transcript at its ends. Its scrollbar is hidden in both engines, so the transcript's shared one is
    the only one on screen (SCROLLBARS-THIN; #23285 left this list a second visible scroller). */
 .acpmux-minimap__list {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -85,7 +94,7 @@
   display: none;
 }
 /* A rail longer than its room fades at an edge with more rows past it: 2.5rem, less in a short rail
-   (--acpmux-minimap-fade, model.ts railFade), and never over the prompts on screen (railFades). Each
+   (--acpmux-minimap-fade, model.ts railFade), and clear of the highlighted prompts when following the transcript. Each
    edge deepens as the list leaves that end (--acpmux-minimap-fade-*-reach, 0 to 1, model.ts
    railFadeReach): none at the very top or bottom, so the ticks roll under the edge like a wheel. The
    reaches do not inherit, so a scroll's new reach restyles the list and none of its ticks. */
@@ -372,33 +381,27 @@
   isolation: isolate;
   will-change: transform;
   box-sizing: border-box;
-  /* A hover card (PreviewCard.tsx: .ui-card.ui-glass): the one hover card glass of every other card
-     in the chat (the link preview, a session's card; glass.css GLASS LEVELS), its fill, frost, rim,
-     elevation and its text floor, never a recipe of its own (Leo, 2026-11-20: "WHERE IS THE GLASS
-     EVERYWHERE ALL THESE STUPID F***ING HOVER TOOLTIPS AND HOVER PREVIEW SHIT"). It drew the older
-     popover level by hand before. appearance.borders none clears the glass rim; Reduce Transparency
-     makes the fill the solid popup surface (--glass-opaque). */
+  /* ONE MATERIAL (design/glass-system.md, "One material per surface"; Leo, 2026-11-21, on this card
+     drawn as a dark slab: "shietttt this web thing got disconnected from its glass... where is our
+     proper glass redesign?"). The card is the chat's hover-card glass (.ui-glass.ui-glass-transient,
+     PreviewCard.tsx), marked for the App's glass (data-host-glass="popover"): in a see-through pane
+     the App draws its native popover material under it and the page lays nothing of its own (glass.css
+     HOST GLASS); otherwise, and in the 50 ms before the App answers, it is the page's one transient
+     glass. Before, it painted a private recipe outside .ui-glass (the popover level's 72% tint and its
+     own backdrop blur, a 5% ring) and was never marked: in Chromium's see-through pane its blur had
+     nothing to frost, so it read as an opaque box beside the menus on the App's glass. Its edge is the
+     glass's (appearance.borders none clears it); its drop is elevation 2, as every hover card's.
+     Reduce Transparency: the solid popup surface (--glass-opaque, which glass.css applies only there). */
+  --glass-elevation: var(--elevation-2);
   /* glass-opaque-allow: Reduce Transparency's fill only (glass.css applies it under that setting) */
   --glass-opaque: var(--surface-popup, var(--acpmux-minimap-card));
+  padding: var(--ds-space-2);
   border-radius: var(--ds-radius-xl);
   color: var(--agent-text);
   font: var(--text-body) / var(--text-body--line-height) var(--font-ui);
   letter-spacing: var(--text-body--letter-spacing);
   -webkit-font-smoothing: antialiased;
   cursor: default;
-}
-/* Reduce Transparency: the solid popup surface. */
-:root:is([data-reduce-transparency], [data-glass="off"]) .acpmux-minimap__card {
-  background: var(--surface-popup, var(--acpmux-minimap-card));
-}
-@media (prefers-reduced-transparency: reduce) {
-  .acpmux-minimap__card {
-    background: var(--surface-popup, var(--acpmux-minimap-card));
-  }
-}
-/* Its insets over desktop.css's .ui-card ones, whichever sheet loads last. */
-.acpmux-minimap__card.ui-card {
-  padding: var(--ds-space-2);
 }
 /* The sender of another session's message, above its words: secondary text, one line. */
 .acpmux-minimap__from {
@@ -595,6 +598,16 @@
 .acpmux-minimap__rail[data-hovering] .acpmux-scrollmap__view,
 .acpmux-minimap__rail[data-scrubbing] .acpmux-scrollmap__view {
   background: color-mix(in srgb, var(--acpmux-minimap-text) 9%, transparent);
+}
+/* The marks' list (an item per drawn mark, each naming its place among every prompt) draws no
+   box: each mark is placed on the rail itself. */
+.acpmux-scrollmap__marks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.acpmux-scrollmap__entry {
+  display: block;
 }
 .acpmux-scrollmap__mark.acpmux-minimap__tick {
   position: absolute;

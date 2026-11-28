@@ -36,6 +36,8 @@ pub struct Pending {
     pub redirect_uri: String,
     pub client_id: String,
     pub resource: String,
+    /// The registry's name for the server (`linear`), for the signed-in page; None off the registry.
+    pub app: Option<String>,
 }
 
 pub(super) fn agent() -> ureq::Agent {
@@ -147,6 +149,8 @@ pub struct Known {
     pub scope_delimiter: Option<String>,
     /// The server signs in with a device code (RFC 8628) and `client_id`.
     pub device: bool,
+    /// The registry entry's name (`linear`): the app the signed-in page names.
+    pub name: Option<String>,
 }
 
 /// An extra registry file (the builtin's shape) whose entries sign in like
@@ -179,6 +183,7 @@ impl Known {
             scopes: e.scopes.clone(),
             scope_delimiter: e.scope_delimiter.clone(),
             device: e.auth == cmux_mcp_connect::registry::AuthKind::Device,
+            name: Some(e.name.clone()),
         })
     }
 }
@@ -257,6 +262,7 @@ pub fn start(server_url: &str, www_authenticate: &str, known: &Known) -> Result<
             redirect_uri,
             client_id,
             resource,
+            app: known.name.clone(),
         },
     })
 }
@@ -281,7 +287,121 @@ pub fn with_scope_delimiter(url: &str, delimiter: &str) -> String {
     u.to_string()
 }
 
-const DONE_PAGE: &str = "<!doctype html><meta charset=utf-8><title>Signed in</title><body style=\"font:15px -apple-system,system-ui;margin:3em\"><h2>Signed in</h2><p>cmux Chief is connecting the server. You can close this tab.</p>";
+/// Where a finished browser sign-in lands: cmux.com's one "you're signed in, back to cmux" page
+/// (web/app/connected/route.ts), the same page the cloud's MCP callback ends on.
+pub const CONNECTED_PAGE_ORIGIN: &str = "https://cmux.com";
+
+/// `<origin>/connected?app=<name>&status=ok|error`. The name is the registry's (only registry
+/// servers have one), cut to `[a-z0-9-]`; anything else is `generic`, so no server-chosen text
+/// reaches the page's URL.
+pub fn connected_page_url(app: Option<&str>, ok: bool) -> String {
+    let app = app
+        .filter(|a| {
+            !a.is_empty()
+                && a.len() <= 64
+                && a.bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        })
+        .unwrap_or("generic");
+    let status = if ok { "ok" } else { "error" };
+    format!("{CONNECTED_PAGE_ORIGIN}/connected?app={app}&status={status}")
+}
+
+/// The loopback's answer once the code is in hand: a 302 to the cmux.com page, with the inline
+/// page as the body for a browser that does not follow it.
+fn signed_in_response(app: Option<&str>) -> String {
+    let page = auth_page(
+        true,
+        "Signed in",
+        "cmux Chief is connecting the server. You can close this tab.",
+        None,
+    );
+    format!(
+        "HTTP/1.1 302 Found\r\nLocation: {}\r\nCache-Control: no-store\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{page}",
+        connected_page_url(app, true),
+        page.len()
+    )
+}
+
+/// The cmux NEXT sign-in page's frame (web/app/handler: `cmux-sign-in.tsx`'s `Page` and
+/// `Heading`, `auth-error/page.tsx`'s body, the "Last used" chip for the code) with the tokens of
+/// web/app/globals.css, for a page a loopback listener serves with no web build behind it.
+/// Keep in step with the copies in acpmux's `chatgpt::oauth` and coderouter's `oauth`.
+fn auth_page(ok: bool, title: &str, detail: &str, code: Option<&str>) -> String {
+    let detail = if detail.is_empty() {
+        String::new()
+    } else {
+        format!("<p class=\"body\">{}</p>", escape(detail))
+    };
+    let code = code
+        .map(|c| {
+            format!(
+                "<p class=\"code\">Error code <span>{}</span></p>",
+                escape(c)
+            )
+        })
+        .unwrap_or_default();
+    format!(
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\
+<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\
+<meta name=\"color-scheme\" content=\"light dark\"><meta name=\"robots\" content=\"noindex\">\
+<title>{title} \u{b7} cmux</title><style>{AUTH_PAGE_CSS}</style></head>\
+<body><main><section class=\"card\" data-auth-state=\"{state}\">\
+<div class=\"mark\" aria-hidden=\"true\">{mark}</div><h1>{title}</h1>{detail}{code}</section></main></body></html>",
+        title = escape(title),
+        state = if ok { "ok" } else { "error" },
+        mark = if ok { AUTH_MARK_OK } else { AUTH_MARK_ERROR },
+    )
+}
+
+/// The loopback sign-in page: a centered card in the system font, with web/app/globals.css's
+/// light and dark tokens, the outcome as an inline check or alert mark (no logo, no fetched
+/// asset: the page renders the same offline).
+const AUTH_PAGE_CSS: &str = "\
+:root{--background:#fafafa;--foreground:#171717;--muted:#707070;--border:#e5e5e5;--card:#ffffff;\
+--ok:#10a37f;--error:#d93025}\
+@media (prefers-color-scheme:dark){:root{--background:#0a0a0a;--foreground:#ededed;--muted:#a3a3a3;--border:#262626;\
+--card:#171717;--ok:#19c37d;--error:#f28b82}}\
+*,::before,::after{box-sizing:border-box;margin:0;padding:0;border:0 solid}\
+html{line-height:1.5;-webkit-text-size-adjust:100%;\
+font-family:ui-sans-serif,-apple-system,BlinkMacSystemFont,\"Segoe UI\",system-ui,Helvetica,Arial,sans-serif;\
+-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}\
+body{background:var(--background);color:var(--foreground)}\
+main{display:flex;min-height:100vh;align-items:center;justify-content:center;padding:48px 16px}\
+.card{width:100%;max-width:400px;padding:40px 32px 36px;text-align:center;background:var(--card);\
+border:1px solid var(--border);border-radius:16px;box-shadow:0 1px 2px rgba(0,0,0,.04),0 8px 24px rgba(0,0,0,.06)}\
+.mark{display:flex;justify-content:center;margin-bottom:20px}\
+.mark svg{width:44px;height:44px}\
+[data-auth-state=ok] .mark{color:var(--ok)}\
+[data-auth-state=error] .mark{color:var(--error)}\
+h1{font-size:22px;font-weight:600;line-height:30px;letter-spacing:-0.01em}\
+.body{margin-top:8px;font-size:15px;line-height:24px;color:var(--muted)}\
+.code{margin-top:20px;font-size:12px;line-height:18px;color:var(--muted)}\
+.code span{margin-left:4px;padding:1px 6px;border:1px solid var(--border);border-radius:6px;\
+font-family:ui-monospace,SFMono-Regular,Menlo,monospace}";
+
+/// The success mark: a check in a circle, in the page's own color.
+const AUTH_MARK_OK: &str = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" \
+stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"m7.5 12.5 3 3 6-6.5\"/></svg>";
+
+/// The failure mark: an exclamation in a circle.
+const AUTH_MARK_ERROR: &str = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" \
+stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 7.5v5.5\"/><path d=\"M12 16.5h.01\"/></svg>";
+
+fn escape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            c => out.push(c),
+        }
+    }
+    out
+}
 
 /// Waits on the loopback listener for the redirect, then trades the code
 /// for tokens. Blocks (run it on its own thread).
@@ -315,18 +435,24 @@ pub fn wait(started: Started) -> Result<OAuthTokens, String> {
             continue;
         };
         let code = pending.auth.callback_code(query, &pending.state);
-        let (status, page) = match &code {
-            Ok(_) => ("200 OK", DONE_PAGE.to_owned()),
-            Err(e) => (
-                "400 Bad Request",
-                format!("<!doctype html><meta charset=utf-8><p>Sign-in failed: {e}"),
-            ),
+        let _ = match &code {
+            Ok(_) => conn.write_all(signed_in_response(pending.app.as_deref()).as_bytes()),
+            // A failure stays on the loopback: its detail (the server's error) is shown here
+            // and never leaves the machine in a URL.
+            Err(e) => {
+                let page = auth_page(
+                    false,
+                    "Sign-in failed",
+                    "Return to cmux and try again.",
+                    Some(&e.to_string()),
+                );
+                write!(
+                    conn,
+                    "HTTP/1.1 400 Bad Request\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{page}",
+                    page.len()
+                )
+            }
         };
-        let _ = write!(
-            conn,
-            "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{page}",
-            page.len()
-        );
         let code = match code {
             Ok(c) => c,
             // A stray or forged request: keep waiting for the real one.
@@ -454,6 +580,47 @@ mod tests {
         assert!(
             out.contains("client_id=c") && out.contains("state=s"),
             "{out}"
+        );
+    }
+
+    #[test]
+    fn a_registry_server_lands_on_its_named_signed_in_page() {
+        let k = Known::for_url("https://mcp.linear.app/mcp");
+        assert_eq!(k.name.as_deref(), Some("linear"));
+        assert_eq!(
+            connected_page_url(k.name.as_deref(), true),
+            "https://cmux.com/connected?app=linear&status=ok"
+        );
+        let off_registry = Known::for_url("https://mcp.example.invalid/mcp");
+        assert!(off_registry.name.is_none());
+        assert_eq!(
+            connected_page_url(off_registry.name.as_deref(), true),
+            "https://cmux.com/connected?app=generic&status=ok"
+        );
+        for hostile in ["Linear", "a&b=c", "x/../y", "", &"a".repeat(65)] {
+            assert!(
+                connected_page_url(Some(hostile), false).ends_with("?app=generic&status=error"),
+                "{hostile}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_signed_in_answer_redirects_and_keeps_the_inline_page() {
+        let r = signed_in_response(Some("sentry"));
+        assert!(r.starts_with("HTTP/1.1 302 Found\r\n"), "{r}");
+        assert!(r.contains("\r\nLocation: https://cmux.com/connected?app=sentry&status=ok\r\n"));
+        let (head, body) = r.split_once("\r\n\r\n").unwrap();
+        assert!(head.contains(&format!("Content-Length: {}", body.len())));
+        assert!(body.contains("data-auth-state=\"ok\"") && body.contains("Signed in"));
+    }
+
+    #[test]
+    fn the_loopback_page_fetches_no_fonts() {
+        let page = auth_page(false, "Sign-in failed", "x", Some("code"));
+        assert!(
+            !page.contains("@import") && !page.contains("fonts.googleapis"),
+            "{page}"
         );
     }
 

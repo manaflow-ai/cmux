@@ -1,8 +1,10 @@
-//! A session's harness starts at normal CPU class and runs below the GUI's once its start is over
-//! (macOS, `cpu_class.rs`): background (`PRIO_DARWIN_BG`) unless its profile, the daemon's env or
-//! config asks for `normal`, or it is a Claude Code launcher, which defaults to `normal`. A start has a deadline, and at background class a busy disk held a
-//! harness past it (2026-10-30), so the daemon lowers the running harness only after its
-//! `session/new` answered; the tools its turns start inherit the class. A start that still misses
+//! A session's harness runs as a shell in a terminal does by default (macOS, `cpu_class.rs`): its
+//! starter's CPU priority and the default disk tier, and so do the tools its turns run. A session
+//! whose profile, the daemon's env or config asks for `background` (`PRIO_DARWIN_BG`) starts at
+//! normal class and runs below the GUI's once its start is over: a start has a deadline, and at
+//! background class a busy disk held a harness past it (2026-10-30), so the daemon lowers the
+//! running harness only after its `session/new` answered; the tools its turns start inherit the
+//! class. A start that still misses
 //! its deadline at background class runs once more, and a start that misses it names what its
 //! harness was doing.
 //!
@@ -45,6 +47,8 @@ const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 const FAKE_CLAUDE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude_auto.py");
 /// The scheduler's base priority of a darwinbg process (`MAXPRI_THROTTLE`).
 const BACKGROUND_PRI: u32 = 4;
+/// `IOPOL_UTILITY`: an agent host's disk tier (`qos.rs`), which a harness must not keep.
+const IOPOL_UTILITY: i64 = 4;
 /// The in-process daemon's person key (`hub/person.rs`), as a daemon the app started holds one.
 const PERSON_KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
@@ -79,6 +83,18 @@ fn class_priority(pid: i32) -> u32 {
 fn runs_above_background() {
     let own = base_priority(std::process::id() as i32);
     assert!(own > BACKGROUND_PRI, "the test process itself runs at background class (pri {own})");
+}
+
+/// `ps -o nice=` of `pid`: what a renice changes, and nothing else does (the scheduler priority
+/// also decays for a while as a busy process uses the CPU).
+fn nice(pid: i32) -> i32 {
+    let out = std::process::Command::new("/bin/ps")
+        .args(["-o", "nice=", "-p", &pid.to_string()])
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&out.stdout).trim().parse().unwrap_or_else(|_| {
+        panic!("ps -o nice= -p {pid}: {:?}", String::from_utf8_lossy(&out.stdout))
+    })
 }
 
 /// `ps -o ppid=` of `pid`.
@@ -371,7 +387,7 @@ async fn cpu_class_a_hosted_harness_starts_at_normal_under_a_background_host_the
     let sid = new.unwrap()["sessionId"].as_str().unwrap().to_owned();
     // The start is over (as `ensure_child` ends it).
     agent.set_run_class(CpuClass::Background);
-    assert!(agent.enter_run_class().await, "the running harness was not lowered");
+    assert!(agent.enter_run_class(false).await, "the running harness was not lowered");
     let running = class_priority(harness);
     let out = dir.join("tool.json");
     let text = format!("class-probe: {}", out.display());
@@ -399,6 +415,9 @@ struct RealDaemon {
     child: Option<std::process::Child>,
     /// The class the daemon's env names; None leaves it to what the harness defaults to.
     class: Option<&'static str>,
+    /// The product's own `ACPMUX_QOS` (unset: agent hosts at the utility disk tier) instead of
+    /// this process's `background`.
+    product_qos: bool,
 }
 
 impl RealDaemon {
@@ -408,6 +427,15 @@ impl RealDaemon {
     }
 
     fn start_with(tag: &str, harness: &Value, class: Option<&'static str>) -> Self {
+        Self::start_full(tag, harness, class, false)
+    }
+
+    fn start_full(
+        tag: &str,
+        harness: &Value,
+        class: Option<&'static str>,
+        product_qos: bool,
+    ) -> Self {
         runs_above_background();
         let root = scratch(tag);
         for sub in ["home", "amx", "work"] {
@@ -419,7 +447,7 @@ impl RealDaemon {
             "permissionPolicy": "approve-all",
         });
         std::fs::write(root.join("amx").join("config.json"), config.to_string()).unwrap();
-        let mut daemon = Self { root, child: None, class };
+        let mut daemon = Self { root, child: None, class, product_qos };
         let mut child = daemon
             .cmd()
             .args(["daemon", "run", "--ready-fd", "1", "--log", "warn"])
@@ -458,6 +486,9 @@ impl RealDaemon {
             Some(class) => cmd.env(acpmux::cpu_class::ENV, class),
             None => cmd.env_remove(acpmux::cpu_class::ENV),
         };
+        if self.product_qos {
+            cmd.env_remove(acpmux::qos::ENV);
+        }
         cmd
     }
 }
@@ -533,9 +564,152 @@ fn cpu_class_a_claude_launcher_stays_above_background_by_default() {
     assert!(priority > BACKGROUND_PRI, "the launcher runs at background class (pri {priority})");
 }
 
-/// Claude Code itself still runs below the GUI, with the tools its turns start.
+/// Claude Code itself and the tools its turns start run at a terminal's priority by default: at
+/// background class they waited on the disk whenever the Mac was busy (`cpu_class.rs`).
 #[test]
-fn cpu_class_claude_itself_runs_at_background_by_default() {
+fn cpu_class_claude_itself_runs_above_background_by_default() {
     let priority = default_class_of_claude_harness_named("cl", "claude");
-    assert_eq!(priority, BACKGROUND_PRI, "Claude Code is not at background class");
+    assert!(priority > BACKGROUND_PRI, "Claude Code runs at background class (pri {priority})");
+}
+
+/// Through the real daemon with nothing named anywhere and the product's own QoS (agent hosts at
+/// the utility disk tier): a hosted harness and the tool its turn starts run as a terminal's shell
+/// does, at its starter's CPU priority and the default disk tier, once its start is over too.
+#[test]
+fn cpu_class_a_hosted_harness_and_its_tools_run_as_in_a_terminal_by_default() {
+    let own = nice(std::process::id() as i32);
+    let dir = scratch("dt");
+    let harness = json!({"argv": ["python3", FAKE], "env": logged(&dir, &[])});
+    let daemon = RealDaemon::start_full("dt", &harness, None, true);
+    let out = dir.join("tool.json");
+    let probe = format!("class-probe: {}", out.display());
+    let ran = daemon.cmd().args(["run", "--timeout", "60", &probe]).output().expect("run acpmux");
+    assert!(ran.status.success(), "acpmux run failed: {}", String::from_utf8_lossy(&ran.stderr));
+    let report = read_json(&out);
+    let tool = report["sleeper"].as_i64().unwrap() as i32;
+    let harness = parent(tool);
+    // Give a wrong renice the time the daemon takes to make it: it lowers right after the start.
+    std::thread::sleep(Duration::from_secs(2));
+    let (tool_pri, running) = (class_priority(tool), class_priority(harness));
+    let (tool_nice, harness_nice) = (nice(tool), nice(harness));
+    kill(tool);
+    drop(daemon);
+    let disk = report["diskio"].as_i64().expect("the harness's disk I/O policy");
+    assert_ne!(disk, IOPOL_UTILITY, "the harness kept its agent host's utility disk tier");
+    assert!(running > BACKGROUND_PRI, "the started harness runs at background class");
+    assert!(tool_pri > BACKGROUND_PRI, "a tool its turn started runs at background class");
+    assert_eq!(harness_nice, own.max(0), "the harness was reniced");
+    assert_eq!(tool_nice, own.max(0), "its tool was reniced");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+use acpmux::cpu_class::pressure::{DEMOTE_AFTER, PROMOTE_AFTER, Sample};
+
+/// A contended Mac: every core busy, the interactive thread 6 ms late.
+const HOT: Sample = Sample { busy: 1.0, late_ms: 6.0 };
+/// Lucas's Mac once his CPU fell to 80%.
+const EIGHTY: Sample = Sample { busy: 0.8, late_ms: 1.0 };
+
+/// An opt-in dynamic session yields with its existing tools during measured contention and gets
+/// its normal class back after clear samples, including the 80% case Lucas reported.
+#[tokio::test]
+async fn cpu_class_a_demoted_session_is_promoted_when_pressure_clears_with_its_existing_tools() {
+    let dir = scratch("dy");
+    let (hub, mut c) = daemon(logged(&dir, &[("ACPMUX_SESSION_CPU_CLASS", "dynamic")])).await;
+    let id = c.new_session(&dir, "dyn").await.unwrap();
+    let [(harness, _)] = class_log(&dir)[..] else { panic!("{:?}", class_log(&dir)) };
+    let tool = c.probe_tool(&id, &dir).await;
+    let calm = (class_priority(harness), class_priority(tool));
+    for _ in 0..DEMOTE_AFTER {
+        hub.cpu_pressure_tick(Some(HOT)).await;
+    }
+    let contended = (class_priority(harness), class_priority(tool));
+    let demoted = c.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    for _ in 0..PROMOTE_AFTER {
+        hub.cpu_pressure_tick(Some(EIGHTY)).await;
+    }
+    let cleared = (class_priority(harness), class_priority(tool));
+    let promoted = c.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    kill(tool);
+    assert!(calm.0 > BACKGROUND_PRI && calm.1 > BACKGROUND_PRI, "a calm host demoted: {calm:?}");
+    assert_eq!(contended, (BACKGROUND_PRI, BACKGROUND_PRI), "harness and its running tool");
+    assert_eq!(demoted["cpuClass"]["class"], "dynamic", "{}", demoted["cpuClass"]);
+    assert_eq!(demoted["cpuClass"]["now"], "background", "{}", demoted["cpuClass"]);
+    assert_eq!(demoted["cpuClass"]["host"]["yielding"], true, "{}", demoted["cpuClass"]);
+    assert!(cleared.0 > BACKGROUND_PRI, "the harness stayed demoted: {cleared:?}");
+    assert!(cleared.1 > BACKGROUND_PRI, "its tool stayed demoted: {cleared:?}");
+    assert_eq!(promoted["cpuClass"]["now"], "normal", "{}", promoted["cpuClass"]);
+    assert_eq!(promoted["cpuClass"]["demotions"], 1, "{}", promoted["cpuClass"]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A person-attended turn remains normal while it waits for its first message. Once that first
+/// token arrives, the same pressure pass can demote it, and the turn's completion does not reset
+/// the measured dynamic policy.
+#[tokio::test]
+async fn cpu_class_a_waited_on_turn_is_never_demoted_before_its_first_token() {
+    let dir = scratch("dw");
+    let (hub, mut c) = daemon(logged(&dir, &[("ACPMUX_SESSION_CPU_CLASS", "dynamic")])).await;
+    let id = c.new_session(&dir, "waited").await.unwrap();
+    c.request(method::MUX_ATTACH, json!({"sessionId": id})).await.unwrap();
+    let [(harness, _)] = class_log(&dir)[..] else { panic!("{:?}", class_log(&dir)) };
+    let out = dir.join("wait.json");
+    let gate = dir.join("wait.json.gate");
+    let path = std::ffi::CString::new(gate.as_os_str().as_encoded_bytes()).unwrap();
+    // SAFETY: valid NUL-terminated path.
+    assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+    let text = format!("class-wait: {}", out.display());
+    let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]});
+    c.tx.send(Message::request(9_999, method::SESSION_PROMPT, prompt).to_line()).await.unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    while !out.exists() {
+        assert!(std::time::Instant::now() < deadline, "the turn never started its tool");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let tool = read_json(&out)["sleeper"].as_i64().unwrap() as i32;
+    for _ in 0..DEMOTE_AFTER * 2 {
+        hub.cpu_pressure_tick(Some(HOT)).await;
+    }
+    let waiting = (class_priority(harness), class_priority(tool));
+    let info = c.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    let open =
+        |gate: PathBuf| tokio::task::spawn_blocking(move || std::fs::write(gate, b"go\n").unwrap());
+    tokio::time::timeout(Duration::from_secs(20), open(gate.clone())).await.unwrap().unwrap();
+    let mut answered = waiting;
+    for _ in 0..100 {
+        hub.cpu_pressure_tick(Some(HOT)).await;
+        answered = (class_priority(harness), class_priority(tool));
+        if answered == (BACKGROUND_PRI, BACKGROUND_PRI) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    tokio::time::timeout(Duration::from_secs(20), open(gate)).await.unwrap().unwrap();
+    kill(tool);
+    assert!(waiting.0 > BACKGROUND_PRI, "the waited-on harness was demoted: {waiting:?}");
+    assert!(waiting.1 > BACKGROUND_PRI, "the waited-on turn's tool was demoted: {waiting:?}");
+    assert_eq!(info["cpuClass"]["waitedOn"], true, "{}", info["cpuClass"]);
+    assert_eq!(info["cpuClass"]["host"]["yielding"], true, "{}", info["cpuClass"]);
+    assert_eq!(answered, (BACKGROUND_PRI, BACKGROUND_PRI), "not demoted after its first token");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The sampler's bursts of 10 ms sleeps woke each idle daemon about 12 times a second
+/// (cmux20-bench, 2026-11-27: acpmux-daemon 12.15/s against a 1.0/s budget, with no session at
+/// all). Only an opt-in `dynamic` session reads contention, so with none the sampler sleeps.
+#[tokio::test]
+async fn cpu_class_the_pressure_sampler_sleeps_while_no_session_is_dynamic() {
+    let dir = scratch("ps");
+    let (hub, mut c) = daemon(logged(&dir, &[])).await;
+    assert!(!hub.cpu_pressure_wants_samples(), "a daemon with no session samples");
+    let _plain = c.new_session(&dir, "plain").await.unwrap();
+    assert!(!hub.cpu_pressure_wants_samples(), "a normal-class session made the daemon sample");
+
+    let dyn_dir = scratch("pd");
+    let (dyn_hub, mut d) =
+        daemon(logged(&dyn_dir, &[("ACPMUX_SESSION_CPU_CLASS", "dynamic")])).await;
+    let _dynamic = d.new_session(&dyn_dir, "dyn").await.unwrap();
+    assert!(dyn_hub.cpu_pressure_wants_samples(), "a dynamic session needs the samples");
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&dyn_dir);
 }

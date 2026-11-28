@@ -25,11 +25,15 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_DIR = ROOT / ".github" / "workflows"
+sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+import validate_test_execution_registry as registry
 
 # A guard is identified by what it reads, not by where it lives, so a test that
 # is moved or renamed keeps its obligation. Both spellings occur in-tree: a
@@ -41,10 +45,21 @@ READS_A_WORKFLOW = re.compile(r"\.github[/\"'\s,)]+.{0,4}workflows")
 # keeps this indifferent to which interpreter a step chooses.
 INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 
+# A manifest can also run scripts/ci/tests/test_*.py, a different file from tests/test_*.py.
+MANIFEST_TEST = re.compile(r"^\s*(?:(?:python3|bash)(?:\s+-[A-Za-z]+)*\s+)?(?:\./)?(tests(?:_v2)?/[\w.-]+\.(?:py|sh))(?:\s|$)")
+POOL_MANIFEST = re.compile(r"scripts/ci/run-checks-concurrently\.sh --start[^\n]*?<\s*(scripts/ci/[\w.-]+\.txt)")
+
+
 # Guards that are knowingly unwired. Each entry needs a reason and an exit:
 # an allowlist that can be appended to without argument is the failure mode
 # this test exists to prevent.
 UNWIRED: set[str] = {
+    # A shell test the registry does not take (it lists .py tests). Exit: wire it into ci-guards.yml or a nightly step.
+    "tests/test_ci_nightly_warm_checkout_mirror.sh",
+    # Red on feat-cmux-next at 2026-11-23 when #49253 wired the other guards: shard picks now carry an empty entry for
+    # shard 1 ({1: []}) that its expectations lack. Exit: settle whether shard 1 lists no tests, fix the side that is
+    # wrong, then wire it into ci-guards.yml's ci group.
+    "tests/test_ci_webviews_affected.py",
     # Manual capture harness regression; the workflow path is an admission identity fixture,
     # not a workflow file read. Run after changing the harness or its HQ workflow identity.
     # Exit: remove if this test begins reading workflows or gains an approved CI execution lane.
@@ -137,10 +152,6 @@ UNWIRED: set[str] = {
     # scripts only as data: which callers read reload.sh's App path after --build-only without --keep-app. Run it after
     # adding such a caller. Exit: as below.
     "tests/test_reload_build_only_app_path_readers.py",
-    # lane = "manual" (kept manual under the 2026-10-23 no-new-CI rule, lifted 2026-11-18). It reads workflows only as
-    # data: which files exist and which call a reusable declared workflow, for scripts/ci/hosted_light_rescue.py's
-    # scope. Exit: as below.
-    "tests/test_ci_hosted_light_rescue.py",
     # lane = "manual" in tests/test-execution.d/ci.toml (kept manual under the 2026-10-23 no-new-CI rule, lifted
     # 2026-11-18). It runs scripts/ci/swiftpm_prefetch_binary_artifacts.py against a fake cache and reads the owned-Mac
     # workflows only as data (each SwiftPM step seeds first, #43932). Run it by hand when the seed or such a step
@@ -218,10 +229,6 @@ UNWIRED: set[str] = {
     # nightly-next-feed-stale issue (nightly_next_retry_exhausted.py) and that the job may write issues; run it by hand
     # after changing retry-ask-push-group.sh, that script or the job's permissions.
     "tests/test_nightly_next_retry_exhausted.py",
-    # lane = "manual" for the same rule (tests/test-execution.d/nightly.toml). It checks the one-job nightly-next
-    # path of nightly.yml (gate, concurrency, shared steps, the kept Zig cache and the single Zig install); run it
-    # by hand after changing nightly-next-one or a step it shares with the split jobs.
-    "tests/test_nightly_next_one_job.py",
     # lane = "manual" for the same rule. It checks that every nightly upload-artifact step has one retry that keeps
     # the first try's condition; run it by hand after adding or changing an upload in nightly.yml.
     "tests/test_nightly_artifact_uploads_retry.py",
@@ -247,9 +254,6 @@ UNWIRED: set[str] = {
     "tests/test_ci_blacksmith_linux_sizes.py",
     # a Linux runs-on or the RUNNER_POOLS.linux picker (#30878);
     "tests/test_ci_overflow_pick_reads_pool.py",
-    # scripts/ci/cloud_probe_rescue.py, run by the main controller's workflow_run adapter, not a PR job
-    # (#30796): python3 -m unittest tests.test_ci_cloud_probe_rescue from the repository root.
-    "tests/test_ci_cloud_probe_rescue.py",
     # lane = "manual" for the same rule. It checks the weekly rollback drill (nightly-next-rollback-drill.yml) and
     # its call into nightly-next-rollback.yml; run it by hand after changing either or
     # scripts/ci/nightly_next_rollback_drill.py.
@@ -326,6 +330,8 @@ UNWIRED: set[str] = {
     # and curl in nightly.yml's nightly- next-one job has its own bound and the ones that fail it retry (nightly run
     # 44232805509). Run it by hand after changing a fetch or download there. Exit: as above.
     "tests/test_nightly_next_network_bounds.py",
+    # No new CI tests (CLAUDE.md). It checks scripts/ci/webviews_affected.py picks the webviews test files a pull request can affect. Run it by hand after changing webviews_affected.py. Exit: as above.
+    "tests/test_ci_webviews_affected.py",
 }
 
 
@@ -353,27 +359,80 @@ def workflow_guards() -> set[str]:
 
 
 def invoked_by_workflows() -> set[str]:
-    sys.path.insert(0, str(ROOT / "scripts" / "ci"))
-    import workload_entrypoints
-
-    invoked = set()
-    for workflow in sorted(WORKFLOW_DIR.glob("*.yml")):
-        text = workflow.read_text(encoding="utf-8")
-        invoked.update(INVOKED_PATH.findall(text))
-        # A workload profile step runs everything its entrypoint names.
-        for _, script in workload_entrypoints.entrypoints(text, ROOT):
-            invoked.update(INVOKED_PATH.findall(script))
+    """What CI runs, read the way the execution registry's validator reads it: every workflow, the step table
+    pr-pipeline.yml runs through `ci/run` (ci/steps.toml), each workload profile's entrypoint and the shared recipe,
+    plus every registry entry whose lane a workflow's run_python_test_lane.py step runs."""
+    # Workflow comments often cite the guard that documents a job.
+    text = registry.all_workflow_text(WORKFLOW_DIR)
+    commands = [line.split("#", 1)[0] for line in text.splitlines()]
+    executable = "\n".join(commands).replace("\\\n", " ")
+    invoked = set(INVOKED_PATH.findall(executable))
+    # Follow each background runner's manifest, including continued shell commands.
+    for manifest in POOL_MANIFEST.findall(executable):
+        for line in (ROOT / manifest).read_text().splitlines():
+            if match := MANIFEST_TEST.match(line):
+                invoked.add(match[1])
+    live_lanes = registry.runner_lanes(WORKFLOW_DIR)
+    for entry in registry.load_tree(ROOT):
+        if entry.get("lane") in live_lanes and isinstance(entry.get("path"), str):
+            invoked.add(entry["path"])
     return invoked
 
 
+
+def test_background_manifest_discovery_keeps_registry_lanes() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        manifest = root / "scripts/ci/example-checks.txt"
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text("python3 tests/test_manifest.py\n"
+                            "# python3 tests/test_comment.py\n"
+                            "python3 scripts/ci/tests/test_other_tree.py\n")
+        workflow = ("scripts/ci/run-checks-concurrently.sh --start checks " + "\\\n"
+                    "  < scripts/ci/example-checks.txt\n"
+                    "# scripts/ci/run-checks-concurrently.sh --start ignored < scripts/ci/missing.txt\n")
+        entries = [{"path": "tests/test_live_lane.py", "lane": "linux-guard"},
+                   {"path": "tests/test_inactive_lane.py", "lane": "manual"}]
+        with patch.dict(globals(), ROOT=root), \
+             patch.object(registry, "all_workflow_text", return_value=workflow), \
+             patch.object(registry, "runner_lanes", return_value={"linux-guard"}), \
+             patch.object(registry, "load_tree", return_value=entries):
+            assert invoked_by_workflows() == {"tests/test_manifest.py", "tests/test_live_lane.py"}
+
+
+def registered_manual() -> set[str]:
+    """Tests the execution registry (tests/test-execution.d/*.toml) gives lane = "manual" with a reason: the
+    registry is where a knowingly unwired test says why and how to run it, so it needs no second entry here."""
+    return {
+        entry["path"]
+        for entry in registry.load_tree(ROOT)
+        if entry.get("lane") == "manual" and isinstance(entry.get("path"), str)
+        and str(entry.get("reason") or "").strip()
+        and str(entry["reason"]).strip() != registry.derived_reason(entry["path"]).strip()
+    }
+
+
+def test_generated_manual_reasons_are_not_exemptions() -> None:
+    path = "tests/test_example.py"
+    for lane, reason, expected in (
+        ("manual", registry.derived_reason(path), set()),
+        ("manual", "  " + registry.derived_reason(path) + "\n", set()),
+        ("manual", " ", set()),
+        ("manual", "Requires an interactive signed-in app; run python3 " + path, {path}),
+        ("linux-guard", "Requires an interactive app", set()),
+    ):
+        with patch.object(registry, "load_tree", return_value=[dict(path=path, lane=lane, reason=reason)]):
+            assert registered_manual() == expected, (lane, reason)
+
+
 def test_every_workflow_guard_is_run_by_a_workflow() -> None:
-    unwired = sorted(workflow_guards() - invoked_by_workflows() - UNWIRED)
+    unwired = sorted(workflow_guards() - invoked_by_workflows() - UNWIRED - registered_manual())
     assert not unwired, (
         "these tests read .github/workflows/ but no workflow runs them, so the "
         "invariants they assert are not enforced:\n  "
         + "\n  ".join(unwired)
-        + "\n\nAdd a step to .github/workflows/ci-guards.yml, or add an "
-        "entry to UNWIRED in this file explaining why not."
+        + "\n\nAdd a step to ci/steps.toml or .github/workflows/ci-guards.yml, or register it in "
+        "tests/test-execution.d/ with lane = \"manual\" and a reason (or add it to UNWIRED here) explaining why not."
     )
 
 
@@ -389,6 +448,8 @@ def test_allowlist_does_not_outlive_its_entries() -> None:
 
 
 if __name__ == "__main__":
+    test_background_manifest_discovery_keeps_registry_lanes()
+    test_generated_manual_reasons_are_not_exemptions()
     test_every_workflow_guard_is_run_by_a_workflow()
     test_allowlist_does_not_outlive_its_entries()
     print("all workflow guards are wired")

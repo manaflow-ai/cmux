@@ -18,12 +18,71 @@ fn row(id: &str, family: &str, name: &str) -> Value {
 
 #[test]
 fn only_this_machine_and_its_app_may_ask() {
-    assert!(allowed(Origin::Local));
-    assert!(allowed(Origin::LocalApp));
-    assert!(!allowed(Origin::Web));
-    assert!(!allowed(Origin::Peer));
+    let none = json!({});
+    assert!(allowed(Origin::Local, ConnAuth::LocalSocket, &none));
+    assert!(allowed(Origin::LocalApp, ConnAuth::LocalApp, &none));
+    assert!(!allowed(Origin::Web, ConnAuth::ListenerToken, &none));
+    assert!(!allowed(Origin::Web, ConnAuth::WebDevice, &none));
+    assert!(!allowed(Origin::Local, ConnAuth::None, &none));
     let e = refused();
     assert_eq!(e.data.as_ref().and_then(|d| d.get("reason")), Some(&json!(REMOTE_REFUSED)));
+}
+
+#[test]
+fn the_machines_owner_may_ask_over_the_peer_route() {
+    // The person's Mac forwarding its card for a chat here, by the peer token or the Cloud
+    // carrier's owner header: the same owner rule `agent_login` runs.
+    let forwarded = json!({"family": "github", "sessionId": "s-1"});
+    for auth in [ConnAuth::PeerToken, ConnAuth::CarrierOwner] {
+        assert!(allowed(Origin::Peer, auth, &forwarded), "{auth:?}");
+        assert_eq!(
+            allowed(Origin::Peer, auth, &forwarded),
+            super::super::agent_login::allowed(Origin::Peer, auth, &forwarded)
+        );
+    }
+}
+
+#[test]
+fn anyone_but_the_owner_is_refused_over_the_peer_route() {
+    let plain = json!({"family": "codex"});
+    // A paired machine, an unproven link.
+    for auth in
+        [ConnAuth::Device, ConnAuth::ReadOnlyDevice, ConnAuth::ListenerToken, ConnAuth::None]
+    {
+        assert!(!allowed(Origin::Peer, auth, &plain), "{auth:?}");
+    }
+    // The owner's daemon forwarding for its own Web client or a paired device.
+    for via in ["web", "device"] {
+        let p = json!({"family": "claude", "_meta": {"acpmux": {"via": via}}});
+        assert!(!allowed(Origin::Peer, ConnAuth::PeerToken, &p), "{via}");
+        assert!(!allowed(Origin::Peer, ConnAuth::CarrierOwner, &p), "{via}");
+    }
+}
+
+#[test]
+fn a_teammate_on_a_shared_machine_is_refused() {
+    // A team machine's other members reach it through the Cloud carrier as `CarrierTeam`, served
+    // as Web: never an account sign-in, whatever the request says.
+    let p = json!({"family": "github"});
+    assert!(!allowed(Origin::Web, ConnAuth::CarrierTeam, &p));
+    assert!(!allowed(Origin::Peer, ConnAuth::CarrierTeam, &p));
+}
+
+#[tokio::test]
+async fn a_shared_machine_refuses_the_owners_sign_in_too() {
+    // The owner passes `allowed`, and a team machine still runs no own sign-in: every member runs
+    // as the same user there, so it would be everyone's.
+    assert!(allowed(Origin::Peer, ConnAuth::PeerToken, &json!({"family": "github"})));
+    let root = dir("shared");
+    std::fs::create_dir_all(root.join("etc/cmux")).unwrap();
+    std::fs::write(root.join("etc/cmux/vm-kind"), "team\n").unwrap();
+    let m = Machine { root: root.clone(), home: root.join("home") };
+    let cli = Cli { program: root.join("no-such-gh").display().to_string(), ..Cli::default() };
+    for agent in [Agent::Github, Agent::Codex, Agent::Claude] {
+        let e = login::start_in(&m, &cli, agent, None, None).await.unwrap_err();
+        assert_eq!(e.reason, reason::SHARED_MACHINE, "{agent:?}");
+    }
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
@@ -55,6 +114,25 @@ fn an_unknown_account_is_refused() {
         resolve("github:octo-cat", &accounts).unwrap(),
         Target::Github { login: "octo-cat".into() }
     );
+}
+
+#[test]
+fn models_connections_cannot_be_targets_of_cli_account_actions() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("routes");
+    let state = root.path().join("state");
+    let file: RouteFile =
+        serde_json::from_value(json!({"kind": "chatgpt-plan", "families": ["codex"]})).unwrap();
+    routes::add(Some(&dir), "chatgpt", &file, false).unwrap();
+    let claude = routes::add_claude_token(Some(&dir), "env:FIXTURE_SETUP_TOKEN", None).unwrap();
+    let accounts = super::super::accounts::list(Some(&dir), &state, &routes::Bindings::default());
+    for id in ["chatgpt", claude.id.as_str()] {
+        assert!(routes::find(Some(&dir), id).is_ok());
+        assert_eq!(resolve(id, &accounts).unwrap_err().reason, reason::UNKNOWN_ACCOUNT);
+    }
+    for id in [routes::CODEX_LOGIN_ROUTE_ID, "claude-login"] {
+        assert!(matches!(resolve(id, &accounts), Ok(Target::Listed { builtin: true, .. })));
+    }
 }
 
 #[test]
@@ -125,7 +203,11 @@ async fn a_cancelled_add_lists_nothing_and_removes_only_its_home() {
     .unwrap();
     std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
 
-    let before = super::super::accounts::list(Some(&routes_dir), &routes::Bindings::default());
+    let before = super::super::accounts::list(
+        Some(&routes_dir),
+        &root.join("state"),
+        &routes::Bindings::default(),
+    );
     let (id, name) = new_account("claude", &before, None, |id| account_home(&root, id).exists());
     let home = account_home(&root, &id);
     let file = add_file("claude", &name, &home).expect("a route file");
@@ -135,7 +217,8 @@ async fn a_cancelled_add_lists_nothing_and_removes_only_its_home() {
     let m = Machine { root: root.clone(), home: root.clone() };
     let mut cli = Cli { program: program.display().to_string(), ..Cli::default() };
     cli.env.insert("HOME".into(), root.display().to_string());
-    let started = login::start_in(&m, &cli, Agent::Claude, Some(&home)).await.expect("started");
+    let started =
+        login::start_in(&m, &cli, Agent::Claude, Some(&home), None).await.expect("started");
     assert!(started.needs_code);
     lock_pending().insert(
         started.login_id.clone(),
@@ -152,7 +235,11 @@ async fn a_cancelled_add_lists_nothing_and_removes_only_its_home() {
     assert!(!login::running(&started.login_id) && !adding(&id));
     assert!(!home.exists(), "the add's home stayed");
     assert!(neighbour.join("keep").is_file(), "a folder the add did not make went");
-    let after = super::super::accounts::list(Some(&routes_dir), &routes::Bindings::default());
+    let after = super::super::accounts::list(
+        Some(&routes_dir),
+        &root.join("state"),
+        &routes::Bindings::default(),
+    );
     assert_eq!(after.len(), before.len(), "the cancelled add was listed");
     assert!(!after.iter().any(|a| a["id"] == id.as_str()));
     // A home that was there before the add is never removed.

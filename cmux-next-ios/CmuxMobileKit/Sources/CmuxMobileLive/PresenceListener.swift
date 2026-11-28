@@ -1,3 +1,4 @@
+import CmuxEgress
 import CmuxMobileTransport
 import Foundation
 import OSLog
@@ -49,17 +50,25 @@ public final class PresenceListener {
     /// list, and the foreground's `kick` reconnects and the socket's hello brings it.
     var backgrounded = false
     /// Poll interval while the socket is down.
-    static let pollInterval: Duration = .seconds(20)
+    static let pollInterval = PresenceTiming.pollInterval
     static let pingInterval: Duration = .seconds(15)
     static let pingTimeout: Duration = .seconds(5)
-    static let helloTimeout: Duration = .seconds(10)
+    static let helloTimeout = PresenceTiming.helloTimeout
+    /// Presence down at least this long before its return redials the links
+    /// (`LiveCoordinator.presenceOutageMin`; ``PresenceTiming/outageMin``).
+    static let outageMin = PresenceTiming.outageMin
+
+    /// The socket's retry after `failures` failures in a row (``PresenceTiming/retryDelay(afterFailures:)``).
+    static func retryDelay(afterFailures failures: Int) -> Duration {
+        PresenceTiming.retryDelay(afterFailures: failures)
+    }
 
     public convenience init(api: LiveAPI, teamID: String, deviceID: String, clock: any Clock<Duration> = ContinuousClock(),
                 onUpdate: @escaping @MainActor (Update) -> Void) {
         self.init(clock: clock,
                   signalRequest: { try await api.signalRequest(teamID: teamID, deviceID: deviceID) },
                   fetchMacs: { try await api.macs(teamID: teamID) },
-                  makeSocket: { URLSession.shared.webSocketTask(with: $0) }, onUpdate: onUpdate)
+                  makeSocket: { CmuxEgress.websocket(CmuxEgress.shared(site: "CmuxMobileLive.PresenceListener"), with: $0, site: "CmuxMobileLive.PresenceListener") }, onUpdate: onUpdate)
     }
 
     init(clock: any Clock<Duration>,
@@ -220,7 +229,7 @@ public final class PresenceListener {
         onUpdate(.connected(false))
         guard isCurrent(recoveryGeneration) else { return }
         failures += 1
-        let delay: Duration = failures < 4 ? .seconds(1 << failures) : Self.pollInterval
+        let delay = Self.retryDelay(afterFailures: failures)
         if backgrounded {
             task = timer(after: delay, generation: recoveryGeneration) { listener in
                 listener.connect()

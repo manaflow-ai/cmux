@@ -426,6 +426,29 @@
       }
     },
     {
+      "id": "github",
+      "name": "GitHub",
+      "owner": "GitHub",
+      "kind": "mark",
+      "color": {
+        "tone": [
+          "#FFFFFF",
+          "#000000"
+        ]
+      },
+      "source": {
+        "url": "https://primer.style/foundations/icons/mark-github-16",
+        "file": "primer/octicons icons/mark-github-16.svg",
+        "license": "Primer Octicons are MIT; the mark is a trademark of GitHub."
+      },
+      "import": {
+        "fetch": {
+          "url": "https://raw.githubusercontent.com/primer/octicons/main/icons/mark-github-16.svg"
+        },
+        "precision": 2
+      }
+    },
+    {
       "id": "grok",
       "name": "Grok",
       "owner": "xAI",
@@ -882,6 +905,429 @@
         },
         "precision": 2
       }
+    },
+    {
+      "id": "zai",
+      "name": "Z.ai",
+      "owner": "Zhipu AI",
+      "kind": "mark",
+      "color": {
+        "tone": [
+          "#FFFFFF",
+          "#2D2D2D"
+        ]
+      },
+      "source": {
+        "url": "https://github.com/simple-icons/simple-icons/blob/16.34.0/icons/zdotai.svg",
+        "file": "simple-icons 16.34.0 icons/zdotai.svg (source https://z-cdn.chatglm.cn/z-ai/static/logo.svg)",
+        "license": "Simple Icons path data is CC0-1.0; the mark is a trademark of Zhipu AI."
+      },
+      "import": {
+        "fetch": {
+          "npm": "simple-icons@16.34.0",
+          "member": "package/icons/zdotai.svg"
+        },
+        "precision": 2
+      }
+    },
+    {
+      "id": "minimax",
+      "name": "MiniMax",
+      "owner": "MiniMax",
+      "kind": "mark",
+      "color": {
+        "tone": "#E73562"
+      },
+      "source": {
+        "url": "https://github.com/simple-icons/simple-icons/blob/16.34.0/icons/minimax.svg",
+        "file": "simple-icons 16.34.0 icons/minimax.svg (source https://github.com/MiniMax-AI/MiniMax-01/blob/57cf223b177e99636c7711a0f179e9fdc9c38e8a/figures/minimax.svg)",
+        "license": "Simple Icons lists a custom license: MiniMax allowed the mark in https://github.com/simple-icons/simple-icons/pull/13982#issuecomment-3531627803; the mark is a trademark of MiniMax."
+      },
+      "import": {
+        "fetch": {
+          "npm": "simple-icons@16.34.0",
+          "member": "package/icons/minimax.svg"
+        },
+        "precision": 2
+      }
+    },
+    {
+      "id": "morph",
+      "name": "Morph",
+      "owner": "Morph",
+      "kind": "mark",
+      "color": {
+        "tone": "#99D52A"
+      },
+      "source": {
+        "url": "https://morphllm.com/favicon.svg",
+        "file": "morphllm.com site icon, favicon.svg",
+        "license": "Trademark of Morph; the owner's site icon, no stated usage rules."
+      },
+      "import": {
+        "fetch": {
+          "url": "https://morphllm.com/favicon.svg"
+        },
+        "precision": 2
+      }
+    },
+    {
+      "id": "groq",
+      "name": "Groq",
+      "owner": "Groq",
+      "kind": "mark",
+      "color": {
+        "tone": "#FFFFFF",
+        "tile": {
+          "viewBox": "0.54 0.39 32 32",
+          "radius": 7,
+          "tone": "#F43E01"
+        }
+      },
+      "source": {
+        "url": "https://groq.com/favicon.svg",
+        "file": "groq.com site icon, favicon.svg: the bolt only, the orange tile is the brand style's tile; view box cropped to the bolt",
+        "license": "Trademark of Groq; the owner's site icon, no stated usage rules."
+      },
+      "import": {
+        "fetch": {
+          "url": "https://groq.com/favicon.svg"
+        },
+        "paths": [
+          {
+            "from": [
+              1
+            ]
+          }
+        ],
+        "viewBox": "4.35 4.2 24.4 24.4",
+        "precision": 2
+      }
+    },
+    {
+      "id": "together",
+      "name": "Together AI",
+      "owner": "Together AI",
+      "kind": "mark",
+      "color": {
+        "tone": "#EF2CC1",
+        "paths": {
+          "1": {
+            "tone": "#CAAEF5"
+          },
+          "2": {
+            "tone": "#FC4C02"
+          }
+        }
+      },
+      "source": {
+        "url": "https://www.together.ai/brand",
+        "file": "https://cdn.prod.website-files.com/69654e88dce9154b5f1206dd/69a6dad66e8b98c718262888_together-ai-logo-suite.zip, Together AI Logo Suite/SVG/Color+Black/TogetherAI_Logo_021026_Logo.svg; view box made square",
+        "license": "Trademark of Together AI; brand-page logo suite, no stated usage rules."
+      },
+      "import": {
+        "fetch": {
+          "url": "https://cdn.prod.website-files.com/69654e88dce9154b5f1206dd/69a6dad66e8b98c718262888_together-ai-logo-suite.zip",
+          "zip": "Together AI Logo Suite/SVG/Color+Black/TogetherAI_Logo_021026_Logo.svg"
+        },
+        "viewBox": "0 -16.24 484.98 484.98",
+        "precision": 1
+      }
+    },
+    {
+      "id": "fireworks",
+      "name": "Fireworks AI",
+      "owner": "Fireworks AI",
+      "kind": "mark",
+      "color": {
+        "tone": [
+          "#F9F7F5",
+          "#280016"
+        ]
+      },
+      "source": {
+        "url": "https://fireworks.ai/icon.svg",
+        "file": "fireworks.ai site icon, icon.svg: the mark without its tile; view box made square in the mark's own units",
+        "license": "Trademark of Fireworks AI; the owner's site icon, no stated usage rules."
+      },
+      "import": {
+        "fetch": {
+          "url": "https://fireworks.ai/icon.svg"
+        },
+        "paths": [
+          {
+            "from": [
+              0
+            ]
+          }
+        ],
+        "viewBox": "0 0 85 85",
+        "precision": 2
+      }
+    },
+    {
+      "id": "cerebras",
+      "name": "Cerebras",
+      "owner": "Cerebras Systems",
+      "kind": "mark",
+      "color": {
+        "tone": "#F05A28",
+        "paths": {
+          "1": {
+            "tone": [
+              "#FFFFFF",
+              "#000000"
+            ]
+          }
+        }
+      },
+      "source": {
+        "url": "https://cerebras.ai/company/press-kit",
+        "file": "https://cdn.sanity.io/files/e4qjo92p/production/047798c0db861ade2a18320e534c00f05883a180.zip (cerebras-logos.zip), Cerebras C logo.svg",
+        "license": "Trademark of Cerebras Systems; press-kit artwork, no stated usage rules."
+      },
+      "import": {
+        "fetch": {
+          "url": "https://cdn.sanity.io/files/e4qjo92p/production/047798c0db861ade2a18320e534c00f05883a180.zip",
+          "zip": "Cerebras C logo.svg"
+        },
+        "paths": [
+          {
+            "from": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "fillRule": "evenodd"
+          },
+          {
+            "from": [
+              4
+            ],
+            "fillRule": "evenodd"
+          }
+        ],
+        "precision": 1
+      }
+    },
+    {
+      "id": "baseten",
+      "name": "Baseten",
+      "owner": "Baseten",
+      "kind": "mark",
+      "color": {
+        "tone": [
+          "#FFFFFF",
+          "#000000"
+        ]
+      },
+      "source": {
+        "url": "https://www.baseten.co/",
+        "file": "the site header logo, inline in the baseten.co home page: its first five paths are the mark (no SVG file or brand kit is published); view box made square",
+        "license": "Trademark of Baseten; the owner's site artwork, no stated usage rules."
+      },
+      "import": {
+        "fetch": {
+          "url": "https://www.baseten.co/"
+        },
+        "paths": [
+          {
+            "from": [
+              0,
+              1,
+              2,
+              3,
+              4
+            ]
+          }
+        ],
+        "viewBox": "-2.14 0 22 22",
+        "precision": 2
+      }
+    },
+    {
+      "id": "nvidia",
+      "name": "NVIDIA",
+      "owner": "NVIDIA",
+      "kind": "mark",
+      "color": {
+        "tone": "#76B900"
+      },
+      "source": {
+        "url": "https://github.com/simple-icons/simple-icons/blob/16.34.0/icons/nvidia.svg",
+        "file": "simple-icons 16.34.0 icons/nvidia.svg (source https://www.nvidia.com/en-us)",
+        "license": "Simple Icons path data is CC0-1.0; the mark is a trademark of NVIDIA."
+      },
+      "import": {
+        "fetch": {
+          "npm": "simple-icons@16.34.0",
+          "member": "package/icons/nvidia.svg"
+        },
+        "precision": 2
+      }
+    },
+    {
+      "id": "huggingface",
+      "name": "Hugging Face",
+      "owner": "Hugging Face",
+      "kind": "mark",
+      "color": {
+        "tone": "#FFD21E"
+      },
+      "source": {
+        "url": "https://github.com/simple-icons/simple-icons/blob/16.34.0/icons/huggingface.svg",
+        "file": "simple-icons 16.34.0 icons/huggingface.svg (source https://huggingface.co/brand)",
+        "license": "Simple Icons path data is CC0-1.0; the mark is a trademark of Hugging Face."
+      },
+      "import": {
+        "fetch": {
+          "npm": "simple-icons@16.34.0",
+          "member": "package/icons/huggingface.svg"
+        },
+        "precision": 2
+      }
+    },
+    {
+      "id": "vercel",
+      "name": "Vercel",
+      "owner": "Vercel",
+      "kind": "mark",
+      "color": {
+        "tone": ["#FFFFFF", "#000000"]
+      },
+      "source": {
+        "url": "https://github.com/simple-icons/simple-icons/blob/16.34.0/icons/vercel.svg",
+        "file": "simple-icons 16.34.0 icons/vercel.svg (source https://vercel.com/geist/brands)",
+        "license": "Simple Icons path data is CC0-1.0; the mark is a trademark of Vercel."
+      },
+      "import": {
+        "fetch": {
+          "npm": "simple-icons@16.34.0",
+          "member": "package/icons/vercel.svg"
+        },
+        "precision": 2
+      }
+    },
+    {
+      "id": "prime",
+      "name": "Prime Intellect",
+      "owner": "Prime Intellect",
+      "kind": "mark",
+      "color": {
+        "tone": ["#FFFFFF", "#000000"]
+      },
+      "source": {
+        "url": "https://github.com/PrimeIntellect-ai/prime-rl/blob/HEAD/src/prime_rl/dashboard/static/butterfly-white.svg",
+        "file": "repo src/prime_rl/dashboard/static/butterfly-white.svg, the butterfly primeintellect.ai uses as its icon; its stroke is dropped and the view box squared around the mark",
+        "license": "Repository artwork; trademark of Prime Intellect."
+      },
+      "import": {
+        "fetch": {
+          "url": "https://raw.githubusercontent.com/PrimeIntellect-ai/prime-rl/HEAD/src/prime_rl/dashboard/static/butterfly-white.svg"
+        },
+        "viewBox": "0 -172 944 944",
+        "precision": 1
+      }
+    },
+    {
+      "id": "cloudflare",
+      "name": "Cloudflare",
+      "owner": "Cloudflare",
+      "kind": "mark",
+      "color": {
+        "tone": "#F38020"
+      },
+      "source": {
+        "url": "https://github.com/simple-icons/simple-icons/blob/16.34.0/icons/cloudflare.svg",
+        "file": "simple-icons 16.34.0 icons/cloudflare.svg (source https://www.cloudflare.com/logo/)",
+        "license": "Simple Icons path data is CC0-1.0; the mark is a trademark of Cloudflare."
+      },
+      "import": {
+        "fetch": {
+          "npm": "simple-icons@16.34.0",
+          "member": "package/icons/cloudflare.svg"
+        },
+        "precision": 2
+      }
+    },
+    {
+      "id": "bedrock",
+      "name": "Amazon Bedrock",
+      "owner": "Amazon Web Services",
+      "kind": "mark",
+      "color": {
+        "tone": "#01A88D"
+      },
+      "source": {
+        "url": "https://aws.amazon.com/architecture/icons/",
+        "file": "https://d1.awsstatic.com/onedam/marketing-channels/website/public/shared/architecture-icon-release/Icon-package_07312026.5846e92413caa21490223536cc97f1269e44fa92.zip, Architecture-Service-Icons_07312026/Arch_Artificial-Intelligence/16/Arch_Amazon-Bedrock_16.svg: the glyph without its tile, in the glyph's own 16-unit box",
+        "license": "Trademark of Amazon Web Services; AWS Architecture Icons, which AWS lets customers and partners use in diagrams and materials."
+      },
+      "import": {
+        "fetch": {
+          "url": "https://d1.awsstatic.com/onedam/marketing-channels/website/public/shared/architecture-icon-release/Icon-package_07312026.5846e92413caa21490223536cc97f1269e44fa92.zip",
+          "zip": "Architecture-Service-Icons_07312026/Arch_Artificial-Intelligence/16/Arch_Amazon-Bedrock_16.svg"
+        },
+        "paths": [
+          {
+            "from": [
+              0
+            ],
+            "fillRule": "evenodd"
+          }
+        ],
+        "viewBox": "0 0 16 16",
+        "precision": 2
+      }
+    },
+    {
+      "id": "azure",
+      "name": "Microsoft Azure",
+      "owner": "Microsoft",
+      "kind": "mark",
+      "color": {
+        "tone": "#32AEEA",
+        "paths": {
+          "0": {
+            "tone": "#0078D4"
+          },
+          "1": {
+            "tone": "#0C5AA4"
+          }
+        }
+      },
+      "source": {
+        "url": "https://github.com/lobehub/lobe-icons/blob/master/packages/static-svg/icons/azure.svg",
+        "file": "@lobehub/icons-static-svg 1.105.0 icons/azure.svg (Microsoft publishes the Azure mark only inside its gradient icon sets)",
+        "license": "Lobe Icons artwork is MIT; the mark is a trademark of Microsoft."
+      },
+      "import": {
+        "fetch": {
+          "npm": "@lobehub/icons-static-svg@1.105.0",
+          "member": "package/icons/azure.svg"
+        },
+        "paths": [
+          {
+            "from": [
+              0
+            ],
+            "opacity": ".75"
+          },
+          {
+            "from": [
+              1
+            ],
+            "opacity": ".5"
+          },
+          {
+            "from": [
+              2
+            ]
+          }
+        ],
+        "precision": 2
+      }
     }
   ],
   "agents": [
@@ -1087,12 +1533,17 @@
     },
     {
       "id": "prime",
-      "name": "Prime",
-      "brand": null,
+      "name": "Prime Intellect",
+      "brand": "prime",
       "aliases": [
         "prime-agent"
-      ],
-      "note": "Pi fork with no published mark; draws the generic agent glyph."
+      ]
+    },
+    {
+      "id": "vercel-ai-gateway",
+      "name": "Vercel AI Gateway",
+      "brand": "vercel",
+      "aliases": []
     },
     {
       "id": "mux",
@@ -1137,13 +1588,27 @@
     },
     {
       "id": "groq",
-      "brand": null,
-      "note": "No CC0 or official SVG found; generic glyph."
+      "brand": "groq"
     },
     {
       "id": "bedrock",
-      "brand": null,
-      "note": "AWS publishes its marks only behind a login; generic glyph."
+      "brand": "bedrock"
+    },
+    {
+      "id": "amazon-bedrock",
+      "brand": "bedrock"
+    },
+    {
+      "id": "hugging-face",
+      "brand": "huggingface"
+    },
+    {
+      "id": "zhipu",
+      "brand": "zai"
+    },
+    {
+      "id": "glm",
+      "brand": "zai"
     },
     {
       "id": "vertex",
@@ -1214,8 +1679,8 @@
     ],
     ["github-copilot-cli", "copilot"], ["Muse Code", "meta"], ["acp:muse", "meta"], ["grok-build", "grok"], ["factory-droid", "factory"], ["qwen-code", "qwen"], ["antigravity-acp", "antigravity"], ["amp-acp", "amp"], ["codebuddy-code", "codebuddy"], [
       "prime-agent",
-      null
-    ],
+      "prime"
+    ], ["vercel-ai-gateway", "vercel"],
     [
       "campfire",
       null

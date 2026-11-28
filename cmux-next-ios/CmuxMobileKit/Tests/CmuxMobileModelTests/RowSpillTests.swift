@@ -29,6 +29,8 @@ import Testing
         #expect(spill.storedCount() == 0)
     }
 
+    #if os(iOS)
+    // Page files exist only where Rust's RowSpillPages links; elsewhere pages stay in memory.
     /// One row at a time writes whole pages (no page rewrite per row); the newest rows short of
     /// a page wait in memory and come back first.
     @Test func singleRowEvictionsFillPages() async throws {
@@ -41,6 +43,8 @@ import Testing
         #expect(await spill.pop().map(\.id) == [11, 10])
         #expect(await spill.pop().map(\.id) == [9, 8, 7, 6, 5])
     }
+
+    #endif
 
     /// Past its cap the spill drops its oldest pages, as the list did before it had one.
     @Test func capDropsTheOldestPages() async {

@@ -56,6 +56,7 @@ html[data-cmux-page="changelog"] body {
 /* The enlarged picture: on glass over the page, the picture whole (contain), never cut. */
 .cl-lightbox-backdrop {
   background: color-mix(in srgb, var(--cmux-surface-background, Canvas) 60%, transparent);
+  /* one-material-allow: the lightbox's modal scrim (the dialog above it is the .ui-glass), not a glass surface */
   -webkit-backdrop-filter: var(--surface-blur);
   backdrop-filter: var(--surface-blur);
 }
@@ -263,6 +264,8 @@ html[data-cmux-page="changelog"] {
 
 .cl-updated { margin: 0 0 16px; font-size: var(--text-heading); line-height: var(--text-heading--line-height); font-weight: 600; letter-spacing: var(--text-heading--letter-spacing); }
 .cl-muted { color: var(--page-text-3); }
+.cl-unavailable { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cl-unavailable > .cl-muted { margin: 0; }
 .cl-error { color: var(--page-text); }
 .cl-empty { padding: 40px; color: var(--page-text-3); }
 
@@ -515,7 +518,7 @@ html[data-cmux-page="changelog"] {
   width: 100%;
   padding: 6px 10px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   background: transparent;
   text-align: left;
   cursor: default;
@@ -563,7 +566,7 @@ html[data-cmux-page="changelog"] {
 .cln-clip { display: grid; gap: 12px; min-width: 0; }
 /* A clip is never drawn larger than it was recorded (a narrow sidebar crop stays sharp), and never
    wider than its column. */
-.cln-clip-media { justify-self: center; width: fit-content; max-width: 100%; margin: 0; aspect-ratio: auto; border-radius: 12px; }
+.cln-clip-media { justify-self: center; width: fit-content; max-width: 100%; margin: 0; aspect-ratio: auto; border-radius: var(--ds-radius-xl); }
 .cln-clip-media img,
 .cln-clip-media video { width: auto; max-width: 100%; height: auto; max-height: 440px; object-fit: contain; }
 .cln-clip-media .cl-media-open { width: auto; height: auto; }
@@ -595,7 +598,7 @@ html[data-cmux-page="changelog"] {
 .cln-clips-grid .cln-clip {
   align-content: start;
   padding: 12px 12px 16px;
-  border-radius: 16px;
+  border-radius: var(--ds-radius-2xl);
   background: var(--page-hover);
   box-shadow: inset 0 0 0 1px var(--page-separator);
   /* No blur of its own, as .cln-card. */

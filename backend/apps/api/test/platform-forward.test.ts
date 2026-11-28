@@ -74,6 +74,20 @@ const requests: ReadonlyArray<readonly [string, () => Request]> = [
   ["cloud shares list", () => new Request(`${ORIGIN}/v1/cloud/machines/${VM}/shares`)],
   ["cloud share create", () => post(`/v1/cloud/machines/${VM}/shares`, '{"person":"user_x"}')],
   ["cloud share revoke", () => new Request(`${ORIGIN}/v1/cloud/machines/${VM}/shares/csh_1`, { method: "DELETE" })],
+  // Cloud apps (RFD 0003): a machine's `cmux app publish|versions|rollback|ls`, sent by its agent to this origin.
+  ["cloud apps list", () => new Request(`${ORIGIN}/v1/cloud/apps`)],
+  ["cloud app create", () => post("/v1/cloud/apps", '{"name":"demo","slug":"demo"}')],
+  ["cloud app version promote", () => post("/v1/cloud/apps/demo/versions", '{"commit":"abc","command":"x","machine":"vm","port":1}', { "idempotency-key": "demo:abc:1" })],
+  // A send's trace (cmux-platform StartTraceRoute.ts): an empty 404 here before it was listed, so no client read one.
+  ["start traces list", () => new Request(`${ORIGIN}/v1/cloud/start-traces?limit=200`)],
+  ["start trace read", () => new Request(`${ORIGIN}/v1/cloud/start-traces/0af7651916cd43dd8448eb211c80319c`)],
+  ["start trace chrome", () => new Request(`${ORIGIN}/v1/cloud/start-traces/0af7651916cd43dd8448eb211c80319c/chrome`)],
+  ["start trace spans", () => post("/v1/cloud/start-traces/0af7651916cd43dd8448eb211c80319c/spans", '{"spans":[]}')],
+  // The end-to-end encrypted vault (cmux-platform SealedVaultRoute.ts): an empty 404 here before it was listed.
+  ["vault snapshot", () => new Request(`${ORIGIN}/v1/cloud/vault?vault=personal`)],
+  ["vault device add", () => post("/v1/cloud/vault/devices", '{"vault":"personal"}')],
+  ["vault item put", () => new Request(`${ORIGIN}/v1/cloud/vault/items/it_1`, { method: "PUT", body: '{"vault":"personal"}' })],
+  ["vault machine read", () => new Request(`${ORIGIN}/v1/cloud/vault/machine`)],
   ["Native network target", () => new Request(`${ORIGIN}/v1/host/network/target`)],
   ["login copy switch", () => new Request(`${ORIGIN}/v1/cloud/harness-login-copy`)],
   // The platform's client config: the app's origins and the backend's capabilities (machine_create.bootstrap).

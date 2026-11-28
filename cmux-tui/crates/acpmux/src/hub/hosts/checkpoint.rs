@@ -26,14 +26,29 @@
 //!
 //! A checkpoint that does not match is not used; the adoption reads the whole log and saves a
 //! new one. A change to what any fold reads or keeps bumps `VERSION`.
+//!
+//! A new host is a new incarnation, and its first adoption read the whole log again: a 1 GB
+//! chat's first restart after its host started spent 5.5 s in "adopt agent hosts" against 41 ms
+//! on the next one (cmux#51494). So a checkpoint also keeps the folds of an incarnation that has
+//! not started (`unstarted`): an incarnation enters every fold only at its own `host_started`
+//! (each fold's `current`), so until then its folds are these. An adoption of a host whose
+//! `host_started` comes after the checkpoint resumes from them (`kind_index.rs` keeps every
+//! `host_started`, so that is read without the log). A chat with no checkpoint gets one in the
+//! background when its host starts (`prime_adoption_checkpoint`), or when a daemon reads its log
+//! with no host of it running (`journal.rs` `checkpoint_after_load`, saved under `UNSTARTED`),
+//! so no restart reads its whole log.
 
+use super::super::processes::SavedProcesses;
 use super::journal::{EnvFold, HostSeqFold, WorkFold};
 use super::*;
 use crate::store::LinePos;
 use crate::subagents::SubagentTree;
 
 /// The checkpoint's format and the folds' meaning. Another one is not read.
-const VERSION: u32 = 3;
+const VERSION: u32 = 5;
+
+/// The incarnation of no host: the folds it gives are those of any incarnation not started yet.
+pub(super) const UNSTARTED: &str = "\u{0}unstarted";
 
 /// Every adoption fold's state through one record.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -53,6 +68,14 @@ pub(super) struct Checkpoint {
     incarnation: String,
     inputs: FoldInputs,
     pub(super) folds: Folds,
+    /// The folds through `seq` of an incarnation whose `host_started` comes after it.
+    #[serde(default)]
+    pub(super) unstarted: Option<Folds>,
+    /// The chat's process table (`processes.rs`) through `seq` or an earlier record; one an
+    /// incarnation does not change. None in a checkpoint saved before it was kept: the next
+    /// adoption reads the table from the log's copies, then keeps it.
+    #[serde(default)]
+    pub(super) processes: Option<SavedProcesses>,
 }
 
 /// What the folds read besides the log; a checkpoint is good only under the same.
@@ -106,6 +129,7 @@ impl Checkpoint {
         incarnation: &str,
         inputs: FoldInputs,
         folds: Folds,
+        unstarted: Option<Folds>,
         stamp: u64,
     ) -> Self {
         Self {
@@ -120,6 +144,8 @@ impl Checkpoint {
             incarnation: incarnation.to_owned(),
             inputs,
             folds,
+            unstarted,
+            processes: None,
         }
     }
 }
@@ -146,11 +172,19 @@ impl Hub {
         inputs: &FoldInputs,
     ) -> Option<Checkpoint> {
         let bytes = self.store.adoption_checkpoint(&session.id)?;
-        let point: Checkpoint = serde_json::from_slice(&bytes).ok()?;
+        let mut point: Checkpoint = serde_json::from_slice(&bytes).ok()?;
+        if point.incarnation != incarnation {
+            // Another host's: its folds before any start of this one are this one's.
+            let unstarted = point.unstarted.clone()?;
+            if self.started_through(session, incarnation, point.seq) {
+                return None;
+            }
+            point.folds = unstarted;
+            point.incarnation = incarnation.to_owned();
+        }
         if point.v != VERSION
             || point.seq == 0
             || point.seq > session.seq.load(Ordering::SeqCst)
-            || point.incarnation != incarnation
             || point.inputs != *inputs
             || point.boot != acpmux_core::boot::system_boot_id()
             || self.store.log_stamp(&session.id).ok() != Some(point.stamp)
@@ -164,25 +198,92 @@ impl Hub {
             .then_some(point)
     }
 
+    /// Whether `session`'s log holds a `host_started` of `incarnation` at `through` or before
+    /// (from its kind copy); true when that does not read.
+    fn started_through(&self, session: &Session, incarnation: &str, through: u64) -> bool {
+        if incarnation == UNSTARTED {
+            return false;
+        }
+        let mut started = false;
+        let read = self.store.scan_kinds(&session.id, &["host_started"], &mut |e| {
+            started |= e.seq <= through
+                && e.msg.get("incarnation").and_then(Value::as_str) == Some(incarnation);
+            !started
+        });
+        started || read.is_err()
+    }
+
+    /// A host of `session` started: with no checkpoint its adoption could resume from, one is
+    /// folded in the background now, at low priority, so the restart that adopts this host reads
+    /// only the records after it. It is this incarnation's own (its `host_started` is already in
+    /// the log, so unstarted folds would not serve it), with the unstarted folds beside it for
+    /// the hosts after. Once a chat has one, each adoption saves the next.
+    pub(in crate::hub) fn prime_adoption_checkpoint(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        incarnation: &str,
+    ) {
+        static PRIMING: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+        if session.meta().fork_seq.is_some() || tokio::runtime::Handle::try_current().is_err() {
+            return;
+        }
+        let (hub, session, incarnation) = (self.clone(), session.clone(), incarnation.to_owned());
+        // bare blocking (daemon): a background fold of one chat's log, once per chat at a time
+        tokio::task::spawn_blocking(move || {
+            {
+                let mut priming = PRIMING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                if priming.contains(&session.id) {
+                    return;
+                }
+                priming.push(session.id.clone());
+            }
+            crate::qos::background(|| {
+                let inputs = hub.fold_inputs(&session);
+                if !hub.shutting_down()
+                    && hub.adoption_checkpoint(&session, &incarnation, &inputs).is_none()
+                {
+                    hub.catch_up(&session);
+                    let settled = hub.settled_seq(&session);
+                    if let Some(point) = hub.fold_checkpoint(&session, &incarnation, settled) {
+                        let _ = hub.save_adoption_checkpoint(&session, point);
+                    }
+                }
+            });
+            PRIMING
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .retain(|id| *id != session.id);
+        });
+    }
+
     /// Saves `point` for `session`'s next adoption. A failed write leaves the last one, which is
-    /// still right.
-    pub(super) fn save_adoption_checkpoint(&self, session: &Session, mut point: Checkpoint) {
-        if session.meta().fork_seq.is_some()
-            || self.store.log_stamp(&session.id).ok() != Some(point.stamp)
-        {
-            return;
-        }
-        let Some(record) = self.record_at(session, point.seq) else { return };
-        let Ok(record_bytes) = serde_json::to_vec(&record) else { return };
-        point.digest = crate::sha256::sha256_hex(&record_bytes);
-        point.at = record.at;
-        point.kind = record.kind;
-        if self.store.log_stamp(&session.id).ok() != Some(point.stamp) {
-            return;
-        }
-        let Ok(bytes) = serde_json::to_vec(&point) else { return };
-        if let Err(error) = self.store.save_adoption_checkpoint(&session.id, &bytes) {
-            tracing::debug!(session = %session.id, "adoption checkpoint not saved: {error:#}");
-        }
+    /// still right. Gives back the process table it kept, saved or not, so the caller moves it
+    /// on rather than keeping a copy beside it.
+    pub(super) fn save_adoption_checkpoint(
+        &self,
+        session: &Session,
+        mut point: Checkpoint,
+    ) -> Option<SavedProcesses> {
+        let save = |point: &mut Checkpoint| {
+            if session.meta().fork_seq.is_some()
+                || self.store.log_stamp(&session.id).ok() != Some(point.stamp)
+            {
+                return;
+            }
+            let Some(record) = self.record_at(session, point.seq) else { return };
+            let Ok(record_bytes) = serde_json::to_vec(&record) else { return };
+            point.digest = crate::sha256::sha256_hex(&record_bytes);
+            point.at = record.at;
+            point.kind = record.kind;
+            if self.store.log_stamp(&session.id).ok() != Some(point.stamp) {
+                return;
+            }
+            let Ok(bytes) = serde_json::to_vec(&*point) else { return };
+            if let Err(error) = self.store.save_adoption_checkpoint(&session.id, &bytes) {
+                tracing::debug!(session = %session.id, "adoption checkpoint not saved: {error:#}");
+            }
+        };
+        save(&mut point);
+        point.processes
     }
 }

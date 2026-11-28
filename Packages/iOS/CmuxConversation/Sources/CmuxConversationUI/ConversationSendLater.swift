@@ -376,12 +376,15 @@ extension ConversationViewController {
         let failed = store.message(rowID: rowID)?.delivery?.isFailed == true
         var actions: [UIMenuElement] = []
         if failed {
+            // retry-prompt-ok: re-sends a scheduled message
             actions.append(UIAction(title: String(localized: "conversation.retry.tryAgain", defaultValue: "Try Again", bundle: .module), image: UIImage(systemName: "arrow.clockwise")) { [weak self] _ in
                 self?.store.retryScheduled(rowID: rowID)
             })
         }
         actions.append(UIAction(title: String(localized: "conversation.sendLater.sendNow", defaultValue: "Send Message", bundle: .module), image: UIImage(systemName: "arrow.up.circle")) { [weak self] _ in
-            self?.store.sendScheduledNow(rowID: rowID)
+            guard let self else { return }
+            let send: () -> Void = { [weak self] in self?.store.sendScheduledNow(rowID: rowID) }
+            if self.sendGateAllows(retry: send) { send() }
         })
         actions.append(UIAction(title: String(localized: "conversation.sendLater.editTime", defaultValue: "Edit Time", bundle: .module), image: UIImage(systemName: "clock")) { [weak self] _ in
             guard let self, let date = self.store.message(rowID: rowID)?.scheduledAt else { return }

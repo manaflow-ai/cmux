@@ -5495,7 +5495,9 @@
     "errorInvalidTotp": "유효하지 않은 2단계 인증 코드입니다.",
     "errorSignUpNotAllowed": "지금은 새 계정을 만들 수 없습니다.",
     "errorPasskey": "패스키 로그인이 완료되지 않았습니다. 다시 시도하거나 다른 방법을 사용하세요.",
-    "errorGeneric": "문제가 발생했습니다. 다시 시도하세요."
+    "errorGeneric": "문제가 발생했습니다. 다시 시도하세요.",
+    "errorRedirectNotAllowed": "이 빌드의 로그인 주소는 {backend}에서 허용되지 않습니다.",
+    "backendDevelopment": "개발 백엔드"
   },
   "MobileRelease106": {
     "title": "1.0.6의 새로운 기능",
@@ -5531,5 +5533,15 @@
     "unavailableTitle": "로그인을 확인할 수 없습니다",
     "unavailableBody": "로그인 서비스가 혼잡합니다. 몇 초 기다린 후 초대를 다시 여세요. 다시 로그인할 필요는 없습니다.",
     "retry": "다시 시도"
+  },
+  "connected": {
+    "title": "{app}에 로그인했습니다",
+    "titleGeneric": "로그인했습니다",
+    "errorTitle": "{app}에 로그인하지 못했습니다",
+    "errorTitleGeneric": "로그인이 완료되지 않았습니다",
+    "body": "cmux로 돌아가 계속하세요.",
+    "errorBody": "cmux로 돌아가 다시 시도하세요.",
+    "button": "cmux로 돌아가기",
+    "closeHint": "이 탭은 닫아도 됩니다."
   }
 }

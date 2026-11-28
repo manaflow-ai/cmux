@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 use std::io;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 #[cfg(unix)]
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -42,7 +42,7 @@ use crate::provider::AxumWebSocketLink;
 use crate::session::{ReceivedFrame, ReliableSession, SessionError, SessionLimits};
 #[cfg(unix)]
 use crate::unix_socket::{OwnedUnixListener, UnixSocketCleanup};
-use cmux_tui_core::net_keepalive::enable_tcp_keepalive;
+use cmux_terminal_host_protocol::net_keepalive::enable_tcp_keepalive;
 
 const PENDING_LINK_TTL: Duration = Duration::from_secs(30);
 const MAX_PENDING_LINK_GROUPS: usize = 256;
@@ -838,6 +838,9 @@ struct PendingLinks {
     /// A new session's admission permit, moved to `client_permits` once it
     /// registers; a reconnect has none.
     client_permit: Option<OwnedSemaphorePermit>,
+    /// The Control link's early data (`AcceptedSecureLink::early`), read by the
+    /// session first once the group commits.
+    early: Vec<Bytes>,
 }
 
 struct ReconnectRegistration<'a> {
@@ -1027,6 +1030,27 @@ impl RemoteDaemon {
                 (None, Lane::ALL.into_iter().map(|lane| (lane, 0)).collect())
             }
         };
+        // Early data is the Control lane's replay, written for this session and generation:
+        // anything else refuses the link. What the daemon already has is dropped here, and the
+        // session's own dedupe drops anything that arrives meanwhile.
+        let early = if accepted.early.is_empty() {
+            Vec::new()
+        } else {
+            let contiguous = daemon_resume.get(&Lane::Control).copied().unwrap_or(0);
+            match crate::session::admit_early_frames(
+                &accepted.early,
+                accepted.session,
+                accepted.generation,
+                contiguous,
+            ) {
+                Ok(early) if existing.is_some() => early,
+                Ok(_) => Vec::new(),
+                Err(error) => {
+                    let _ = accepted.link.close().await;
+                    return Err(DaemonError::Protocol(error));
+                }
+            }
+        };
         send_link_ready(&accepted.link, accepted.session, accepted.generation, daemon_resume)
             .await?;
 
@@ -1085,8 +1109,12 @@ impl RemoteDaemon {
                 grant_generation: accepted.grant.revocation_generation,
                 service_authority: accepted.grant.authority.clone(),
                 client_permit: None,
+                early: Vec::new(),
             }
         });
+        if !early.is_empty() {
+            pending.early = early;
+        }
         if pending.client_permit.is_none() {
             pending.client_permit = client_permit.take();
         }
@@ -1136,6 +1164,11 @@ impl RemoteDaemon {
         let (connection, is_new) = if let Some(connection) = existing {
             let expected_generation = base_generation.expect("an existing client has a generation");
             let rejected_mux = mux.clone();
+            let link: Arc<dyn FrameLink> = if pending.early.is_empty() {
+                mux
+            } else {
+                Arc::new(crate::link::EarlyFrames::new(mux, std::mem::take(&mut pending.early)))
+            };
             if let Err(error) = self
                 .reconnect_registered_client(
                     &key,
@@ -1143,7 +1176,7 @@ impl RemoteDaemon {
                     ReconnectRegistration {
                         expected_generation,
                         generation: accepted.generation,
-                        link: mux,
+                        link,
                         lane_bindings,
                         peer_resume: &pending.client_resume,
                         service_authority: &pending.service_authority,
@@ -1416,7 +1449,7 @@ struct WebSocketState {
     keepalive: WebSocketKeepalive,
 }
 
-pub use cmux_tui_core::net_keepalive::WebSocketKeepalive;
+pub use cmux_terminal_host_protocol::net_keepalive::WebSocketKeepalive;
 
 /// How a direct WebSocket listener admits links.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -1426,7 +1459,16 @@ pub struct DirectWebSocketOptions {
     /// Grant carrier authentication to every link: the listener is reachable only
     /// from a network whose members are all authorized (a cmux Cloud machine's
     /// private VPC). Enrolled and invitation dials keep working alongside.
+    /// Off loopback it also needs `allow_trusted_carrier_non_loopback`, and
+    /// even then only peers on a private address (RFC 1918, 100.64/10, ULA)
+    /// get carrier authentication; any other peer must present a device key,
+    /// an invitation or a client grant.
     pub trusted_carrier: bool,
+    /// Explicit opt-in for `trusted_carrier` on a non-loopback bind. Without it
+    /// the listener refuses to start: off loopback the direct listener requires
+    /// a client grant. Only compatibility machines whose launch line predates
+    /// client grants (`--remote-ws-trusted-carrier`) and local development set it.
+    pub allow_trusted_carrier_non_loopback: bool,
     /// When an idle link is pinged and when a silent one is closed. The
     /// default ([`WebSocketKeepalive::default`]) is the production policy.
     pub keepalive: WebSocketKeepalive,
@@ -1443,7 +1485,7 @@ struct LimitedTcpListener {
     inner: tokio::net::TcpListener,
     permits: Arc<Semaphore>,
     /// Spacing for accept errors that persist (descriptor exhaustion).
-    accept_backoff: cmux_tui_core::backoff::Backoff,
+    accept_backoff: cmux_tui_util::backoff::Backoff,
 }
 
 struct AdmissionIo {
@@ -1456,6 +1498,7 @@ struct AdmissionIo {
 #[derive(Clone)]
 struct AdmissionInfo {
     upgraded: Arc<AtomicBool>,
+    peer: SocketAddr,
 }
 
 impl Listener for LimitedTcpListener {
@@ -1487,7 +1530,7 @@ impl Listener for LimitedTcpListener {
                 }
                 Err(error) => {
                     drop(permit);
-                    if cmux_tui_core::backoff::accept_error_needs_backoff(&error) {
+                    if cmux_tui_util::backoff::accept_error_needs_backoff(&error) {
                         tokio::time::sleep(self.accept_backoff.next_delay()).await;
                     }
                 }
@@ -1502,7 +1545,21 @@ impl Listener for LimitedTcpListener {
 
 impl Connected<IncomingStream<'_, LimitedTcpListener>> for AdmissionInfo {
     fn connect_info(stream: IncomingStream<'_, LimitedTcpListener>) -> Self {
-        Self { upgraded: stream.io().upgraded.clone() }
+        Self { upgraded: stream.io().upgraded.clone(), peer: *stream.remote_addr() }
+    }
+}
+
+/// Whether a trusted-carrier listener may grant carrier authentication to a
+/// peer at `ip`: loopback, or a private address that only an authorized network
+/// can originate (RFC 1918, shared 100.64/10, IPv6 unique local fc00::/7).
+/// Every other peer falls back to ordinary network evidence.
+pub(crate) fn trusted_carrier_peer_in_scope(ip: IpAddr) -> bool {
+    match ip.to_canonical() {
+        IpAddr::V4(v4) => {
+            let [a, b, ..] = v4.octets();
+            v4.is_loopback() || v4.is_private() || (a == 100 && (64..128).contains(&b))
+        }
+        IpAddr::V6(v6) => v6.is_loopback() || (v6.segments()[0] & 0xfe00) == 0xfc00,
     }
 }
 
@@ -1596,23 +1653,33 @@ pub async fn serve_direct_websocket_with_options(
     maximum_frame_bytes: usize,
     options: DirectWebSocketOptions,
 ) -> Result<DirectWebSocketServer, DaemonError> {
-    let DirectWebSocketOptions { allow_insecure_non_loopback, trusted_carrier, keepalive } =
-        options;
+    let DirectWebSocketOptions {
+        allow_insecure_non_loopback,
+        trusted_carrier,
+        allow_trusted_carrier_non_loopback,
+        keepalive,
+    } = options;
     if !address.ip().is_loopback() && !allow_insecure_non_loopback {
         return Err(DaemonError::Protocol(format!(
             "refusing plaintext remote WebSocket bind {address}; use TLS or explicitly allow it"
         )));
     }
-    let listener = tokio::net::TcpListener::bind(address)
-        .await
-        .map_err(|error| DaemonError::Protocol(format!("could not bind WebSocket: {error}")))?;
+    if trusted_carrier && !address.ip().is_loopback() && !allow_trusted_carrier_non_loopback {
+        return Err(DaemonError::Protocol(format!(
+            "refusing trusted-carrier WebSocket bind {address}: off loopback the direct \
+             listener requires a client grant"
+        )));
+    }
+    let listener = tokio::net::TcpListener::bind(address).await.map_err(|error| {
+        DaemonError::Protocol(crate::port_holder::bind_failure_message(address, &error))
+    })?;
     let local_addr = listener.local_addr().map_err(|error| {
         DaemonError::Protocol(format!("could not read WebSocket address: {error}"))
     })?;
     let state = WebSocketState { daemon, maximum_frame_bytes, trusted_carrier, keepalive };
     let router = Router::new().route("/v1/link", get(upgrade_websocket)).with_state(state);
     let listener = LimitedTcpListener {
-        accept_backoff: cmux_tui_core::backoff::Backoff::new(
+        accept_backoff: cmux_tui_util::backoff::Backoff::new(
             Duration::from_millis(10),
             Duration::from_secs(1),
         ),
@@ -1650,11 +1717,12 @@ async fn upgrade_websocket(
                 socket,
                 state.keepalive,
             );
-            let inbound = if state.trusted_carrier {
-                InboundLink::trusted_network(Box::new(link), NetworkPeer::Tcp)
-            } else {
-                InboundLink::network(Box::new(link), NetworkPeer::Tcp)
-            };
+            let inbound =
+                if state.trusted_carrier && trusted_carrier_peer_in_scope(admission.peer.ip()) {
+                    InboundLink::trusted_network(Box::new(link), NetworkPeer::Tcp)
+                } else {
+                    InboundLink::network(Box::new(link), NetworkPeer::Tcp)
+                };
             let _ = state.daemon.accept(inbound).await;
         })
 }
@@ -1742,7 +1810,7 @@ pub async fn serve_unix_with_shutdown(
                             accepted
                         }
                         Err(error) => {
-                            let Some(delay) = cmux_tui_core::backoff::accept_retry_delay(&mut accept_backoff, &error) else {
+                            let Some(delay) = cmux_tui_util::backoff::accept_retry_delay(&mut accept_backoff, &error) else {
                                 if let Some(owner_shutdown) = &owner_shutdown {
                                     let _ = owner_shutdown.send(true);
                                 }
@@ -1881,6 +1949,89 @@ mod tests {
     use tokio::net::UnixListener;
 
     use super::*;
+
+    #[test]
+    fn trusted_carrier_scope_admits_only_loopback_and_private_peers() {
+        for inside in [
+            "127.0.0.1",
+            "10.4.0.7",
+            "172.16.0.1",
+            "192.168.1.2",
+            "100.64.0.1",
+            "100.127.255.254",
+            "::1",
+            "fd00:4::7",
+            "fd7a:115c:a1e0::a",
+            "fc00::1",
+            "::ffff:10.0.0.5",
+        ] {
+            assert!(trusted_carrier_peer_in_scope(inside.parse().unwrap()), "{inside}");
+        }
+        for outside in [
+            "8.8.8.8",
+            "100.128.0.1",
+            "100.63.255.255",
+            "169.254.169.254",
+            "172.32.0.1",
+            "2602:f75c:0:1::2a",
+            "fe80::1",
+            "::ffff:8.8.8.8",
+            "0.0.0.0",
+            "::",
+        ] {
+            assert!(!trusted_carrier_peer_in_scope(outside.parse().unwrap()), "{outside}");
+        }
+    }
+
+    #[tokio::test]
+    async fn trusted_carrier_off_loopback_needs_the_explicit_opt_in() {
+        let state = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(state.path(), "trusted-scope", false).unwrap();
+        let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let refused = serve_direct_websocket_with_options(
+            daemon.clone(),
+            "0.0.0.0:0".parse().unwrap(),
+            65_535,
+            DirectWebSocketOptions {
+                allow_insecure_non_loopback: true,
+                trusted_carrier: true,
+                ..Default::default()
+            },
+        )
+        .await;
+        let Err(DaemonError::Protocol(message)) = refused else {
+            panic!("trusted carrier bound off loopback without the opt-in");
+        };
+        assert!(message.contains("requires a client grant"), "{message}");
+        // Loopback stays a valid trusted listener with no opt-in.
+        serve_direct_websocket_with_options(
+            daemon.clone(),
+            "127.0.0.1:0".parse().unwrap(),
+            65_535,
+            DirectWebSocketOptions { trusted_carrier: true, ..Default::default() },
+        )
+        .await
+        .unwrap()
+        .shutdown()
+        .await
+        .unwrap();
+        serve_direct_websocket_with_options(
+            daemon,
+            "0.0.0.0:0".parse().unwrap(),
+            65_535,
+            DirectWebSocketOptions {
+                allow_insecure_non_loopback: true,
+                trusted_carrier: true,
+                allow_trusted_carrier_non_loopback: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap()
+        .shutdown()
+        .await
+        .unwrap();
+    }
 
     #[cfg(unix)]
     #[test]

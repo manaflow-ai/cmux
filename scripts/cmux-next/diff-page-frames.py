@@ -41,11 +41,14 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bench_memory as bm  # noqa: E402
 import diff_tab_cells as cells  # noqa: E402
 from state_wait import wait_stable, wait_until  # noqa: E402
+# cmux NEXT's config folder: `cmux-next` on macOS (cmux-config NEXT_DIR, location.rs; #53567).
+NEXT_DIR = "cmux-next" if sys.platform == "darwin" else "cmux"
 
 PAGE = cells.PAGE
 STUB = "#!/bin/sh\ncat >/dev/null\necho run >> \"$(dirname \"$0\")/summarizer.runs\"\necho 'Changes one constant value in this file.'\n"
@@ -95,6 +98,29 @@ def runtime(app, browser: int, expression: str, timeout: float = 60):
         return json.loads(value)
     except ValueError as error:
         return {"error": str(error)}
+
+
+def runtime_long(app, browser: int, expression: str, timeout: float = 180, settle: float = 0.0):
+    """`expression` (a promise of JSON text) started in the page, its value read back by short calls: a build's
+    `debug.cef_page_devtools` before `timeout_ms` answers within 5 s, and a measured scroll or click takes longer. The
+    first read waits `settle` seconds, so the reads stay out of the frames they measure."""
+    key = f"__dpf_{uuid.uuid4().hex}"
+    started = runtime(app, browser, f"""(async()=>{{window.{key}={{done:false}};Promise.resolve().then(()=>{expression}).then(
+v=>{{window.{key}={{done:true,value:v}}}},e=>{{window.{key}={{done:true,value:JSON.stringify({{error:String(e)}})}}}});
+return JSON.stringify({{started:true}})}})()""", timeout=30)
+    if started.get("started") is not True:
+        return started
+    time.sleep(settle)
+    read = f"""(async()=>{{const r=window.{key};if(!r||!r.done)return JSON.stringify({{pending:true}});
+delete window.{key};return typeof r.value==='string'?r.value:JSON.stringify({{error:'not JSON text'}})}})()"""
+    deadline = time.monotonic() + timeout
+    while True:
+        got = runtime(app, browser, read, timeout=30)
+        if got.get("pending") is not True:
+            return got
+        if time.monotonic() > deadline:
+            return {"error": f"the page gave no answer in {timeout:.0f} s"}
+        time.sleep(1)  # test script: the page's script is still running; read again
 
 
 TOGGLE_STATE = """(async()=>{const t=document.getElementById('plain-english-toggle');return JSON.stringify(
@@ -157,6 +183,45 @@ def wait_toggle(app, browser: int, seconds: float = 60) -> dict:
     return state
 
 
+def failure_dump(app, folder: str | None, label: str, scratch: str | None) -> dict:
+    """What the app showed when the diff tab drew no file: its live pages, the diff page's state and text, the
+    surfaces, a screenshot and the tails of the scratch home's logs (into `folder`). Each read is bounded and
+    a read that fails is kept as its error: the dump is evidence, never a second failure."""
+    dump: dict = {}
+
+    def keep(name, read):
+        try:
+            dump[name] = json.loads(json.dumps(read(), default=str)[:4000])
+        except (ValueError, OSError, RuntimeError, subprocess.SubprocessError) as error:
+            dump[name] = {"error": str(error)[:300]}
+
+    keep("pages", lambda: app.call("debug.page", {"action": "list"}, timeout=20))
+    keep("diff_page_state", lambda: app.call("debug.page", {"page": PAGE, "action": "state"}, timeout=30))
+    keep("diff_page_text", lambda: app.call("debug.page", {"page": PAGE, "action": "query", "selector": "body"}, timeout=30))
+    keep("surfaces", lambda: app.call("debug.surfaces", timeout=10))
+    if folder:
+        os.makedirs(folder, exist_ok=True)
+        shot = os.path.join(folder, f"{label}-open-failure.png")
+        keep("screenshot", lambda: {"path": shot, "exit": subprocess.run(["screencapture", "-x", shot],
+                                                                           timeout=30).returncode})
+        if scratch and os.path.isdir(scratch):
+            tails = os.path.join(folder, f"{label}-logs.txt")
+            with open(tails, "w") as handle:
+                for root, _, names in os.walk(scratch):
+                    for name in sorted(names):
+                        if not name.endswith((".log", ".jsonl", ".txt")):
+                            continue
+                        path = os.path.join(root, name)
+                        try:
+                            with open(path, "rb") as log:
+                                log.seek(max(0, os.path.getsize(path) - 6000))
+                                handle.write(f"==> {path}\n{log.read().decode(errors='replace')}\n")
+                        except OSError as error:
+                            handle.write(f"==> {path}: {error}\n")
+            dump["logs"] = tails
+    return dump
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--app", required=True)
@@ -169,6 +234,9 @@ def main() -> int:
     parser.add_argument("--passes", type=int, default=2)
     parser.add_argument("--clip")
     parser.add_argument("--clip-seconds", type=int, default=18)
+    parser.add_argument("--open-timeout", type=float, default=540,
+                        help="seconds the code view's first file may take to draw (90 s waits, chained)")
+    parser.add_argument("--dump-dir", help="where a failed open leaves its screenshot and the app's log tails")
     args = parser.parse_args()
     bundle = os.path.abspath(args.app)
     out: dict = {"label": args.label, "app": bundle, "ok": False, "errors": []}
@@ -188,9 +256,11 @@ def main() -> int:
         # acpmux complete/recipes.rs). A user profile file wins over the discovered `claude` for its id
         # (config/profiles.rs), and XDG_CONFIG_HOME names its folder, so the run's acpmux reads only it.
         xdg = os.path.join(work, "xdg")
-        os.makedirs(os.path.join(xdg, "cmux", "harnesses"), exist_ok=True)
-        with open(os.path.join(xdg, "cmux", "harnesses", "claude.toml"), "w") as handle:
-            handle.write(profile_toml(stub))
+        # Both config folders: an app from before #53567 (an older arm of an A/B) reads `cmux`, a newer one `cmux-next`.
+        for folder in dict.fromkeys((NEXT_DIR, "cmux")):
+            os.makedirs(os.path.join(xdg, folder, "harnesses"), exist_ok=True)
+            with open(os.path.join(xdg, folder, "harnesses", "claude.toml"), "w") as handle:
+                handle.write(profile_toml(stub))
         out["harness_add"] = "profile file"
         # The keyboard and the screen: the window comes to the front (no CMUX_NEXT_NO_ACTIVATE), as a person's.
         pid, socket_path, scratch = bm.launch(bundle, {}, {"CMUX_NEXT_NO_ACTIVATE": None, "XDG_CONFIG_HOME": xdg})
@@ -210,15 +280,27 @@ def main() -> int:
                    "the new terminal's content in the focused pane", timeout=20, raise_on_timeout=False)
         started = time.monotonic()
         opened = app.action("openDiffViewer", focus=True, path=repo)
-        waited = app.call("debug.page", {"page": PAGE, "action": "wait", "selector": ".file-header", "timeout_ms": 90000},
-                          timeout=100) or {}
+        # Short waits (5 s each) chained: a wait asked before the tab's page exists can sit to its own timeout,
+        # which made the open time read as one wait's 90 s; a 100k-line open on a loaded Mac may take longer, so they chain
+        # up to --open-timeout seconds (a "no live page" answer, before the tab's page exists, waits too).
+        waits = []
+        while True:
+            waited = app.call("debug.page", {"page": PAGE, "action": "wait", "selector": ".file-header",
+                                             "timeout_ms": 5000}, timeout=15) or {}
+            waits.append({k: waited[k] for k in ("matched", "error", "ms") if k in waited})
+            if waited.get("matched") is True or time.monotonic() - started > args.open_timeout:
+                break
+            if waited.get("error") and waited.get("error") != "timeout":
+                time.sleep(2)  # test script: an answer before its timeout (no live page yet): ask again shortly
         code_ms = (time.monotonic() - started) * 1000
         out["code_view"] = {"open_to_first_file_header_ms": round(code_ms, 1) if waited.get("matched") is True else None,
-                            "open": {k: opened[k] for k in ("created", "state", "error", "code") if k in opened},
-                            "wait": {k: waited[k] for k in ("matched", "error", "ms") if k in waited}}
+                            "open": {k: opened[k] for k in ("created", "state", "error", "code", "message") if k in opened},
+                            "wait": waits[-1], "waits": len(waits)}
         print(f"DIFF-FRAMES {args.label} code_view {json.dumps(out['code_view'])}", flush=True)
         if waited.get("matched") is not True:
-            raise RuntimeError(f"the code view drew no file: {waited}")
+            out["open_failure"] = failure_dump(app, args.dump_dir, args.label, scratch)
+            print(f"DIFF-FRAMES {args.label} open_failure {json.dumps(out['open_failure'])[:1500]}", flush=True)
+            raise RuntimeError(f"the code view drew no file: {waits[-1]}")
         facts = cells.page_facts(app)
         out["page"] = {k: facts.get(k) for k in ("engine", "browser", "focus", "visibility", "width", "height", "painted")}
         if facts.get("browser") is None:
@@ -234,7 +316,7 @@ def main() -> int:
         # count hold for 1 s.
         wait_stable(lambda: (lambda s: (s.get("headers"), s.get("nodes")))(runtime(app, browser, TOGGLE_STATE, timeout=30)),
                     "the code view's DOM", timeout=30, interval=0.25, reads=5, raise_on_timeout=False)
-        paint = runtime(app, browser, FIRST_PAINT, timeout=150)
+        paint = runtime_long(app, browser, FIRST_PAINT, timeout=150, settle=3)
         out["plain_english"] = paint
         print(f"DIFF-FRAMES {args.label} plain_english {json.dumps(paint)}", flush=True)
         if paint.get("error") or paint.get("click_to_paint_ms") is None:
@@ -265,7 +347,7 @@ def main() -> int:
         out["passes"] = []
         script = SCROLL.replace("FRAMES", str(args.frames)).replace("STEP", str(args.step))
         for index in range(args.passes):
-            got = runtime(app, browser, script, timeout=180)
+            got = runtime_long(app, browser, script, timeout=180, settle=args.frames / 60 + 1)
             deltas = got.pop("deltas", []) if isinstance(got, dict) else []
             got.update(stats(deltas), deltas=deltas, index=index + 1)
             out["passes"].append(got)

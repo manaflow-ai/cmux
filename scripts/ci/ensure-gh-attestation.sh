@@ -48,4 +48,48 @@ ensure_gh_attestation() {
   gh attestation verify --help >/dev/null 2>&1
 }
 
+# gh_waiting_out_rate_limit ARGS...: `gh ARGS...`, run again after the reset when GitHub refuses it for
+# rate limit. A job's GITHUB_TOKEN shares one per-repository installation budget with every other workflow
+# of the repository; when it is spent, `gh attestation verify` fails "HTTP 403: API rate limit exceeded for
+# installation" until the hourly reset. That failed cloud-vm-dogfood's installer job on staging (run
+# 45682713296, job 139449098222) and production (run 45683201692, job 139450021898) in the same minute,
+# 2026-11-25 19:20 UTC, and the journey behind it never ran. The wait is bounded by
+# CMUX_GH_RATE_LIMIT_WAIT_S (default 900 s); stdout is written only for the attempt that succeeds, so
+# `gh_waiting_out_rate_limit ... > file` never holds a failed attempt's partial output.
+gh_waiting_out_rate_limit() {
+  local budget="${CMUX_GH_RATE_LIMIT_WAIT_S:-900}" started now reset wait out err status
+  started="$(date +%s)"
+  out="$(mktemp)" err="$(mktemp)"
+  while :; do
+    status=0
+    gh "$@" >"$out" 2>"$err" || status=$?
+    if [[ "$status" -eq 0 ]]; then
+      cat "$err" >&2
+      cat "$out"
+      rm -f "$out" "$err"
+      return 0
+    fi
+    cat "$err" >&2
+    if ! grep -qiE 'rate limit|secondary rate|abuse detection' "$err"; then
+      rm -f "$out" "$err"
+      return "$status"
+    fi
+    now="$(date +%s)"
+    # GET /rate_limit does not count against the limit it reports.
+    reset="$(gh api rate_limit --jq '.resources.core.reset' 2>/dev/null || true)"
+    if [[ "$reset" =~ ^[0-9]+$ && "$reset" -gt "$now" ]]; then
+      wait=$((reset - now + 5))
+    else
+      wait=60
+    fi
+    if (( now + wait - started > budget )); then
+      echo "::error::gh $1 stayed rate-limited; the reset is ${wait}s away, past the ${budget}s wait (CMUX_GH_RATE_LIMIT_WAIT_S)" >&2
+      rm -f "$out" "$err"
+      return "$status"
+    fi
+    echo "::notice::gh $1 was refused for rate limit; trying again in ${wait}s, after the reset" >&2
+    sleep "$wait"
+  done
+}
+
 ensure_gh_attestation

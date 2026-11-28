@@ -24,6 +24,9 @@ export type UnsentPromptRecord = {
   error?: string;
   /// The refusal's cause, for the row's Details and its Retry rules (sendFailure.ts).
   failure?: Pick<PromptDelivery, "hop" | "code" | "reason" | "error" | "failedAt">;
+  /// Sent while the pane had no link to acpmux (offlineSends.ts): it was never refused, it waits,
+  /// and a reload sends it once the link is up instead of drawing it as Not sent.
+  queued?: true;
 };
 
 /// The host's store of unsent prompts, by chat.
@@ -32,6 +35,24 @@ export type UnsentPromptStore = {
   put(sessionId: string, record: UnsentPromptRecord): Promise<unknown>;
   remove(sessionId: string, promptId: string): Promise<unknown>;
 };
+
+/// The codes of a prompt that got no answer: the page's own deadline (`timeout`), a connection
+/// that went or an app that quit while it was on its way (`native.timed_out`, also what a record
+/// with no failure reads as), and a pane with no connection (`native.not_connected`).
+const UNANSWERED = new Set(["timeout", "native.timed_out", "native.not_connected"]);
+
+/// Whether `record` was not sent only because no answer came, never refused: nobody said no to it,
+/// so it may go again by itself (the host's journal sends it again on the next connection, and
+/// acpmux runs its promptId at most once). A refusal (a `transport.*` code such as
+/// `transport.gesture_required`, acpmux's own reason, an agent's error) keeps its row and Retry.
+export function unanswered(record: UnsentPromptRecord): boolean {
+  const failure = record.failure;
+  if (!failure) return true;
+  if (failure.hop === "agent") return false;
+  // A closed connection's `interrupted` is the one reason an unanswered prompt carries.
+  if (failure.reason !== undefined && failure.reason !== "interrupted") return false;
+  return failure.code === undefined || UNANSWERED.has(failure.code);
+}
 
 const HOPS = new Set(["connection", "acpmux", "agent"]);
 
@@ -57,6 +78,7 @@ export function parseUnsentPrompts(value: unknown): UnsentPromptRecord[] {
         attachments,
         at: record.at,
         ...(typeof record.error === "string" ? { error: record.error } : {}),
+        ...(record.queued === true ? { queued: true as const } : {}),
         ...(failure
           ? {
               failure: {

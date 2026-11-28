@@ -31,9 +31,11 @@ a native typing number and a web typing number were taken under the same load:
   L1 the focused chat streams    L4 every core saturated by other processes (--cpu-burners spinning processes)
   L2 10 other chats streaming    L5 L1 to L4 together, in the STRESS session (60 workspaces, 20 printing terminals)
 
-Each mode is one launch of the app, and its knobs come from the registry, not from --busy/--chats. A knob these
-surfaces cannot express (the 100k-row chat transcript: none of them types into a chat) is in the mode's
-`nativeMissing` and goes in the report beside the row, so a number is never read as the full mode. The web side
+Each mode is one launch of the app, and its knobs come from the registry, not from --busy/--chats. The agentpane
+surface seeds the mode's `native.rows` (L3 and L5: 100,000) into the chat it types in (debug.agent_pane seed_rows)
+before the chat streams. A knob these surfaces cannot express is in the mode's `nativeMissing`, and a seed that came
+up short is added to the run's `mode_missing`; either goes in the report beside the row, so a number is never read
+as the full mode. The web side
 (L0-L3, its own load model in webviews/bench/composer-load.ts) is `scripts/bench/cmux-bench typing`; this harness's
 cmux-bench adapter is `typing-native`.
 
@@ -64,6 +66,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import load_modes  # noqa: E402
 from bench_launch import BenchApp, LaunchError, tag_of as bench_tag_of, tag_state_root  # noqa: E402
 from state_wait import wait_until, wait_stable  # noqa: E402
+from windowserver_metrics import parse_process_time
+from windowserver_gpu import GPUSampler  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FAKE_AGENT = os.path.join(os.path.dirname(os.path.dirname(HERE)), "cmux-tui/crates/acpmux/tests/fake_agent.py")
@@ -124,6 +128,9 @@ parser.add_argument("--modes", help="the shared load modes instead of --phases: 
                                     "`all`; one app launch each, knobs from webviews/bench/load-modes.json")
 parser.add_argument("--cpu-burners", type=int, default=0,
                     help="spinning processes a mode that saturates every core starts (default: this host's cores)")
+parser.add_argument("--launch", choices=("direct", "launchservices"), default="direct",
+                    help="how the app starts: `direct` (a child of this script, with its scheduling: on a fleet worker "
+                         "the worker's utility clamp) or `launchservices` (`open -n`, as a person's Finder or Dock launch)")
 parser.add_argument("--samples", type=int, default=80)
 parser.add_argument("--interval", type=float, default=0.1, help="seconds between keys (one key in flight)")
 parser.add_argument("--busy", type=int, default=20, help="busy terminals in the load phase")
@@ -135,7 +142,8 @@ parser.add_argument("--words", action="store_true", help="type words with spaces
 parser.add_argument("--fresh-draft", action="store_true",
                     help="empty the Home draft (Cmd-A, Delete) before each measure, so every round types the same draft")
 parser.add_argument("--prefill", type=int, default=0,
-                    help="with --fresh-draft: the Home draft holds this many characters of words before the measured keys")
+                    help="with --fresh-draft: the Home draft holds this many characters of words before the measured keys; "
+                         "for agentpane the chat's prompt does (debug.agent_pane reset_typing draft), every round")
 parser.add_argument("--stress", action="store_true",
                     help="build the STRESS session first (perf-lead brief: 60 workspaces, the typed workspace a 4x3 grid with "
                          "6 tabs per pane, 10 workspaces with Chromium pages, 10 printing terminals); every phase runs in it. "
@@ -145,6 +153,9 @@ parser.add_argument("--rounds", type=int, default=3, help="every phase this many
 parser.add_argument("--sample", action="store_true", help="/usr/bin/sample the app over each load phase")
 parser.add_argument("--sample-idle", action="store_true", help="with --sample: the idle phases too")
 parser.add_argument("--gate-p95-ms", type=float)
+parser.add_argument("--cef-switches", default="",
+                    help="extra Chromium switches, colon-separated (CMUX_NEXT_CEF_EXTRA_SWITCHES; DEBUG and bench "
+                         "builds), e.g. disable-component-update: a fresh home's updater runs in the first minutes")
 parser.add_argument("--chat-agent", choices=("mock", "real"), default="mock",
                     help="mock: in-page debug stream; real: ACP fake agent through AgentPaneTransport")
 parser.add_argument("--stream", default="6 10 24", help="real agent stream: SECONDS CHUNK_MS CHARS")
@@ -152,7 +163,8 @@ parser.add_argument("--ab", help="a tunable key (debug.tunables) to measure off 
 parser.add_argument("--backdrops", default="default",
                     help="comma list of window backdrops, one launch each: default (the bench's config), opaque "
                          "(Opacity 1), opacity85 (Opacity 0.85, no picture), picture (van-gogh-starry-night at Opacity "
-                         "0.85). Each run's session is SESSION/BACKDROP; every measure records the app's and "
+                         "0.85), blur-none/blur-frosted/blur-glass/blur-glassClear (explicit material at opacity 0.85). "
+                         "Each run's session is SESSION/BACKDROP; every measure records the app's and "
                          "WindowServer's CPU over its keys, which is where a see-through terminal's compositing costs")
 opts = parser.parse_args()
 OUT = os.path.abspath(opts.out)
@@ -575,26 +587,32 @@ def agent_expected_text(count):
     return "".join(letters[index % len(letters)] for index in range(count))
 
 
-def agent_typing_verdict(stats, expected, dispatch):
-    """Validate page telemetry and join its paint epoch to the native dispatch clock."""
+def agent_typing_verdict(stats, expected, dispatch, prefix_chars=0):
+    """Validate page telemetry and join its paint epoch to the native dispatch clock.
+
+    `prefix_chars`: the prompt held that many characters before the keys (--prefill), so the text ends with them."""
     stats = stats if isinstance(stats, dict) else {}
     samples = stats.get("samples") if isinstance(stats.get("samples"), list) else []
     keys = [sample.get("key") for sample in samples if isinstance(sample, dict)]
     ordered = (len(keys) == len(samples) == len(expected) and all(isinstance(key, str) for key in keys)
                and "".join(keys) == expected)
-    exact = stats.get("composer_text") == expected
+    text = stats.get("composer_text")
+    exact = (text == expected if not prefix_chars else
+             isinstance(text, str) and text.endswith(expected) and len(text) == prefix_chars + len(expected))
     finite = bool(samples) and len(samples) == len(expected)
+
+    def good(value):
+        return isinstance(value, (int, float)) and math.isfinite(value) and value >= 0
+    # frame and paint are the measurement; listener and work only split it into stages. The page's work mark waits
+    # for the key's `input` event until the key's frame, so a key whose edit lands after that frame (under load:
+    # 1 of 200 in L2 on cmux20-bench, 2026-11-20) has no work stage. Such keys are counted, and a run stays complete.
+    stage_missing = {"listener": 0, "work": 0}
     for sample in samples:
-        if not isinstance(sample, dict):
+        if not isinstance(sample, dict) or not (good(sample.get("frame")) and good(sample.get("paint"))):
             finite = False
             break
-        for field in ("frame", "paint", "listener", "work"):
-            value = sample.get(field)
-            if not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
-                finite = False
-                break
-        if not finite:
-            break
+        for field in stage_missing:
+            stage_missing[field] += not good(sample.get(field))
     paints = [sample["paint"] for sample in samples if isinstance(sample, dict)
               and isinstance(sample.get("paint"), (int, float))]
     paint_distribution = pct(paints)
@@ -612,6 +630,7 @@ def agent_typing_verdict(stats, expected, dispatch):
         "complete": finite and ordered and exact and joined,
         "key_order_ok": ordered,
         "text_exact": exact,
+        "stage_missing": stage_missing,
         "expected_keys": len(expected),
         "observed_keys": len(samples),
         "key_to_frame_ms": paint_distribution,
@@ -652,9 +671,23 @@ def open_agent_chat():
     pane = engine.get("pane")
     if pane and opts.chat_agent == "real":
         made = rpc("debug.agent_pane", {"action": "new_chat", "pane": pane, "harness": "fake", "cwd": WORK}, timeout=90)
+        # WORK is a new folder: the start waits on the pane's trust ask until someone answers it (every chat of
+        # 8372af35's L0-L5 run stayed pending). Answer it as a person does, with a click on Trust; once trusted, the
+        # folder asks no later chat.
+        trust = None
+        if (made or {}).get("pending"):
+            trust = wait(lambda: (lambda r: r if r.get("clicked") else None)(
+                rpc("debug.agent_pane", {"action": "click", "pane": pane, "selector": ".acpmux-trust-ask-action"},
+                    timeout=10) or {}), 10, step=0.5)
         attached = wait(lambda: (lambda state: state if state.get("connection") == "attached" and state.get("sessionId") else None)(
             rpc("debug.agent_pane", {"action": "chat_state", "pane": pane}, timeout=10) or {}), 40, step=0.5)
-        note(f"chat {pane}: new_chat {json.dumps(made)[:160]} attached={bool(attached)}")
+        # The chat's state when it never attached (connection, error, pending ask): the report says why its stream
+        # could not run, and stream_load_missing names it beside the number.
+        last = None if attached else rpc("debug.agent_pane", {"action": "chat_state", "pane": pane}, timeout=10) or {}
+        LOAD.setdefault("attach", {})[pane] = {"attached": bool(attached), "new_chat": made, "trust_clicked": bool(trust),
+                                               "state": None if attached else json.dumps(last)[:400]}
+        note(f"chat {pane}: new_chat {json.dumps(made)[:160]} attached={bool(attached)}"
+             + ("" if attached else f" state {json.dumps(last)[:240]}"))
     elif pane:
         rpc("debug.agent_pane", {"action": "select_session", "pane": pane, "session": "mock-session"}, timeout=30)
     if pane:
@@ -697,7 +730,7 @@ def measure_agentpane(phase, pid, pane, streams=()):
     entry = {
         "session": SESSION, "surface": "agentpane", "phase": phase, "mode": (MODE or {}).get("id"),
         "mode_missing": (MODE or {}).get("nativeMissing") or [], "pane": pane,
-        "engine": LOAD.get("agentpane_engine"), "foreground": activation,
+        "engine": LOAD.get("agentpane_engine"), "foreground": activation, "launch": opts.launch,
         "focus": {"composer": focus_reply, "report": focus, "app_active": focus.get("app_active") is True},
         "capabilities": {
             "typing": "debug.key -> agent page",
@@ -738,66 +771,79 @@ def measure_agentpane(phase, pid, pane, streams=()):
     # For a launch-time --ab key, what this launch actually passed Chromium: the row carries it so no cell is read
     # as an arm's number before its switch is proven to have landed (`launch_switch_once`, one read per launch).
     switch_ok, switch_detail = launch_switch_once()
-    cpu_start = (time.monotonic(), cpu_seconds(pid), cpu_seconds(WINDOW_SERVER))
-    stats_before = rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=10) or {}
-    before_keys = stats_before.get("keys", 0) if isinstance(stats_before, dict) else 0
-    clear_select = rpc("debug.key", dict(target, key="a", modifiers=["command"]), timeout=10)
-    clear_delete = rpc("debug.key", dict(target, key="delete"), timeout=10)
-    cleared = wait(lambda: (lambda report: report if report.get("composer_text") == "" and
-                             report.get("keys", 0) >= before_keys + 2 else None)(
-        rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=5) or {}), 5, step=0.2)
-    reset = rpc("debug.agent_pane", {"action": "reset_typing", "pane": pane}, timeout=10)
-    rpc("debug.hangs", {"clear": True})
-    rpc("debug.timings", {"clear": True})
-    rpc("debug.frames", {"action": "start"})
-    sampler = None
-    if opts.sample and phase == "load":
-        sample_path = os.path.join(OUT, f"sample-{SESSION}-agentpane-{phase}.txt")
-        seconds = max(3, int(opts.samples * opts.interval))
-        sampler = (subprocess.Popen(["/usr/bin/sample", str(pid), str(seconds), "1", "-file", sample_path],
-                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL), sample_path)
-    expected = agent_expected_text(opts.samples)
-    dispatch, trips = [], []
-    send_start = time.monotonic()
-    for index, key in enumerate(expected):
-        deadline = send_start + index * opts.interval
-        time.sleep(max(0, deadline - time.monotonic()))
-        started = time.monotonic()
-        epoch_ms = time.time() * 1000
-        reply = rpc("debug.key", dict(target, key=key), timeout=10)
-        dispatch.append({"index": index, "key": key, "epoch_ms": epoch_ms,
-                         "late_ms": (started - deadline) * 1000,
-                         "rpc_ms": (time.monotonic() - started) * 1000, "reply": reply})
-        trips.append(dispatch[-1]["rpc_ms"])
-    typing = wait(lambda: (lambda report: report if report.get("keys", 0) >= len(expected) else None)(
-        rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=5) or {}), 15, step=0.25)
-    typing = typing or (rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=10) or {})
-    if streams:
-        for stream in streams:
-            stream.stop()
-    frames = rpc("debug.frames", {"action": "stop", "raw": True}, timeout=20)
-    hangs = rpc("debug.hangs", {"limit": 12}, timeout=20)
-    main_profile = None
-    if sampler:
-        try:
-            sampler[0].wait(timeout=opts.samples * opts.interval + 60)
-        except subprocess.TimeoutExpired:
-            sampler[0].terminate()
-        try:
-            main_profile = digest_sample(open(sampler[1], errors="replace").read())
-        except OSError:
-            main_profile = {"error": "sample output unavailable", "file": os.path.basename(sampler[1])}
-    cpu_end = (time.monotonic(), cpu_seconds(pid), cpu_seconds(WINDOW_SERVER))
+    with GPUSampler() as gpu_sampler:
+        cpu_start = (time.monotonic(), cpu_seconds(pid), cpu_seconds(WINDOW_SERVER))
+        stats_before = rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=10) or {}
+        before_keys = stats_before.get("keys", 0) if isinstance(stats_before, dict) else 0
+        clear_select = rpc("debug.key", dict(target, key="a", modifiers=["command"]), timeout=10)
+        clear_delete = rpc("debug.key", dict(target, key="delete"), timeout=10)
+        cleared = wait(lambda: (lambda report: report if report.get("composer_text") == "" and
+                                 report.get("keys", 0) >= before_keys + 2 else None)(
+            rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=5) or {}), 5, step=0.2)
+        reset_params = {"action": "reset_typing", "pane": pane}
+        if opts.prefill > 0:
+            reset_params["draft"] = opts.prefill
+        reset = rpc("debug.agent_pane", reset_params, timeout=30)
+        prefix_chars = (reset or {}).get("chars", 0) if opts.prefill > 0 else 0
+        rpc("debug.hangs", {"clear": True})
+        rpc("debug.timings", {"clear": True})
+        rpc("debug.frames", {"action": "start"})
+        sampler = None
+        if opts.sample and phase == "load":
+            sample_path = os.path.join(OUT, f"sample-{SESSION}-agentpane-{phase}.txt")
+            seconds = max(3, int(opts.samples * opts.interval))
+            sampler = (subprocess.Popen(["/usr/bin/sample", str(pid), str(seconds), "1", "-file", sample_path],
+                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL), sample_path)
+        expected = agent_expected_text(opts.samples)
+        dispatch, trips = [], []
+        probe = SchedProbe(pid, opts.samples * opts.interval)
+        probe.start()
+        send_start = time.monotonic()
+        for index, key in enumerate(expected):
+            deadline = send_start + index * opts.interval
+            time.sleep(max(0, deadline - time.monotonic()))
+            started = time.monotonic()
+            epoch_ms = time.time() * 1000
+            reply = rpc("debug.key", dict(target, key=key), timeout=10)
+            dispatch.append({"index": index, "key": key, "epoch_ms": epoch_ms,
+                             "late_ms": (started - deadline) * 1000,
+                             "rpc_ms": (time.monotonic() - started) * 1000, "reply": reply})
+            trips.append(dispatch[-1]["rpc_ms"])
+        probe.halt.set()
+        probe.join(timeout=10)
+        typing = wait(lambda: (lambda report: report if report.get("keys", 0) >= len(expected) else None)(
+            rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=5) or {}), 15, step=0.25)
+        typing = typing or (rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=10) or {})
+        if streams:
+            for stream in streams:
+                stream.stop()
+        frames = rpc("debug.frames", {"action": "stop", "raw": True}, timeout=20)
+        hangs = rpc("debug.hangs", {"limit": 12}, timeout=20)
+        main_profile = None
+        if sampler:
+            try:
+                sampler[0].wait(timeout=opts.samples * opts.interval + 60)
+            except subprocess.TimeoutExpired:
+                sampler[0].terminate()
+            try:
+                main_profile = digest_sample(open(sampler[1], errors="replace").read())
+            except OSError:
+                main_profile = {"error": "sample output unavailable", "file": os.path.basename(sampler[1])}
+        cpu_end = (time.monotonic(), cpu_seconds(pid), cpu_seconds(WINDOW_SERVER))
     frames_after = draw_on_input_frames()
-    verdict = agent_typing_verdict(typing, expected, dispatch)
+    verdict = agent_typing_verdict(typing, expected, dispatch, prefix_chars)
     frame_report = frame_metrics(frames)
     entry.update({"keys": len(expected), "measured": verdict["observed_keys"], "expected_text": expected,
+                  "prefill_chars": prefix_chars,
+                  # The page's own count (perf.ts keyDroppedFrames): vsyncs a key waited past, and frames its own ran over.
+                  "dropped_frames": typing.get("dropped_frames"), "frame_interval_ms": typing.get("frame_interval_ms"),
                   "clear": {"select": clear_select, "delete": clear_delete, "delete_key": "delete",
                             "verified": bool(cleared), "reset": reset},
                   "typing": typing, "dispatch": dispatch, "key_rpc_ms": pct(trips), **verdict,
                   # The app's and WindowServer's CPU over the keys: a frame-pacing arm buys latency with
                   # frames nobody sees, so its cost belongs in the same row as its win (`--ab`).
                   "cpu_percent": cpu_share(cpu_start, cpu_end),
+                  "gpu": gpu_sampler.result,
                   "frame_timing": frame_timing_validity(phase, streams),
                   # `counter: false`: this engine has no draw-on-input counter, so the mode cannot be live here
                   # whatever a setting reads, and `drew: 0` with a counter means the mode was off or opted this page out.
@@ -814,6 +860,7 @@ def measure_agentpane(phase, pid, pane, streams=()):
                   "frame_bursts": frame_report.get("frame_bursts"), "main_thread_cost": frame_report.get("main_thread_cost"),
                   "hangs": hangs,
                   "streams": [stream.calls for stream in streams], "main_profile": main_profile,
+                  "sched_probe": probe.snapshots,
                   "complete": bool(verdict["complete"] and cleared)})
     results["runs"].append(entry)
     if opts.json:
@@ -872,18 +919,34 @@ def workspaces():
 SENTENCE = "the chief reads your note and starts on the work in a new workspace "
 
 
+# The app stamps its key events on CLOCK_UPTIME_RAW; off macOS that name does not exist, and a unit test of this
+# module's own functions must still run on the Linux test host (2026-11-23, test_typing_frame_verdict on huge-blue).
+UPTIME_CLOCK = getattr(time, "CLOCK_UPTIME_RAW", time.CLOCK_MONOTONIC)
+
+
 def type_keys(count, params, column):
     keys = SENTENCE if opts.words else "abcdefghijklmnopqrstuvwxyz"
     rows_before = len(probe_rows())
     trips = []
+    # What the app did with each key, as `debug.key` reports it: "responder" or "page" went on to AppKit's dispatch,
+    # which is where the typing probe opens its sample; "app" means the key router consumed the key before that, so
+    # the key leaves no probe row and no sample. Without this a route the router eats reads as a surface that simply
+    # measured nothing -- 80 keys, 0 rows, no reason named (#45273's fleet run, 2026-11-23).
+    verdicts = {}
     for index in range(count):
         t0 = time.perf_counter()
         key = keys[index % len(keys)]
-        reply = rpc("debug.key", dict(params, key="space" if key == " " else key, timestamp=time.clock_gettime(time.CLOCK_UPTIME_RAW)),
+        reply = rpc("debug.key", dict(params, key="space" if key == " " else key, timestamp=time.clock_gettime(UPTIME_CLOCK)),
                     timeout=10)
         trips.append((time.perf_counter() - t0) * 1000)
-        if isinstance(reply, dict) and reply.get("error"):
-            note(f"key {index}: {reply.get('error')}")
+        if isinstance(reply, dict):
+            verdict = f"{reply.get('handled_by')}/{reply.get('action')}@{reply.get('window_kind')}"
+            if reply.get("error"):
+                verdict = f"error:{json.dumps(reply.get('error'))[:80]}"
+                note(f"key {index}: {reply.get('error')}")
+        else:
+            verdict = f"no reply ({type(reply).__name__})"
+        verdicts[verdict] = verdicts.get(verdict, 0) + 1
         rest = opts.interval - (time.perf_counter() - t0)
         if rest > 0:
             time.sleep(rest)  # one key in flight at a time
@@ -891,7 +954,7 @@ def type_keys(count, params, column):
     wait_until(lambda: sum(1 for r in probe_rows()[rows_before:] if r.get("complete") == "1" and r.get(column)) >= count,
                "a probe row for the last key", timeout=5, raise_on_timeout=False)
     rows = [r for r in probe_rows()[rows_before:] if r.get("complete") == "1" and r.get(column)]
-    return rows, trips
+    return rows, trips, verdicts
 
 
 GENERIC = ("start", "main", "NSApplicationMain", "_DPSNextEvent", "_DPSBlockUntilNextEventMatchingListInMode", "ReceiveNextEventCommon",
@@ -945,6 +1008,9 @@ def digest_sample(text):
 
 BACKDROPS = {"default": {}, "opaque": {"backgroundOpacity": 1}, "opacity85": {"backgroundOpacity": 0.85},
              "picture": {"background": "van-gogh-starry-night", "backgroundOpacity": 0.85}}
+BACKDROPS.update({"blur-" + material: {"background": "none", "backgroundOpacity": 0.85,
+                                      "backgroundBlur": material}
+                  for material in ("none", "frosted", "glass", "glassClear")})
 WINDOW_SERVER = None
 
 
@@ -955,11 +1021,70 @@ def cpu_seconds(pid):
     out = subprocess.run(["ps", "-o", "cputime=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
     if not out:
         return None
-    parts = [float(x) for x in out.replace("-", ":").split(":")]
-    total = 0.0
-    for x in parts:
-        total = total * 60 + x
-    return total
+    try:
+        return parse_process_time(out)
+    except ValueError:
+        return None
+
+
+
+class SchedProbe(threading.Thread):
+    """Scheduler state while keys are typed: `ps -M` (one row per thread with its scheduler priority PRI and CPU
+    times) of the app, each Chromium helper it started (renderer, GPU, utility) and one CPU burner, at `points`
+    evenly spaced through the typing window. Read-only; signals nothing."""
+
+    def __init__(self, pid, seconds, points=4):
+        super().__init__(daemon=True)
+        self.pid, self.seconds, self.points = pid, seconds, points
+        self.snapshots = []
+        self.halt = threading.Event()
+
+    def helpers(self):
+        out = subprocess.run(["ps", "-axo", "pid=,ppid=,command="], capture_output=True, text=True).stdout
+        found = []
+        for line in out.splitlines():
+            parts = line.split(None, 2)
+            if len(parts) < 3 or not parts[0].isdigit() or parts[1] != str(self.pid):
+                continue
+            command = parts[2]
+            kind = re.search(r"--type=([\w-]+)", command)
+            found.append({"pid": int(parts[0]), "kind": kind.group(1) if kind else "other",
+                          "helper": " Helper" in command, "command": command[:400]})
+        return found
+
+    def snapshot(self, index):
+        children = self.helpers()
+        pids = [self.pid] + [child["pid"] for child in children if child["helper"]]
+        if BURNERS:
+            pids.append(BURNERS[0].pid)
+        # Where a scheduling clamp would come from: this harness and its parent (the fleet worker's step tree), and
+        # two apps LaunchServices started on this host, for reference.
+        reference = {"harness": os.getpid(), "harness_parent": os.getppid()}
+        for name in ("Finder", "Dock"):
+            found = subprocess.run(["pgrep", "-x", name], capture_output=True, text=True).stdout.split()
+            if found:
+                reference[name] = int(found[0])
+        pids += [pid for pid in reference.values() if pid not in pids]
+        threads = subprocess.run(["ps", "-M", "-p", ",".join(str(p) for p in pids)],
+                                 capture_output=True, text=True).stdout
+        load = subprocess.run(["sysctl", "-n", "vm.loadavg"], capture_output=True, text=True).stdout.strip()
+        front = subprocess.run(["lsappinfo", "front"], capture_output=True, text=True).stdout.strip()
+        front_info = subprocess.run(["lsappinfo", "info", "-only", "pid", front], capture_output=True,
+                                    text=True).stdout.strip() if front else ""
+        self.snapshots.append({"index": index, "t": time.time(), "app_pid": self.pid, "launch": opts.launch,
+                               "burner_pid": BURNERS[0].pid if BURNERS else None, "loadavg": load,
+                               "reference_pids": reference, "front_app": front, "front_app_pid": front_info,
+                               "children": children, "ps_M": threads})
+
+    def run(self):
+        step = self.seconds / (self.points + 1)
+        for index in range(self.points):
+            if self.halt.wait(step):
+                return
+            try:
+                self.snapshot(index)
+            except Exception as error:  # the probe must never end a run
+                self.snapshots.append({"index": index, "error": repr(error)})
 
 
 def window_server_pid():
@@ -967,9 +1092,23 @@ def window_server_pid():
     return int(out[0]) if out else None
 
 
+def backdrop_evidence():
+    windows = rpc("debug.themes").get("windows") or []
+    if not windows:
+        raise RuntimeError("native backdrop readback unavailable")
+    for window in windows:
+        backdrop = window.get("backdrop") or {}
+        if backdrop.get("blending") != "false" or backdrop.get("glassOverlay") != "":
+            raise RuntimeError("native backdrop is transitioning or its settled state is unverified")
+    return [{"window_number": window.get("window_number"), "backdrop": window["backdrop"]}
+            for window in windows]
+
+
 def measure(surface, phase, params, column, pid, streams=()):
     global WINDOW_SERVER
     WINDOW_SERVER = WINDOW_SERVER or window_server_pid()
+    appearance = BACKDROPS.get(SESSION.split("/", 1)[-1], {})
+    backdrop_before = backdrop_evidence() if "backgroundBlur" in appearance else None
     rpc("debug.hangs", {"clear": True})
     rpc("debug.timings", {"clear": True})
     rows_before = len(probe_rows())
@@ -989,9 +1128,12 @@ def measure(surface, phase, params, column, pid, streams=()):
     # debug.view_churn (which views ask for display or layout while the keys are typed) exists only in a probe
     # build (scratch branch pl-typing-view-churn, never landed: a DEBUG swizzle of NSView); elsewhere this records the error.
     rpc("debug.view_churn", {"action": "start"})
-    cpu_start = (time.monotonic(), cpu_seconds(pid), cpu_seconds(WINDOW_SERVER))
-    rows, trips = type_keys(opts.samples, params, column)
-    cpu_end = (time.monotonic(), cpu_seconds(pid), cpu_seconds(WINDOW_SERVER))
+    with GPUSampler() as gpu_sampler:
+        cpu_start = (time.monotonic(), cpu_seconds(pid), cpu_seconds(WINDOW_SERVER))
+        rows, trips, verdicts = type_keys(opts.samples, params, column)
+        cpu_end = (time.monotonic(), cpu_seconds(pid), cpu_seconds(WINDOW_SERVER))
+    gpu = gpu_sampler.result
+    backdrop_after = backdrop_evidence() if "backgroundBlur" in appearance else None
     wall = cpu_end[0] - cpu_start[0]
     share = lambda i: (round(100.0 * (cpu_end[i] - cpu_start[i]) / wall, 1)
                        if wall > 0 and cpu_end[i] is not None and cpu_start[i] is not None else None)
@@ -1014,6 +1156,8 @@ def measure(surface, phase, params, column, pid, streams=()):
         "mode_missing": (MODE or {}).get("nativeMissing") or [],
         "cpu_burners": LOAD.get("cpu_burners", 0),
         "key_to_frame_ms": pct(f(column)), "column": column,
+        # `measured: 0` with every key under "app/..." is the key router eating them, not a slow surface.
+        "key_verdicts": verdicts,
         # Every measured key's value, so a reader pools the rounds (the perf cron's terminal.key_to_echo rows).
         "key_to_frame_values": [round(v, 3) for v in f(column)],
         "send_to_dispatch_ms": pct(f("dispatch_start_ms")),
@@ -1034,6 +1178,10 @@ def measure(surface, phase, params, column, pid, streams=()):
                        "marks": {m: sum(bool(r.get(m)) for r in every) for m in marks}},
         "stream_replies": LOAD.get("stream_replies", [])[:4],
         "cpu_pct": {"app": share(1), "window_server": share(2), "seconds": round(wall, 2)},
+        "gpu": gpu,
+        "requested_appearance": appearance,
+        "backdrop_readback": {"before": backdrop_before, "after": backdrop_after},
+        "effective_material": None,  # no existing debug report exposes the window backdrop's native material
     }
     if sampler:
         try:
@@ -1222,15 +1370,57 @@ def surface_omnibar(phase, pid):
     return entry
 
 
+def seed_transcript(pane, rows):
+    """The mode's god chat: ROWS synthetic rows put into the focused chat's transcript (debug.agent_pane seed_rows,
+    the page's replaceRows), once per launch, before its stream starts; the real agent's stream then lands after
+    them. The rows are the page's (the daemon's log keeps the real turns): the page is where a long transcript
+    costs a key. What it did, or None when the mode wants no rows."""
+    if not rows:
+        return None
+    if LOAD.get("seed", {}).get("pane") == pane:
+        return LOAD["seed"]
+    started = time.time()
+    reply = rpc("debug.agent_pane", {"action": "seed_rows", "pane": pane, "count": rows}, timeout=120) or {}
+    seeded = reply.get("rows") if isinstance(reply.get("rows"), int) else 0
+    LOAD["seed"] = {"pane": pane, "requested": rows, "rows": seeded, "commit_ms": reply.get("commit_ms"),
+                    "seconds": round(time.time() - started, 1), "error": reply.get("error")}
+    note(f"seed {pane}: {json.dumps(LOAD['seed'])[:200]}")
+    return LOAD["seed"]
+
+
+# The page's synthetic transcript is whole turns of a prompt, a reply and a turn summary (webviews
+# src/agent-session/acpmux/synthetic.ts), so a 100,000-row ask seeds 99,999.
+SEED_TURN_ROWS = 3
+
+
+def seed_short(seed):
+    """Whether SEED put fewer rows into the chat than the mode asks for, past the last partial turn."""
+    return seed["rows"] <= seed["requested"] - SEED_TURN_ROWS
+
+
+def stream_load_missing(panes, attach=None):
+    """With the real agent, a chat that never attached has no session to prompt, so its stream never ran: the load
+    is not the mode's. A line naming how many of the streaming chats that is, or None when every one attached (or
+    the mock agent streams, which needs no session)."""
+    if opts.chat_agent != "real" or not panes:
+        return None
+    attach = LOAD.get("attach", {}) if attach is None else attach
+    dead = [p for p in panes if not (attach.get(p) or {}).get("attached")]
+    if not dead:
+        return None
+    return f"{len(dead)} of {len(panes)} streaming chats never attached to the agent, so their streams never ran"
+
+
 def surface_agentpane(phase, pid):
     pane = ensure_agentpane()
-    streams = []
+    seed = seed_transcript(pane, ((MODE or {}).get("native") or {}).get("rows") or 0)
+    streams, source = [], []
     if phase == "load":
         make_load(None)
         mode_id = (MODE or {}).get("id")
         # L1/L3 type into the focused chat while it streams; L2 adds the ten background chats;
         # L5 combines both. The legacy --phases path preserves its existing mock-chat load.
-        source = []
+        source.clear()
         if mode_id in ("L1", "L3", "L5"):
             source.append(pane)
         if mode_id in ("L2", "L5"):
@@ -1240,7 +1430,18 @@ def surface_agentpane(phase, pid):
         stream = chat_streams(source)
         if stream:
             streams.append(stream)
-    return measure_agentpane(phase, pid, pane, streams)
+    entry = measure_agentpane(phase, pid, pane, streams)
+    missing = stream_load_missing(source)
+    if missing:
+        entry["mode_missing"] = [*(entry.get("mode_missing") or []), missing]
+        entry["attach"] = {p: LOAD.get("attach", {}).get(p) for p in source}
+    if seed is not None:
+        entry["transcript_seed"] = seed
+        if seed_short(seed):
+            # Fewer rows than the mode asks for is not that mode: say so beside the number.
+            entry["mode_missing"] = [*(entry.get("mode_missing") or []),
+                                     f"the {seed['requested']}-row chat transcript (seeded {seed['rows']})"]
+    return entry
 
 
 SURFACES = {"terminal": surface_terminal, "home": surface_home, "dock": surface_dock,
@@ -1256,6 +1457,8 @@ def run_session(session, phases=None, backdrop="default"):
     LOAD.clear()
     LOAD.update({"made": False, "workspaces": [], "chat_panes": []})
     env = {"CMUX_NEXT_TYPING_PROBE": PROBE, "CMUX_NEXT_HANG_THRESHOLD_MS": "8"}
+    if opts.cef_switches:
+        env["CMUX_NEXT_CEF_EXTRA_SWITCHES"] = opts.cef_switches
     if opts.chat_agent == "real":
         env.update(CMUX_NEXT_AGENT_PANE_MOCK=None, ACPMUX_AGENT_LAUNCH=None)
     config = {"browser": {"defaultEngine": "chromium"}}
@@ -1263,7 +1466,7 @@ def run_session(session, phases=None, backdrop="default"):
         config["appearance"] = BACKDROPS[backdrop]
     bench = BenchApp(APP, out=OUT, config=config, window=WINDOW,
                      log_name=f"app-{SESSION.replace('/', '-')}.log",
-                     env=env)
+                     env=env, launch=opts.launch)
     try:
         try:
             bench.launch(timeout=180)
@@ -1317,6 +1520,9 @@ def run_session(session, phases=None, backdrop="default"):
                             SURFACES[surface](phase, app.pid)
                         except Exception as error:  # one surface failing must not hide the others
                             note(f"{session} {surface}.{phase}: failed: {error!r}")
+                            results.setdefault("surface_failures", []).append(
+                                {"session": SESSION, "surface": surface, "phase": phase, "round": ROUND,
+                                 "error": repr(error)})
                         if opts.ab:
                             arm = LAUNCH_ARM if launch_arm_key() else ARM
                             for row in results["runs"][first:]:

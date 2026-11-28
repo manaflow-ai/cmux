@@ -1,7 +1,7 @@
 //! The pushed state of the Cloud machines the app shows (Leo, 2026-11-05: "yes" to a
 //! per-machine state object so the app stops polling): one WebSocket per machine,
 //! `GET /v1/cloud/machines/{id}/state` on the platform Worker (cmux-platform `MachineState`,
-//! protocol `cmux.machine-state/1`). The app's `CloudMachineStatePush` holds the sockets; what a
+//! protocol `cmux.machine-state/1`). The daemon holds the sockets (server/machine_state_push.rs); what a
 //! frame means, which machines get a socket and how long a closed one waits are here.
 
 use serde::Serialize;
@@ -15,7 +15,7 @@ pub const FIRST_BACKOFF_MS: u64 = 500;
 pub const MAX_BACKOFF_MS: u64 = 30_000;
 /// An open socket sends [`PING`] this often, so no proxy closes it for being quiet; the
 /// platform's runtime answers `pong` without waking the object.
-pub const KEEPALIVE_MS: u64 = 30_000;
+pub const KEEPALIVE_MS: u64 = 60_000;
 pub const PING: &str = r#"{"v":1,"t":"ping"}"#;
 
 /// Whether `id` is a Worker machine id (`vm_` and 20 lowercase letters or digits): only those

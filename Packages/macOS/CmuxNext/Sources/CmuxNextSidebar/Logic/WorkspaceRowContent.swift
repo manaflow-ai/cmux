@@ -23,6 +23,8 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var railLook = WorkspaceRailLook.standard
     /// The second line: the shown second-line elements in order, joined.
     public var detail: String?
+    /// The normalized custom title; nil retains every legacy row behavior.
+    public var titleParts: [TitlePart]?
     /// The tab count, when that element is on.
     public var tabCount: Int?
     /// The pull request / CI badge text, when that element is on.
@@ -41,6 +43,9 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// The row badge draws each state apart (`sidebar.detailedStatusIcons`): working, waiting,
     /// error, done. Off (the default), it draws Working or Ready only (`WorkspaceRowBadges`).
     public var detailedStatus = false
+    /// The status mark draws in the leading icon slot, before the title (`sidebar.workspaceRow.statusPlacement`
+    /// `leading`); the row keeps that slot while idle so the title never moves. Off, it draws on the trailing column.
+    public var statusLeads = false
     /// An expanded row (`sidebar.density`): its trailing marks sit on the title's line.
     public var expanded = false
     /// Expanded rows: the time since the last change, on the title's line.
@@ -63,8 +68,6 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var status: SidebarWorkspaceStatus?
     /// The computer the workspace runs on, while the sidebar lists more than one (SidebarMachineMark).
     public var machine: SidebarMachineMark?
-    /// The workspace runs on a Cloud machine: a small muted cloud in the trailing status cluster, the row's only sign of it (never the leading slot, Leo 2026-11-22).
-    public var runsInCloud = false
     /// The computer as a one-list row names it, with its status when it cannot connect
     /// (`gpu-box · Failed to start`, `SidebarLayout.machineLabel`; set by `SidebarLayoutOptions.rowContent`
     /// in every row mode): no line draws it any more (Leo 2026-10-30), so the row's accessibility label
@@ -84,6 +87,17 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var treeFold: SidebarTreeFold?
     /// The session tree: a folded parent's descendants by state, drawn as chips.
     public var rollUp: SidebarTreeRollUp?
+    /// Failed subagents of its chats: counted in the title line's failed chip (`SidebarTreeRollUpView`), the row's
+    /// one failed mark.
+    public var subagentsFailed = 0
+    /// What the title line's roll-up draws: the tree's hidden sessions with the failed subagents added to its failed
+    /// count, so a failed session or subagent reads as one mark; nil with neither.
+    public var drawnRollUp: SidebarTreeRollUp? {
+        guard subagentsFailed > 0 else { return rollUp }
+        var drawn = rollUp ?? SidebarTreeRollUp()
+        drawn.failed += subagentsFailed
+        return drawn
+    }
     /// The Priority view's chip (`SidebarWorkspace.agentChip`) when it asks for something
     /// (`rowChip`), for the row's accessibility label. Never drawn: a row shows no status words
     /// (Leo 2026-10-21); needs you is the badge's yellow dot.
@@ -91,9 +105,6 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// What the working agent does now (`SidebarWorkspace.agentStep`), in place of the second
     /// line's text: the row view draws it as "Now: …". Set only on a row that has a second line.
     public var now: String?
-    /// The agent chat's task progress (`SidebarWorkspace.taskProgress`) when the row draws its
-    /// count on the name's line (`trailingStatus`); its accessibility label says it in words.
-    public var tasks: SidebarTaskProgress?
 
     public init(icon: WorkspaceIcon? = nil, detail: String? = nil, tabCount: Int? = nil, badge: String? = nil,
                 activity: StatusIndicatorState = .idle, progress: SidebarProgress? = nil, showsWorking: Bool = false,
@@ -119,15 +130,21 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// "remove the second line"). The computer stays in the row's machine mark,
     /// its hover card and its accessibility label; the description in its hover
     /// card; an expanded row (`init(expanded:...)`) keeps its own meta line.
-    init(_ ws: SidebarWorkspace, preferences: WorkspaceRowPreferences, now: Date = Date(), machine: String? = nil, ages: AgeTextCache) {
-        self.init(ws, preferences: preferences, now: now, machine: machine, ageCache: ages)
+    init(_ ws: SidebarWorkspace, preferences: WorkspaceRowPreferences, now: Date = Date(), machine: String? = nil, ages: AgeTextCache,
+         relative: Bool = false) {
+        self.init(ws, preferences: preferences, now: now, machine: machine, ageCache: ages, relative: relative)
     }
 
     public init(_ ws: SidebarWorkspace, preferences: WorkspaceRowPreferences, now: Date = Date(), machine: String? = nil) {
-        self.init(ws, preferences: preferences, now: now, machine: machine, ageCache: AgeTextCache())
+        self.init(ws, preferences: preferences, now: now, machine: machine, ageCache: AgeTextCache(), relative: false)
     }
 
-    private init(_ ws: SidebarWorkspace, preferences: WorkspaceRowPreferences, now: Date, machine: String?, ageCache ages: AgeTextCache) {
+    private init(_ ws: SidebarWorkspace, preferences: WorkspaceRowPreferences, now: Date, machine: String?, ageCache ages: AgeTextCache,
+                 relative: Bool) {
+        if let layout = preferences.layouts.layout(for: ws.rowKind, agent: ws.kindBrand) {
+            self.init(ws, layout: layout, now: now)
+            return
+        }
         let set = preferences.resolved(for: ws.rowKind)
         let secondLine = set.secondLine.compactMap { element in Self.text(of: element, in: ws, now: now).map { (element, $0) } }
         var items = secondLine.map(\.1)
@@ -156,7 +173,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
             status: status
         )
         trailingStatus = trailing
-        badgeTime = set.secondLine.contains(.lastActivity) ? nil : ws.rowAge.map { Self.ageText($0, now: now, ages: ages) }
+        badgeTime = set.secondLine.contains(.lastActivity) ? nil : ws.rowAge.map { Self.ageText($0, now: now, ages: ages, relative: relative) }
     }
 
     /// An expanded row (`sidebar.density`, cx-13w3; T3 Code / Codex
@@ -173,14 +190,14 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     }
 
     init(expanded ws: SidebarWorkspace, now: Date, machine: String?, showsNotification: Bool, showsPullRequest: Bool,
-         ages: AgeTextCache) {
+         ages: AgeTextCache, relative: Bool = false) {
         let place = [Self.nonEmpty(ws.directory), Self.nonEmpty(ws.branch)].compactMap { $0 }
         let meta = [Self.nonEmpty(machine), Self.nonEmpty(ws.stage), showsPullRequest ? Self.nonEmpty(ws.pullRequest) : nil].compactMap { $0 }
         self.init(
             icon: ws.icon,
             detail: Self.nonRedundantDetail(
                 (showsNotification ? Self.nonEmpty(ws.notificationText) : nil) ?? Self.descriptionLine(ws)
-                    ?? Self.summaryLine(ws) ?? Self.nonEmpty(ws.lastMessage) ?? Self.nonEmpty(ws.status)
+                    ?? Self.nonEmpty(ws.lastMessage) ?? Self.nonEmpty(ws.status)
                     ?? (place.isEmpty ? nil : place.joined(separator: Self.separator)),
                 title: ws.title),
             activity: Self.activity(ws.activity, working: ws.agentWorking, progress: true),
@@ -188,13 +205,27 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
             showsWorking: ws.agentWorking
         )
         expanded = true
-        time = ws.rowAge.map { Self.ageText($0, now: now, ages: ages) }
+        time = ws.rowAge.map { Self.ageText($0, now: now, ages: ages, relative: relative) }
         self.meta = meta.isEmpty ? nil : meta.joined(separator: Self.separator)
     }
 
     /// The age of a change, short: a time today, else days (`3d`), weeks
     /// (`3w`) or months (`5mo`), as T3 Code and Codex label chats.
-    static func ageText(_ date: Date, now: Date, calendar: Calendar = .current, ages: AgeTextCache = AgeTextCache()) -> String {
+    /// `relative` (`sidebar.relativeTimestamps`): a change under a day old reads as its age from
+    /// `now` (`1m` at least, `5m`, `2h`) instead of its time.
+    static func ageText(_ date: Date, now: Date, calendar: Calendar = .current, ages: AgeTextCache = AgeTextCache(),
+                        relative: Bool = false) -> String {
+        if relative, case let elapsed = now.timeIntervalSince(date), elapsed < 86_400 {
+            // Whole minutes, at least one (a change this minute reads `1m`, never `0m`), then whole hours.
+            let minutes = max(1, Int(elapsed / 60))
+            let shown = minutes < 60 ? minutes : minutes / 60 * 60
+            return ages.label(elapsedMinutes: shown, locale: .current) {
+                let formatter = DateComponentsFormatter()
+                formatter.unitsStyle = .abbreviated
+                formatter.allowedUnits = shown < 60 ? [.minute] : [.hour]
+                return formatter.string(from: TimeInterval(shown) * 60) ?? ""
+            }
+        }
         let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date), to: calendar.startOfDay(for: now)).day ?? 0
         let minute = Int(date.timeIntervalSince1970 / 60)
         return ages.label(days: days <= 0 ? nil : days, minute: minute, locale: .current, timeZone: calendar.timeZone) {
@@ -262,14 +293,6 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     static func bar(_ ws: SidebarWorkspace) -> SidebarProgress? {
         guard let progress = ws.progress else { return nil }
         return progress.value != nil || progress.isError || ws.rowState == .placeholder ? progress : nil
-    }
-
-    /// The agent chat's rolling summary, with its next action after an arrow ("Tests pass → Open
-    /// the PR"): where the chat stands, said better than its raw last reply.
-    static func summaryLine(_ ws: SidebarWorkspace) -> String? {
-        guard let summary = nonEmpty(ws.detail.summary) else { return nil }
-        guard let next = nonEmpty(ws.detail.nextAction) else { return summary }
-        return Strings.summaryWithNext(summary, next)
     }
 
     /// The description's first non-empty line, trimmed: what a row shows of it.

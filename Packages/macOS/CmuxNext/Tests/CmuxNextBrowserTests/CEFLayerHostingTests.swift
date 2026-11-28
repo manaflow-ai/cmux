@@ -466,8 +466,10 @@ private final class LiveResizeWindow: NSWindow {
         private(set) var fences: [(browser: Int32, port: mach_port_t, timeoutMs: Int32)] = []
         var dones: [@MainActor (Bool) -> Void] = []
         var takes = true
+        var detachable = false
         var fork: CEFLayerHosting.Fork {
             CEFLayerHosting.Fork(setLayerHosting: { _, enabled in enabled ? 7 : 0 },
+                                 setDetachedHosting: detachable ? { _, _ in true } : nil,
                                  resizeFence: { [self] browser, port, timeout, done in
                                      guard takes else { return false }
                                      fences.append((browser, port, timeout))
@@ -521,6 +523,22 @@ private final class LiveResizeWindow: NSWindow {
 
     /// Runs the blocks queued for the end of this turn (``CEFLayerHosting/atEndOfTurn(_:)``).
     func endTurn() { CFRunLoopRunInMode(.defaultMode, 0.005, false) }
+
+    @Test func aDetachedPageJoinsNoFence() {
+        let (hosting, _, window) = makeHosted()
+        defer { window.close() }
+        fork.detachable = true
+        hosting.pageWindowCreated(browser: 3, fork: fork.fork)
+        hosting.paneResizeDrag(active: true)
+        hosting.resizeMotion(active: true)
+        #expect(hosting.isDetached)
+        hosting.pageViewResized()
+        #expect(fork.fences.isEmpty, "a detached page cannot present to the fence: it would cost its whole deadline")
+        hosting.resizeMotion(active: false)
+        #expect(!hosting.isDetached)
+        hosting.pageViewResized()
+        #expect(fork.fences.count == 1)
+    }
 
     @Test func aResizeOutsideAPageSyncAsksNoFence() {
         let (hosting, _, window) = makeHosted()
@@ -623,6 +641,26 @@ private final class LiveResizeWindow: NSWindow {
         endTurn()
     }
 
+    /// Each page's reply to its fence counts its time from the join (`fence_reply_ms` in `debug.cef`), and a reply past
+    /// ``CEFTrackerStats/lateFenceReplySeconds`` counts as late (`fence_reply_late`), so a split-scale row says whether a
+    /// missed page or the commit held the frame.
+    @Test func aFenceReplyCountsItsTimeAndALateOne() throws {
+        let (hosting, _, window) = makeHosted()
+        defer { window.close() }
+        let seconds = CEFHostView.trackerStats.resizeFenceReplySeconds
+        let late = CEFHostView.trackerStats.resizeFenceRepliesLate
+        hosting.paneResizeDrag(active: true)
+        hosting.pageViewResized()
+        let done = try #require(fork.dones.first)
+        Thread.sleep(forTimeInterval: CEFTrackerStats.lateFenceReplySeconds + 0.02)
+        done(false)
+        endTurn()
+        #expect(CEFHostView.trackerStats.resizeFenceReplySeconds > seconds + CEFTrackerStats.lateFenceReplySeconds)
+        #expect(CEFHostView.trackerStats.resizeFenceRepliesLate >= late + 1)
+        #expect(CEFHostView.trackerStats.reportFields["fence_reply_ms"] != nil)
+        #expect(CEFHostView.trackerStats.reportFields["fence_reply_late"] != nil)
+    }
+
     /// After its turn, a fence with a page still out keeps its send right until that page reports, then lets it go: a
     /// fence freed with its right would hold the window's commits for good, and one kept past `done` would too.
     @Test func aFenceOutlivesItsTurnUntilItsPagesReport() throws {
@@ -635,6 +673,31 @@ private final class LiveResizeWindow: NSWindow {
         #expect(sendRights(fence.port) == 1)
         for done in fork.dones { done(true) }
         #expect(sendRights(fence.port) == 0)
+    }
+
+    /// A page that missed its frame at a new size joins no more fences in that drag, so a page slower than the display
+    /// never holds the window's commits frame after frame; the next drag starts in sync again. A page that keeps up
+    /// joins at every resize (Leo, 2026-11-18, of a divider drag beside a long chat: "we SLOW :(").
+    @Test func aPageThatMissesJoinsNoMoreFencesInThatDrag() {
+        let (hosting, _, window) = makeHosted()
+        defer { window.close() }
+        hosting.paneResizeDrag(active: true)
+        hosting.pageViewResized()
+        fork.dones.last?(true)
+        endTurn()
+        hosting.pageViewResized()
+        #expect(fork.fences.count == 2)
+        fork.dones.last?(false)
+        endTurn()
+        hosting.pageViewResized()
+        hosting.pageViewResized()
+        #expect(fork.fences.count == 2)
+        hosting.paneResizeDrag(active: false)
+        hosting.paneResizeDrag(active: true)
+        hosting.pageViewResized()
+        #expect(fork.fences.count == 3)
+        fork.dones.last?(true)
+        endTurn()
     }
 
     /// A page that never reports holds the window no longer than this app's deadline (the fork's and one refresh).

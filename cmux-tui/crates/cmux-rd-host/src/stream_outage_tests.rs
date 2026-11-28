@@ -157,10 +157,12 @@ fn outage_with_queue(unstarted: usize) -> Outage {
     let cfg = SessionCfg {
         display: String::new(),
         display_pick: None,
+        window: None,
         max_fps: 60,
         encode_profile: Default::default(),
         start_kbps: 2_000,
         max_kbps: 4_000,
+        pin_kbps: None,
         preset: String::new(),
         profile: String::new(),
         codec: String::new(),
@@ -173,12 +175,14 @@ fn outage_with_queue(unstarted: usize) -> Outage {
         upstream_record_max_bytes: 0,
         frames_in_flight: 3,
         input_frame_now: false,
+        ltr: false,
         rtt_tail_probe: false,
         resolution_ladder: false,
         max_qp: cmux_rd_core::resolution::DEFAULT_MAX_QP,
         max_width: None,
         show_cursor: true,
         capture: crate::capture_backend::CaptureBackend::default(),
+        sharp_text: false,
     };
     let mut session = MediaSession::with_desktop(
         Box::new(QuietDesktop(UnixStream::pair().expect("socket pair"))),
@@ -254,7 +258,12 @@ fn outage_with_queue(unstarted: usize) -> Outage {
     let next = t.session.engine.damage(0, small, now_us()).expect("third frame");
     t.unstarted_frame = next.frame;
     t.session.encoder.submit(next);
+    // A busy pacer holds the next encode in the encoder's slot (#44555); a frame queues behind a
+    // started one only while that gate is open (the path frozen, or just after an outage), which
+    // is the queue D12 drops from. Open it for this one frame.
+    t.session.send_newest_after_outage = true;
     send_next_frame(&mut t.session, &mut t.carrier);
+    assert!(!t.session.send_newest_after_outage, "the third frame was not taken");
     let head = t.carrier.sent[before..].to_vec();
     assert!(
         head.iter().all(|d| header(d).frame == t.started_frame),

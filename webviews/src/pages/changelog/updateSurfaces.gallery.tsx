@@ -6,6 +6,9 @@ import { useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import { createStrings } from "../shared/i18n";
 import nightlySpan from "./fixtures/nightly-3913596493801-span.json";
+import photoBrightClouds from "./fixtures/photos/bright-clouds.jpg";
+import photoClouds from "./fixtures/photos/clouds.jpg";
+import photoDusk from "./fixtures/photos/dusk.jpg";
 import table from "./generated/strings.json";
 import type { ReleaseNotes } from "./types";
 import type { UpdateHighlights } from "./updateHighlights";
@@ -60,6 +63,8 @@ type Props = {
   /** The notes of every build the update spans, as the card loads them from the host. */
   span?: ReleaseNotes[];
   wallpaper?: boolean;
+  /** A real photograph behind the card (repo frame_assets backgrounds), instead of the stand-in gradient. */
+  photo?: "dusk" | "clouds" | "bright-clouds";
   maxHeight?: number;
   /** The card in one theme's tokens over that theme's sidebar (Leo 2026-11-02: "why is the update
    *  thing unthemed"): a light, a dark and a custom (purple) theme. */
@@ -95,7 +100,39 @@ type Props = {
   loadingLook?: NoteLoadingLook;
   /** The card's glass with no words: what the sidebar drew while the card's page loaded, before. */
   blankGlass?: boolean;
+  /** The popover's "What's in this build" held open. */
+  pullRequestsOpen?: boolean;
 };
+
+/** A three-nightly span's pull requests as the host sends them (BuildPullRequests): by area, Other
+ *  last, the internal ones counted. */
+const spanPullRequests: NonNullable<UpdateHighlights["pullRequests"]> = {
+  groups: [
+    {
+      area: "Mac app",
+      items: [
+        { pr: 57474, title: "Model picker: every listed model runs", author: "lawrencecchen", build: "3845050428001" },
+        { pr: 57441, title: "Sidebar rows keep their order on restart", author: "austinywang", build: "3845050428001" },
+        { pr: 57390, title: "Undo a tab close from a toast", author: "lawrencecchen", build: "3844120157501" },
+      ],
+    },
+    {
+      area: "iOS",
+      items: [
+        { pr: 57319, title: "Plain scroll on the phone's terminal", author: "austinywang", build: "3844120157501" },
+      ],
+    },
+    {
+      area: null,
+      items: [{ pr: 57212, title: "Faster changelog page open", author: "leo", build: "3843002998801" }],
+    },
+  ].map((group) => ({
+    ...group,
+    items: group.items.map((item) => ({ ...item, url: `https://github.com/manaflow-ai/cmux/pull/${item.pr}` })),
+  })),
+  internalCount: 4,
+};
+const withPullRequests: UpdateHighlights = { ...base, pullRequests: spanPullRequests };
 
 /** Leo's card of 2026-11-09: "Updated to Nightly", then "Fixed: lock horizontal scroll". */
 const leoFirstPaint: UpdateHighlights = {
@@ -348,6 +385,8 @@ function doodleFontLoaded(doc: Document): boolean {
   return loaded;
 }
 
+const photoSrc = { dusk: photoDusk, clouds: photoClouds, "bright-clouds": photoBrightClouds } as const;
+
 // A stand-in wallpaper: a busy photo-like gradient, so the card's translucency shows.
 const wallpaper = "linear-gradient(160deg, #3b5b7a 0%, #c98b5a 45%, #e7c9a0 60%, #2f4a3a 100%)";
 
@@ -453,6 +492,7 @@ function UpdateSurfacesGallery({
   data,
   span: notes,
   wallpaper: onWallpaper = false,
+  photo,
   maxHeight,
   theme,
   briefLayout,
@@ -470,6 +510,7 @@ function UpdateSurfacesGallery({
   notesLoading,
   loadingLook,
   blankGlass = false,
+  pullRequestsOpen = false,
 }: Props) {
   const [strings] = useState(() => createStrings(table));
   const noop = () => undefined;
@@ -479,8 +520,12 @@ function UpdateSurfacesGallery({
       style={{
         width: width ?? (surface === "card" ? 260 : surface === "notes" ? 360 : 360),
         padding: 10,
-        ...(onWallpaper ? { backgroundImage: wallpaper } : {}),
         ...(theme ? themeStyle(theme) : {}),
+        ...(photo
+          ? { backgroundImage: `url(${photoSrc[photo]})`, backgroundSize: "cover", backgroundPosition: "center" }
+          : onWallpaper
+            ? { backgroundImage: wallpaper }
+            : {}),
         ...(overRows ? { position: "relative" as const, height: 420, display: "flex", alignItems: "flex-end" } : {}),
       }}
     >
@@ -569,6 +614,7 @@ function UpdateSurfacesGallery({
             actions={{ openChangelog: noop }}
             briefLayout={briefLayout}
             layout={layout}
+            pullRequestsOpen={pullRequestsOpen}
           />
         </div>
       )}
@@ -687,8 +733,31 @@ export default componentEntry<Props>({
       },
     },
     card: {
-      note: "Picked and shipped (Leo 2026-11-07: \"just update it to Nightly, and then What's New with the up and to the right arrow that you can click as a thing\"): \"Updated to Nightly · What's New ↗\" on one line over the top change, in the composer's material at the composer's one-line height (48) and corner. Chosen over What's New at the line's far end because it reads as one sentence, keeps the link beside the words it belongs to, and leaves the line's end free for the x that shows on hover, so nothing shifts when it does. The freed button row is the height the card gives back. The x on hover only; a click on Nightly copies the full build.",
+      note: "Shipped (Lawrence 2026-11-23, back to the original two-line card; Leo 2026-11-23 on the one-line card: the title cut to an ellipsis, a gap at the end, a useless arrow, an oddly proportioned x, not useful info): \"Updated to Nightly\" whole on the first line, the update's top change in full under it, in the composer's material and corner. No What's New link or arrow on the card: What's New is in the changes it shows beside the sidebar on hover. The x shows on hover, centred on the title line, the app's one card x (ui/DismissButton.tsx proportions); a click on Nightly copies the full build.",
       props: { surface: "card", data: base, theme: "dark" },
+    },
+    "card-light": {
+      note: "The same card in a light theme.",
+      props: { surface: "card", data: base, theme: "light" },
+    },
+    "card-long-change": {
+      note: 'u51892 (2026-11-23: "the stuff in this message box is now just cut off ... we need to show everything"): the change line of the two-line card, longer than the card, wraps and the card grows to hold every line, in a narrow sidebar. The x stays centred on the title line.',
+      props: {
+        surface: "card",
+        data: {
+          ...base,
+          items: [
+            {
+              id: "glass",
+              title: "Fix the glass on the settings panels, so toggles read on bright wallpapers",
+              summary: null,
+              category: "fixed",
+            },
+          ],
+        },
+        theme: "dark",
+        width: 196,
+      },
     },
     "card-loading-dots": {
       note: "Picked and shipped (Leo 2026-11-09: \"it should have the updated to Nightly already loaded in, instead of just having a blank glass bit ... should have a loading indicator, like an ellipsis-type thing\"): the card draws with its title from its first frame, and while the update's notes load its change line is three small still dots in the note's quiet color on the line's baseline, then the words take their place once, at the same height (card-loading-after). Chosen because it is the quietest look that still reads as an indicator rather than cut text, with no motion at all: a dot that breathes or blinks forever is the look Leo had removed (2026-10-21), and the line never stays (after 1.5 s the host's top change stands in). Refs: cmux/live/updates-nightly-whats-new-modal (the compact nightly card), claude/live/transcript-task-list-in-progress (a small mark while work runs), against cmux/live/session-info-context-breakdown-loading (a spinner and \"Loading ...\" words Leo found heavy).",
@@ -718,8 +787,24 @@ export default componentEntry<Props>({
       note: 'Variant: "Loading what\'s new…" in the quiet color. Plain, but it is words that are then replaced by other words, a text swap that reads as a change of content (cf. cmux/live/session-info-context-breakdown-loading).',
       props: { surface: "card", data: leoFirstPaint, theme: "dark", notesLoading: true, loadingLook: "words" },
     },
+    "card-photo-dusk": {
+      note: "The card over a real photograph (repo frame_assets, dusk, dark top): dark theme, for the ink's contrast over a picture.",
+      props: { surface: "card", data: base, theme: "dark", photo: "dusk" },
+    },
+    "card-photo-clouds": {
+      note: "The card over a real photograph (clouds, mid-tone blue): light theme.",
+      props: { surface: "card", data: base, theme: "light", photo: "clouds" },
+    },
+    "card-photo-bright-clouds": {
+      note: "The card over a bright, light photograph (pale sky, white clouds): light theme. The worst case for light ink.",
+      props: { surface: "card", data: base, theme: "light", photo: "bright-clouds" },
+    },
+    "card-photo-bright-clouds-dark": {
+      note: "The same bright photograph in the dark theme: the worst case for dark ink under a light wash.",
+      props: { surface: "card", data: base, theme: "dark", photo: "bright-clouds" },
+    },
     "card-whats-new-top-right": {
-      note: "Variant: What's New ↗ at the far end of the title line, beside the x's room. It lines up with the x, but in a narrow sidebar the title and the link meet in the middle, and the x that shows on hover crowds the link.",
+      note: "Variant: What's New at the far end of the title line, beside the x's room. It lines up with the x, but in a narrow sidebar the title and the link meet in the middle, and the x that shows on hover crowds the link.",
       props: { surface: "card", data: base, theme: "dark", placement: "top-right" },
     },
     "card-whats-new-button": {
@@ -960,6 +1045,26 @@ export default componentEntry<Props>({
         surface: "popover",
         data: { ...base, source: "none", items: [], moreCount: 0 },
         briefLayout: "title-row",
+      },
+    },
+    "popover-prs-closed": {
+      note: "Leo 2026-11-26: \"hm do we display which prs go into which nightly maybe that'd be useful per thing?\" Shipped: one closed line, What's in this build · N, under the changes; nothing else changes.",
+      props: { surface: "popover", data: withPullRequests },
+    },
+    "popover-prs-open": {
+      note: "Opened: the PRs merged after the installed build through the staged one, by area (Other last), each its linked title and #number, then its author; CI and tooling PRs counted under them.",
+      props: { surface: "popover", data: withPullRequests, pullRequestsOpen: true, maxHeight: 520 },
+    },
+    "popover-prs-open-dark": {
+      note: "Opened, in a dark theme.",
+      props: { surface: "popover", data: withPullRequests, pullRequestsOpen: true, theme: "dark", maxHeight: 520 },
+    },
+    "popover-prs-brief": {
+      note: "A build with no highlights: the PR list sits under See release notes.",
+      props: {
+        surface: "popover",
+        data: { ...withPullRequests, source: "none", items: [], moreCount: 0 },
+        pullRequestsOpen: true,
       },
     },
     "popover-empty-same-version": {

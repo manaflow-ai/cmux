@@ -4,14 +4,15 @@
 //! brought back stay.
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, mpsc};
+use std::thread;
 use std::time::{Duration, SystemTime};
 
 use super::*;
 use crate::manifest::{Item, Kind, Manifest};
 use crate::overlay::{Overlay, Who};
-use crate::state::{BroughtBack, Released};
+use crate::state::{BroughtBack, Detached, Released};
 use crate::{Fetch, FetchError};
 
 const DAY: Duration = Duration::from_secs(24 * 60 * 60);
@@ -229,9 +230,10 @@ fn an_orphan_goes_after_the_grace_and_not_while_mounted() {
             name: &str,
             _at: Option<&Path>,
             only_if_idle: bool,
+            still_eligible: &dyn Fn() -> bool,
             free: &mut dyn FnMut() -> io::Result<u64>,
         ) -> Option<io::Result<u64>> {
-            (!(only_if_idle && self.mounted(name))).then(free)
+            (!(only_if_idle && self.mounted(name)) && still_eligible()).then(free)
         }
     }
     let machine = Machine::new();
@@ -249,6 +251,57 @@ fn an_orphan_goes_after_the_grace_and_not_while_mounted() {
     let report = pass(&places, &list, &Idle, later, &Limits::default());
     assert!(!state.exists(), "an orphan outlived its grace: {report:?}");
     assert!(report.reclaimed.iter().any(|reclaim| reclaim.why == Why::Orphan));
+}
+
+/// Detach wins the mount lock after the scan selected an archived or orphaned projection.
+#[test]
+fn detach_between_scan_and_unmount_preserves_edits_and_whiteouts() {
+    struct Detaching<'a> {
+        state: &'a Path,
+        at: &'a Path,
+    }
+
+    impl Live for Detaching<'_> {
+        fn mounted(&self, _: &str) -> bool {
+            false
+        }
+
+        fn end(
+            &self,
+            _: &str,
+            _: Option<&Path>,
+            _: bool,
+            still_eligible: &dyn Fn() -> bool,
+            _: &mut dyn FnMut() -> io::Result<u64>,
+        ) -> Option<io::Result<u64>> {
+            state::update(self.state, self.at, |record| {
+                record.detached = Some(Detached { ms: 1, chat: None });
+            })
+            .unwrap();
+            assert!(!still_eligible(), "a stale verdict authorized unmount and cleanup");
+            None
+        }
+    }
+
+    for archived in [false, true] {
+        let machine = Machine::new();
+        let at = machine.chat_folder("removed");
+        let (state, overlay) = machine.project("projection", &at);
+        edit(&overlay);
+        drop(overlay);
+        let before = state::mark(&state).unwrap();
+        let folder = if archived { at.clone() } else { machine.chat_folder("other") };
+        let list = chats(vec![chat("chat", &folder, archived)]);
+        let now = SystemTime::now() + ORPHAN_GRACE + DAY;
+        let expected = if archived { Why::Archived } else { Why::Orphan };
+        assert_eq!(verdict(&state, &list, false, now, ORPHAN_GRACE), Some(expected));
+        let live = Detaching { state: &state, at: &at };
+        let report = pass(&machine.places(), &list, &live, now, &Limits::default());
+        assert!(report.reclaimed.is_empty());
+        assert!(state::read(&state).unwrap().detached.is_some());
+        assert_eq!(state::mark(&state).unwrap(), before);
+        assert!(at.exists());
+    }
 }
 
 /// The Mac released the projection (its chat was archived or deleted): it goes at once, mounted
@@ -298,7 +351,8 @@ fn a_projections_cache_stays_under_its_cap() {
     let machine = Machine::new();
     let at = machine.chat_folder("ca9e");
     let (_, overlay) = machine.project("p-cap", &at);
-    let overlay = overlay.with_cache_max(12);
+    // No content store under it (RFD 0065): an evicted blob is gone from the disk.
+    let overlay = overlay.with_cache_max(12).with_content_floor(u64::MAX);
     let root = overlay.root();
     let src = overlay.lookup(root, "src").unwrap().ino;
     let readme = overlay.lookup(root, "README.md").unwrap().ino;
@@ -312,4 +366,163 @@ fn a_projections_cache_stays_under_its_cap() {
     let asked = overlay.stats().remote_reads;
     assert_eq!(overlay.read(readme, 0, 100).unwrap(), b"readme");
     assert!(overlay.stats().remote_reads > asked, "an evicted blob was served without the Mac");
+}
+
+/// A folder removed from its chat mid-turn (`projection.detach`): sealed, unmounted, and its upper
+/// layer is the only copy of what the agent wrote there. No chat runs in the removed folder, so
+/// the folder rule would call it an orphan; it stays while the chat that removed it lives, every
+/// edit made before the seal is in it, and a change after the seal is refused, not lost.
+#[test]
+fn a_removed_folders_edits_stay_even_when_its_notification_chat_is_gone() {
+    let machine = Machine::new();
+    let chat_home = machine.chat_folder("c0de");
+    let extra = machine.home.path().join("work/extra/repo");
+    fs::create_dir_all(&extra).unwrap();
+    let (state, overlay) = machine.project("p-removed", &extra);
+    edit(&overlay);
+    assert!(overlay.seal(Duration::from_secs(1)));
+    let root = overlay.root();
+    assert_eq!(overlay.create(root, "after.txt", 0o644, me()).err(), Some(libc::EROFS));
+    let src = overlay.lookup(root, "src").unwrap().ino;
+    let a = overlay.lookup(src, "a.rs").unwrap().ino;
+    assert_eq!(overlay.write(a, 0, b"late").err(), Some(libc::EROFS));
+    assert_eq!(overlay.unlink(src, "a.rs").err(), Some(libc::EROFS));
+    assert!(overlay.read(a, 0, 64).unwrap().starts_with(b"fn a() { println!"), "reads stop");
+    let mark = state::mark(&state).unwrap();
+    drop(overlay);
+    state::update(&state, &extra, |record| {
+        record.detached =
+            Some(Detached { ms: state::ms_of(SystemTime::now()), chat: Some("c1".into()) });
+    })
+    .unwrap();
+
+    let live = chats(vec![chat("c1", &chat_home, false)]);
+    let report = run(&machine, &live, ORPHAN_GRACE * 4);
+    assert!(report.reclaimed.is_empty(), "a live chat's removed folder was freed: {report:?}");
+    assert_eq!(state::mark(&state).unwrap(), mark, "the kept edits changed");
+    assert!(state.join("upper/src/new.rs").exists());
+
+    // Another chat elsewhere keeps the list knowable; the removing chat gone: orphan past grace.
+    let other = machine.chat_folder("0the");
+    let gone = chats(vec![chat("c2", &other, false)]);
+    assert!(run(&machine, &gone, Duration::ZERO).reclaimed.is_empty(), "freed inside the grace");
+    let archived = chats(vec![chat("c1", &chat_home, true), chat("c2", &other, false)]);
+    assert!(run(&machine, &gone, ORPHAN_GRACE * 4).reclaimed.is_empty());
+    assert!(run(&machine, &archived, Duration::ZERO).reclaimed.is_empty());
+    assert_eq!(state::mark(&state).unwrap(), mark);
+    // An explicit release still reclaims it, even with edits.
+    state::update(&state, &extra, |record| {
+        record.released = Some(Released { ms: 1, why: Release::Archived });
+    })
+    .unwrap();
+    assert_eq!(run(&machine, &archived, Duration::ZERO).reclaimed.len(), 1);
+    assert!(!state.exists());
+    assert!(extra.exists(), "release removed the path given up by detach");
+}
+
+#[test]
+fn detached_cleanup_checks_whiteouts_and_reclaims_an_empty_layer() {
+    let machine = Machine::new();
+    let extra = machine.chat_folder("extra");
+    let (state, overlay) = machine.project("p-whiteout", &extra);
+    drop(overlay);
+    state::update(&state, &extra, |r| {
+        r.detached = Some(Detached { ms: 1, chat: None });
+    })
+    .unwrap();
+    let known = chats(vec![chat("other", &machine.chat_folder("other"), false)]);
+    fs::write(state.join("whiteouts"), b"gone\0").unwrap();
+    assert!(run(&machine, &known, ORPHAN_GRACE * 4).reclaimed.is_empty());
+    fs::write(state.join("whiteouts"), b"").unwrap();
+    assert_eq!(run(&machine, &known, ORPHAN_GRACE * 4).reclaimed.len(), 1);
+    assert!(!state.exists());
+}
+
+/// Detach drains a write that already passed admission before returning, so no admitted edit is
+/// lost between the seal and the upper-layer mark.
+#[test]
+fn seal_waits_for_an_admitted_write_before_returning() {
+    let machine = Machine::new();
+    let at = machine.chat_folder("drain");
+    let (state, overlay) = machine.project("p-drain", &at);
+    let overlay = Arc::new(overlay);
+    let root = overlay.root();
+    let src = overlay.lookup(root, "src").unwrap().ino;
+    let a = overlay.lookup(src, "a.rs").unwrap().ino;
+    let (entered, release) = overlay.pause_next_mutation();
+
+    let writer_overlay = Arc::clone(&overlay);
+    let writer = thread::spawn(move || writer_overlay.write(a, 0, b"admitted"));
+    entered.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    let (sealed, sealed_rx) = mpsc::channel();
+    let sealer_overlay = Arc::clone(&overlay);
+    let sealer = thread::spawn(move || {
+        assert!(sealer_overlay.seal(Duration::from_secs(5)));
+        sealed.send(()).unwrap();
+    });
+    let deadline = std::time::Instant::now() + Duration::from_secs(1);
+    while !overlay.is_sealed() && std::time::Instant::now() < deadline {
+        thread::yield_now();
+    }
+    assert!(overlay.is_sealed());
+    let (refused, refused_rx) = mpsc::channel();
+    let late = overlay.clone();
+    let late_writer = thread::spawn(move || refused.send(late.write(a, 0, b"late")).unwrap());
+    assert_eq!(refused_rx.recv_timeout(Duration::from_secs(1)).unwrap(), Err(libc::EROFS));
+    late_writer.join().unwrap();
+    assert!(sealed_rx.try_recv().is_err(), "admitted edit must still be draining");
+
+    release.send(()).unwrap();
+    assert_eq!(writer.join().unwrap(), Ok(8));
+    sealed_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    sealer.join().unwrap();
+
+    assert!(fs::read(state.join("upper/src/a.rs")).unwrap().starts_with(b"admitted"));
+    assert_eq!(overlay.write(a, 0, b"late"), Err(libc::EROFS));
+}
+
+/// Concurrent detach callers time out independently without reopening admission or cancelling
+/// the admitted edit. A retry can finish once the writer releases its guard.
+#[test]
+fn a_timed_out_seal_stays_closed_and_retries_after_the_admitted_write() {
+    let machine = Machine::new();
+    let (state, overlay) = machine.project("p-timeout", &machine.chat_folder("timeout"));
+    let overlay = Arc::new(overlay);
+    let src = overlay.lookup(overlay.root(), "src").unwrap().ino;
+    let a = overlay.lookup(src, "a.rs").unwrap().ino;
+    let (entered, release) = overlay.pause_next_mutation();
+    let writing = overlay.clone();
+    let writer = thread::spawn(move || writing.write(a, 0, b"admitted"));
+    entered.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    let (finished, finished_rx) = mpsc::channel();
+    let sealers: Vec<_> = (0..2)
+        .map(|_| {
+            let sealing = overlay.clone();
+            let finished = finished.clone();
+            thread::spawn(move || {
+                finished.send(sealing.seal(Duration::from_millis(50))).unwrap();
+            })
+        })
+        .collect();
+    for _ in 0..2 {
+        assert!(!finished_rx.recv_timeout(Duration::from_secs(1)).unwrap());
+    }
+    for sealer in sealers {
+        sealer.join().unwrap();
+    }
+    assert!(overlay.is_sealed());
+    let (refused, refused_rx) = mpsc::channel();
+    let late = overlay.clone();
+    let late_writer = thread::spawn(move || refused.send(late.write(a, 0, b"late")).unwrap());
+    assert_eq!(refused_rx.recv_timeout(Duration::from_secs(1)).unwrap(), Err(libc::EROFS));
+    late_writer.join().unwrap();
+    assert!(!overlay.seal(Duration::ZERO));
+
+    release.send(()).unwrap();
+    assert_eq!(writer.join().unwrap(), Ok(8));
+    assert!(overlay.seal(Duration::ZERO));
+    assert!(fs::read(state.join("upper/src/a.rs")).unwrap().starts_with(b"admitted"));
+    assert_eq!(overlay.write(a, 0, b"late"), Err(libc::EROFS));
 }

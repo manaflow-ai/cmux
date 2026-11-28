@@ -22,6 +22,7 @@ use crate::cli::run::resolve_id;
 use crate::client::Client;
 use crate::rpc::{Message, method};
 use anyhow::{Result, anyhow};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::io::{self, Write};
 use std::sync::Arc;
@@ -72,6 +73,17 @@ async fn run(
     let (client, id) = (client.clone(), id.to_owned());
     let mut out = Out::new(&id, suppress_reads, io::stdout());
     let flow = match since {
+        Some(cursor) if cursor == "seen" => {
+            if follow {
+                client
+                    .request(
+                        method::MUX_ATTACH,
+                        json!({"sessionId": id, "limit": 0, "visible": false}),
+                    )
+                    .await?;
+            }
+            stream_seen(&client, &id, &mut out).await?
+        }
         Some(cursor) => {
             let seq = parse_cursor(&cursor, &id)?;
             // Subscribe before reading from the cursor, so an event written
@@ -95,6 +107,36 @@ async fn run(
         }
     }
     Ok(())
+}
+
+/// The reader's cutover and the end of this recap are both fixed by the first page.
+async fn stream_seen<W: Write>(client: &Arc<Client>, id: &str, out: &mut Out<W>) -> Result<Flow> {
+    let first = client
+        .request(
+            method::MUX_EVENTS,
+            json!({"sessionId": id, "sinceSeen": true, "limit": PAGE_RECORDS}),
+        )
+        .await?;
+    // Older daemons ignore additional event parameters and would return ordinary history.
+    let seen =
+        first.get("seenSeq").ok_or_else(|| anyhow!("this daemon does not support --since seen"))?;
+    let end = first["lastSeq"].as_u64().ok_or_else(|| anyhow!("missing recap end cursor"))?;
+    if seen.is_null() {
+        out.printed_seq = end;
+        return Ok(Flow::Go);
+    }
+    let start = seen.as_u64().ok_or_else(|| anyhow!("invalid reader cutover"))?;
+    let (mut records, more) = page_events(&first);
+    drop(first);
+    records.retain(|event| event["seq"].as_u64().is_some_and(|seq| seq > start && seq <= end));
+    out.printed_seq = start;
+    if out.events(records)? == Flow::Stop {
+        return Ok(Flow::Stop);
+    }
+    if more {
+        return stream_after(client, id, out.printed_seq, Some(end), |page| out.events(page)).await;
+    }
+    Ok(Flow::Go)
 }
 
 /// The newest `last` events, oldest first: the attach's own page, and before it, read forward
@@ -272,7 +314,7 @@ fn gone(e: &io::Error) -> bool {
 
 pub(crate) fn with_cursor(id: &str, mut e: Value) -> Value {
     if let Some(seq) = e.get("seq").and_then(Value::as_u64) {
-        e["cursor"] = json!(format!("{id}:{seq}"));
+        e.set("cursor", json!(format!("{id}:{seq}")));
     }
     e
 }

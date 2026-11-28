@@ -153,7 +153,7 @@ fn read() -> Result<Option<Pending>> {
         Ok(_) => {}
     }
     let p: Pending = crate::config::private_state_file(&path)
-        .and_then(|f| Ok(serde_json::from_reader(f)?))
+        .and_then(|f| Ok(serde_json::from_reader(std::io::BufReader::new(f))?))
         .map_err(store_error_from)?;
     let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(p.credential.strip_prefix("cmm_").unwrap_or_default());
@@ -310,6 +310,7 @@ fn error(exit: i32, message: &str) -> anyhow::Error {
         .into()
 }
 fn hub_error() -> anyhow::Error {
+    // retry-prompt-ok: join resumes a side-effecting enrollment; the person chooses when.
     error(4, "join incomplete; hub unavailable or returned an invalid response; rerun join")
 }
 
@@ -534,6 +535,8 @@ pub(super) async fn join(
     token: Option<String>,
     began: Option<Began<'_>>,
 ) -> Result<()> {
+    // Every join (a pasted line, a sign-in's) checks its home before it can redeem.
+    crate::cli::join_input::refuse_symlinked_home()?;
     if set_aside_copied_pending(host_fingerprint::current().as_deref())? && report != Report::Quiet
     {
         eprintln!(
@@ -627,6 +630,7 @@ pub(super) async fn join(
     let refused = || {
         error(
             3,
+            // retry-prompt-ok: a choice of the person's: the original token or a fresh one.
             "join incomplete; enrollment refused; rerun with the original token or obtain fresh enrollment",
         )
     };
@@ -644,6 +648,7 @@ pub(super) async fn join(
             Some(400 | 401 | 404 | 409 | 410) => refused(),
             _ => error(
                 4,
+                // retry-prompt-ok: a choice of the person's: the original token or a fresh one.
                 "join incomplete; enrollment refused; rerun with the original token or obtain fresh enrollment",
             ),
         });

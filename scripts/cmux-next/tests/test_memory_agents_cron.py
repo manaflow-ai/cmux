@@ -137,12 +137,122 @@ class BreakdownTests(unittest.TestCase):
         self.assertEqual(perf_cron.part_for_row(rows[0]["name"]), "memory-agents")
 
 
+SETTLED_EMPTY = sample("settled-launch", 1, {"app": (1, 380.0), "cef-renderer": (2, 250.0), "cef-gpu": (1, 50.0),
+                                            "tui-daemon": (1, 40.0)})
+SETTLED_TEN = sample("settled-10", 10, {"app": (1, 450.0), "cef-renderer": (3, 430.0), "cef-gpu": (1, 59.0),
+                                        "tui-daemon": (1, 58.0), "terminal-host": (9, 225.0)})
+
+
+class SettledPhaseTests(unittest.TestCase):
+    """The second sample, 150 s after the launch and the last open (bench_memory --settled-at): its own rows under
+    memory.app_agents.settled., and the idle rows read what they read before."""
+
+    def test_settled_rows_have_their_own_names(self):
+        report = {"samples": [EMPTY, SETTLED_EMPTY, TEN, SETTLED_TEN]}
+        rows = {r["name"]: r["p95"] for r in cron.rows_from(report, "settled")}
+        self.assertEqual(rows, {
+            "memory.app_agents.settled.empty.total_footprint_mb": SETTLED_EMPTY["total_footprint_mb"],
+            "memory.app_agents.settled.10.total_footprint_mb": SETTLED_TEN["total_footprint_mb"],
+            "memory.app_agents.settled.ratio_vs_empty": round(SETTLED_TEN["total_footprint_mb"] / SETTLED_EMPTY["total_footprint_mb"], 3)})
+
+    def test_idle_rows_ignore_the_settled_samples(self):
+        both = {r["name"]: r["p95"] for r in cron.rows_from({"samples": [EMPTY, SETTLED_EMPTY, TEN, SETTLED_TEN]})}
+        alone = {r["name"]: r["p95"] for r in cron.rows_from({"samples": [EMPTY, TEN]})}
+        self.assertEqual(both, alone, "the rows goals read are unchanged by the second sample")
+        self.assertFalse(any(".settled." in name for name in both))
+        out, rows = cron.breakdown_from({"samples": [EMPTY, SETTLED_EMPTY, TEN, SETTLED_TEN]})
+        self.assertEqual((out, rows), cron.breakdown_from({"samples": [EMPTY, TEN]}))
+
+    def test_settled_breakdown_is_report_only_and_per_chat(self):
+        out, rows = cron.breakdown_from({"samples": [EMPTY, SETTLED_EMPTY, TEN, SETTLED_TEN]}, "settled")
+        self.assertEqual(out["per_chat"]["chats"], 9)
+        self.assertEqual(out["per_chat"]["kinds"]["cef-gpu"], 1.0)
+        self.assertEqual(out["per_chat"]["total_mb"], round((SETTLED_TEN["total_footprint_mb"] - SETTLED_EMPTY["total_footprint_mb"]) / 9, 1))
+        names = {r["name"] for r in rows}
+        self.assertIn("memory.app_agents.breakdown.settled.per_chat.total_mb", names)
+        self.assertIn("memory.app_agents.breakdown.settled.10.cef-gpu.footprint_mb", names)
+        for r in rows:
+            self.assertTrue(perf_cron.REPORT_ONLY_ROW_RE.match(r["name"]), r["name"])
+        for r in cron.rows_from({"samples": [SETTLED_EMPTY, SETTLED_TEN]}, "settled"):
+            self.assertFalse(perf_cron.REPORT_ONLY_ROW_RE.match(r["name"]), r["name"])
+            self.assertEqual(perf_cron.part_for_row(r["name"] + "@cmux20-bench"), "memory-agents")
+
+    def test_no_settled_sample_no_settled_rows(self):
+        self.assertEqual(cron.rows_from({"samples": [EMPTY, TEN]}, "settled"), [])
+        self.assertEqual(cron.breakdown_from({"samples": [EMPTY, TEN]}, "settled"), ({}, []))
+
+    def test_a_partial_settled_count_gets_no_row(self):
+        rows = cron.rows_from({"samples": [SETTLED_EMPTY, dict(SETTLED_TEN, workspaces=8)]}, "settled")
+        self.assertEqual([r["name"] for r in rows], ["memory.app_agents.settled.empty.total_footprint_mb"])
+
+    def test_main_passes_settled_at_and_writes_both_phases(self):
+        import json
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            def bench(cmd, cwd):
+                raw = cmd[cmd.index("--out") + 1]
+                self.assertEqual(cmd[cmd.index("--settled-at") + 1], "150")
+                with open(raw, "w") as f:
+                    json.dump({"samples": [EMPTY, SETTLED_EMPTY, TEN, SETTLED_TEN]}, f)
+                return mock.Mock(returncode=0)
+            out_json = os.path.join(folder, "report.json")
+            with mock.patch.object(cron.subprocess, "run", side_effect=bench), mock.patch("builtins.print"):
+                self.assertEqual(cron.main(["--app", "/x.app", "--json", out_json]), 0)
+            with open(out_json) as f:
+                written = json.load(f)
+        names = {r["name"] for r in written["rows"]}
+        self.assertIn("memory.app_agents.10.total_footprint_mb", names)
+        self.assertIn("memory.app_agents.settled.10.total_footprint_mb", names)
+        self.assertIn("memory.app_agents.breakdown.settled.per_chat.total_mb", names)
+        self.assertNotIn("incomplete", written)
+        self.assertIn("per_chat", written["settled_breakdown"])
+
+
+class ChatCountTests(unittest.TestCase):
+    """memory-per-chat: every run says how many chats opened of how many asked; a short count fails loudly."""
+
+    def test_counts_the_full_sample(self):
+        self.assertEqual(cron.chat_counts({"samples": [EMPTY, TEN]}, "10"),
+                         [{"expected": 10, "opened": 10, "pane_failures": 0}])
+
+    def test_a_run_that_stopped_early_reports_the_most_it_opened(self):
+        partial = dict(TEN, label="idle-7", workspaces=7, pane_failures=2)
+        self.assertEqual(cron.chat_counts({"samples": [EMPTY, partial]}, "10"),
+                         [{"expected": 10, "opened": 7, "pane_failures": 2}])
+
+    def test_no_sample_reads_zero_opened(self):
+        self.assertEqual(cron.chat_counts({}, "10"), [{"expected": 10, "opened": 0, "pane_failures": 0}])
+
+    def test_main_fails_with_the_opened_count(self):
+        import io
+        import json
+        import tempfile
+        short = dict(TEN, workspaces=7, pane_failures=3)
+        with tempfile.TemporaryDirectory() as folder:
+            def bench(cmd, cwd):
+                with open(cmd[cmd.index("--out") + 1], "w") as f:
+                    json.dump({"samples": [EMPTY, short]}, f)
+                return mock.Mock(returncode=0)
+            out_json = os.path.join(folder, "report.json")
+            err = io.StringIO()
+            with mock.patch.object(cron.subprocess, "run", side_effect=bench), mock.patch("builtins.print"), \
+                    mock.patch.object(cron.sys, "stderr", err):
+                self.assertEqual(cron.main(["--app", "/x.app", "--json", out_json, "--settled-at", "0"]), 1)
+            with open(out_json) as f:
+                written = json.load(f)
+        self.assertEqual(written["chats"], [{"expected": 10, "opened": 7, "pane_failures": 3}])
+        self.assertEqual(len(written["incomplete"]), 1)
+        self.assertIn("opened 7 of 10", written["incomplete"][0])
+        self.assertNotIn("memory.app_agents.ratio_vs_empty", {r["name"] for r in written["rows"]})
+
+
 class AppVmTests(unittest.TestCase):
     """ram-baseline (CMUX-571): every memory-agents run stores the empty app process's own split."""
 
     def args(self, *extra):
         import argparse
-        ns = argparse.Namespace(app="/A.app", agents="10", settle="20", measure="30", no_app_vm=False, app_vm_stacks=None)
+        ns = argparse.Namespace(app="/A.app", agents="10", settle="20", measure="30", settled_at="150", no_app_vm=False,
+                                app_vm_stacks=None)
         for k, v in extra:
             setattr(ns, k, v)
         return ns
@@ -286,7 +396,8 @@ class IdleGpuDiskTests(unittest.TestCase):
 
     def test_the_part_asks_for_gpu_counters(self):
         import argparse
-        ns = argparse.Namespace(app="/A.app", agents="10", settle="20", measure="30", no_app_vm=False, app_vm_stacks=None)
+        ns = argparse.Namespace(app="/A.app", agents="10", settle="20", measure="30", settled_at="150", no_app_vm=False,
+                                app_vm_stacks=None)
         self.assertIn("--gpu", cron.bench_cmd(ns, "/r.json"))
 
 

@@ -30,6 +30,7 @@ import { awaitsPermission, countsFailed, isRunning, runStretches, toolGroups, ty
 import { toolRunPhrases, toolRunCategories } from "./toolRunSummary";
 import { visibleToolItems } from "./mcpPresentation";
 import type { Folds } from "./viewFolds";
+import { RowMemo } from "../../shared/rowMemo";
 
 export const messageRunRowId = (firstId: string) => `${MESSAGE_RUN}-${firstId}`;
 
@@ -58,7 +59,7 @@ type Member = {
 /// turn on every record, and a run's member groups its calls and parses each command line
 /// (`toolGroups`). The running turn's earlier runs keep their row objects across records (turns.ts
 /// `earlierRun`), so a record reads only the rows it changed.
-const memberOf = new WeakMap<AcpmuxRow, Member | null>();
+const memberOf = new RowMemo<AcpmuxRow, Member | null>();
 
 function member(row: AcpmuxRow): Member | undefined {
   let kept = memberOf.get(row);
@@ -109,6 +110,7 @@ function readMember(row: AcpmuxRow): Member | undefined {
         group.type === "agentCall" ||
         group.type === "dispatch" ||
         group.type === "whoElse" ||
+        group.type === "forum" ||
         (group.type === "subsession" && group.call.tool !== "send"),
     )
   )

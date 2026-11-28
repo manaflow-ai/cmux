@@ -8,7 +8,8 @@
 //!   --device-auth` in a private temp folder, reads its output for at most
 //!   [`URL_WAIT`] and [`OUTPUT_CAP`] bytes, and answers the link to open (only
 //!   an https link on a host of `parse::ALLOWED_HOSTS`) and Codex's one-time
-//!   code. One sign-in per agent: a new start stops the previous one. A
+//!   code. A pending Claude sign-in owns its account store until it ends.
+//!   For other agents, a new start can stop the previous one. A
 //!   sign-in is stopped after [`EXPIRY`], on `cancel`, and with this daemon
 //!   (its own process group, killed on drop).
 //!   Claude also gets a `BROWSER` of its own: a shim in the sign-in's private
@@ -89,6 +90,7 @@ use tokio::sync::Notify;
 use tokio::time::Instant;
 use zeroize::Zeroizing;
 
+mod cursor_keychain;
 pub mod github;
 mod hot;
 pub mod parse;
@@ -165,10 +167,12 @@ pub mod reason {
     pub const SHARED_MACHINE: &str = "shared_machine";
     pub const BUSY: &str = "busy";
     pub const CLI_MISSING: &str = "cli_missing";
+    pub const UPDATE_CLAUDE: &str = "update_claude";
     pub const NO_URL: &str = "no_url";
     pub const BAD_CODE: &str = "bad_code";
     pub const EXPIRED: &str = "expired";
     pub const FAILED: &str = "failed";
+    pub const RECOVERY_MISMATCH: &str = "recovery_mismatch";
     pub const UNKNOWN_LOGIN: &str = "unknown_login";
     /// GitHub's `gh` is not on this machine (the agents' own CLIs answer [`CLI_MISSING`]).
     pub const NOT_INSTALLED: &str = "not_installed";
@@ -346,7 +350,7 @@ pub struct Cli {
 
 impl Cli {
     /// A variable as the CLI sees it: the profile's, else this daemon's.
-    fn var(&self, key: &str) -> Option<String> {
+    pub(crate) fn var(&self, key: &str) -> Option<String> {
         self.env
             .get(key)
             .cloned()
@@ -392,6 +396,11 @@ impl Cli {
             }),
         }
         .unwrap_or_else(|| self.home().join(agent.home_dir_name()))
+    }
+
+    /// Reads just the presence of the CLI's own sign-in.
+    pub(crate) fn has_stored_sign_in(&self, agent: Agent) -> bool {
+        stored_sign_in(agent, &self.store(agent), &self.home(), false)
     }
 
     /// The command, its env shaped as the module docs say, in `cwd`; no
@@ -535,7 +544,7 @@ impl Machine {
         }
     }
 
-    fn refuse_shared(&self) -> Result<(), LoginError> {
+    pub(crate) fn refuse_shared(&self) -> Result<(), LoginError> {
         if self.shared() {
             return Err(LoginError::new(
                 reason::SHARED_MACHINE,
@@ -641,7 +650,7 @@ fn dotenv_key(line: &str) -> Option<&str> {
 }
 
 /// The value of `key` in the dotenv text, unquoted.
-fn dotenv_value<'a>(text: &'a str, key: &str) -> Option<&'a str> {
+pub(crate) fn dotenv_value<'a>(text: &'a str, key: &str) -> Option<&'a str> {
     text.lines().rev().find(|l| dotenv_key(l) == Some(key)).and_then(|l| {
         let value = l.split_once('=')?.1.trim();
         let value = value
@@ -741,7 +750,7 @@ pub fn merge_opencode_api_key(store: &Path, key: &str) -> Result<(), String> {
 /// reads it (`cmux_agent_has_own_login`), never the values: Claude's
 /// `.credentials.json` with `claudeAiOauth`; Codex's `auth.json` with tokens
 /// or an API key; Gemini's `oauth_creds.json`, or a `.env` with a non-empty
-/// `GEMINI_API_KEY`; Grok's non-empty `auth.json`.
+/// `GEMINI_API_KEY`; Grok's OAuth entry with a refresh token.
 pub fn signed_in_at(agent: Agent, store: &Path) -> bool {
     let read = |name: &str| {
         std::fs::read(store.join(name)).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok())
@@ -761,14 +770,27 @@ pub fn signed_in_at(agent: Agent, store: &Path) -> bool {
                     dotenv_value(&text, "GEMINI_API_KEY").is_some_and(|v| !v.is_empty())
                 })
         }
-        Agent::Grok => std::fs::read(store.join("auth.json"))
-            .is_ok_and(|b| !Zeroizing::new(b).iter().all(u8::is_ascii_whitespace)),
-        // Cursor's `auth.json`: a non-empty object with a non-empty string in it (its token
-        // fields have moved between releases, so no one name is required).
-        Agent::Cursor => read("auth.json").is_some_and(|v| {
-            v.as_object()
-                .is_some_and(|o| o.values().any(|f| f.as_str().is_some_and(|s| !s.is_empty())))
-        }),
+        Agent::Grok | Agent::Cursor => {
+            use serde_json::value::RawValue;
+            type Fields<'a> = BTreeMap<String, &'a RawValue>;
+            let Ok(bytes) = std::fs::read(store.join("auth.json")) else { return false };
+            let bytes = Zeroizing::new(bytes);
+            let Ok(fields) = serde_json::from_slice::<Fields<'_>>(&bytes) else { return false };
+            // Inspect the JSON shape without decoding or copying any token.
+            let nonempty_string =
+                |value: &&RawValue| value.get().starts_with('"') && value.get() != "\"\"";
+            match agent {
+                Agent::Grok => fields.iter().any(|(name, entry)| {
+                    name.strip_prefix("https://auth.x.ai::").is_some_and(|id| !id.is_empty())
+                        && serde_json::from_str::<Fields<'_>>(entry.get()).is_ok_and(|fields| {
+                            fields.get("refresh_token").is_some_and(nonempty_string)
+                        })
+                }),
+                // Cursor's token field names have moved between releases.
+                _ => fields.values().any(nonempty_string),
+            }
+        }
+
         // OpenCode's `auth.json`: a non-empty object, as `agent-auth.sh` reads it.
         Agent::OpenCode => {
             read("auth.json").is_some_and(|v| v.as_object().is_some_and(|o| !o.is_empty()))
@@ -777,6 +799,15 @@ pub fn signed_in_at(agent: Agent, store: &Path) -> bool {
         // `github::accounts` asks gh which accounts it has.
         Agent::Github => false,
     }
+}
+
+fn stored_sign_in(agent: Agent, store: &Path, home: &Path, refresh: bool) -> bool {
+    signed_in_at(agent, store)
+        || (agent == Agent::Cursor
+            && cfg!(target_os = "macos")
+            && (signed_in_at(agent, &home.join(".cursor"))
+                || (dirs::home_dir().as_deref() == Some(home)
+                    && cursor_keychain::cursor_login_keychain_item_exists(refresh))))
 }
 
 /// A code or key fit for a CLI's stdin: one line of printable ASCII.
@@ -806,6 +837,7 @@ pub struct Finished {
     pub signed_in: bool,
     /// The account whose login actually finished, retained from start rather than the caller.
     pub store: PathBuf,
+    pub(crate) recovery_session: Option<String>,
     /// The first finish to see the CLI end (a paste that raced a wait for
     /// the approve sees the same end): only it takes the after-sign-in steps.
     pub fresh: bool,
@@ -887,6 +919,8 @@ struct Entry {
     group: Option<u32>,
     expires: Instant,
     store: PathBuf,
+    recovery_session: Option<String>,
+    home: PathBuf,
     /// `start` answered an automatic link: a finish with no code waits for
     /// the CLI to end on its own.
     auto: bool,
@@ -972,9 +1006,81 @@ pub fn running(login_id: &str) -> bool {
     lock_table().values().any(|e| e.id == login_id)
 }
 
+/// Serialize Claude's CLI account changes, including the time before a login ID is published.
+static CLAUDE_ACCOUNT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+fn refuse_pending_claude(store: &Path) -> Result<(), LoginError> {
+    if lock_table().contains_key(&(Agent::Claude, store.to_path_buf())) {
+        return Err(LoginError::new(reason::BUSY, "Claude Code is signing in"));
+    }
+    Ok(())
+}
+
+/// Reusing an already signed-in account also needs to respect a pending approval.
+pub(crate) async fn check_claude_login_available(cli: &Cli) -> Result<(), LoginError> {
+    let _guard = CLAUDE_ACCOUNT.lock().await;
+    refuse_pending_claude(&cli.store(Agent::Claude))
+}
+
+pub(crate) async fn claude_status(machine: &Machine, cli: &Cli) -> Result<Value, LoginError> {
+    machine.refuse_shared()?;
+    let output = claude_auth_command(cli, &["auth", "status", "--json"]).await?;
+    let status: Value = serde_json::from_slice(&output.stdout)
+        .map_err(|_| LoginError::new(reason::UPDATE_CLAUDE, "update Claude Code to sign in"))?;
+    let store = cli.store(Agent::Claude);
+    let api_key = cli.var("ANTHROPIC_API_KEY").is_some()
+        || std::fs::read(store.join("settings.json")).ok().is_some_and(|bytes| {
+            serde_json::from_slice::<Value>(&bytes).is_ok_and(|settings| {
+                ["/env/ANTHROPIC_API_KEY", "/apiKeyHelper"].iter().any(|key| {
+                    settings
+                        .pointer(key)
+                        .and_then(Value::as_str)
+                        .is_some_and(|value| !value.is_empty())
+                })
+            })
+        });
+    Ok(serde_json::json!({
+        "signedIn": status["loggedIn"] == true && status["authMethod"] == "claude.ai",
+        "apiKey": api_key
+    }))
+}
+
+async fn claude_auth_command(cli: &Cli, args: &[&str]) -> Result<std::process::Output, LoginError> {
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        cli.command(args, &std::env::temp_dir()).stdin(Stdio::null()).kill_on_drop(true).output(),
+    )
+    .await
+    .map_err(|_| LoginError::new(reason::FAILED, "Claude Code did not answer"))?
+    .map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            LoginError::new(reason::CLI_MISSING, "Claude Code is not installed")
+        } else {
+            LoginError::new(reason::FAILED, "Claude Code could not start")
+        }
+    })
+}
+
+pub(crate) async fn claude_logout(machine: &Machine, cli: &Cli) -> Result<(), LoginError> {
+    machine.refuse_shared()?;
+    let _guard = CLAUDE_ACCOUNT.lock().await;
+    if lock_table().keys().any(|(agent, _)| *agent == Agent::Claude) {
+        return Err(LoginError::new(reason::BUSY, "Claude Code is signing in"));
+    }
+    if !claude_auth_command(cli, &["auth", "logout"]).await?.status.success() {
+        return Err(LoginError::new(reason::FAILED, "Claude Code did not sign out"));
+    }
+    Ok(())
+}
+
 /// Starts `agent`'s own sign-in with `cli` on `machine` (module docs).
-pub async fn start(machine: &Machine, cli: &Cli, agent: Agent) -> Result<Started, LoginError> {
-    start_in(machine, cli, agent, None).await
+pub async fn start(
+    machine: &Machine,
+    cli: &Cli,
+    agent: Agent,
+    recovery_session: Option<String>,
+) -> Result<Started, LoginError> {
+    start_in(machine, cli, agent, None, recovery_session).await
 }
 
 /// [`start`] in the account home `home` when given: the CLI gets `agent`'s
@@ -986,6 +1092,7 @@ pub async fn start_in(
     cli: &Cli,
     agent: Agent,
     home: Option<&Path>,
+    recovery_session: Option<String>,
 ) -> Result<Started, LoginError> {
     let homed;
     let cli = match home {
@@ -1010,9 +1117,13 @@ pub async fn start_in(
         ));
     }
     machine.refuse_shared()?;
-    // One sign-in per agent: the previous one stops, unless its finish is
-    // running (it may be writing the sign-in now).
+    let _claude_guard =
+        if agent == Agent::Claude { Some(CLAUDE_ACCOUNT.lock().await) } else { None };
     let store = cli.store(agent);
+    if agent == Agent::Claude {
+        // The account guard covers lookup through publication of the login ID.
+        refuse_pending_claude(&store)?;
+    }
     let slot: Slot = (agent, store.clone());
     let previous = {
         let table = lock_table();
@@ -1107,8 +1218,16 @@ pub async fn start_in(
         }
     };
     let Some(offer) = offer else {
+        let update_claude = agent == Agent::Claude && {
+            let bytes = output.lock().unwrap_or_else(|e| e.into_inner());
+            let text = String::from_utf8_lossy(&bytes).to_ascii_lowercase();
+            text.contains("unknown option") || text.contains("unknown command")
+        };
         kill_group(group);
         let _ = child.kill().await;
+        if update_claude {
+            return Err(LoginError::new(reason::UPDATE_CLAUDE, "update Claude Code to sign in"));
+        }
         return Err(LoginError::new(
             reason::NO_URL,
             format!("{} did not show a sign-in link", agent.name()),
@@ -1145,6 +1264,8 @@ pub async fn start_in(
         group,
         expires: Instant::now() + EXPIRY,
         store,
+        home: cli.home(),
+        recovery_session,
         auto: auto.is_some(),
         stdin: Arc::new(tokio::sync::Mutex::new(stdin)),
         code_sent: Default::default(),
@@ -1181,7 +1302,11 @@ fn boxed<R: AsyncRead + Unpin + Send + 'static>(r: R) -> Box<dyn AsyncRead + Unp
 
 /// Finishes sign-in `login_id` (module docs). Claude needs `code`, unless
 /// its start answered an automatic link.
-pub async fn finish(login_id: &str, code: Option<&str>) -> Result<Finished, LoginError> {
+pub async fn finish(
+    login_id: &str,
+    code: Option<&str>,
+    requested_recovery: Option<&str>,
+) -> Result<Finished, LoginError> {
     let found = {
         let table = lock_table();
         table.values().find(|e| e.id == login_id).map(|e| {
@@ -1189,6 +1314,8 @@ pub async fn finish(login_id: &str, code: Option<&str>) -> Result<Finished, Logi
                 e.agent,
                 e.expires,
                 e.store.clone(),
+                e.home.clone(),
+                e.recovery_session.clone(),
                 e.auto,
                 e.stdin.clone(),
                 e.code_sent.clone(),
@@ -1196,12 +1323,20 @@ pub async fn finish(login_id: &str, code: Option<&str>) -> Result<Finished, Logi
             )
         })
     };
-    let Some((agent, expires, store, auto, stdin, code_sent, running)) = found else {
+    let Some((agent, expires, store, home, recovery_session, auto, stdin, code_sent, running)) =
+        found
+    else {
         return Err(LoginError::new(
             reason::UNKNOWN_LOGIN,
             "no sign-in with that id is running here: start again",
         ));
     };
+    if requested_recovery.is_some() && requested_recovery != recovery_session.as_deref() {
+        return Err(LoginError::new(
+            reason::RECOVERY_MISMATCH,
+            "recoverySession differs from sign-in start",
+        ));
+    }
     if Instant::now() >= expires {
         end(login_id);
         return Err(LoginError::new(reason::EXPIRED, "the sign-in expired: start again"));
@@ -1243,7 +1378,7 @@ pub async fn finish(login_id: &str, code: Option<&str>) -> Result<Finished, Logi
         }
     }
     let wait = match code {
-        Some(_) => Instant::now() + CLAUDE_FINISH_WAIT,
+        Some(_) => expires.min(Instant::now() + CLAUDE_FINISH_WAIT),
         None => expires,
     };
     // A code pasted while a finish waits for the approve: that finish holds
@@ -1309,11 +1444,17 @@ pub async fn finish(login_id: &str, code: Option<&str>) -> Result<Finished, Logi
     }
     // macOS: Claude Code keeps its sign-in in the login keychain, which acpmux
     // never reads (`claude_auth.rs`); its exit says it.
-    // gh: its exit 0 is the sign-in (its store holds tokens, never read here).
-    let signed_in = agent == Agent::Github
-        || signed_in_at(agent, &store)
-        || (cfg!(target_os = "macos") && agent == Agent::Claude);
-    Ok(Finished { agent, signed_in, store, fresh })
+    let signed_in = if agent == Agent::Github {
+        true
+    } else if cfg!(target_os = "macos") && agent == Agent::Cursor {
+        let store = store.clone();
+        tokio::task::spawn_blocking(move || stored_sign_in(agent, &store, &home, true))
+            .await
+            .unwrap_or(false)
+    } else {
+        signed_in_at(agent, &store) || (cfg!(target_os = "macos") && agent == Agent::Claude)
+    };
+    Ok(Finished { agent, signed_in, store, recovery_session, fresh })
 }
 
 /// Stops sign-in `login_id`; nothing when none runs.
@@ -1396,7 +1537,9 @@ pub async fn save_api_key(
         ));
     }
     machine.refuse_shared()?;
-    let key = key.trim();
+    // A paste's line breaks, spaces and zero-width spaces are never part of a key.
+    let key = Zeroizing::new(crate::key_check::without_whitespace(key));
+    let key = key.as_str();
     if !one_line(key, 512) {
         return Err(LoginError::new(reason::BAD_CODE, "that is not an API key"));
     }

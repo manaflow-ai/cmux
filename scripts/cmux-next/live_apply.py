@@ -2,6 +2,11 @@
 """What a running cmux NEXT app could take from a change without a new build (try-pr.sh).
 
     live_apply.py [--repo DIR] [--json] BASE HEAD
+    live_apply.py --paths-from FILE     (`-` for stdin; prints JSON)
+
+`--paths-from` classifies `STATUS<TAB>PATH` lines (git diff --name-status) by path alone, with no
+Swift diff, so a Swift file never reads as live there. nightly.yml uses it on the GitHub compare
+file list to skip a nightly-next rebuild whose changes are all `no-app` or `web-live`.
 
 Reads `git diff BASE HEAD` (no GitHub API) and prints the verdict of the heaviest change in it:
 
@@ -37,8 +42,11 @@ import sys
 # A *-gallery.html page is a design gallery. The root .gitattributes only sets merge drivers and Linguist
 # labels; evals/ (cueval's computer-use tasks) and Native/*/evals/ (the Chief's eval cases, which only its tests,
 # examples and backend/scripts read: no include_str! in src/, nothing in build.rs) are eval inputs; dogfood/ held
-# scenario files whose runner is gone. No Xcode phase, Package.swift resource or build script copies any of them.
-NOAPP_PATH = re.compile(r"(^|/)(docs?|plans|research|\.github|tests?|Tests|UITests|scripts|skills|release-notes|schemas|fixtures|bench|benchmarks|tools|build-fleet)(/|$)|^(web|backend|workers|services|images|examples|cmux-tui/relays|evals|dogfood)/|^Native/.+/evals/|^\.gitattributes$|(^|/)ci-target-graph\.json$|-gallery\.html$|(^|/)CHANGELOG|LICENSE|\.gitignore$|\.test\.(ts|tsx)$|\.gallery\.(ts|tsx|css)$|/gallery/")
+# scenario files whose runner is gone. design/ holds the sources generators read (design/icons, design/agent-icons:
+# their outputs are committed where the app reads them, cmux-icons.json, AgentBrandCatalog+Generated.swift, brand.rs)
+# and design pages. vault/ is the cmux-vault Go service (its own go.mod; the app's Rust uses cmux-vault-egress);
+# capture-scratch/ holds screenshot replay output. No Xcode phase, Package.swift resource or build script copies any of them.
+NOAPP_PATH = re.compile(r"(^|/)(docs?|plans|research|\.github|tests?|Tests|UITests|scripts|skills|release-notes|schemas|fixtures|bench|benchmarks|tools|build-fleet)(/|$)|^(web|backend|workers|services|images|examples|cmux-tui/relays|evals|dogfood|design|vault|capture-scratch)/|^Native/.+/evals/|^\.gitattributes$|(^|/)ci-target-graph\.json$|-gallery\.html$|(^|/)CHANGELOG|LICENSE|\.gitignore$|\.test\.(ts|tsx)$|\.gallery\.(ts|tsx|css)$|/gallery/")
 # Extensions that change nothing in the app, checked after the web, resource and Rust rules, so a
 # Cargo.lock, a bundled Resources/x.sh or webviews' vite.config.mjs still counts.
 NOAPP_EXT = re.compile(r"\.(md|txt|yml|yaml|toml|lock|sh|py|mjs)$")
@@ -58,6 +66,13 @@ COMMENT = re.compile(r"^\s*(//|/\*|\*|\*/)")
 STORED = re.compile(r"^(\s*)(@\w+(\([^)]*\))?\s+)*((public|private|fileprivate|internal|package|open|final|static|nonisolated|lazy|weak|unowned|override)(\([^)]*\))?\s+)*(let|var)\s+\w+[^{]*$")
 FUNC = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|private|fileprivate|internal|package|open|final|static|class|override|mutating|nonisolated|required|convenience)(\([^)]*\))?\s+)*(func\s+\w+|init[?!]?\s*[(<]|subscript\s*[(<])")
 TYPE_DECL = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|private|fileprivate|internal|package|open|final|indirect)\s+)*(struct|class|enum|actor|protocol|extension)\s+\w+")
+# A constant with an initializer that belongs to no instance: `static let x = ...` (any access, `nonisolated(unsafe)`
+# and the like) or a file-level `let x = ...` (indent 0). It changes no type's size, so a patch can carry it: the patch
+# defines the variable and its addressor, the app repoints the addressor, and every caller (patched or not) reaches the
+# patch's copy. Only `let`: a `static var` is state a patch would reset, and an instance property changes the layout.
+STATIC_LET = re.compile(r"^(\s*)(@\w+(\([^)]*\))?\s+)*((public|private|fileprivate|internal|package|open|final|nonisolated(\([^)]*\))?)\s+)*"
+                        r"(static|class)\s+((public|private|fileprivate|internal|package|open|final|nonisolated(\([^)]*\))?)\s+)*let\s+\w+[^{]*=")
+FILE_LET = re.compile(r"^((public|private|fileprivate|internal|package|nonisolated(\([^)]*\))?)\s+)*let\s+\w+[^{]*=")
 ENTRY = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*@main\b")
 # The modules a patch can replace code in: the app's live code build makes every CmuxNext module's
 # symbols interposable (live_code_targets in scripts/live-code/lib/xcodebuild-args.sh: the
@@ -93,6 +108,8 @@ def swift_reasons(lines, added_file):
             reasons.add("new entry point")
         elif TYPE_DECL.match(body):
             reasons.add("type or conformance")
+        elif (STATIC_LET.match(body) and indent <= 4) or (FILE_LET.match(body) and indent == 0):
+            continue  # a constant of no instance: the patch carries it (see STATIC_LET)
         elif STORED.match(body) and indent <= 4 and not body.endswith("{"):
             reasons.add("stored property")  # member level (one indent) or a global
         elif CASE.match(body) and indent == 4:
@@ -144,6 +161,10 @@ def classify(files, diffs):
                 note("rebuild", path, reason)
             if not why:
                 note("swift-live", path)
+        elif status == "D":
+            # A deleted file of no known kind: the running app keeps what it had, and nothing that ships reads
+            # it any more (that reader's own change would be in the diff). A root stray such as OUTPUT or summary.
+            note("no-app", path)
         else:
             note("rebuild", path, "other app file")
     verdict = next((v for v in ORDER if v in kinds), "no-app")
@@ -175,6 +196,22 @@ def parse_diff(text):
     return diffs
 
 
+HOT_APPLY_KINDS = {"no-app", "web-live"}
+
+
+def classify_paths(files):
+    """Path-only verdict: Swift reads as `rebuild` (no diff to prove it live). `hot_apply_only` is true
+    when every change is no-app or web-live: the signed web update pointer delivers it with no new build."""
+    files = list(files)
+    result = classify(files, {})
+    for path in result["files"].pop("swift-live", []):
+        result["files"].setdefault("rebuild", []).append(path)
+        result["reasons"].setdefault("Swift without a diff", []).append(path)
+    result["verdict"] = next((v for v in ORDER if v in result["files"]), "no-app")
+    result["hot_apply_only"] = bool(files) and set(result["files"]) <= HOT_APPLY_KINDS
+    return result
+
+
 def classify_range(repo, base, head):
     def git(*args):
         return subprocess.run(["git", "-C", repo, *args], check=True, capture_output=True, text=True,
@@ -189,9 +226,16 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--repo", default=os.getcwd())
     parser.add_argument("--json", action="store_true")
-    parser.add_argument("base")
-    parser.add_argument("head")
+    parser.add_argument("--paths-from", help="classify STATUS<TAB>PATH lines by path alone; prints JSON")
+    parser.add_argument("base", nargs="?")
+    parser.add_argument("head", nargs="?")
     args = parser.parse_args(argv)
+    if args.paths_from:
+        text = sys.stdin.read() if args.paths_from == "-" else open(args.paths_from).read()
+        print(json.dumps(classify_paths(parse_name_status(text))))
+        return 0
+    if not (args.base and args.head):
+        parser.error("BASE and HEAD are required without --paths-from")
     result = classify_range(args.repo, args.base, args.head)
     if args.json:
         print(json.dumps(result, indent=2))

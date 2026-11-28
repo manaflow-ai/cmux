@@ -28,6 +28,8 @@ use crate::localization::AutomationMessages;
 mod automation_secret;
 #[path = "automation_webhook.rs"]
 mod automation_webhook;
+#[path = "automation_webhook_fire.rs"]
+mod automation_webhook_fire;
 mod events;
 mod local_webhook;
 mod teleport;
@@ -1081,19 +1083,24 @@ fn runner(args: &[String], out: &Out) -> Outcome {
         Some("status") => {
             let store = open_store()?;
             let health = runner_json(&store);
-            let running = health["running"].as_bool().unwrap_or(false);
+            let field = |key: &str| health.get(key).cloned().unwrap_or(Value::Null);
+            let running = health.get("running").and_then(Value::as_bool).unwrap_or(false);
             if output == OutputMode::Json {
                 let mut v = json!({ "running": running, "launchd_label": LAUNCHD_LABEL, "plist": plist_path() });
-                v.set("health", health["health"].clone());
-                v.set("beat_at", health["beat_at"].clone());
-                v.set("pid", health["pid"].clone());
+                v.set("health", field("health"));
+                v.set("beat_at", field("beat_at"));
+                v.set("pid", field("pid"));
                 out.value(&v);
             } else {
-                let line = match health["health"].as_str() {
+                let line = match health.get("health").and_then(Value::as_str) {
                     Some("running") => messages().runner_running.to_string(),
                     Some("stalled") => messages().runner_stalled.replace(
                         "{time}",
-                        &health["beat_at"].as_i64().map(when).unwrap_or_default(),
+                        &health
+                            .get("beat_at")
+                            .and_then(Value::as_i64)
+                            .map(when)
+                            .unwrap_or_default(),
                     ),
                     _ => messages().runner_stopped.to_string(),
                 };

@@ -167,7 +167,10 @@ public final class CmuxRemoteService {
 
     /// Tells the daemon this app's own grants (`remote-host-config` `app_permissions` only, no
     /// switch: nothing saved, started or stopped). Where no cmux Remote is bundled (Release and
-    /// NIGHTLY) the app captures the screen itself, so `cmux remote-host grants` reads these.
+    /// NIGHTLY), `cmux remote-host grants` reads these. A build with the Screen Sharing helper
+    /// captures in the helper and its children (the cmux.rd/1 host and the iPhone viewer's WebRTC
+    /// host), whose grants are the helper's (`MacScreenHelper.permissions`); this app's own matter
+    /// for a build without the helper, and for the Accessibility tap of `MacScreenSystemShortcuts`.
     public func reportAppPermissions() async {
         guard let connection else { return }
         do {
@@ -210,21 +213,14 @@ public final class CmuxRemoteService {
                 close(descriptor)
                 throw CmuxRemoteError.notTheHost
             }
-            var open: [String: String] = ["channel": channel]
-            for (key, value) in extra { open[key] = value }
-            let hello = try JSONSerialization.data(withJSONObject: ["type": "hello", "secret": grant.secret]) + Data([0x0A])
-            let request = try JSONSerialization.data(withJSONObject: ["id": 1].merging(open) { $1 } as [String: Any]) + Data([0x0A])
-            guard RemoteSocket.writeAll(descriptor, hello + request), let line = RemoteSocket.readLine(descriptor),
-                  let answer = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] else {
+            let lines = RdUI.call("service.channelOpen", ["channel": channel, "secret": grant.secret, "extra": extra]) as? String ?? ""
+            let line = RemoteSocket.writeAll(descriptor, Data(lines.utf8)) ? RemoteSocket.readLine(descriptor) : nil
+            let answer = RdUI.answer("service.channelAnswer", ["line": line.flatMap { String(data: $0, encoding: .utf8) } ?? NSNull(),
+                                                              "hostPid": grant.hostPID])
+            guard let pid = ((answer.ok as? [String: Any])?["pid"] as? Int).map({ pid_t($0) }) else {
                 close(descriptor)
-                throw CmuxRemoteError.refused("cmux Remote closed the channel")
+                throw CmuxRemoteError.refused(answer.err ?? "refused")
             }
-            guard answer["ok"] as? Bool == true else {
-                close(descriptor)
-                let message = (answer["error"] as? [String: Any])?["message"] as? String ?? "refused"
-                throw CmuxRemoteError.refused(message)
-            }
-            let pid = ((answer["result"] as? [String: Any])?["pid"] as? Int).map { pid_t($0) } ?? pid_t(grant.hostPID)
             return (descriptor, pid)
         }.value
     }
@@ -276,7 +272,8 @@ public final class CmuxRemoteService {
         Task {
             do {
                 _ = try await hub.client.anchorDevice()
-                await devices.anchored(userID: userID, hubURL: hubURL)
+                // The space the device was anchored in: the worker renews there with the app quit.
+                await devices.anchored(userID: userID, hubURL: hubURL, buildSpace: hub.client.buildSpace.headerValue)
             } catch {
                 remoteLogger.notice("cmux Remote anchor failed: \(String(describing: error), privacy: .public)")
             }

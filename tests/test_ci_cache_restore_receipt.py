@@ -28,7 +28,7 @@ class CacheRestoreReceiptTests(unittest.TestCase):
         inspected = [
             ".github/actions/cache-restore/action.yml", ".github/actions/cache-save/action.yml",
             ".github/workflows/ci.yml", ".github/workflows/ci-macos.yml", ".github/workflows/nightly.yml",
-            ".github/workflows/seed-derived-data.yml", "scripts/check-test-determinism.py",
+            "scripts/check-test-determinism.py",
             "scripts/ci/cache_restore_receipt.py", "tests/test_ci_cache_restore_receipt.py",
             "tests/test_ci_pull_request_caches_are_read_only.py",
             # The table and its runner: a change to the step itself runs it.
@@ -72,16 +72,43 @@ class CacheRestoreReceiptTests(unittest.TestCase):
             shutil.copyfile(ROOT / "scripts/ci/gh_expressions.py", fixture / "scripts/ci/gh_expressions.py")
             action_path = fixture / ".github/actions/cache-restore/action.yml"
             original = action_path.read_text()
-            for mutation, valid in ((None, True), ("receipt_command", False), ("overlapping_route", False)):
+            workflow_path = fixture / ".github/workflows/cmux-tui-build-package.yml"
+            original_workflow = workflow_path.read_text()
+            for mutation, valid in (
+                (None, True), ("receipt_command", False), ("overlapping_route", False),
+                ("next_writer_or", False), ("next_writer_wrong_branch", False),
+                ("next_writer_wrong_bucket", False),
+            ):
                 action = yaml.safe_load(original)
+                workflow_path.write_text(original_workflow)
                 if mutation == "receipt_command":
                     action["runs"]["steps"][-1]["run"] += "\necho unexpected-write"
                 elif mutation == "overlapping_route":
                     next(step for step in action["runs"]["steps"] if step.get("id") == "warp")["if"] = "always()"
+                elif mutation and mutation.startswith("next_writer_"):
+                    workflow = yaml.safe_load(original_workflow)
+                    job = workflow["jobs"]["cross-build-windows"]
+                    if mutation == "next_writer_or":
+                        job["environment"] = job["environment"].replace(
+                            "&& github.event_name", "|| github.event_name"
+                        )
+                    elif mutation == "next_writer_wrong_branch":
+                        job["environment"] = job["environment"].replace(
+                            "refs/heads/feat-cmux-next", "refs/heads/main"
+                        )
+                    else:
+                        job["env"]["CI_CACHE_R2_BUCKET"] = "cmux-ci-cache"
+                    workflow_path.write_text(yaml.safe_dump(workflow))
                 action_path.write_text(yaml.safe_dump(action))
                 result = subprocess.run(["python3", str(fixture / "tests/test_ci_pull_request_caches_are_read_only.py")], capture_output=True, text=True)
                 with self.subTest(mutation=mutation):
                     self.assertEqual(result.returncode == 0, valid, result.stdout + result.stderr)
+                    if mutation and mutation.startswith("next_writer_"):
+                        self.assertIn("cmux-tui-build-package.yml cross-build-windows:", result.stdout)
+                        if mutation == "next_writer_wrong_bucket":
+                            self.assertIn("must write only the cmux-ci-cache-next bucket", result.stdout)
+                        else:
+                            self.assertIn("must declare environment:", result.stdout)
 
     def test_all_routes_distinguish_exact_prefix_unavailable_and_error(self):
         for route in ("github", "warp", "r2"):

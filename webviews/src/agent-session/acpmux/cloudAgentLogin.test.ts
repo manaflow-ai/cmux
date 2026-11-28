@@ -1,5 +1,14 @@
 import { expect, test } from "bun:test";
-import { cloudAgentLogin, localAgentLogin, localApiKeyLogin } from "./cloudAgentLogin";
+import {
+  agentLoginSupported,
+  cloudAgentLogin,
+  localApiKeyLogin,
+  localAgentLogin,
+  signsInRemotely,
+  terminalSignIn,
+  harnessLoginAgent,
+} from "./cloudAgentLogin";
+import { peerAgentLoginFromStatus } from "./environments";
 
 type Call = [string, ...unknown[]];
 
@@ -52,6 +61,13 @@ test("a Codex chat on another machine gets the card too", () => {
   expect(cloudAgentLogin(options({ elsewhere: true }, "codex").login)?.agent).toBe("codex");
 });
 
+test("an Antigravity chat on Cloud signs in with Gemini's key, the key Cloud's Gemini gateway serves it with", () => {
+  expect(harnessLoginAgent("antigravity")).toBe("gemini");
+  expect(harnessLoginAgent("gemini")).toBe("gemini");
+  expect(harnessLoginAgent("pi")).toBeUndefined();
+  expect(cloudAgentLogin(options({ machineID: "vm-1", elsewhere: true }, "antigravity").login)?.agent).toBe("gemini");
+});
+
 test("a Cloud chat keeps its card", () => {
   const { login } = options({ machineID: "vm-1", elsewhere: true });
   expect(cloudAgentLogin(login)?.agent).toBe("claude");
@@ -62,6 +78,39 @@ test("a chat on this Mac keeps Use an API key beside Sign in again, and no machi
   const { login } = options({ elsewhere: false });
   expect(cloudAgentLogin(login)).toBeUndefined();
   expect(localApiKeyLogin(login)?.agent).toBe("claude");
+});
+
+test("the sign-in card follows the machine the chat runs on, not only the acpmux the page talks to", () => {
+  const peerChat = { peer: "studio", host: "studio" };
+  const kinds = { studio: "ssh" as const };
+  // A peer chat: the page's acpmux forwards the login, and the peer must run it too.
+  expect(agentLoginSupported(true, peerChat, kinds, {}, { studio: true })).toBe(true);
+  expect(agentLoginSupported(true, peerChat, kinds, {}, { studio: false })).toBe(false);
+  // The page's acpmux cannot forward what it does not serve, whatever the peer lists.
+  expect(agentLoginSupported(false, peerChat, kinds, {}, { studio: true })).toBe(false);
+  // An acpmux too old to report the peer's answer keeps its own, as before.
+  expect(agentLoginSupported(true, peerChat, kinds, {}, {})).toBe(true);
+  // A chat on this Mac, or on the machine the app's wire reaches, runs on the page's acpmux.
+  expect(agentLoginSupported(true, { machine: "box" }, {}, {}, { studio: false })).toBe(true);
+  expect(agentLoginSupported(true, { machine: "box" }, {}, { origin: "remote" }, { studio: false })).toBe(true);
+  // A Cloud peer is a peer too.
+  const cloudChat = { peer: "vm-1", hostKind: "cloud" as const };
+  expect(agentLoginSupported(true, cloudChat, { "vm-1": "cloud" }, {}, { "vm-1": false })).toBe(false);
+});
+
+test("a connected peer's agentLogin is read; a row without one, or a peer not connected, is left out", () => {
+  // acpmux forgets a peer's features when its link ends: a peer still handshaking at launch reads
+  // false, and recording that would hide its card after it connects.
+  expect(
+    peerAgentLoginFromStatus({
+      peers: [
+        { name: "a", connected: true, agentLogin: true },
+        { name: "b", connected: true, agentLogin: false },
+        { name: "c", connected: true },
+        { name: "d", connected: false, agentLogin: false },
+      ],
+    }),
+  ).toEqual({ a: true, b: false });
 });
 
 /// hq#11225: a new Cloud chat whose start was refused because its agent is not signed in has no
@@ -133,4 +182,53 @@ test("a chat on this Mac gets the in-place card for its built-in agent; a route 
   for (const route of ["claude-sr", "claude-cr"]) expect(localAgentLogin(options({}, route).login)).toBeUndefined();
   expect(localAgentLogin(options({ elsewhere: true }, "claude").login)).toBeUndefined();
   expect(localAgentLogin(options({ machineID: "m-1" }, "claude").login)).toBeUndefined();
+});
+
+// Sign in again (the agent's own login in a terminal on the chat's machine) stays where it was (a
+// chat off Cloud) and now also reaches an older Cloud machine, whose acpmux signs nothing in from the
+// card. A current machine keeps its card, and a team machine takes no personal login.
+test("Sign in again runs the agent's login in a terminal on an older Cloud machine, not a current or team one", () => {
+  const base = {
+    connected: true,
+    loginCommand: "claude /login",
+    card: undefined,
+    onCloud: true,
+    machineSignsIn: false,
+    teamMachine: false,
+  };
+  expect(terminalSignIn(base)).toEqual({ runs: true, onCloud: true });
+  expect(terminalSignIn({ ...base, machineSignsIn: true })).toEqual({ runs: false, onCloud: false });
+  expect(terminalSignIn({ ...base, teamMachine: true })).toEqual({ runs: false, onCloud: false });
+  expect(terminalSignIn({ ...base, loginCommand: undefined })).toEqual({ runs: false, onCloud: false });
+  expect(terminalSignIn({ ...base, connected: false })).toEqual({ runs: false, onCloud: false });
+  // Off Cloud: as before, whatever the machine signs in.
+  expect(terminalSignIn({ ...base, onCloud: false })).toEqual({ runs: true, onCloud: false });
+  expect(terminalSignIn({ ...base, onCloud: false, machineSignsIn: true })).toEqual({ runs: true, onCloud: false });
+});
+
+// Codex's `codex login` waits for its browser's redirect to localhost:1455 on the machine, which the
+// Mac's browser cannot reach: an older Cloud machine's Codex chat keeps the card as before (Switch
+// model), while Claude Code's pasted-code login and any device-code login are offered. Off Cloud,
+// every login is offered as before.
+test("an older Cloud machine offers Sign in again only for a login that finishes from the Mac's browser", () => {
+  const older = { connected: true, card: undefined, onCloud: true, machineSignsIn: false, teamMachine: false };
+  for (const command of ["claude /login", "claude auth login", "CLAUDE_CONFIG_DIR=~/.claude-work claude /login"]) {
+    expect(signsInRemotely(command), command).toBe(true);
+    expect(terminalSignIn({ ...older, loginCommand: command }), command).toEqual({ runs: true, onCloud: true });
+  }
+  expect(signsInRemotely("codex login --device-auth")).toBe(true);
+  for (const command of [
+    "codex login",
+    "CODEX_HOME=/home/me/.codex-work codex login",
+    "opencode auth login",
+    "gemini",
+    "",
+  ]) {
+    expect(signsInRemotely(command), command).toBe(false);
+    expect(terminalSignIn({ ...older, loginCommand: command }), command).toEqual({ runs: false, onCloud: false });
+    expect(terminalSignIn({ ...older, onCloud: false, loginCommand: command }), command).toEqual({
+      runs: true,
+      onCloud: false,
+    });
+  }
 });

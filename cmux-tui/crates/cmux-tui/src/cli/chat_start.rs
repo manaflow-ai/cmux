@@ -6,8 +6,11 @@
 //! One flag, `--on`, whose value decides the kind of target, so it is learned once for every verb
 //! that runs something somewhere:
 //!
-//! - no `--on` (and no `CMUX_ON` and no `chat.on` setting), or `--on here`: right here, as
-//!   `cmux agents chat new` starts it (a chat tab in the app, in this machine's acpmux);
+//! - no `--on` (and no `CMUX_ON` and no `chat.on` setting), or `--on auto`: Auto
+//!   (`auto_place`): right here when acpmux's placement says this machine has room, else a new
+//!   Cloud VM when signed in with Cloud on, else here all the same;
+//! - `--on here`: right here, as `cmux agents chat new` starts it (a chat tab in the app, in
+//!   this machine's acpmux);
 //! - `--on vm`: my Cloud VM: my one VM (or the one running of several), a new one when I have
 //!   none (`my_vm`);
 //! - `--on cloud`: cmux Cloud decides where it runs (Leo, 2026-11-07: "in the future, the cloud
@@ -86,9 +89,9 @@ pub(super) fn own_switch(command: &[String], flag: &str) -> bool {
     ours && matches!(flag, "--wait" | "--no-wait")
 }
 
-/// The `chat` verbs other modules own (chief/chat_scope.rs, chat_cd.rs and the app's `chat …` actions).
+/// The `chat` verbs other modules own (chief/chat_scope.rs, chat_cd.rs, chat_move.rs and the app's `chat …` actions).
 pub(super) const OTHER_VERBS: &[&str] =
-    &["send", "cd", "read", "wait", "list", "create", "replies", "colors"];
+    &["send", "cd", "move", "read", "wait", "list", "create", "replies", "colors"];
 
 /// The environment variable that names the target when `--on` is absent.
 pub(super) const TARGET_ENV: &str = "CMUX_ON";
@@ -117,9 +120,12 @@ usage: cmux chat [--on TARGET] [--environment ENV] [--harness HARNESS] [--model 
                  [--cwd DIR | --from-folder DIR | --no-folder] [--repo URL] [--name NAME]
                  [--attach FILE]... [-w] [--timeout DURATION] [--json] [[--prompt] TEXT]
 
-Starts an agent chat, right here unless --on names another target:
+Starts an agent chat, right here (or in Cloud when this machine is busy) unless --on
+names another target:
 
-  --on here          This machine, as a tab in the cmux app (the default)
+  --on auto          This machine when it has room, else a new Cloud VM when you are
+                     signed in and Cloud is on (the default)
+  --on here          This machine, as a tab in the cmux app
   --on cloud         Today the same as --on vm: your one VM, the one running VM of
                      several, or a new one when you have none; several and none
                      running is refused with their names
@@ -138,6 +144,13 @@ Starts an agent chat, right here unless --on names another target:
                      The answer's session_id is HOST/NAME: `cmux chat send HOST/NAME TEXT`,
                      `cmux chat wait HOST/NAME`
   CMUX_ON=TARGET names the target when --on is absent.
+  On a Pro, Max or Team plan a Cloud chat (--on cloud, vm, vm:new or vm:ID, with a
+  prompt and none of --cwd, --from-folder, --no-folder, --environment, --wait,
+  --timeout, --timings, --attach or --name) starts here at once while its
+  machine starts, then moves there between turns (log: the hybrid-start folder
+  beside cmux's sessions). CMUX_HYBRID_START=1 turns that on whatever the plan,
+  CMUX_HYBRID_START=0 off; with neither, cloud.autoCloud set to true in
+  cmux-next.json turns it on. `cmux cloud hybrid-status --json` says which.
   `cmux config set on TARGET` saves a default target (the chat.on setting),
   used when neither --on nor CMUX_ON names one; `cmux config reset on` clears it.
 
@@ -939,7 +952,11 @@ where
     }
 }
 
-fn run(global: &GlobalArgs, start: Start) -> i32 {
+fn run(global: &GlobalArgs, mut start: Start) -> i32 {
+    // `--on auto` asks by name for what a start naming no target gets (auto_place.rs).
+    if start.on.as_deref().is_some_and(|on| on.trim().eq_ignore_ascii_case(auto_place::AUTO)) {
+        start.on = None;
+    }
     let reads = Reads {
         catalog: || read_catalog(global),
         signed_in: || cloud_start_chat::app_signed_in(global),
@@ -958,6 +975,16 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
     let route = match in_environment(&start, route) {
         Ok(route) => route,
         Err(error) => return usage_failure(&error, global.output),
+    };
+    // A machine Auto placed the chat on (not one the person named) yields it to its owner
+    // (`--placed-by autoCloud`, acpmux `hub/owner_return.rs`).
+    let (route, auto_placed) = match route {
+        Route::Here => {
+            let route = auto_place::route(global, &start);
+            let placed = matches!(route, Route::Peer(_));
+            (route, placed)
+        }
+        route => (route, false),
     };
     if route == Route::Here && start.from_folder.is_some() {
         return usage_failure(&UsageError::new(FROM_FOLDER_CLOUD_ONLY), global.output);
@@ -1016,28 +1043,37 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
             },
             Err(error) => usage_failure(&error, global.output),
         },
-        Route::Cloud(machine) => match cloud_words(&start, &machine) {
-            Ok(words) => {
-                let parsed = cloud_start_chat::parse(&words, read_stdin);
-                match parsed {
-                    Ok(cloud_start_chat::Parsed::Run(request)) => {
-                        cloud_start_chat::start(global, &request)
-                    }
-                    Ok(cloud_start_chat::Parsed::Help) => {
-                        print!("{USAGE}");
-                        0
-                    }
-                    Err(error) => usage_failure(&error, global.output),
-                }
-            }
-            Err(error) => usage_failure(&error, global.output),
+        // Leo, 2026-11-23: "start them all in parallel, in tandem": here at once, then Cloud.
+        Route::Cloud(machine) => match hybrid_start::start(global, &start, &machine) {
+            Some(code) => code,
+            None => cloud_start(global, &start, &machine),
         },
         // As a chat here starts, with the peer named; its tab shows here.
         Route::Peer(peer) => match peer_words(&global_words(global), &start, &peer) {
-            Ok(words) => super::agents::run_if_requested(&words).unwrap_or(2),
+            Ok(mut words) => {
+                if auto_placed {
+                    placed_by_autocloud(&mut words);
+                }
+                super::agents::run_if_requested(&words).unwrap_or(2)
+            }
             Err(error) => usage_failure(&error, global.output),
         },
         Route::Joined(machine) => joined::run(global, &start, &machine),
+    }
+}
+
+/// The Cloud start, as `cloud start-chat` runs it.
+fn cloud_start(global: &GlobalArgs, start: &Start, machine: &Machine) -> i32 {
+    match cloud_words(start, machine) {
+        Ok(words) => match cloud_start_chat::parse(&words, read_stdin) {
+            Ok(cloud_start_chat::Parsed::Run(request)) => cloud_start_chat::start(global, &request),
+            Ok(cloud_start_chat::Parsed::Help) => {
+                print!("{USAGE}");
+                0
+            }
+            Err(error) => usage_failure(&error, global.output),
+        },
+        Err(error) => usage_failure(&error, global.output),
     }
 }
 
@@ -1254,6 +1290,14 @@ pub(super) fn peer_words(
     Ok(words)
 }
 
+/// `--placed-by autoCloud` among `agents chat new`'s flags (before a `--` prompt): the chat's
+/// meta says AutoCloud placed it (acpmux `autocloud_enroll::PLACED_BY_AUTOCLOUD`).
+fn placed_by_autocloud(words: &mut Vec<String>) {
+    let at = words.iter().position(|w| w == "--peer").map_or(words.len(), |i| i + 2);
+    let at = at.min(words.len());
+    words.splice(at..at, ["--placed-by", "autoCloud"].map(str::to_owned));
+}
+
 /// `agents chat new …` with this start's settings, after the same globals.
 pub(super) fn here_words(prefix: &[String], start: &Start) -> Result<Vec<String>, UsageError> {
     let mut words = prefix.to_vec();
@@ -1361,6 +1405,8 @@ fn usage_failure(error: &UsageError, output: OutputMode) -> i32 {
     super::app::failure("usage.invalid", &format!("cmux: {}\n{USAGE}", error.0), output, 2)
 }
 
+mod auto_place;
+pub(super) mod hybrid_start;
 pub(super) mod joined;
 
 #[cfg(test)]

@@ -3,7 +3,7 @@ public import CmuxNextDesign
 public import Foundation
 public import Observation
 
-/// Loads `~/.config/cmux/cmux-next.json`, applies it to `DesignSettings` and the
+/// Loads `~/.config/cmux-next/cmux-next.json`, applies it to `DesignSettings` and the
 /// action registry, and re-applies on every change to the file (kernel file
 /// events, no polling). Writes go through `file` to the daemon's settings owner (`writer`) and come
 /// back through the watcher, so the file stays the single source of truth.
@@ -32,6 +32,10 @@ public final class SettingsController {
     public var applied: CmuxConfigSnapshot { previewSnapshot ?? snapshot }
     /// Number of completed loads; tests and the App can await changes by it.
     public private(set) var loadCount = 0
+    /// Number of loads that changed what the controller holds (the snapshot, the managed keys, the
+    /// theme files). A load that found nothing new (each app activation asks for one) leaves it, so
+    /// what is built from those keeps until it moves (`SettingsPaletteSource.rows`).
+    @ObservationIgnored public private(set) var appliedCount = 0
     /// Keys an MDM profile or the team policy manages (dotted key -> manager).
     public private(set) var managedKeys: [String: ManagedSource] = [:]
     /// Managed policy keys that are not settings (`EnrollmentToken`, `DisabledFeatures`, ...).
@@ -60,14 +64,19 @@ public final class SettingsController {
     public internal(set) var teamPolicy: TeamPolicyLayer = .none
     /// The theme file `appearance.themeFile` names, as the last load read it (nil: none named).
     public private(set) var themeFile: ThemeFileOverlay?
-    /// Every theme file in `~/.config/cmux/themes`, name to text, as the last load read them (the
+    /// Every theme file in `~/.config/cmux-next/themes`, name to text, as the last load read them (the
     /// palette's and Settings' list, and what a preview of one applies with no disk read).
     public private(set) var themeFileSources: [String: String] = [:]
     /// The effective settings under the theme file (`snapshot.root` before it applies), so a preview
     /// of another theme file starts from them.
     @ObservationIgnored var rootUnderThemeFile: JSONValue = .object([:])
     /// The active theme file's last text that parsed, which a save that does not parse keeps applying.
-    @ObservationIgnored fileprivate var lastGoodThemeFile: ThemeFileInput?
+    @ObservationIgnored fileprivate var lastGoodThemeFile: SettingsLoadInputs.ThemeFile?
+    /// Resolves a theme file's `slots` (name, text) to slot id and variant id: the app asks the
+    /// daemon (`theme.slots.resolve`), which checks them. Nil leaves `DesignSettings.themeSlots` alone.
+    @ObservationIgnored public var resolveThemeSlots: (@MainActor @Sendable (_ name: String, _ text: String) async -> [String: String])?
+    /// The theme file text the slots were last asked for, and the ask in flight.
+    @ObservationIgnored fileprivate var themeSlotsAsked: (input: SettingsLoadInputs.ThemeFile?, task: Task<Void, Never>?)?
 
     @ObservationIgnored let applier: SettingsApplier
     /// The active theme file's own font files, registered while it applies.
@@ -78,7 +87,8 @@ public final class SettingsController {
     @ObservationIgnored private var themeWatchers: (name: String?, watchers: [ConfigFileWatcher])?
     @ObservationIgnored private var reloadTask: Task<Void, Never>?
     @ObservationIgnored private var reloadRequested = false
-    @ObservationIgnored private var lastSource: LoadInputs?
+    @ObservationIgnored private var lastSource: SettingsLoadInputs?
+    @ObservationIgnored var sidebarLooksFolder = SidebarLookPreset.bundledFolder
     @ObservationIgnored let managedReader: any ManagedPreferenceReader
     @ObservationIgnored let managedWatchFiles: [URL]
     /// Fill keys no layer sets (``SettingsBuildDefaults``); the launch read's unless given.
@@ -103,21 +113,8 @@ public final class SettingsController {
         let continuation: CheckedContinuation<Void, Never>
     }
 
-    /// Everything a load depends on; an unchanged input skips the apply.
-    fileprivate nonisolated struct LoadInputs: Equatable, Sendable {
-        let source: String
-        let managed: ManagedPreferences
-        let team: TeamPolicyLayer
-        /// The active theme file's name and text (nil text: missing or unreadable).
-        var themeFile: ThemeFileInput?
-    }
-
-    fileprivate nonisolated struct ThemeFileInput: Equatable, Sendable {
-        let name: String
-        let source: String?
-    }
-
     /// `writer` takes every write of the file (the app: the home daemon's settings owner); nil refuses them.
+    /// `resolveThemeSlots` sets ``resolveThemeSlots``.
     public init(
         writer: (any SettingsFileWriter)? = nil,
         registry: ActionRegistry,
@@ -126,9 +123,11 @@ public final class SettingsController {
         managedReader: any ManagedPreferenceReader = ManagedPreferenceLocation.defaultReader(),
         managedWatchFiles: [URL] = ManagedPreferenceLocation.watchedFiles(),
         launch: LaunchRead? = nil,
-        buildDefaults: SettingsBuildDefaults? = nil
+        buildDefaults: SettingsBuildDefaults? = nil,
+        resolveThemeSlots: (@MainActor @Sendable (_ name: String, _ text: String) async -> [String: String])? = nil
     ) {
         self.file = CmuxConfigFile(url: fileURL, writer: writer)
+        self.resolveThemeSlots = resolveThemeSlots
         self.launchRead = launch
         self.appliesFontSmoothing = launch?.appliesFontSmoothing ?? false
         self.buildDefaults = buildDefaults ?? launch?.buildDefaults ?? .none
@@ -259,6 +258,7 @@ public final class SettingsController {
         let older = EffectiveSettings.legacyKeys.filter { $0.value == key }.map(\.key)
         return ([key] + older).contains { lastSource?.managed.recommended[$0] != nil || teamPolicy.defaults[$0] != nil }
             || older.contains { fileRoot.value(at: CmuxConfigFile.keyPath(from: $0)) != nil }
+            || lastSource?.sidebarLookOverridesDefault(for: key) == true
             || SettingsSchema.unsetIsNotDefault(key)
     }
 
@@ -364,13 +364,14 @@ public final class SettingsController {
 
     private func loadOnce() async {
         let (file, reader, team, lastGood, builds) = (file, managedReader, teamPolicy, fileRoot, buildDefaults)
-        let (valid, lastTheme) = (Self.validValues, lastGoodThemeFile)
+        let (valid, lastTheme, looksFolder) = (Self.validValues, lastGoodThemeFile, sidebarLooksFolder)
         adopt(await Task.detached {
             let managed = reader.read()
             let source: Result<String, any Error>
             do { source = .success(try await file.source()) } catch { source = .failure(error) }
             return Self.loaded(source, managed: managed, team: team, lastGood: lastGood, valid: valid,
-                               configDirectory: file.url.deletingLastPathComponent(), buildDefaults: builds, lastGoodTheme: lastTheme)
+                               configDirectory: file.url.deletingLastPathComponent(), buildDefaults: builds, lastGoodTheme: lastTheme,
+                               sidebarLooksFolder: looksFolder)
         }.value)
     }
 
@@ -384,7 +385,7 @@ public final class SettingsController {
         let source = Result { try CmuxConfigFile.source(at: file.url) }
         adopt(Self.loaded(source, managed: managedReader.read(), team: teamPolicy, lastGood: fileRoot, valid: Self.validValues,
                           configDirectory: file.url.deletingLastPathComponent(), buildDefaults: buildDefaults,
-                          lastGoodTheme: lastGoodThemeFile, listingThemes: false))
+                          lastGoodTheme: lastGoodThemeFile, listingThemes: false, sidebarLooksFolder: sidebarLooksFolder))
     }
 
     /// The launch's first load, read before the controller exists so the
@@ -410,10 +411,39 @@ public final class SettingsController {
     /// A controller made with this read writes the setting again on each change, so the next launch
     /// starts with it (part of the process reads the saved value before this runs).
     public static func readAtLaunch(file: CmuxConfigFile.LaunchFile, buildDefaults: SettingsBuildDefaults = .none) -> LaunchRead {
-        var read = readAtLaunch(fileURL: file.url, buildDefaults: buildDefaults)
+        appliedAtLaunch(launchRead(file: file, managedReader: ManagedPreferenceLocation.defaultReader(), buildDefaults: buildDefaults,
+                                   valid: validValues))
+    }
+
+    /// The launch's read, started off the main thread at the top of `main` while AppKit starts: the
+    /// settings file made when missing (``CmuxConfigFile/launchFile()``), read and parsed with the managed
+    /// preferences and the active theme file. The launch awaits it before its first window and passes it to
+    /// ``appliedAtLaunch(_:)``, so the main thread reads no settings file before its first frame.
+    public static func startLaunchRead(buildDefaults: SettingsBuildDefaults) -> Task<LaunchRead, Never> {
+        let valid = validValues
+        // concurrency-allow: the launch's settings file read runs detached, off the main actor, while AppKit starts.
+        // The managed reader is made there too: `defaultReader()` lists every published key, and its first use builds
+        // `SettingsSchema.all` (a lazy static, ~41 ms), which this call, in AppDelegate's init, paid on the main thread
+        // before the Dock stops bouncing (CMUX-631).
+        return Task.detached(priority: .userInitiated) {
+            launchRead(file: CmuxConfigFile.launchFile(), managedReader: ManagedPreferenceLocation.defaultReader(), buildDefaults: buildDefaults, valid: valid)
+        }
+    }
+
+    /// The launch read's process side, on the main thread before the first window: the font smoothing
+    /// default (see ``readAtLaunch(file:buildDefaults:)``).
+    public static func appliedAtLaunch(_ read: LaunchRead) -> LaunchRead {
+        ProcessFontSmoothing.apply(read.snapshot.fontSmoothing, to: .standard)
+        return read
+    }
+
+    /// ``readAtLaunch(file:buildDefaults:)`` without its process side, on any thread.
+    private nonisolated static func launchRead(file: CmuxConfigFile.LaunchFile, managedReader: any ManagedPreferenceReader,
+                                               buildDefaults: SettingsBuildDefaults,
+                                               valid: (densities: Set<String>, metrics: Set<String>)) -> LaunchRead {
+        var read = readAtLaunch(fileURL: file.url, managedReader: managedReader, buildDefaults: buildDefaults, valid: valid)
         read.createdEmptyFile = file.createdEmpty
         read.appliesFontSmoothing = true
-        ProcessFontSmoothing.apply(read.snapshot.fontSmoothing, to: .standard)
         return read
     }
 
@@ -421,14 +451,19 @@ public final class SettingsController {
         fileURL: URL, managedReader: any ManagedPreferenceReader = ManagedPreferenceLocation.defaultReader(),
         buildDefaults: SettingsBuildDefaults = .none
     ) -> LaunchRead {
+        readAtLaunch(fileURL: fileURL, managedReader: managedReader, buildDefaults: buildDefaults, valid: validValues)
+    }
+
+    private nonisolated static func readAtLaunch(fileURL: URL, managedReader: any ManagedPreferenceReader, buildDefaults: SettingsBuildDefaults,
+                                                 valid: (densities: Set<String>, metrics: Set<String>)) -> LaunchRead {
         let source = Result { try CmuxConfigFile.source(at: fileURL) }
-        return LaunchRead(loaded: loaded(source, managed: managedReader.read(), team: .none, lastGood: .object([:]), valid: validValues,
+        return LaunchRead(loaded: loaded(source, managed: managedReader.read(), team: .none, lastGood: .object([:]), valid: valid,
                                          configDirectory: fileURL.deletingLastPathComponent(), buildDefaults: buildDefaults,
                                          listingThemes: false),
                           fileURL: fileURL, buildDefaults: buildDefaults)
     }
 
-    fileprivate typealias Loaded = (inputs: LoadInputs, effective: EffectiveSettings, snapshot: CmuxConfigSnapshot,
+    fileprivate typealias Loaded = (inputs: SettingsLoadInputs, effective: EffectiveSettings, snapshot: CmuxConfigSnapshot,
                                     themes: ThemeFilesRead)
     private static var validValues: (densities: Set<String>, metrics: Set<String>) {
         (SettingsApplier.validDensities, SettingsApplier.validMetrics)
@@ -438,7 +473,8 @@ public final class SettingsController {
     private nonisolated static func loaded(_ read: Result<String, any Error>, managed: ManagedPreferences, team: TeamPolicyLayer,
                                            lastGood: JSONValue, valid: (densities: Set<String>, metrics: Set<String>),
                                            configDirectory: URL, buildDefaults: SettingsBuildDefaults,
-                                           lastGoodTheme: ThemeFileInput? = nil, listingThemes: Bool = true) -> Loaded {
+                                           lastGoodTheme: SettingsLoadInputs.ThemeFile? = nil, listingThemes: Bool = true,
+                                           sidebarLooksFolder: URL? = SidebarLookPreset.bundledFolder) -> Loaded {
         var source = ""
         var problem: String?
         var root = lastGood
@@ -459,24 +495,30 @@ public final class SettingsController {
                                     lastGood: lastGoodTheme, listing: listingThemes)
         effective.root = themes.applied
         // The sidebar look fills only what every layer above leaves unset (SidebarLookPreset).
-        effective.root = SidebarLookPreset.filling(effective.root)
+        let look = SidebarLookPreset.applying(to: effective.root, folder: sidebarLooksFolder)
+        effective.root = look.root
         var snapshot = CmuxConfigSnapshot.parse(
             effective.root, validDensities: valid.densities, validMetrics: valid.metrics, configDirectory: configDirectory
         )
         snapshot.themeDensity = themes.density
         if let problem { snapshot.diagnostics.insert(SettingsDiagnostic(kind: .unreadableFile, path: "", message: problem), at: 0) }
         snapshot.diagnostics += effective.diagnostics + themes.diagnostics
-        var inputs = LoadInputs(source: source, managed: managed, team: team)
-        inputs.themeFile = themes.overlay.map { ThemeFileInput(name: $0.name, source: themes.activeSource) }
+        var inputs = SettingsLoadInputs(source: source, managed: managed, team: team, sidebarLookGroupBackground: look.groupBackground)
+        inputs.themeFile = themes.overlay.map { SettingsLoadInputs.ThemeFile(name: $0.name, source: themes.activeSource) }
         return (inputs, effective, snapshot, themes)
     }
 
     private func adopt(_ loaded: Loaded) {
         loadHooks.forEach { $0() }
-        if themeFileSources != loaded.themes.sources { themeFileSources = loaded.themes.sources }
-        if let name = loaded.themes.overlay?.name, let good = loaded.themes.goodSource { lastGoodThemeFile = ThemeFileInput(name: name, source: good) }
+        if themeFileSources != loaded.themes.sources {
+            themeFileSources = loaded.themes.sources
+            appliedCount += 1
+        }
+        if let name = loaded.themes.overlay?.name, let good = loaded.themes.goodSource { lastGoodThemeFile = SettingsLoadInputs.ThemeFile(name: name, source: good) }
+        passThemeSlots(loaded.themes.overlay.map { SettingsLoadInputs.ThemeFile(name: $0.name, source: loaded.themes.goodSource) })
         if loaded.inputs != lastSource || loadCount == 0 {
             lastSource = loaded.inputs
+            appliedCount += 1
             // A file change ends a preview: the loaded values apply.
             previewingKey = nil
             previewSnapshot = nil
@@ -540,7 +582,7 @@ extension SettingsController {
         /// Reads the active theme file and, `listing`, every file in the folder (for the palette and
         /// previews). File I/O: off the main thread, except the launch read, which reads only the
         /// active file (as it reads cmux-next.json) so the first window draws in its look.
-        init(_ root: JSONValue, configDirectory: URL, managed: Set<String>, lastGood: ThemeFileInput?, listing: Bool) {
+        init(_ root: JSONValue, configDirectory: URL, managed: Set<String>, lastGood: SettingsLoadInputs.ThemeFile?, listing: Bool) {
             base = root
             var sources: [String: String] = [:]
             if listing {
@@ -611,5 +653,23 @@ extension SettingsController {
         }
         watchers.forEach { $0.start(reportInitialChange: false) }
         themeWatchers = (name, watchers)
+    }
+
+    /// Hands the active theme file's text (nil: none) to ``resolveThemeSlots`` and its answer to
+    /// `DesignSettings.themeSlots` as is; the daemon reads and checks the slots.
+    fileprivate func passThemeSlots(_ input: SettingsLoadInputs.ThemeFile?) {
+        guard let resolve = resolveThemeSlots else { return }
+        if let asked = themeSlotsAsked, asked.input == input { return }
+        themeSlotsAsked?.task?.cancel()
+        let design = applier.design
+        guard let input, let text = input.source else {
+            themeSlotsAsked = (input, nil)
+            design.themeSlots = [:]
+            return
+        }
+        themeSlotsAsked = (input, Task { @MainActor in
+            let slots = await resolve(input.name, text)
+            if !Task.isCancelled { design.themeSlots = slots }
+        })
     }
 }

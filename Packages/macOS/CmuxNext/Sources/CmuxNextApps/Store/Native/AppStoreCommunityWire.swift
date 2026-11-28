@@ -66,7 +66,7 @@ public nonisolated struct AppStoreCommunityPage: Sendable, Hashable {
     public var rows: [AppStoreCommunityRow]
     /// Installed on the person's other devices, not on this Mac.
     public var elsewhere: [AppStoreCommunityRow]
-    /// The cache is older than the owner wants, or a refresh runs now: the view says "Updating…".
+    /// A refresh runs or the cache is stale: silent over rows, Loading over an empty cache.
     public var updating: Bool
     /// The owner's last refresh failed (the cache still shows).
     public var error: String?

@@ -1,7 +1,8 @@
 //! The `Frame` uniform (`prelude.wgsl`) and the pointer's smoothing.
 //!
-//! Every field of `Frame` is a `vec4<f32>`, so the layout is the same in
-//! Metal, WGSL and GLSL std140: 9 vec4s, 36 floats, 144 bytes.
+//! Every field of `Frame` is a `vec4<f32>` (or an array of them), so the
+//! layout is the same in Metal, WGSL and GLSL std140: 27 vec4s, 108 floats,
+//! 432 bytes.
 //!
 //! | floats | field | x | y | z | w |
 //! |---|---|---|---|---|---|
@@ -13,15 +14,25 @@
 //! | 20..24 | paper | r | g | b | 1 |
 //! | 24..28 | accent | r | g | b | 1 |
 //! | 28..36 | params | 8 floats in manifest order |
+//! | 36..40 | activity | agent activity (eased 0..1) | seconds since the newest agent event | agent events so far (mod 1024) | 0 |
+//! | 40..44 | grade | tritone amount 0..1 ([`crate::grade`]; 0 is off) | 0 | 0 | 0 |
+//! | 44..108 | trail: 16 rows, newest first ([`TrailState::rows`](crate::trail::TrailState::rows)) | x px | y px | age seconds | valid (0/1) |
 
 use crate::manifest::Manifest;
+use crate::trail::TRAIL_POINTS;
 
 /// Floats in `Frame`.
-pub const FRAME_FLOATS: usize = 36;
+pub const FRAME_FLOATS: usize = TRAIL_START + TRAIL_POINTS * 4;
+/// The first float of `Frame.trail`.
+pub const TRAIL_START: usize = 44;
+/// The first float of `Frame.grade`.
+pub const GRADE_START: usize = 40;
 /// Bytes in `Frame`.
 pub const FRAME_BYTES: usize = FRAME_FLOATS * 4;
-/// `presence.y` never exceeds this (a float stays exact).
+/// `presence.y` and `activity.y` never exceed this (a float stays exact).
 pub const MAX_SINCE_MOVED: f32 = 1.0e4;
+/// `activity.z` counts agent events modulo this, so it stays a small whole float.
+pub const AGENT_EVENT_WRAP: u16 = 1024;
 
 /// Everything a frame's uniform holds, by name. Colors are linear RGB
 /// ([`srgb_to_linear`] converts a theme color).
@@ -47,6 +58,18 @@ pub struct FrameInput {
     pub paper: [f32; 3],
     pub accent: [f32; 3],
     pub params: [f32; 8],
+    /// Agent activity, eased 0..1 ([`ActivityState::level`]).
+    pub activity: f32,
+    /// Seconds since the newest agent event ([`ActivityState::since_event`]).
+    pub since_agent_event: f32,
+    /// Agent events so far, mod [`AGENT_EVENT_WRAP`] ([`ActivityState::count`]).
+    pub agent_events: f32,
+    /// The tritone grade's amount, 0 (off, the default) ..1 (`appearance.liveWallpaperGrade`):
+    /// `epilogue.wgsl` maps every program's color through [`crate::grade`].
+    pub grade: f32,
+    /// The pointer's recent path in rendered pixels, newest first
+    /// ([`TrailState::rows`](crate::trail::TrailState::rows)); zeros when the host keeps none.
+    pub trail: [[f32; 4]; TRAIL_POINTS],
 }
 
 fn finite(v: f32) -> f32 {
@@ -57,14 +80,14 @@ fn flag(b: bool) -> f32 {
     if b { 1.0 } else { 0.0 }
 }
 
-/// The 36 floats of `Frame` for `input`. A NaN or infinite input becomes 0,
+/// The [`FRAME_FLOATS`] floats of `Frame` for `input`. A NaN or infinite input becomes 0,
 /// so no frame hands the GPU a NaN.
 pub fn pack_frame(input: &FrameInput) -> [f32; FRAME_FLOATS] {
     let i = input;
     let rgb1 = |c: [f32; 3]| [finite(c[0]), finite(c[1]), finite(c[2]), 1.0];
     let [ink, paper, accent] = [rgb1(i.ink), rgb1(i.paper), rgb1(i.accent)];
     let p = i.params.map(finite);
-    let rows: [[f32; 4]; 9] = [
+    let rows: [[f32; 4]; 11] = [
         [finite(i.time), finite(i.delta), finite(i.frame_number), flag(i.still)],
         [finite(i.width), finite(i.height), finite(i.backing_scale), finite(i.seed)],
         [finite(i.pointer_x), finite(i.pointer_y), finite(i.velocity_x), finite(i.velocity_y)],
@@ -79,10 +102,18 @@ pub fn pack_frame(input: &FrameInput) -> [f32; FRAME_FLOATS] {
         accent,
         [p[0], p[1], p[2], p[3]],
         [p[4], p[5], p[6], p[7]],
+        [
+            finite(i.activity).clamp(0.0, 1.0),
+            finite(i.since_agent_event).clamp(0.0, MAX_SINCE_MOVED),
+            finite(i.agent_events).clamp(0.0, f32::from(AGENT_EVENT_WRAP)),
+            0.0,
+        ],
+        [finite(i.grade).clamp(0.0, 1.0), 0.0, 0.0, 0.0],
     ];
+    let trail = i.trail.iter().flatten().map(|v| finite(*v));
     let mut out = [0.0; FRAME_FLOATS];
-    for (slot, v) in out.iter_mut().zip(rows.iter().flatten()) {
-        *slot = *v;
+    for (slot, v) in out.iter_mut().zip(rows.iter().flatten().copied().chain(trail)) {
+        *slot = v;
     }
     out
 }
@@ -229,151 +260,94 @@ impl PointerState {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// Events closer than this to the last counted one raise the level but are
+/// not counted: a burst of output is one event to the program, not many.
+pub const AGENT_EVENT_GAP_S: f64 = 0.4;
+/// Each counted event moves the level this share of the way to 1.
+const ACTIVITY_STEP: f32 = 0.3;
+/// An uncounted event in a burst moves it this share.
+const ACTIVITY_BURST_STEP: f32 = 0.05;
+/// The level decays at this rate (1/s).
+const ACTIVITY_DECAY: f32 = 0.35;
+/// Below this the level is 0.
+const ACTIVITY_REST: f32 = 1.0e-3;
+/// A counted event needs frames this long (its flash) even after the level rests.
+pub const AGENT_EVENT_SHOWN_S: f64 = 4.0;
 
-    const PRELUDE: &str = include_str!("prelude.wgsl");
+/// The agents' activity as a program sees it (`Frame.activity`): an eased
+/// level, the newest event's time and a count. The host calls `event` when
+/// an agent in the window writes output or changes state, and `advance` once
+/// per drawn frame. Times are the host's monotonic clock in seconds.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ActivityState {
+    /// 0 none .. 1 busy, eased.
+    pub level: f32,
+    /// Counted events so far, mod [`AGENT_EVENT_WRAP`].
+    pub count: u16,
+    /// When the newest counted event came; meaningless until `has_event`.
+    pub last_event: f64,
+    /// When `advance` last ran.
+    pub last_advance: f64,
+    pub has_event: bool,
+}
 
-    #[test]
-    fn the_layout_matches_the_prelude() {
-        // The struct's fields, in order, as the prelude declares them.
-        let body = PRELUDE.split("struct Frame {").nth(1).unwrap().split('}').next().unwrap();
-        let fields: Vec<String> = body
-            .lines()
-            .map(str::trim)
-            .filter(|l| !l.is_empty())
-            .map(|l| l.trim_end_matches(',').replace(' ', ""))
-            .collect();
-        assert_eq!(
-            fields,
-            [
-                "time:vec4<f32>",
-                "size:vec4<f32>",
-                "pointer:vec4<f32>",
-                "presence:vec4<f32>",
-                "ink:vec4<f32>",
-                "paper:vec4<f32>",
-                "accent:vec4<f32>",
-                "params:array<vec4<f32>,2>",
-            ]
-        );
-        assert_eq!(FRAME_BYTES, 144);
-    }
-
-    #[cfg(feature = "compile")]
-    #[test]
-    fn layout_by_naga_is_144_bytes() {
-        let module = naga::front::wgsl::parse_str(PRELUDE).unwrap();
-        let mut layouter = naga::proc::Layouter::default();
-        layouter.update(module.to_ctx()).unwrap();
-        let (handle, _) =
-            module.types.iter().find(|(_, t)| t.name.as_deref() == Some("Frame")).unwrap();
-        assert_eq!(layouter[handle].size, 144);
-    }
-
-    #[test]
-    fn packs_every_field_in_place() {
-        let input = FrameInput {
-            time: 1.0,
-            delta: 2.0,
-            frame_number: 3.0,
-            still: true,
-            width: 5.0,
-            height: 6.0,
-            backing_scale: 7.0,
-            seed: 0.5,
-            pointer_x: 9.0,
-            pointer_y: 10.0,
-            velocity_x: 11.0,
-            velocity_y: 12.0,
-            presence: 0.25,
-            since_moved: 14.0,
-            button_down: true,
-            dark: false,
-            ink: [0.1, 0.2, 0.3],
-            paper: [0.4, 0.5, 0.6],
-            accent: [0.7, 0.8, 0.9],
-            params: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
-        };
-        let f = pack_frame(&input);
-        assert_eq!(&f[0..4], &[1.0, 2.0, 3.0, 1.0]);
-        assert_eq!(&f[4..8], &[5.0, 6.0, 7.0, 0.5]);
-        assert_eq!(&f[8..12], &[9.0, 10.0, 11.0, 12.0]);
-        assert_eq!(&f[12..16], &[0.25, 14.0, 1.0, 0.0]);
-        assert_eq!(&f[16..20], &[0.1, 0.2, 0.3, 1.0]);
-        assert_eq!(&f[20..24], &[0.4, 0.5, 0.6, 1.0]);
-        assert_eq!(&f[24..28], &[0.7, 0.8, 0.9, 1.0]);
-        assert_eq!(&f[28..36], &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
-    }
-
-    #[test]
-    fn nan_never_reaches_the_gpu() {
-        let input = FrameInput {
-            time: f32::NAN,
-            presence: f32::INFINITY,
-            ink: [f32::NAN; 3],
-            ..Default::default()
-        };
-        assert!(pack_frame(&input).iter().all(|v| v.is_finite()));
-    }
-
-    #[test]
-    fn srgb_matches_the_standard() {
-        assert_eq!(srgb_to_linear(0.0), 0.0);
-        assert!((srgb_to_linear(1.0) - 1.0).abs() < 1e-6);
-        assert!((srgb_to_linear(0.5) - 0.214_041).abs() < 1e-4);
-    }
-
-    #[test]
-    fn velocity_follows_motion_and_decays() {
-        let mut p = PointerState::default();
-        p.moved(0.0, 0.0, 0.0);
-        assert_eq!((p.vx, p.vy), (0.0, 0.0));
-        for i in 1..=20 {
-            p.moved(f32::from(u8::try_from(i).unwrap()) * 10.0, 0.0, f64::from(i) / 60.0);
+impl ActivityState {
+    /// An agent event at time `t`.
+    pub fn event(&mut self, t: f64) {
+        if !t.is_finite() {
+            return;
         }
-        // 10 px per 1/60 s = 600 px/s.
-        assert!((p.vx - 600.0).abs() < 5.0, "{}", p.vx);
-        p.advance(20.0 / 60.0);
-        p.advance(3.0);
-        assert_eq!((p.vx, p.vy), (0.0, 0.0));
+        if self.has_event && t - self.last_event < AGENT_EVENT_GAP_S {
+            self.level += (1.0 - self.level) * ACTIVITY_BURST_STEP;
+            return;
+        }
+        if !self.has_event {
+            self.last_advance = t;
+        }
+        self.level += (1.0 - self.level) * ACTIVITY_STEP;
+        self.count = (self.count + 1) % AGENT_EVENT_WRAP;
+        self.last_event = t;
+        self.has_event = true;
     }
 
-    #[test]
-    fn a_long_gap_does_not_make_a_jump() {
-        let mut p = PointerState::default();
-        p.moved(0.0, 0.0, 0.0);
-        p.moved(500.0, 0.0, 5.0);
-        assert_eq!(p.vx, 0.0);
+    /// Steps the decay to time `t` (once per drawn frame).
+    pub fn advance(&mut self, t: f64) {
+        if !t.is_finite() {
+            return;
+        }
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "a frame interval in seconds; f32 keeps it to well under a microsecond"
+        )]
+        let dt = (t - self.last_advance).max(0.0) as f32;
+        self.last_advance = t;
+        self.level *= (-ACTIVITY_DECAY * dt).exp();
+        if self.level < ACTIVITY_REST || !self.level.is_finite() {
+            self.level = 0.0;
+        }
     }
 
-    #[test]
-    fn presence_eases_in_and_out() {
-        let mut p = PointerState::default();
-        p.advance(0.0);
-        p.moved(1.0, 1.0, 0.0);
-        p.advance(0.05);
-        assert!(p.presence > 0.0 && p.presence < 1.0);
-        assert!(!p.settled());
-        p.advance(3.0);
-        assert_eq!(p.presence, 1.0);
-        assert!(p.settled());
-        p.left();
-        p.advance(3.1);
-        assert!(p.presence < 1.0);
-        p.advance(6.0);
-        assert_eq!(p.presence, 0.0);
-        assert_eq!(p.since_moved(6.0), 6.0);
-        assert_eq!(PointerState::default().since_moved(1.0), MAX_SINCE_MOVED);
+    /// Seconds since the newest counted event, capped at [`MAX_SINCE_MOVED`]
+    /// (the cap when there has been none).
+    pub fn since_event(&self, t: f64) -> f32 {
+        if !self.has_event {
+            return MAX_SINCE_MOVED;
+        }
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "clamped to 0..MAX_SINCE_MOVED, an f32 value"
+        )]
+        let s = (t - self.last_event).clamp(0.0, f64::from(MAX_SINCE_MOVED)) as f32;
+        s
     }
 
-    #[test]
-    fn bad_times_are_ignored() {
-        let mut p = PointerState::default();
-        p.moved(f32::NAN, 0.0, 0.0);
-        p.moved(0.0, 0.0, f64::NAN);
-        p.advance(f64::INFINITY);
-        assert_eq!(p, PointerState::default());
+    /// True when the activity needs no frames of its own at time `t`: the
+    /// level rests at 0 and the newest event's flash is over.
+    pub fn settled(&self, t: f64) -> bool {
+        self.level == 0.0 && f64::from(self.since_event(t)) >= AGENT_EVENT_SHOWN_S
     }
 }
+
+#[cfg(test)]
+#[path = "frame_tests.rs"]
+mod tests;

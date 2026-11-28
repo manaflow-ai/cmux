@@ -30,4 +30,9 @@ codegen-units = 1
 panic = "abort"
 strip = true
 
+# Proc-macro dylibs stay unstripped: Xcode 27's strip breaks them on a Mac build (rustc E0463);
+# see cmux-tui/crates/cmux-app-ffi/Cargo.toml.
+[profile.release.build-override]
+strip = false
+
 [workspace]

@@ -32,6 +32,8 @@ meaningful"):
   rapid-open-5       five new tabs as fast as the socket takes them (animations retarget mid-flight)
   rapid-close-3      three of them closed as fast
   open-while-close   a close, then a new tab while the close still animates
+  browser-split      splitBrowserRight from the terminal (ask-08552f8ea0, #56574): blank frames in the new pane's half of the
+                     content (the right 40%) fail; the layout's own motion, the first page time and the shift are reported
 Loads (--loads; parse_load, LOAD_PRESETS): idle and cpu and agents as before, and the instant-at-any-load modes:
   L0 idle; L1 the focused chat streams 60 chunks/s and a 2,000 lines/s tool output; L2 10 other chats streaming at
   30 chunks/s (3 as tabs of a pane split beside the measured one, the rest in background workspaces); L3 the focused
@@ -916,6 +918,24 @@ class Harness:
             close["error"] = f"the pane has {len(tabs)} tabs after the close, want {len(tabs0)}"
         return new, close
 
+    def browser_split_round(self, load, r):
+        """browser-split: Split Browser Right of the measured pane, judged on its new half; the new pane closes after."""
+        label = f"browser-split/{load} round {r}"
+        self.select("terminal")
+        self.wait_selected("terminal")
+        time.sleep(self.args.settle)  # sleep-ok: --settle, the recorded span before the leave flip (its last AMBIENT_S are the ambient baseline)
+        before = set(self.all_panes())
+        self.flip3(label)
+        reply = self.c.action("splitBrowserRight", target=f"pane:{self.pane_id}")
+        time.sleep(self.args.record + 0.3)  # sleep-ok: --record, the recording window after the action
+        self.rec.flip(f"{label}:end")
+        made = [p for p in self.all_panes() if p not in before]
+        error = f"splitBrowserRight: {reply['error']}" if reply.get("error") else (None if made else "no new pane after splitBrowserRight")
+        for pane in made:
+            self.c.action("closePane", target=f"pane:{pane}")
+        wait_until(lambda: not [p for p in made if p in self.all_panes()], "the new pane closed", timeout=15, raise_on_timeout=False)
+        return [("browser-split", {"label": label, "kind": "settled", "region": "right", "error": error})]
+
     def workspace_round(self, load, r):
         """new-workspace, switch-workspace (back, then to it again) and close-workspace; the items to judge, by name."""
         out = []
@@ -1014,14 +1034,15 @@ class Harness:
         return out
 
     def foreign_over(self, label):
-        """The foreign windows that were over the content or sidebar rect at any time from the ambient span before the
-        round's leave flip to just after its end flip ([] when no watch runs or the round has no wall times)."""
+        """Every foreign window seen over the round, from the ambient span before its leave flip to just after its end
+        flip, each with its verdict ("above", "overlay", "visible", "intersects", "covers"; [] when no watch runs or the
+        round has no wall times). The round is excluded when any of them "covers" the content or sidebar rect."""
         walls = getattr(self.rec, "walls", None) or {}
         if getattr(self, "watch", None) is None or f"{label}:leave" not in walls or f"{label}:end" not in walls:
             return []
         t0 = walls[f"{label}:leave"] - settle.AMBIENT_S - 0.05
         t1 = walls[f"{label}:end"] + 0.2
-        return self.watch.log.between(t0, t1, [self.content, self.sidebar])
+        return self.watch.log.seen(t0, t1, [self.content, self.sidebar])
 
     def settle_block(self, pending, frames, flips):
         """Each pending switch of a block, judged on the block's frames: the window from its leave flip to its end flip,
@@ -1035,15 +1056,17 @@ class Harness:
                 judged.append((item, {"error": item["error"]}))
                 continue
             leave, mark, end = (flips[f"{label}:{k}"] for k in ("leave", "mark", "end"))
-            covered = self.foreign_over(label)
+            seen = self.foreign_over(label)
+            covered = [w for w in seen if w.get("covers")]
             if covered and item.get("foreign_ok"):
                 # A relaunch leaves the desktop in view by design between the quit and the new window.
                 item["behind"] = "+".join(foreign.owners(covered))
                 covered = []
             if covered:
-                # Another process's window was over the content or sidebar: these pixels measure it, not the app.
+                # Another process's window was over the content or sidebar: these pixels measure it, not the app. The
+                # record keeps every window seen in the round with its verdict, so an exclusion can be read later.
                 judged.append((item, {"label": label, "foreign_window": "+".join(foreign.owners(covered)),
-                                      "windows": covered}))
+                                      "windows": seen}))
                 say(f"  {label}: excluded, a window of {'+'.join(foreign.owners(covered))} covers the app")
                 continue
             window = self.between(frames, leave, end)
@@ -1058,7 +1081,13 @@ class Harness:
                 reference = self.at(frames, flips[item["ref_flip"]]) if item.get("ref_flip") in flips else None
             else:
                 reference = self.refs.get(item.get("neighbor"))
-            switch = self.judge(window, mark, reference=reference, strip=strip)
+            if item.get("region") == "right":
+                x0, y0, x1, y1 = self.content
+                switch = judge.judge_switch(window, mark, self.rec.w, (x0 + int((x1 - x0) * 0.6), y0, x1, y1), self.rec.frame_ms,
+                                            reference=reference, strip=None, px_per_point=self.rec.scale, tolerance=self.args.tolerance)
+                switch["gate"] = "blank-only"
+            else:
+                switch = self.judge(window, mark, reference=reference, strip=strip)
             if kind == "close":
                 switch["neighbor"] = item.get("neighbor")
             if item.get("strip") == "sidebar" and getattr(self, "sidebar", None):
@@ -1138,6 +1167,8 @@ class Harness:
                         pending.append(("new-tab", new))
                         if close is not None:
                             pending.append(("close-tab", close))
+                    if "browser-split" in scenarios:
+                        pending += self.browser_split_round(load, r)
                     if any(s in scenarios for s in ("new-workspace", "switch-workspace", "close-workspace")):
                         pending += self.workspace_round(load, r)
                     if any(s in scenarios for s in ("rapid-open-5", "rapid-close-3", "open-while-close")):
@@ -1324,7 +1355,8 @@ def main(argv=None):
                             "permissions": recorder.permissions, "recorder": "CuaDriver"}
         say(f"capture {json.dumps(extra['capture'])}")
         harness = Harness(args, app, recorder, root)
-        watch = foreign.Watch(args.tools, {app.process.pid, recorder.marker.process.pid}, recorder.window, recorder.scale)
+        watch = foreign.Watch(args.tools, {app.process.pid, recorder.marker.process.pid}, recorder.window, recorder.scale,
+                              display=recorder.display)
         if not watch.ready():
             raise Unmeasurable("the window list (tab-switch-tools windows) gave no sample: foreign windows cannot be ruled out")
         harness.watch = watch

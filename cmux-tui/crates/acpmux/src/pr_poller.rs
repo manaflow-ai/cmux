@@ -28,6 +28,10 @@
 //! `gh pr view --json` gives, so `pr_state`'s parse (`acpmux_mcp_pr.rs`) reads either.
 //! `gh` runs with this daemon's own login, every GitHub token removed from its env
 //! (`github_broker::login_env`); a chat whose own `gh` sees more falls back to it in the tool.
+//!
+//! **Any repository read, too** (`get`, `_acpmux/github/read`, `acpmux gh-read`): one GET of a
+//! `repos/OWNER/REPO/...` path (a run, its jobs, an issue, a file's contents) gets the same
+//! entry, lock, ETag, budget and stale-while-spent answer a pull request gets, keyed by its path.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -44,6 +48,10 @@ pub const FRESH: Duration = Duration::from_secs(15);
 pub const MAX_WAIT: Duration = Duration::from_secs(3600);
 /// The most pull requests kept at once; past it the least recently read idle one goes.
 pub const MAX_ENTRIES: usize = 256;
+/// The longest a [`Poller::get`] caller may let its kept answer be; more is held to this.
+pub const READ_MAX_FRESH: Duration = Duration::from_secs(3600);
+/// The longest path a [`Poller::get`] takes.
+const READ_PATH_MAX: usize = 1024;
 /// Pages of check runs read (100 a page).
 const CHECK_PAGES: u32 = 3;
 /// The `gh pr view` fields, as `pr_state` reads them.
@@ -202,6 +210,8 @@ pub struct Poller<F> {
     fetch: F,
     cfg: Config,
     entries: Mutex<HashMap<Key, Slot>>,
+    /// [`Poller::get`]'s entries, keyed by path; the body is kept in `Entry::pr`.
+    reads: Mutex<HashMap<String, Slot>>,
     budget: Mutex<Budget>,
     counters: Mutex<Counters>,
 }
@@ -231,6 +241,7 @@ impl<F: Fetch> Poller<F> {
             fetch,
             cfg,
             entries: Mutex::new(HashMap::new()),
+            reads: Mutex::new(HashMap::new()),
             budget: Mutex::new(budget),
             counters: Mutex::new(Counters::default()),
         }
@@ -251,6 +262,7 @@ impl<F: Fetch> Poller<F> {
             "refillPerHour": self.cfg.refill_per_hour,
             "heldForSecs": held.filter(|s| *s > 0),
             "watched": lock(&self.entries).len(),
+            "readsKept": lock(&self.reads).len(),
         })
     }
 
@@ -314,25 +326,7 @@ impl<F: Fetch> Poller<F> {
     }
 
     fn entry(&self, key: &Key) -> Arc<tokio::sync::Mutex<Entry>> {
-        let mut entries = lock(&self.entries);
-        let now = Instant::now();
-        if let Some(slot) = entries.get_mut(key) {
-            slot.used = now;
-            return slot.entry.clone();
-        }
-        if entries.len() >= MAX_ENTRIES {
-            let idle = entries
-                .iter()
-                .filter(|(_, s)| Arc::strong_count(&s.entry) == 1)
-                .min_by_key(|(_, s)| s.used)
-                .map(|(k, _)| k.clone());
-            if let Some(k) = idle {
-                entries.remove(&k);
-            }
-        }
-        let entry = Arc::new(tokio::sync::Mutex::new(Entry::default()));
-        entries.insert(key.clone(), Slot { entry: entry.clone(), used: now });
-        entry
+        slot_in(&self.entries, key)
     }
 
     /// The pull request's state, no older than `fresh` when the budget allows.
@@ -383,6 +377,74 @@ impl<F: Fetch> Poller<F> {
                     note: Some(why),
                 }),
                 _ => Err(Refusal { message: why, retry_after: None }),
+            },
+        }
+    }
+
+    /// One GET of a `repos/OWNER/REPO/...` path (`read_path` says which it takes), no older than
+    /// `fresh` (at most [`READ_MAX_FRESH`]) when the budget allows: the kept body when it is
+    /// young enough, a conditional read otherwise (a 304 is not charged), the kept body marked
+    /// stale when the budget is spent or GitHub failed. A 4xx is GitHub's answer, not a failure
+    /// to read: the kept body goes and the caller gets the refusal, with no retry time.
+    pub async fn get(&self, path: &str, fresh: Duration) -> Result<Answer, Refusal> {
+        let path = read_path(path).map_err(|message| Refusal { message, retry_after: None })?;
+        let fresh = fresh.min(READ_MAX_FRESH);
+        let entry = slot_in(&self.reads, &path);
+        let mut e = entry.lock().await;
+        if let (Some(body), Some(at)) = (&e.pr, e.at)
+            && at.elapsed() < fresh
+        {
+            lock(&self.counters).cache_hits += 1;
+            return Ok(Answer {
+                pr: body.clone(),
+                source: Source::Cache,
+                age: at.elapsed(),
+                note: None,
+            });
+        }
+        if let Err(after) = self.admit() {
+            let note = format!(
+                "this machine's GitHub budget is spent; the next read in {}s",
+                after.as_secs()
+            );
+            return match (&e.pr, e.at) {
+                (Some(body), Some(at)) => {
+                    lock(&self.counters).cache_hits += 1;
+                    Ok(Answer {
+                        pr: body.clone(),
+                        source: Source::Stale,
+                        age: at.elapsed(),
+                        note: Some(note),
+                    })
+                }
+                _ => Err(Refusal { message: note, retry_after: Some(after) }),
+            };
+        }
+        lock(&self.counters).refreshes += 1;
+        let mut used = Vec::new();
+        match self.read(&mut e, &mut used, path.clone()).await {
+            Ok((body, _)) => {
+                e.pr = Some(body.clone());
+                e.at = Some(Instant::now());
+                Ok(Answer { pr: body, source: Source::Fetched, age: Duration::ZERO, note: None })
+            }
+            Err(ReadError::Http(status)) if (400..500).contains(&status) && status != 429 => {
+                e.pr = None;
+                e.at = None;
+                e.pages.clear();
+                Err(Refusal {
+                    message: format!("GitHub answered HTTP {status} for {path}"),
+                    retry_after: None,
+                })
+            }
+            Err(why) => match (&e.pr, e.at) {
+                (Some(body), Some(at)) => Ok(Answer {
+                    pr: body.clone(),
+                    source: Source::Stale,
+                    age: at.elapsed(),
+                    note: Some(why.text()),
+                }),
+                _ => Err(Refusal { message: why.text(), retry_after: None }),
             },
         }
     }
@@ -497,6 +559,9 @@ impl<F: Fetch> Poller<F> {
                         "name": r.get("name").cloned().unwrap_or(Value::Null),
                         "status": up("status"),
                         "conclusion": up("conclusion"),
+                        // What `pr_state` orders runs of one name by (`newest_runs`).
+                        "databaseId": r.get("id").cloned().unwrap_or(Value::Null),
+                        "startedAt": r.get("started_at").cloned().unwrap_or(Value::Null),
                     }));
                 }
                 if page >= last.unwrap_or(1).min(CHECK_PAGES) {
@@ -518,6 +583,9 @@ impl<F: Fetch> Poller<F> {
         // The first page names the last; the newest comments (the receipts) are on it.
         let first = format!("repos/{repo}/issues/{n}/comments?per_page=100");
         let (mut raw, last) = self.read(e, used, first.clone()).await?;
+        // With no Link header (the broker's answers), the pull's own comment count says it.
+        let counted = pull.get("comments").and_then(Value::as_u64).map(|c| c.div_ceil(100));
+        let last = last.or_else(|| counted.and_then(|c| u32::try_from(c).ok()));
         if let Some(last) = last.filter(|l| *l > 1) {
             let (tail, _) = self.read(e, used, format!("{first}&page={last}")).await?;
             raw = tail;
@@ -535,6 +603,74 @@ impl<F: Fetch> Poller<F> {
             .collect();
         Ok(view_shape(&pull, rollup, comments))
     }
+}
+
+/// `map`'s entry for `key`, made when there is none; past [`MAX_ENTRIES`] the least recently
+/// read idle one goes.
+fn slot_in<K: Clone + Eq + std::hash::Hash>(
+    map: &Mutex<HashMap<K, Slot>>,
+    key: &K,
+) -> Arc<tokio::sync::Mutex<Entry>> {
+    let mut entries = lock(map);
+    let now = Instant::now();
+    if let Some(slot) = entries.get_mut(key) {
+        slot.used = now;
+        return slot.entry.clone();
+    }
+    if entries.len() >= MAX_ENTRIES {
+        let idle = entries
+            .iter()
+            .filter(|(_, s)| Arc::strong_count(&s.entry) == 1)
+            .min_by_key(|(_, s)| s.used)
+            .map(|(k, _)| k.clone());
+        if let Some(k) = idle {
+            entries.remove(&k);
+        }
+    }
+    let entry = Arc::new(tokio::sync::Mutex::new(Entry::default()));
+    entries.insert(key.clone(), Slot { entry: entry.clone(), used: now });
+    entry
+}
+
+/// The path a [`Poller::get`] reads: `repos/OWNER/REPO/REST[?QUERY]`, a leading `/` or
+/// `https://api.github.com/` dropped, OWNER and REPO lowercased (the cache key: GitHub matches
+/// them either way). Only repository paths: the broker a lane VM reads through takes no other,
+/// and a path that is not a read of one repository (`search/`, `graphql`, `user`) is not one
+/// this cache can share.
+pub fn read_path(path: &str) -> Result<String, String> {
+    let path = path.trim();
+    let path = path.strip_prefix("https://api.github.com/").unwrap_or(path);
+    let path = path.trim_start_matches('/');
+    let refuse = |why: &str| Err(format!("{why}: give a repos/OWNER/REPO/... path, not {path:?}"));
+    if path.is_empty() || path.len() > READ_PATH_MAX {
+        return refuse("the path is empty or too long");
+    }
+    if path.bytes().any(|b| b.is_ascii_whitespace() || b.is_ascii_control() || b == b'#') {
+        return refuse("the path has a space, a control character or a #");
+    }
+    let (route, query) = path.split_once('?').map_or((path, None), |(r, q)| (r, Some(q)));
+    let mut parts = route.splitn(4, '/');
+    let (Some("repos"), Some(owner), Some(repo), Some(rest)) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        return refuse("not a repository read");
+    };
+    let name = |p: &str| {
+        !p.is_empty()
+            && p != "."
+            && p != ".."
+            && p.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
+    };
+    if !name(owner) || !name(repo) || rest.is_empty() || rest.split('/').any(|s| s == "..") {
+        return refuse("not a repository read");
+    }
+    let mut out =
+        format!("repos/{}/{}/{rest}", owner.to_ascii_lowercase(), repo.to_ascii_lowercase());
+    if let Some(q) = query.filter(|q| !q.is_empty()) {
+        out.push('?');
+        out.push_str(q);
+    }
+    Ok(out)
 }
 
 /// A REST pull request, its rollup and comments, in `gh pr view --json VIEW_FIELDS` shape.
@@ -632,8 +768,101 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack.windows(needle.len()).position(|w| w == needle)
 }
 
-/// The real fetcher: this machine's `gh`, with the daemon's own login.
-pub struct GhFetch;
+/// The real fetcher: this machine's `gh`, with the daemon's own login. A lane VM's `gh` has no
+/// login: its GitHub reads go through the broker on the controller (`lane-gh call get`), so once
+/// `gh` says it has none, every read goes there. Before, `pr_state` failed every call on a lane VM
+/// ("gh auth login"; 76 of 76 in 48 h, cmuxterm-hq
+/// docs/findings/2026-11-23-mcp-tool-error-census.md).
+pub struct GhFetch {
+    /// `lane-gh`, once `gh` said it has no login here.
+    broker: std::sync::OnceLock<std::path::PathBuf>,
+}
+
+impl GhFetch {
+    pub const fn new() -> Self {
+        Self { broker: std::sync::OnceLock::new() }
+    }
+
+    /// `path` through the broker when `gh` has no login here (`said`) and `lane-gh` is found;
+    /// else `said`.
+    async fn or_broker(&self, path: &str, said: String) -> Result<Reply, String> {
+        if !no_login(&said) {
+            return Err(said);
+        }
+        let Ok(program) = crate::cli::send_relay::find_relay_program(BROKER) else {
+            return Err(said);
+        };
+        let program = self.broker.get_or_init(|| program);
+        broker_get(program, path).await.map_err(|e| format!("{said}; through the broker: {e}"))
+    }
+}
+
+impl Default for GhFetch {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// The lane VM broker's client, in `~/.local/bin` (`cli/send_relay.rs` finds it off PATH).
+const BROKER: &str = "lane-gh";
+
+/// `gh`'s answer when it has no login here (or is not here at all), or when this machine's `gh` is
+/// the lane VM broker's own client, which refuses the conditional `--include -H If-None-Match`
+/// form ("gh api takes one path here") before sending anything. Before, `acpmux gh-read` failed
+/// every read on a lane VM with that refusal (2026-11-28).
+fn no_login(said: &str) -> bool {
+    said.contains("gh auth login")
+        || said.contains("gh is not installed")
+        || said.contains("publishes through the broker")
+}
+
+/// `repos/OWNER/REPO/REST?QUERY` as the broker's `OWNER/REPO`, `REST` and query map.
+fn broker_path(path: &str) -> Option<(String, String, std::collections::BTreeMap<String, String>)> {
+    let (path, query) = path.split_once('?').unwrap_or((path, ""));
+    let mut parts = path.strip_prefix("repos/")?.splitn(3, '/');
+    let (owner, repo, rest) = (parts.next()?, parts.next()?, parts.next()?);
+    let query = query
+        .split('&')
+        .filter_map(|kv| kv.split_once('='))
+        .map(|(k, v)| (k.to_owned(), v.to_owned()))
+        .collect();
+    Some((format!("{owner}/{repo}"), rest.to_owned(), query))
+}
+
+/// One GET through the broker: `program call get OWNER/REPO {"path","query"}`, whose answer is
+/// `{"status", "data"}` (no headers: a list's last page is read from its `total_count`).
+async fn broker_get(program: &std::path::Path, path: &str) -> Result<Reply, String> {
+    let (repo, rest, query) =
+        broker_path(path).ok_or_else(|| format!("{path} is not a repos/OWNER/REPO/ path"))?;
+    let ask = json!({"path": rest, "query": query}).to_string();
+    let mut cmd = tokio::process::Command::new(program);
+    cmd.args(["call", "get", &repo, &ask])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    let out = match tokio::time::timeout(GH_TIMEOUT, cmd.output()).await {
+        Err(_) => return Err(format!("{BROKER} did not answer in {}s", GH_TIMEOUT.as_secs())),
+        Ok(Err(e)) => return Err(format!("{BROKER} could not run: {e}")),
+        Ok(Ok(out)) => out,
+    };
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let answer: Value = serde_json::from_slice(&out.stdout)
+        .map_err(|_| format!("{BROKER} call get gave no JSON: {}", stderr.trim()))?;
+    let status = answer.get("status").and_then(Value::as_u64).and_then(|s| u16::try_from(s).ok());
+    let Some(status) = status else {
+        let why = answer.get("error").and_then(Value::as_str).unwrap_or(stderr.trim());
+        return Err(format!("{BROKER} call get: {why}"));
+    };
+    let data = answer.get("data").cloned().unwrap_or(Value::Null);
+    let per_page = query.get("per_page").and_then(|p| p.parse::<u64>().ok()).unwrap_or(30).max(1);
+    let last_page = data
+        .get("total_count")
+        .and_then(Value::as_u64)
+        .map(|total| u32::try_from(total.div_ceil(per_page).max(1)).unwrap_or(u32::MAX));
+    let body = serde_json::to_vec(&data).map_err(|e| e.to_string())?;
+    Ok(Reply { status, body, last_page, ..Reply::default() })
+}
 
 /// How long one `gh` may run.
 const GH_TIMEOUT: Duration = Duration::from_secs(30);
@@ -672,14 +901,25 @@ impl Fetch for GhFetch {
                 ["api", "--include", "-H", "Accept: application/vnd.github+json"]
                     .map(str::to_owned)
                     .into();
+            if let Some(broker) = self.broker.get() {
+                return broker_get(broker, path).await;
+            }
             if let Some(etag) = etag {
                 args.extend(["-H".to_owned(), format!("If-None-Match: {etag}")]);
             }
             args.push(path.to_owned());
             // `gh api` exits 1 on a 304 and on HTTP errors: the status line says which.
-            let (_, stdout, stderr) = run_gh(args).await?;
-            parse_include(&stdout)
-                .ok_or_else(|| format!("gh api gave no HTTP answer: {}", stderr.trim()))
+            let (_, stdout, stderr) = match run_gh(args).await {
+                Ok(ran) => ran,
+                Err(e) => return self.or_broker(path, e).await,
+            };
+            match parse_include(&stdout) {
+                Some(reply) => Ok(reply),
+                None => {
+                    let said = format!("gh api gave no HTTP answer: {}", stderr.trim());
+                    self.or_broker(path, said).await
+                }
+            }
         })
     }
 
@@ -700,7 +940,7 @@ impl Fetch for GhFetch {
 /// This daemon's poller: one per machine.
 pub fn machine() -> &'static Poller<GhFetch> {
     static POLLER: std::sync::LazyLock<Poller<GhFetch>> =
-        std::sync::LazyLock::new(|| Poller::new(GhFetch, Config::default()));
+        std::sync::LazyLock::new(|| Poller::new(GhFetch::new(), Config::default()));
     &POLLER
 }
 

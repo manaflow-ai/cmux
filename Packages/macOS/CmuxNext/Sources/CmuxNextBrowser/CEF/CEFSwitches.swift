@@ -21,7 +21,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// the built-in uBlock Origin loads or the person has their own unpacked
     /// copy of it (`CEFBuiltInExtensions.Plan`).
     var keepsUnpackedEnabled = false
-    /// Extra Chromium switches for diagnosis (development bundles only), for
+    /// Extra Chromium switches for development and measurement bundles, for
     /// example `show-browser-frame-regions` or `enable-ui-devtools=9223`.
     var extraSwitches: [String] = []
     /// Chromium's AsyncLiveResize (below fork API 27): off only for the Debug Settings "Synced live"
@@ -38,6 +38,17 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// The staged-update Chromium pre-warm keeps Chromium's code-sign clone enabled so Sparkle can replace the
     /// running bundle without leaving its helpers on the old executable. Ordinary app launches leave it off.
     var keepsCodeSignClone = false
+    /// Every page builds its accessibility tree from launch (`force-renderer-accessibility`): the run
+    /// was launched with `CMUX_NEXT_ACCESSIBILITY=1` (`AssistiveClientRequests.forced`). The per-page
+    /// `SetAccessibilityState` that call turns on (`CEFAccessibility`) left the agent chat's page an
+    /// empty AXWindow on the production GUI probe (cmux24, NIGHTLY 956d6e6, run 45921924964: chat window
+    /// 0 elements, its native twin 280); Chromium's process-wide switch sets every WebContents' mode
+    /// at startup, page by page or not. Off otherwise: the person's VoiceOver still turns pages on
+    /// through `CEFAccessibility`, and a run without a client builds no tree.
+    var forcesRendererAccessibility = false
+
+    /// Chromium's switch for page accessibility on from launch, in every renderer.
+    static let forceRendererAccessibility = "force-renderer-accessibility"
 
     /// The longest one Chromium pump pass runs before it returns to the main run loop: a quarter
     /// of a 120 Hz frame, so the app's own frame work and the display link fit beside a pass.
@@ -67,6 +78,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// against 154 and 478 MB without it (chat-pages-memory, 3 runs a side). Leo, 2026-11-12: a god chat shows
     /// "no perceivable difference" from a small one (within 1.2x).
     static let youngGeneration = "js-flags=--min-semi-space-size=32"
+    /// The PartitionAlloc memory reclaimer's period (Chromium's default is 4 s).
+    static let memoryReclaimerInterval = "enable-features=PartitionAllocMemoryReclaimer:interval/30s"
 
     var arguments: [String] {
         var result: [String] = []
@@ -101,6 +114,11 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // to UMA, which cmux does not upload; in some idle sessions it raised the
         // app's energy with 20 hidden tabs from about 0.24 to 4 mW (msg 2654).
         result.append("disable-stack-profiler")
+        // The PartitionAlloc memory reclaimer woke the app's main thread every 4 s at idle (its UI
+        // thread; each delayed task there is a pump wake), here and in each renderer; an idle app
+        // frees almost nothing for it to return between passes. (Chromium 154's disk-space poll,
+        // every 5 s, has no feature gate: no switch turns it off.)
+        result.append(Self.memoryReclaimerInterval)
         result.append(Self.youngGeneration)
         // A page draws when it has a frame, not when the display asks (`CEFFramePacing`): off by
         // default, since it also lets an animating page draw frames the display never shows.
@@ -186,6 +204,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         if let initialProfileDirectory, !initialProfileDirectory.isEmpty {
             result.append("profile-directory=" + initialProfileDirectory)
         }
+        if forcesRendererAccessibility { result.append(Self.forceRendererAccessibility) }
         result.append(contentsOf: extraSwitches)
         return result
     }
@@ -259,6 +278,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         rendererPaths: Bool = false,
         bundleIdentifier: String?,
         environment: [String: String],
+        processArguments: [String] = CommandLine.arguments,
         builtInExtensions: [String] = [],
         keepsUnpackedEnabled: Bool = false,
         asyncLiveResize: Bool = true,
@@ -277,11 +297,21 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             .split(separator: ":")
             .map(String.init)
             .filter { !$0.isEmpty }
-        #if DEBUG
-        let extra = dev ? Self.extraSwitches(environment["CMUX_NEXT_CEF_EXTRA_SWITCHES"]) : []
+        // Bench builds too (Release optimization, CMUX_BENCH_HOOKS): a typing or idle bench turns Chromium's component
+        // updater off with it (a fresh home's updater is half the idle CPU of its first minutes, scripts/cmux-next/
+        // idle_cpu.py BENCH_CEF_SWITCHES). A shipped build has neither flag and reads none.
+        #if DEBUG || CMUX_BENCH_HOOKS
+        var extra = dev ? Self.extraSwitches(environment["CMUX_NEXT_CEF_EXTRA_SWITCHES"]) : []
         #else
-        let extra: [String] = []
+        var extra: [String] = []
         #endif
+        // meet-browser.sh runs the published app in a disposable side bundle. CEF initializes
+        // with empty argv, so translate the harness request into its two browser-process switches.
+        if bundle.split(separator: ".").last?.hasPrefix("side-meetbrowser-") == true,
+           environment["CMUX_MOCK_KEYCHAIN"] == "1",
+           processArguments.contains("--cmux-measure-fake-media") {
+            extra += ["use-fake-device-for-media-stream", "use-fake-ui-for-media-stream"]
+        }
         return CEFSwitches(
             forkAPIVersion: forkAPIVersion,
             rendererPaths: rendererPaths,
@@ -293,7 +323,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             asyncLiveResize: asyncLiveResize,
             noFrameRateLimit: CEFFramePacing.noFrameRateLimit.settledValue,
             initialProfileDirectory: initialProfileDirectory,
-            keepsCodeSignClone: keepsCodeSignClone
+            keepsCodeSignClone: keepsCodeSignClone,
+            forcesRendererAccessibility: AssistiveClientRequests(environment: environment).forced
         )
     }
 

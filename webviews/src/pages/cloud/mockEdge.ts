@@ -218,7 +218,7 @@ export class MockEdge {
           forwards: this.forwards.filter((forward) => p.machine === undefined || forward.machine === p.machine),
         };
       case CloudOps.portForward: {
-        only(p, ["machine", "port"]);
+        only(p, ["machine", "port", "scheme"]);
         const machine = machineOf(p);
         const port = Number(p.port);
         const open = this.forwards.find((f) => f.machine === machine && f.port === port && f.state === "up");
@@ -228,6 +228,8 @@ export class MockEdge {
           port,
           host: "127.0.0.1",
           localPort: this.nextPort++,
+          scheme: p.scheme === "https" ? "https" : "http",
+          url: `${p.scheme === "https" ? "https" : "http"}://127.0.0.1:${this.nextPort - 1}/`,
           generation: 1,
           state: "up",
           reason: null,

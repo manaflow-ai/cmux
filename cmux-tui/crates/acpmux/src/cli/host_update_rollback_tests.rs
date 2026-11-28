@@ -33,6 +33,53 @@ fn a_daemon_that_does_not_answer_with_the_pushed_build_is_rolled_back() {
     }
 }
 
+/// The forced-bad build of the update RFD's health check: a daemon that answers, on the pushed
+/// build, but shares no wire ABI with the build it replaced (`abiRange` past ours, so the old
+/// app and peers could no longer talk to it) is rolled back like one that never answered, and
+/// the previous binary serves again. One whose range overlaps, N+1 still serving N, is kept.
+#[test]
+#[cfg(unix)]
+fn a_daemon_that_drops_the_replaced_builds_abi_is_rolled_back() {
+    let past = crate::protocol::ABI + 1;
+    let peer = FakePeer::new("abi-gap");
+    peer.offer(NEW, Some(NEW));
+    peer.write(
+        &format!("abi-{}", NEW.split(' ').next().unwrap()),
+        &format!(",\n  \"abiRange\": {{\"min\": {past}, \"max\": {past}}}"),
+    );
+    let up = peer.update(true);
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::RolledBack, Some("abiIncompatible")),
+        "{up:?}"
+    );
+    assert!(up.error.as_deref().unwrap_or_default().contains("no revision in common"), "{up:?}");
+    assert_eq!(up.build.as_deref(), Some(OLD), "the previous build answers again");
+    assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(OLD, Some(OLD)));
+    assert_eq!(peer.daemon(), OLD);
+
+    let peer = FakePeer::new("abi-next");
+    peer.offer(NEW, Some(NEW));
+    peer.write(
+        &format!("abi-{}", NEW.split(' ').next().unwrap()),
+        &format!(",\n  \"abiRange\": {{\"min\": {}, \"max\": {past}}}", crate::protocol::ABI),
+    );
+    let up = peer.update(true);
+    assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
+    assert_eq!(peer.daemon(), NEW);
+}
+
+#[test]
+fn abi_gap_judges_only_a_status_that_names_a_range() {
+    assert_eq!(abi_gap(r#"{"pid": 1, "build": "x"}"#), None, "a daemon from before the field");
+    let ours = crate::protocol::ABI;
+    assert_eq!(abi_gap(&format!(r#"{{"pid": 1, "abiRange": {{"min": 0, "max": {ours}}}}}"#)), None);
+    assert!(
+        abi_gap(&format!(r#"{{"pid": 1, "abiRange": {{"min": {0}, "max": {0}}}}}"#, ours + 5))
+            .is_some()
+    );
+}
+
 /// huge-blue, 2026-11-06: the restart ran, then ssh's link to the host
 /// timed out ("Connection to UNKNOWN port 65535 timed out", ssh's words for
 /// a ProxyJump peer) and the update rolled back a daemon that served the new
@@ -865,6 +912,9 @@ fn a_held_peer_is_left_alone_without_reaching_it() {
     let path = dir.join("update-holds.json");
     let holds = r#"{"holds": {"mini-a": {"reason": "reserved for a teammate", "until": "2026-10-28T23:59:59Z"}}}"#;
     std::fs::write(&path, holds).unwrap();
+    // Private state whatever the umask (a umask of 0002 makes it group-writable, which is refused).
+    #[cfg(unix)]
+    std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o600)).unwrap();
     let opts = UpdateOptions {
         binary_dir: None,
         if_idle: false,
@@ -1176,4 +1226,61 @@ fn a_mac_whose_acpmux_the_cmux_app_runs_is_left_as_it_was() {
         assert!(peer.exists("loaded"), "{shape}: launchd was not touched");
         peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), OLD);
     }
+}
+
+/// A Mac whose `com.acpmux.daemon` runs the cmux app's acpmux (the app took the join's daemon
+/// over, `daemon_service.rs` `launchd_program`): the daemon updates with the app. A restart would
+/// start the app's build again, fail "runs build X, not the pushed Y" and roll back. Now the
+/// update installs ~/.local/bin/acpmux (the job's fallback), leaves the daemon running and says
+/// so, as `current`. With the app's binary gone, the job runs the fallback and updates as before.
+#[test]
+#[cfg(unix)]
+fn a_mac_whose_launch_agent_runs_the_apps_acpmux_is_reported_not_restarted() {
+    let app = "Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux";
+    let peer = FakePeer::new("app-held");
+    peer.under_launchd();
+    peer.exe(app, &fake_acpmux(OLD, Some(OLD)));
+    let plist = crate::cli::daemon_service::plist_for(&peer.home, &peer.home.join(app));
+    peer.write("Library/LaunchAgents/com.acpmux.daemon.plist", &plist);
+    peer.exe(&format!("binaries/acpmux-{MAC_TARGET}"), &fake_acpmux(NEW, Some(NEW)));
+    peer.take_calls();
+    let up = peer.update_with(false, false);
+    assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::Current, Some("appHeld")), "{up:?}");
+    assert!(!up.outcome.failed());
+    let line = up.line();
+    assert_eq!(
+        line,
+        format!(
+            "this Mac's daemon runs the cmux app's acpmux {}; it updates with the app",
+            peer.home.join(app).display()
+        )
+    );
+    // The fallback binary is the pushed one; the app's binary and its daemon are untouched.
+    assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(NEW, Some(NEW)));
+    assert_eq!(peer.read(app), fake_acpmux(OLD, Some(OLD)));
+    assert_eq!(peer.read("daemon").trim(), OLD);
+    assert!(peer.take_launchd_calls().is_empty(), "launchd was not asked to restart anything");
+    assert_eq!(up.to_json("p", "fake")["ok"], true);
+
+    // The job was booted out (plist and app still there, no daemon answers): not reported as a
+    // kept daemon; the update goes on to the restart and says what it found.
+    let down = FakePeer::new("app-held-down");
+    down.under_launchd();
+    down.exe(app, &fake_acpmux(OLD, Some(OLD)));
+    let plist = crate::cli::daemon_service::plist_for(&down.home, &down.home.join(app));
+    down.write("Library/LaunchAgents/com.acpmux.daemon.plist", &plist);
+    let _ = std::fs::remove_file(down.home.join("daemon"));
+    let _ = std::fs::remove_file(down.home.join("loaded"));
+    down.exe(&format!("binaries/acpmux-{MAC_TARGET}"), &fake_acpmux(NEW, Some(NEW)));
+    let up = down.update_with(false, false);
+    assert_ne!(up.reason.as_deref(), Some("appHeld"), "{up:?}");
+
+    // The app is gone: the job runs ~/.local/bin/acpmux, so the update restarts it as any.
+    let gone = FakePeer::new("app-gone");
+    gone.under_launchd();
+    let plist = crate::cli::daemon_service::plist_for(&gone.home, &gone.home.join(app));
+    gone.write("Library/LaunchAgents/com.acpmux.daemon.plist", &plist);
+    gone.exe(&format!("binaries/acpmux-{MAC_TARGET}"), &fake_acpmux(NEW, Some(NEW)));
+    let up = gone.update_with(false, false);
+    assert_ne!(up.reason.as_deref(), Some("appHeld"), "{up:?}");
 }

@@ -61,6 +61,10 @@ final class CEFDownloads {
     /// `AutomaticDownloadGate`); calls `decide` once. Downloads cmux starts
     /// itself (`download`, `save`) never ask.
     var admit: (_ browser: Int32, _ decide: @escaping (AutomaticDownloadGate.Outcome, _ site: String?) -> Void) -> Void = { _, decide in decide(.allowed, nil) }
+    /// Whether tab `browser` is on a restored page's own first load, which starts no download
+    /// (`CEFTab.refusesDownloadsUntilGesture`): a restored tab whose address is a file downloaded it again at every
+    /// relaunch. Downloads cmux starts itself never ask.
+    var refusesWithoutGesture: (_ browser: Int32) -> Bool = { _ in false }
     /// Hands a started download to the App through tab `browser`.
     var deliver: (_ browser: Int32, _ download: BrowserDownload) -> Void = { _, _ in }
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef.downloads")
@@ -72,6 +76,8 @@ final class CEFDownloads {
     private var started: [(browser: Int32, url: String)] = []
     /// Page downloads waiting for `admit`'s answer, by token.
     private var admitting: Set<Int32> = []
+    /// Downloads whose file name is being looked up (`start`), by token.
+    private var placing: Set<Int32> = []
 
     init(shim: @escaping () -> CEFDownloadShim?) {
         self.shim = shim
@@ -124,7 +130,7 @@ final class CEFDownloads {
             items[id]?.update(received: received, total: total, bytesPerSecond: speed, paused: paused)
         case let .done(id, end, reason, path):
             // Chromium ended it while the question was open: nothing started.
-            if admitting.remove(id) != nil { return }
+            if admitting.remove(id) != nil || placing.remove(id) != nil { return }
             guard let item = items.removeValue(forKey: id) else { return }
             if end == .complete, let written = item.placement?.temporaryURL, !path.isEmpty,
                URL(filePath: path).standardizedFileURL != written.standardizedFileURL {
@@ -154,6 +160,11 @@ final class CEFDownloads {
         if pick != nil || takeStarted(browser: browser, url: url) {
             return start(id: id, browser: browser, url: url, suggestedName: suggestedName, total: total, pick: pick)
         }
+        if refusesWithoutGesture(browser) {
+            shim()?.answer(id, "")
+            logger.notice("download \(id) not started for tab \(browser): a restored page's own load, no gesture")
+            return
+        }
         admitting.insert(id)
         admit(browser) { [weak self] outcome, site in
             guard let self, admitting.remove(id) != nil else { return }
@@ -179,17 +190,37 @@ final class CEFDownloads {
 
     private func start(id: Int32, browser: Int32, url: String, suggestedName: String, total: Int64?, pick: URL?) {
         guard let shim = shim() else { return }
+        let directory = directory()
+        // The name is looked up off the main thread (a protected folder's
+        // first look waits for the access prompt); Chromium waits for the answer.
+        placing.insert(id)
+        let reservations = reservations
+        Task { [weak self] in
+            let placed = await BrowserDownloadPolicy.place(chosen: pick, suggestedFilename: suggestedName,
+                                                           directory: directory, reservations: reservations)
+            // Chromium ended it (or the runtime went) while the name was looked up.
+            guard let self, placing.remove(id) != nil else {
+                if case .success(let placement) = placed { placement.discard() }
+                return
+            }
+            switch placed {
+            case .success(let placement):
+                start(id: id, browser: browser, url: url, suggestedName: suggestedName, total: total, pick: pick,
+                      shim: shim, placement: placement)
+            case .failure(let failure):
+                shim.answer(id, "")
+                let item = BrowserDownload(sourceURL: URL(string: url), filename: DownloadDestination.sanitizedFilename(suggestedName))
+                logger.error("download \(id) refused: \(failure.reason, privacy: .public)")
+                deliver(browser, item)
+                item.complete(.failed(failure.reason))
+            }
+        }
+    }
+
+    private func start(id: Int32, browser: Int32, url: String, suggestedName: String, total: Int64?, pick: URL?,
+                       shim: CEFDownloadShim, placement: BrowserDownloadPlacement) {
         // The chosen file stays until the download completes (a failed one
         // keeps it); the download writes a temporary sibling.
-        guard let placement = BrowserDownloadPolicy.place(chosen: pick, suggestedFilename: suggestedName,
-                                                          directory: directory(), reservations: reservations) else {
-            shim.answer(id, "")
-            let item = BrowserDownload(sourceURL: URL(string: url), filename: DownloadDestination.sanitizedFilename(suggestedName))
-            logger.error("download \(id) refused: no free file name")
-            deliver(browser, item)
-            item.complete(.failed("no free file name"))
-            return
-        }
         let item = BrowserDownload(sourceURL: URL(string: url), filename: placement.finalURL.lastPathComponent,
                                    suggestedFilename: DownloadDestination.sanitizedFilename(suggestedName))
         item.destination = placement.finalURL
@@ -218,6 +249,7 @@ extension CEFRuntime {
 }
 
 extension CEFDownloads {
+    // lint:allow singleton - CefInitialize runs once per process, so CEFRuntime.shared is process-wide and so are its downloads
     static let shared = forRuntime(.shared)
 
     /// The runtime's downloads: the loaded shim, delivered through the tab.
@@ -238,6 +270,7 @@ extension CEFDownloads {
             let site = tab.committedURL.flatMap(PageInfoSite.origin(of:))
             tab.automaticDownloads.request(site: site) { decide($0, site) }
         }
+        downloads.refusesWithoutGesture = { [weak runtime] browser in runtime?.tabsByBrowser[browser]?.refusesDownloadsUntilGesture == true }
         downloads.deliver = { [weak runtime] (browser: Int32, item: BrowserDownload) in
             guard let tab = runtime?.tabsByBrowser[browser] else {
                 logger.error("download for tab \(browser) without a cmux tab: not in the downloads list")

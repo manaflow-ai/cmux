@@ -36,6 +36,9 @@ pub(in crate::cli) const AGENT_POLICIES: [&str; 3] = ["ask", "approve-reads", "d
 /// What `continue` sends when no text is given.
 pub(in crate::cli) const CONTINUE_TEXT: &str = "Continue.";
 
+/// Codex agent chats must keep working until they can report a result or a blocker.
+pub(in crate::cli) const CODEX_AGENT_CHAT_STOP_CONDITION: &str = "Keep working until the requested task is complete. Report the verified result to Chief, or state what blocks it; a progress update alone is not completion.";
+
 /// A new chat's settings (`chat new` flags).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(in crate::cli) struct NewChat {
@@ -70,6 +73,10 @@ pub(in crate::cli) struct NewChat {
     /// (`_meta.acpmux.peer`, as `acpmux new --on` and New Agent Chat's Environment picker start
     /// one), its tab here. With no `--cwd` the peer picks its folder.
     pub peer: Option<String>,
+    /// Who placed it on the peer (`--placed-by autoCloud`, `_meta.acpmux.placedBy`): set by Auto
+    /// placement (`chat_start.rs`) so the machine it lands on yields it to its owner (acpmux
+    /// `hub/owner_return.rs`). Not for people to type.
+    pub placed_by: Option<String>,
 }
 
 const NEW_USAGE: &str = "agents chat new [--workspace <ws>|--pane <pane>|--top] [--peer <machine>] \
@@ -79,7 +86,8 @@ const NEW_USAGE: &str = "agents chat new [--workspace <ws>|--pane <pane>|--top] 
 
 /// `agents chat new`'s own flags that place a chat in this app's workspaces or pick its
 /// approvals: a chat `--on TARGET` is placed and run by its target (`cmux chat --on`).
-const PLACED_HERE: &[&str] = &["--workspace", "--pane", "--top", "--policy", "--peer"];
+const PLACED_HERE: &[&str] =
+    &["--workspace", "--pane", "--top", "--policy", "--peer", "--placed-by"];
 
 /// `cmux … agents chat new --on TARGET …` as `cmux … chat new --on TARGET …`, the start `cmux
 /// chat --on` makes (chat_start.rs): a Cloud chat with its folder or `--no-folder`, harness,
@@ -175,6 +183,7 @@ pub(in crate::cli) fn parse_new(words: &[&str]) -> Result<NewChat, UsageError> {
             "--policy" => &mut chat.policy,
             "--cwd" => &mut chat.cwd,
             "--peer" => &mut chat.peer,
+            "--placed-by" => &mut chat.placed_by,
             other => {
                 return Err(UsageError::new(format!(
                     "agents chat new: unknown flag {other:?}; usage: {NEW_USAGE}"
@@ -640,6 +649,7 @@ fn session_meta(chat: &NewChat, workspace_key: &str) -> Map<String, Value> {
         ("policy", &chat.policy),
         ("name", &chat.name),
         ("peer", &chat.peer),
+        ("placedBy", &chat.placed_by),
     ] {
         if let Some(value) = value {
             meta.insert(name.into(), json!(value));
@@ -652,7 +662,15 @@ fn session_meta(chat: &NewChat, workspace_key: &str) -> Map<String, Value> {
         // agent's name (acpmux `NewRequest::suffix_taken_name`).
         meta.insert("ifNameTaken".into(), json!("suffix"));
     }
+    if chat.harness.as_deref().is_some_and(is_codex_harness) && chat.prompt.is_some() {
+        meta.insert("stopCondition".into(), json!(CODEX_AGENT_CHAT_STOP_CONDITION));
+    }
     meta
+}
+
+fn is_codex_harness(harness: &str) -> bool {
+    let lower = harness.trim().to_ascii_lowercase();
+    lower == "codex" || lower.starts_with("codex/") || lower.starts_with("codex-")
 }
 
 /// `chat new`: the chat, its tab, and its first prompt.

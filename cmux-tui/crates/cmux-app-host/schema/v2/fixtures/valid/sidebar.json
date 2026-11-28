@@ -1,0 +1,23 @@
+{
+  "manifestVersion": 2,
+  "id": "local/workspace-list",
+  "name": "Workspace list",
+  "version": "1.0.0",
+  "description": "The workspace list, drawn by an extension in place of the built-in one.",
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "runtime": {
+    "main": "dist/main.js"
+  },
+  "implements": {
+    "cmux.sidebar/1": {
+      "export": "renderSidebar",
+      "title": "Workspaces",
+      "symbol": "sidebar.left"
+    }
+  },
+  "scopes": {
+    "workspace:read": "List your workspaces."
+  }
+}

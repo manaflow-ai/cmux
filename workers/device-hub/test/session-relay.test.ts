@@ -1,12 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import { platformUserIdFor } from "../src/machine";
-import { ANCHOR_RELAY_TTL_MS } from "../src/userDo";
-import { BASE, Device, STACK_PROJECT, billingPlans, mockOutbound, platformMachines, rawCall, signIn, worker } from "./helpers";
+import { ANCHOR_RELAY_TTL_MS, PLAN_UNREAD, RELAY_UNMINTED } from "../src/userDo";
+import { BASE, Device, STACK_PROJECT, billingPlans, localTurn, mockOutbound, platformMachines, rawCall, signIn, worker } from "./helpers";
 
 // A session's viewer and host are one account, so the viewer's billing answer covers the host
 // end too: a paid account's joined machine (a machine session, no Stack token) and a Mac whose
-// anchor's relay answer has lapsed get the relay for a share a paid viewer starts. A free or
-// failed billing read grants nothing to either end.
+// anchor's relay answer has lapsed get the relay for a share a paid viewer starts. A free
+// answer grants nothing to either end. A failed billing read is not a free plan: it never
+// overwrites a paid answer read in the last 24 h, and with none behind it both ends are told
+// "could not read your plan" (`relay: "unread"`) instead of a silent empty relay list.
 
 const TURN = [
   { urls: ["stun:stun.cloudflare.com:3478"] },
@@ -55,6 +57,14 @@ async function decidedByHost(host: Device, viewer: Device) {
   return { sid, vt, ht };
 }
 
+/** The viewer asks for a share its stored permission allows: approved at once with its own session (a billing read). */
+async function viewedOnce(host: Device, viewer: Device) {
+  const res = await viewer.call("POST", "/v1/sessions", { hostId: host.id, scope: "view" });
+  expect(res.json.session?.state, JSON.stringify(res.json)).toBe("approved");
+  const sid = res.json.session.id as string;
+  return viewer.user!.next((f) => f.type === "session.ticket" && f.sessionId === sid);
+}
+
 describe("a session's relay follows its viewer's billing answer", () => {
   it("paid viewer, joined machine host: the relay on both ends, approved by the host or not", async () => {
     const account = await person("pro");
@@ -66,11 +76,12 @@ describe("a session's relay follows its viewer's billing answer", () => {
     const d = await decidedByHost(host, viewer);
     expect(d.vt.ice).toEqual(TURN);
     expect(d.ht.ice).toEqual(TURN);
+    expect([d.vt.relay, d.ht.relay, d.vt.relayNote]).toEqual(["paid", "paid", undefined]);
     // The host's own refresh, with its machine session (no Stack token), gets it too.
     expect((await host.call("POST", `/v1/sessions/${d.sid}/ice`)).json.ice).toEqual(TURN);
   });
 
-  it("the viewer's paid answer covers the host end for 24 h only, and a failed read clears it", async () => {
+  it("the viewer's paid answer covers the host end for 24 h only, and a failed read does not clear it", async () => {
     const sub = `pro-${crypto.randomUUID()}`;
     billingPlans.set(sub, { subscriptionPlanId: "pro" });
     const account = await signIn(sub);
@@ -80,10 +91,12 @@ describe("a session's relay follows its viewer's billing answer", () => {
     await viewer.connect();
     const d = await decidedByHost(host, viewer);
     expect((await host.call("POST", `/v1/sessions/${d.sid}/ice`)).json.ice).toEqual(TURN);
-    // Billing fails on the viewer's next read: the host end loses the stored answer too.
+    // Billing fails on the viewer's next read: an error is not a free plan, so the paid answer
+    // read minutes ago still covers both ends.
     billingPlans.set(sub, { status: 500 });
-    expect((await viewer.call("POST", `/v1/sessions/${d.sid}/ice`)).json.ice).toEqual([]);
-    expect((await host.call("POST", `/v1/sessions/${d.sid}/ice`)).json.ice).toEqual([]);
+    const failed = (await viewer.call("POST", `/v1/sessions/${d.sid}/ice`)).json;
+    expect([failed.ice, failed.relay]).toEqual([TURN, "paid"]);
+    expect((await host.call("POST", `/v1/sessions/${d.sid}/ice`)).json.ice).toEqual(TURN);
     // Paid again, then a day passes with no viewer read: the host end's stored answer lapses.
     billingPlans.set(sub, { subscriptionPlanId: "pro" });
     expect((await viewer.call("POST", `/v1/sessions/${d.sid}/ice`)).json.ice).toEqual(TURN);
@@ -107,7 +120,11 @@ describe("a session's relay follows its viewer's billing answer", () => {
     const d = await decidedByHost(host, viewer);
     expect(d.vt.ice).toEqual([]);
     expect(d.ht.ice).toEqual([]);
-    expect((await host.call("POST", `/v1/sessions/${d.sid}/ice`)).json.ice).toEqual([]);
+    // Free is said as free, never as a failed read.
+    expect([d.vt.relay, d.ht.relay, d.vt.relayNote, d.ht.relayNote]).toEqual(["free", "free", undefined, undefined]);
+    const ice = (await host.call("POST", `/v1/sessions/${d.sid}/ice`)).json;
+    expect([ice.ice, ice.relay]).toEqual([[], "free"]);
+    expect((await viewer.call("GET", "/v1/me")).json.planNote).toBeUndefined();
   });
 
   it("a billing read that fails grants nothing", async () => {
@@ -120,6 +137,18 @@ describe("a session's relay follows its viewer's billing answer", () => {
     await viewer.connect();
     const d = await decidedByHost(host, viewer);
     expect([d.vt.ice, d.ht.ice]).toEqual([[], []]);
+    // Both ends are told the plan could not be read, not that it is free.
+    expect([d.vt.relay, d.ht.relay]).toEqual(["unread", "unread"]);
+    expect([d.vt.relayNote, d.ht.relayNote]).toEqual([PLAN_UNREAD, PLAN_UNREAD]);
+    const hostIce = (await host.call("POST", `/v1/sessions/${d.sid}/ice`)).json;
+    expect([hostIce.ice, hostIce.relay, hostIce.relayNote]).toEqual([[], "unread", PLAN_UNREAD]);
+    const me = (await viewer.call("GET", "/v1/me")).json;
+    expect([me.plan, me.planNote]).toEqual(["free", PLAN_UNREAD]);
+    // Billing answers again: the next read stores it and the note goes.
+    billingPlans.set(sub, { subscriptionPlanId: "pro" });
+    const back = (await viewer.call("POST", `/v1/sessions/${d.sid}/ice`)).json;
+    expect([back.ice, back.relay, back.relayNote]).toEqual([TURN, "paid", undefined]);
+    expect((await host.call("POST", `/v1/sessions/${d.sid}/ice`)).json.ice).toEqual(TURN);
   });
 
   it("paid viewer, Mac host anchored over 24 h ago: the relay on both ends", async () => {
@@ -161,5 +190,63 @@ describe("a session's relay follows its viewer's billing answer", () => {
     const host = await machineHost(account);
     // No viewer has asked billing for any session: /me reads the machine session's own answer.
     expect((await host.call("GET", "/v1/me")).json.plan).toBe("free");
+  });
+
+  it("paid, but no relay could be minted: both ends are told why, not a silent empty list", async () => {
+    const account = await person("pro");
+    const host = await machineHost(account);
+    const viewer = await Device.create(account, "Laptop", "macos");
+    await viewer.register();
+    await viewer.connect();
+    localTurn.fail = true;
+    const errors = vi.spyOn(console, "error");
+    try {
+      const d = await decidedByHost(host, viewer);
+      expect([d.vt.ice, d.ht.ice]).toEqual([[], []]);
+      expect([d.vt.relay, d.ht.relay]).toEqual(["paid", "paid"]);
+      expect([d.vt.relayNote, d.ht.relayNote]).toEqual([RELAY_UNMINTED, RELAY_UNMINTED]);
+      const ice = (await host.call("POST", `/v1/sessions/${d.sid}/ice`)).json;
+      expect([ice.ice, ice.relay, ice.relayNote]).toEqual([[], "paid", RELAY_UNMINTED]);
+      expect(errors.mock.calls.some((a) => String(a[0]).includes(`relay mint empty for paid session ${d.sid}`))).toBe(true);
+      // The mint answers again: the note goes.
+      localTurn.fail = false;
+      const back = (await viewer.call("POST", `/v1/sessions/${d.sid}/ice`)).json;
+      expect([back.ice, back.relay, back.relayNote]).toEqual([TURN, "paid", undefined]);
+    } finally {
+      localTurn.fail = false;
+      errors.mockRestore();
+    }
+  });
+
+  it("a machine pushing its screen to a paid person's Mac gets the relay from the account's newest read", async () => {
+    const account = await person("pro");
+    const host = await machineHost(account);
+    const viewer = await Device.create(account, "Laptop", "macos");
+    await viewer.register();
+    await viewer.connect();
+    // The person's app read billing once (an earlier share); the push itself has no Stack token.
+    const first = await viewedOnce(host, viewer);
+    expect(first.ice).toEqual(TURN);
+    const res = await host.call("POST", "/v1/sessions", { hostId: host.id, viewerId: viewer.id, scope: "view" });
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    const sid = res.json.session.id as string;
+    const vt = await viewer.user!.next((f) => f.type === "session.ticket" && f.sessionId === sid);
+    const ht = await host.user!.next((f) => f.type === "session.ticket" && f.sessionId === sid);
+    expect([vt.ice, ht.ice]).toEqual([TURN, TURN]);
+    expect([vt.relay, vt.relayNote]).toEqual(["paid", undefined]);
+  });
+
+  it("a machine's push to a free person's Mac still gets none", async () => {
+    const account = await person("free");
+    const host = await machineHost(account);
+    const viewer = await Device.create(account, "Laptop", "macos");
+    await viewer.register();
+    await viewer.connect();
+    expect((await viewedOnce(host, viewer)).ice).toEqual([]);
+    const res = await host.call("POST", "/v1/sessions", { hostId: host.id, viewerId: viewer.id, scope: "view" });
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    const sid = res.json.session.id as string;
+    const ht = await host.user!.next((f) => f.type === "session.ticket" && f.sessionId === sid);
+    expect([ht.ice, ht.relay]).toEqual([[], "free"]);
   });
 });

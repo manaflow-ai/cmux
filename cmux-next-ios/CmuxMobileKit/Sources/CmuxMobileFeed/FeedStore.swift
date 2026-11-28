@@ -173,7 +173,12 @@ public final class FeedStore {
     /// The Feed before live data: sample items only with mock content on (DEBUG).
     static func initialItems(mockContentEnabled: Bool) -> [FeedItem] {
         #if DEBUG
-        if mockContentEnabled { return FeedStore.mockItems(now: Date()) }
+        if mockContentEnabled {
+            let now = Date()
+            // `-cmux-mobile-feed-marks`: one short row per kind of sender first, for screenshots of the avatars.
+            let marks = CommandLine.arguments.contains("-cmux-mobile-feed-marks") ? FeedStore.markSamples(now: now) : []
+            return marks + FeedStore.mockItems(now: now)
+        }
         #endif
         return []
     }
@@ -206,6 +211,7 @@ public final class FeedStore {
             #if DEBUG
             if FeedStressRig.shared.config.logsChurn { FeedStore.logChange(from: oldValue, to: items) }
             #endif
+            if !items.isEmpty { markKnown() }
             onItemsChange?(items)
         }
     }
@@ -392,9 +398,11 @@ public final class FeedStore {
     /// The filtered list and the count, kept with the items instead of
     /// recomputed by every body that reads them.
     private func refreshDerived() {
-        let visible = Self.pinningNeedsYou(items.filter { !$0.isDone && filter.matches($0) && !mutedWorkspaces.contains($0.workspaceID) })
+        let visible = Self.pinningNeedsYou(items.filter {
+            !$0.isDone && filter.matches($0) && !mutedWorkspaces.contains($0.workspaceID) && !isOnClosedTab($0)
+        })
         if visible != visibleItems { visibleItems = visible }
-        let open = Set(items.lazy.filter { $0.needsYou && !$0.isDone }.map(\.id))
+        let open = Set(items.lazy.filter { $0.needsYou && !$0.isDone && !self.isOnClosedTab($0) }.map(\.id))
         if open != needsYouIDs { needsYouIDs = open }
         if open.count != needsYouCount { needsYouCount = open.count }
     }
@@ -461,6 +469,12 @@ public final class FeedStore {
     }
     /// Called after every change (live mode saves the Feed with `FeedArchive`).
     @ObservationIgnored public var onItemsChange: (@MainActor ([FeedItem]) -> Void)?
+    /// Called once when the live source has answered, including an empty Feed. The archive
+    /// uses this to remember that an empty result is known, so a relaunch does not show a
+    /// spinner while waiting for a list that was already read.
+    @ObservationIgnored public var onKnownData: (@MainActor () -> Void)?
+    /// The live source or an account archive has answered at least once this run.
+    public private(set) var hasKnownData = false
     public var filter: FeedFilter = .all {
         didSet { if filter != oldValue { refreshDerived() } }
     }
@@ -471,6 +485,29 @@ public final class FeedStore {
     public enum SyncState: Hashable, Sendable { case connecting, live }
     public var mutedWorkspaces: Set<String> = [] {
         didSet { if mutedWorkspaces != oldValue { refreshDerived() } }
+    }
+    /// Each Mac's open tabs, by Mac id (``FeedOpenTabs``): a row whose tab closed is not listed.
+    /// A Mac not here (not heard from yet) hides nothing. The rows stay in the store and the
+    /// archive, so a tab a reconnect's partial tree left out comes back with the next tree.
+    @ObservationIgnored private var openTabs: [String: FeedOpenTabs] = [:]
+
+    /// `macID`'s open tabs changed (its tree arrived, or the launch snapshot was read).
+    public func setOpenTabs(_ tabs: FeedOpenTabs, macID: String) {
+        guard !macID.isEmpty, openTabs[macID] != tabs else { return }
+        openTabs[macID] = tabs
+        refreshDerived()
+    }
+
+    /// `macID` was removed from the account: its rows are no longer checked against its tabs.
+    public func forgetOpenTabs(macID: String) {
+        guard openTabs.removeValue(forKey: macID) != nil else { return }
+        refreshDerived()
+    }
+
+    /// Whether `item` is hidden because its tab was closed (see ``FeedItem/outlivesItsTab``).
+    public func isOnClosedTab(_ item: FeedItem) -> Bool {
+        guard !openTabs.isEmpty, let mac = item.macID, let tabs = openTabs[mac] else { return false }
+        return !item.outlivesItsTab && tabs.closes(item)
     }
     /// Events that arrived while the person was scrolled away from the top.
     public private(set) var unseenNewIDs: [String] = []
@@ -488,10 +525,28 @@ public final class FeedStore {
             if read.contains(item.id) { item.isRead = true }
             return item
         }
+        hasKnownData = !items.isEmpty
         self.answersLocally = answersLocally
         reindex()
         refreshDerived()
         memoryPressure.register(self) { [weak self] in self?.relieveMemoryPressure() }
+    }
+
+    /// Marks even an empty live result as known. This is separate from `items` because an
+    /// empty reply does not change the array and therefore does not trigger `onItemsChange`.
+    public func markKnown() {
+        guard !hasKnownData else { return }
+        hasKnownData = true
+        onKnownData?()
+    }
+
+    /// Starts a new account/team Feed source before its snapshot or live reply
+    /// arrives. The rows are replaced separately so an uncached team can show
+    /// its first-load placeholder without inheriting the previous team's state.
+    public func resetKnownData() {
+        hasKnownData = false
+        evictedDoneIDs = []
+        refreshError = nil
     }
 
     /// Pull to refresh: re-reads the Mac's sessions and open asks through
@@ -539,7 +594,7 @@ public final class FeedStore {
     /// of the same asks does nothing.
     public private(set) var needsYouIDs: Set<String> = []
 
-    public func count(_ filter: FeedFilter) -> Int { items.count(where: filter.matches) }
+    public func count(_ filter: FeedFilter) -> Int { items.count(where: { filter.matches($0) && !isOnClosedTab($0) }) }
 
     public func insert(_ item: FeedItem, atTop: Bool) {
         if !atTop { unseenNewIDs.append(item.id) }
@@ -621,8 +676,10 @@ public final class FeedStore {
     /// deleted by the caller); nothing is saved for it any more.
     public func clearForSignOut() {
         onItemsChange = nil
+        onKnownData = nil
         actions = nil
         replaceAll([])
+        hasKnownData = false
         useSpill(nil)
         evictedDoneIDs = []
         useReadMarks(nil)
@@ -641,6 +698,7 @@ public final class FeedStore {
             next.isDone = items[index].isDone
             next.resolution = items[index].resolution ?? item.resolution
             next.replies = items[index].replies
+            next.keepPlace(of: items[index])
             if items[index] != next { items[index] = next }
         } else {
             insert(item, atTop: atTop)
@@ -664,6 +722,7 @@ public final class FeedStore {
                 merged.pending = next[index].pending ?? item.pending
                 merged.error = next[index].error ?? item.error
                 merged.createdAt = next[index].createdAt
+                merged.keepPlace(of: next[index])
                 next[index] = merged
             } else {
                 positions[item.id] = next.count

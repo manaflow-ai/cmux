@@ -53,6 +53,40 @@ export interface UpdateHighlights {
   /** Every change after `items` (the popover scrolls to the whole list); absent from an older host. */
   rest?: UpdateHighlightItem[] | null;
   changelog: { from: string; to: string };
+  /** "What's in this build": the pull requests merged after the installed build through this one,
+      by area (the host's BuildPullRequests). Absent from an older host and before they load. */
+  pullRequests?: BuildPullRequests | null;
+  /** The Updated card's way back: the build Go back takes (the one this Mac came from, kept), its
+      words ("nightly 4288034 from Nov 10") and the entry's title. Absent with none kept, and on
+      the update-ready surfaces. */
+  goBack?: UpdateGoBack | null;
+  /** A go-back runs (the host's progress); absent once it ended without a relaunch. */
+  goBackRunning?: boolean;
+}
+
+export interface UpdateGoBack {
+  build: string;
+  /** "nightly 4288034 from Nov 10", already localized. */
+  label: string;
+  /** Kept on this Mac: one relaunch, no download. */
+  kept: boolean;
+  /** "Go Back to nightly 4288034 from Nov 10", already localized. */
+  title: string;
+}
+
+/** One recent build (`cmux.changelog.surface.builds`), newest first. */
+export interface RecentBuildRow {
+  build: string;
+  version: string;
+  /** `YYYY-MM-DD`. */
+  date: string;
+  installed: boolean;
+  kept: boolean;
+  /** Going to it runs: not the running build, not pulled, on an app that switches builds. */
+  switchable: boolean;
+  pulled: boolean;
+  /** Its first change titles, at most three. */
+  titles: string[];
 }
 
 /** Where What's New opens: the area a change is in (areas.ts key) and the change's title; the page
@@ -68,4 +102,26 @@ export interface UpdateSurfaceActions {
   openChangelog(target?: ChangelogTarget): void;
   /** The card's x: hides the card for this version. */
   dismiss?(): void;
+  /** Go back to `build` (absent: the previous build): `cmux.changelog.surface.goBack`. Resolves
+      to why it did not run, or null when it runs (the app quits and reopens). */
+  goBack?(build?: string): Promise<string | null>;
+  /** The recent builds for "Other builds": `cmux.changelog.surface.builds`. */
+  builds?(): Promise<RecentBuildRow[]>;
+}
+
+/** One pull request of a build span. */
+export interface BuildPullRequest {
+  pr: number;
+  title: string;
+  author?: string | null;
+  url: string;
+  /** The build whose notes list it. */
+  build: string;
+}
+
+/** A span's pull requests by area; `area` null is "Other", always last. */
+export interface BuildPullRequests {
+  groups: { area?: string | null; items: BuildPullRequest[] }[];
+  /** CI and tooling-only pull requests, counted and not listed. */
+  internalCount: number;
 }

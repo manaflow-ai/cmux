@@ -32,7 +32,7 @@ import Testing
         #expect(CEFPermissionPrompts.kind(of: 0) == nil)
         #expect(CEFPermissionPrompts.kind(of: CEFPermissionPrompts.camera | 1 << 3) == nil)
         #expect(CEFPermissionPrompts.kind(of: CEFPermissionPrompts.geolocation | CEFPermissionPrompts.camera) == nil)
-        #expect(CEFPermissionPrompts.kind(of: 1 << 15) == nil)
+        #expect(CEFPermissionPrompts.kind(of: CEFPermissionPrompts.notifications | CEFPermissionPrompts.geolocation) == nil)
     }
 }
 
@@ -51,5 +51,16 @@ import Testing
 
     @Test func screenShareDoesNotMixWithOtherKinds() {
         #expect(CEFPermissionPrompts.kind(of: CEFPermissionPrompts.displayCapture | CEFPermissionPrompts.camera) == nil)
+    }
+}
+
+@Suite struct CEFClipboardPermissionPromptTests {
+    @Test func clipboardReadAsksForTheClipboardSiteSetting() throws {
+        let clipboard: Int64 = 1 << 4 // CEF_PERMISSION_TYPE_CLIPBOARD
+        let kind = try #require(CEFPermissionPrompts.kind(of: clipboard))
+        #expect(kind.siteKinds == [.clipboard])
+        let prompt = BrowserPrompt(kind: .permission(kind), origin: "https://example.test") { _ in }
+        #expect(prompt.dismissalResponse == .cancel)
+        #expect(CEFPermissionPrompts.kind(of: clipboard | CEFPermissionPrompts.camera) == nil)
     }
 }

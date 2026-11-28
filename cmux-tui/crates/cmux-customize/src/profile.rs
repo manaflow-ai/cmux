@@ -147,6 +147,50 @@ impl Customize {
         })
     }
 
+    /// Writes the profile `name` from the given settings and files, without touching what is
+    /// live: a pack an agent made (a chat stylesheet at `agent-pane/theme.css`, a default-off
+    /// setting turned on). It is checked whole as `use` checks it, so a pack that would not
+    /// preview is refused here. `cmux customize try NAME` puts it on; `keep` and `revert` end it.
+    pub fn write_pack(
+        &self,
+        name: &str,
+        description: &str,
+        settings: BTreeMap<String, Value>,
+        files: BTreeMap<String, String>,
+        now_ms: u64,
+    ) -> Result<Saved, Error> {
+        if !valid_name(name) {
+            return Err(Error::Profile(format!(
+                "{name:?}: a pack name is lowercase letters, digits, '-' and '_' (like \"calmer-composer\")"
+            )));
+        }
+        if settings.is_empty() && files.is_empty() {
+            return Err(Error::Profile(
+                "a pack needs a stylesheet (--css FILE) or a setting (--set KEY=VALUE)".to_owned(),
+            ));
+        }
+        let profile = Profile {
+            version: 1,
+            name: name.to_owned(),
+            description: description.to_owned(),
+            created_ms: now_ms,
+            settings,
+            files,
+        };
+        self.check_profile(&profile)?;
+        let path = self.roots().profiles_dir().join(format!("{name}.json"));
+        let mut text = serde_json::to_string_pretty(&profile).map_err(std::io::Error::other)?;
+        text.push('\n');
+        cmux_config::fsio::write_atomic(&path, text.as_bytes())?;
+        Ok(Saved {
+            name: name.to_owned(),
+            path,
+            settings: profile.settings.len(),
+            files: profile.files.keys().cloned().collect(),
+            left_out: Vec::new(),
+        })
+    }
+
     /// What is live now as a profile to share, and what was left out of it
     /// (one line each). The live tree must validate, as for an apply. What
     /// `save` writes and `cmux setup export` puts in a setup repo.
@@ -535,14 +579,27 @@ pub(crate) fn profile_findings(roots: &crate::Roots, profile: &Profile) -> Vec<F
             );
             continue;
         }
-        if cmux_config::schema::accepts(row, value, &Default::default()).is_err() {
+        if let Err(refusal) = cmux_config::schema::accepts(row, value, &Default::default()) {
             // The key says where to look; the refused value (which may be
-            // a credential under the wrong key) stays in the file.
+            // a credential under the wrong key) stays in the file. A document's
+            // refusal says where it goes wrong (`phases.row.frames[3]: ...`):
+            // a path in the look's own file, never a value.
+            let document = match &refusal {
+                cmux_config::refusal::Refusal::InvalidValue {
+                    accepted: cmux_config::schema::Accepted::Document { schema, reason },
+                    ..
+                } => Some(format!(
+                    "the profile's value for {key} is not a {schema} document: {reason}"
+                )),
+                _ => None,
+            };
             findings.push(
                 Finding::error(
                     codes::SETTING_VALUE,
                     at,
-                    if key == "workspaceColors.indicatorStyle" {
+                    if let Some(message) = document {
+                        message
+                    } else if key == "workspaceColors.indicatorStyle" {
                         "the profile's value for workspaceColors.indicatorStyle is invalid; use \"dot\", \"leftRail\" or \"fill\" (legacy \"solidFill\" is accepted)".to_owned()
                     } else {
                         format!("the profile's value for {key} is not one that setting accepts")
@@ -617,29 +674,26 @@ fn read_profile(path: &std::path::Path) -> Result<Profile, Error> {
             error.column()
         ))
     };
-    let original_error = match serde_json::from_str::<Profile>(&text) {
-        Ok(profile) => return Ok(profile),
-        Err(error) => error,
+    let mut profile = match serde_json::from_str::<Profile>(&text) {
+        Ok(profile) => profile,
+        Err(original_error) => {
+            let mut value: Value = serde_json::from_str(&text).map_err(invalid)?;
+            crate::file_refs::resolve(
+                &mut value,
+                path.parent().unwrap_or_else(|| std::path::Path::new(".")),
+            )
+            .map_err(Error::Profile)?;
+            serde_json::from_value(value).map_err(|_| invalid(original_error))?
+        }
     };
-    let mut value: Value = serde_json::from_str(&text).map_err(invalid)?;
-    crate::file_refs::resolve(
-        &mut value,
-        path.parent().unwrap_or_else(|| std::path::Path::new(".")),
-    )
-    .map_err(Error::Profile)?;
-    serde_json::from_value(value).map_err(|_| invalid(original_error))
+    // A look's cmux-setup.json read as a profile (`cmux customize try PATH`) keeps long values in
+    // files beside it, as a setup install reads them.
+    if let Some(dir) = path.parent() {
+        crate::setup::inline_files(&mut profile.settings, dir)?;
+    }
+    Ok(profile)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_profile_name_is_a_plain_file_name() {
-        assert!(valid_name("compact-night"));
-        assert!(valid_name("v2_work"));
-        for bad in ["", "../x", "Night", "a b", "-x", "a/b", "x.json"] {
-            assert!(!valid_name(bad), "{bad}");
-        }
-    }
-}
+#[path = "profile_tests.rs"]
+mod tests;

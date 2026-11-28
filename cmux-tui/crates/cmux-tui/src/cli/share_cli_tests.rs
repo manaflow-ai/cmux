@@ -54,7 +54,6 @@ fn a_json_before_the_verb_still_routes_to_the_share_host() {
 }
 
 #[test]
-#[test]
 fn revoke_and_kick_name_their_ids() {
     assert_eq!(
         action(&words("share revoke s1 --json")),
@@ -148,6 +147,10 @@ fn invite_and_uninvite_name_the_account_wherever_it_stands() {
         action(&words("share uninvite @theo --surface=3")),
         Some(Ok(("share uninvite".to_owned(), words("--account=@theo --surface=3"))))
     );
+    assert_eq!(
+        action(&words("share invite --role drive @theo")),
+        Some(Ok(("share invite".to_owned(), words("--account=@theo --role drive"))))
+    );
     // No positional account: the flags go on as typed, and the app asks for one.
     assert_eq!(
         action(&words("share invite --account leo@cmux.com")),
@@ -202,6 +205,8 @@ fn an_invite_prints_one_line_for_a_person() {
     assert_eq!(human_line(&params, &result).as_deref(), Some("Invited leo@cmux.com (can view)\n"));
     let talk = json!({"ran": true, "result": {"share_id": "s1", "account": "@theo", "role": "talk", "state": "invited"}});
     assert_eq!(human_line(&params, &talk).as_deref(), Some("Invited @theo (can talk)\n"));
+    let drive = json!({"result": {"account": "@theo", "role": "drive", "state": "invited"}});
+    assert_eq!(human_line(&params, &drive).as_deref(), Some("Invited @theo (can drive)\n"));
     let removed = json!({"ran": true, "result": {"account": "@theo", "state": "removed", "share_ids": ["s1"]}});
     assert_eq!(
         human_line(&json!({"action": "share uninvite"}), &removed).as_deref(),

@@ -3,7 +3,7 @@
 //! `docs/design/experiments-shelf.md`).
 //!
 //! The folder's own `scripts/cmux-next/build-web-bundles.sh --out-root`
-//! builds its web bundles; the three overlay surfaces become a layer folder
+//! builds its web bundles; the overlay surfaces become a layer folder
 //! named by their digest, with the same manifest (`abi`, `commit`) the app
 //! checks, and the entry `dir-NAME` goes on top of the library like any other
 //! code. A folder whose web ABI is not the app's is kept off with that line.
@@ -29,12 +29,13 @@ use super::render::Answer;
 
 const BUILD: &str = "scripts/cmux-next/build-web-bundles.sh";
 const ABI_SOURCE: &str = "webviews/src/web-abi.json";
-/// The builders of the three overlay surfaces, with their extra arguments; a
+/// The builders of the overlay surfaces, with their extra arguments; a
 /// watch rebuild runs them side by side, each into its surface's folder.
-const BUILDERS: [(&str, &[&str]); 3] = [
+const BUILDERS: [(&str, &[&str]); 4] = [
     ("scripts/cmux-next/build-agent-pane-web.sh", &[]),
     ("scripts/cmux-next/build-pages-web.sh", &[]),
     ("scripts/build-webviews-app.sh", &["--skip-checks"]),
+    ("scripts/cmux-next/build-agent-activity-web.sh", &[]),
 ];
 /// What a watch follows inside the folder.
 const WATCHED: [&str; 2] = ["webviews", "schemas"];
@@ -66,24 +67,55 @@ fn git(dir: &Path, args: &[&str]) -> Option<String> {
 }
 
 /// Runs `program` in `dir`; on a failure, its last lines.
+/// Runs `program` with its stdout and stderr in one log, in the order it wrote
+/// them. Read as two pipes joined end to end, stderr's warnings came last and
+/// filled the tail: the Nightly walk of 2026-11-24 (hq run 45341531578) saw
+/// only esbuild's `No matching export` warning, never the error that stopped
+/// the build.
 fn run(dir: &Path, program: &str, args: &[&str]) -> Result<(), Failure> {
-    let output = cmux_process::Command::new(dir.join(program))
+    let log =
+        tempfile::NamedTempFile::new().map_err(|error| failure(format!("{program}: {error}")))?;
+    let file = log.reopen().map_err(|error| failure(format!("{program}: {error}")))?;
+    let copy = file.try_clone().map_err(|error| failure(format!("{program}: {error}")))?;
+    let status = cmux_process::Command::new(dir.join(program))
         .args(args)
         .current_dir(dir)
         .stdin(cmux_process::Stdio::null())
-        .output()
+        .stdout(file)
+        .stderr(copy)
+        .status()
         .map_err(|error| failure(format!("{program}: {error}")))?;
-    if output.status.success() {
+    if status.success() {
         return Ok(());
     }
-    let text = format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
+    let text = std::fs::read_to_string(log.path()).unwrap_or_default();
+    Err(failure(why_failed(program, &text)))
+}
+
+/// How many of a failed build's last lines the message keeps.
+const TAIL_LINES: usize = 25;
+
+/// A failed build's message: the lines that name an error, when the tail
+/// lacks them, then the tail. A warning (`▲ [WARNING]`, `warning:`) names no
+/// error, however it is worded.
+pub(super) fn why_failed(program: &str, text: &str) -> String {
     let lines: Vec<&str> = text.lines().collect();
-    let tail = lines.iter().skip(lines.len().saturating_sub(25)).copied().collect::<Vec<_>>();
-    Err(failure(format!("{program} failed:\n{}", tail.join("\n"))))
+    let start = lines.len().saturating_sub(TAIL_LINES);
+    let (head, tail) = lines.split_at_checked(start).unwrap_or((&[], lines.as_slice()));
+    let names_error = |line: &str| {
+        let lower = line.to_ascii_lowercase();
+        !lower.contains("warning")
+            && (lower.contains("error") || line.contains('✘') || lower.contains("failed"))
+    };
+    let causes: Vec<&str> = if tail.iter().any(|line| names_error(line)) {
+        Vec::new()
+    } else {
+        head.iter().copied().filter(|line| names_error(line)).take(5).collect()
+    };
+    if causes.is_empty() {
+        return format!("{program} failed:\n{}", tail.join("\n"));
+    }
+    format!("{program} failed: {}\n…\n{}", causes.join("\n"), tail.join("\n"))
 }
 
 /// A scratch build folder next to the layers.
@@ -99,8 +131,8 @@ fn build_all(dir: &Path, out: &Path) -> Result<(), Failure> {
     run(dir, BUILD, &["--out-root", &out])
 }
 
-/// Builds the three overlay surfaces of `dir` into `out`, side by side: the
-/// three builders run at once, each writing its output to a log in `out`
+/// Builds the overlay surfaces of `dir` into `out`, side by side: the
+/// builders run at once, each writing its output to a log in `out`
 /// (a pipe each would stall a builder while another is waited on).
 fn build_surfaces(dir: &Path, out: &Path) -> Result<(), Failure> {
     std::fs::create_dir_all(out).map_err(|error| failure(format!("{}: {error}", out.display())))?;
@@ -138,10 +170,7 @@ fn build_surfaces(dir: &Path, out: &Path) -> Result<(), Failure> {
                 return Ok(());
             }
             let text = std::fs::read_to_string(&log).unwrap_or_default();
-            let lines: Vec<&str> = text.lines().collect();
-            let tail =
-                lines.iter().skip(lines.len().saturating_sub(25)).copied().collect::<Vec<_>>();
-            Err(failure(format!("{builder} failed:\n{}", tail.join("\n"))))
+            Err(failure(why_failed(builder, &text)))
         });
         let _ = std::fs::remove_file(&log);
         if first.is_ok() {
@@ -151,7 +180,7 @@ fn build_surfaces(dir: &Path, out: &Path) -> Result<(), Failure> {
     first
 }
 
-/// Every file under the three surfaces of `out`, sorted, as paths relative
+/// Every file under the surfaces of `out`, sorted, as paths relative
 /// to `out`.
 fn files(out: &Path) -> std::io::Result<Vec<PathBuf>> {
     let mut found = Vec::new();

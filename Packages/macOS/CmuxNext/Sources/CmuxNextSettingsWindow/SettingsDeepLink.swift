@@ -45,6 +45,11 @@ public struct SettingsDeepLink: Equatable, Sendable {
         return "#/settings/appearance" + (query.isEmpty ? "" : "?" + query.joined(separator: "&"))
     }
 
+    /// Reopening customization returns to Sidebar even if the retained Settings tab navigated away.
+    public static func sidebarRoute(open: UInt64? = nil) -> String {
+        "#/settings/sidebar?open=\(open ?? DispatchTime.now().uptimeNanoseconds)"
+    }
+
     /// The page fragment for `section` and `setting`: a schema setting focuses its row; any other
     /// anchor opens its section.
     /// The Development section (and its keys) exists only in DEV and NIGHTLY builds: elsewhere a request for
@@ -65,6 +70,11 @@ public struct SettingsDeepLink: Equatable, Sendable {
     /// Where the window scrolls: nil without a setting, or when nothing in
     /// Settings has that name (the caller reports it).
     public var anchor: SettingsAnchor? { setting.flatMap { SettingsAnchor(key: $0) } }
+
+    /// The localized Cloud model destination shared with the web Settings page.
+    public static var cloudModelsTitle: String {
+        String(localized: "settingsWindow.cloud.models.title", defaultValue: "Cloud models", bundle: .localizedModule)
+    }
 
     private static func text(_ value: ActionValue?) -> String? {
         guard let text = value?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }

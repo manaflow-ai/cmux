@@ -375,12 +375,16 @@ pub(super) fn window(
     rows: usize,
 ) -> Result<(Frame, u64), ChatError> {
     let (seen, folds) = person_state(state, person);
-    let read = state.log.read_window(
+    // The open turn's settled work comes folded, as it will be when the turn ends: only its
+    // open rows stream in.
+    let live = state.translate.open_fold();
+    let read = state.log.read_window_live(
         anchor,
         Log::bound(if rows == 0 { MAX_ROWS } else { rows }, MAX_ROWS),
         MAX_FRAME_BYTES,
         Some(&state.folds),
         &folds,
+        live.as_ref(),
     )?;
     let rows = row_texts(&read)?;
     let open = open_rows(state)?;
@@ -442,7 +446,8 @@ fn open_rows(state: &mut ActorState) -> Result<Vec<OpenRow>, ChatError> {
 /// An open row as sent: its encoded row, and its body's length when the body was left out.
 type OpenRowOut = (Vec<u8>, Option<u64>);
 
-/// One open row's text: its body inline when it fits `left`, else `{}` and the body's length.
+/// One open row's text: its body inline when it fits `left`, else its fields' head
+/// ([`acpmux_book::translate::OwnedRow::head`]) and the body's length.
 fn open_row(
     state: &ActorState,
     id: u64,
@@ -466,7 +471,11 @@ fn open_row(
         }
         encoded.clear();
     }
-    row.as_row("{}").encode(None, &mut encoded).map_err(|_| ChatError::Response)?;
+    // The row's own fields stand for the body left out (an image's size among them).
+    let head = row.head();
+    if row.as_row(&head).encode(None, &mut encoded).is_err() {
+        row.as_row("{}").encode(None, &mut encoded).map_err(|_| ChatError::Response)?;
+    }
     Ok(Some((encoded, Some(len))))
 }
 
@@ -842,7 +851,8 @@ pub(super) fn page(state: &mut ActorState, page: Page, person: PersonId, reply: 
         state.log.read_turns(edge, max, &state.folds)
     } else {
         let (_, folds) = person_state(state, &person);
-        state.log.read_page(edge, max, page.fold, Some(&state.folds), &folds)
+        let live = state.translate.open_fold();
+        state.log.read_page_live(edge, max, page.fold, Some(&state.folds), &folds, live.as_ref())
     };
     let read = match read {
         Ok(read) => read,

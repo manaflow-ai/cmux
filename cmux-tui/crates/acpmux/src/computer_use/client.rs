@@ -24,6 +24,11 @@ use serde_json::{Value, json};
 pub const RETRY_BUDGET: Duration = Duration::from_secs(30);
 const FIRST_BACKOFF: Duration = Duration::from_millis(100);
 const MAX_BACKOFF: Duration = Duration::from_secs(2);
+/// The code of a call that found no daemon running (the app is not open).
+pub const DAEMON_NOT_RUNNING: &str = "daemon_not_running";
+/// How long a call waits for a daemon whose socket is missing (no app runs it) before it says
+/// so: enough for an app restart to bring the socket back, far less than [`RETRY_BUDGET`].
+pub const NOT_RUNNING_GRACE: Duration = Duration::from_secs(3);
 /// One daemon request (the endpoint, the machine list).
 const DAEMON_WAIT: Duration = Duration::from_secs(10);
 /// The worker's hello after the secret.
@@ -33,6 +38,9 @@ const MAX_DAEMON_REPLY: u64 = 1 << 20;
 
 /// The daemon command that names the worker (lane `worker` serves it).
 pub const ENDPOINT_CMD: &str = "computer-use-endpoint";
+
+/// What an agent does when Computer Use is off: open the guided setup for the person.
+const OFF_NEXT: &str = "Open its setup for the person with `cmux action run palette.computerUse.setup` (it opens without taking their focus; there the person turns Computer Use on and grants the two macOS permissions), tell them it is open, and try again once they finish.";
 
 /// Where the worker serves, from the daemon.
 #[derive(Clone, PartialEq, Eq)]
@@ -99,6 +107,12 @@ pub trait Daemon: Send + Sync {
     fn workspace_name(&self, _id: &str) -> Option<String> {
         None
     }
+    /// Why no daemon runs at all (no socket file at any place it may listen: the app is not
+    /// running), naming the app and the paths; None when one may be up or restarting. A missing
+    /// socket is no restart in progress, so calls stop waiting for it after [`NOT_RUNNING_GRACE`].
+    fn not_running(&self) -> Option<String> {
+        None
+    }
 }
 
 /// Where a workspace named `id` sits in a `list-workspaces` answer: its `name`.
@@ -148,11 +162,24 @@ pub struct SocketDaemon {
     pub path: PathBuf,
     /// Every path the lookup considered, for the error when none answers.
     looked: Vec<super::daemon_socket::Candidate>,
+    /// The app bundle this binary ships in ("cmux NIGHTLY"), for the not-running message.
+    app: Option<String>,
 }
 
 impl SocketDaemon {
     pub fn from_env() -> Self {
-        Self::from_candidates(super::daemon_socket::from_process())
+        let mut daemon = Self::from_candidates(super::daemon_socket::from_process());
+        daemon.app = std::env::current_exe()
+            .ok()
+            .map(|exe| exe.canonicalize().unwrap_or(exe))
+            .and_then(|exe| super::daemon_socket::bundle_name(&exe));
+        daemon
+    }
+
+    /// The daemon at `path` and no other: a socket another process's environment named (the
+    /// terminal a chat types into, `hub/terminal_input.rs`).
+    pub fn at(path: PathBuf) -> Self {
+        Self { path, looked: Vec::new(), app: None }
     }
 
     /// The first of `candidates` whose socket exists, else the first.
@@ -160,7 +187,7 @@ impl SocketDaemon {
         let path = super::daemon_socket::pick(&candidates)
             .map(|c| c.path.clone())
             .unwrap_or_else(|| cmux::raw::default_socket_path("main"));
-        Self { path, looked: candidates }
+        Self { path, looked: candidates, app: None }
     }
 
     /// Why the daemon could not be reached: the path tried and, when the lookup had others,
@@ -292,6 +319,29 @@ impl Daemon for SocketDaemon {
     fn workspace_name(&self, id: &str) -> Option<String> {
         workspace_name_in(&self.request("list-workspaces", json!({})).ok()?, id)
     }
+
+    fn not_running(&self) -> Option<String> {
+        let paths: Vec<&std::path::Path> = if self.looked.is_empty() {
+            vec![self.path.as_path()]
+        } else {
+            self.looked.iter().map(|c| c.path.as_path()).collect()
+        };
+        not_running_message(self.app.as_deref(), &paths)
+    }
+}
+
+/// [`Daemon::not_running`] for daemon sockets at `paths`: Some when none of them exists. Only
+/// on Unix, where a listening socket is a file; elsewhere a missing path proves nothing.
+pub fn not_running_message(app: Option<&str>, paths: &[&std::path::Path]) -> Option<String> {
+    if !cfg!(unix) || paths.is_empty() || paths.iter().any(|p| p.exists()) {
+        return None;
+    }
+    let app = app.unwrap_or("the cmux app");
+    let looked: Vec<String> = paths.iter().map(|p| p.display().to_string()).collect();
+    Some(format!(
+        "{app} is not running on this Mac, so Computer Use has no daemon to ask (no socket at {}); open {app}, then try again.",
+        looked.join(", ")
+    ))
 }
 
 /// The `data` of a cmux-tui daemon reply, or why it refused (classic
@@ -454,11 +504,14 @@ impl Outcome {
             Outcome::Output(out) => out.to_mcp(),
             Outcome::Off(reason) => ToolOutput::error(
                 "computer_use_off",
-                if reason.is_empty() {
-                    "Computer Use is off on this machine. The person can turn it on in Settings > Computer Use.".to_owned()
-                } else {
-                    format!("Computer Use is off: {reason}. The person can turn it on in Settings > Computer Use.")
-                },
+                format!(
+                    "Computer Use is off{}. {OFF_NEXT}",
+                    if reason.is_empty() {
+                        " on this machine".to_owned()
+                    } else {
+                        format!(": {reason}")
+                    }
+                ),
             )
             .to_mcp(),
             Outcome::Failed { code, message } => ToolOutput::error(code, message.clone()).to_mcp(),
@@ -693,6 +746,16 @@ impl<D: Daemon> Caller<D> {
                     "settings": "Settings > Computer Use",
                 })))
             }
+            // So is the app not running: `status` says so at once, with what to open.
+            Err(Outcome::Failed { code, message })
+                if name == "status" && code == DAEMON_NOT_RUNNING =>
+            {
+                Outcome::Output(ToolOutput::ok(json!({
+                    "engine": "cmux Computer Use",
+                    "mode": "not_running",
+                    "reason": message,
+                })))
+            }
             Err(outcome) => outcome,
         }
     }
@@ -718,6 +781,11 @@ impl<D: Daemon> Caller<D> {
         let deadline = Instant::now() + self.budget;
         let mut backoff = FIRST_BACKOFF;
         let mut last = String::new();
+        // `status` reports a daemon that is not running at once; a call gives it a short grace.
+        let is_status = request.get("name").and_then(Value::as_str) == Some("status")
+            || request.get("method").and_then(Value::as_str) == Some("status");
+        let grace = if is_status { Duration::ZERO } else { NOT_RUNNING_GRACE };
+        let mut missing_since: Option<Instant> = None;
         loop {
             let cached = self.endpoint.lock().ok().and_then(|e| e.clone());
             let endpoint = match cached {
@@ -757,6 +825,17 @@ impl<D: Daemon> Caller<D> {
                     }
                     Err(e) => {
                         last = e.to_string();
+                        if let Some(why) = self.daemon.not_running() {
+                            let since = *missing_since.get_or_insert_with(Instant::now);
+                            if since.elapsed() >= grace {
+                                return Err(Outcome::Failed {
+                                    code: DAEMON_NOT_RUNNING.into(),
+                                    message: why,
+                                });
+                            }
+                        } else {
+                            missing_since = None;
+                        }
                         None
                     }
                 },
@@ -781,7 +860,7 @@ impl<D: Daemon> Caller<D> {
                 return Err(Outcome::Failed {
                     code: "computer_use_unavailable".into(),
                     message: format!(
-                        "cmux Computer Use did not answer for {} s ({last}). It restarts by itself; try again in a moment, or call status.",
+                        "cmux Computer Use did not answer for {} s ({last}). It restarts by itself; status shows when it is back.",
                         self.budget.as_secs()
                     ),
                 });
@@ -789,6 +868,19 @@ impl<D: Daemon> Caller<D> {
             (self.sleep)(backoff.min(deadline - now));
             backoff = (backoff * 2).min(MAX_BACKOFF);
         }
+    }
+
+    /// The person's other machines a call this Mac refused as locked can run on instead (design
+    /// L3, the "remote" route): reachable now, Computer Use `ready` there, never `except` (the
+    /// machine that just answered locked). Only machines the person already joined to this one,
+    /// over their authenticated link; nothing here unlocks a Mac. Empty for a call another machine
+    /// sent (it runs only here, never one hop further) and when the daemon cannot list them.
+    pub fn routable_machines(&self, except: Option<&str>) -> Vec<String> {
+        if self.origin.is_some() {
+            return Vec::new();
+        }
+        let Ok(data) = self.daemon.machines() else { return Vec::new() };
+        routable_in(&data, except)
     }
 
     /// `list_machines`: this machine's daemon knows the person's machines.
@@ -861,6 +953,19 @@ impl<D: Daemon> Caller<D> {
             backoff = (backoff * 2).min(MAX_BACKOFF);
         }
     }
+}
+
+/// The machine names in a `_acpmux/computer_use_machines` answer that can take a call now.
+pub(crate) fn routable_in(data: &Value, except: Option<&str>) -> Vec<String> {
+    data.get("machines")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|m| m["reachable"].as_bool() == Some(true) && m["computer_use"] == "ready")
+        .filter_map(|m| m["name"].as_str())
+        .filter(|name| Some(*name) != except)
+        .map(str::to_owned)
+        .collect()
 }
 
 #[cfg(test)]

@@ -6,8 +6,10 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, useSyncExternalStore } from "react";
 import type { Root } from "react-dom/client";
-import { effortLevel } from "./support/effortDropdown";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { effortLevel } = await importWithDom(() => import("./support/effortDropdown"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -377,7 +379,8 @@ async function mountNewTab({
   };
   const pickInline = async () => {
     await clickChip();
-    expect(Boolean(doc.querySelector(".acpmux-cols-rail"))).toBe(!startedChat || rail);
+    // Every composer opens the one shared picker, rail and all, forkable or not (cmux#55750).
+    expect(Boolean(doc.querySelector(".acpmux-cols-rail"))).toBe(true);
     await pickLevel("Sonnet 5.5", "High");
   };
   return {

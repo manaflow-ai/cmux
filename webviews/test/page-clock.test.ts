@@ -1,6 +1,8 @@
 import { afterEach, expect, jest, test } from "bun:test";
-import { pageClocks, subscribePageDeadline, visibleInterval } from "../src/ui/pageClock";
-import { pageLoops } from "../src/ui/pageLoops";
+import { importWithDom } from "./support/importWithDom";
+
+const { pageClocks, subscribePageDeadline, visibleInterval } = await importWithDom(() => import("../src/ui/pageClock"));
+const { pageLoops } = await importWithDom(() => import("../src/ui/pageLoops"));
 
 type FakeDocument = Document & { show(state: DocumentVisibilityState): void };
 const original = Object.getOwnPropertyDescriptor(globalThis, "document");
@@ -81,6 +83,56 @@ test("timestamp deadlines share the nearest timer and stop when no label will ch
   );
   expect(pageClocks(doc)).toMatchObject({ running: 0, subscribers: 1 });
   stopStatic();
+  expect(pageClocks(doc)).toEqual({ running: 0, subscribers: 0, items: [] });
+});
+
+test("timestamp labels mounting and unmounting arm no timer of their own", () => {
+  jest.useFakeTimers();
+  jest.setSystemTime(0);
+  const doc = installDocument("visible");
+  const set = globalThis.setTimeout;
+  const clear = globalThis.clearTimeout;
+  let armed = 0;
+  let cleared = 0;
+  globalThis.setTimeout = ((...args: Parameters<typeof setTimeout>) => {
+    armed += 1;
+    return set(...args);
+  }) as typeof setTimeout;
+  globalThis.clearTimeout = ((id?: Parameters<typeof clearTimeout>[0]) => {
+    cleared += 1;
+    return clear(id);
+  }) as typeof clearTimeout;
+  let notified = 0;
+  const stops: (() => void)[] = [];
+  try {
+    // The newest label first (its words change soonest), then a fling's worth of older ones coming and going.
+    stops.push(
+      subscribePageDeadline(
+        () => notified++,
+        () => 60_000,
+      ),
+    );
+    for (let frame = 0; frame < 100; frame += 1) {
+      for (let row = 0; row < 40; row += 1)
+        stops.push(
+          subscribePageDeadline(
+            () => notified++,
+            () => 3_600_000 + row,
+          ),
+        );
+      for (const stop of stops.splice(1)) stop();
+    }
+  } finally {
+    globalThis.setTimeout = set;
+    globalThis.clearTimeout = clear;
+  }
+  // 4,000 labels came and went: the first label's one timer is all that was armed.
+  expect(armed).toBe(1);
+  expect(cleared).toBe(0);
+  expect(pageClocks(doc)).toMatchObject({ running: 1, subscribers: 1 });
+  jest.advanceTimersByTime(60_005);
+  expect(notified).toBe(1);
+  stops[0]!();
   expect(pageClocks(doc)).toEqual({ running: 0, subscribers: 0, items: [] });
 });
 

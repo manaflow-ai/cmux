@@ -116,8 +116,9 @@ nonisolated struct MacScreenRdDocument: Equatable, Sendable {
     /// fitted to 3840x2160). `refresh`: the viewer's display rate. `paneWidth`: the pane's screen
     /// area in pixels; Auto streams no wider (a Retina host's full size into a smaller pane costs
     /// capture, encode, network and decode time for pixels nobody sees), and at least 1280 wide.
-    static func wish(_ quality: ScreenQuality, refresh: Int, paneWidth: Int? = nil) -> (maxWidth: Int?, maxFps: Int) {
-        let refresh = max(30, min(refresh, 120))
+    /// `maxFps`: Screen Sharing Frame Rate Limit (`remoteDesktop.maxFps`), a cap under the preset's rate.
+    static func wish(_ quality: ScreenQuality, refresh: Int, paneWidth: Int? = nil, maxFps: Int? = nil) -> (maxWidth: Int?, maxFps: Int) {
+        let refresh = max(1, min(max(30, min(refresh, 120)), maxFps ?? .max))
         return switch quality {
         case .auto: (paneWidth.map { max(1280, ($0 + 15) / 16 * 16) }, refresh)
         case .smooth: (1920, refresh)
@@ -129,33 +130,71 @@ nonisolated struct MacScreenRdDocument: Equatable, Sendable {
 }
 
 /// The hub's ICE servers as the cmux.rd link takes them: STUN servers for this
-/// side's public address, and TURN relays (UDP) with their credentials for a
-/// relayed path when no direct one works. `turns:` and TCP-only relays are not
-/// carriers of the link yet and are left out.
+/// side's public address, UDP TURN relays (`turn`) for a relayed path when no
+/// direct one works, and the TCP and TLS (`turns:`) relays (`turn_stream`), the
+/// only way through a network that blocks UDP. Mirrors `rd_doc::servers` in
+/// cmux-hub-host: TCP before TLS, the ticket's order within each, and a bare
+/// `turns:` host on 5349.
 nonisolated struct MacScreenRdServers: Equatable, Sendable {
+    /// How a relay is reached: `turn:` over UDP, `turn:..?transport=tcp`, or `turns:` (TLS).
+    enum Transport: String, Encodable, Equatable, Sendable {
+        case udp, tcp, tls
+    }
+
+    /// One relay. `transport` is left out for UDP, so a UDP relay reads as it always has.
     struct Turn: Encodable, Equatable, Sendable {
         var addr: String
         var username: String
         var password: String
+        var transport: Transport = .udp
+
+        private enum CodingKeys: String, CodingKey { case addr, username, password, transport }
+
+        func encode(to encoder: any Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(addr, forKey: .addr)
+            try container.encode(username, forKey: .username)
+            try container.encode(password, forKey: .password)
+            if transport != .udp { try container.encode(transport, forKey: .transport) }
+        }
     }
 
     var stun: [String] = []
+    /// UDP relays, as every `cmux-rd` reads `turn`.
     var turn: [Turn] = []
+    /// TCP relays, then TLS ones, as `cmux-rd` reads `turn_stream`.
+    var turnStream: [Turn] = []
 
     init(_ servers: [ICEServerConfig]) {
+        var relays: [Turn] = []
         for server in servers {
             for url in server.urls {
-                let parts = url.split(separator: "?", maxSplits: 1)
-                let query = parts.count > 1 ? String(parts[1]) : ""
-                if url.hasPrefix("stun:") {
-                    let address = Self.address(parts[0].dropFirst("stun:".count))
+                let parts = url.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
+                let base = parts[0]
+                let query = parts.count > 1 ? parts[1] : ""
+                if base.hasPrefix("stun:") {
+                    let address = Self.address(base.dropFirst("stun:".count))
                     if !address.isEmpty, !stun.contains(address) { stun.append(address) }
-                } else if url.hasPrefix("turn:"), !query.contains("transport=tcp"),
-                          let username = server.username, let password = server.credential {
-                    let address = Self.address(parts[0].dropFirst("turn:".count))
-                    let relay = Turn(addr: address, username: username, password: password)
-                    if !address.isEmpty, !turn.contains(relay) { turn.append(relay) }
+                    continue
                 }
+                let tls = base.hasPrefix("turns:")
+                guard tls || base.hasPrefix("turn:") else { continue }
+                let host = base.dropFirst(tls ? "turns:".count : "turn:".count)
+                var transport: Transport = tls ? .tls : .udp
+                guard let username = server.username, let password = server.credential else { continue }
+                if transport == .udp,
+                   query.split(separator: "&").contains(where: { $0.lowercased() == "transport=tcp" }) {
+                    transport = .tcp
+                }
+                let address = transport == .tls && !host.contains(":") ? String(host) + ":5349" : Self.address(host)
+                let relay = Turn(addr: address, username: username, password: password, transport: transport)
+                if !host.isEmpty, !relays.contains(relay) { relays.append(relay) }
+            }
+        }
+        // UDP first, then TCP, then TLS; the ticket's order within each (a stable partition).
+        for kind in [Transport.udp, .tcp, .tls] {
+            for relay in relays where relay.transport == kind {
+                if kind == .udp { turn.append(relay) } else { turnStream.append(relay) }
             }
         }
     }

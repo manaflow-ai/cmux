@@ -45,9 +45,30 @@ let gatewayOutage = "(turn failed on claude: API Error: 503 no non-exhausted cla
             ("Repeated 529 Overloaded errors. The API is at capacity — this is usually temporary. Try again in a moment.", .modelBusy),
             ("API Error: 429 rate limit exceeded", .modelBusy),
             ("API Error: 401 {\"type\":\"authentication_error\"}", .modelSignIn),
+            // acpmux's own words on a fresh Mac with no Claude sign-in, cut before Claude's "Not logged in".
+            ("Claude is not signed in here. This agent found no sign-in (Claude home ~/.claude). Your terminal has no Claude sign-in either. Run `claude auth login` in a terminal, or set ANTHROPIC_API_KEY (or ANTHR", .modelSignIn),
             ("the harness exited with status 2", .other),
             // A port is not a status code.
             ("harness crashed at 10.0.0.4:14290", .other),
+        ]
+        for (detail, kind) in cases {
+            #expect(ChiefTurnFailure.kind(of: detail) == kind, "\(detail)")
+        }
+    }
+
+    /// Busy is what the Mac's `cmux-upstream-error` calls capacity or an account limit (ask-616b73f6bc).
+    @Test func busyReadsAsTheMacReadsIt() {
+        let cases: [(String, ChiefTurnFailure.Kind)] = [
+            // Before: a 503 with no capacity words read as unreachable, the gateway's call limit as other.
+            ("API Error: 503 Service Unavailable", .modelBusy),
+            ("502 the gateway is at its call limit; retry", .modelBusy),
+            ("HTTP 529 overloaded_error; retry-after: 30", .modelBusy),
+            ("Too Many Requests; retry-after 90", .modelBusy),
+            // Before: any "529" in the text was busy.
+            ("harness exited (job id 5290)", .other),
+            ("waited 2503s for the build", .other),
+            // Chief's own extras stay.
+            ("usage limit reached for this account", .modelBusy),
         ]
         for (detail, kind) in cases {
             #expect(ChiefTurnFailure.kind(of: detail) == kind, "\(detail)")
@@ -128,7 +149,10 @@ let gatewayOutage = "(turn failed on claude: API Error: 503 no non-exhausted cla
         // The old copy blamed Chief for any of these.
         for problem in [ChiefEngineProblem.macUnreachable, .chiefBusy, .modelsUnavailable] {
             #expect(!problem.loadText.contains("didn't answer. Try again"))
+            // Leo 2026-11-22: "remove them all": the line sits beside Try Again and never narrates retries.
+            #expect(!problem.loadText.contains("Retrying"))
         }
+        #expect(ChiefEngineProblem.macUnreachable.loadText == "Mac unavailable")
     }
 
     @Test func aReplyDeadlineEndsAWaitOnAQuietLink() async throws {

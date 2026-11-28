@@ -2,18 +2,31 @@
 // Load order: this file, then the app's `main` (an IIFE that sets
 // `__cmuxAppExports`), then the host calls `__cmuxAppInit`. ABI: ../ABI.md.
 
-import { cmux, CmuxError, createCmux, deliverEvent, fireTimer, log, resolveCall, sharedMembers, state, type Native } from "./cmux.ts"
+import {
+  cmux,
+  CmuxError,
+  createCmux,
+  deliverEvent,
+  fireTimer,
+  log,
+  resolveCall,
+  seedKeptState,
+  sharedMembers,
+  state,
+  type Native,
+  call,
+} from "./cmux.ts";
 import { installCompat } from "./compat-sidebar-data.ts"
 import { menuHandler, mount, mountExists, nodeRecord, sendPendingOps, setSceneSink, unmount } from "./materialize.ts"
 import { act, palette, paletteCancel, paletteDetail, paletteOpen, setPaletteScopes } from "./palette.ts"
 import { batch, computed, effect, flush, onCleanup, signal, untrack, type Write } from "./reactive.ts"
 import * as views from "./view.ts"
-import { deliverWatch, watch } from "./watch.ts"
+import { watch, deliverWatch } from "./watch.ts";
 
 const g = globalThis as Record<string, unknown>
 /** Each widget mount's now() clock, set by `__cmuxAppTick`. */
 const widgetClocks = new Map<string, Write<number>>()
-export const RUNTIME_VERSION = "1.3.0"
+export const RUNTIME_VERSION = "1.6.0"
 
 const exportsOf = (): Record<string, unknown> => (g.__cmuxAppExports as Record<string, unknown> | undefined) ?? {}
 
@@ -31,13 +44,58 @@ function entry<T>(name: string, fn: () => T, fallback: T): T {
   }
 }
 
-function runHandler(label: string, fn: (() => unknown) | undefined) {
-  if (!fn) return
+/** Runs an event handler; returns what it returned (a promise for an async one), undefined when it threw. */
+function runHandler(label: string, fn: (() => unknown) | undefined): unknown {
+  if (!fn) return undefined
   try {
     const r = fn()
     if (r && typeof (r as Promise<unknown>).then === "function") (r as Promise<unknown>).catch((e) => log("error", `${label}: ${describe(e)}`))
+    return r
   } catch (e) {
     log("error", `${label}: ${describe(e)}`)
+    return undefined
+  }
+}
+
+/**
+ * A mount's `ctx.keep(name, initial)` and `ctx.state` (runtime 1.6.0). Writes of one turn leave as one
+ * `app.view.state` call after a microtask; a value that is not JSON (a function, a cycle) is logged and not kept.
+ */
+function keepState(mountId: string, ctx: Record<string, unknown>) {
+  const given = ctx.state && typeof ctx.state === "object" && !Array.isArray(ctx.state) ? (ctx.state as Record<string, unknown>) : {}
+  ctx.state = given
+  const kept: Record<string, unknown> = { ...given }
+  const signals = new Map<string, [() => unknown, (next: unknown) => void]>()
+  let queued = false
+  const send = () => {
+    queued = false
+    let json: string
+    try {
+      json = JSON.stringify(kept)
+    } catch (e) {
+      log("warn", `ctx.keep: the state is not JSON: ${describe(e)}`)
+      return
+    }
+    call("app.view.state", { mount: mountId, state: JSON.parse(json) }).catch((e) => log("warn", `ctx.keep: ${describe(e)}`))
+  }
+  ctx.keep = <T>(name: string, initial: T) => {
+    if (typeof name !== "string" || !name) throw new TypeError("ctx.keep needs a name")
+    const existing = signals.get(name)
+    if (existing) return existing
+    const [read, write] = signal<T>(name in given ? (given[name] as T) : initial)
+    const keep: Write<T> = (next) => {
+      write(next)
+      const value = read.peek()
+      if (Object.is(kept[name], value)) return
+      kept[name] = value
+      if (!queued) {
+        queued = true
+        void Promise.resolve().then(send)
+      }
+    }
+    const pair: [() => unknown, (next: unknown) => void] = [read, keep as (next: unknown) => void]
+    signals.set(name, pair)
+    return pair
   }
 }
 
@@ -65,6 +123,7 @@ function install() {
         locale?: string
         strings?: Record<string, string>
         paletteScopes?: unknown[]
+        state?: Record<string, unknown>
       }
       if (init.app) state.app = init.app
       if (init.apiVersion) state.apiVersion = init.apiVersion
@@ -73,6 +132,7 @@ function install() {
       state.locale = init.locale ?? "en"
       state.strings = init.strings ?? {}
       setPaletteScopes(init.paletteScopes)
+      seedKeptState(init.state)
       state.settings[1](init.settings ?? {})
       return ""
     }, "init failed")
@@ -92,9 +152,22 @@ function install() {
           widgetClocks.set(mountId, setNow)
           ctx.now = now
         }
+        // `cmux.pane/1` (the daemon gives every pane mount `args`, null when no open waits): the open's
+        // arguments, `close(result)` to answer the opener, `onOpen` and `onClose` (pane_flow.rs).
+        const opened: Array<(args: unknown) => void> = []
+        if (ctx && typeof ctx === "object" && "args" in ctx) {
+          ctx.close = (result?: unknown) => call("app.pane.close", { mount: mountId, result: result ?? null })
+          ctx.onOpen = (fn: (args: unknown) => void) => void opened.push(fn)
+          ctx.onClose = (fn: () => void) => onCleanup(fn)
+        }
+        // Kept state (`app.view.state`, cmux-tui-core apps/view_state.rs): `ctx.keep(name, initial)` is a signal
+        // whose value the daemon keeps with the mount, so a hot reload (`cmux ext dev`), a host restart or a Reload
+        // renders it again. `ctx.state` is what this mount got back.
+        if (ctx && typeof ctx === "object") keepState(mountId, ctx)
         state.context = ctx
         state.mount = mountId
         mount(mountId, () => render(ctx), ctx)
+        if (ctx?.args != null) for (const fn of opened) fn(ctx.args)
         state.context = null
         state.mount = null
       })
@@ -123,7 +196,9 @@ function install() {
       if (Number.isFinite(nowMs)) widgetClocks.get(mountId)?.(nowMs)
     }, undefined)
 
-  g.__cmuxAppDispatch = (mountId: string, nodeId: string, event: string, payloadJSON: string) =>
+  g.__cmuxAppDispatch = (mountId: string, nodeId: string, event: string, payloadJSON: string) => {
+    // A TextField's submit or cancel settles after its handler's writes have flushed (`settle`).
+    let settle: (() => void) | undefined
     entry("dispatch", () => {
       if (!mountExists(mountId)) return
       const record = nodeRecord(nodeId)
@@ -134,15 +209,32 @@ function install() {
       state.context = record.mount.context
       state.mount = mountId
       try {
-        dispatchEvent(record, event, payload)
+        settle = dispatchEvent(record, event, payload)
       } finally {
         state.gesture = null
         state.context = null
         state.mount = null
       }
     }, undefined)
+    settle?.()
+  }
 
-  function dispatchEvent(record: NonNullable<ReturnType<typeof nodeRecord>>, event: string, payload: Record<string, any>) {
+  /** After a TextField's submit or cancel: the app's `text` goes back to the field when it differs from
+   * what the field shows (materialize.ts `settle`), once the handler is done: now for a synchronous one,
+   * when its promise settles for an async one, so a field whose app saves first keeps the typed text
+   * meanwhile. */
+  function textSettle(record: NonNullable<ReturnType<typeof nodeRecord>>, result: unknown): (() => void) | undefined {
+    const settle = record.settle
+    if (!settle) return undefined
+    const run = () => entry("settle", settle, undefined)
+    if (result && typeof (result as Promise<unknown>).then === "function") {
+      ;(result as Promise<unknown>).then(run, run)
+      return undefined
+    }
+    return run
+  }
+
+  function dispatchEvent(record: NonNullable<ReturnType<typeof nodeRecord>>, event: string, payload: Record<string, any>): (() => void) | undefined {
       switch (event) {
         case "menu":
           runHandler("menu", menuHandler(record, Array.isArray(payload.path) ? payload.path : []) as (() => unknown) | undefined)
@@ -172,13 +264,22 @@ function install() {
         }
         case "submit":
         case "edit": {
+          // The field's text before its handler runs: the app's value goes back to the field only when
+          // it differs (materialize.ts `shown`), so an edit is never echoed.
+          if (typeof payload.text === "string") record.shown?.(payload.text)
           const h = record.handlers[event] as ((t: string) => unknown) | undefined
-          runHandler(event, h && (() => h(String(payload.text ?? ""))))
-          break
+          const result = runHandler(event, h && (() => h(String(payload.text ?? ""))))
+          return event === "submit" && typeof payload.text === "string" ? textSettle(record, result) : undefined
         }
-        default:
-          runHandler(event, record.handlers[event] as (() => unknown) | undefined)
+        default: {
+          // A TextField's cancel carries the text it shows, as submit does.
+          const text = event === "cancel" && typeof payload.text === "string" ? payload.text : undefined
+          if (text !== undefined) record.shown?.(text)
+          const result = runHandler(event, record.handlers[event] as (() => unknown) | undefined)
+          return text !== undefined ? textSettle(record, result) : undefined
+        }
       }
+      return undefined
   }
 
   // ctxJSON (optional): `{gesture?}`. A gesture is the host-minted user-gesture token of this invocation

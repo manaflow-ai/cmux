@@ -16,8 +16,12 @@
 
 /* CRISP (the default arm): a frostier glass that reads as one surface, a crisp hairline ring with a
    lit top edge, and a soft two-layer shadow that lifts it off the page without a smudge. */
-:root[data-hover-look][data-hover-look="crisp"],
-:root[data-hover-look][data-hover-look="ink"] {
+/* Every arm (not only Crisp and Ink) defines these: the shared rule below builds the ring and shadow
+   from them, and an arm that left one unset made the whole box-shadow invalid at computed time, so
+   its hover card drew no ring and no shadow at all (One did, the arm #51187 ships: white glass on a
+   light wallpaper vanished, fs-agent-lane-17's readback on #59205). An arm with its own edge (Soft)
+   still overrides the ring and shadow below. */
+:root[data-hover-look] {
   --hover-look-ring: light-dark(color-mix(in srgb, black 10%, transparent), color-mix(in srgb, var(--cmux-tone-light, white) 12%, transparent));
   --hover-look-lit: light-dark(color-mix(in srgb, var(--cmux-tone-light, white) 70%, transparent), color-mix(in srgb, var(--cmux-tone-light, white) 10%, transparent));
   --hover-look-tooltip-shadow:
@@ -75,4 +79,35 @@
   :is(.ui-tooltip:not(.ui-card), .ui-title-tooltip, .ui-hint, .cu-tooltip).ui-glass {
   --glass-tint: color-mix(in srgb, var(--surface-popup) 72%, transparent);
   --glass-elevation: 0 6px 20px -4px light-dark(color-mix(in srgb, black 18%, transparent), color-mix(in srgb, black 50%, transparent));
+}
+
+/* ONE: one material for every hover surface (Leo, 2026-11-22, softened: "multiple styles for hover
+   previews plus bad-looking translucency blur, unacceptable"). Every tooltip, title tooltip, toolbar
+   hint, chart tooltip and hover card (a subagent's, a session's, a link's, the header's tool preview,
+   the minimap's card) takes the tooltip's contrast-fitted veil (desktop.css --tooltip-tint: the least
+   alpha of the popup surface at which its text keeps 4.5:1 over black and white) over the shared
+   transient frost, and the tooltip's corner. A card keeps elevation 2, a label its tight tooltip
+   shadow. Each one blurs what it covers in place (Tooltip.tsx, AnchoredCard, titleTooltips.ts read
+   oneHoverSurface), so what is behind reads as an even wash, never as smudged words; and the title
+   tooltip yields to any other hover surface (ui/hoverSurface.ts), so one pointer shows one hover. */
+:root[data-hover-look][data-hover-look="one"]
+  :is(.ui-tooltip, .ui-title-tooltip, .ui-hint, .ui-card, .cu-tooltip).ui-glass {
+  --glass-tint: var(--tooltip-tint);
+  --glass-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));
+}
+/* One's edge in light: desktop.css's light shadows ("A card keeps elevation 2, a label its tight
+   tooltip shadow") on the shared hairline ring and lit top edge, so white glass over a light wallpaper
+   keeps an edge. Dark keeps One's look as shipped (no ring, no shadow), so each color is transparent
+   there. */
+:root[data-hover-look][data-hover-look="one"] {
+  --hover-look-ring: light-dark(color-mix(in srgb, black 10%, transparent), transparent);
+  --hover-look-lit: light-dark(color-mix(in srgb, var(--cmux-tone-light, white) 70%, transparent), transparent);
+}
+:root[data-hover-look][data-hover-look="one"]
+  :is(.ui-tooltip:not(.ui-card), .ui-title-tooltip, .ui-hint, .cu-tooltip).ui-glass {
+  --glass-elevation: 0 1px 2px light-dark(color-mix(in srgb, black 7%, transparent), transparent);
+}
+:root[data-hover-look][data-hover-look="one"] .ui-card.ui-glass {
+  border-radius: calc(var(--role-tooltip-radius) * var(--cmux-interface-scale, 1)); /* concentric-allow: every hover surface takes the one hover material's corner, the tooltip's */
+  --glass-elevation: 0 2px 6px light-dark(color-mix(in srgb, black 11%, transparent), transparent);
 }

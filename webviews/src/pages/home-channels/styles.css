@@ -96,7 +96,7 @@ body,
 }
 .hc-tag {
   padding: 0 var(--ds-space-1);
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   font-size: var(--text-caption);
   font-weight: var(--weight-emphasis);
   line-height: 16px;
@@ -600,7 +600,8 @@ body,
 }
 .hc-send.hc-send-later.ui-toolbar-button {
   width: 20px;
-  margin-inline-start: 1px;
+  /* The seam between Send's two halves is a hairline, not a spacing step. */
+  margin-inline-start: var(--cmux-hairline);
   border-start-start-radius: 0;
   border-end-start-radius: 0;
 }
@@ -764,7 +765,7 @@ body,
   margin: 0 0 8px;
   padding: 4px;
   border: 1px solid var(--page-separator);
-  border-radius: 8px;
+  border-radius: var(--ds-radius-lg);
   list-style: none;
 }
 .hc-scheduled-row {
@@ -773,7 +774,7 @@ body,
   gap: 8px;
   min-height: 32px;
   padding: 0 4px 0 8px;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   color: var(--page-text-2);
 }
 .hc-scheduled-row:hover,

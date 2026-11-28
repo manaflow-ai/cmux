@@ -1,5 +1,7 @@
 public import Foundation
+#if canImport(Security)
 import Security
+#endif
 
 /// Storage for push state that the iOS host app writes and its notification
 /// service extension reads: the active account and pinned Mac keys.
@@ -21,7 +23,7 @@ extension Bundle {
     /// The keychain on iOS, scoped by this bundle's host access group; the
     /// Mac has no extension and keeps its existing process-local defaults.
     public var phonePushSharedStateStorage: any PhonePushSharedStateStorage {
-        #if os(iOS)
+        #if os(iOS) && canImport(Security)
         PhonePushKeychainStateStorage(
             accessGroup: PhonePushKeychainStateStorage.accessGroup(in: self)
         )
@@ -32,9 +34,8 @@ extension Bundle {
 }
 
 /// Generic-password items in the host app's keychain access group.
-public struct PhonePushKeychainStateStorage: PhonePushSharedStateStorage {
+public struct PhonePushKeychainStateStorage {
     static let service = "ai.manaflow.cmux.phone-push.shared-state"
-    static let keychainAccessibility = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String
 
     private let accessGroup: String?
 
@@ -61,6 +62,12 @@ public struct PhonePushKeychainStateStorage: PhonePushSharedStateStorage {
         else { return nil }
         return value
     }
+}
+
+// The Keychain calls need Security; on Linux the type keeps only its access-group parsing.
+#if canImport(Security)
+extension PhonePushKeychainStateStorage: PhonePushSharedStateStorage {
+    static let keychainAccessibility = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String
 
     // No call shows UI: each runs inside `KeychainUserInteraction.withoutUI` with a no-prompt context
     // (`serviceQuery` carries it). One that would ask fails: a nil read, a skipped write.
@@ -124,6 +131,7 @@ public struct PhonePushKeychainStateStorage: PhonePushSharedStateStorage {
         return query
     }
 }
+#endif
 
 /// Process-local defaults, used by the Mac.
 public struct PhonePushUserDefaultsStateStorage: PhonePushSharedStateStorage {

@@ -1,12 +1,20 @@
 #!/usr/bin/env python3
-"""Two publication checks for the NEXT nightly, run just before anything is uploaded or a feed changes.
+"""Three publication checks for the NEXT nightly, run just before anything is uploaded or a feed changes.
 
-  nightly_publish_guard.py webview-verdict --source own|recovered --result R --checked-sha S --build-sha B
-                                           [--run-id N] [--repo OWNER/REPO]
+  nightly_publish_guard.py webview-verdict --source own|recovered|run --result R --checked-sha S --build-sha B
+                                           [--run-id N] [--repo OWNER/REPO] [--wait-seconds N]
       Whether the build's tree passed the webview checks (check-nightly-webviews in nightly.yml: the pieces of
       webviews' `bun run check` that gate feat-cmux-next, scripts/ci/fast_gate_webviews_checks.py, which include
       the type check). An own build needs this run's job green on the exact build commit; a recovered build needs
-      the same job green in the run that built it. Prints one line; exits 0 (green) or 3 (refuse: publish nothing).
+      the same job green in the run that built it; run reads it as shelf-verdict does. Prints one line; exits 0 (green) or 3 (refuse: publish nothing).
+
+  nightly_publish_guard.py shelf-verdict --source own|recovered|run --result R --checked-sha S --build-sha B
+                                         [--run-id N] [--repo OWNER/REPO] [--wait-seconds N]
+      Whether the build's App Store shelf works: every Discover listing installs and shows something
+      (check-nightly-app-store-shelf in nightly.yml runs scripts/ci/app-store-shelf-check.sh, the App Store shelf
+      workflow's tests, on the exact build commit). own and recovered read it as webview-verdict does; run (the
+      one-job publisher, which does not wait on the job) reads the job in this run, --run-id, waiting up to
+      --wait-seconds for it to finish. Prints one line; exits 0 (green) or 3 (refuse: publish nothing).
 
   nightly_publish_guard.py known-bad --repo OWNER/REPO [--sha SHA] [--build N] [--github-output PATH]
                                      [--list-file PATH | --list-ref REF]
@@ -20,6 +28,10 @@
 2026-11-02: #32056 (fca2e5f4) landed a temporal-dead-zone read in SessionInfo.tsx (TS2448, which `bun run check`
 reports), every agent pane showed "could not be drawn", and the NEXT nightly published 50298238a before the fix
 #32160 (c8b7f59e) landed; two runs already building that tree could not be stopped.
+
+The shelf check: Leo, 2026-11-16: "if i click install it means it works". The App Store shelf workflow ran only
+on pull requests and pushes that touch the shelf's paths, so nothing stopped a nightly from publishing a tree
+whose shelf was red (feat-cmux-next's shelf runs failed 2026-11-23 19:39-20:02Z).
 """
 from __future__ import annotations
 
@@ -31,6 +43,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.request
 from typing import Callable, Optional
 
@@ -40,6 +53,8 @@ import gh_pages  # noqa: E402
 SHA = re.compile(r"^[0-9a-f]{40}$")
 # check-nightly-webviews's name: in nightly.yml and in the jobs a recovered build's run lists.
 WEBVIEW_JOB = "nightly webview checks"
+# check-nightly-app-store-shelf's name, read the same ways.
+SHELF_JOB = "nightly App Store shelf"
 LIST_PATH = ".github/nightly-known-bad.json"
 LIST_REF = "feat-cmux-next"
 GIT_SECONDS = 180
@@ -47,26 +62,58 @@ GIT_SECONDS = 180
 
 # ---------------------------------------------------------------- webview verdict
 
-def webview_verdict(source: str, result: str, checked_sha: str, build_sha: str,
-                    recovered_jobs: Optional[Callable[[], list]] = None) -> tuple[bool, str]:
-    """(ok, line). recovered_jobs lists the jobs of the run that built a recovered build (latest attempt)."""
+def job_verdict(job: str, what: str, source: str, result: str, checked_sha: str, build_sha: str,
+                run_jobs_fn: Optional[Callable[[], list]] = None, wait_seconds: int = 0,
+                sleep: Callable[[float], None] = time.sleep,
+                clock: Callable[[], float] = time.monotonic) -> tuple[bool, str]:
+    """(ok, line) for the check job named `job`. run_jobs_fn lists the jobs of the run to read (latest attempt):
+    the run that built a recovered build, or (source run) this run, polled until the job completes."""
     if source == "own":
         if result != "success":
-            return False, f"the webview checks ({WEBVIEW_JOB}) are {result or 'missing'} for {build_sha}"
+            return False, f"the {what} ({job}) are {result or 'missing'} for {build_sha}"
         if checked_sha != build_sha:
-            return False, f"the webview checks ran on {checked_sha or 'nothing'}, not the build commit {build_sha}"
-        return True, f"webview checks green on {build_sha}"
-    if source == "recovered":
-        try:
-            jobs = recovered_jobs() if recovered_jobs else []
-        except Exception as error:  # noqa: BLE001  (an unreadable run refuses, never publishes unchecked)
-            return False, f"the recovered build's webview checks could not be read ({error})"
-        named = [job for job in jobs if job.get("name") == WEBVIEW_JOB]
-        if not any(job.get("conclusion") == "success" for job in named):
-            seen = ",".join(sorted({str(job.get("conclusion")) for job in named})) or "missing"
-            return False, f"the recovered build's run has no green {WEBVIEW_JOB} job ({seen}) for {build_sha}"
-        return True, f"webview checks green in the recovered build's run for {build_sha}"
+            return False, f"the {what} ran on {checked_sha or 'nothing'}, not the build commit {build_sha}"
+        return True, f"{what} green on {build_sha}"
+    if source in ("recovered", "run"):
+        whose = "the recovered build's run" if source == "recovered" else "this run"
+        deadline = clock() + (wait_seconds if source == "run" else 0)
+        while True:
+            try:
+                jobs = run_jobs_fn() if run_jobs_fn else []
+            except Exception as error:  # noqa: BLE001  (an unreadable run refuses, never publishes unchecked)
+                return False, f"{whose}'s {what} could not be read ({error})"
+            named = [entry for entry in jobs if entry.get("name") == job]
+            if any(entry.get("conclusion") == "success" for entry in named):
+                return True, f"{what} green in {whose} for {build_sha}"
+            pending = named and all(entry.get("status", "completed") != "completed" for entry in named)
+            if not pending or clock() >= deadline:
+                seen = ",".join(sorted({str(entry.get("conclusion")) for entry in named})) or "missing"
+                if pending:
+                    seen = "still running"
+                return False, f"{whose} has no green {job} job ({seen}) for {build_sha}"
+            sleep(30)
     return False, f"unknown build source '{source}'"
+
+
+def webview_verdict(source: str, result: str, checked_sha: str, build_sha: str,
+                    recovered_jobs: Optional[Callable[[], list]] = None, wait_seconds: int = 0,
+                    sleep: Callable[[float], None] = time.sleep,
+                    clock: Callable[[], float] = time.monotonic) -> tuple[bool, str]:
+    """(ok, line). recovered_jobs lists the jobs of the run that built a recovered build (latest attempt), or this
+    run's jobs for source run (NIGHTLY_COMPONENT_GATES=block, where publish-nightly no longer needs the check)."""
+    if source not in ("own", "recovered", "run"):
+        return False, f"unknown build source '{source}'"
+    return job_verdict(WEBVIEW_JOB, "webview checks", source, result, checked_sha, build_sha, recovered_jobs,
+                       wait_seconds, sleep, clock)
+
+
+def shelf_verdict(source: str, result: str, checked_sha: str, build_sha: str,
+                  run_jobs_fn: Optional[Callable[[], list]] = None, wait_seconds: int = 0,
+                  sleep: Callable[[float], None] = time.sleep,
+                  clock: Callable[[], float] = time.monotonic) -> tuple[bool, str]:
+    """(ok, line) for the App Store shelf check (check-nightly-app-store-shelf)."""
+    return job_verdict(SHELF_JOB, "App Store shelf checks", source, result, checked_sha, build_sha,
+                       run_jobs_fn, wait_seconds, sleep, clock)
 
 
 def run_jobs(repo: str, run_id: str) -> list:
@@ -82,7 +129,8 @@ def run_jobs(repo: str, run_id: str) -> list:
         jobs = gh_pages.items(fetch, f"repos/{repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100")
     except gh_pages.PageCapError as error:
         raise RuntimeError(str(error)) from None
-    return [{"name": job.get("name"), "conclusion": job.get("conclusion")} for job in jobs]
+    return [{"name": job.get("name"), "status": job.get("status"), "conclusion": job.get("conclusion")}
+            for job in jobs]
 
 
 # ---------------------------------------------------------------- known-bad list
@@ -217,6 +265,15 @@ def main(argv: list[str] | None = None) -> int:
     web.add_argument("--build-sha", required=True)
     web.add_argument("--run-id", default="")
     web.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", ""))
+    web.add_argument("--wait-seconds", type=int, default=0)
+    shelf = sub.add_parser("shelf-verdict")
+    shelf.add_argument("--source", required=True)
+    shelf.add_argument("--result", default="")
+    shelf.add_argument("--checked-sha", default="")
+    shelf.add_argument("--build-sha", required=True)
+    shelf.add_argument("--run-id", default="")
+    shelf.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", ""))
+    shelf.add_argument("--wait-seconds", type=int, default=0)
     bad = sub.add_parser("known-bad")
     bad.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", ""))
     bad.add_argument("--sha", default="")
@@ -228,7 +285,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "webview-verdict":
         ok, line = webview_verdict(args.source, args.result, args.checked_sha, args.build_sha,
-                                   lambda: run_jobs(args.repo, args.run_id))
+                                   lambda: run_jobs(args.repo, args.run_id), args.wait_seconds)
+        print(line)
+        return 0 if ok else 3
+    if args.command == "shelf-verdict":
+        ok, line = shelf_verdict(args.source, args.result, args.checked_sha, args.build_sha,
+                                 lambda: run_jobs(args.repo, args.run_id), args.wait_seconds)
         print(line)
         return 0 if ok else 3
 

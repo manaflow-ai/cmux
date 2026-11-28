@@ -50,7 +50,11 @@ impl Members {
     /// Sets `key` (in place when present, else at the end); `None` removes it.
     pub(crate) fn set(&mut self, key: &str, value: Option<Box<RawValue>>) {
         match (self.0.iter().position(|(k, _)| k == key), value) {
-            (Some(at), Some(value)) => self.0[at].1 = value,
+            (Some(at), Some(value)) => {
+                if let Some(entry) = self.0.get_mut(at) {
+                    entry.1 = value;
+                }
+            }
             (Some(at), None) => {
                 self.0.remove(at);
             }
@@ -83,25 +87,5 @@ pub(crate) fn raw_string(text: &str) -> Option<Box<RawValue>> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn keeps_order_and_untouched_text() {
-        let text = "{\n  \"zeta\": 1,\n  \"alpha\": {\"b\": 2,   \"a\": 1},\n  \"env\": {\"TOKEN\": \"x\"}\n}\n";
-        let mut members = Members::parse(text).unwrap();
-        assert_eq!(
-            members.0.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>(),
-            ["zeta", "alpha", "env"]
-        );
-        members.set("new", raw_string("v"));
-        assert_eq!(
-            members.render(0),
-            "{\n  \"zeta\": 1,\n  \"alpha\": {\"b\": 2,   \"a\": 1},\n  \"env\": {\"TOKEN\": \"x\"},\n  \"new\": \"v\"\n}"
-        );
-        members.set("alpha", None);
-        assert!(members.get("alpha").is_none());
-        assert_eq!(Members::parse("  ").unwrap().render(0), "{}");
-        assert!(Members::parse("[1]").is_err());
-    }
-}
+#[path = "ordered_json_tests.rs"]
+mod tests;

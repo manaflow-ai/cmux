@@ -142,7 +142,8 @@ fn server_stats_include_reports_the_hook_queue() {
 }
 
 /// `disk` reports the registry's files, its journal tail by kind and its
-/// sealed segments, only when asked and only for an on-disk registry.
+/// sealed segments, only when asked and only for an on-disk registry;
+/// `disk_checkpoints` adds its checkpoints.
 #[test]
 fn server_stats_include_reports_disk_use_by_file_and_journal_kind() {
     let memory = Mux::new_for_test("server-stats-disk-memory", crate::SurfaceOptions::default());
@@ -178,6 +179,21 @@ fn server_stats_include_reports_disk_use_by_file_and_journal_kind() {
         assert!(kind["budget_bytes_per_day"].as_u64().unwrap_or(0) > 0, "{kind}");
     }
     assert_eq!(disk["segments"]["segments"], 0, "nothing is sealed yet: {disk}");
+    // An older SDK that asks for `disk` refuses unknown fields: checkpoints
+    // come only with their own section name.
+    assert!(disk.get("checkpoints").is_none(), "disk alone keeps its old shape: {disk}");
+
+    let with_checkpoints =
+        stats(&mux, client, json!({"cmd":"server-stats","include":["disk","disk_checkpoints"]}));
+    let disk = &with_checkpoints["disk"];
+    let checkpoints = &disk["checkpoints"];
+    assert!(checkpoints["checkpoints"].is_u64() && checkpoints["bytes"].is_u64(), "{disk}");
+    assert_eq!(
+        checkpoints["budget_bytes"],
+        crate::diagnostics::JOURNAL_CHECKPOINT_BYTES_BUDGET,
+        "{disk}"
+    );
+    assert_eq!(checkpoints["over_budget"], false, "{disk}");
     mux.shutdown();
     let _ = std::fs::remove_dir_all(root);
 }

@@ -42,7 +42,9 @@ import Testing
         #expect(invite.code == "ABCDE12345")
         #expect(invite.displayCode == "ABCDE-12345")
         #expect(invite.line == "cmux pair ABCDE-12345")
-        #expect(invite.installLine == "curl -fsSL https://cmux.com/tui/install-static.sh | sh && ~/.cmux/bin/cmux pair ABCDE-12345")
+        #expect(invite.installLine == AddDevicePlatform.pinnedInstall(then: "~/.cmux/bin/cmux pair ABCDE-12345"))
+        #expect(invite.installLine.contains("install-static/\(AddDevicePlatform.installStaticSHA256).sh"))
+        #expect(!invite.installLine.contains("| sh"), "the invite pins the script, never curl | sh")
         #expect(invite.qrPayload == "https://cmux.com/pair?i=ABCDE12345", "the invite rides in i=, never the server code's c=")
     }
 
@@ -74,15 +76,9 @@ import Testing
         #expect(frame(#"{"t":"voided","reason":"second_redemption"}"#) == .voided(reason: "second_redemption"))
         #expect(frame(#"{"t":"later"}"#) == nil)
         #expect(frame("not json") == nil)
-        #expect(PairInviteFrame.protocols(secret: "abc") == ["cmux.pair-invite.v1", "watch.abc"])
     }
 
-    @Test func theSocketOpensOnTheWorkerAndReadsItsClose() {
-        let base = URL(string: "https://api.cmux.example")!
-        #expect(PairInviteService.watchURL(base, invite: "ABCDE12345").absoluteString
-            == "wss://api.cmux.example/v1/pair/invite/wait?invite=ABCDE12345")
-        #expect(PairInviteService.watchURL(URL(string: "http://localhost:8787")!, invite: "ABCDE12345").absoluteString
-            == "ws://localhost:8787/v1/pair/invite/wait?invite=ABCDE12345")
+    @Test func theSocketsCloseReadsAsExpiredOrLost() {
         let invite = PairInvite(code: "ABCDE12345", expiresAt: Date(timeIntervalSince1970: 1000), watchSecret: "w")
         #expect(PairInviteService.closed(4408, invite: invite, now: Date(timeIntervalSince1970: 100)) == .expired)
         #expect(PairInviteService.closed(0, invite: invite, now: Date(timeIntervalSince1970: 995)) == .expired,

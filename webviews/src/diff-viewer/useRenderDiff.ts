@@ -231,6 +231,8 @@ export function useRenderDiff(
           return declaredSet;
         };
         const streamedItems: DiffItem[] = [];
+        // id -> first index into streamedItems (as findIndex), so a reconcile's rename is O(1), not a scan per rename.
+        const streamedIndex = new Map<string, number>();
         // A reconcile's renames, applied to the reader's file and the draft when its items commit.
         const renames: { oldId: string; newId: string }[] = [];
         let heldTree: Parameters<StreamPatchOptions["onTreeSource"]>[0] | null = null;
@@ -245,7 +247,10 @@ export function useRenderDiff(
           onBatch: (items) => {
             if (cancelled) return;
             if (items.length > 0) markDiffOpen("firstBatch");
-            streamedItems.push(...items);
+            for (const item of items) {
+              if (!streamedIndex.has(item.id)) streamedIndex.set(item.id, streamedItems.length);
+              streamedItems.push(item);
+            }
             if (!reconciling) dispatch({ type: "append-items", items });
           },
           onComplete: (metrics) => {
@@ -291,8 +296,12 @@ export function useRenderDiff(
               return;
             }
             renames.push({ oldId: rename.oldId, newId: rename.newId });
-            const index = streamedItems.findIndex((item) => item.id === rename.oldId);
-            if (index >= 0) streamedItems[index] = { ...streamedItems[index], id: rename.newId };
+            const index = streamedIndex.get(rename.oldId);
+            if (index != null && streamedItems[index]?.id === rename.oldId) {
+              streamedItems[index] = { ...streamedItems[index], id: rename.newId };
+              streamedIndex.delete(rename.oldId);
+              if (!streamedIndex.has(rename.newId)) streamedIndex.set(rename.newId, index);
+            }
           },
           onTreeSource: (source) => {
             if (cancelled) return;

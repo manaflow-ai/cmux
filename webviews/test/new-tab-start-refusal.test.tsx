@@ -3,10 +3,12 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { translate as t } from "../src/agent-session/acpmux/i18n";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
-import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { translate: t } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
+const { proseMirrorGlobals } = await importWithDom(() => import("../src/agent-session/acpmux/promptFieldTesting"));
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, { had: boolean; value: unknown }>();
@@ -260,24 +262,21 @@ for (const [remoteStart, trust, reconnectStart, decline, promptTrust] of [
       "inline refusal",
     );
     expect(starts[0]._meta.acpmux.peer).toBe(remoteStart ? "devbox" : undefined);
+    if (!remoteStart && !trust) {
+      // A local start that fails before any chat opened comes back to New Tab, the failure said in
+      // place (Retry, Details) and the prompt still in its field, never the chat view's empty-chat
+      // hero (Leo, 2026-11-17: "this is an old a** deprecated view. this should not have been shown.";
+      // test/new-tab-start-frames.test.ts).
+      await until(() => !!host.querySelector(".nt-field"), "the failed local start is back on New Tab");
+      await until(() => promptValue() === "inspect the failed build", "the refused prompt is kept in New Tab's field");
+      expect(host.querySelector("[data-error-detail]")?.textContent).toContain("agent unavailable");
+      expect(prompts).toHaveLength(0);
+      return;
+    }
     if (!remoteStart) {
       // A local start becomes its chat at once, with the prompt queued in it (Leo 2026-10-30: "I
-      // SHOULD BE ALWAYS ABLE TO SATRT NEW FUCKGN CHATS"): the refusal shows in the chat, and the
-      // prompt is never lost, back in the chat's composer.
+      // SHOULD BE ALWAYS ABLE TO SATRT NEW FUCKGN CHATS"); Trust is asked in the chat.
       await until(() => !host.querySelector(".nt-field"), "the local start becomes its chat");
-      if (!trust) {
-        // The refusal says why in the chat, and the prompt is still on the page (its failed row or the
-        // chat's composer): nothing typed is lost.
-        await until(() => !!host.textContent?.includes("agent unavailable"), "the chat says why it did not start");
-        const kept = () =>
-          host.textContent?.includes("inspect the failed build") ||
-          [...host.querySelectorAll<HTMLElement>("[contenteditable='true']")].some((node) =>
-            node.textContent?.includes("inspect the failed build"),
-          );
-        await until(() => !!kept(), "the refused prompt is kept");
-        expect(prompts).toHaveLength(0);
-        return;
-      }
       await until(() => !!host.querySelector(".acpmux-trust-ask-primary"), "Trust in the chat");
       await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-trust-ask-primary")!.click());
       await until(() => prompts.length === 1, "Trust sends the prompt exactly once");

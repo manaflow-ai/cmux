@@ -169,7 +169,9 @@ final class AppReviewGateUITests: XCTestCase {
     /// shows.
     @MainActor
     func testChiefOpensAndAMessageSendsWithAReply() throws {
-        var app = launch(arguments: ["-cmux-mobile-tab", "home"])
+        // The reviewer has not agreed to Chief's AI sharing yet (5.1.2(i)): the first send asks.
+        let unasked = ["-cmuxMobile.chief.aiSharingConsent", "NO"]
+        var app = launch(arguments: ["-cmux-mobile-tab", "home"] + unasked)
         defer { app.terminate() }
         let chief = element("home.chief", in: app)
         let macChief = element("home.chief.mac", in: app)
@@ -181,7 +183,7 @@ final class AppReviewGateUITests: XCTestCase {
             // the conversation itself from its own launch.
             gateNote("chief-from-home-unjudged", "Home listed no Chief row, so Chief was opened with -cmux-mobile-demo chief-open")
             app.terminate()
-            app = launch(arguments: ["-cmux-mobile-demo", "chief-open"])
+            app = launch(arguments: ["-cmux-mobile-demo", "chief-open"] + unasked)
         }
         XCTAssertTrue(field.waitForExistence(timeout: 20), "Chief must open with a message box; on screen: \(onScreen(app))")
         capture("chief-01-open", app)
@@ -200,10 +202,26 @@ final class AppReviewGateUITests: XCTestCase {
         XCTAssertTrue(send.waitForExistence(timeout: 5), "Chief must have a Send button")
         XCTAssertTrue(send.isEnabled, "Send must be enabled with a draft")
         send.tap()
-        capture("chief-02-sent", app)
+        // 5.1.2(i): before anything goes to an AI provider, Chief names the providers and
+        // asks; Agree and Send sends the draft.
+        let consent = app.alerts.firstMatch
+        XCTAssertTrue(consent.waitForExistence(timeout: 5),
+                      "the first send to Chief must ask to share with the AI providers (5.1.2(i)); on screen: \(onScreen(app))")
+        if consent.exists {
+            let text = consent.staticTexts.allElementsBoundByIndex.map(\.label).joined(separator: " ")
+            XCTAssertTrue(text.contains("Anthropic") && text.contains("OpenAI"),
+                          "the AI sharing question must name the providers (5.1.2(i)); it says: \(text)")
+            capture("chief-01b-ai-consent", app)
+            let agree = consent.buttons["Agree and Send"]
+            XCTAssertTrue(agree.exists, "the AI sharing question must offer Agree and Send; buttons: \(consent.buttons.allElementsBoundByIndex.map(\.label))")
+            XCTAssertTrue(consent.buttons["Not Now"].exists, "the AI sharing question must offer Not Now")
+            if agree.exists { agree.tap() }
+        }
         let mine = messages.matching(NSPredicate(format: "label CONTAINS %@", draft)).firstMatch
         XCTAssertTrue(mine.waitForExistence(timeout: 10),
                       "the sent message must show; app alert: \(app.alerts.firstMatch.exists ? app.alerts.firstMatch.label : "none"); transcript: \(transcript(messages)); on screen: \(onScreen(app))")
+        // Once the message has landed: taken at the tap, the still caught the bubble in flight.
+        capture("chief-02-sent", app)
         // The mock Chief reads, types, then replies within about 4 s: a
         // message from Chief below the one sent.
         let fromChief = messages.matching(NSPredicate(format: "label BEGINSWITH %@", "Chief"))
@@ -388,6 +406,8 @@ final class AppReviewGateUITests: XCTestCase {
         let email = app.buttons["Continue with email"]
         XCTAssertTrue(email.waitForExistence(timeout: 20), "sign-in must show; on screen: \(onScreen(app))")
         capture("type-xxxl-signin", app)
+        // Judged at the top, as it opens, and again after scrolling to the end.
+        assertNothingOffscreen(app, step: "type-xxxl-signin-top")
         for label in ["Continue with Apple", "Continue with Google", "Continue with GitHub", "Continue with email"] {
             let button = app.buttons[label]
             scrollTo(button, in: app)
@@ -601,6 +621,12 @@ final class AppReviewGateUITests: XCTestCase {
         environment: [String: String] = [:]
     ) -> XCUIApplication {
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-cmux-mobile-no-restore"]
+        // The same stills on every run, so a run's screens compare with its base's: mock data
+        // stamped at one fixed instant (2026-10-02 21:20 UTC) read in one time zone, and every
+        // spinner held still. Unfixed, a third of the screens differed between two runs of the
+        // same commit (a row's "12:41 AM", a spinner's angle).
+        app.launchArguments += ["-cmux-mobile-fixed-now", "1790976000", "-cmux-stills"]
+        app.launchEnvironment["TZ"] = "America/Los_Angeles"
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         if signedIn {
             app.launchArguments += ["-cmuxMobile.setupComplete", setupComplete ? "YES" : "NO"]
@@ -755,8 +781,16 @@ final class AppReviewGateUITests: XCTestCase {
             guard button.exists, button.isHittable else { continue }
             let frame = button.frame
             if keyboards.contains(where: { $0.contains(CGPoint(x: frame.midX, y: frame.midY)) }) { continue }
-            // A row of a scrolling list may run past the bottom edge; a
-            // control cut off at the sides is a layout glitch.
+            // A row of a scrolling list may run past the top or bottom edge;
+            // it is judged where it is whole (at the top, or once scrolled
+            // to). On iPad a control scrolled partly off the top reports its
+            // frame in the iPhone app's own unscaled points, not the screen's
+            // (feat-cmux-next gate run 45740664901: Continue with Apple at
+            // (20, -30, 350, 217.5), 390 pt wide less 20 pt margins, while it
+            // drew inside the window at (199, 0, 635, 1376)), so its sides
+            // would be judged against the wrong space.
+            guard frame.minY >= window.minY - 1, frame.maxY <= window.maxY + 1 else { continue }
+            // A control cut off at the sides is a layout glitch.
             XCTAssertTrue(
                 frame.minX >= window.minX - 1 && frame.maxX <= window.maxX + 1 && frame.intersects(window),
                 "\(step): \(button.identifier.isEmpty ? button.label : button.identifier) is outside the window \(frame) vs \(window)"
@@ -768,9 +802,25 @@ final class AppReviewGateUITests: XCTestCase {
     private func capture(_ name: String, _ app: XCUIApplication) {
         // The whole screen: on iPad the app's own screenshot is cropped to the
         // phone-sized frame at the screen's corner, not to its window.
-        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        let shot = XCTAttachment(screenshot: settledScreenshot())
         shot.name = "gate-\(isIPad ? "ipad" : "iphone")-\(name)"
         shot.lifetime = .keepAlways
         add(shot)
+    }
+
+    /// The screen once it holds still: two shots a quarter second apart that match (a transition,
+    /// a scroll or a keyboard has finished moving), else the last one after 3 s.
+    @MainActor
+    private func settledScreenshot() -> XCUIScreenshot {
+        var shot = XCUIScreen.main.screenshot()
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline {
+            // An intentional, bounded wait: a quarter second between two shots.
+            _ = XCTWaiter.wait(for: [XCTestExpectation(description: "settle")], timeout: 0.25)
+            let next = XCUIScreen.main.screenshot()
+            if next.pngRepresentation == shot.pngRepresentation { return next }
+            shot = next
+        }
+        return shot
     }
 }
