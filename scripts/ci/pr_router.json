@@ -438,6 +438,8 @@
     "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/Sidebar*Bench*.swift",
     "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarChief*.swift",
     "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ChiefFaceFlushBench*.swift",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/HomeBridgeBench*.swift",
+    "Packages/macOS/CmuxNext/app-ffi-pin.json",
     ".github/workflows/cmux-next-sidebar-bench.yml"
    ],
    "affects": [
@@ -449,9 +451,11 @@
     "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/Sidebar*Bench*.swift",
     "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarChief*.swift",
     "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ChiefFaceFlushBench*.swift",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/HomeBridgeBench*.swift",
+    "Packages/macOS/CmuxNext/app-ffi-pin.json",
     ".github/workflows/cmux-next-sidebar-bench.yml"
    ],
-   "affects_why": "SidebarChiefLagTests and ChiefFaceFlushBenchTests read the sidebar row feed and bridge (Sources/**/Sidebar*), the Chief faces and pet settings (*Chief*), the Home rules and engine they flush through, and the bench files themselves; a change touching none of them moves no SIDEBAR-CHIEF-LAG number.",
+   "affects_why": "SidebarChiefLagTests, ChiefFaceFlushBenchTests and HomeBridgeBenchTests (bytes and calls over the home rules bridge; the app FFI pin is the Rust side it calls) read the sidebar row feed and bridge (Sources/**/Sidebar*), the Chief faces and pet settings (*Chief*), the Home rules and engine they flush through, and the bench files themselves; a change touching none of them moves no SIDEBAR-CHIEF-LAG number.",
    "skip_docs_only": true
   },
   "bench-relevance-pr.yml": {

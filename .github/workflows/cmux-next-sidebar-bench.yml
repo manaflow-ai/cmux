@@ -8,6 +8,8 @@ name: cmux-next sidebar bench
 #   SidebarChiefLagTests       SidebarLagBench ticks and SidebarScrollBench with SidebarChiefFixture (1104 rows,
 #                              5 Chiefs owning every chat, a ~160 KB settings file), before and after lines
 #   ChiefFaceFlushBenchTests   one full sidebar flush at that scale (run once its file is on the head)
+#   HomeBridgeBenchTests      the same sidebar's remap and ticks under a HomeRulesMeter: no home rules call over
+#                              16 KB (the settings root), no more calls than rows (RFD 0225 gap 1), HOME-BRIDGE lines
 # The benches take seconds; the fleet build of CmuxNext is most of the job.
 #
 # The Mac run is a fleet step submitted from a Linux runner by the cmux-ci client (as cmux-next-fast-tier-batch.yml
@@ -54,6 +56,7 @@ jobs:
             .github/actions/fleet-client
             Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarChiefLagTests.swift
             Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ChiefFaceFlushBenchTests.swift
+            Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/HomeBridgeBenchTests.swift
           sparse-checkout-cone-mode: false
 
       - uses: ./.github/actions/fleet-client
@@ -77,7 +80,7 @@ jobs:
           # A filter that runs no test fails the lane, so a bench whose file is not on the head is left out.
           suites=()
           tests=Packages/macOS/CmuxNext/Tests/CmuxNextAppTests
-          for suite in SidebarChiefLagTests ChiefFaceFlushBenchTests; do
+          for suite in SidebarChiefLagTests ChiefFaceFlushBenchTests HomeBridgeBenchTests; do
             if [[ -f "$tests/$suite.swift" ]]; then suites+=("$suite"); else echo "$suite is not on $REF: skipped"; fi
           done
           if [[ ${#suites[@]} -eq 0 ]]; then echo "no sidebar bench on $REF"; exit 0; fi
@@ -95,6 +98,7 @@ jobs:
             printf '%s\n' "$line"
             if [[ -z "$id" && "$line" =~ $step_re ]]; then id="${BASH_REMATCH[1]}"; fi
             if [[ "$line" == *SIDEBAR-CHIEF-* ]]; then printf '    %s\n' "${line#*SIDEBAR-}" >> "$GITHUB_STEP_SUMMARY"; fi
+            if [[ "$line" == *HOME-BRIDGE* ]]; then printf '    %s\n' "HOME-BRIDGE${line#*HOME-BRIDGE}" >> "$GITHUB_STEP_SUMMARY"; fi
           done < "$RUNNER_TEMP/sidebar-bench.log"
           if [[ -n "$id" ]] && json="$("$client" status "$id" 2>&1)"; then
             if [[ "$json" =~ $state_re ]]; then state="${BASH_REMATCH[1]}"; fi

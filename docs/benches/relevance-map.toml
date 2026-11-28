@@ -105,10 +105,14 @@ paths = [
 
 [[area]]
 name = "Swift↔Rust bridge (sync calls from the main actor)"
-paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeRules.swift"]
+paths = [
+  "Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/HomeRules.swift",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeRules.swift",
+]
 situations = ["bridge", "main-thread"]
-benches = []
-tests = ["swift test --package-path Packages/macOS/CmuxNext --filter CmuxNextAppTests"]
+benches = ["HomeBridgeBenchTests"]
+tests = ["swift test --package-path Packages/macOS/CmuxNext --filter CmuxNextAppTests.HomeBridgeBenchTests"]
+budget = "one home rules call at most 16 KB; at most one call per row and 1 MB a pass at 1,104 rows x 5 Chiefs"
 
 [[area]]
 name = "Swift↔Rust bridge"
@@ -118,7 +122,7 @@ paths = [
   "cmux-tui/crates/cmux-app-ffi",
 ]
 situations = ["bridge"]
-benches = ["ChiefFaceFlushBenchTests"]
+benches = ["ChiefFaceFlushBenchTests", "HomeBridgeBenchTests"]
 tests = [
   "cargo test --manifest-path cmux-tui/Cargo.toml -p cmux-home-rules",
   "cargo test --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml -p cmux-app-ffi",
