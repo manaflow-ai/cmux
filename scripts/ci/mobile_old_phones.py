@@ -79,7 +79,7 @@ def fetch_runs(repo: str, token: str, *, opener=urllib.request.urlopen, sleep=ti
     """Read the shipped phone runs; a 403/429/5xx (a busy repo's token rate limit) retries, and the last
     one names GitHub's own reason instead of a bare traceback. With RESET_WAIT_MAX set, a spent quota
     (x-ratelimit-remaining=0) whose x-ratelimit-reset is that close gets one more read after the reset:
-    run 46141489174 had no earlier list to fall back on (the runner's cache is per host) and died 90 s
+    run 46141489174 had no earlier list to fall back on (the repo's caches sit at GitHub's 10 GB limit and evicted it) and died 90 s
     in, with the quota due back within the hour."""
     reset_waited = False
     attempt = 0
@@ -112,8 +112,8 @@ def resolve(repo: str, token: str, count: int, cache: Path | None, *, fetch=fetc
     """The phone build lines and whether they are fresh. The repo's token shares one hourly quota with every
     workflow, and runs 46116606886 and 46125947911 died on "API rate limit exceeded for installation"
     (x-ratelimit-remaining=0) after every retry. Builds ship about nightly, so the last list read
-    (kept in CACHE, which the workflow carries between runs) answers until the quota resets. The runner's
-    cache is per host, so most runs have none: those wait for the reset instead (fetch_runs)."""
+    (kept in CACHE, which the workflow carries between runs) answers until the quota resets. The repo's
+    caches sit at GitHub's 10 GB limit, so that list is often evicted: those runs wait for the reset (fetch_runs)."""
     have_old = bool(cache and cache.is_file() and cache.read_text().strip())
     try:
         got = shipped_commits(fetch(repo, token, reset_wait_max=0 if have_old else RESET_WAIT_MAX_S), count)

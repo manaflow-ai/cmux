@@ -150,7 +150,7 @@ class FetchRunsRetryTest(unittest.TestCase):
         self.assertIn("rate limit", str(cm.exception))
 
     def test_spent_quota_without_a_cache_reads_again_after_the_reset(self):
-        # Run 46141489174: no earlier list (the runner cache is per host), quota due back in minutes,
+        # Run 46141489174: no earlier list (evicted from the full repo cache), quota due back in minutes,
         # and the job died after 85 s of retries.
         import io
         calls, slept = [], []
