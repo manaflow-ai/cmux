@@ -6,8 +6,8 @@ extension TabStripView: TabDropTargetProviding {
     public func dropHitTest(screenPoint: CGPoint, payload: TabDragPayload) -> TabDropProposal? {
         let target: TabStripDropTarget?
         switch payload {
-        case .tab:
-            target = updatePhantom(atScreenPoint: screenPoint)
+        case .tab(_, _, let width):
+            target = updatePhantom(atScreenPoint: screenPoint, width: width > 0 ? width : nil)
         case .tabGroup(_, _, _, let width):
             target = updateGroupPhantom(atScreenPoint: screenPoint, width: width)
         }
@@ -47,7 +47,7 @@ extension TabStripView: TabDropTargetProviding {
         // drop changed and keeps an unrelated pending reorder or regroup.
         let before = (order: orderOverride, membership: groups.membershipOverride)
         switch payload {
-        case .tab(let id, _): commitPhantom(tabID: TabID(id))
+        case .tab(let id, _, _): commitPhantom(tabID: TabID(id))
         case .tabGroup(let id, _, _, _): commitGroupPhantom(groupID: TabGroupID(id))
         }
         let after = (order: orderOverride, membership: groups.membershipOverride)
@@ -62,6 +62,7 @@ extension TabStripView: TabDropTargetProviding {
                 dropPlaceholderIndex = nil
                 dropPlaceholderGroup = nil
                 groups.phantomWidth = nil
+                groups.phantomTabWidth = nil
             }
             if after.order != before.order, orderOverride == after.order { orderOverride = before.order }
             if after.membership != before.membership, groups.membershipOverride == after.membership {

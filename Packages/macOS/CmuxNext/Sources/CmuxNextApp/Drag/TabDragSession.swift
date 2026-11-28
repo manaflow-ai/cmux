@@ -44,7 +44,7 @@ final class TabDragSession: NSObject {
 
     func begin(_ start: TabDragStart, from pane: PaneController) {
         let item = Item.tab(start.tabID.rawValue)
-        let payload = TabDragPayload.tab(id: start.tabID.rawValue, sourceStripID: start.stripID)
+        let payload = TabDragPayload.tab(id: start.tabID.rawValue, sourceStripID: start.stripID, width: start.screenFrame.width)
         begin(item: item, payload: payload, frame: start.screenFrame, grabOffset: start.grabOffset, point: start.screenPoint,
               image: start.snapshot?.cgImage, onGlass: start.snapshotOnGlass, previewTab: start.tabID.rawValue, draggedCount: 1, pane: pane)
     }

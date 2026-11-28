@@ -4,7 +4,9 @@ public import Foundation
 /// What the App's `TabDragSession` is dragging. Ids are the daemon's raw ids
 /// so every feature module can conform without importing each other.
 public nonisolated enum TabDragPayload: Hashable, Sendable {
-    case tab(id: String, sourceStripID: UUID)
+    /// A single tab. `width` is its width in its source strip, so a destination strip opens a gap of that size and
+    /// its ghost keeps its shape (0: unknown, the strip's standard width).
+    case tab(id: String, sourceStripID: UUID, width: CGFloat = 0)
     /// A whole tab group. `width` is the group's width in its source strip,
     /// so a destination strip can open a gap of the same size.
     case tabGroup(id: String, tabIDs: [String], sourceStripID: UUID, width: CGFloat)

@@ -51,7 +51,7 @@ package final class TabDragGhostPanel {
                  source: TabStripView? = nil, payload: TabDragPayload? = nil) {
         self.onGlass = onGlass
         self.source = source
-        if case .tab(let id, _) = payload { sourceTab = TabID(id) } else { sourceTab = nil }
+        if case .tab(let id, _, _) = payload { sourceTab = TabID(id) } else { sourceTab = nil }
         self.tabSize = tabSize
         self.grabOffset = grabOffset
         pad = DragTunables.ghostPanelPad.value
@@ -59,7 +59,7 @@ package final class TabDragGhostPanel {
         cardSize = TabDragGeometry.cardSize(tabSize: tabSize, aspect: aspect, inset: inset)
         panelSize = CGSize(width: max(cardSize.width, tabSize.width * 1.6, 320) + pad * 2,
                            height: max(cardSize.height, tabSize.height * 1.6) + pad * 2)
-        panel = NSPanel(contentRect: NSRect(origin: .zero, size: panelSize), styleMask: [.borderless, .nonactivatingPanel],
+        panel = GhostPanelWindow(contentRect: NSRect(origin: .zero, size: panelSize), styleMask: [.borderless, .nonactivatingPanel],
                         backing: .buffered, defer: false)
         // A drag can cross windows of different rooms; the ghost keeps the
         // app theme (Ghostty config).
@@ -199,6 +199,12 @@ extension TabDragGhostPanel: ThemeResponsive {
         CATransaction.commit()
         if let lastMotion { render(lastMotion) }
     }
+}
+
+/// The ghost's panel: it follows the pointer over a window whose tab row meets the screen's top, so its shadow room
+/// reaches under the menu bar. AppKit's constraint would push it down, off the slot it shows.
+final class GhostPanelWindow: NSPanel {
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
 }
 
 /// Layer-backed root that never takes the mouse.
