@@ -9,6 +9,12 @@ export interface WalkTraits {
   twoTone?: boolean;
   solid?: boolean;
   dense?: boolean;
+  /** Chat as message bubbles (Codex). */
+  messages?: boolean;
+  /** One round composer (Codex, Studio). */
+  round?: boolean;
+  /** A new chat's composer in the middle of the pane (Studio). */
+  centered?: boolean;
 }
 
 /** A miniature of the whole app (titlebar with tabs, sidebar, a pane with a composer) in one scheme,
@@ -24,6 +30,9 @@ export function Miniature({ bundle, face }: { bundle: { traits: WalkTraits }; fa
       data-two-tone={t.twoTone || undefined}
       data-solid={t.solid || undefined}
       data-dense={t.dense || undefined}
+      data-messages={t.messages || undefined}
+      data-round={t.round || undefined}
+      data-centered={t.centered || undefined}
       aria-hidden="true"
     >
       <span className="onb-walk-mini-bar">
@@ -39,7 +48,7 @@ export function Miniature({ bundle, face }: { bundle: { traits: WalkTraits }; fa
         </span>
         <span className="onb-walk-mini-pane">
           <span className="onb-walk-mini-line" />
-          <span className="onb-walk-mini-line" data-short="" />
+          <span className="onb-walk-mini-line" data-short="" data-mine={t.messages || undefined} />
           {t.dense && <span className="onb-walk-mini-line" />}
           <span className="onb-walk-mini-composer" />
         </span>

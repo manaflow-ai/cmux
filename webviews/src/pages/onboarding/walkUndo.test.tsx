@@ -53,6 +53,9 @@ async function mount(introWalk = true) {
 
 const button = (root: HTMLElement, text: string) =>
   [...root.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.includes(text));
+type Write = { path: string; value: string | number | boolean | null };
+const writesOf = (call: { op: string; params: unknown } | undefined) => (call!.params as { writes: Write[] }).writes;
+const asValues = (writes: Write[]) => Object.fromEntries(writes.map((w) => [w.path, w.value]));
 const cmdZ = (shiftKey = false) =>
   window.dispatchEvent(
     new KeyboardEvent("keydown", { key: shiftKey ? "Z" : "z", metaKey: true, shiftKey, bubbles: true }),
@@ -71,33 +74,40 @@ describe("intro walk: Undo / Redo", () => {
     const redo = () => button(root, strings.t("onboarding.button.redo"))!;
     expect(undo().disabled).toBe(true);
     expect(redo().disabled).toBe(true);
-    await act(async () => root.querySelector<HTMLInputElement>('input[name="look"][value="twoToneStudio"]')!.click());
-    expect(calls).toEqual([{ op: OPS.walk, params: { writes: [{ path: "appearance.twoTone", value: "auto" }] } }]);
-    await land({ "appearance.twoTone": "auto" });
+    await act(async () => root.querySelector<HTMLInputElement>('input[name="look"][value="studio"]')!.click());
+    expect(calls.map((c) => c.op)).toEqual([OPS.walk]);
+    const picked = writesOf(calls[0]);
+    expect(picked).toContainEqual({ path: "appearance.twoTone", value: "auto" });
+    expect(picked).toContainEqual({ path: "agentPane.composerLook", value: "studio" });
+    await land(asValues(picked));
     expect(undo().disabled).toBe(false);
     calls.length = 0;
     await act(async () => undo().click());
-    expect(calls).toEqual([{ op: OPS.walk, params: { writes: [{ path: "appearance.twoTone", value: null }] } }]);
-    await land({ "appearance.twoTone": null });
+    // Undo puts back every path the pick wrote, each at its opening value.
+    const undone = writesOf(calls[0]);
+    expect(undone.map((w) => w.path).sort()).toEqual(picked.map((w) => w.path).sort());
+    expect(undone).toContainEqual({ path: "appearance.twoTone", value: null });
+    await land(asValues(undone));
     expect(undo().disabled).toBe(true);
     expect(redo().disabled).toBe(false);
     calls.length = 0;
     await act(async () => cmdZ(true));
-    expect(calls).toEqual([{ op: OPS.walk, params: { writes: [{ path: "appearance.twoTone", value: "auto" }] } }]);
-    await land({ "appearance.twoTone": "auto" });
+    expect(asValues(writesOf(calls[0]))).toEqual(asValues(picked));
+    await land(asValues(picked));
     calls.length = 0;
     await act(async () => cmdZ());
-    expect(calls).toEqual([{ op: OPS.walk, params: { writes: [{ path: "appearance.twoTone", value: null }] } }]);
+    expect(asValues(writesOf(calls[0]))).toEqual(asValues(undone));
     await done();
   });
 
   test("a new pick after Undo drops Redo", async () => {
-    const { root, land, done } = await mount();
+    const { calls, root, land, done } = await mount();
     const redo = () => button(root, strings.t("onboarding.button.redo"))!;
-    await act(async () => root.querySelector<HTMLInputElement>('input[name="look"][value="twoToneStudio"]')!.click());
-    await land({ "appearance.twoTone": "auto" });
+    await act(async () => root.querySelector<HTMLInputElement>('input[name="look"][value="studio"]')!.click());
+    await land(asValues(writesOf(calls[0])));
+    calls.length = 0;
     await act(async () => cmdZ());
-    await land({ "appearance.twoTone": null });
+    await land(asValues(writesOf(calls[0])));
     expect(redo().disabled).toBe(false);
     await act(async () => root.querySelector<HTMLInputElement>('input[name="look"][value="glasshouse"]')!.click());
     expect(redo().disabled).toBe(true);
