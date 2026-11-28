@@ -12,6 +12,27 @@ Details: [scripts/bench/README.md](../bench/README.md).
 
 This file indexes every entry in `scripts/measure/`. Registered benches wrap some of these scripts; the rest are listed below by area. Status is by last commit date as of 2026-11-16: `active` is touched in the last 30 days, `stale` is not.
 
+## NIGHTLY GUI probe transport
+
+`ext-rows-nightly.sh rows=agent_prompts cu_host=nightly` and
+`accounts-nightly-launch.py cu_host=nightly` explicitly use the fleet Mac's installed
+`/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux` for Computer Use. The direct
+Python probes accept `--cu-host nightly`; omission retains the existing PATH transport.
+The app being tested remains the isolated copy and every interaction is scoped to its PID.
+
+The shared transport reads `server status` for `cmux-app-nightly`, validates the returned
+session, PID and absolute socket, then runs `computer-use doctor` against that socket.
+Only exit zero permits MCP startup. MCP receives `CMUX_TUI_SOCKET` explicitly because its
+transport does not use global CLI flags. Probe app identity variables are removed only
+from this host client's child environment. A missing host CLI, unavailable daemon, failed
+doctor or denied tool ends the probe; no settings, permissions or services are changed,
+and there is no alternate driver. A fleet GUI label alone does not prove product Computer
+Use readiness. Receipts include the selected host executable, session, PID and socket.
+
+Regression detector: `python3.9 tests/test_accounts_nightly_transport.py` checks the real
+subprocess arguments/environment, launcher/parser compatibility and failure before probe
+actions, including doctor refusal and terminal MCP denial.
+
 ## Registered benches
 
 | bench | wraps (script) | what |
@@ -56,6 +77,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | workspace-factory | `workspace-factory.sh` (`workspace-factory/`, the `wsfactory` Rust factory) on a fleet Mac | A per-job throwaway workspace (APFS clone of a read-only seed) against today's cold and warm-slot step workspaces: start, build, cache hit, disk left behind. |
 | stress | `split-spring.sh --suite=stress` (`scripts/cmux-next/stress-bench.py`, `stress_load.py`; the cli angle runs `scripts/stress-cli-socket-api.py`) on the exclusive bench worker | The app under extreme stress, one angle per launch (cpu/thread starvation, many streaming mock chats with long transcripts, many workspaces with output floods, CLI/socket flood, memory past RAM into swap): frame p50/p95, dropped frames, input latency, daemon RTT, app CPU, footprint, hangs, baseline and stress window each. |
 | dev-loop | `dev-loop-ceiling.sh` (`dev-loop/<loop>.sh`, `dev-loop/bound.py`) on a fleet Mac | Edit to running for web swap, daemon restart, Swift inject and the startup loop, each over its simulated stage-floor bound; worst ratio (goal dev-loop-ceiling). |
+| app-try-plan | `app-try-plan.py` (hot-verify.py's snapshot(), the dir: source half of plan, in process, two arms alternated) on a fleet Mac or any checkout | The plan phase of a repeat `cmux app try dir:` of an unchanged tree: a throwaway index copy per snapshot against the kept one (goal team-dev-build-is-swap). |
 | agent-class-duress | `agent-class-duress.sh` (`agent-class-duress/work.c`, `spin.c`, `probe.c`) on a fleet Mac | An agent's tool loop (parallel CPU work plus uncached reads) idle, at 80% and at full load from default-priority threads, in background class (the old static default) and at the dynamic class's normal tier; and the dynamic controller's own reading per load (busy, interactive-thread lateness, share of seconds it would demote). |
 | coord-sim | `coord-sim-linux.sh` (crate `cmux-tui/crates/coord-sim`) on Linux CI; also the perf cron's coord-sim part | Several synthetic coordinator chats at once into a release acpmux: event delivery p50/p95/p99, lost and duplicated events, attach and first paint under load, history paging, prompt ack and echo, daemon RSS and its slope, memory and CPU per chat. |
 | projection-way-back | `a_bench_of_bring_back` (`cmux-tui/crates/cmux-tui/tests/link_project_back.rs`) on Linux CI | Bring Back of a projected folder against today's pull (`seed pull --or-copy`) at N files and 50 edits, over a 50 ms RTT link; the plan step and the pure plan's cost. |
@@ -75,6 +97,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 |---|---|---|---|---|
 | `dev-loop-ceiling.sh` | Runs each `dev-loop/<loop>.sh` on one Mac, then `dev-loop/bound.py` (dev-loop bench). | goal dev-loop-ceiling | 2026-11-21 | active |
 | `dev-loop/bound.py` | Each loop's p50 over the Monte Carlo critical path of its stage floors; writes report.json. | goal dev-loop-ceiling | 2026-11-21 | active |
+| `app-try-plan.py` | Times hot-verify.py's snapshot() of the checkout itself, throwaway vs kept index copy (app-try-plan bench). | goal team-dev-build-is-swap | 2026-11-28 | active |
 
 ## Launch and update
 
@@ -146,6 +169,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `perf-10x-daemon.sh` | Request latency of a headless cmux-tui (raw, 10 clients, CLI). | perf-10x | 2026-10-18 | active |
 | `app-stream-bytes.sh` | Bytes a second acpmux sends the app's chat panes by kind, and its CPU (bench app-stream-bytes). | CMUX-571 | 2026-11-16 | active |
 | `perf-10x-settings.sh` | Settings page render cost over the mock provider in bun and jsdom. | perf-10x | 2026-11-11 | active |
+| `clickthrough.sh` | The click-through check (`scripts/cmux-next/clickthrough-live.py`) on a tagged build: picks that stick, and chat switches that are fast, never blank and never shift (live check). | ask-184fd85d1e | 2026-11-28 | active |
 | `terminal-cmd-click.sh` | Cmd-click in a terminal: no main-thread stall over 50 ms (live check). | cx-7xss | 2026-10-24 | active |
 | `terminal-throughput.sh` | 200 MB burst through a NEXT terminal and through a standalone terminal. | CMUX-571 | 2026-11-13 | active |
 | `terminal-throughput-quick.sh` | The same burst on any Mac in about a minute: an installed NEXT (a side copy of the NIGHTLY) and an installed Ghostty, no build or slot. | CMUX-571 | 2026-11-23 | active |
@@ -276,6 +300,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `browser-fuzz.sh` | Seeded fuzz of URLs, navigation and tab storms (correctness). | fuzz row k | 2026-11-14 | active |
 | `browser-use-perf.sh` | cmux browser host REPL against other browser-automation tools, no model. | - | 2026-11-03 | active |
 | `pane-compile-ab.mjs` | The agent pane's JS compile before first paint, A against B, cold or with a warm code cache, in headless Chrome over http; `--attach PORT` checks a running cmux's pane for code cache consumption. | research:startup | 2026-11-23 | active |
+| `crash-report-read.sh` | A fleet Mac's cmux crash reports as image + offset per frame (crashed thread, lastExceptionBacktrace, main) with image UUIDs and load addresses, plus recent cef.log FATAL / Check failed lines, so a stripped CEF frame ("ChromeWebAppShortcutCopierMain") can be symbolicated against the CEF `-debug` asset. Read only; `--class light --target-worker HOST`. | feature-flows walk SIGTRAP (run 46185455947) | 2026-11-28 | active |
 | `cef-tab.sh` | New Chromium tab: input to visible and to page pixels. | PL-cef-tab | 2026-10-27 | active |
 | `cef-embedder.sh` | CEF fork embedder tests against an unreleased fork build. | PL-cef-fork | 2026-11-12 | active |
 | `cef-helpers.sh` | Chromium helper check: renderer and GPU helpers start, no V8 OOM. | - | 2026-11-05 | active |
@@ -411,7 +436,7 @@ Retired in the cmux-bench PR: `fresh-home-launch-ab.sh` (same measurement as `ni
 - `nightly-cas-identity.sh`: a one-time byte proof for the warm nightly worker.
 - `hotkey-history.sh`: runs an action-catalog regression test, not a measurement; belongs with the tests.
 - `export-action-catalog-dump.sh`, `export-action-surfaces.sh`, `export-settings-artifacts.sh`: generators, not measurements; they fit better in a generators directory.
-- `update-e2e.sh`, `crash-gate.sh`, `stable-next-smoke.sh`, `terminal-cmd-click.sh`: correctness checks that run on the fleet, not measurements.
+- `update-e2e.sh`, `crash-gate.sh`, `stable-next-smoke.sh`, `terminal-cmd-click.sh`, `clickthrough.sh`: correctness checks that run on the fleet, not measurements.
 - `ci140-input-hash-repeats`: CI minutes spent on job runs whose declared inputs (router/step-table/workflow `paths`, else whole tree) hash the same as an earlier green run of the same job; read-only, needs the hq meter's `--save` records (goal ci-min-per-pr-140).
 
 Phone terminal deterministic work: `cmux-bench phone-speed` wraps the `phone-speed-icount` Linux PR gate; `--import LOG` records its six Callgrind instruction counts. Calibration and scope: [phone-speed](../bench/phone-speed/README.md).

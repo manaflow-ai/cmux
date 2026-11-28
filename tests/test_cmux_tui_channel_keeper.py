@@ -77,6 +77,30 @@ class KeeperTests(unittest.TestCase):
         self.assertEqual(report.state, "point-due")
         self.assertEqual(report.newest_tested.commit, "b" * 40)
 
+    def test_a_commit_without_a_tree_key_is_skipped_not_fatal(self) -> None:
+        # Run 46175773522 on 2026-11-28: `pin-cmux-tui.sh key --rev 7f0258c9` exited 1 on a loaded runner and
+        # the whole keeper pass died, so the tested tree behind it was never pointed at.
+        history = ["a" * 40, "7" * 40, "b" * 40, CHANNEL_COMMIT]
+
+        def flaky_key(commit: str) -> str:
+            if commit == "7" * 40:
+                raise RuntimeError(f"no tree key for {commit[:12]}: git timed out")
+            return key_of(commit)
+
+        fake = Fake(history, published={key_of("b" * 40)}, tested={key_of("b" * 40)})
+        with fake.patch(), mock.patch.object(keeper, "tree_key", flaky_key):
+            report = keeper.measure(300, fetch_branch=False)
+        self.assertEqual(report.state, "point-due")
+        self.assertEqual(report.newest_tested.commit, "b" * 40)
+        self.assertEqual(len(report.unkeyed), 1)
+        self.assertIn("7777777777", report.unkeyed[0])
+
+    def test_tree_key_names_the_script_failure(self) -> None:
+        failed = mock.Mock(returncode=1, stdout="", stderr="fatal: git rev-parse timed out\n")
+        with mock.patch.object(keeper.subprocess, "run", return_value=failed):
+            with self.assertRaisesRegex(RuntimeError, "timed out"):
+                keeper.tree_key("7" * 40)
+
     def test_a_newer_untested_tree_is_named_and_the_tested_one_kept(self) -> None:
         history = ["a" * 40, "b" * 40, CHANNEL_COMMIT]
         with Fake(history, published={key_of("a" * 40), key_of("b" * 40)}, tested={key_of("b" * 40)}).patch():
