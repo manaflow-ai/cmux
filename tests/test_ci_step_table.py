@@ -3061,5 +3061,57 @@ class CrateResults(unittest.TestCase):
         self.assertIn("scripts/ci/crate_results.py", ci_steps.load().steps[crate_results.STEP].inputs)
 
 
+class FailFastTest(unittest.TestCase):
+    """--fail-fast (CI_RUN_FAIL_FAST=1, pr-pipeline.yml's linux job): a blocking red stops further steps from
+    starting (Leo: "de facto, im asking for 99% fewer minutes of ci time, period."; 253 of 493 linux runs red,
+    3835 of 6006 runner-min, 11-28 17-20Z)."""
+
+    def run_it(self, fail_fast: bool, red_blocks: bool = True, alone_on_red: bool = False):
+        steps = {
+            "cheap-red": ci_steps.Step(name="cheap-red", job="linux", run="exit 3", timeout=10, reuse=False,
+                                       blocks=red_blocks),
+            "heavy": ci_steps.Step(name="heavy", job="linux", run="touch ran-heavy", timeout=900, reuse=False),
+        }
+        tbl = ci_steps.Table(jobs={"linux": "x"}, steps=steps, setup={})
+        with tempfile.TemporaryDirectory() as d:
+            out = io.StringIO()
+            old = os.getcwd()
+            os.chdir(d)
+            try:
+                with mock.patch.object(ci_steps, "route", return_value={"linux": ["heavy", "cheap-red"]}):
+                    code = ci_steps.run_job(tbl, "linux", None, out=out, workers=1, fail_fast=fail_fast,
+                                            alone_on_red=alone_on_red)
+                ran = os.path.exists("ran-heavy")
+            finally:
+                os.chdir(old)
+        return code, out.getvalue(), ran
+
+    def test_a_red_stops_the_steps_not_yet_started_and_cheap_ones_go_first(self) -> None:
+        code, out, ran = self.run_it(True)
+        self.assertEqual(code, 1, out)
+        self.assertFalse(ran, out)
+        self.assertIn("step heavy skipped: blocking step cheap-red failed (fail-fast)", out)
+
+    def test_off_runs_every_step(self) -> None:
+        code, out, ran = self.run_it(False)
+        self.assertEqual(code, 1, out)
+        self.assertTrue(ran, out)
+
+    def test_an_advisory_red_does_not_stop_the_rest(self) -> None:
+        code, out, ran = self.run_it(True, red_blocks=False)
+        self.assertEqual(code, 0, out)
+        self.assertTrue(ran, out)
+
+    def test_the_post_merge_batch_runs_everything(self) -> None:
+        code, out, ran = self.run_it(True, alone_on_red=True)
+        self.assertTrue(ran, out)
+
+    def test_the_linux_job_turns_it_on_with_an_off_switch(self) -> None:
+        text = (ROOT / ".github" / "workflows" / "pr-pipeline.yml").read_text(encoding="utf-8")
+        self.assertIn("CI_RUN_FAIL_FAST:", text)
+        self.assertIn("vars.CI_PR_PIPELINE_LINUX_FAIL_FAST", text)
+        self.assertIn("steps.tooling-tests-base-red.outputs.base_red != 'true'", text)
+
+
 if __name__ == "__main__":
     unittest.main()
