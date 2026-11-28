@@ -226,6 +226,32 @@ export function withStartingPrompt(raw: AcpmuxSnapshot, starting: readonly Start
 }
 
 /**
+ * Prompts sent while the chat's Cloud machine wakes (cloudWake.ts, held by trustHeld.ts `waking`) are
+ * the transcript's rows from the send, pending, as a sent prompt is: never a box stacked on the
+ * composer while the machine resumes (cmux#57136). Each is drawn under the id the chat's client gives
+ * it once it goes (`local-<promptId>`: the held send keeps its prompt id), so it stays the same row,
+ * and once the client draws that row it is the client's.
+ */
+export function withWakingPrompts(raw: AcpmuxSnapshot, waking: readonly StartingSend[]): AcpmuxSnapshot {
+  if (!waking.length) return raw;
+  const drawn = new Set(raw.rows.map((row) => row.id));
+  const added = waking
+    .filter((send) => !drawn.has(`local-${send.id}`))
+    .map((send) => ({
+      ...startingRow(send),
+      // Its own small status, at once: the machine wakes for it (PromptDelivery.tsx `pendingLabel`).
+      delivery: {
+        state: "sending" as const,
+        promptId: send.id,
+        sessionId: send.sentIn.chat ?? "",
+        sentAt: send.at,
+        waitingForMachine: true,
+      },
+    }));
+  return added.length ? { ...raw, rows: [...raw.rows, ...added] } : raw;
+}
+
+/**
  * The starting prompts the chat shown draws: those sent in it, and, in the chat a new chat took,
  * those sent in that new chat before it took its session (`started`: the client's `startedChat`).
  * Never another chat's: one opened while a new chat still starts has its own transcript and queue,

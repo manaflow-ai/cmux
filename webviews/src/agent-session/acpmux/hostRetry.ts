@@ -76,11 +76,23 @@ export const SELF_RETRY_SAID_MS = 120_000;
 /// once on an event (`HOST_WAKE_EVENTS`): the window shown or focused again, the network back, or
 /// the host saying its agent service changed. Leo, 2026-11-24, "dead hang loops": the loop is
 /// bounded in rate, not in time. Only a chat too large to open stops: asking again gets the same reply.
-export type HostRetryStep = { kind: "retry"; waitMs: number; slow?: true } | { kind: "stop" };
+///
+/// A Cloud chat whose machine is paused (`asleep`, cloudSleep.ts `cloudChatAsleep`) rests: no timer,
+/// no "Reconnecting…", no failure line. Asking a paused machine again cannot reach it (and must not
+/// wake it), so the pane keeps the chat it shows and asks again only when the machine wakes: a send or
+/// a keystroke resumes it (cloudWake.ts), or the app reads it live again (cmux#57136: "this has
+/// reconnecting very often… are we not pausing this vm when the agent isn't active?").
+export type HostRetryStep = { kind: "retry"; waitMs: number; slow?: true } | { kind: "stop" } | { kind: "rest" };
 
-export function hostRetryStep(state: { error: unknown; troubleForMs: number; waitMs: number }): HostRetryStep {
+export function hostRetryStep(state: {
+  error: unknown;
+  troubleForMs: number;
+  waitMs: number;
+  asleep?: boolean;
+}): HostRetryStep {
   const { error, troubleForMs, waitMs } = state;
   if (hostRefusedTooLarge(error)) return { kind: "stop" };
+  if (state.asleep) return { kind: "rest" };
   if (troubleForMs < SELF_RETRY_SAID_MS) return { kind: "retry", waitMs };
   return { kind: "retry", waitMs: Math.max(waitMs, REFUSED_RETRY_MAX_MS), slow: true };
 }
@@ -89,8 +101,15 @@ export function hostRetryStep(state: { error: unknown; troubleForMs: number; wai
 /// accepts the pane and drops it again every time slows, once the trouble has lasted
 /// SELF_RETRY_SAID_MS and this connection did not stay up (CONNECTION_STABLE_MS), to one ask every
 /// REFUSED_RETRY_MAX_MS, never to none. A connection that stayed up always reconnects at once.
-export function lostRetryStep(state: { troubleForMs: number; upForMs: number; waitMs: number }): HostRetryStep {
+/// A paused Cloud machine's chat rests (`asleep`).
+export function lostRetryStep(state: {
+  troubleForMs: number;
+  upForMs: number;
+  waitMs: number;
+  asleep?: boolean;
+}): HostRetryStep {
   const { troubleForMs, upForMs, waitMs } = state;
+  if (state.asleep) return { kind: "rest" };
   if (upForMs >= CONNECTION_STABLE_MS || troubleForMs < SELF_RETRY_SAID_MS) return { kind: "retry", waitMs };
   return { kind: "retry", waitMs: Math.max(waitMs, REFUSED_RETRY_MAX_MS), slow: true };
 }
@@ -122,14 +141,17 @@ export const HOST_WAKE_EVENTS = {
 /// answers lookups but fails their connection would otherwise wake each other forever, each ask's
 /// lookup telling the other pane; their slow timer still asks. A person's event (shown, focused,
 /// online) asks again. `stopped`: the pane is in its slow spell.
+/// A Cloud chat whose machine is paused (`asleep`) is never asked on these: focusing the window
+/// would only fail again on the paused machine; its wake asks instead (`hostRetryStep` `rest`).
 export function hostWakeAsks(state: {
   event: string;
   stopped: boolean;
   connecting: boolean;
   hidden: boolean;
   answerSpent: boolean;
+  asleep?: boolean;
 }): boolean {
-  if (!state.stopped || state.connecting || state.hidden) return false;
+  if (!state.stopped || state.connecting || state.hidden || state.asleep) return false;
   return state.event !== "acpmux-daemon-answered" || !state.answerSpent;
 }
 

@@ -216,6 +216,8 @@ import { isNewChat, projectName } from "./emptyStateModel";
 import type { TourOfferActions } from "./repoTour/TourOffer";
 import { dismissTour, isTourDismissed, offersTour, TOUR_PROMPT, type TourTask } from "./repoTour/tourModel";
 import { useCloudChatRecovery } from "./useCloudChatRecovery";
+import { cloudChatAsleep, cloudSleepingMachine, cloudWakeAsksAgain } from "./cloudSleep";
+import { useMachineLink } from "./machineLink";
 import { cloudChatRecoveryActive, cloudChatUnavailable, type CloudChatIdentity } from "./cloudChatRecovery";
 import { cloudSendWakes, cloudTypingWakes, type CloudWakeState } from "./cloudWake";
 import { type PastTurn } from "./pastChatModel";
@@ -275,7 +277,14 @@ import {
 } from "./autoWhereModel";
 import { usePeerCloudMachine } from "./peerCloudMachine";
 import { inThisVisit, useFolderTrustAsk, visitOf } from "./useFolderTrustAsk";
-import { movedOn, sentIn as sentInHeld, useTrustHeldPrompts, whereHeldGoes, type TrustHeldPrompt } from "./trustHeld";
+import {
+  movedOn,
+  sentIn as sentInHeld,
+  useTrustHeldPrompts,
+  wakingStartingSends,
+  whereHeldGoes,
+  type TrustHeldPrompt,
+} from "./trustHeld";
 import { type SendGesture } from "./heldPrompt";
 import {
   StartingSends,
@@ -283,6 +292,7 @@ import {
   startingQueueEntry,
   queuedStartingSends,
   withStartingPrompt,
+  withWakingPrompts,
   startingIn,
 } from "./startingSends";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
@@ -1450,6 +1460,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// first is the chat's first row from the send, those after it queued rows. One refused comes back
   /// to the composer with those behind it.
   const [startingRows, setStartingRows] = useState<readonly StartingSend[]>([]);
+  /// The shown chat's prompts waiting for its Cloud machine to wake (trustHeld.ts `wakingSends`), as
+  /// transcript rows (startingSends.ts `withWakingPrompts`); set from the hold below.
+  const [wakingSends, setWakingSends] = useState<readonly StartingSend[]>([]);
   // Only the chat they were sent in draws them (startingSends.ts `startingIn`). The client's visit
   // moves with its snapshot's chat, so the snapshot names when to read it again.
   const shownStarting = useMemo(
@@ -1479,19 +1492,22 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const snapshot = useMemo(
     () =>
       liveAsk(
-        withOfflineSends(
-          withStartingPrompt(
-            applySwitch(
-              catalog === clientSnapshot.catalog ? clientSnapshot : { ...clientSnapshot, catalog },
-              switchView,
-              catalog,
+        withWakingPrompts(
+          withOfflineSends(
+            withStartingPrompt(
+              applySwitch(
+                catalog === clientSnapshot.catalog ? clientSnapshot : { ...clientSnapshot, catalog },
+                switchView,
+                catalog,
+              ),
+              shownStarting,
             ),
-            shownStarting,
+            shownOffline,
           ),
-          shownOffline,
+          wakingSends,
         ),
       ),
-    [clientSnapshot, switchView, catalog, shownStarting, shownOffline],
+    [clientSnapshot, switchView, catalog, shownStarting, shownOffline, wakingSends],
   );
   // Unsettle (a settle toast's Undo, the home's Settled shelf): Unarchive by id (direct.ts
   // `unsettle`); a refusal says so in a toast, in the pane's words (plainErrors.test.ts).
@@ -6680,32 +6696,51 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [cloudTypeWaking, setCloudTypeWaking] = useState(false);
   /// The chat whose machine typing woke in this stretch of its sleep: one wake per sleep, not per key.
   const cloudTypeWoke = useRef<string | undefined>(undefined);
+  /// The app's link word for this pane's machine (machineLink.ts): `paused` for a paused Cloud machine.
+  const paneMachineLink = useMachineLink();
   const cloudRecovery = useCloudChatRecovery({
     cloud: cloudChatIdentity,
+    wakeMachine: cloudSleepingMachine(paneMachineLink),
     session: snapshot.missingSession ?? snapshot.sessionId,
     active: cloudRecoveryShows || cloudWaking || cloudTypeWaking,
     recheck: recheckCloudChat,
   });
+  /// The chat's Cloud machine is paused (cloudSleep.ts, cmux#57136): the handshake loop rests and the
+  /// pane says nothing about its link, keeping the chat it shows; a send or a keystroke wakes the
+  /// machine (cloudWake.ts), and once it stops reading asleep the pane asks again.
+  const cloudAsleep = cloudChatAsleep({ link: paneMachineLink, recovery: cloudRecovery.state });
+  const cloudAsleepRef = useRef(cloudAsleep);
+  cloudAsleepRef.current = cloudAsleep;
+  const cloudAsleepBefore = useRef(cloudAsleep);
+  useEffect(() => {
+    const wasAsleep = cloudAsleepBefore.current;
+    cloudAsleepBefore.current = cloudAsleep;
+    if (cloudWakeAsksAgain({ wasAsleep, asleep: cloudAsleep, connected: directClient.current !== undefined }))
+      retryHost.current?.();
+  }, [cloudAsleep]);
+  const cloudRecoveryState = cloudRecovery.state ?? (cloudAsleep ? "paused" : undefined);
   const cloudUnavailable =
     cloudRecoveryShows &&
-    (cloudRecovery.state === "paused" ||
-      cloudRecovery.state === "deleted" ||
-      (cloudRecovery.resuming && cloudRecovery.state === "live"))
+    (cloudRecoveryState === "paused" ||
+      cloudRecoveryState === "deleted" ||
+      (cloudRecovery.resuming && cloudRecoveryState === "live"))
       ? cloudChatUnavailable(
           snapshot.unavailable ?? { reason: "offline" },
-          cloudRecovery.state,
+          cloudRecoveryState,
           machineName,
           cloudRecovery.resuming,
         )
       : snapshot.unavailable;
   /// The chat a send now wakes its Cloud machine for (cloudWake.ts), or undefined.
   const cloudWakeState: CloudWakeState = {
-    cloud: cloudChatIdentity !== undefined,
+    // A chat opened while its machine already slept has no handshake identity: the app's paused link
+    // names the machine a send wakes (cloudSleep.ts `cloudSleepingMachine`).
+    cloud: cloudChatIdentity !== undefined || cloudSleepingMachine(paneMachineLink) !== undefined,
     chat: snapshot.sessionId ?? snapshot.missingSession,
     // `connected`, not `cloudLinkUp`: a prompt's own failure on an open socket also reads "failed",
     // and that chat's machine is live.
     linkUp: connected && Boolean(window.cmuxAcpmuxActions?.["chat.send"]),
-    paused: cloudRecovery.state === "paused",
+    paused: cloudRecoveryState === "paused",
     unavailable: !!snapshot.unavailable,
   };
   const cloudWakeChat = cloudSendWakes(cloudWakeState);
@@ -6915,6 +6950,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The wake ends once no prompt waits for it; one that failed (or found the machine deleted) gives
   // its prompts back to the composer, as a failed send does.
   const wakingHeld = trustHeld.wakingAny();
+  const heldAll = trustHeld.all;
+  const heldWakingSends = useMemo(
+    () => wakingStartingSends(heldAll, snapshot.sessionId ?? snapshot.missingSession, trustHeldCwd),
+    [heldAll, snapshot.sessionId, snapshot.missingSession, trustHeldCwd],
+  );
+  useEffect(() => setWakingSends(heldWakingSends), [heldWakingSends]);
   useEffect(() => {
     if (!wakingHeld) setCloudWaking(false);
   }, [wakingHeld]);
@@ -7394,7 +7435,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     openFailed ||
     (clientSnapshot.sessionId === adoptingSession && clientSnapshot.chatRead === true);
   const chatDrawn = (!awaitsChat || clientSnapshot.chatRead === true || openFailed) && adoptionDrawn;
-  const hostErrorSaid = hostError !== undefined && (hostErrorShown || restartingAcpmux);
+  // A paused Cloud machine's chat says nothing about its link (cloudSleep.ts): it rests, it is not lost.
+  const hostErrorSaid =
+    hostError !== undefined && ((hostErrorShown && !(cloudAsleep && !connected)) || restartingAcpmux);
   const showsWhatItIs =
     (!handshaken &&
       restoredTailSession !== undefined &&
@@ -7665,8 +7708,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const stopThroughReconnect = useStopThroughReconnect(snapshot, cancelTurn);
   const keptStopping = stopThroughReconnect.stopping;
   // A chat not listed yet (its machine wakes) shows the prompts held for it under its recorded id.
-  const heldRows =
+  // Not the prompts a waking Cloud machine holds: the transcript draws those (`withWakingPrompts`), so
+  // nothing stacks on the composer while the machine resumes (cmux#57136).
+  const heldRowsAll =
     !snapshot.sessionId && snapshot.missingSession ? trustHeld.rowsIn(snapshot.missingSession) : trustHeld.rows;
+  const heldRows = useMemo(() => heldRowsAll.filter((row) => !row.waking), [heldRowsAll]);
   /// Sends a prompt the folder's trust held, with its own send's ticket, in the chat it was sent in:
   /// settles with the session acpmux took it in (a new chat's, once its start made it), or rejects
   /// with its refusal; a refusal is the hold's to handle (trustHeld.ts).
@@ -8415,6 +8461,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       setLinkDown,
       setHostTroubleSince,
       setHostRestoring,
+      cloudAsleep: cloudAsleepRef,
       runPendingAdoption,
       freshRef,
       inheritedFolderRef,
@@ -8608,7 +8655,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const wakeOnTyping = () => {
     const chat = cloudTypingWakes({
       ...cloudWakeState,
-      asleep: cloudRecovery.state === "paused" || chatMachine?.stage === "paused",
+      asleep: cloudAsleep || cloudRecovery.state === "paused" || chatMachine?.stage === "paused",
       woke: cloudTypeWoke.current,
     });
     if (!chat || cloudRecovery.state === "deleted" || snapshot.summary?.watching) return;
@@ -11251,7 +11298,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   // The composer's status dot says the quiet recovery below instead, once mounted (composerStatusStore.ts).
   usePublishHostRecovery(
-    restartingAcpmux ? undefined : { linkDown, restoring: hostRestoring, failureShown: hostErrorSaid },
+    restartingAcpmux
+      ? undefined
+      : { linkDown: linkDown && !cloudAsleep, restoring: hostRestoring, failureShown: hostErrorSaid },
   );
   // While the pane gets its chat back on its own, one quiet line says so: "Restoring sessions…"
   // while the host says acpmux restores, "Reconnecting…" while the link is down for real (`linkDown`).
@@ -11263,7 +11312,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         hostErrorCard
       ) : (
         <HostRecoveringLine
-          linkDown={linkDown}
+          linkDown={linkDown && !cloudAsleep}
           restoring={hostRestoring}
           failureShown={hostErrorSaid}
           otherwise={hostErrorCard}

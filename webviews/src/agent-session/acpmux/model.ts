@@ -355,6 +355,9 @@ export type PromptDelivery = {
   /// acpmux is starting or reconnecting: the pane holds the prompt and sends it once acpmux answers
   /// (sendWhenReady.ts). The row says "Sending when ready".
   waitingForHost?: boolean;
+  /// The chat's Cloud machine is paused and this send wakes it (cloudWake.ts): the row says "Waking the
+  /// machine…" at once, and the prompt goes once the chat is back (startingSends.ts `withWakingPrompts`).
+  waitingForMachine?: boolean;
   hop?: PromptDeliveryHop;
   /// The refusal's code and acpmux's reason (`trust.pending`): the failure's cause, which the card's
   /// words and actions follow (sendFailure.ts). `error` is the refuser's own words, for Details.

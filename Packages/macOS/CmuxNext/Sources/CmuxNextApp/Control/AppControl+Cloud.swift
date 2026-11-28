@@ -92,7 +92,7 @@ extension AppControl {
         let store = session.daemon.store
         let state: String = switch store.connectionState {
         case .connected: "connected"
-        case .connecting: "connecting"
+        case .connecting: session.daemon.connection == nil && session.effectiveStatus == .paused ? "paused" : "connecting" // a paused machine is never dialed (cmux#57136)
         case .disconnected: "disconnected"
         case .failed(let reason): "failed: \(reason)"
         }

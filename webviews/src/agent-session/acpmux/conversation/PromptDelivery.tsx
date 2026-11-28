@@ -25,7 +25,8 @@ export const resendsItself = (delivery: PromptDelivery | undefined): boolean =>
 
 /// Whether `delivery` draws its pending row now: on its way past its first second, held for the host
 /// or not, so a send that lands within a second shows nothing (Leo, 2026-11-24: "this "sending" is
-/// bad"), or going again by itself. Re-renders once when the second passes. `queued`: a steer acpmux
+/// bad"), or going again by itself. A prompt held for a waking Cloud machine says so at
+/// once (cmux#57136): its row is the send, with "Waking the machine…" on it. Re-renders once when the second passes. `queued`: a steer acpmux
 /// holds for the running turn draws that row on its own terms (PendingSteer.tsx).
 export function usePendingShown(delivery: PromptDelivery | undefined, queued = false): boolean {
   const sending = delivery?.state === "sending";
@@ -43,11 +44,13 @@ export function usePendingShown(delivery: PromptDelivery | undefined, queued = f
     if (again && !late) setLate(true);
   }, [again, late]);
   if (again) return true;
+  if (delivery?.waitingForMachine === true) return sending;
   return sending && late && !queued;
 }
 
 /// What a prompt still on its way says: the one sentence its footer shows.
 export function pendingLabel(delivery: PromptDelivery): StringKey {
+  if (delivery.waitingForMachine) return "composer.heldForWake";
   return delivery.waitingForHost ? "prompt.delivery.whenReady" : "prompt.delivery.sending";
 }
 
