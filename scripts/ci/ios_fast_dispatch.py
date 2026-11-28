@@ -66,8 +66,11 @@ def get(path: str, token: str) -> dict:
     req = urllib.request.Request(f"https://api.github.com/{path}", headers={
         "Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
         "X-GitHub-Api-Version": "2022-11-28"})
-    status, body, _ = gh_http.request(req, 20)
+    status, body, headers = gh_http.request(req, 20)
     if status != 200:
+        until = gh_http.limited_until(headers) if status in (403, 429) else None
+        if until:
+            raise Refused(f"GET {path}: rate-limited until {until} (HTTP {status}); dispatch again after it")
         raise Refused(f"GET {path}: HTTP {status} {body[:200]!r}")
     return json.loads(body)
 
