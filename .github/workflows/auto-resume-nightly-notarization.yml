@@ -1339,9 +1339,10 @@ jobs:
       - name: Download all accepted variants
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          pattern: cmux-${{ needs.preflight.outputs.channel }}-notarization-verified-*-${{ needs.preflight.outputs.short_sha }}
-          path: verified
-          merge-multiple: false
+          # Only arm64 is published. A singleton pattern match flattens into path,
+          # even with merge-multiple=false; name the directory assembly expects.
+          name: cmux-${{ needs.preflight.outputs.channel }}-notarization-verified-arm64-${{ needs.preflight.outputs.short_sha }}
+          path: verified/cmux-${{ needs.preflight.outputs.channel }}-notarization-verified-arm64-${{ needs.preflight.outputs.short_sha }}
 
       - name: Download tested digests
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
