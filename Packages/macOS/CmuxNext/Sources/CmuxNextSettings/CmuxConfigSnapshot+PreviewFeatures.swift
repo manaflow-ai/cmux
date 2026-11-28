@@ -4,25 +4,6 @@
 /// The path and default are generated from schemas/settings/source/labs.json
 /// (SettingsSchema+Labs.generated.swift).
 extension CmuxConfigSnapshot {
-    /// Absent is off; a value that is not a bool is off plus a diagnostic.
-    static func parsePreviewFeatures(_ root: JSONValue) -> (Bool, SettingsDiagnostic?) {
-        guard let value = root.value(at: previewFeaturesPath) else { return (previewFeaturesDefault, nil) }
-        guard let on = value.boolValue else {
-            return (previewFeaturesDefault, SettingsDiagnostic(kind: .invalidValue, path: "labs.previewFeatures", message: "expected true or false"))
-        }
-        return (on, nil)
-    }
-
-    /// Another Labs toggle (`labs.voiceRoom`): absent is `fallback`; a value that is not a bool
-    /// is `fallback` plus a diagnostic.
-    static func parseLabsToggle(_ root: JSONValue, path: [String], fallback: Bool) -> (Bool, SettingsDiagnostic?) {
-        guard let value = root.value(at: path) else { return (fallback, nil) }
-        guard let on = value.boolValue else {
-            return (fallback, SettingsDiagnostic(kind: .invalidValue, path: path.joined(separator: "."), message: "expected true or false"))
-        }
-        return (on, nil)
-    }
-
     /// A Labs text setting (`labs.voiceRoomURL`): absent is `fallback`; a value that is not a
     /// string is `fallback` plus a diagnostic; a string is trimmed.
     static func parseLabsText(_ root: JSONValue, path: [String], fallback: String) -> (String, SettingsDiagnostic?) {

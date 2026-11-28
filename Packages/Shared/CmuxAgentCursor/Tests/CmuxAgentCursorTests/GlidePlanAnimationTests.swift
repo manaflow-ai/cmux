@@ -30,3 +30,15 @@ import Testing
     }
 }
 #endif
+
+@Suite struct CodexGlideTests {
+    @Test func straightNoOvershootAndSettlesFast() {
+        let plan = GlideMotion().codexPlan(fromX: 0, fromY: 0, toX: 300, toY: 0, endHeading: 0)
+        #expect(plan.samples.allSatisfy { $0.y == 0 && $0.x <= 300 }, "straight, never past the target")
+        #expect(zip(plan.samples, plan.samples.dropFirst()).allSatisfy { $0.x <= $1.x })
+        #expect(plan.samples.last?.x == 300)
+        #expect(plan.duration < 0.6)
+        let half = plan.samples[plan.samples.count / 4]
+        #expect(half.x > 150, "most of the way early, then a soft settle")
+    }
+}
