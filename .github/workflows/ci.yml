@@ -58,6 +58,11 @@ on:
       - "**/notices/**"
       - "vendor/stack-auth-swift-sdk-prerelease/README.cmux.md"
       - "cmux-tui/README.md"
+      - "cmux-tui/spec/**"
+      - "cmux-tui/docs/**"
+      - "cmux-tui/bindings/**"
+      - "cmux-tui/frontends/README*.md"
+      - "cmux-tui/frontends/web/README*.md"
       - "docs/remote-agents-and-cloud.md"
       - "docs/cmux-next/customize-recipes.md"
       - "cmux-tui/crates/acpmux/README.md"
@@ -1832,7 +1837,9 @@ jobs:
     # The run's timing readout in the job summary: the chain of jobs that set
     # the wall time, where each ran, and each against the last week of the
     # same jobs (percentiles from the build controller's webhook feed, no API
-    # budget). Beside ci-status rather than a step of it, so the required
+    # budget). Pull requests skip it (a runner per push for a summary nobody gates on;
+    # CI_TIMING_PR_READOUT=on brings it back); push, merge group and dispatch runs keep it.
+    # Beside ci-status rather than a step of it, so the required
     # check never waits on it or fails with it.
     name: CI timing
     needs:
@@ -1847,7 +1854,7 @@ jobs:
       - linux-preflight
       - macos-admission-gate
       - macos
-    if: ${{ (!cancelled() && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')) && needs.changes.outputs.next_line != 'true') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","dev-build","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ (!cancelled() && (github.event_name != 'pull_request' || vars.CI_TIMING_PR_READOUT == 'on') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')) && needs.changes.outputs.next_line != 'true') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","dev-build","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     continue-on-error: true
