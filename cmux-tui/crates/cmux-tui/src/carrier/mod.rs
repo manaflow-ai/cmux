@@ -157,6 +157,7 @@ pub(crate) mod drill;
 pub(crate) mod drill_dial;
 pub(crate) mod fault;
 mod held;
+mod net_kind;
 mod noise_key;
 mod progress;
 mod rd_link;
