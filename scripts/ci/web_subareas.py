@@ -365,7 +365,8 @@ def acpmux_build_input(path: str, root: Path) -> bool:
 
 # Every other input of the web bundles (the settings schema, the What's New
 # highlights, the model catalog, the string catalogs the pages read...) runs
-# react-apps-check too, as web-bundle-key.py derives them (`--routed`); the same
+# react-apps-check too, as web-bundle-key.py derives them (`--checked`: its
+# routed inputs and the paths a webviews test reads by name); the same
 # derivation routes the web area in detect_ci_change_areas.py.
 WEB_BUNDLE_KEY = Path(__file__).resolve().parents[1] / "cmux-next" / "web-bundle-key.py"
 
@@ -385,7 +386,8 @@ def web_bundle_input_matcher(root: str):
         print(f"web bundle inputs unavailable ({error})", file=sys.stderr)
         return None
     try:
-        return key.pathspec_matcher(key.routed_inputs(root))
+        # checked_inputs: the routed inputs and the paths a webviews file (a test included) reads by name.
+        return key.pathspec_matcher(getattr(key, "checked_inputs", key.routed_inputs)(root))
     except (Exception, SystemExit) as error:  # noqa: BLE001  (fall back, never fail the router)
         print(f"web bundle inputs not derived ({error}); using the key's declared inputs", file=sys.stderr)
         return key.pathspec_matcher(key.INPUTS)

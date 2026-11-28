@@ -11,13 +11,14 @@ another bun therefore makes it differ. `--verify-stamp` prints the first two
 fields only: the Xcode verify phase runs with a PATH that may lack bun.
 
 `--inputs` prints the pathspecs the source key hashes, one per line. `--routed` prints the
-pathspecs a change to which runs the web CI checks (routed_inputs below).
+pathspecs a change to which runs the web CI checks (routed_inputs below); `--checked` adds the paths a webviews
+file reads by name (checked_inputs).
 
 The source key includes the pinned Bun and Node toolchain identity. Set CMUX_WEB_BUN_VERSION or
 CMUX_WEB_NODE_VERSION when a workflow computes the key so a toolchain change cannot reuse a
 published manifest for the same sources.
 
-Usage: web-bundle-key.py ROOT [--stamp | --verify-stamp | --source | --outputs | --inputs | --routed]
+Usage: web-bundle-key.py ROOT [--stamp | --verify-stamp | --source | --outputs | --inputs | --routed | --checked]
 """
 import hashlib
 import json
@@ -286,6 +287,61 @@ def routed_inputs(root):
     return [p for p in inputs if p != CATALOG_GLOB] + catalogs
 
 
+# A repository path a webviews file (a test included) names as a quoted literal: a test that reads a Swift source, a
+# fixture or a schema by its path, or an fs read relative to the file. Not a bundle input (the source key leaves it
+# out), but its change can turn such a test red: #64614 deleted a Swift file heldMessage.test.tsx read by path, no
+# web check ran, and the test sat red on feat-cmux-next. One segment per `[...]+` keeps the match linear.
+NAMED_PATH = re.compile(
+    r"""["'`]((?:\.{1,2}/)*[\w@+-][\w@+.-]*(?:/[\w@+.-]+)+\.(?:swift|rs|json|xcstrings|toml|ya?ml|md|py|sh|txt|css|"""
+    r"""plist|strings|html|js|mjs|ts|tsx))["'`]""")
+NAMED_PATH_SUFFIXES = SCANNED_SUFFIXES + (".json",)
+
+
+def named_paths(rel, text, tops):
+    """The paths outside webviews/ that webviews file REL's TEXT names (NAMED_PATH), as repository paths: a literal
+    starting with ./ or ../ against REL's folder, any other against the root; kept when its first segment is one of
+    TOPS (the root's entries), so a path need not exist (a test still naming a deleted file is the red to catch)."""
+    found = set()
+    for m in NAMED_PATH.finditer(text):
+        spec = m.group(1)
+        target = os.path.normpath(os.path.join(os.path.dirname(rel), spec) if spec.startswith(".") else spec)
+        if target.startswith("..") or target.startswith("webviews/") or target.split("/", 1)[0] not in tops:
+            continue
+        found.add(target)
+    return found
+
+
+def repo_tops(root):
+    """The root's entries, tracked (a sparse checkout has no folder for most) or on disk, less webviews/."""
+    listed = subprocess.run(["git", "-C", root, "ls-tree", "--name-only", "-z", "HEAD"], capture_output=True)
+    tracked = {os.fsdecode(p) for p in listed.stdout.split(b"\0") if p} if listed.returncode == 0 else set()
+    return (tracked | set(os.listdir(root))) - {"webviews", ".git", "node_modules"}
+
+
+def read_inputs(root):
+    """{path: the webviews files naming it} for every path outside webviews/ a webviews file names (named_paths)."""
+    tops = repo_tops(root)
+    out = {}
+    for rel in git_files(root, ["webviews"]):
+        if not rel.endswith(NAMED_PATH_SUFFIXES):
+            continue
+        try:
+            with open(os.path.join(root, rel), encoding="utf-8", errors="replace") as f:
+                text = f.read()
+        except OSError:
+            continue
+        for target in named_paths(rel, text, tops):
+            out.setdefault(target, set()).add(rel)
+    return out
+
+
+def checked_inputs(root):
+    """Pathspecs whose change runs the web checks that test webviews (the web area, react-apps-check): routed_inputs
+    and the paths a webviews file reads by name (read_inputs). Not compile_preflight's bundle check: a test-only read
+    rebuilds no bundle."""
+    return routed_inputs(root) + sorted(read_inputs(root))
+
+
 def _glob_regex(pattern):
     out, i = "", 0
     while i < len(pattern):
@@ -412,6 +468,8 @@ def main(argv):
         print("\n".join(source_inputs(root)))
     elif mode == "--routed":
         print("\n".join(routed_inputs(root)))
+    elif mode == "--checked":
+        print("\n".join(checked_inputs(root)))
     elif mode == "--outputs":
         print(output_digest(root))
     elif mode == "--stamp":

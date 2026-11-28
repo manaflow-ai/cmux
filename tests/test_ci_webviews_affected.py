@@ -468,9 +468,27 @@ class PullRequestShardsTest(unittest.TestCase):
         self.assertEqual(self.touched("webviews/src/hub.ts"), [])  # only through leaf.ts and other.ts
         self.assertEqual(self.touched("webviews/test/other.test.ts"), ["webviews/test/other.test.ts"])
 
-    def test_a_change_outside_webviews_touches_no_test(self) -> None:
+    def test_a_change_outside_webviews_touches_only_the_tests_of_what_names_it(self) -> None:
         self.assertEqual(self.touched("unrelated/tool.py"), [])
-        self.assertEqual(self.touched("schemas/settings/settings-schema.json"), [])
+        # src/strings.ts quotes the schema's path; strings.test.ts imports it (one hop from the namer).
+        self.assertEqual(self.touched("schemas/settings/settings-schema.json"), ["webviews/test/strings.test.ts"])
+
+    def test_a_path_outside_webviews_a_webviews_file_names_touches_its_namers(self) -> None:
+        # #64614: heldMessage.test.tsx read a Swift source by path; the PR deleted it, no web test ran, base went red.
+        (self.root / "Packages/App").mkdir(parents=True, exist_ok=True)
+        (self.root / "Packages/App/Rules.swift").write_text("let a = 1\n")
+        (self.root / "Packages/App/Other.swift").write_text("let b = 1\n")
+        (self.root / "webviews/test/reads-swift.test.ts").write_text(
+            'const src = readFileSync(join(root, "Packages/App/Rules.swift"), "utf8");\n')
+        (self.root / "webviews/src/rulesTable.ts").write_text(
+            'export const table = new URL("../../Packages/App/Rules.swift", import.meta.url);\n')
+        (self.root / "webviews/test/rules-table.test.ts").write_text('import { table } from "../src/rulesTable";\n')
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "reads")
+        want = ["webviews/test/reads-swift.test.ts", "webviews/test/rules-table.test.ts"]
+        self.assertEqual(self.touched("Packages/App/Rules.swift"), want)
+        self.assertEqual(self.touched("Packages/App/Other.swift"), [])
+        self.assertEqual(self.touched("Packages/App/Rules.swift", delete=True), want)
 
     def test_a_test_helper_or_webviews_script_touches_its_importers(self) -> None:
         import webviews_pr_shards as ps  # noqa: PLC0415

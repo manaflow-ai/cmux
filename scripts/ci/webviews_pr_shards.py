@@ -26,7 +26,9 @@ a pull request runs:
     over 11-13..19 were its checks: on a pull request Test webviews is continue-on-error and the job fails only on
     its gate steps (a test red is react-apps-base-check's), and it keeps every gate step;
   - every shard for a build or runner input (webviews_affected.EVERYTHING: package.json, bun.lock, vite configs, the
-    runner scripts, ci-web.yml, this file, the preload and what it imports). A test helper (test/support/) or
+    runner scripts, ci-web.yml, this file, the preload and what it imports). A path outside webviews/ that a webviews
+    file names as a quoted literal (a test reading a Swift source or fixture by path, web-bundle-key.py named_paths)
+    counts by those namers: the tests among them and the tests importing them. A test helper (test/support/) or
     webviews script (webviews/scripts/) counts as a source here: the tests that import it, or that are or import a
     module reading it as data. A deleted source counts by the files that still name it in an import;
   - shard 1 and two sampled shards when the change's only every-shard input is ci-web.yml or a selection script
@@ -140,6 +142,29 @@ def read_beyond_imports(selector: "wa.Selector", f: str) -> tuple[str, set[str]]
     return "", readers
 
 
+WEB_BUNDLE_KEY = Path(__file__).resolve().parents[1] / "cmux-next" / "web-bundle-key.py"
+_READS: dict[int, dict[str, set[str]]] = {}
+
+
+def out_of_tree_reads(selector: "wa.Selector") -> dict[str, set[str]]:
+    """{path outside webviews/: the webviews files naming it} by web-bundle-key.py's named_paths, the rule that routes
+    react-apps-check on such a path (its --checked inputs), so the router and the pick agree. Raises when the key
+    script will not load: touched() then runs every shard."""
+    key = id(selector)
+    if key not in _READS:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("cmux_web_bundle_key", WEB_BUNDLE_KEY)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        tops = module.repo_tops(str(selector.root))
+        reads: dict[str, set[str]] = {}
+        for source, text in selector.text.items():
+            for target in module.named_paths(source, text, tops):
+                reads.setdefault(target, set()).add(source)
+        _READS[key] = reads
+    return _READS[key]
+
+
 def touched(selector: "wa.Selector", files: list[str]) -> tuple[set[str] | None, str]:
     """The tests the change touches directly (repo paths), or None for every shard, and why."""
     out: set[str] = set()
@@ -157,6 +182,16 @@ def touched(selector: "wa.Selector", files: list[str]) -> tuple[set[str] | None,
                 out |= {t for t in selector.graph.importers.get(source, ()) if t in selector.graph.tests}
             continue
         if not f.startswith(wa.WEB):
+            # A path outside webviews/ that a webviews file names (a test reading a Swift source, fixture or schema by
+            # path): those namers stand for it as a changed source would, one hop (the tests among them, and the tests
+            # importing them). #64614 deleted a Swift file heldMessage.test.tsx read by path and it went red on base
+            # unseen. Any other path outside webviews/ touches no test (shard 1's checks still run).
+            try:
+                namers = out_of_tree_reads(selector).get(f, set())
+            except Exception as error:  # noqa: BLE001  (the pick may only ever run more)
+                return None, f"the webviews reads of {f} are unknown ({error})"
+            out |= {t for t in namers if t in selector.graph.tests}
+            out |= {t for n in namers for t in selector.graph.importers.get(n, ()) if t in selector.graph.tests}
             continue
         if f in selector.graph.tests:
             out.add(f)
