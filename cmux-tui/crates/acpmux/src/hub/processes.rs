@@ -167,9 +167,6 @@ const HELD_ENDED: usize = 1024;
 /// A table shrinks once it holds this many ended processes.
 const SHRINK_AT: usize = 2 * HELD_ENDED;
 
-/// The seqs of the log [`Hub::fold_processes`] reads back at a time.
-const FOLD_WINDOW: u64 = 1 << 16;
-
 /// The ended processes a table dropped ([`ProcessTable::shrink`]): what tells a lookup, a fold or
 /// a list that the answer may be in them, so it reads the whole history back from the log. Leo,
 /// 2026-11-19: "we need to be able to have infinite chats, infinitely long chats". A 4 GB chat's
@@ -272,10 +269,8 @@ impl ProcessTable {
     /// The indexes again, from the rows. A tool-call ID a dropped row has is left out of
     /// `by_tool`: its first row may be the dropped one, so a lookup of it reads the history.
     fn reindex(&mut self) {
-        // New maps, not cleared ones: a cleared map keeps the room of every row it held, so a
-        // shrunk long chat's held its whole history's (4 MB of a 1 GB chat's daemon).
-        self.by_id = std::collections::HashMap::with_capacity(self.processes.len());
-        self.by_tool = std::collections::HashMap::with_capacity(self.processes.len());
+        self.by_id.clear();
+        self.by_tool.clear();
         self.running.clear();
         self.daemon_running.clear();
         for (at, process) in self.processes.iter().enumerate() {
@@ -1405,55 +1400,6 @@ impl Hub {
     /// False when a record may change a row `table` dropped ([`ProcessTable::shrink`]): it is
     /// left part folded, for the caller to fold the whole log instead (never from a whole one).
     fn fold_processes(
-        &self,
-        session: &Session,
-        table: &mut ProcessTable,
-        after: u64,
-        before: u64,
-    ) -> bool {
-        self.fold_processes_by(session, table, after, before, FOLD_WINDOW)
-    }
-
-    /// `fold_processes`, `window` seqs of the log at a time, oldest first: what is held read back
-    /// and not yet folded is one window's records, not the whole history's (a 1 GB chat's fold
-    /// held 29 MB of them at its peak, `god_daemon` `chat_size_sweep`). The records are folded
-    /// in the same order, so the table is the same.
-    fn fold_processes_by(
-        &self,
-        session: &Session,
-        table: &mut ProcessTable,
-        after: u64,
-        before: u64,
-        window: u64,
-    ) -> bool {
-        // The log's last record now: the windows end at it, and the last one at `before`, so a
-        // record logged meanwhile is folded as one read would fold it.
-        let mut last = after;
-        if before == u64::MAX {
-            let _ = self.store.scan_back(&session.id, after, before, &|_, _| false, &mut |e| {
-                last = e.seq;
-                false
-            });
-        } else {
-            last = before.saturating_sub(1).max(after);
-        }
-        let window = window.max(1);
-        let mut from = after;
-        loop {
-            let to = from.saturating_add(window);
-            let end = if to >= last { before } else { to.saturating_add(1) };
-            if !self.fold_processes_in(session, table, from, end) {
-                return false;
-            }
-            if end == before {
-                return true;
-            }
-            from = to;
-        }
-    }
-
-    /// The records after `after` and before `before`, read back and folded in order.
-    fn fold_processes_in(
         &self,
         session: &Session,
         table: &mut ProcessTable,
