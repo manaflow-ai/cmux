@@ -12,6 +12,8 @@ public nonisolated struct LayoutGrid: Sendable {
     public static let iconBoxComfortable: CGFloat = 20
     public static let glyph: CGFloat = 12
     public static let gap: CGFloat = 8
+    public static let chevronGap: CGFloat = 4
+    public static let hitMin: CGFloat = 24
     public static let row: CGFloat = 28
     public static let rowComfortable: CGFloat = 32
     public static let pillInset: CGFloat = 2
