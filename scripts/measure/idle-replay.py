@@ -4,7 +4,8 @@
 Input: a folder of `acpmux history QUALIFIED_ID --json -n 400` answers (one file per session, any host the
 hub reaches; `--collect` writes them from `acpmux ls --json`). Each session is its turns' (startedAt,
 endedAt); a gap is the time from one turn's end to the next one's start, and the last turn's end to the
-read (the trailing gap) when the session is still open.
+recorded observation time (the trailing gap) only when the session was open. Legacy files without
+observation metadata contribute completed gaps only; --now-ms can shorten, never extend a capture.
 
 A policy decides, at each turn's end, how long the idle harness stays resident before it hibernates
 (hub/idle.rs; today a static 2 min). In a gap g with timeout T the harness holds `min(g, T)` of RAM-time; a
@@ -15,11 +16,13 @@ hibernating is the baseline; every policy is scored by:
   wakes           gaps longer than T that end in a turn
   wake_s          wakes x the measured wake (--wake-ms, daemon.log p50)
   person_wakes    of those, wakes whose next prompt came from a person (no [notice ...] / [inbox] prefix)
-Static policies: T in 1, 2, 5, 15, 60 min. Dynamic ones read only what the daemon knows at the turn's end:
+Static policies sweep fixed timeouts. The adaptive-v1 row matches the daemon policy, assuming zero
+where end-of-turn background counts are missing (reported explicitly). Other dynamic rows are
+exploratory parameter sweeps; their wait signal uses future notices and is not a causal measurement:
   history  the session's own last gaps: when their median is above H the next gap is predicted long and the
            harness goes after `short`; else it stays `long`
-  wait     a daemon-owned wait is pending (the next prompt is a "Background command finished" notice, which
-           only a command started before the turn ended sends): it goes after `short`
+  wait     the next prompt is a "Background command finished" notice: it goes after `short`;
+           this proxy cannot establish what the daemon knew when the turn ended
   pressure the host's resident harnesses at that moment (from the same traces): above the host's cap the
            timeout is divided by the overload
   combo    all three
@@ -48,15 +51,17 @@ def load(folder: str) -> list[dict]:
     out = []
     for path in sorted(glob.glob(os.path.join(folder, "*.json"))):
         try:
-            doc = json.load(open(path))
+            with open(path) as f:
+                doc = json.load(f)
         except (OSError, ValueError):
             continue
-        turns = [t for t in doc.get("turns") or [] if t.get("startedAt") and t.get("endedAt")]
-        if len(turns) < 2:
+        turns = [t for t in doc.get("turns") or [] if t.get("startedAt")]
+        if not turns:
             continue
         turns.sort(key=lambda t: t["startedAt"])
         host = doc.get("peer") or os.path.basename(path).split("_")[0]
-        out.append({"host": host, "id": doc.get("sessionId"), "turns": turns})
+        out.append({"host": host, "id": doc.get("sessionId") or path, "turns": turns,
+                    "observedAt": doc.get("observedAt"), "open": doc.get("open")})
     return out
 
 
@@ -68,25 +73,39 @@ def bg_finished(prompt: str) -> bool:
     return prompt.startswith("[notice from acpmux") and "Background command finished" in prompt[:120]
 
 
+def cutoff(session: dict, now_ms: int) -> int:
+    """--now-ms can shorten any captured interval, never extend its observation."""
+    observed = session.get("observedAt")
+    return min(now_ms, observed) if observed is not None else now_ms
+
+
 def gaps(sessions: list[dict], now_ms: int) -> list[dict]:
     """Every gap with what the daemon knew at its start."""
     out = []
     for s in sessions:
         t = s["turns"]
+        until = cutoff(s, now_ms)
         past: list[int] = []
         who: list[bool] = []
         for i, turn in enumerate(t):
-            end = turn["endedAt"]
+            end = turn.get("endedAt")
+            if not end or end > until or turn["startedAt"] > until:
+                continue
             nxt = t[i + 1] if i + 1 < len(t) else None
-            start = nxt["startedAt"] if nxt else now_ms
+            if nxt is None and (s.get("open") is not True or s.get("observedAt") is None):
+                continue  # old/closed traces prove no trailing idle interval
+            if nxt is not None and nxt["startedAt"] > until:
+                nxt = None  # a future turn proves no wake/person event inside this capture
+            start = nxt["startedAt"] if nxt else until
             g = start - end
             if g < 0:
                 continue  # an overlapping (queued) turn: no idle time
             prompt = (nxt or {}).get("prompt") or ""
             out.append({
-                "host": s["host"], "at": end, "g": g, "ends_in_turn": nxt is not None,
+                "host": s["host"], "session": s["id"], "at": end, "g": g, "ends_in_turn": nxt is not None,
                 "person": nxt is not None and not notice(prompt),
                 "wait_pending": nxt is not None and bg_finished(prompt),
+                "bg_notifying_count": turn.get("bgNotifyingCount"),
                 "history": list(past[-20:]),
                 "persons": list(who[-20:]),
                 "to_agent_ms": (nxt or {}).get("toAgentMs"),
@@ -96,22 +115,50 @@ def gaps(sessions: list[dict], now_ms: int) -> list[dict]:
     return out
 
 
-def residents_at(gs: list[dict]) -> dict:
-    """Per host, a sorted list of (time, +1/-1) for gaps held resident under the 2 min policy, to read the
-    host's resident count at a moment (the pressure signal)."""
-    by: dict[str, list] = {}
+def residents_at(gs: list[dict], sessions: list[dict], now_ms: int) -> dict:
+    """Union running and static-2min idle spans per session before counting host load."""
+    by = {}
     for g in gs:
-        by.setdefault(g["host"], []).append((g["at"], g["at"] + min(g["g"], 2 * MIN)))
-    out = {}
-    for host, spans in by.items():
-        starts = sorted(a for a, _ in spans)
-        ends = sorted(b for _, b in spans)
-        out[host] = (starts, ends)
-    return out
+        by.setdefault((g["host"], g["session"]), []).append(
+            (g["at"], g["at"] + min(g["g"], 2 * MIN)))
+    for s in sessions:
+        until = cutoff(s, now_ms)
+        for turn in s["turns"]:
+            end = turn.get("endedAt") or s.get("observedAt")
+            if end:
+                by.setdefault((s["host"], s["id"]), []).append(
+                    (turn["startedAt"], min(end, until)))
+    hosts = {}
+    for (host, _), spans in by.items():
+        merged = []
+        for start, end in sorted(spans):
+            if end <= start:
+                continue
+            if merged and start <= merged[-1][1]:
+                merged[-1][1] = max(merged[-1][1], end)
+            else:
+                merged.append([start, end])
+        hosts.setdefault(host, []).extend(merged)
+    return {host: (sorted(a for a, _ in spans), sorted(b for _, b in spans))
+            for host, spans in hosts.items()}
+
+
+def adaptive_v1(g, base=2 * MIN):
+    """hub/residency.rs: SHORT=15s, SPARSE=10min, LONG=30min, lower median of 20 gaps.
+
+    Missing end-of-turn background counts are assumed zero, never inferred from future prompts.
+    The report exposes missing counts so this row is not mistaken for a fully observed experiment.
+    """
+    if (g.get("bg_notifying_count") or 0) > 0:
+        return 15_000
+    history = sorted(g["history"][-20:])
+    if not history:
+        return base
+    return 15_000 if history[(len(history) - 1) // 2] > 10 * MIN else 30 * MIN
 
 
 def count_at(table, host, t) -> int:
-    starts, ends = table[host]
+    starts, ends = table.get(host, ([], []))
     return bisect.bisect_right(starts, t) - bisect.bisect_right(ends, t)
 
 
@@ -148,14 +195,16 @@ def run(folder, rss_mb, wake_ms, now_ms, cap, wake_gbh=0.0) -> dict:
     sessions = load(folder)
     gs = gaps(sessions, now_ms)
     rss_gb, wake_s = rss_mb / 1000, wake_ms / 1000
-    table = residents_at(gs)
+    table = residents_at(gs, sessions, now_ms)
     rows = {"never": score(gs, lambda g: float("inf"), rss_gb, wake_s)}
     statics = []
     for m in (0.05, 0.1, 0.25, 0.5, 1, 2, 3, 5, 10, 15, 30, 60, 120):
         r = score(gs, lambda g, m=m: m * MIN, rss_gb, wake_s)
         r["policy"] = f"static {m:g} min"
         statics.append(r)
-    dyn = []
+    actual = score(gs, adaptive_v1, rss_gb, wake_s)
+    actual.update(policy="adaptive-v1 (missing background counts assumed zero)", family="adaptive-v1")
+    dyn = [actual]
 
     def med(h):
         return statistics.median(h) if h else None
@@ -244,6 +293,7 @@ def run(folder, rss_mb, wake_ms, now_ms, cap, wake_gbh=0.0) -> dict:
         "to_agent_ms_p50": {"after_wake": statistics.median(woke) if woke else None,
                             "resident": statistics.median(warm) if warm else None,
                             "n_wake": len(woke), "n_resident": len(warm)},
+        "adaptive_v1_missing_background_counts": sum(g["bg_notifying_count"] is None for g in gs),
         "person_gaps": sum(1 for g in gs if g["person"]),
         "never": rows["never"], "static": statics, "dynamic": dyn,
     }
@@ -251,9 +301,16 @@ def run(folder, rss_mb, wake_ms, now_ms, cap, wake_gbh=0.0) -> dict:
 
 def collect(folder, ls_file, hosts, per_host) -> None:
     os.makedirs(folder, exist_ok=True)
-    raw = open(ls_file).read() if ls_file else subprocess.run(
-        ["acpmux", "ls", "--json"], capture_output=True, text=True, timeout=300).stdout
-    rows = json.loads(raw)["sessions"]
+    observed_at = int(time.time() * 1000) if not ls_file else None
+    if ls_file:
+        with open(ls_file) as f:
+            raw = f.read()
+    else:
+        raw = subprocess.run(["acpmux", "ls", "--json"],
+                             capture_output=True, text=True, timeout=300).stdout
+    listing = json.loads(raw)
+    rows = listing["sessions"]
+    observed_at = listing.get("observedAt", observed_at)
     for host in hosts:
         mine = [s for s in rows if (s.get("qualifiedSessionId") or "").split("/")[0] == host and s.get("status") != "closed"]
         mine.sort(key=lambda s: -(s.get("updatedAt") or 0))
@@ -263,7 +320,10 @@ def collect(folder, ls_file, hosts, per_host) -> None:
             for _ in range(4):
                 out = subprocess.run(["acpmux", "history", q, "--json", "-n", "400"], capture_output=True, text=True, timeout=120).stdout
                 if '"turns"' in out:
-                    open(path, "w").write(out)
+                    doc = json.loads(out)
+                    doc.update(observedAt=observed_at, open=s.get("status") != "closed")
+                    with open(path, "w") as f:
+                        json.dump(doc, f)
                     break
                 time.sleep(3)  # the hub's mesh rate limit
 
@@ -297,6 +357,7 @@ def main() -> int:
     print(f"{out['sessions']} sessions on {', '.join(out['hosts'])}; {out['gaps']} gaps, {out['idle_session_hours']} idle session-hours; "
           f"{out['person_gaps']} gaps end in a person's prompt")
     print(f"to-agent p50 after a wake {out['to_agent_ms_p50']['after_wake']} ms vs resident {out['to_agent_ms_p50']['resident']} ms")
+    print(f"adaptive-v1: {out['adaptive_v1_missing_background_counts']} gaps lack background counts (assumed zero)")
     print(f"never hibernate: {out['never']}")
     print(f"{'policy':48} {'GBh saved':>10} {'wakes':>7} {'wake s':>8} {'person':>7} {'net GBh':>8} {'static@=wakes':>14} {'gap':>7}")
     for r in out["static"]:
