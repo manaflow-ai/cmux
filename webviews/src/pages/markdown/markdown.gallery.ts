@@ -327,6 +327,13 @@ export default markdownPageEntry({
       githubRepository: "manaflow-ai/cmux",
       files: { "/Users/you/src/atlas-web/notes.md": "# Notes\n\nPorts: 5173, 8080.\n" },
     },
+    "readme-omnibar": {
+      note: "The README under the native omnibar (it names the file): the toolbar is a compact pill at the top right, not a mostly empty row.",
+      path: "/Users/you/src/atlas-web/README.md",
+      text: README,
+      omnibar: true,
+      githubRepository: "manaflow-ai/cmux",
+    },
     runbook: {
       note: "Chosen version: a runbook. Each shell block shows Run on the left of its language row; Run all in the toolbar hands the steps to an agent chat.",
       path: RUNBOOK_PATH,
