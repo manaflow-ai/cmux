@@ -3,25 +3,9 @@
 Moved verbatim from `.github/workflows/nightly.yml` to keep it under its size budget (tests/test_ci_workflow_file_size.py).
 Each block names the line it stood above. New prose for this job goes here, not in the workflow.
 
-Above `nightly-next-one:`:
-
-    # nightly-next on one Mac, end to end. Why: docs/ci/nightly-workflow-notes.md#note-18
-
-Above `concurrency:`:
-
-    # The push slot, one per signer Mac, never cancelled. Why: docs/ci/nightly-workflow-notes.md#note-19, #note-33
-
-Above `runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' &&`:
-
-    # Why: docs/ci/nightly-workflow-notes/2026-11-26-nightly-next-one.md
-
 Above `timeout-minutes: 300`:
 
     # Build, sign, notarize (40m wait), then the publish lease's 60m wait.
-
-Above `actions: write`:
-
-    # The tick ask at notarization. Why: docs/ci/nightly-workflow-notes.md#note-26
 
 Above `compile_red: ${{ steps.chief-build.outcome == 'failure' || steps.mobile-host-build.outcome == 'failu`:
 
@@ -65,40 +49,14 @@ Above `- name: Mint the release App token for the warm checkout`:
 
     # Mint only after the claim (signing rule 7a). Only the checkout receives the read-only token.
     # Its App quota avoids the shared unauthenticated limit hit in run 45744507889.
-    # Why: docs/ci/nightly-workflow-notes/2026-11-26-nightly-next-one-mint-the-release-app-token-for-the-warm-che.md
 
 Above `- name: Leave the push slot to a newer nightly-next push`:
 
     # Before the leave step's gh calls (tests/test_publish_app_token_workflow.py).
-    # Why: docs/ci/nightly-workflow-notes/2026-11-27-nightly-next-one-3.md
-
-Above `- name: Read whether the kept Zig package cache is complete`:
-
-    # Why: docs/ci/nightly-workflow-notes.md#note-15
 
 Above `GH_DOWNLOAD_TOKEN: ${{ github.token }}`:
 
     # The Zig package mirror is a github.com release; the Macs get 403 on anonymous downloads.
-
-Above `- name: Install compilation dependencies`:
-
-    # Why: docs/ci/nightly-workflow-notes.md#note-15
-
-Above `- name: Start the third-party notices (they need no build output)`:
-
-    # Why: docs/ci/nightly-workflow-notes.md#note-17
-
-Above `- name: Build nightly app (Release)`:
-
-    # Why: docs/ci/nightly-workflow-notes.md#note-48
-
-Above `- name: Finish the third-party notices`:
-
-    # Why: docs/ci/nightly-workflow-notes.md#note-17
-
-Above `- name: Package unsigned app for signer shadow`:
-
-    # Why: docs/ci/nightly-workflow-notes/2026-11-26-nightly-next-one-package-unsigned-app-for-signer-shadow.md
 
 Above `continue-on-error: ${{ vars.NIGHTLY_COMPONENT_GATES != 'block' }}`:
 
@@ -108,25 +66,9 @@ Above `- name: Hand a type error with no machine fix to fixit-handoff`:
 
     # A type error fixit-compile could not fix wrote its record: the fixit-handoff job dispatches its revert.
 
-Above `- name: Refuse stray processes before secrets`:
-
-    # Why: docs/ci/nightly-workflow-notes/2026-11-26-nightly-next-one-refuse-stray-processes-before-secrets.md
-
 Above `- name: Fetch the published Chromium framework`:
 
     # After the check above: "Codesign apps" joins it (sign-fetch-published-chromium.sh, sign-cef.sh reuse).
-
-Above `- name: Ask main's nightly-next tick at notarization`:
-
-    # Why: docs/ci/nightly-workflow-notes/2026-11-26-nightly-next-one-ask-main-s-nightly-next-tick-at-notarizatio.md
-
-Above `- name: Notarize app ticket through final DMG`:
-
-    # Why: docs/ci/nightly-workflow-notes/2026-11-26-nightly-next-one-1.md
-
-Above `- name: Start the nearest deltas and the notes fetch (no key, no token)`:
-
-    # Why: docs/ci/nightly-workflow-notes/2026-11-26-nightly-next-one-start-the-nearest-deltas-and-the-notes-fetc.md
 
 Above `CMUX_STAPLE_APP_IN_DMG: "false"`:
 
@@ -136,17 +78,9 @@ Above `ASSETS_OUTCOME: skipped`:
 
     # publish-nightly-next-github's steps, after the feed.
 
-Above `- name: Hand the Mac to a newer nightly-next push after the feed`:
-
-    # Leo: "Just keep the train going like 24/7". Why: docs/ci/nightly-workflow-notes.md#note-53
-
 Above `- name: Bundle size budget`:
 
     # A report that gates nothing (85-101 s): after the feed, not before it (ask-c0123d25e8).
-
-Above `- name: Upload nightly variant artifacts`:
-
-    # Not the rolling-name DMG, a second copy of the build's DMG. Why: docs/ci/nightly-workflow-notes.md#note-32
 
 Above `- name: Hand the deltas job its inputs`:
 

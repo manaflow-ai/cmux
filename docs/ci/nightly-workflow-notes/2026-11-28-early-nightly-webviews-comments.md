@@ -3,17 +3,9 @@
 Moved verbatim from `.github/workflows/nightly.yml` to keep it under its size budget (tests/test_ci_workflow_file_size.py).
 Each block names the line it stood above. New prose for this job goes here, not in the workflow.
 
-Above `early-nightly-webviews:`:
-
-    # Why: docs/ci/nightly-workflow-notes.md#note-51
-
 Above `runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}`:
 
     # check-nightly-webviews' route: no secret, never a Mac.
-
-Above `red_sha: ${{ vars.NIGHTLY_COMPONENT_GATES == 'block' && steps.checks.outcome == 'failure' && needs.d`:
-
-    # Why: docs/ci/nightly-workflow-notes/2026-11-26-early-nightly-webviews.md
 
 Above `continue-on-error: ${{ vars.NIGHTLY_COMPONENT_GATES != 'block' }}`:
 

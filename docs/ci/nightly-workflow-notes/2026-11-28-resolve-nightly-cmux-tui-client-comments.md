@@ -3,10 +3,6 @@
 Moved verbatim from `.github/workflows/nightly.yml` to keep it under its size budget (tests/test_ci_workflow_file_size.py).
 Each block names the line it stood above. New prose for this job goes here, not in the workflow.
 
-Above `resolve-nightly-cmux-tui-client:`:
-
-    # Why: docs/ci/nightly-workflow-notes/2026-11-26-resolve-nightly-cmux-tui-client.md
-
 Above `runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 &`:
 
     # retry-nightly-next dispatches a new run at attempt 1. Use the rerun pool for those dispatches too.
@@ -28,10 +24,6 @@ Above `GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN
     # A second path for every gh call (c-bedbdb1917): a refused github.token hour moves to a CI pool's own
     # hour at once (gh_budget_wait.sh); a write the read-only pool cannot do goes back and waits as before.
 
-Above `continue-on-error: true`:
-
-    # Why: docs/ci/nightly-workflow-notes/2026-11-26-resolve-nightly-cmux-tui-client-checkout-build-ref.md
-
 Above `fetch-depth: 64`:
 
     # The resolver searches the last CMUX_TUI_TREE_SEARCH_COMMITS commits.
@@ -48,7 +40,3 @@ Above `- name: Pack this workflow commit's scripts`:
 Above `- name: Record pending tree dependency`:
 
     # The selected build source can differ from this workflow's control SHA.
-
-Above `- name: Leave the build slot to a newer nightly-next push`:
-
-    # Why: docs/ci/nightly-workflow-notes.md#note-16

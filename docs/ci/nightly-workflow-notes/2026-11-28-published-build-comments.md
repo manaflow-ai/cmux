@@ -3,14 +3,6 @@
 Moved verbatim from `.github/workflows/nightly.yml` to keep it under its size budget (tests/test_ci_workflow_file_size.py).
 Each block names the line it stood above. New prose for this job goes here, not in the workflow.
 
-Above `published-build:`:
-
-    # Why: docs/ci/nightly-workflow-notes.md#note-22
-
-Above `runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 &`:
-
-    # Why: docs/ci/nightly-workflow-notes/2026-11-26-published-build.md
-
 Above `timeout-minutes: 70`:
 
     # Room for gh_budget_wait.sh's wait through a rate limit: tail run 45925996466 failed its one gh read on
@@ -21,14 +13,6 @@ Above `GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN
     # A second path for every gh call (c-bedbdb1917): a refused github.token hour moves to a CI pool's own
     # hour at once (gh_budget_wait.sh); a write the read-only pool cannot do goes back and waits as before.
 
-Above `- name: Name the run that published`:
-
-    # Why: docs/ci/nightly-workflow-notes/2026-11-26-published-build-2.md
-
 Above `- name: Download its record`:
 
     # gh run download, not actions/download-artifact: its artifact list and zip reads go through the same wrapper.
-
-Above `- name: Read the published build back from the live feed`:
-
-    # Why: docs/ci/nightly-workflow-notes/2026-11-26-published-build-read-the-published-build-back-from-the-live-.md

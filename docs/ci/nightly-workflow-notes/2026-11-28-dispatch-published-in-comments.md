@@ -3,10 +3,6 @@
 Moved verbatim from `.github/workflows/nightly.yml` to keep it under its size budget (tests/test_ci_workflow_file_size.py).
 Each block names the line it stood above. New prose for this job goes here, not in the workflow.
 
-Above `dispatch-published-in:`:
-
-    # Why: docs/ci/nightly-workflow-notes.md#note-49
-
 Above `needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, build-sign-notarize-nightly, re`:
 
     # The build jobs too: the record says whether any of them failed (push_clean).
@@ -30,5 +26,4 @@ Above `- name: Upload the record`:
 
 Above `env: *dispatch-pools`:
 
-    # Why: docs/ci/nightly-workflow-notes/2026-11-26-dispatch-published-in-1.md
     # A 422 "twirp error resource_exhausted" is GitHub failing to read the workflow file (45798252585): tried again like a 5xx.

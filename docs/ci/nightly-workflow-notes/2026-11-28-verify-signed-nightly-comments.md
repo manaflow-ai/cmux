@@ -3,10 +3,6 @@
 Moved verbatim from `.github/workflows/nightly.yml` to keep it under its size budget (tests/test_ci_workflow_file_size.py).
 Each block names the line it stood above. New prose for this job goes here, not in the workflow.
 
-Above `needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, build-sign-notarize-nightly, pic`:
-
-    # Why: docs/ci/nightly-workflow-notes/2026-11-26-verify-signed-nightly-1.md
-
 Above `if: "!cancelled() && needs.build-sign-notarize-nightly.result == 'success' && needs.decide.outputs.n`:
 
     # The macOS signer's app.
@@ -14,10 +10,6 @@ Above `if: "!cancelled() && needs.build-sign-notarize-nightly.result == 'success
 Above `permissions:`:
 
     # actions:read lets a sign stage's parallel download of the signed app resolve the blob URL.
-
-Above `runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' &&`:
-
-    # Why: docs/ci/nightly-workflow-notes/2026-11-26-verify-signed-nightly-2.md
 
 Above `STAPLED_APP_FALLBACK_ID: ${{ needs.build-sign-notarize-nightly.outputs.stapled_app_fallback_id }}`:
 
@@ -31,14 +23,6 @@ Above `- *legacy-route-shared-5`:
 
     # nightly-next's license check reads ghostty-next/build.zig.zon.
 
-Above `- &x74`:
-
-    # Why: docs/ci/nightly-workflow-notes/2026-11-26-verify-signed-nightly-download-signed-app.md
-
 Above `- &older-tree-step-scripts-plain`:
 
     # The same restore for a job with no prepare reuse step: only the tree's age decides.
-
-Above `- &x77`:
-
-    # Why: docs/ci/nightly-workflow-notes/2026-11-26-verify-signed-nightly-download-signed-app-2.md

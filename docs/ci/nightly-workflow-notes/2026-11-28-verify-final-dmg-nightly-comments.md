@@ -3,10 +3,6 @@
 Moved verbatim from `.github/workflows/nightly.yml` to keep it under its size budget (tests/test_ci_workflow_file_size.py).
 Each block names the line it stood above. New prose for this job goes here, not in the workflow.
 
-Above `needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, build-sign-notarize-nightly, pic`:
-
-    # Why: docs/ci/nightly-workflow-notes/2026-11-26-verify-final-dmg-nightly-1.md
-
 Above `smoked_in_job: ${{ steps.own-smoke.outcome == 'success' }}`:
 
     # 'true' only when this job's own launch smoke passed.
@@ -22,15 +18,3 @@ Above `CMUX_CI_XCODE_APP: ${{ needs.pick-nightly-sign-runner.outputs.attempt == 
 Above `- &checkout-publication-tooling-a`:
 
     # Publication tooling from this workflow's own commit (see publish-nightly).
-
-Above `- *legacy-route-shared-5`:
-
-    # Why: docs/ci/nightly-workflow-notes/2026-11-26-verify-final-dmg-nightly-2.md
-
-Above `- name: Download final DMG (parallel ranges)`:
-
-    # Why: docs/ci/nightly-workflow-notes/2026-11-26-verify-final-dmg-nightly-download-final-dmg-parallel-ranges.md
-
-Above `- name: Launch smoke from a fresh home`:
-
-    # Why: docs/ci/nightly-workflow-notes/2026-11-26-verify-final-dmg-nightly-2.md
