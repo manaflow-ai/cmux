@@ -19,10 +19,12 @@ workflows, never compared. For each job of a twin:
   a copy checks it out, so only what follows the script's name counts).
 
 DIFFERENT_ON_PURPOSE names a job whose copies differ by design, with why; an entry that no longer differs fails too,
-so the list never goes stale. tests/test_ci_owned_pool_sources.py runs drift() on every guard run of both branches,
-against the other branch's freshly fetched tip.
+so the list never goes stale. tests/test_ci_owned_pool_sources.py runs drift() on ci-guards.yml's runs of both
+branches, against the other branch's freshly fetched tip; a feat-cmux-next pull request skips that group, so
+ci/steps.toml's workflow-twins step runs this file against a scratch checkout of main's workflows.
 
-    workflow_twins.py [--ref REF] --other REF   print each drifted job; exit 1 when there is one
+    workflow_twins.py [--ref REF] --other REF       print each drifted job; exit 1 when there is one
+    workflow_twins.py [--ref REF] --other-dir DIR   the same, the other branch's files checked out in DIR
 """
 
 from __future__ import annotations
@@ -127,9 +129,15 @@ HINT = ("A workflow on both main and feat-cmux-next is one workflow: make the ot
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--ref", help="this side's git ref (default: the working tree)")
-    parser.add_argument("--other", required=True, help="the other branch's git ref, e.g. origin/main")
+    other = parser.add_mutually_exclusive_group(required=True)
+    other.add_argument("--other", help="the other branch's git ref, e.g. origin/main")
+    other.add_argument("--other-dir", type=Path, help="a checkout of the other branch (its .github/workflows)")
     args = parser.parse_args(argv)
-    lines = drift(sources.Tree(ROOT, args.ref), sources.Tree(ROOT, args.other))
+    theirs = sources.Tree(args.other_dir) if args.other_dir else sources.Tree(ROOT, args.other)
+    if not theirs.workflows():
+        print(f"workflow twins: {theirs} holds no workflows, so nothing was compared", file=sys.stderr)
+        return 2
+    lines = drift(sources.Tree(ROOT, args.ref), theirs)
     for line in lines:
         print(line)
     if lines:
