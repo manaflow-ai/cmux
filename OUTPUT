@@ -1,0 +1,68 @@
+# swift-test-bench
+
+- measured tree: 88c3833c42cf8092e74ea632e9d258367a9997aa (step commit 88c3833c42cf8092e74ea632e9d258367a9997aa)
+- package: Packages/macOS/CmuxNext
+- filter: AccessibilityEnabledRuntimeTests
+- configuration: debug
+- host: cmux19, Apple M6, 12 cores, macOS 27.0
+- Xcode: Xcode 26.6 Build version 17F113 
+- build: 843 s
+
+## swift test --filter AccessibilityEnabledRuntimeTests
+[0/1] Planning build
+Test Suite 'Selected tests' started at 2026-11-26 18:25:28.478.
+Test Suite 'CmuxNextPackageTests.xctest' started at 2026-11-26 18:25:28.481.
+Test Suite 'CmuxNextPackageTests.xctest' passed at 2026-11-26 18:25:28.481.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-11-26 18:25:28.481.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.003) seconds
+cmux-next test process: exit() called (a stack at the very end of a run is the runner's own); its stack:
+0   CmuxNextPackageTests                0x000000706a6eefbc cmux_next_test_exit_trace + 72
+1   libsystem_c.dylib                   0x000000019905a688 __cxa_finalize_ranges + 448
+2   libsystem_c.dylib                   0x000000019905a474 exit + 44
+3   XCTestCore                          0x00000001050db00c _XCTestMain + 116
+4   xctest                              0x0000000104ff5e44 $s10xctesttool6xctestO4mainyyFZ + 284
+5   xctest                              0x0000000104ff5ee8 main + 12
+6   dyld                                0x0000000198ddd158 start + 6688
+cmux-next test process: holding the main run loop open so a stray stop cannot end this test run (0)
+◇ Test run started.
+↳ Testing Library Version: 1902
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite AccessibilityEnabledRuntimeTests started.
+◇ Test pressableViewAnswersAXEnabled() started.
+◇ Test everyPressableAccessibilityElementAnswersAXEnabled() started.
+◇ Test classifierCatchesAPressWithoutAXEnabled() started.
+✘ Test pressableViewAnswersAXEnabled() recorded an issue at AccessibilityEnabledRuntimeTests.swift:99:9: Expectation failed: (Self.attributeNames(of: view) → ["AXRole", "AXRoleDescription", "AXHelp", "AXFocused", "AXParent", "AXChildren", "AXChildrenInNavigationOrder", "AXWindow", "AXTopLevelUIElement", "AXPosition", "AXSize"]).contains(NSAccessibility.Attribute.enabled.rawValue → "AXEnabled")
+✘ Test pressableViewAnswersAXEnabled() recorded an issue at AccessibilityEnabledRuntimeTests.swift:102:9: Expectation failed: (Self.attributeNames(of: element) → ["AXRole", "AXRoleDescription", "AXParent", "AXWindow", "AXTopLevelUIElement"]).contains(NSAccessibility.Attribute.enabled.rawValue → "AXEnabled")
+✔ Test everyPressableAccessibilityElementAnswersAXEnabled() passed after 0.025 seconds.
+✔ Test classifierCatchesAPressWithoutAXEnabled() passed after 0.025 seconds.
+✘ Test pressableViewAnswersAXEnabled() failed after 0.025 seconds with 2 issues.
+↳ /// The premise that keeps views out of the walk: AppKit answers AXEnabled for an NSView that
+↳ /// takes a press, so only NSAccessibilityElement subclasses need the override. If this fails,
+↳ /// views need the same walk.
+✘ Suite AccessibilityEnabledRuntimeTests failed after 0.026 seconds with 2 issues.
+↳ /// The "pressable but unindexed" class, checked in this macOS's Objective-C runtime.
+↳ ///
+↳ /// CuaDriver (0.32.0) indexes an NSAccessibilityElement, so a computer-use client can press it,
+↳ /// only when it answers AXEnabled. AppKit lists the element's AXPress either way, so nothing else
+↳ /// fails: the onboarding "turn on" link (MessagesLabHome's TranscriptLinkElement) had AXPress and
+↳ /// stayed invisible to the onboarding walk until cmux#57734 overrode `isAccessibilityEnabled()`.
+↳ ///
+↳ /// Every custom NSAccessibilityElement in cmux's image (CmuxNext and the MessagesLab packages,
+↳ /// all linked into this bundle) that implements an action must implement `isAccessibilityEnabled()`
+↳ /// too. Views are out of scope: NSView and NSControl answer AXEnabled themselves
+↳ /// (``pressableViewAnswersAXEnabled`` pins it).
+✘ Test run with 3 tests in 1 suite failed after 0.026 seconds with 2 issues.
+cmux-next test process: exit() called (a stack at the very end of a run is the runner's own); its stack:
+0   CmuxNextPackageTests                0x000000706a6eefbc cmux_next_test_exit_trace + 72
+1   libsystem_c.dylib                   0x000000019905a688 __cxa_finalize_ranges + 448
+2   libsystem_c.dylib                   0x000000019905a474 exit + 44
+3   Testing                             0x000000010a249ad0 $s7Testing31_shouldIncludeExperimentalFlags33_5FF26E46D7345299BD737C127DE1337CLL_WZ + 0
+4   libswift_Concurrency.dylib          0x00000002ca1d0c3c _ZN5swift34runJobInEstablishedExecutorContextEPNS_3JobENS_17SerialExecutorRefENS_15TaskExecutorRefE + 308
+5   libswift_Concurrency.dylib          0x00000002ca1d26d0 _ZL17swift_job_runImplPN5swift3JobENS_17SerialExecutorRefE + 156
+6   libdispatch.dylib                   0x0000000198ffceec _dispatch_root_queue_drain + 340
+7   libdispatch.dylib                   0x0000000198ffd680 _dispatch_worker_thread2 + 180
+8   libsystem_pthread.dylib             0x00000001991a4e7c _pthread_wqthread + 232
+9   libsystem_pthread.dylib             0x00000001991a3c38 start_wqthread + 8
+
+- swift test: exit 1, 3 test(s), 24 s
