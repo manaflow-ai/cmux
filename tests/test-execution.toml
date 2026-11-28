@@ -1025,6 +1025,14 @@ path = "tests/test_ios_asc_ops.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ios_publication_snapshot.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_snapshot_dispatch.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_appstore_upload_marker.py"
 lane = "linux-guard"
 
@@ -2559,10 +2567,6 @@ path = "tests/test_ci_ghostty_zig_packages_fetched.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_fast_checks_warm_checkout.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_ci_workflow_duplicate_keys.py"
 lane = "linux-guard"
 
@@ -2572,8 +2576,4 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_app_host_cache_measure.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_publication_guard_release_read.py"
 lane = "linux-guard"

@@ -6896,5 +6896,37 @@ class JoblessSweepTests(unittest.TestCase):
         self.assertFalse(any("/actions/workflows/" in path and "status" not in path for _, path in fake.log))
 
 
+
+class JobListingIsCompleteTests(unittest.TestCase):
+    """GitHub.jobs() answers every job of a run or raises: a listing cut short can hide a running job, and a cancel
+    made on it would cut that job (the review BLOCK on cmux#27114)."""
+
+    def jobs(self, pages):
+        github = janitor.GitHub("token", "manaflow-ai/cmux")
+        asked = []
+
+        def request(method, path, body=None):
+            asked.append(path)
+            return pages[len(asked) - 1]
+
+        github.request = request
+        return github, asked
+
+    def test_every_page_is_read_until_a_short_one(self):
+        full = [{"id": index} for index in range(100)]
+        github, asked = self.jobs([{"total_count": 140, "jobs": full}, {"total_count": 140, "jobs": full[:40]}])
+        self.assertEqual(len(github.jobs(7)), 140)
+        self.assertEqual(len(asked), 2)
+
+    def test_a_cut_listing_raises(self):
+        full = [{"id": index} for index in range(100)]
+        github, asked = self.jobs([{"jobs": full}] * janitor.MAX_JOB_PAGES)
+        with self.assertRaisesRegex(RuntimeError, "incomplete"):
+            github.jobs(7)
+        self.assertEqual(len(asked), janitor.MAX_JOB_PAGES)
+        github, _ = self.jobs([{"total_count": 140, "jobs": full[:90]}])
+        with self.assertRaisesRegex(RuntimeError, "90 of 140"):
+            github.jobs(7)
+
 if __name__ == "__main__":
     unittest.main()
