@@ -221,7 +221,9 @@ test("Context keeps measured colored segments, expandable lists and Compact", as
     actions,
     t,
   )!;
-  expect(section.segments).toEqual([
+  // The head shows the title alone; the bar sits under the open section's "N% used" line (#53132).
+  expect(section.segments).toBeUndefined();
+  expect(section.rows[0]!.segments).toEqual([
     { share: 0.3, color: "context0" },
     { share: 0.1, color: "buffer" },
   ]);
