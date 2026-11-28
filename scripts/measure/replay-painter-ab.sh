@@ -10,6 +10,10 @@
 # Each arm's reading lands as DIR/ARM-ROUND.json (default $FAST_CHECKS_OUT or artifacts/replay-painter-ab); the
 # table goes to stdout and DIR/summary.json. Arms interleave (react, dom-floor, worker, react, ...) so a drift in the
 # machine's own load lands on every arm, not one. Exit 0 when every arm gave at least one reading.
+#
+# REPLAY_FRAME_TRACE=1 (measuring only): each run also records a Chrome trace with the frame pipeline's categories and
+# writes DIR/ARM-ROUND.trace.json.frames.json, what filled each slow frame on each thread (replay-frame-trace.py), and
+# the main-thread attribution beside it. Tracing costs the page time, so that run's p95 and busy % are not the number.
 set -uo pipefail
 root="$(git rev-parse --show-toplevel)"
 runs=3
@@ -31,7 +35,10 @@ IFS=, read -r -a arm_list <<<"$arms"
 for ((round = 1; round <= runs; round++)); do
   for arm in "${arm_list[@]}"; do
     echo "replay-painter-ab: round $round arm $arm" >&2
-    "$root/scripts/measure/replay-under-load.sh" --out "$dir/$arm-$round.json" --painter "$arm" ${pass[@]+"${pass[@]}"} >&2 || true
+    trace=()
+    [ "${REPLAY_FRAME_TRACE:-0}" = 1 ] && trace=(--trace "$dir/$arm-$round.trace.json" --trace-frames)
+    "$root/scripts/measure/replay-under-load.sh" --out "$dir/$arm-$round.json" --painter "$arm" ${pass[@]+"${pass[@]}"} \
+      ${trace[@]+"${trace[@]}"} >&2 || true
   done
 done
 python3 -I - "$dir" "$arms" <<'PY'
@@ -41,7 +48,8 @@ summary, ok = {}, True
 print(f"{'arm':<10} {'runs':>4} {'p95 ms (each)':<24} {'median':>7} {'react p95':>10} {'main busy %':>11} {'load/core':>9}")
 for arm in arms:
     rows = []
-    for path in sorted(glob.glob(os.path.join(d, f"{arm}-*.json"))):
+    # ARM-ROUND.json only: a traced run's ARM-ROUND.trace.json.*.json beside it is not a reading.
+    for path in sorted(p for p in glob.glob(os.path.join(d, f"{arm}-*.json")) if ".trace." not in os.path.basename(p)):
         try:
             rows.append(json.load(open(path)))
         except (OSError, ValueError):

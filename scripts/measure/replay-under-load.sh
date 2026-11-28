@@ -9,6 +9,8 @@
 #
 #   scripts/measure/replay-under-load.sh [--out FILE] [--cores N] [--seconds 60] [--rate 40] [--log FILE] [--profile] [--trace FILE]
 #     [--painter react|dom-floor|worker]   (bench-only viewport painter A/B: webviews/bench/support/viewportPainter.ts)
+#     [--trace-frames]   (with --trace: the frame pipeline's categories too, and replay-frame-trace.py's per-frame
+#                         breakdown of every slow frame beside the attribution, as TRACE.frames.json)
 #
 # --cores N runs the load and the replay on the first N CPUs only (taskset), so a shared VM gives up N cores, not all
 # of them; nproc inside is N and stress-ng runs 4*N workers there. Without it the whole machine is loaded: only a VM
@@ -23,6 +25,7 @@ out="$root/artifacts/replay-under-load/reading.json"
 cores=""
 profile=0
 trace=""
+frames=0
 bench_args=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -30,8 +33,9 @@ while [ $# -gt 0 ]; do
     --cores) cores="$2"; shift 2 ;;
     --seconds|--rate|--log|--warm|--painter) bench_args+=("$1" "$2"); shift 2 ;;
     --trace) trace="$(realpath -m "$2")"; bench_args+=("$1" "$trace"); shift 2 ;;
+    --trace-frames) bench_args+=("$1"); frames=1; shift ;;
     --profile) bench_args+=("$1"); profile=1; shift ;;
-    *) echo "usage: replay-under-load.sh [--out FILE] [--cores N] [--seconds 60] [--rate 40] [--log FILE] [--profile] [--trace FILE] [--painter ARM]" >&2; exit 2 ;;
+    *) echo "usage: replay-under-load.sh [--out FILE] [--cores N] [--seconds 60] [--rate 40] [--log FILE] [--profile] [--trace FILE [--trace-frames]] [--painter ARM]" >&2; exit 2 ;;
   esac
 done
 if [ -n "$cores" ] && [ -z "${REPLAY_UNDER_LOAD_PINNED:-}" ]; then
@@ -121,6 +125,9 @@ if [ -n "$trace" ] && [ -s "$trace" ]; then
   stress_pid=""
   ls -l "$trace" >&2
   python3 -I "$root/scripts/measure/replay-attribution.py" "$trace" --json "$trace.attribution.json" || status=1
+  if [ "$frames" -eq 1 ]; then
+    python3 -I "$root/scripts/measure/replay-frame-trace.py" "$trace" --json "$trace.frames.json" >&2 || status=1
+  fi
   gzip -f -1 "$trace"
 fi
 if [ "$profile" -eq 1 ]; then
