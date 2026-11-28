@@ -143,19 +143,19 @@ pub(super) fn notify(
 }
 
 /// The app's report of what it did with notification `notification`'s banner:
-/// `desktop` is `shown` or `suppressed`, `reason` one of [`crate::DELIVERY_REASONS`].
+/// `desktop` is `shown` or `suppressed`, `reason` one of [`crate::mux::DELIVERY_REASONS`].
 pub(super) fn record_notification_delivery(
     mux: &Arc<Mux>,
     notification: u64,
     desktop: String,
     reason: Option<String>,
 ) -> anyhow::Result<Value> {
-    let outcome = crate::NotificationDesktopOutcome::parse(&desktop)
+    let outcome = crate::mux::NotificationDesktopOutcome::parse(&desktop)
         .ok_or_else(|| anyhow::anyhow!("bad desktop {desktop}: shown or suppressed"))?;
     let reason = match reason.as_deref() {
         None => None,
         Some(reason) => Some(
-            crate::DELIVERY_REASONS
+            crate::mux::DELIVERY_REASONS
                 .iter()
                 .copied()
                 .find(|known| *known == reason)
