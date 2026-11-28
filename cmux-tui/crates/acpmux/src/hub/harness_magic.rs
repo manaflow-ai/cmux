@@ -55,6 +55,7 @@ pub(crate) const FEATURES: &[Feature] = &[
     Feature { name: super::turn_checkpoint::FEATURE, on: super::turn_checkpoint::enabled },
     Feature { name: "sharedCache", on: crate::ci_log_cache::enabled },
     Feature { name: "outputCaps", on: crate::harness_limits::output_caps },
+    Feature { name: super::approval_review::FEATURE, on: super::approval_review::enabled },
     Feature { name: super::turn_artifacts::FEATURE, on: super::turn_artifacts::enabled },
     Feature { name: "consensus", on: super::surge_triage::consensus_enabled },
     Feature { name: "continue", on: super::stop_condition::continue_enabled },
