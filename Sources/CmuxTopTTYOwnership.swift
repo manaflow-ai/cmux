@@ -81,7 +81,7 @@ struct CmuxTopTTYOwnership: Sendable {
 /// carries positive evidence for it, so an unrelated detached workload that merely
 /// inherited the TTY is reported rather than summed into cmux's memory.
 struct CmuxTopTTYOwnershipResolver {
-    /// PIDs known to belong to cmux — the window's app processes and their descendants.
+    /// PIDs known to belong to cmux: the app process and its descendants.
     /// A process launched onto the TTY by one of these is a surface root; without this
     /// evidence an off-TTY parent proves nothing.
     private let cmuxOwnedPIDs: Set<Int>

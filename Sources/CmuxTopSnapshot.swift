@@ -198,7 +198,7 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
     /// - Parameters:
     ///   - ttyPIDs: every PID sharing the surface's TTY device.
     ///   - surfaceID: the surface being annotated, when it has an identifier.
-    ///   - cmuxOwnedPIDs: the window's app processes and their descendants, used as launch
+    ///   - cmuxOwnedPIDs: the app process and its descendants, used as launch
     ///     evidence for a process whose parent sits off the TTY.
     ///   - provenPIDs: PIDs already proven through the cmux-scoped process tree.
     /// - Returns: the proven set, the unattributed set, and the reason for each PID.
