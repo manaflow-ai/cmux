@@ -570,6 +570,11 @@ async fn place_on<M: Machines, R: SubRun>(
         model: opts.model.clone(),
         sync_patch,
     };
+    crate::fork_spec::log(
+        &crate::fork_spec::ForkSpec::preset(crate::fork_spec::Preset::SubVm),
+        machine,
+        fork.id(),
+    );
     let ran = runner.run(fork.id(), &task).await;
     let fork_id = fork.id().to_owned();
     let ran = match ran {

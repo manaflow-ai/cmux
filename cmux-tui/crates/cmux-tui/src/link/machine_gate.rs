@@ -156,7 +156,15 @@ pub(super) fn build_id(identity: &Value) -> Option<&str> {
 
 /// `identify`'s `data`, or None when the daemon does not answer it.
 pub(crate) fn identify(socket: &Path) -> Option<Value> {
-    call_within(socket, json!({"cmd": "identify"}), IDENTIFY_BUDGET).ok()
+    if let Some(identity) = remembered(socket) {
+        return Some(identity);
+    }
+    let identity = super::spans::time("rpc identify", || {
+        call_within(socket, json!({"cmd": "identify"}), IDENTIFY_BUDGET)
+    })
+    .ok()?;
+    remember(socket, &identity);
+    Some(identity)
 }
 
 /// Why a verb's first contact found no machine: what the last try saw, and
@@ -189,7 +197,68 @@ impl std::fmt::Display for Unreached {
 /// [`LINK_READY_BUDGET`]; or why none came. A daemon that refuses
 /// `identify` is not waited on: its refusal is the answer, as before.
 pub(crate) fn reach(socket: &Path) -> Result<Value, Unreached> {
-    reach_within(socket, LINK_READY_BUDGET)
+    if let Some(identity) = remembered(socket) {
+        return Ok(identity);
+    }
+    let identity = super::spans::time("rpc identify", || reach_within(socket, LINK_READY_BUDGET))?;
+    remember(socket, &identity);
+    Ok(identity)
+}
+
+thread_local! {
+    /// The `identify` answers read while a [`Memo`] is open, by socket path.
+    static MEMO: std::cell::RefCell<Option<std::collections::HashMap<std::path::PathBuf, Value>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// One verb's memo of the `identify` answers it read (a move asked each daemon up to four
+/// times: its gate, what the source serves, the target's checks and the frozen pull's own
+/// first contact, each a round trip to the machine). While it is open, [`reach`] and
+/// [`identify`] answer a socket already identified from the memo; the requests that follow
+/// still go to the daemon, so a daemon that went away fails them as before. Only one verb's
+/// run: a daemon updated after it closes is read again. Dropping it closes it.
+pub(crate) struct Memo {
+    opened: bool,
+}
+
+impl Memo {
+    /// Opens the memo on this thread; a memo already open stays the one (the inner one is a
+    /// no-op).
+    pub(crate) fn open() -> Self {
+        let opened = MEMO.with(|memo| {
+            let mut memo = memo.borrow_mut();
+            if memo.is_some() {
+                return false;
+            }
+            *memo = Some(std::collections::HashMap::new());
+            true
+        });
+        Self { opened }
+    }
+}
+
+impl Drop for Memo {
+    fn drop(&mut self) {
+        if self.opened {
+            MEMO.with(|memo| *memo.borrow_mut() = None);
+        }
+    }
+}
+
+fn remembered(socket: &Path) -> Option<Value> {
+    let found = MEMO.with(|memo| memo.borrow().as_ref()?.get(socket).cloned());
+    if found.is_some() {
+        super::spans::add("identify remembered", Duration::ZERO);
+    }
+    found
+}
+
+fn remember(socket: &Path, identity: &Value) {
+    MEMO.with(|memo| {
+        if let Some(memo) = memo.borrow_mut().as_mut() {
+            memo.insert(socket.to_path_buf(), identity.clone());
+        }
+    });
 }
 
 pub(super) fn reach_within(socket: &Path, budget: Duration) -> Result<Value, Unreached> {

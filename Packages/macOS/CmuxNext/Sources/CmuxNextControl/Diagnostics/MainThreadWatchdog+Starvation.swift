@@ -41,7 +41,7 @@ extension MainThreadWatchdog {
             let cpuNow = busy.mainThreadCPUNanos()
             let cpu = cpuAt.flatMap { start in cpuNow.map { $0 > start ? $0 - start : 0 } }
             noteProbeAnswered(sentAt: sentAt, delayNanos: delay, cpuNanos: cpu, memoryAt: memoryAt,
-                              host: { HostLoad.current() ?? host })
+                              host: { HostLoad.peak(host, HostLoad.current()) })
         }
     }
 

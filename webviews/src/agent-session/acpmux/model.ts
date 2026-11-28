@@ -14,6 +14,7 @@ import {
   MARK_FOOTER,
   MARK_FOOTER_ROW,
   MARK_LIVE_STEP,
+  MARK_LIVE_THOUGHT,
   MARK_CARD,
   MARK_STATUS,
   MARK_STEP,
@@ -718,6 +719,9 @@ export type AcpmuxRow = {
   folded?: boolean;
   /// A Worked-for row's actual open state, including a provisional key from paged history.
   foldOpen?: boolean;
+  /// A running turn's header whose fold holds nothing to open yet (turns.ts `liveFoldHidesWork`): its
+  /// first call still runs on the live line, or no step came. It draws no chevron until work lands.
+  foldEmpty?: boolean;
   /// A turn's header ("Worked for", turns.ts `turnHeaderId`) is one row from the turn's start to its
   /// end: `running` while the turn runs ("Working for 32s", its clock ticking from `at`, or held at
   /// `durationMs` once the answer came), unset once it ended.
@@ -966,6 +970,11 @@ export type AcpmuxRow = {
   subagents?: Subagent[];
   /// A start line's: how many of its `subagents` it names; it counts the rest (runningTray.ts `startedLineModel`).
   startedNamed?: number;
+  /// A start line's: every subagent it names ended, none failed (runningTray.ts `startedLine`).
+  startedAllEnded?: true;
+  /// A start line beside its turn's closed "Worked for", whose done lines that fold hides: it reads
+  /// "{name} finished" (conversation/turns.ts `outside`; SubagentStartedLine.tsx).
+  startedEndedLine?: true;
   /// On a background turn's line: the subagent whose report started the turn, which the line names
   /// (subagents/runningTray.ts `withSubagentLines`; conversation/BackgroundTurnLine.tsx).
   subagentReport?: Subagent;
@@ -1387,6 +1396,8 @@ export type AcpmuxSnapshot = {
   peers?: string[];
   /// Each peer's transport by name: `ssh` for an `ssh://` peer, `cloud` for any other (environments.ts).
   peerKinds?: Record<string, "ssh" | "cloud">;
+  /// The workspace registry ID of each peer leased by a Cloud link.
+  peerCloudRegistries?: Record<string, string>;
   /// Whether each peer is connected, as `_acpmux/status` last said (environments.ts).
   peerConnected?: Record<string, boolean>;
   /// Each peer's link state (`connected`, `reconnecting`, …), as `_acpmux/status` last said (environments.ts).
@@ -1685,6 +1696,7 @@ export type AcpmuxSnapshot = {
     pickable?: boolean;
     /** The declared launcher or route kind; routers cannot represent a harness family. */
     kind?: string;
+    endpoint?: true;
     /** acpmux's family for the harness (`_acpmux/harnesses` `family`): joins it to a catalog harness. */
     family?: string;
     /** `_acpmux/harnesses` `icon`: the profile's own icon value (a brand id, an emoji, an SF
@@ -1887,13 +1899,6 @@ const MESSAGE_GAP = 0;
 /// rhythm margins. Expanded Markdown is measured by the virtual transcript after the reader opens it.
 const cardHeight = (_state: string) => 32;
 
-/// A sub-session reply under its card (SubsessionCallCard.tsx `Cut`): up to three 16px detail lines of
-/// about 60 characters, and the toggle once it is cut.
-function replyHeight(reply: string): number {
-  const lines = reply.split("\n").reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / 60)), 0);
-  return Math.min(lines, 3) * 16 + (lines > 3 ? 20 : 0);
-}
-
 /// The compact tool run rhythm (`conversation.css --cv-tool-row-height` and its run bottom gap).
 const TOOL_RUN_TOP = 0;
 /// A step row: a tool run, the live run line over its work, or a one-line row (transcriptGrid.ts
@@ -1914,6 +1919,14 @@ export const isLiveLine = (row: AcpmuxRow) => row.below === true && (row.kind ==
 /// spacing and formatting"; design/transcript-spacing.md rule 3).
 export const isLiveStep = (row: AcpmuxRow, prev: AcpmuxRow | undefined) =>
   isLiveLine(row) && prev !== undefined && (isStepRow(prev) || isStatusRow(prev));
+/// The live line right under a step row that ends on a thought (transcriptGrid.ts MARK_LIVE_THOUGHT): it stands the
+/// run gap the reply that follows the thought stands, so the reply takes its place and nothing over it moves more than
+/// the reply's own lines.
+export const isLiveThought = (row: AcpmuxRow, prev: AcpmuxRow | undefined) => {
+  if (prev?.kind !== "activity" || !isLiveStep(row, prev)) return false;
+  const last = prev.items?.at(-1);
+  return last !== undefined && isThought(last);
+};
 /// A row's kind for the gap rules (transcriptGrid.ts transcriptGap), `prev` the drawn row above it.
 /// A live line under a step is MARK_LIVE_STEP, not another step, which would sit flush.
 /// `above`, the drawn row over `prev`, tells a received line under its own turn's "Working for" apart
@@ -2035,7 +2048,9 @@ const rowGridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
       : isStepRow(row)
         ? MARK_STEP
         : isLiveStep(row, prev)
-          ? MARK_LIVE_STEP
+          ? isLiveThought(row, prev)
+            ? MARK_LIVE_THOUGHT
+            : MARK_LIVE_STEP
           : isStatusRow(row)
             ? MARK_STATUS
             : rowMark(row);
@@ -4984,6 +4999,7 @@ import { laneNotice } from "./conversation/laneReport";
 import { receivedLook } from "./conversation/receivedLook";
 import { MESSAGE_PREVIEW_LINE_PT, messageLineLook } from "./conversation/messageLineLook";
 import { ROW_METRIC } from "./rowMetric";
+import { replyHeight } from "./replyHeight";
 import { isDiagram, isUnlabeledLang } from "./conversation/codeShape";
 import type { SurgeHold } from "./conversation/surgeHold";
 

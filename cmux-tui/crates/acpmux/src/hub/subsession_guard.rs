@@ -369,14 +369,18 @@ impl Hub {
     pub(super) async fn ensure_checked_child(
         self: &Arc<Self>,
         session: &Arc<Session>,
-        spawn: &super::spawn::Spawn,
+        launch: (
+            &crate::config::HarnessProfile,
+            String,
+            &std::collections::BTreeMap<String, String>,
+        ),
         checked: Option<&CheckedFolder>,
         stops: u64,
     ) -> Result<Arc<ChildAgent>, RpcError> {
-        let Some(checked) = checked else { return self.ensure_child(session, spawn, stops).await };
+        let Some(checked) = checked else { return self.ensure_child(session, launch, stops).await };
         let cwd = session.meta().cwd;
         checked.still_at(&cwd)?;
-        let pinned = self.ensure_child(session, spawn, stops);
+        let pinned = self.ensure_child(session, launch, stops);
         let started = Box::pin(crate::cwd_pin::CwdPin::scope(checked.pin, pinned)).await;
         // A spawn its harness's own check failed (the folder moved since) says why.
         started.map_err(|e| checked.still_at(&cwd).err().unwrap_or(e))
