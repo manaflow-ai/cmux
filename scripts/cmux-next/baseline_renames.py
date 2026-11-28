@@ -21,6 +21,9 @@ MOVED_BASELINE_PATHS = {
         "cmux-tui/crates/cmux-remote/src/identity.rs",
     "cmux-tui/crates/acpmux/src/hub/permissions/inbound.rs":
         "cmux-tui/crates/acpmux/src/hub/permissions.rs",
+    # #63597 split daemon.rs's detached start into daemon/detached_spawn.rs; daemon.rs keeps a row.
+    "cmux-tui/crates/acpmux/src/daemon/detached_spawn.rs":
+        "cmux-tui/crates/acpmux/src/daemon.rs",
 }
 
 
