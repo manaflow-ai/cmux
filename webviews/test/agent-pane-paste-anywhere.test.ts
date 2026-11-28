@@ -58,6 +58,13 @@ await requireBrowserLane("agent-pane-paste-anywhere.test.ts", async () => {
   /// The pane with one sent prompt in its transcript, the keyboard on that message.
   async function chat(browser: Browser): Promise<Page> {
     const page = await browser.newPage({ viewport: { width: 900, height: 640 } });
+    // The pane's dev entry waits for the host's ready handshake before it sends (as the sibling pane tests stub it).
+    await page.addInitScript(() => {
+      Object.assign(window, {
+        webkit: { messageHandlers: { agentSession: { postMessage: async () => ({ ok: true, value: null }) } } },
+        cmuxAcpmuxActions: { ready: async () => ({ protocolVersion: 1, transport: "mock", newSession: true }) },
+      });
+    });
     await page.addInitScript(() => {
       const w = window as unknown as Record<string, unknown>;
       w.webkit = { messageHandlers: { agentSession: { postMessage: async () => ({ ok: true, value: null }) } } };
@@ -66,6 +73,8 @@ await requireBrowserLane("agent-pane-paste-anywhere.test.ts", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/`);
     await page.locator(PROMPT).waitFor();
+    // The tray is the default view since 2026-11-25; the chip-at-the-caret paste is the inline view's.
+    await page.evaluate(() => window.cmuxAcpmuxComposer?.({ attachmentView: "inline" }));
     await page.waitForFunction(() => document.activeElement?.classList.contains("ProseMirror"));
     await page.keyboard.type("compare the retry policies");
     await page.keyboard.press("Enter");
@@ -156,7 +165,7 @@ await requireBrowserLane("agent-pane-paste-anywhere.test.ts", async () => {
             plain: '![Screenshot · 778×696]([image] "Screenshot · 778×696")',
           }),
         ).toBe(true);
-        // The image goes in the prompt at the caret (the default inline view), not the strip as well.
+        // The image goes in the prompt at the caret (the inline view), not the strip as well.
         const chips = page.locator(`${PROMPT} [data-inline-attachment] img`);
         await chips.first().waitFor();
         expect(await chips.count()).toBe(1);
