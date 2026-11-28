@@ -241,6 +241,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_receipt.py
 
+      - name: Validate the darwin pool leg makes its own room
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pool_make_room.py
+
       - name: Validate CDN readers name their client
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_cdn_user_agent.py
@@ -342,12 +346,15 @@ jobs:
 
       # Every connectivity host NEXT's code names (ICE servers, relays, signaling, backend, update hosts) is in
       # config/network/allowlist.json, the list firewall admins allow; docs/network-requirements.md is rendered from it.
+      # On a pull request the coverage check reads only the changed files (tests/guard_delta.py); a branch's own run
+      # reads them all.
       - name: Validate NEXT's connectivity hosts are in the network allowlist
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_network_allowlist.py
 
       # Every outbound HTTP client or socket NEXT makes goes through the egress gate, which refuses unlisted hosts
-      # at run time; tests/egress_ungated.json lists the sites not moved yet and may only shrink.
+      # at run time; tests/egress_ungated.json lists the sites not moved yet and may only shrink. On a pull request
+      # it reads only the changed files and list entries (tests/guard_delta.py); a branch's own run reads them all.
       - name: Validate NEXT's outbound sites go through the egress gate
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_egress_gate.py
@@ -872,7 +879,9 @@ jobs:
       # full database (fake bun and fake connect; no network, no secret).
       - name: Validate the Cloud journey and deploy gate retries
         if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
-        run: bun test scripts/cmux-next/auto-journey-s4.test.ts scripts/cmux-next/cloud-journey.test.ts scripts/cmux-next/cloud-journey-retry.test.ts scripts/cmux-next/cloud-journey-first-text.test.ts scripts/cmux-next/cloud-journey-window.test.ts scripts/cmux-next/cloud-journey-preclaim-login.test.ts scripts/cmux-next/cloud-journey-teammate.test.ts
+        run: |
+          python3 tests/test_auto_journal_nightly_artifact.py
+          bun test scripts/cmux-next/auto-journal-nightly-recovery.test.ts scripts/cmux-next/auto-journey-socket.test.ts scripts/cmux-next/auto-journey-s4.test.ts scripts/cmux-next/cloud-journey.test.ts scripts/cmux-next/cloud-journey-retry.test.ts scripts/cmux-next/cloud-journey-first-text.test.ts scripts/cmux-next/cloud-journey-window.test.ts scripts/cmux-next/cloud-journey-preclaim-login.test.ts scripts/cmux-next/cloud-journey-teammate.test.ts
 
       # The staging test account sweep's picker: age, state, activity and creator decide what goes (pure; no
       # network, no secret).
@@ -966,6 +975,14 @@ jobs:
       - name: Check that push and pull_request path filters agree
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_path_filter_parity.py
+
+      # A hint, never a gate: annotate pattern downloads a lone match flattens into path: itself
+      # (cmuxterm-hq docs/handbook/lone-artifact-flattens-its-download.md).
+      - name: Hint at pattern downloads a lone artifact flattens
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: |
+          python3 tests/test_pattern_download_layout_hint.py
+          python3 scripts/ci/pattern_download_layout_hint.py || true
 
       - name: Check that path-filtered workflows start for their tests' inputs
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1506,6 +1523,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_fixit_handoff.py
 
+      - name: Validate registered ci fixit lint
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fixit_lint.py
+
       - name: Validate registered ci fleet fast tier result
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_fleet_fast_tier_result.py
@@ -1529,6 +1550,10 @@ jobs:
       - name: Validate registered ci light jobs pool mirror checkout
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_light_jobs_pool_mirror_checkout.py
+
+      - name: Validate registered ci pool checkout reuse sparse
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pool_checkout_reuse_sparse.py
 
       - name: Validate registered ci pool tokens
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -2002,6 +2027,10 @@ jobs:
       - name: Validate the cmux-vmd autocloud template bake
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_cmux_vmd_autocloud_template.py
+
+      - name: Validate the cmux-vmd host artifacts bundle
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_vmd_host_artifacts.py
 
       - name: Validate the Actions artifact pruner
         if: ${{ !cancelled() && matrix.group == 'ci' }}
