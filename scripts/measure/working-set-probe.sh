@@ -4,7 +4,7 @@
 # Runs a load in its own slice under this user's acpmuxsessions.slice: 1.5 GiB of file pages
 # read once (cold) and 512 MiB read in a loop (hot). It then probes that slice and prints the
 # report. A right answer is about 512 MiB plus the interpreter, stopped by `refaults`.
-# 2026-11-28 on fs-agent-lane-1 (Linux 6.1, no swap): 563728384 bytes (537.6 MiB), 37 steps, 37.6 s.
+# 2026-11-28 on a Linux 6.1 lane VM with no swap: 563728384 bytes (537.6 MiB), 37 steps, 37.6 s.
 #
 # Needs Linux with cgroup v2 and a systemd user manager; no root. Writes 2 GiB under a temp dir
 # it makes and removes.
