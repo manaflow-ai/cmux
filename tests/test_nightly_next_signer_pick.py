@@ -172,8 +172,45 @@ class EvaluateTests(unittest.TestCase):
         api = Api(runs, {1: [one("in_progress", "cmux15-glaeda")]})
         host, pin, why = pick_mod.evaluate(env(), api, now=NOW)
         self.assertEqual(host, "ultra1", why)
-        self.assertEqual(len(api.paths), 3, api.paths)
-        self.assertFalse(any("/runs/500/" in p or "/runs/3/" in p or "/runs/4/" in p for p in api.paths), api.paths)
+        # the listing, the two open loop runs, and the one finished loop run (its last outcome)
+        self.assertEqual(len(api.paths), 4, api.paths)
+        self.assertFalse(any("/runs/500/" in p or "/runs/4/" in p for p in api.paths), api.paths)
+
+    def test_a_host_whose_last_build_failed_goes_after_a_free_healthy_one(self):
+        """2026-11-27: four picks in a row sent nightly-next-one to ultra1 while each crashed Xcode there
+        (runs 46074261734, 46076637784, 46079235693). cmux15 normally goes first; a failed last build on it sends
+        the next build to ultra1, and a failed ultra1 keeps cmux15."""
+        def failed(runner_name):
+            return dict(one("completed", runner_name), conclusion="failure")
+        def passed(runner_name):
+            return dict(one("completed", runner_name), conclusion="success")
+        runs = [loop_run(7, status="completed"), loop_run(6, status="completed"), loop_run(5, status="completed")]
+        host, _, why = pick_mod.evaluate(env(), Api(runs, {7: [failed("cmux15-glaeda")]}), now=NOW)
+        self.assertEqual(host, "ultra1", why)
+        host, _, why = pick_mod.evaluate(env(), Api(runs, {7: [failed("ultra1-glaeda")]}), now=NOW)
+        self.assertEqual(host, "cmux15", why)
+        # the newest outcome per host wins: cmux15 failed earlier, then built green
+        api = Api(runs, {7: [passed("cmux15-glaeda")], 6: [failed("cmux15-glaeda")]})
+        host, _, why = pick_mod.evaluate(env(), api, now=NOW)
+        self.assertEqual(host, "cmux15", why)
+        self.assertFalse(any("/runs/5/" in p for p in api.paths), "reads at most RECENT_DONE finished runs")
+
+    def test_the_only_free_signer_is_picked_even_when_its_last_build_failed(self):
+        runners = fleet(cmux15_glaeda=runner("cmux15-glaeda", status="offline"),
+                        cmux15_glaeda_1=runner("cmux15-glaeda-1", status="offline"))
+        host, pin, why = pick_mod.pick(runners, [], {"ultra1"})
+        self.assertEqual(host, "ultra1", why)
+        self.assertIn("no healthy signer is free", why)
+
+    def test_a_failed_last_outcome_read_keeps_the_pick(self):
+        class Flaky(Api):
+            def __call__(self, path):
+                if "/runs/9/" in path:
+                    raise OSError("boom")
+                return super().__call__(path)
+        host, _, why = pick_mod.evaluate(env(), Flaky([loop_run(9, status="completed")], {}), now=NOW)
+        self.assertEqual(host, "cmux15", why)
+        self.assertNotIn("pick failed", why)
 
     def test_a_census_as_old_as_the_run_reads_it_still_picks(self):
         """vars are read when the run starts and the pick runs after resolve (~13 min); runs 44990363506,
