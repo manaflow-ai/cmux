@@ -19,24 +19,8 @@ enum AccountsHandlers {
             try services.settingsWindow.show(section: .accounts, setting: MobileSettings.allowIPhoneConnectionsPath.joined(separator: "."),
                                              focus: invocation.allowsViewChange)
         })
-        registry.bindEffect("accounts.githubConnect", requires: nil, effect: { invocation in
-            if invocation["repo"] == nil, invocation["org"] == nil { try services.settingsWindow.show(section: .accounts) } // a chat card names the repo or org: GitHub opens, Settings does not
-            return .applied(result: { await services.accounts.github.connectResult(invocation) })
-        })
-        // A chat's Connect card (webviews, a tool call that answered needs_auth or a service the agent named): the
-        // catalog `service` connects through Settings > Integrations > Connections' own model, its sign-in
-        // returning to the chat (`returnTo`, checked by the pane). A key, an unavailable server or an unknown
-        // name opens Settings > Integrations, and the chat reads why.
-        registry.bindEffect("connections.connect", requires: nil, effect: { invocation in
-            let name = invocation["service"]?.stringValue ?? ""
-            return .applied(result: {
-                guard let reason = await services.integrationConnections.connectFromChat(name: name, returnTo: invocation["returnTo"]?.stringValue) else {
-                    return .success(["status": .string("ok"), "service": .string(name)])
-                }
-                try? services.settingsWindow.show(section: nil, route: "#/settings/integrations")
-                return .failure(ActionWorkFailure(reason))
-            })
-        })
+        registry.bindEffect("accounts.githubConnect", requires: nil, effect: { try services.accounts.github.connectEffect($0) { try services.settingsWindow.show(section: .accounts) } })
+        registry.bindEffect("connections.connect", requires: nil, effect: { services.integrationConnections.chatConnectEffect($0) { try? services.settingsWindow.show(section: nil, route: "#/settings/integrations") } })
         registry.bind("accounts.refresh", run: { _ in services.accounts.model.refresh() })
         registry.bind("accounts.reauthenticate", run: { invocation in
             let provider = try provider(invocation)

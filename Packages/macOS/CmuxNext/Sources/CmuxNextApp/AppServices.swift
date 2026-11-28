@@ -95,11 +95,7 @@ final class AppServices {
     let mainWork: MainWorkScheduler
     /// Agent panes' git reads, one link per machine (AgentPaneGitReads.swift).
     private(set) lazy var agentGit = AgentPaneGitLinks(machines: machines)
-    /// Settings > Integrations > Connections: the one the Settings page shows and a chat's Connect card
-    /// (`connections.connect`) runs, so a sign-in started in a chat shows pending on the page.
-    private(set) lazy var integrationConnections = SettingsConnections(
-        cli: { [bundled = bundledCLI] in await bundled.resolve() }, linkScheme: { [weak self] in self?.linkScheme ?? "cmux" },
-        openInBrowser: { [weak self] url in if self?.cloud.auth.openSignInInApp?(url) != true { LinkRouter.shared.open(url, in: .system) } })
+    private(set) lazy var integrationConnections = SettingsConnections(cli: { [bundled = bundledCLI] in await bundled.resolve() }, linkScheme: { [weak self] in self?.linkScheme ?? "cmux" }, openInBrowser: { [weak self] url in if self?.cloud.auth.openSignInInApp?(url) != true { LinkRouter.shared.open(url, in: .system) } }) // Settings > Integrations > Connections, shared with a chat's Connect card (connections.connect)
     let machines: MachineRegistry
     /// The browser import's reader: `browser_import.read` on the local daemon.
     var browserDataReader: BrowserDataReader { .daemon { @MainActor [machines] in await machines.local.connectionOnceStarted() } }
