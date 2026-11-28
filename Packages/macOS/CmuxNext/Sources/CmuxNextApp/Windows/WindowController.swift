@@ -570,14 +570,6 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
     /// The launch's first layout pass is marked (`window.first_layout_*`).
     private static var launchLayoutMarked = false
 
-    override func displayIfNeeded() {
-        let first = !Self.launchDisplayMarked // the first window's first display (startup-tti)
-        if first { Self.launchDisplayMarked = true; DebugTimings.markLaunch("window.first_display_start") }
-        super.displayIfNeeded()
-        if first { DebugTimings.markLaunch("window.first_display_done") }
-    }
-    private static var launchDisplayMarked = false
-
     override func layoutIfNeeded() {
         #if DEBUG || CMUX_BENCH_HOOKS
         let traced = DebugWindowTransition.shared.isActive && overlayLayer.layoutDepth == 0
