@@ -455,7 +455,7 @@ public final class AgentPaneView: NSView {
 
     private func observeMotion() {
         motionObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (Motion.speed, Motion.web.isEnabled, Motion.indicators.isEnabled, DesignSettings.shared.statusIndicator.animation, DesignSettings.shared.focusRing.enabled, DesignSettings.shared.homeCardStyle) }) {
+            for await _ in ObservationStream({ (Motion.speed, Motion.web.isEnabled, Motion.indicators.isEnabled, DesignSettings.shared.statusIndicator.animation, DesignSettings.shared.focusRing.enabled, DesignSettings.shared.homeCardStyle, ThemeScope.app.store.machineColors, ThemeScope.app.store.machineIcons) }) {
                 guard let self else { return }
                 self.applyTheme()
             }

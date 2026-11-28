@@ -12,7 +12,8 @@ import { COMBOBOX_VIRTUAL_AFTER, Combobox } from "../../ui/Combobox";
 import { ProjectBadge } from "./ProjectBadge";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { chooserRows, type ProjectRepo } from "./projectRepos";
-import { machineColor } from "./machineColor";
+import { machineColor, machineEmoji } from "./machineColor";
+import { MacBookGlyph } from "./MacBookGlyph";
 import { emptyFolderLabel } from "./composerContextModel";
 
 /// A folder to start a chat in. `peer` (with its display name `host`) is another machine's folder:
@@ -355,17 +356,29 @@ function titledByPath(project: Project) {
   return trim(project.label) === trim(project.cwd);
 }
 
-/// The machine a group of projects is on: the computer the composer's chip and the environment list
-/// draw for it, in that machine's own color (machineColor), so each machine reads as itself instead
-/// of one globe repeated on every row (Leo, 2026-10-20: "we can have them be delineated rather than just
-/// this is a computer symbol. This is a computer symbol"). This Mac stays quiet.
+/// The machine a group of projects is on, drawn as itself (Leo, 2026-10-20 and 2026-11-28: "we can
+/// have them be delineated rather than just this is a computer symbol. This is a computer symbol",
+/// "Why is your computer only labeled your computer instead of having a symbol?"): the person's own
+/// icon for it (an emoji, `machine.setIcon`), else its device's glyph once its daemon said what it
+/// is (a Mac mini, a rack server, the cloud), else this Mac's laptop or a remote host's terminal, in
+/// the machine's own color, which no other machine of the person's shares (machineColor.ts). The
+/// sidebar's headers draw the same icon and color. This Mac stays uncolored.
 function MachineIcon({ name, peer }: { name?: string; peer?: string }) {
-  // Its own device glyph once its daemon said what it is (Leo 2026-11-14); else the laptop.
   const device = useDeviceKind(peer);
+  const emoji = name ? machineEmoji(name) : undefined;
+  if (emoji) {
+    return (
+      <span className="acpmux-icon acpmux-machine-emoji" data-machine-icon="emoji" aria-hidden="true">
+        {emoji}
+      </span>
+    );
+  }
+  const glyph = device ? "device" : peer === undefined ? "this-mac" : "remote";
   return (
     <svg
       className={`acpmux-icon${device ? " acpmux-device-icon" : ""}`}
       data-device={device}
+      data-machine-icon={glyph}
       style={name ? { color: machineColor(name) } : undefined}
       width={device ? 15 : 12}
       height={12}
@@ -373,16 +386,19 @@ function MachineIcon({ name, peer }: { name?: string; peer?: string }) {
       fill="none"
       stroke="currentColor"
       strokeWidth={1.25}
+      strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
       focusable="false"
     >
       {device ? (
         <DeviceGlyphShapes kind={device} />
+      ) : peer === undefined ? (
+        <MacBookGlyph />
       ) : (
         <>
-          <rect x="3" y="3.5" width="10" height="7" rx="1.2" />
-          <path d="M1.75 12.5h12.5" strokeLinecap="round" />
+          <rect x="2" y="3" width="12" height="10" rx="1.5" />
+          <path d="m4.75 6.5 2 1.75-2 1.75M8.5 10h2.75" />
         </>
       )}
     </svg>

@@ -1,4 +1,5 @@
 import CmuxNextBridge
+import CmuxNextDesign
 import CmuxNextDaemon
 import CmuxNextRemote
 import CmuxNextSidebar
@@ -43,13 +44,24 @@ extension MachineRegistry {
     /// from the home daemon), else its device (`SidebarMapping.deviceSymbol`: a Cloud machine's cloud, a Mac mini...).
     func withMachineIcons(_ sections: [SidebarRowSection]) -> [SidebarRowSection] {
         let asset = IconAssetImages.shared.sidebarIcon(owner: local)
-        return sections.map { section in
+        var names: [String] = []
+        var emoji: [String: String] = [:]
+        let drawn = sections.map { section in
             guard case .machine(var machine) = section.kind else { return section }
-            machine.icon = SidebarMapping.machineIcon(icon(machine: machine.id.rawValue), asset: asset, device: SidebarMapping.deviceSymbol(kind: machine.kind, reported: anyDaemon(machine: machine.id.rawValue)?.store.identity?.machineSymbol))
+            let value = icon(machine: machine.id.rawValue)
+            machine.icon = SidebarMapping.machineIcon(value, asset: asset, device: SidebarMapping.deviceSymbol(kind: machine.kind, reported: anyDaemon(machine: machine.id.rawValue)?.store.identity?.machineSymbol))
+            if machine.kind != .local {
+                names.append(machine.name)
+                if case .emoji(let text)? = value.flatMap(IconValue.init(wire:)) { emoji[machine.name] = text }
+            }
             var drawn = section
             drawn.kind = .machine(machine)
             return drawn
         }
+        // The same machines, colors and icons for the pages' machine marks (the composer's project
+        // chooser, the environment list): one accent per machine, none shared while one is free.
+        ThemeScope.app.store.setMachines(names: names, icons: emoji)
+        return drawn
     }
 
     /// Machine `machineID`'s icon as its shell tabs draw it (`tabs.shellIconTheme` machine, TabItem+ShellIconTheme):
