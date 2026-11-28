@@ -45,6 +45,8 @@ const REPLY_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 /// checked (`Err` names what was wrong with it).
 pub enum Ask {
     Github(Result<TokenAsk, String>),
+    /// A scoped vendor token; the platform owns the default-off rollout and grant policy.
+    Integration(Result<super::integration::TokenAsk, String>),
     GithubRepos(Result<super::github_repos::ReposAsk, String>),
     /// Which GitHub account is connected (`github_status.rs`): no token.
     GithubStatus(Result<(), String>),
@@ -176,6 +178,9 @@ fn run<H: Http>(rx: &Receiver<Msg<H>>, stop: &Arc<Stop>, now: fn() -> u64, log: 
                 } else {
                     match ask {
                         Ask::Github(ask) => answer(client.as_deref_mut(), ask, now(), log),
+                        Ask::Integration(ask) => {
+                            answer_integration(client.as_deref_mut(), ask, now(), log)
+                        }
                         Ask::GithubRepos(ask) => answer_repos(client.as_deref_mut(), ask, now()),
                         Ask::GithubStatus(ask) => answer_status(client.as_deref_mut(), ask, now()),
                         Ask::CarrierTicket(ask) => {
@@ -256,6 +261,29 @@ pub fn answer<H: Http>(
     };
     let reply = github::reply_for(&ask, &client.github_token(&ask, now_wall_ms));
     log(&github::note_for(&ask, &reply));
+    reply
+}
+
+/// Vendor tokens share the bounded worker, never the agent poll loop.
+pub fn answer_integration<H: Http>(
+    client: Option<&mut CloudClient<H>>,
+    ask: Result<super::integration::TokenAsk, String>,
+    now_wall_ms: u64,
+    log: fn(&str),
+) -> Value {
+    let ask = match ask {
+        Ok(ask) => ask,
+        Err(why) => return github::refusal("request.invalid", &why),
+    };
+    let Some(client) = client else {
+        return github::refusal("vm.unbound", "Reconnect this machine to cmux Cloud, then retry.");
+    };
+    let reply = super::integration::reply_for(
+        &ask,
+        &client.integration_token(&ask, now_wall_ms),
+        now_wall_ms,
+    );
+    log(&super::integration::note_for(&ask, &reply));
     reply
 }
 

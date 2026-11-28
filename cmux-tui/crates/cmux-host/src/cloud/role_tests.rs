@@ -124,6 +124,14 @@ fn github_token_asks_get_one_reply_line() {
         "{\"github_token\": {\"repo\": \"no-slash\", \"permissions\": {\"contents\": \"read\"}}}\n",
     );
     assert_eq!(invalid["error"]["code"], "request.invalid");
+    // Integration requests must reach the minter rather than being treated as session traffic.
+    let integration = ask(
+        "{\"integration_token\":{\"provider\":\"slack\",\"session\":\"session-1\",\"scopes\":[\"chat:write\"]}}\n",
+    );
+    assert_eq!(integration["error"]["code"], "vm.unbound");
+    let invalid_integration =
+        ask("{\"integration_token\":{\"provider\":\"../github\",\"scopes\":[\"read\"]}}\n");
+    assert_eq!(invalid_integration["error"]["code"], "request.invalid");
     // A hand-off report (acpmux, `daemon/cloud_handoff.rs`) is answered the same way.
     let report =
         ask("{\"handoff_report\": {\"session\": \"s1\", \"turn\": 1, \"status\": \"running\"}}\n");

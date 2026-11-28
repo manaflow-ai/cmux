@@ -921,6 +921,40 @@ impl<H: Http> CloudClient<H> {
         self.post_as_install(super::github::TOKEN_PATH, &body, now_wall_ms)
     }
 
+    /// A short-lived Slack, Linear or VM-provider token for this machine's team.
+    /// The broker derives the team from this install and never accepts a caller-supplied team.
+    pub fn integration_token(
+        &mut self,
+        ask: &super::integration::TokenAsk,
+        now_wall_ms: u64,
+    ) -> Answer {
+        let url = format!(
+            "{}{}",
+            self.bound.env.platform_origin(),
+            super::integration::path(&ask.provider)
+        );
+        let body = ask.api_body();
+        let headers = [("x-cmux-session", ask.session.as_str())];
+        let send = |client: &mut Self| -> Option<(u16, Value)> {
+            let token = client.token(now_wall_ms).ok()?;
+            client.http.send("POST", &url, Some(&body), Some(&token), &headers).ok()
+        };
+        let Some((mut status, mut answer)) = send(self) else { return Answer::Transport };
+        let stale = status == 401
+            || (status == 403
+                && answer
+                    .field("error")
+                    .field("code")
+                    .as_str()
+                    .is_some_and(|c| c.starts_with("auth.")));
+        if stale {
+            self.cached = None;
+            let Some(again) = send(self) else { return Answer::Transport };
+            (status, answer) = again;
+        }
+        Answer::Http { status, body: answer }
+    }
+
     /// A hand-off report for one of this machine's sessions (`POST
     /// /v1/handoffs/<id>/report` as its `vm` install). The hand-off is named
     /// from the install's user and the session, as the store names it.
