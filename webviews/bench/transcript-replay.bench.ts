@@ -113,6 +113,14 @@ const FIXTURE = benchFixture();
 const perfRow = scaledPerfRow(printRow, FIXTURE);
 /// The log whose bursts make the per-update rows: the long log, or at god scale the god session.
 const BURST_LOG = FIXTURE === "god" ? "god" : "long";
+/// `GOD_TURNS=N` sizes the god session (bench/godFixture.ts, 7,000 turns by default), for the length curve
+/// (bench/god-length-curve.sh: the same per-update and heap rows at 1k, 10k and 100k turns, which must stay flat).
+const GOD_TURNS = process.env.GOD_TURNS === undefined ? undefined : Number(process.env.GOD_TURNS);
+if (GOD_TURNS !== undefined && (!Number.isInteger(GOD_TURNS) || GOD_TURNS < 10)) {
+  console.error("transcript-replay: GOD_TURNS is a whole number of turns, 10 or more");
+  process.exit(2);
+}
+const godOf = () => godLog("god", GOD_TURNS === undefined ? {} : { turns: GOD_TURNS });
 if (!Number.isInteger(TURNS) || TURNS < 8 || ONLY.some((name) => !["long", "recorded", "mock"].includes(name))) {
   console.error("usage: bun bench/transcript-replay.bench.ts [--turns 600] [--only long,recorded,mock] [--strict]");
   process.exit(2);
@@ -1263,7 +1271,7 @@ if (import.meta.main) {
   try {
     const now = Date.now();
     const logs: ReplayLog[] = [];
-    if (FIXTURE === "god") logs.push(godLog("god"));
+    if (FIXTURE === "god") logs.push(godOf());
     else if (ONLY.includes("long"))
       logs.push(
         longLog({
@@ -1348,7 +1356,7 @@ if (import.meta.main) {
     if (PAIRED) {
       const small = logs.find((log) => log.name === "long");
       if (!small) throw new Error("PAIRED=1 plays the long log beside the god session: run it with --only long");
-      const god = godLog("god");
+      const god = godOf();
       checkSeq(god);
       logs.length = 0;
       const [godLive, smallLive] = await pairedLiveRound(ctx, god, small);
