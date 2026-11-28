@@ -40,9 +40,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - leg: attach
-            ref: b20cbcbbe0a67e302a3f18f7325713eb48320cc2
-            profile: "1"
+          - leg: base
+            ref: 027bfff188cdbc95b13c85ca4196a77c6a8d2441
+            profile: "0"
+            nomirror: "0"
+          - leg: fix
+            ref: 9163cf44f54301fbac72a33cbbbae75de2372fda
+            profile: "0"
             nomirror: "0"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
