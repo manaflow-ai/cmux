@@ -421,7 +421,8 @@
     "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/**"
    ],
    "affects_why": "golden.py's motion_frames (scripts/ci/frame-pacing/motion_frames.py) records Cmd-Shift-Enter (split zoom), Cmd-P (the palette) and Cmd-W (a pane's close) on an owned Mac; the files listed are those gestures' motion and what each pane's content sees during it. A change touching none of them moves no frame it records.",
-   "land_affected": true,
+   "draft": true,
+      "land_affected": true,
    "land_affected_why": "A pull request that touches a motion area's files gets its frames run on the affected landing tier too (Leo, 2026-11-27: \"These run only when Cmd+W, the palette or split zoom are touched\"): before this, only the hourly full tier ran it, so the PR that changed a gesture never measured it. It costs one 5-minute Linux dispatcher; the Mac run starts only while an owned Mac is free and gates nothing (fail open).",
    "skip_docs_only": true
   },
