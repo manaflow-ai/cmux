@@ -5,7 +5,7 @@
 // Light terminal theme, and spring motion at the standard speed.
 {
   "name": "Apple",
-  "description": "Light: a bright sidebar, a white page, a blue accent.",
+  "description": "Light Mac style, blue accent.",
 
   // The terminal theme Apple ships with Terminal.app, and the window, sidebar and pages follow it.
   "appearance.theme": "Apple System Colors Light",

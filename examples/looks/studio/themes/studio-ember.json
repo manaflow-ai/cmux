@@ -2,7 +2,7 @@
 // copper accent in place of the blue.
 {
   "name": "Studio Ember",
-  "description": "Dark and warm: brown-black, charcoal, a copper accent.",
+  "description": "Brown-black with a copper accent.",
 
   "appearance.theme": "Builtin Dark",
   // The window, sidebar and pages take that theme too, over an App Theme of your own.

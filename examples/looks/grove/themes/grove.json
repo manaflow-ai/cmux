@@ -3,7 +3,7 @@
 // is sampled from moss, lichen, bark, fog and earth pigments, and checked for contrast in DESIGN.md.
 {
   "name": "Grove",
-  "description": "Paper by day, deep forest by night, a moss accent over a painted grove.",
+  "description": "Forest colors, light and dark.",
 
   // One terminal theme per appearance, and cmux's own surfaces follow it.
   "appearance.theme": "light:Builtin Light,dark:Builtin Dark",

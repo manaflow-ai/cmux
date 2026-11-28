@@ -1,4 +1,4 @@
-# Reference desktop agent app, whole
+# Codex
 
 Opt-in. This look is the whole Codex desktop app in one folder. It joins the codex-app recipe with the
 four codex feature looks next to it (`../composer`, `../send-parity`, `../sidebar`, `../threads`), so

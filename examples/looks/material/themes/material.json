@@ -5,7 +5,7 @@
 // primary #6750A4, for links, focus, Send and the circular progress indicator.
 {
   "name": "Material",
-  "description": "Light: soft two-tone surfaces, a purple accent.",
+  "description": "Light, purple accent.",
 
   "appearance.theme": "Builtin Light",
   // The window, sidebar and pages take that theme too, over an App Theme of your own.

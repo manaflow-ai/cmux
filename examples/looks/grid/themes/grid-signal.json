@@ -3,7 +3,7 @@
 // corners, no shadow, no glass, no wallpaper; every height on the 8 px grid.
 {
   "name": "Grid Signal",
-  "description": "White page, black text, square corners, a red-orange accent.",
+  "description": "White and black, orange accent.",
 
   "appearance.theme": "Builtin Light",
   // The window, sidebar and pages take this theme too, over an App Theme of your own.

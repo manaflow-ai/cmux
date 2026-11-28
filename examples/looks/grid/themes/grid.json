@@ -4,7 +4,7 @@
 // no wallpaper; every height on the 8 px grid.
 {
   "name": "Grid",
-  "description": "Black page, white text, square corners, a yellow accent.",
+  "description": "Black and white, yellow accent.",
 
   "appearance.theme": "Builtin Dark",
   // The window, sidebar and pages take this theme too, over an App Theme of your own.

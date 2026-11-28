@@ -5,7 +5,7 @@
 // corners, quick spring motion.
 {
   "name": "Ember Light",
-  "description": "Light: light glass, a white sidebar, one coral accent.",
+  "description": "Light glass with a coral accent.",
 
   "appearance.theme": "Builtin Light",
   "appearance.appTheme": "followTerminal",

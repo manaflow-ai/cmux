@@ -2,7 +2,7 @@
 // enough to read as text on the page, and a sidebar a step warmer.
 {
   "name": "Astrolabe Dawn",
-  "description": "Light: ivory parchment, navy text, thin bronze frames.",
+  "description": "Ivory and navy, bronze lines.",
 
   "appearance.theme": "Builtin Light",
   "appearance.appTheme": "followTerminal",

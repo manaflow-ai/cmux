@@ -5,7 +5,7 @@
 // primary #D0BCFF, for links, focus, Send and the circular progress indicator.
 {
   "name": "Material Dark",
-  "description": "Dark: soft two-tone surfaces, a lilac accent.",
+  "description": "Dark, light purple accent.",
 
   "appearance.theme": "Builtin Dark",
   // The window, sidebar and pages take that theme too, over an App Theme of your own.
