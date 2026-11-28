@@ -30,18 +30,18 @@ use std::collections::HashMap;
 /// ([`short_id_without_set`], every ID a session allocates), else the whole session's assignment,
 /// made once and only then. A delta's entity (one screen, pane or tab) then costs what it shows,
 /// never the whole session (#32408).
-pub(super) struct ShortIds<'a> {
+pub(crate) struct ShortIds<'a> {
     state: &'a State,
     assigned: std::cell::OnceCell<HashMap<u64, String>>,
 }
 
 impl<'a> ShortIds<'a> {
-    pub(super) fn of(state: &'a State) -> Self {
+    pub(crate) fn of(state: &'a State) -> Self {
         Self { state, assigned: std::cell::OnceCell::new() }
     }
 
     /// The short ID of `id`; empty for an ID the tree does not hold (as before).
-    pub(super) fn get(&self, id: u64) -> String {
+    pub(crate) fn get(&self, id: u64) -> String {
         short_id_without_set(id).unwrap_or_else(|| {
             self.assigned
                 .get_or_init(|| tree_short_ids(self.state))
@@ -80,7 +80,7 @@ pub(crate) fn set_entity_check_hook_for_test(hook: impl FnOnce() + 'static) {
     ENTITY_CHECK_HOOK.with(|slot| *slot.borrow_mut() = Some(Box::new(hook)));
 }
 
-pub(super) fn pane_json(
+pub(crate) fn pane_json(
     state: &State,
     id: PaneId,
     short_ids: &ShortIds<'_>,
@@ -273,7 +273,7 @@ pub(super) fn pane_json(
             }
             let remote = content_resource_id
                 .and_then(|id| notifications.presentation.remote_terminals.get(id));
-            super::remote_terminal_tabs_wire::apply(&mut tab, remote);
+            super::remote_terminal_tab_apply(&mut tab, remote);
             shown_title_fields(&mut tab);
             tab
         })
@@ -357,7 +357,7 @@ pub(crate) fn workspaces_json_at(
     (value, taken)
 }
 
-pub(super) fn tree_short_ids(state: &State) -> HashMap<u64, String> {
+pub(crate) fn tree_short_ids(state: &State) -> HashMap<u64, String> {
     let ids = state
         .workspaces
         .iter()
@@ -737,7 +737,7 @@ fn entity_from_whole_tree(
     }
 }
 
-pub(super) fn tree_delta_json(delta: &TreeDelta, mux: &Mux) -> Value {
+pub(crate) fn tree_delta_json(delta: &TreeDelta, mux: &Mux) -> Value {
     let mut value = json!({
         "event": delta.kind.as_str(),
         "workspace": delta.workspace,
