@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { runChild } from "./helpers/run-child";
 import { guestShellProblems } from "../scripts/cmux-vm-image/shell-check";
 import { IO_PROBE_COMMAND, IO_PROBE_LIMIT, StepLog } from "../scripts/cmux-vm-image/guest";
 
@@ -23,10 +23,10 @@ function fakeVm(answer: { statusCode: number; delayMs?: number }, probes: string
 }
 
 describe("a bake step that fails or runs slow logs the guest's disk and CPU (rolls 46107492079, 46100096471)", () => {
-  test("the probe parses under the guest's /bin/sh", () => {
+  test("the probe parses under the guest's /bin/sh", async () => {
     expect(guestShellProblems(IO_PROBE_COMMAND)).toEqual({ refused: [], suspect: [] });
     // dash runs it here too, on any Linux runner, and prints its lines whatever the machine has.
-    const out = execFileSync("sh", ["-c", IO_PROBE_COMMAND], { encoding: "utf8", timeout: 40_000 });
+    const { stdout: out } = await runChild("sh", ["-c", IO_PROBE_COMMAND], { timeout: 40_000 });
     expect(out).toContain("psi_io");
     expect(out).toMatch(/dd_direct/);
   });

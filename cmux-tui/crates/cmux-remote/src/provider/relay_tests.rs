@@ -12,6 +12,7 @@ use tokio_tungstenite::tungstenite::handshake::server::Request;
 use tokio_tungstenite::tungstenite::protocol::frame::Frame;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::{Data, OpCode};
 
+use super::liveness::RETRY_AFTER_MAX;
 use super::*;
 
 /// The wall clock of [`a_pause_longer_than_the_backoff_resets_the_counters_whichever_wakeup_fires`]:
@@ -2485,4 +2486,41 @@ async fn a_daemon_registers_on_a_second_socket_when_the_first_open_hangs() {
         .await
         .expect("relay registration shutdown did not complete");
     server.abort();
+}
+
+#[test]
+fn retryable_allocation_error_carries_the_relays_reason() {
+    let error = relay_unavailable_detail(
+        "relay allocation is temporarily unavailable",
+        "slot-circuit-capacity",
+        "slot live circuit limit reached: 30 leased (2 unjoined, 28 active) + 2 inline of 32",
+    );
+    assert_eq!(
+        error.to_string(),
+        relay_unavailable("relay allocation is temporarily unavailable", "slot-circuit-capacity")
+            .to_string()
+            + ": slot live circuit limit reached: 30 leased (2 unjoined, 28 active) + 2 inline of 32"
+    );
+    assert!(error.to_string().contains("(relay code slot-circuit-capacity): slot live"));
+    for hostile in ["", "line\nbreak", &"x".repeat(201)] {
+        assert_eq!(
+            relay_unavailable_detail("prefix", "slot-busy", hostile).to_string(),
+            relay_unavailable("prefix", "slot-busy").to_string(),
+            "{hostile:?} is not shown"
+        );
+    }
+}
+
+#[test]
+fn retry_after_is_read_in_seconds_and_capped() {
+    let mut headers = http::HeaderMap::new();
+    assert_eq!(retry_after_of(&headers), None);
+    headers.insert(http::header::RETRY_AFTER, "1".parse().unwrap());
+    assert_eq!(retry_after_of(&headers), Some(Duration::from_secs(1)));
+    headers.insert(http::header::RETRY_AFTER, " 7 ".parse().unwrap());
+    assert_eq!(retry_after_of(&headers), Some(Duration::from_secs(7)));
+    headers.insert(http::header::RETRY_AFTER, "86400".parse().unwrap());
+    assert_eq!(retry_after_of(&headers), Some(RETRY_AFTER_MAX));
+    headers.insert(http::header::RETRY_AFTER, "Wed, 21 Oct 2026 07:28:00 GMT".parse().unwrap());
+    assert_eq!(retry_after_of(&headers), None);
 }

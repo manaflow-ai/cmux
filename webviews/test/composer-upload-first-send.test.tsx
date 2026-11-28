@@ -10,14 +10,15 @@ import { act, useImperativeHandle, type Ref } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { KnownPaths } from "../src/agent-session/acpmux/attachments";
 import type { UploadResult } from "../src/agent-session/acpmux/cloudUploads";
+import type { AttachmentIntakeOptions } from "../src/agent-session/acpmux/composer/attachmentIntakeModel";
 import { setExperimentSwitches } from "../src/experiments/switches";
-import {
-  useAttachmentIntake,
-  useSendWhenAttached,
-  type AttachmentIntakeOptions,
-} from "../src/agent-session/acpmux/composer/attachmentIntakeModel";
-import { ChipRetries } from "../src/agent-session/acpmux/composer/uploadRetry";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { useAttachmentIntake, useSendWhenAttached } = await importWithDom(
+  () => import("../src/agent-session/acpmux/composer/attachmentIntakeModel"),
+);
+const { ChipRetries } = await importWithDom(() => import("../src/agent-session/acpmux/composer/uploadRetry"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT", "Node", "Element"] as const;

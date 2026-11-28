@@ -15,7 +15,12 @@ import { isBareAgentText, isVisiblyEmptyMessage } from "./visibleMessage";
 // These pin the line look (backgroundTurnLook.experiment.ts `line`): the default draws a background
 // turn's calls inline, with no line (backgroundTurnInline.test.ts).
 beforeAll(() => {
-  globalThis.cmuxExperiments = { "background-turn-look": "line", "claude-turn-fold": "runs" };
+  globalThis.cmuxExperiments = {
+    "background-turn-look": "line",
+    "claude-turn-fold": "runs",
+    // The transcript's fold of ends: the hat's line look takes them out (backgroundRuns.ts `withoutHatEnds`).
+    "subagent-tray-fold-head": "groups",
+  };
 });
 afterAll(() => {
   delete globalThis.cmuxExperiments;
