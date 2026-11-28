@@ -1082,6 +1082,11 @@ path = "tests/test_ci_rust_workspaces_land_head.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_same_head_job.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_same_head_job.py"
+
+[[test]]
 path = "tests/test_ci_same_repo_linux_owned_first.py"
 lane = "linux-guard"
 

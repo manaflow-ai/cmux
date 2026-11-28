@@ -42,6 +42,44 @@ import crate_results  # noqa: E402
 from test_ci_post_merge_checks import BASE, branch_matches, load_workflows, triggers  # noqa: E402
 
 
+class GuardStepsReachedTest(unittest.TestCase):
+    """A workflow or guard-script change runs the ci-guards.yml steps it reaches on its landing head
+    (guard-steps-reached, land_gate). 11-28: #63625, #63940, #64168 and #64245 merged green with every
+    cmux-next-guards.yml guard job skipped (land tier), and the push after each went red (run 46134168061)."""
+
+    CULPRITS = {
+        "#63940": [".github/workflows/bench-baselines-nightly.yml", "scripts/bench/baselines-upload.sh",
+                   "scripts/bench/benchlib/baselines.py", "scripts/bench/cmux-bench", "tests/test_bench_baselines.py"],
+        "#64168": [".github/workflows/cmux-next-hot-verify.yml", "scripts/ci/ui_proof_verdict.py",
+                   "tests/test_ci_ui_proof_verdict.py"],
+        "#64245": [".github/workflows/bench-baselines-nightly.yml", ".github/workflows/chief-evals.yml",
+                   "tests/test_ci_gateway_jobs_on_linux.py"],
+        "#63625": [".github/github-token-budget.json", ".github/workflows/cmux-next-hot-verify.yml",
+                   ".github/workflows/ui-proof-stale-sweep.yml", "scripts/ci/ui_proof_verdict.py"],
+    }
+
+    def test_each_culprit_routes_the_reached_guards_on_its_landing_head(self) -> None:
+        t = ci_steps.load()
+        for pr, paths in self.CULPRITS.items():
+            with self.subTest(pr=pr):
+                self.assertIn("guard-steps-reached", ci_steps.nightly_gate_steps(t, paths, ["linux"]))
+                self.assertIn("guard-steps-reached", ci_steps.route(t, paths, pr_scope=True, tier="pr")["linux"])
+
+    def test_a_product_change_does_not_route_it(self) -> None:
+        t = ci_steps.load()
+        self.assertNotIn("guard-steps-reached",
+                         ci_steps.nightly_gate_steps(t, ["webviews/src/app.ts", "cmux-tui/crates/x/src/lib.rs"]))
+
+    def test_a_workflow_input_of_a_blocking_linux_step_survives_pr_scope(self) -> None:
+        # `.github/workflows/**` is a whole-directory glob, so --pr-scope dropped the workflow guard steps for a
+        # change to one workflow; the folder is flat, and `.github/workflows/*` names the same files.
+        t = ci_steps.load()
+        for step in t.steps.values():
+            if step.job == "linux" and step.blocks and step.pr_scope and not step.nightly and not step.land_gate:
+                with self.subTest(step=step.name):
+                    self.assertNotIn(".github/workflows/**", step.inputs)
+
+
 class NightlyGateTest(unittest.TestCase):
     """A step-table step that mirrors a nightly step (`nightly`) runs on the landing head that changes its inputs, every
     input kept, so a check that stops the nightly fails the landing (Leo, 2026-11-27: "shouldn't a build check fail
@@ -173,7 +211,7 @@ class NightlyGateTest(unittest.TestCase):
         self.assertIn("nightly gate", why["pr-pipeline.yml"])
         self.assertEqual(jobs, ["linux"])
         # page.tsx routes web-typecheck, a `land_gate` step; a plain web step (web-lint, web tests) stays off.
-        # Cargo.lock routes the idle daemon tests, a land_gate step since cmux#63822.
+        # Cargo.lock also reaches the idle daemon tests (cmux-next-idle-wakeups, a land_gate step).
         self.assertEqual(only, ["web-typecheck", "cmux-next-idle-wakeups", "rust-notices", "phone-speed-icount"])
         start, why, (jobs, only) = self.landing(["scripts/cmux-next/generate-third-party-notices.sh"])
         self.assertIn("nightly gate: runs only next-state-roots, rust-notices", why["pr-pipeline.yml"])
@@ -232,12 +270,12 @@ class NightlyGateTest(unittest.TestCase):
                 self.assertIn("pr-pipeline.yml", start)
                 self.assertIn("phone speed gate", why["pr-pipeline.yml"])
                 self.assertEqual(jobs, ["linux"])
-                # The land_gate steps each path also reaches run beside it: a crate source routes persisted-formats
-                # (cmux#63842) and next-state-roots; Cargo.lock the idle daemon tests (cmux#63822) and rust-notices.
+                # A crate's Rust source also reaches the persisted-formats registry and next-state-roots (land_gate
+                # steps on every cmux-tui/crates/*/src .rs); Cargo.lock reaches the idle daemon tests.
                 expected = {"cmux-tui/crates/cmux-terminal-projection/src/lib.rs":
                                 ["persisted-formats", "next-state-roots", "phone-speed-icount"],
-                            "scripts/bench/phone-speed/src/main.rs": ["phone-speed-icount"],
-                            "cmux-tui/Cargo.lock": ["cmux-next-idle-wakeups", "rust-notices", "phone-speed-icount"]}[path]
+                            "cmux-tui/Cargo.lock": ["cmux-next-idle-wakeups", "rust-notices", "phone-speed-icount"]
+                            }.get(path, ["phone-speed-icount"])
                 self.assertEqual(only, expected)
 
     def test_phone_speed_does_not_depend_on_the_nightly_mirror_switch(self) -> None:
@@ -1139,9 +1177,7 @@ class SetupTest(unittest.TestCase):
     def test_the_tables_tool_steps_are_push_tier_and_the_workflow_runs_the_pr_tier(self) -> None:
         # web-tests-affected (cmux#63314) is the one pull request tier step with a tool: it runs only the web tests a
         # change reaches, so it exists for the pull request tier; a push runs every web test in the push-tier shards.
-        # phone-speed-icount (cmux#63285) is the other: an explicit PR gate on the phone instruction budgets (Leo: "Run
-        # them cheap and gate the PR where they're fast"), so it stays on the pull request tier.
-        pr_tier_tool_steps = {"web-tests-affected", "phone-speed-icount"}
+        pr_tier_tool_steps = {"web-tests-affected"}
         for step in ci_steps.load().steps.values():
             if step.job == "linux" and step.needs:
                 self.assertEqual(step.tier, "pr" if step.name in pr_tier_tool_steps else "push", step.name)
@@ -1392,7 +1428,6 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(router["jobs"]["pipeline"]["with"], {
             "jobs": "${{ needs.route.outputs.table || '' }}",
             "only": "${{ needs.route.outputs.only || '' }}", "defer_web_browser": True,
-            # cmux#64172: the pipeline skips the ios fast verdict runner where the router's plan says run=false.
             "ios_fast_skip": "${{ needs.route.outputs.ios_fast_skip == 'true' }}"})
 
     def test_browser_suites_run_on_a_pr_only_with_full_ci(self) -> None:
