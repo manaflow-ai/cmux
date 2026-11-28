@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 883,
+  "count": 882,
   "sections": [
     {
       "id": "general",
@@ -8592,14 +8592,6 @@
           "key": "mobile.autoApprovePhones",
           "title": "Approve Phone Requests Automatically",
           "help": "A new phone signed in to your account connects without asking you first, and so do phones already waiting. Other accounts never connect.",
-          "kind": "toggle",
-          "default": false,
-          "group": "iPhone"
-        },
-        {
-          "key": "mobile.siteDataHandoff",
-          "title": "Share Cookies and Site Data on iPhone",
-          "help": "When you open a browser tab on your iPhone, share this Mac's cookies and site storage for that site.",
           "kind": "toggle",
           "default": false,
           "group": "iPhone"
