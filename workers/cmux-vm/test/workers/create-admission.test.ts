@@ -75,9 +75,10 @@ it(`answers a burst of ${N} creates from one team with at most its share of ${M}
     provider.open();
     const sent = (await Promise.all(answers)).filter((answer) => answer.status !== 503);
     expect(sent.map((answer) => answer.status)).toEqual(Array.from({ length: SHARE }, () => 201));
+    // Over its share a team's create is refused at once (queue_full) or after the bounded wait (wait_expired).
     const refusedLines = log.seen.filter((line) => line["admission"] !== undefined);
     expect(refusedLines.length).toBe(N - SHARE);
-    expect(refusedLines.every((line) => typeof line["admitWaitMs"] === "number" && line["createMs"] === null && line["admission"] === "queue_full")).toBe(true);
+    expect(refusedLines.every((line) => typeof line["admitWaitMs"] === "number" && line["createMs"] === null && (line["admission"] === "queue_full" || line["admission"] === "wait_expired"))).toBe(true);
     // The refused keys retry, a few at a time as their slots free, and each makes one VM.
     for (let index = 0; index < N; index += SHARE) {
       const batch = await Promise.all(Array.from({ length: Math.min(SHARE, N - index) }, (_, offset) => create(index + offset)));
