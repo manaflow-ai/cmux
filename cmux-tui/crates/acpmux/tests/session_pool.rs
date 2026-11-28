@@ -584,6 +584,26 @@ async fn a_claude_setup_token_is_withdrawable_after_its_bound_start() {
     assert_eq!(status["held"], false);
 }
 
+/// A Cloud chat's Claude start names its team route (session env); only a hint naming it serves it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_claude_team_route_start_takes_the_hint_that_names_it() {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+    let fakeb = json!({"kind": "claude-stdio", "family": "claude", "argv": ["python3", fake]});
+    let daemon = Daemon::with_fakeb_proven("team", &fakeb);
+    let mut rpc = daemon.rpc().await;
+    rpc.prove().await;
+    let start = json!({"cwd": daemon.home, "mcpServers": [],
+        "_meta": {"acpmux": {"harness": "fakeb", "claudeTeamRoute": true}}});
+    for team in [false, true] {
+        let hint =
+            json!({"harness": "fakeb", "cwd": daemon.home, "wait": true, "claudeTeamRoute": team});
+        assert_eq!(rpc.call("_acpmux/prewarm", hint).await["accepted"], true);
+        wait_pool_ready(&mut rpc, "fakeb").await;
+        let started = rpc.call("session/new", start.clone()).await;
+        assert_eq!(taken(&daemon, started["sessionId"].as_str().unwrap()), team, "{started}");
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn hints_are_debounced_and_a_config_change_is_never_served() {
     let daemon = Daemon::new("deb", 300);

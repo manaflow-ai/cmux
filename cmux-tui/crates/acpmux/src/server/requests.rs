@@ -2075,28 +2075,11 @@ async fn dispatch_method(
             }
             // The owner's Cloud credential (`agent_credentials.rs`): this socket's, never an agent's.
             let credential = crate::agent_credentials::requested(meta)?;
-            let claude_machine_login =
-                meta.and_then(|meta| meta.get("claudeMachineLogin")) == Some(&Value::Bool(true));
-            let claude_team_route =
-                meta.and_then(|meta| meta.get("claudeTeamRoute")) == Some(&Value::Bool(true));
-            if credential.is_some() || claude_machine_login || claude_team_route {
+            let auth = crate::claude_cloud_auth::requested_env(meta, credential.is_some());
+            if credential.is_some() || !auth.as_ref().is_ok_and(|a| a.is_empty()) {
                 crate::agent_credentials::admit(conn.origin == Origin::Local, conn.caller())?;
             }
-            if (claude_machine_login || claude_team_route) && credential.is_some() {
-                return Err(RpcError::invalid_params(
-                    "an explicit Claude auth choice cannot carry a delivered credential",
-                ));
-            }
-            if claude_machine_login && claude_team_route {
-                return Err(RpcError::invalid_params("conflicting Claude auth choices"));
-            }
-            if claude_machine_login || claude_team_route {
-                let auth = if claude_machine_login { "own" } else { "team" };
-                env.insert("CMUX_CLAUDE_AUTH".into(), auth.into());
-            }
-            if claude_team_route {
-                env.insert(crate::claude_cloud_auth::REQUIRED_TEAM.into(), "1".into());
-            }
+            env.extend(auth?);
             let disallowed_tools = disallowed_tools(meta)?;
             let additional_directories = crate::hub::additional_dirs::requested(&params).await?;
             let stop_condition = crate::hub::stop_condition::requested(meta)?;
@@ -3126,13 +3109,18 @@ async fn dispatch_method(
             // A Cloud chat's coming start (cmux#45953): its owner credential, from this machine's
             // own socket only, as `session/new` takes one; never from an agent's connection.
             let credential = crate::agent_credentials::requested(Some(&params))?;
-            if credential.is_some() {
+            // Its explicit Claude auth choice, as its `session/new` will name it (cmux-tui-core
+            // `agent_session_prewarm.rs`), so the entry keys as that start.
+            let claude_auth =
+                crate::claude_cloud_auth::requested_env(Some(&params), credential.is_some())?;
+            if credential.is_some() || !claude_auth.is_empty() {
                 crate::agent_credentials::admit(conn.origin == Origin::Local, conn.caller())?;
             }
             let shape = crate::hub::PrewarmShape {
                 model: s("model").filter(|m| (1..=200).contains(&m.len())),
                 workspace_id: s("workspaceId").filter(|w| (1..=128).contains(&w.len())),
                 credential,
+                claude_auth,
             };
             let request = crate::hub::PrewarmRequest {
                 harness: s("harness"),

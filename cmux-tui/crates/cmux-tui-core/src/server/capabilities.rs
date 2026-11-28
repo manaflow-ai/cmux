@@ -120,6 +120,10 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.extend_from_slice(mux.endpoint_start_harnesses());
         // The owner's coming start warmed ahead (agent_session_prewarm.rs, cmux#45953).
         capabilities.push(AGENT_SESSION_PREWARM_CAPABILITY);
+        // With the start's Claude auth choice, which keys the warmed agent (agent_session_prewarm.rs).
+        capabilities.push(
+            agent_session_attach::agent_session_start::AGENT_SESSION_PREWARM_CLAUDE_AUTH_CAPABILITY,
+        );
         // With no folder, the chat's own `~/chats/<id>` (agent_session_prewarm.rs).
         if agent_session_attach::chat_folder_prewarm_on() {
             capabilities.push(AGENT_SESSION_PREWARM_CHAT_FOLDER_CAPABILITY);
