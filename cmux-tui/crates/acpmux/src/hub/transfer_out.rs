@@ -113,13 +113,18 @@ pub(super) fn note_started() {
 /// Whether the transfers entry `name`, last changed at `changed`, is scratch no running daemon
 /// owns: a [`scratch_dir`] of a process that no longer runs, or one named before them that
 /// predates this daemon.
-fn dead_scratch(name: &str, changed: Option<std::time::SystemTime>) -> bool {
+pub(in crate::hub) fn dead_scratch(name: &str, changed: Option<std::time::SystemTime>) -> bool {
+    let before_start =
+        || STARTED.get().zip(changed).is_some_and(|(started, changed)| changed < *started);
     if let Some(rest) = name.strip_prefix(SCRATCH) {
         let pid = rest.split('-').next().and_then(|p| p.parse::<u32>().ok());
-        return pid.is_some_and(|pid| pid != std::process::id() && !process_runs(pid));
+        if let Some(pid) = pid {
+            return pid != std::process::id() && !process_runs(pid);
+        }
+        // A chat pack's seal scratch named before pids, `work-<uuid>` (`pack_trust.rs`).
+        return rest.len() == 32 && rest.bytes().all(|b| b.is_ascii_hexdigit()) && before_start();
     }
-    UNOWNED_SCRATCH.iter().any(|p| name.starts_with(p))
-        && STARTED.get().zip(changed).is_some_and(|(started, changed)| changed < *started)
+    UNOWNED_SCRATCH.iter().any(|p| name.starts_with(p)) && before_start()
 }
 
 #[cfg(unix)]

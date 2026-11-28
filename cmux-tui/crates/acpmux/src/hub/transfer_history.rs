@@ -52,6 +52,8 @@ pub(in crate::hub) const HISTORY_FILE: &str = "events/history.cspb";
 
 #[path = "pack_as_it_grows.rs"]
 mod pack_as_it_grows;
+#[path = "pack_trust.rs"]
+mod pack_trust;
 /// Each chat's newest history-later prepare's pack ([`Hub::prepack_history`]): the seq it packs
 /// through, and its result once done.
 static PREPACKS: std::sync::LazyLock<std::sync::Mutex<HashMap<String, (u64, Arc<Prepack>)>>> =
@@ -196,6 +198,8 @@ impl Hub {
         let store = self.pack_store(chat)?;
         // It writes the chat's manifest, as a pack does.
         let _turn = PackTurn::take(chat);
+        // Its segments are the bundle's, not ones a seal here checked against this log.
+        self.forget_pack_trust(chat);
         let mut input = std::io::BufReader::new(std::fs::File::open(&file)?);
         let manifest = pack::ship::unbundle(&store, &mut input, pack::ship::Lacking::Refuse)
             .map_err(pack_error)?
@@ -489,8 +493,7 @@ impl Hub {
             .take_while(|s| s.sealed && s.seq.is_some_and(|(_, hi)| hi <= through))
             .collect();
         let Some(last) = candidates.last().and_then(|s| s.seq) else { return Ok(None) };
-        let trusted = self.pack_checked.lock().unwrap_or_else(|e| e.into_inner()).get(&session.id)
-            == Some(&stamp);
+        let trusted = self.pack_trusted(&session.id, store, stamp);
         let keep = if trusted {
             candidates.len()
         } else {
@@ -533,13 +536,12 @@ impl Hub {
         });
         let _ = crate::home_fs::remove_file(&lines);
         let packed = packed?;
-        if packed.is_some() && self.store.log_stamp(&session.id)? == stamp {
+        if let Some((manifest, _, _)) = &packed
+            && self.store.log_stamp(&session.id)? == stamp
+        {
             // Every sealed segment the pack names now was checked against the log at `stamp`
             // (kept ones by hash or by the same trust, the rest encoded from it here).
-            self.pack_checked
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .insert(session.id.clone(), stamp);
+            self.trust_pack(&session.id, store, stamp, manifest);
         }
         Ok(packed)
     }

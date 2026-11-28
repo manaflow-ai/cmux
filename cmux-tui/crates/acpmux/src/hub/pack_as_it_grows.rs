@@ -18,7 +18,8 @@
 //! What a seal packs is the lines an export packs ([`Hub::write_lines`]): records through the
 //! chat's last stored seq, after [`Hub::display_logged`]. The first seal of a chat in a daemon's
 //! life is a whole [`pack::pack`], which checks every sealed segment the store holds against the
-//! log (BLAKE3, about 4 ms a segment) and encodes from the first that differs. After it, while
+//! log (BLAKE3, about 4 ms a segment) and encodes from the first that differs, unless an earlier
+//! daemon of the same build kept its trust in them at the log's stamp (`pack_trust.rs`). After it, while
 //! the log's stamp ([`Store::log_stamp`]: a count of rewrites of lines already written) stays the
 //! same, a seal reads only the records after the last sealed segment's last seq and extends the
 //! pack from there ([`pack::pack_after`]): its cost is the 4 MiB that filled and the open tail,
@@ -137,7 +138,7 @@ impl Hub {
         let _turn = PackTurn::take(id);
         let session = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
         let Some(session) = session else {
-            self.pack_checked.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+            self.forget_pack_trust(id);
             return Ok(None);
         };
         if session.purged.load(Ordering::SeqCst)
@@ -146,7 +147,7 @@ impl Hub {
         {
             // Its entry goes with it: a purged or moved chat's id is not kept for the daemon's
             // life, and a chat that comes back (a history that arrived) is packed whole.
-            self.pack_checked.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+            self.forget_pack_trust(id);
             return Ok(None);
         }
         // Every record stored by now; one whose append is under way waits for the next seal.
@@ -159,13 +160,15 @@ impl Hub {
             Ok(opened) => opened,
             Err(error) => {
                 // As any failed seal below: the next one trusts nothing.
-                self.pack_checked.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+                self.forget_pack_trust(id);
                 return Err(error);
             }
         };
-        let checked =
-            self.pack_checked.lock().unwrap_or_else(|e| e.into_inner()).get(id) == Some(&stamp);
-        let work = store.root().join(format!("work-{}", uuid::Uuid::now_v7().simple()));
+        // Trusted by this daemon or kept by an earlier one (`pack_trust.rs`).
+        let checked = self.pack_trusted(id, &store, stamp);
+        // A gone daemon's scratch first: one cut short by a relaunch is not left behind.
+        super::pack_trust::sweep_pack_work_in(store.root());
+        let work = super::pack_trust::pack_work_dir(store.root());
         let sealed = (|| -> anyhow::Result<Sealed> {
             if checked && let Some(extended) = self.extend_pack(&session, through, &store, &work)? {
                 return Ok(extended);
@@ -176,10 +179,10 @@ impl Hub {
         let _ = crate::home_fs::remove_dir_all(&work);
         if sealed.is_err() {
             // Whatever failed, the next seal trusts nothing: it packs whole and re-verifies.
-            self.pack_checked.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+            self.forget_pack_trust(id);
         }
         let sealed = sealed?;
-        self.pack_checked.lock().unwrap_or_else(|e| e.into_inner()).insert(id.to_owned(), stamp);
+        self.trust_pack(id, &store, stamp, &sealed.manifest);
         Ok(Some(sealed))
     }
 
