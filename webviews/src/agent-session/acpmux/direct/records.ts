@@ -16,6 +16,11 @@ export function readTurnRetry(msg: Record<string, unknown>): AcpmuxTurnRetry {
   const host = typeof msg.host === "string" && /^[a-z0-9.-]{1,253}$/i.test(msg.host) ? msg.host : undefined;
   const retryAt =
     typeof msg.retryAt === "number" && Number.isFinite(msg.retryAt) && msg.retryAt > 0 ? msg.retryAt : undefined;
+  const line = msg.line === "busy" || msg.line === "unavailable" ? msg.line : undefined;
+  const showAfterMs =
+    typeof msg.showAfterMs === "number" && Number.isFinite(msg.showAfterMs) && msg.showAfterMs >= 0
+      ? msg.showAfterMs
+      : undefined;
   return {
     ...(attempt !== undefined && { attempt }),
     ...(maxRetries !== undefined && (attempt === undefined || attempt <= maxRetries) && { maxRetries }),
@@ -24,6 +29,8 @@ export function readTurnRetry(msg: Record<string, unknown>): AcpmuxTurnRetry {
     ...(cause !== undefined && { cause }),
     ...(host !== undefined && { host }),
     ...(retryAt !== undefined && { retryAt }),
+    ...(line !== undefined && { line }),
+    ...(showAfterMs !== undefined && { showAfterMs }),
   };
 }
 

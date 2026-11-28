@@ -16,6 +16,24 @@ fn only_a_claude_retry_of_a_refused_sign_in_ends_its_turn() {
     assert!(!sign_in_refused(&codex), "Codex's own retries are its to end");
 }
 
+#[test]
+fn a_retry_is_a_busy_model_or_an_unavailable_one() {
+    let claude = |status: u64, error: &str| {
+        retry_line(&claude_retry(&json!({"attempt": 1, "max_retries": 14,
+        "error_status": status, "error": error})))
+    };
+    assert_eq!(claude(529, "overloaded_error"), "busy");
+    assert_eq!(claude(429, "x"), "busy");
+    assert_eq!(claude(400, "rate_limit_error"), "busy");
+    // Leo's chat, 2026-11-26: a gateway answering 502 is the model API out of reach.
+    assert_eq!(claude(502, "server_error"), "unavailable");
+    assert_eq!(claude(503, "server_error"), "unavailable");
+    assert_eq!(retry_line(&json!({"cause": "dns", "error": "overloaded"})), "unavailable");
+    let codex = codex_retry(&json!({"message": "Reconnecting... 2/5",
+        "codexErrorInfo": {"serverOverloaded": {}}}));
+    assert_eq!(retry_line(&codex), "busy");
+}
+
 /// A session of a test hub whose turn `turn-1` runs, and a refused retry at `attempt`.
 async fn running_turn() -> (Arc<Hub>, Arc<Session>) {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");

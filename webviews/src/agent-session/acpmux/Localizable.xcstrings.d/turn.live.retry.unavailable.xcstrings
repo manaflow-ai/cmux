@@ -1,134 +1,134 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "turn.live.retry.retryingNow" : {
-      "comment" : "Agent pane: the live line when the harness's next try is due now",
+    "turn.live.retry.unavailable" : {
+      "comment" : "Agent pane: the live line while the harness retries a model request that failed for longer than a few seconds; what failed, the retry count and the raw error are in its tooltip",
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "retrying now"
+            "value" : "Model API unavailable, retrying…"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "retrying now"
+            "value" : "Model API unavailable, retrying…"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "retrying now"
+            "value" : "Model API unavailable, retrying…"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "retrying now"
+            "value" : "Model API unavailable, retrying…"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "retrying now"
+            "value" : "Model API unavailable, retrying…"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "retrying now"
+            "value" : "Model API unavailable, retrying…"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "retrying now"
+            "value" : "Model API unavailable, retrying…"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "retrying now"
+            "value" : "Model API unavailable, retrying…"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "retrying now"
+            "value" : "Model API unavailable, retrying…"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "retrying now"
+            "value" : "Model API unavailable, retrying…"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "retrying now"
+            "value" : "Model API unavailable, retrying…"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "retrying now"
+            "value" : "Model API unavailable, retrying…"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "retrying now"
+            "value" : "Model API unavailable, retrying…"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "retrying now"
+            "value" : "Model API unavailable, retrying…"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "retrying now"
+            "value" : "Model API unavailable, retrying…"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "retrying now"
+            "value" : "Model API unavailable, retrying…"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "retrying now"
+            "value" : "Model API unavailable, retrying…"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "retrying now"
+            "value" : "Model API unavailable, retrying…"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "retrying now"
+            "value" : "Model API unavailable, retrying…"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "retrying now"
+            "value" : "Model API unavailable, retrying…"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "retrying now"
+            "value" : "Model API unavailable, retrying…"
           }
         }
       }

@@ -129,24 +129,25 @@ test("the live line carries the retry, and leaves the retries' time out of its T
   expect(withRetry([], shaped)).toBe(shaped);
 });
 
-test("the line says what is wrong, the retry's count and the harness's error", () => {
+test("the line says one calm thing; the count and the harness's error are its tooltip", () => {
   const t = (key: string, values?: Record<string, unknown>) => `${key}${values ? JSON.stringify(values) : ""}`;
   const translate = t as Parameters<typeof retryParts>[0];
-  expect(retryParts(translate, { attempt: 7, maxRetries: 10, errorStatus: 503, error: "server_error" })).toEqual({
-    label: "turn.live.retry.unreachable",
-    count: 'turn.live.retry.attempt{"attempt":7,"max":10}',
-    error: "503 server error",
+  // Leo's chat, 2026-11-26: a gateway answering 502 on the first of 14 retries.
+  expect(retryParts(translate, { attempt: 1, maxRetries: 14, errorStatus: 502, error: "server_error" })).toEqual({
+    label: "turn.live.retry.unavailable",
+    detail: 'turn.live.retry.attempt{"attempt":1,"max":14} · 502 server error',
   });
+  // The words stay the same from one retry to the next.
+  expect(retryParts(translate, { attempt: 9, maxRetries: 14, errorStatus: 503 }).label).toBe(
+    "turn.live.retry.unavailable",
+  );
   expect(retryParts(translate, { attempt: 2, errorStatus: 529 }).label).toBe("capacity.live");
-  expect(retryParts(translate, { error: "rate_limit" })).toEqual({
-    label: "capacity.live",
-    count: "turn.live.retry.retrying",
-    detail: "rate limit",
-  });
+  expect(retryParts(translate, { error: "rate_limit" })).toEqual({ label: "capacity.live", detail: "rate limit" });
   // Claude's status-less error codes carry a trailing "_error".
   expect(retryParts(translate, { error: "rate_limit_error" }).label).toBe("capacity.live");
   expect(retryParts(translate, { error: "overloaded_error" }).label).toBe("capacity.live");
-  expect(retryParts(translate, { error: "server_error" }).label).toBe("turn.live.retry.unreachable");
+  expect(retryParts(translate, { error: "server_error" }).label).toBe("turn.live.retry.unavailable");
+  expect(retryParts(translate, {})).toEqual({ label: "turn.live.retry.unavailable" });
 });
 
 test("a turn_retrying record keeps only counts and words it can show", () => {
@@ -158,4 +159,6 @@ test("a turn_retrying record keeps only counts and words it can show", () => {
   });
   expect(readTurnRetry({ attempt: 0, maxRetries: "10", error: "" })).toEqual({});
   expect(readTurnRetry({ attempt: 12, maxRetries: 10 })).toEqual({ attempt: 12 });
+  expect(readTurnRetry({ line: "busy", showAfterMs: 0 })).toEqual({ line: "busy", showAfterMs: 0 });
+  expect(readTurnRetry({ line: "loud", showAfterMs: -1 })).toEqual({});
 });

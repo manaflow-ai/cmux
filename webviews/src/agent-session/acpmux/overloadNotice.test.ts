@@ -1,7 +1,7 @@
 // l10n-allow-file: test fixtures.
 import { expect, test } from "bun:test";
 import { readHostOverload } from "./overloadNoticeModel";
-import { retryParts, formatCountdown } from "./conversation/thinkingModel";
+import { retryParts, retryQuietMs } from "./conversation/thinkingModel";
 import { readTurnRetry } from "./direct/records";
 
 const t = (key: string, vars?: Record<string, unknown>) => `${key}${vars ? JSON.stringify(vars) : ""}`;
@@ -21,25 +21,33 @@ test("overload verdict is read as acpmux sent it", () => {
   expect(readHostOverload(null)).toBeUndefined();
 });
 
-test("a classified outage names the host and counts down to acpmux's deadline", () => {
+test("a classified outage keeps the line short and names the host in its tooltip", () => {
   const retry = readTurnRetry({
     attempt: 3,
     maxRetries: 10,
     cause: "dns",
     host: "api.anthropic.com",
     retryAt: 100_000,
+    line: "unavailable",
+    showAfterMs: 10_000,
   });
   expect(retry.cause).toBe("dns");
-  const parts = retryParts(t as never, retry, 55_000);
-  expect(parts.label).toContain("outage.dns");
-  expect(parts.label).toContain("api.anthropic.com");
-  expect(parts.countdown).toContain("45s");
-  expect(retryParts(t as never, retry, 100_001).countdown).toContain("retryingNow");
+  expect(retry.line).toBe("unavailable");
+  const parts = retryParts(t as never, retry);
+  expect(parts.label).toBe("turn.live.retry.unavailable");
+  expect(parts.detail).toContain("outage.dns");
+  expect(parts.detail).toContain("api.anthropic.com");
+  expect(retryQuietMs(retry)).toBe(10_000);
 });
 
-test("a retry with no classification or deadline shows neither", () => {
-  const parts = retryParts(t as never, { attempt: 1, maxRetries: 10, errorStatus: 503 }, 5);
-  expect(parts.label).toContain("retry.unreachable");
-  expect(parts.countdown).toBeUndefined();
-  expect(formatCountdown(75)).toBe("1m 15s");
+test("acpmux decides busy or unavailable; an older one's record is read the same way", () => {
+  expect(retryParts(t as never, { attempt: 1, maxRetries: 10, errorStatus: 503 }).label).toBe(
+    "turn.live.retry.unavailable",
+  );
+  expect(retryParts(t as never, { errorStatus: 503, line: "busy" }).label).toBe("capacity.live");
+  expect(retryParts(t as never, { errorStatus: 529, line: "unavailable" }).label).toBe("turn.live.retry.unavailable");
+  // A busy model says so at once; one out of reach waits the bound, so a quick recovery draws nothing.
+  expect(retryQuietMs({ errorStatus: 529 })).toBe(0);
+  expect(retryQuietMs({ errorStatus: 502 })).toBe(10_000);
+  expect(retryQuietMs({ errorStatus: 502, showAfterMs: 4_000 })).toBe(4_000);
 });
