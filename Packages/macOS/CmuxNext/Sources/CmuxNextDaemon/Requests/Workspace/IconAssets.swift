@@ -20,14 +20,9 @@ public struct IconAssetBlob: Decodable, Sendable, Equatable {
     }
 }
 
-/// `put-blob`: `data` is the asset's bytes in standard base64.
-public struct PutBlobRequest: DaemonRequest {
-    public typealias Response = IconAssetBlob
-    public static let command = "put-blob"
-    public static let requiredCapability: String? = DaemonCapability.iconAssets.rawValue
-    public var mediaType: String
-    public var data: String
-
+/// `put-blob` (generated from the schema, swift_app/bindings.json): the generated memberwise init takes the base64
+/// string; this one takes the asset's bytes.
+extension PutBlobRequest {
     public init(mediaType: String, data: Data) {
         self.mediaType = mediaType
         self.data = data.base64EncodedString()
