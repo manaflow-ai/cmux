@@ -87,6 +87,8 @@ public final class AgentPaneModel {
     /// Every `pane.painted` report, the first one too, after ``markPainted()``: a page that loaded again
     /// (a reload, a crash retry) reports its first frame here (``AgentPaneDocumentCover``).
     @ObservationIgnored var onPaintReport: (() -> Void)?
+    /// The page's error boundary caught a render error (`pane.renderFailed`): the view covers the empty document.
+    @ObservationIgnored var onRenderFailed: (() -> Void)?
     /// The new tab page this pane shows until it has a session (cleared then), nil for a plain chat.
     public private(set) var newTab: AgentPaneNewTab? {
         didSet {
@@ -641,7 +643,7 @@ public final class AgentPaneModel {
     public func respond(to request: AgentPaneRequest, userGesture: Bool = false) async -> [String: Any] {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
-        case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .composerFilled, .painted, .launchSettle, .inputEchoed, .clientReady, .newTabInputReady, .newTabContext, .newTabCloudPick, .newTabWarm, .unsupported,
+        case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .composerFilled, .painted, .renderFailed, .launchSettle, .inputEchoed, .clientReady, .newTabInputReady, .newTabContext, .newTabCloudPick, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportAck, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
              .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .sessionInfoPinch, .hostGlass, .toastAvoidance, .toast, .projectIcon, .completeFolder, .agentAvatar, .miniSubject, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .environment(.list), .cloudMachine(.list), .cloudMachine(.freshList), .cloudMachine(.recoveryList), .cloudMachine(.prewarm),
              .sandboxState, .subagentShown, .dictationSources: break
@@ -706,6 +708,9 @@ public final class AgentPaneModel {
             if newTab == nil {
                 AgentPaneLaunchTimings.shared.layoutSettle(at: settledAt, maxMovePx: maxMovePx, element: element, shifts: shifts)
             }
+            return AgentPaneReply.success()
+        case .renderFailed:
+            onRenderFailed?()
             return AgentPaneReply.success()
         case .inputEchoed(let echoedAt):
             // A New Tab page's composer is not the launch's front chat.
@@ -1090,6 +1095,18 @@ public final class AgentPaneModel {
         case .computerUsePreview(let action): return AgentPaneComputerUsePreview.respond(action, in: self)
         case .upload(let files): return await AgentPaneUpload.respond(files, in: self)
         case .uploadStage(let stage):
+            // A native drop on another machine names the host-side path token instead of
+            // streaming bytes through the page. Consume that one-shot token before the normal
+            // staged uploader, whose batch target quite intentionally rejects unknown tokens.
+            switch stage {
+            case .begin(let name, _, let batchToken?, _)
+                where AgentPaneDroppedPaths.isPutToken(batchToken):
+                return await putDropped(token: batchToken, name: name)
+            case .cancel(let token) where AgentPaneDroppedPaths.isPutToken(token):
+                return cancelDroppedPut(token)
+            default:
+                break
+            }
             // A chat with no session yet (a new chat, the New Tab page) stages too: its stager says
             // whether it can take one. Refusing it as unsupported told the page this host is too old
             // to stream, so a recording over the one-frame size failed with Retry (#28647).

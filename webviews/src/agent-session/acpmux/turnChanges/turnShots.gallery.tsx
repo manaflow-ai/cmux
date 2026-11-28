@@ -32,6 +32,7 @@ function TurnShotsGallery({ mode, arriveMs }: Props) {
     return {
       mode,
       peek: () => settled,
+      // gallery-capture: the read settles after `arriveMs`; the `arrive` play waits for `[data-arrived]`, and variants without it have no delay.
       read: () =>
         new Promise((resolve) =>
           setTimeout(() => {

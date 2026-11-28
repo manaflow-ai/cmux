@@ -1228,6 +1228,9 @@ fn only_a_confirmed_settings_write_waits_without_a_deadline() {
         | AppCommand::RendererProfile { .. }
         | AppCommand::ChatPerf { .. }
         | AppCommand::ChatDrive { .. }
+        | AppCommand::MacScreenReplay(_)
+        | AppCommand::ChatMemory { .. }
+        | AppCommand::ChatPageSource { .. }
         | AppCommand::Settings(_)
         | AppCommand::Nightly(_)
         | AppCommand::Health(_)

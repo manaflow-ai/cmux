@@ -1,7 +1,7 @@
 {
  "rust": {
   "exit": {
-   "acpmux": 5,
+   "acpmux": 6,
    "chatmux-relay": 12,
    "cmux-app-host": 1,
    "cmux-browser-host": 2,
@@ -17,7 +17,7 @@
    "cmux-remote": 39,
    "cmux-terminal-client": 1,
    "cmux-tui": 74,
-   "cmux-tui-core": 187,
+   "cmux-tui-core": 188,
    "cmux-tui-hooks": 11,
    "cmux-tui-platform": 1,
    "cmux-tui-remote-access": 1,
@@ -97,7 +97,7 @@
  "waived": {
   "rust": {
    "exit": {
-    "acpmux": 9,
+    "acpmux": 10,
     "cmux-browser-host": 4,
     "cmux-rd-host": 1,
     "cmux-tui": 1,
