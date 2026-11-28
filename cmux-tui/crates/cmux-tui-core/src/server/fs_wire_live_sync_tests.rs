@@ -17,7 +17,7 @@ use super::tests::{Home, peer, test_mux};
 use super::*;
 use crate::projection::{LineReader, LineWriter};
 
-type Dialed = (LineReader<BufReader<UnixStream>>, LineWriter<UnixStream>);
+type Dialed = (LineReader<BufReader<UnixStream>>, LineWriter<UnixStream>, Box<dyn FnOnce() + Send>);
 
 /// One dial of `sync.live` for `at`: the daemon's side served by the real route on a thread of its
 /// own, the answer read here (the Mac's `dial_on`), then the framed halves.
@@ -40,7 +40,11 @@ fn dial(entry: EntryFs, at: &str) -> std::io::Result<Dialed> {
             answer["error"].as_str().unwrap_or_default()
         )));
     }
-    Ok((LineReader::new(reader), LineWriter::binary(mac)))
+    let closer = mac.try_clone()?;
+    let close = Box::new(move || {
+        let _ = closer.shutdown(std::net::Shutdown::Both);
+    });
+    Ok((LineReader::new(reader), LineWriter::binary(mac), close))
 }
 
 fn wait_for(path: &Path, want: &[u8], within: Duration) -> Option<Duration> {

@@ -370,7 +370,9 @@ fn quiet_socket(socket: &Path) -> Option<PathBuf> {
 }
 
 /// The stream halves of one `sync.live` dial.
-pub(crate) type Dialed = (LineReader<BufReader<UnixStream>>, LineWriter<UnixStream>);
+/// The read half, the write half, and the link's close (shuts the stream down when a session ends).
+pub(crate) type Dialed =
+    (LineReader<BufReader<UnixStream>>, LineWriter<UnixStream>, Box<dyn FnOnce() + Send>);
 
 /// Dials `sync.live` for `at` on the machine link at `socket` (its quiet socket first) and reads
 /// the machine's answer. A refusal is an error carrying its code and first line.
@@ -408,7 +410,11 @@ pub(crate) fn dial_on(mut stream: UnixStream, at: &str) -> std::io::Result<Diale
     reader.get_ref().set_read_timeout(None)?;
     reader.get_ref().set_write_timeout(Some(Duration::from_secs(60)))?;
     let writer = reader.get_ref().try_clone()?;
-    Ok((LineReader::new(reader), LineWriter::binary(writer)))
+    let closer = reader.get_ref().try_clone()?;
+    let close = Box::new(move || {
+        let _ = closer.shutdown(std::net::Shutdown::Both);
+    });
+    Ok((LineReader::new(reader), LineWriter::binary(writer), close))
 }
 
 /// Whether a dial error is a refusal no retry clears.

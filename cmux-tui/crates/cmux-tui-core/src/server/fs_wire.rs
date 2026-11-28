@@ -493,7 +493,10 @@ fn serve_sync_live(
             let _ = stream.set_read_timeout(None);
             let _ = stream.set_write_timeout(Some(Duration::from_secs(60)));
             let reader = std::io::Cursor::new(leftover).chain(reader);
-            crate::live_sync::serve_io(reader, &stream, first, &roots);
+            let close = || {
+                let _ = stream.shutdown(std::net::Shutdown::Both);
+            };
+            crate::live_sync::serve_io(reader, &stream, close, first, &roots);
         }
     }
     super::disconnect_client(mux, client, false);
@@ -547,9 +550,12 @@ pub(super) fn serve_local_sync_live(
     }
     let _ = stream.set_read_timeout(None);
     let _ = stream.set_write_timeout(Some(Duration::from_secs(60)));
-    let Ok(writer) = stream.try_clone_box() else { return };
+    let (Ok(writer), Ok(closer)) = (stream.try_clone_box(), stream.try_clone_box()) else { return };
     let reader = std::io::Cursor::new(leftover).chain(stream);
-    crate::live_sync::serve_io(reader, writer, first, &roots);
+    let close = move || {
+        let _ = closer.shutdown(std::net::Shutdown::Both);
+    };
+    crate::live_sync::serve_io(reader, writer, close, first, &roots);
 }
 
 /// Serves a projection's dial that arrived on a line connection of the local socket: the Cloud

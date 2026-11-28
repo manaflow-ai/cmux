@@ -158,10 +158,12 @@ fn follower(root: &Path) -> Result<Arc<Mutex<Follower>>, Refusal> {
 }
 
 /// Serves one `sync.live` dial whose line is `first`: the answer, then the live stream until it
-/// ends. `reader` carries every byte after the line (the caller chains what it read ahead).
+/// ends. `reader` carries every byte after the line (the caller chains what it read ahead);
+/// `close` shuts the stream down, so the follower's reader thread ends with the dial.
 pub fn serve_io(
     reader: impl Read + Send + 'static,
     mut writer: impl Write,
+    close: impl FnOnce(),
     first: &str,
     roots: &[PathBuf],
 ) {
@@ -214,7 +216,7 @@ pub fn serve_io(
     let reader =
         crate::projection::LineReader::new(std::io::BufReader::with_capacity(256 * 1024, reader));
     let writer = crate::projection::LineWriter::binary(writer);
-    if let Err(error) = held.serve(reader, writer) {
+    if let Err(error) = held.serve(reader, writer, close) {
         let error = format!("{error:#}");
         eprintln!(
             "cmux sync.live: {} ended: {}",
