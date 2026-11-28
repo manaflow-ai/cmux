@@ -8,6 +8,8 @@ import { afterAll, afterEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { translatorFor } from "../src/agent-session/acpmux/i18n";
+import { DEFAULT_CHAT_DISPLAY, MINIMAL_MODE_KEY, resolveChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
 import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -41,9 +43,6 @@ for (const key of Object.getOwnPropertyNames(dom.window))
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
-const { translatorFor } = await import("../src/agent-session/acpmux/i18n");
-const { DEFAULT_CHAT_DISPLAY, MINIMAL_MODE_KEY, resolveChatDisplay } =
-  await import("../src/agent-session/acpmux/chatDisplay");
 const host = dom.window.document.getElementById("root")!;
 let root: Root | undefined;
 

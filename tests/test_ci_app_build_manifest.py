@@ -74,23 +74,5 @@ class ManifestTest(unittest.TestCase):
         self.assertFalse(self.stored().exists())
 
 
-class WorkflowTest(unittest.TestCase):
-    """Every job that publishes the nightly-next download writes the manifest right after it. 2026-11-28: only
-    publish-nightly had the step, and NEXT publishes from nightly-next-one, so no manifest was ever stored."""
-
-    def test_every_next_publish_writes_the_manifest(self):
-        import yaml
-
-        jobs = yaml.safe_load((HERE.parent / ".github" / "workflows" / "nightly.yml").read_text())["jobs"]
-        publishers = []
-        for name, job in jobs.items():
-            steps = [step.get("name") for step in job.get("steps", [])]
-            if "Publish the nightly-next download to R2" in steps:
-                publishers.append(name)
-                after = steps[steps.index("Publish the nightly-next download to R2") + 1]
-                self.assertEqual(after, "Write the build manifest for this app-input digest", name)
-        self.assertIn("nightly-next-one", publishers)
-
-
 if __name__ == "__main__":
     unittest.main()

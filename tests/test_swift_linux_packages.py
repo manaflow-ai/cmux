@@ -72,26 +72,10 @@ def check_rows(failures: list[str]) -> None:
         for target in targets:
             if not re.search(r'\.testTarget\(\s*name:\s*"' + re.escape(target) + '"', text):
                 failures.append(f"{dir_}: its manifest declares no test target {target}")
-        reach = manifest_reach(manifest)
         for pair in envs:
             key = pair.split("=", 1)[0]
-            if not re.fullmatch(r"[A-Z_][A-Z0-9_]*=[A-Za-z0-9_.:/-]*", pair) or not any(key in m.read_text() for m in reach):
-                failures.append(f"{dir_}: ENV {pair} is malformed or neither its manifest nor a `.package(path:)` one it reaches reads {key}")
-
-
-def manifest_reach(manifest: Path) -> list[Path]:
-    """The manifest and every manifest it reaches through `.package(path:)`: an ENV a dependency reads
-    (CmuxAuthRuntime's Linux SQLite3 module) shapes the listed package's build too."""
-    seen: list[Path] = []
-    todo = [manifest.resolve()]
-    while todo:
-        m = todo.pop()
-        if m in seen or not m.is_file():
-            continue
-        seen.append(m)
-        for rel in re.findall(r'\.package\(\s*path:\s*"([^"]+)"', m.read_text()):
-            todo.append((m.parent / rel / "Package.swift").resolve())
-    return seen
+            if not re.fullmatch(r"[A-Z_][A-Z0-9_]*=[A-Za-z0-9_.:/-]*", pair) or key not in text:
+                failures.append(f"{dir_}: ENV {pair} is malformed or its manifest never reads {key}")
 
 
 def check_workflow(failures: list[str]) -> None:

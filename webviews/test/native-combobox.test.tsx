@@ -2,17 +2,15 @@ import { afterEach, expect, test } from "bun:test";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import { Combobox } from "../src/ui/Combobox";
+import { UiProvider } from "../src/ui/UiProvider";
+import { Menu, MenuButton, MenuPopup } from "../src/ui/Menu";
+import { Popover } from "../src/ui/Popover";
+import { Select } from "../src/ui/Select";
+import { comboboxDescription, selectDescription } from "../src/ui/popupDescriptors";
 import type { PopupHost } from "../src/ui/popupHost";
 import type { NativePopupEvent, NativePopupModel } from "../src/ui/nativePopup";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { Combobox } = await importWithDom(() => import("../src/ui/Combobox"));
-const { UiProvider } = await importWithDom(() => import("../src/ui/UiProvider"));
-const { Menu, MenuButton, MenuPopup } = await importWithDom(() => import("../src/ui/Menu"));
-const { Popover } = await importWithDom(() => import("../src/ui/Popover"));
-const { Select } = await importWithDom(() => import("../src/ui/Select"));
-const { comboboxDescription, selectDescription } = await importWithDom(() => import("../src/ui/popupDescriptors"));
 
 const menuModel = {
   side: "bottom" as const,

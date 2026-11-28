@@ -5,7 +5,6 @@ import { JSDOM } from "jsdom";
 import { createStrings } from "../shared/i18n";
 import { LASTING_MS } from "../../ui/lasting";
 import { DaemonGate, PAGE_LISTENER_REFUSED, type DaemonSource } from "./DaemonGate";
-import { DaemonSocket } from "../shared/daemonSocket";
 import { pageError } from "../shared/pageClient";
 import { userMessage } from "../shared/userMessage";
 import { settleReact } from "../../../test/support/domTeardown";
@@ -80,7 +79,7 @@ const starting: DaemonSource = {
   load: () => Promise.reject(pageError("cmux.protocol.unavailable", "Starting this build's Chief…", true)),
 };
 
-test("a daemon still starting stays silent while automatic retries continue", async () => {
+test("a daemon still starting shows nothing, then one muted line once it lasts", async () => {
   const container = installDom();
   jest.useFakeTimers();
   root = createRoot(container);
@@ -97,8 +96,9 @@ test("a daemon still starting stays silent while automatic retries continue", as
   expect(container.querySelector(".hc-gate-error")).toBeNull();
   await act(async () => void jest.advanceTimersByTime(1));
   const lines = container.querySelectorAll(".hc-gate-line");
-  expect(lines).toHaveLength(0);
-  expect(container.textContent).toBe("");
+  expect(lines).toHaveLength(1);
+  // The host words this one for the person; it is said as is.
+  expect(lines[0]!.textContent).toBe("Starting this build's Chief…");
   expect(container.querySelector(".hc-gate-error")).toBeNull();
   expect(container.querySelector("h1")).toBeNull();
 });
@@ -252,48 +252,4 @@ test("a shown page asks again at least every 2 s while its daemon is down; a hid
   const hidden = await askTimes("hidden", 30_000);
   const hiddenGaps = hidden.slice(1).map((at, index) => at - hidden[index]!);
   expect(Math.max(...hiddenGaps)).toBe(10_000);
-});
-
-test("a reconnect keeps the last conversation frame mounted without progress text", async () => {
-  const container = installDom();
-  jest.useFakeTimers();
-  const closeListeners: ((reason: string) => void)[] = [];
-  const daemon = {
-    identity: { capabilities: ["ws-conversations-v1"] },
-    onClose: (listener: (reason: string) => void) => {
-      closeListeners.push(listener);
-      return () => undefined;
-    },
-    close: () => undefined,
-  } as unknown as DaemonSocket;
-  const connect = jest.spyOn(DaemonSocket, "connect").mockResolvedValue(daemon);
-  const source: DaemonSource = {
-    kind: "host",
-    load: () => Promise.resolve({ url: "ws://localhost:12345", token: "fixture" }),
-  };
-  try {
-    root = createRoot(container);
-    await act(async () =>
-      root!.render(
-        <DaemonGate source={source} strings={strings}>
-          {() => <p data-cached-conversation>Last conversation</p>}
-        </DaemonGate>,
-      ),
-    );
-    const frame = container.querySelector("[data-cached-conversation]");
-    expect(frame).not.toBeNull();
-    await act(async () => {
-      for (const closed of closeListeners) closed("disconnected");
-    });
-    expect(container.querySelector("[data-cached-conversation]")).toBe(frame);
-    expect(container.textContent).toBe("Last conversation");
-    expect(container.querySelector(".hc-gate-line")).toBeNull();
-    await act(async () => void jest.advanceTimersByTime(500));
-    expect(connect).toHaveBeenCalledTimes(2);
-    // A successful replacement handshake keeps the subtree mounted too; its store can warm
-    // while HomeStorePresentation keeps the cached frame until its first data arrives.
-    expect(container.querySelector("[data-cached-conversation]")).toBe(frame);
-  } finally {
-    connect.mockRestore();
-  }
 });

@@ -93,10 +93,7 @@ const now = (page: Page) => page.evaluate(() => performance.now());
 
 async function openPane(page: Page, port: number, list: number) {
   await page.addInitScript((count) => {
-    const mock = globalThis as { cmuxAcpmuxMockListSize?: number; cmuxAcpmuxMockPaged?: boolean };
-    mock.cmuxAcpmuxMockListSize = count;
-    // The list in pages of the client's `limit`, as acpmux sends it (mock.ts `listPage`).
-    mock.cmuxAcpmuxMockPaged = true;
+    (globalThis as { cmuxAcpmuxMockListSize?: number }).cmuxAcpmuxMockListSize = count;
   }, list);
   await addRenderCountProbe(page);
   await installReactWatch(page);

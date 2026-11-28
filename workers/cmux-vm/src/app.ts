@@ -3,8 +3,7 @@
  * Worker entry (index.ts) supplies live Layers; tests supply fakes.
  */
 import { HttpApiBuilder, HttpServer, type HttpApp } from "@effect/platform";
-import { Context, Effect, Layer, ManagedRuntime, type Redacted } from "effect";
-import { AfterResponse, type Defer } from "./after-response.ts";
+import { Effect, Layer, ManagedRuntime, type Redacted } from "effect";
 import { CmuxVmApi } from "./api.ts";
 import { authenticationLayer } from "./auth/middleware.ts";
 import type { CiTrust } from "./auth/ci-trust.ts";
@@ -146,14 +145,13 @@ export const makeWebHandler = (services: Layer.Layer<Services>, options: WebHand
      * Refuses oversized JSON bodies, then serves the API at the request's pinned version (api-version.ts;
      * unpinned: as is). Uploads stream untouched to their handler.
      */
-    handler: withApiVersion((request: Request, defer?: Defer): Promise<Response> => {
+    handler: withApiVersion((request: Request): Promise<Response> => {
       if (new URL(request.url).pathname === STACK_WEBHOOK_PATH) return webhook(request);
-      const context = defer === undefined ? undefined : Context.make(AfterResponse, defer);
-      if (request.body === null || UPLOAD_PATH.test(new URL(request.url).pathname)) return web.handler(request, context);
+      if (request.body === null || UPLOAD_PATH.test(new URL(request.url).pathname)) return web.handler(request);
       const declared = request.headers.get("content-length");
       if (declared !== null && Number(declared) > MAX_JSON_BODY_BYTES) return Promise.resolve(tooLarge());
       const method = request.method;
-      return web.handler(new Request(request.url, { method, headers: request.headers, body: capped(request.body, MAX_JSON_BODY_BYTES) }), context);
+      return web.handler(new Request(request.url, { method, headers: request.headers, body: capped(request.body, MAX_JSON_BODY_BYTES) }));
     }, options.apiVersions ?? API_VERSIONS),
   };
 };

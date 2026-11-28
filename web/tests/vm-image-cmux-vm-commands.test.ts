@@ -221,39 +221,6 @@ describe("cmux VM image apt index", () => {
     expect(bake.APT_FETCH_ATTEMPTS).toBe(3);
   });
 
-  // Image roll 46099659860 (2026-11-28): the npm prefill (13-16 s on a usual bake) hit status 124 at 293 s on a slow
-  // builder and failed the roll. It now runs again, and a run again keeps the tarballs the cache already verified.
-  test("the npm prefill that fails is run again, keeping its cache, up to NPM_PREFILL_ATTEMPTS times", async () => {
-    const vm = {} as Parameters<typeof bake.prefillNpmCache>[1];
-    const fakeLog = (failures: number) => {
-      const calls: Array<{ label: string; command: string; timeoutMs?: number }> = [];
-      const lines: string[] = [];
-      return {
-        calls,
-        lines,
-        log: (line: string) => void lines.push(line),
-        step: async (_vm: unknown, label: string, command: string, timeoutMs?: number) => {
-          calls.push({ label, command, timeoutMs });
-          if (calls.length <= failures) throw new Error(`step ${label} failed`);
-          return "npm-cache-mb 171";
-        },
-      };
-    };
-    const once = fakeLog(1);
-    await bake.prefillNpmCache(once, vm);
-    expect(once.calls.map((c) => c.label)).toEqual(["npm-cache-prefill", "npm-cache-prefill-try-2"]);
-    expect(once.calls[0].command).toContain("rm -rf /tmp/cmux-npm-prefill /home/cmux/.npm/_cacache");
-    expect(once.calls[1].command).toContain("rm -rf /tmp/cmux-npm-prefill && ");
-    expect(once.calls[1].command).not.toContain("rm -rf /tmp/cmux-npm-prefill /home/cmux/.npm/_cacache");
-    expect(once.calls[1].command).toContain("-gt 300");
-    expect(once.calls.every((c) => c.timeoutMs === 290_000)).toBe(true);
-    expect(once.lines.join("\n")).toContain("npm-cache-prefill failed (try 1 of 3)");
-
-    const never = fakeLog(99);
-    await expect(bake.prefillNpmCache(never, vm)).rejects.toThrow("step npm-cache-prefill-try-3 failed");
-    expect(never.calls).toHaveLength(3);
-  });
-
   // Image rolls 45109809346 and 45113664312 (2026-11-23): GitHub release downloads ran at about 100 KB/s, and
   // store-codex (109 MB) hit the guest's 5-minute exec cap (status 124) twice. A store install now continues its
   // partial download on the next run, skips a whole one, and drops a whole file with the wrong sha256.
@@ -545,7 +512,7 @@ describe("cmux VM image /tmp writer after clean (image roll 42888042827: /tmp/op
     };
     const loginEnv = at('L.step(vm, "acpmux-login-env"');
     const checks = at('L.step(vm, "acpmux-harness-checks", acpmuxHarnessChecksDoneCommand())');
-    const probes = at('L.step(vm, "acpmux-probes-quiet", acpmuxProbesQuietCommand(), acpmuxProbesQuietStepMs())');
+    const probes = at('L.step(vm, "acpmux-probes-quiet", acpmuxProbesQuietCommand())');
     const clean = at('L.step(vm, "clean"');
     const tmpEmpty = at('L.step(vm, "tmp-empty"');
     const warm = at('"drop-cache-warm-bind-path"');
@@ -575,15 +542,6 @@ describe("cmux VM image /tmp writer after clean (image roll 42888042827: /tmp/op
     expect(wait).toContain('[ ! -s "$health" ]');
     expect(wait).not.toMatch(/sleep (?!1;)\d/);
     expect(wait).toContain("acpmux's harness check did not finish");
-  });
-
-  test("acpmux-probes-quiet is bounded by wall time and its exec outlasts the bound (roll 46067232978)", () => {
-    const cmd = bake.acpmuxProbesQuietCommand();
-    expect(cmd).toContain("t0=$(date +%s)");
-    expect(cmd).toContain("timeout 10 find /proc");
-    expect(cmd).not.toMatch(/i=\$\(\(i \+ 1\)\)/);
-    expect(bake.acpmuxProbesQuietStepMs()).toBeGreaterThan(120_000 + 2 * 5 * 11_000 + 30_000);
-    expect(source()).toContain('L.step(vm, "acpmux-probes-quiet", acpmuxProbesQuietCommand(), acpmuxProbesQuietStepMs())');
   });
 
   test("waits for acpmux's model probes (cwd in the unattended folder) to exit before clean", async () => {

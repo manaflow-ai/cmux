@@ -7,9 +7,9 @@ import type { CommandLink } from "../session-info/commandRules";
 import type { BackgroundCommand } from "../session-info/processes";
 
 /// Expanded tray-only preview of a running command, the shared card's body
-/// (backgroundTasks/BackgroundTaskCard.tsx): the chat's Shell block (the command as typed, its latest
-/// output; nothing under it while it has printed none), then its owner, elapsed time, what it is about
-/// (a pull request or a run, `link`) and, on hover or focus, Open in terminal. Its polling lifetime is owned by the row's disclosure, so streaming transcript
+/// (backgroundTasks/BackgroundTaskCard.tsx): the whole command as typed, its latest output or "No
+/// output yet", then its owner, elapsed time, what it is about (a pull request or a run, `link`) and
+/// Open in terminal. Its polling lifetime is owned by the row's disclosure, so streaming transcript
 /// tokens never reach this component.
 export function BackgroundTaskTail({
   command,
@@ -43,11 +43,12 @@ export function BackgroundTaskTail({
         processId={command.processId}
         open={open}
         readOutput={readOutput}
-        foot={
+        foot={(empty) => (
           <>
-            {/* One line under the command, on its left edge: its time and its actions, all at the detail
-              size on one centre line (Leo, 2026-11-07: "wildly misaligned at the bottom"). */}
-            {(owner || elapsed || link || onOpenTerminal || onOpenOwner) && (
+            {/* One line under the command, on its left edge: its time, "No output yet" while it has printed nothing
+              and its actions, all at the detail size on one centre line (Leo, 2026-11-07: "wildly misaligned
+              at the bottom"). */}
+            {(owner || elapsed || empty || link || onOpenTerminal || onOpenOwner) && (
               <div className="acpmux-running-tray__tail-foot">
                 {(owner || elapsed) && (
                   <span className="acpmux-running-tray__meta">
@@ -56,6 +57,7 @@ export function BackgroundTaskTail({
                     {elapsed}
                   </span>
                 )}
+                {empty && <span className="acpmux-running-tray__meta">{t("backgroundTasks.noOutputYet")}</span>}
                 {link && (
                   <a href={link.url} target="_blank" rel="noreferrer">
                     <Icon name="link.external" size={12} row />
@@ -69,7 +71,7 @@ export function BackgroundTaskTail({
                   </button>
                 )}
                 {onOpenTerminal && (
-                  <button type="button" className="acpmux-running-tray__terminal" onClick={onOpenTerminal}>
+                  <button type="button" onClick={onOpenTerminal}>
                     <TerminalSquare />
                     {t("shell.openInTerminal")}
                   </button>
@@ -77,7 +79,7 @@ export function BackgroundTaskTail({
               </div>
             )}
           </>
-        }
+        )}
       />
     </div>
   );

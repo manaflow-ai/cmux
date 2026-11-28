@@ -7,7 +7,6 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
 
 const scope = globalThis as Record<string, unknown>;
 const names = [
@@ -61,18 +60,16 @@ afterAll(async () => {
 });
 
 const { createRoot } = await import("react-dom/client");
-const { BookmarksPage } = await importWithDom(() => import("../src/pages/bookmarks/BookmarksPage"));
-const { UiProvider } = await importWithDom(() => import("../src/ui/UiProvider"));
-const { createStrings } = await importWithDom(() => import("../src/pages/shared/i18n"));
+const { BookmarksPage } = await import("../src/pages/bookmarks/BookmarksPage");
+const { UiProvider } = await import("../src/ui/UiProvider");
+const { createStrings } = await import("../src/pages/shared/i18n");
 const table = (await import("../src/pages/bookmarks/generated/strings.json")).default as Record<
   string,
   Record<string, string>
 >;
-const { MockBookmarksProvider, longBookmarks } = await importWithDom(
-  () => import("../src/pages/bookmarks/mockProvider"),
-);
-const { BookmarksStore } = await importWithDom(() => import("../src/pages/bookmarks/store"));
-const { BookmarkOps, HostOps } = await importWithDom(() => import("../src/pages/bookmarks/types"));
+const { MockBookmarksProvider, longBookmarks } = await import("../src/pages/bookmarks/mockProvider");
+const { BookmarksStore } = await import("../src/pages/bookmarks/store");
+const { BookmarkOps, HostOps } = await import("../src/pages/bookmarks/types");
 
 async function mount(provider = new MockBookmarksProvider()) {
   const store = new BookmarksStore(provider, { newKey: () => "k" });

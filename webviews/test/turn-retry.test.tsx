@@ -5,15 +5,14 @@
 // failed turn's Retry now asks acpmux first, and sends the prompt again only where acpmux cannot.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import {
+  RetryNotSent,
+  resendToOwner,
+  retryFailedTurn,
+  retryFailedPrompt,
+} from "../src/agent-session/acpmux/conversation/turnRetry";
+import { RETRY_METHOD, TURN_RETRY } from "../src/agent-session/acpmux/subagents/retryState";
 import { teardownDom } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { RetryNotSent, resendToOwner, retryFailedTurn, retryFailedPrompt } = await importWithDom(
-  () => import("../src/agent-session/acpmux/conversation/turnRetry"),
-);
-const { RETRY_METHOD, TURN_RETRY } = await importWithDom(
-  () => import("../src/agent-session/acpmux/subagents/retryState"),
-);
 
 const refusal = (reason: string, why?: string) =>
   Object.assign(new Error(`${reason}: refused`), { reason, ...(why ? { data: { why } } : {}) });

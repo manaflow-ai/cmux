@@ -10,26 +10,18 @@ import path from "node:path";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import { MOTION_EASE_OUT, MOTION_MS } from "../src/motion/scale.generated";
 import type { AcpmuxActivity } from "../src/agent-session/acpmux/model";
+import { cssTimeMs, FOLD_DURATION_VAR, foldMotion } from "../src/agent-session/acpmux/conversation/fold";
 import { EXIT_EASING, exitLeadMs } from "../src/agent-session/acpmux/conversation/exitLead";
+import { CommandRow } from "../src/agent-session/acpmux/conversation/CommandRow";
+import { McpCallRows } from "../src/agent-session/acpmux/conversation/McpCallRows";
+import { ToolGroupRow } from "../src/agent-session/acpmux/conversation/ToolGroupRow";
+import { ToolRow } from "../src/agent-session/acpmux/conversation/ToolRow";
+import { ToolRun } from "../src/agent-session/acpmux/conversation/ToolRun";
+import { resetTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosureModel";
+import { useAnchoredCollapse } from "../src/agent-session/acpmux/conversation/useAnchoredCollapse";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { MOTION_EASE_OUT, MOTION_MS } = await importWithDom(() => import("../src/motion/scale.generated"));
-const { cssTimeMs, FOLD_DURATION_VAR, foldMotion } = await importWithDom(
-  () => import("../src/agent-session/acpmux/conversation/fold"),
-);
-const { CommandRow } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/CommandRow"));
-const { McpCallRows } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/McpCallRows"));
-const { ToolGroupRow } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/ToolGroupRow"));
-const { ToolRow } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/ToolRow"));
-const { ToolRun } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/ToolRun"));
-const { resetTranscriptDisclosure } = await importWithDom(
-  () => import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel"),
-);
-const { useAnchoredCollapse } = await importWithDom(
-  () => import("../src/agent-session/acpmux/conversation/useAnchoredCollapse"),
-);
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

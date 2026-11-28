@@ -3,24 +3,24 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import type { NativeSessionInfoProps } from "../src/agent-session/acpmux/session-info/native/NativeSessionInfo";
+import { setNativeHost } from "../src/agent-session/acpmux/native";
+import {
+  nativeSessionInfoDrawn,
+  runNativeSessionInfoAction,
+  setNativeSessionInfoHost,
+} from "../src/agent-session/acpmux/session-info/native/host";
+import {
+  NativeSessionInfo,
+  type NativeSessionInfoProps,
+} from "../src/agent-session/acpmux/session-info/native/NativeSessionInfo";
 import type { NativeSessionInfo as Model } from "../src/agent-session/acpmux/session-info/native/model";
+import {
+  resetSessionInfoState,
+  sessionInfoState,
+  SESSION_INFO_WIDTH,
+} from "../src/agent-session/acpmux/session-info/sessionInfoState";
+import { resetSectionOrderForTests } from "../src/agent-session/acpmux/session-info/sectionOrder";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { setNativeHost } = await importWithDom(() => import("../src/agent-session/acpmux/native"));
-const { nativeSessionInfoDrawn, runNativeSessionInfoAction, setNativeSessionInfoHost } = await importWithDom(
-  () => import("../src/agent-session/acpmux/session-info/native/host"),
-);
-const { NativeSessionInfo } = await importWithDom(
-  () => import("../src/agent-session/acpmux/session-info/native/NativeSessionInfo"),
-);
-const { resetSessionInfoState, sessionInfoState, SESSION_INFO_WIDTH } = await importWithDom(
-  () => import("../src/agent-session/acpmux/session-info/sessionInfoState"),
-);
-const { resetSectionOrderForTests } = await importWithDom(
-  () => import("../src/agent-session/acpmux/session-info/sectionOrder"),
-);
 
 const global = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();

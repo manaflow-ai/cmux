@@ -5,6 +5,7 @@
 // `chat.queue.edit` action. It never sends session/cancel: Send now does not end the turn.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { CHAT, connect, fakeDaemon, record } from "./support/agentPairDaemon";
 import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -42,7 +43,6 @@ for (const key of Object.getOwnPropertyNames(dom.window))
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
-const { CHAT, connect, fakeDaemon, record } = await import("./support/agentPairDaemon");
 
 // jsdom has no layout. A tall viewport mounts every row of these small conversations.
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 10_000 });

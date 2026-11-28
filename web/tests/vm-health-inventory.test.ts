@@ -36,38 +36,15 @@ describe("probeControl", () => {
     expect(requests).toEqual(["GET /v5/vms/vm-1", "GET /v5/vms/vm-1/fs/stat?path=%2F"]);
   });
 
-  test("the guest request receives a fresh timeout after the provider state read", async () => {
-    const signals: (AbortSignal | null | undefined)[] = [];
-    const { inventory } = client((path, init) => {
-      signals.push(init.signal);
-      return path.includes("/fs/stat") ? json(200, {}) : json(200, { state: "running" });
-    });
-    expect((await inventory.probeControl("vm-1", { timeoutMs: 1_000 })).outcome).toBe("ok");
-    expect(signals).toHaveLength(2);
-    expect(signals[0]).toBeInstanceOf(AbortSignal);
-    expect(signals[1]).toBeInstanceOf(AbortSignal);
-    expect(signals[0]).not.toBe(signals[1]);
-  });
-
-  test("only explicit guest failures are hung on fs/stat error responses", async () => {
-    const cases = [
-      [409, "CONFLICT", "vm runtime stale runtime instance responsive=false", "hung"],
-      [409, "VM_NON_RESPONSIVE", "", "hung"],
-      [502, "VM_NON_RESPONSIVE", "", "hung"],
-      [409, "CONFLICT", "no manager has enough capacity", "error"],
-      [409, "CONFLICT", "stale runtime instance", "error"],
-      [503, "UNAVAILABLE", "upstream", "error"],
-      [504, "", "", "error"],
-      [401, "VM_NON_RESPONSIVE", "", "error"],
-      [429, "CONFLICT", "", "error"],
-      [404, "", "", "gone"],
-    ] as const;
-    for (const [status, code, message, outcome] of cases) {
+  test("409 stale runtime and 5xx from fs/stat are hung; 401 and 429 are probe errors; 404 is gone", async () => {
+    const cases: Array<[number, string]> = [[409, "hung"], [502, "hung"], [504, "hung"], [401, "error"], [429, "error"], [404, "gone"]];
+    for (const [status, outcome] of cases) {
       const { inventory } = client((path) => path.includes("/fs/stat")
-        ? json(status, { code, message })
+        ? json(status, { code: "CONFLICT", message: "vm runtime stale runtime instance responsive=false" })
         : json(200, { state: "running" }));
       const probe = await inventory.probeControl("vm-1", { timeoutMs: 1_000 });
-      expect(`${status} ${code}: ${probe.outcome}`).toBe(`${status} ${code}: ${outcome}`);
+      expect(`${status}:${probe.outcome}`).toBe(`${status}:${outcome}`);
+      if (probe.outcome === "hung") expect(probe.detail).toContain(`${status} CONFLICT`);
     }
   });
 
@@ -87,12 +64,12 @@ describe("probeControl", () => {
     expect(requests).toHaveLength(1);
   });
 
-  test("a local fs/stat deadline leaves guest connectivity unknown", async () => {
+  test("an fs/stat that never answers is hung at the timeout", async () => {
     const { inventory } = client((path, init) => path.includes("/fs/stat")
       ? new Promise<Response>((_, reject) => init.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))))
       : json(200, { state: "running" }));
     const probe = await inventory.probeControl("vm-1", { timeoutMs: 150 });
-    expect(probe).toMatchObject({ outcome: "error", detail: "fs/stat: request timed out" });
+    expect(probe.outcome).toBe("hung");
   });
 });
 

@@ -24,20 +24,12 @@ export const GITHUB_CONNECT_ACTION = "accounts.githubConnect";
 /// anchor, so the card's matcher reads the same words the agent's side writes.
 export const GITHUB_CONNECT_CLI = "cmux accounts github-connect";
 
-/// Why the chat needs a connect: none for this team, one that needs linking again, one that
-/// does not cover the repository (GitHub's page picks it), or an owner the team's grant leaves out
-/// entirely because the cmux GitHub App is not installed there (`policy.denied` with reason
-/// `owner_not_connected`: its button installs the App).
+/// Why the chat needs a connect: none for this team, one that needs linking again, or one that
+/// does not cover the repository (GitHub's page picks it).
 /// `asked`: the agent asked for the connection itself (acpmux `settings_ask`, settingsAsk below).
 /// `permissions-pending`: the cmux GitHub App asked for more (contents: read & write) and this installation has not
 /// accepted yet (the API's `github.permissions_pending`): Sign in with GitHub opens the installation's page to accept.
-export type GitHubConnectReason =
-  | "not-connected"
-  | "needs-reauth"
-  | "not-covered"
-  | "not-installed"
-  | "permissions-pending"
-  | "asked";
+export type GitHubConnectReason = "not-connected" | "needs-reauth" | "not-covered" | "permissions-pending" | "asked";
 
 export type GitHubConnectNeed = {
   reason: GitHubConnectReason;
@@ -112,12 +104,7 @@ export function isGitHubRepo(value: unknown): value is string {
 const CODE =
   /\b(integration\.not_found|github\.not_connected|needs_reauth|policy\.denied|github\.permissions_pending)\b/;
 
-/// The deny reason the agent side names after the code (`[policy.denied owner_not_connected]`,
-/// `(policy.denied owner_not_connected)`) or in the MCP error's `reason`.
-const NOT_INSTALLED = "owner_not_connected";
-
-function reasonOf(code: string | undefined, denyReason?: string): GitHubConnectReason | undefined {
-  if (code === "policy.denied" && denyReason === NOT_INSTALLED) return "not-installed";
+function reasonOf(code: string | undefined): GitHubConnectReason | undefined {
   switch (code) {
     case "integration.not_found":
     case "github.not_connected":
@@ -170,9 +157,7 @@ export function githubConnectCall(tool: Tool): Omit<GitHubConnectNeed, "callId">
 
 function lineReason(text: string): GitHubConnectReason | undefined {
   const line = refusalLine(text);
-  if (!line) return undefined;
-  const code = CODE.exec(line)?.[1];
-  return reasonOf(code, new RegExp(`\\bpolicy\\.denied ${NOT_INSTALLED}\\b`).test(line) ? NOT_INSTALLED : undefined);
+  return line ? reasonOf(CODE.exec(line)?.[1]) : undefined;
 }
 
 /// The turn's need: its last failed GitHub call that asks for a connect, over the turn's rows.
@@ -193,16 +178,13 @@ export function githubConnectNeed(rows: readonly AcpmuxRow[]): GitHubConnectNeed
 const pick = (repo: string | undefined) => (isGitHubRepo(repo) ? { repo } : {});
 
 /// The refusal's one line: it starts with the agent side's own prefix (`cmux github credential:`,
-/// `cmux github gh:`, or the MCP text's `cmux could not get a token`), names the CLI command, and
-/// either names the next step (`Next: `, the MCP text) or ends with the code in brackets (git's
-/// and gh's stderr: `… [policy.denied owner_not_connected]`). A file that merely mentions the
-/// words (a source file read, a grep) is not one.
+/// `cmux github gh:`, or the MCP text's `cmux could not get a token`) and names the next step and
+/// the CLI command. A file that merely mentions the words (a source file read, a grep) is not one.
 function refusalLine(text: string): string | undefined {
   for (const raw of text.split("\n")) {
     const line = raw.trim();
     if (!/^cmux (?:github\b|could not get a token\b)/.test(line)) continue;
-    if (!line.includes(`\`${GITHUB_CONNECT_CLI}\``) || !CODE.test(line)) continue;
-    if (line.includes("Next: ") || /\[[a-z_.]+(?: [a-z_]+)?\]$/.test(line)) return line;
+    if (line.includes("Next: ") && line.includes(`\`${GITHUB_CONNECT_CLI}\``) && CODE.test(line)) return line;
   }
   return undefined;
 }
@@ -220,10 +202,9 @@ function structuredNeed(value: unknown): { reason: GitHubConnectReason; repo?: s
   if (!isRecord(value)) return undefined;
   const error = isRecord(value.structuredContent) ? value.structuredContent.error : value.error;
   if (!isRecord(error) || !isRecord(error.connect) || error.connect.action !== GITHUB_CONNECT_ACTION) return undefined;
-  const deny = typeof error.reason === "string" ? error.reason : undefined;
   const reason =
-    reasonOf(typeof error.detail === "string" ? error.detail : undefined, deny) ??
-    reasonOf(typeof error.code === "string" ? error.code : undefined, deny);
+    reasonOf(typeof error.detail === "string" ? error.detail : undefined) ??
+    reasonOf(typeof error.code === "string" ? error.code : undefined);
   return reason ? { reason, ...(typeof error.repo === "string" && { repo: error.repo }) } : undefined;
 }
 

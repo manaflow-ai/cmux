@@ -1,7 +1,7 @@
 import { authLoginText, authText, canSessionLogin } from "./sessionAuth";
 import React, { Fragment, useCallback, useContext, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AgentMark } from "../shared/AgentMark";
-import { signInName, type ChatAccountList } from "./chatAccounts";
+import type { ChatAccountList } from "./chatAccounts";
 import { AddAccountDialog } from "./AddAccountDialog";
 import { ClaudeConnectRow } from "./ClaudeConnectRow";
 import { isModelRouterKind } from "./routerKinds";
@@ -61,7 +61,7 @@ const rowValue = (model: Pick<QuickModel, "family" | "id">) => `${model.family}\
 /// What the composer hands the model picker for its compact menu; the picker adds the models.
 export type QuickMenuExtras = Pick<
   QuickMenu,
-  "effort" | "account" | "signIn" | "auth" | "fast" | "searchField" | "providers" | "searchGroups" | "harnessPlacement"
+  "effort" | "account" | "auth" | "fast" | "searchField" | "providers" | "searchGroups" | "harnessPlacement"
 >;
 
 /// The compact model menu keeps numbered rows, Effort and Account flyouts, and Fast mode.
@@ -551,20 +551,14 @@ export function QuickModelMenu({
       event.stopPropagation();
   };
   const activeAccount = accounts.list?.accounts.find((choice) => choice.id === accounts.list?.active);
-  // No route bound: the sign-in acpmux reports for the chat, else the harness's own login (cmux#63167).
-  // Only while the chat is on its default: a bound route's sign-in is that route's, and one picked
-  // here is not reported until the agent restarts on it.
-  const login = t("picker.harnessLogin");
-  const defaultSignIn = (!accounts.list?.active && !accounts.picked && signInName(menu.signIn)) || login;
   const accountValue = accounts.switchFailed
     ? t("picker.accountSwitchFailed")
     : accounts.list
-      ? (activeAccount?.name ?? defaultSignIn)
+      ? (activeAccount?.name ?? t("picker.harnessLogin"))
       : undefined;
   const routeRows = account && (
     <AccountRows
       list={accounts.list}
-      defaultName={defaultSignIn}
       failed={accounts.failed}
       switchFailed={accounts.switchFailed}
       grouped={menu.routeLayout !== "inline"}
@@ -721,7 +715,7 @@ export function QuickModelMenu({
   // information beyond the trigger and is intentionally omitted.
   const modelRows = (
     <>
-      {rows.length === 0 && (query || !shown?.cloudSoon) ? (
+      {rows.length === 0 ? (
         <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
           {query
             ? t(families ? "picker.noMatchesFor" : "picker.noMatchesForQuery", { query })
@@ -740,14 +734,9 @@ export function QuickModelMenu({
           </MenuItem>
         )
       )}
-      {!query && shown?.logIn && (
+      {!query && shown?.note && shown.logIn && (
         <MenuItem className="acpmux-quick-item" onSelect={() => shown.logIn?.()}>
-          <span className="acpmux-menu-label">{shown.logInLabel ?? t("harness.logIn")}</span>
-        </MenuItem>
-      )}
-      {!query && shown?.cloudSoon && (
-        <MenuItem disabled className="acpmux-quick-item acpmux-quick-note" data-cloud-coming-soon="">
-          {t("picker.cloud.comingSoon")}
+          <span className="acpmux-menu-label">{t("harness.logIn")}</span>
         </MenuItem>
       )}
       {!query && shown?.note && shown.setUp && (
@@ -1215,7 +1204,7 @@ export function QuickModelMenu({
                       // harness and whether this chat ran it.
                       // tooltip-allow: the rail tab shows only the harness's mark.
                       title={[name, family.note, ownTab ? t("picker.usedHere") : undefined].filter(Boolean).join(" · ")}
-                      className={`acpmux-quick-rail-tab${family.note && family.logInLabel ? " opacity-50" : ""}`}
+                      className="acpmux-quick-rail-tab"
                       // ui-allow: the rail is no row of the menu; ArrowLeft and ArrowRight move along it, so Up and Down stay in the list.
                       tabIndex={-1}
                       // Every harness tab moves along the rail; Starred stays first (railReorder.ts).
@@ -1365,11 +1354,8 @@ function AccountRows({
   onPick,
   grouped = false,
   onAdd,
-  defaultName,
 }: {
   list?: ChatAccountList;
-  /// The default row's name: the chat's reported sign-in while it is the one in force.
-  defaultName?: string;
   failed: boolean;
   switchFailed: boolean;
   onPick(routeId: string | null): void;
@@ -1418,7 +1404,7 @@ function AccountRows({
           className="acpmux-quick-item"
           disabled={list.scope !== "chat" && !!list.active}
         >
-          <span className="acpmux-menu-label">{defaultName ?? t("picker.harnessLogin")}</span>
+          <span className="acpmux-menu-label">{t("picker.harnessLogin")}</span>
         </MenuRadioItem>
         {grouped ? (
           <>

@@ -11,11 +11,12 @@
 // test says.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { importWithDom } from "./support/importWithDom";
-
-const { attachSeeThroughBlur, KEEPS_UNDERLAY_ATTRIBUTE, OVER_ATTRIBUTE, UNDER_ATTRIBUTE } = await importWithDom(
-  () => import("../src/ui/glass/seeThroughBlur"),
-);
+import {
+  attachSeeThroughBlur,
+  KEEPS_UNDERLAY_ATTRIBUTE,
+  OVER_ATTRIBUTE,
+  UNDER_ATTRIBUTE,
+} from "../src/ui/glass/seeThroughBlur";
 
 const dom = new JSDOM(
   "<!doctype html><div id=layer><div id=rows></div><div id=card></div><div id=positioner><div id=popup></div></div></div>",

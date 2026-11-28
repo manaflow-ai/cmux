@@ -70,22 +70,10 @@ class Verdict(unittest.TestCase):
 
 
 class Workflow(unittest.TestCase):
-    def test_closed_allocates_no_runner_but_synchronize_still_runs(self):
-        sys.path.insert(0, str(ROOT / "tests"))
-        import test_ci_pr_runs_cancel_superseded as groups
-        doc = yaml.load(WORKFLOW.read_text(), Loader=yaml.BaseLoader)
-        context = groups.closed_context(doc, 101, [])
-        context["github"]["repository"] = REPO
-        context["github"]["event"]["pull_request"]["head"] = {"repo": {"full_name": REPO}}
-        self.assertEqual(groups.started_jobs(doc, context), [])
-        context["github"]["event"]["action"] = "synchronize"
-        self.assertEqual(groups.started_jobs(doc, context), ["cancel"])
-
     def test_runs_on_every_push_of_a_same_repo_pr_and_can_cancel(self):
         doc = yaml.load(WORKFLOW.read_text(), Loader=yaml.BaseLoader)
-        self.assertEqual(doc["on"], {"pull_request": {"types": ["closed", "synchronize"]}})
+        self.assertEqual(doc["on"], {"pull_request": {"types": ["synchronize"]}})
         job = doc["jobs"]["cancel"]
-        self.assertIn("github.event.action == 'synchronize'", job["if"])
         self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", job["if"])
         self.assertIn("no-janitor", job["if"])
         self.assertEqual(job["permissions"], {"actions": "write", "contents": "read"})
@@ -93,21 +81,9 @@ class Workflow(unittest.TestCase):
         step = job["steps"][-1]
         self.assertEqual(step["run"], "python3 scripts/ci/cancel_superseded_pr_runs.py")
         self.assertEqual(step["env"]["PR_HEAD_SHA"], "${{ github.event.pull_request.head.sha }}")
-        fetch = job["steps"][0]["run"]
+        sparse = job["steps"][0]["with"]["sparse-checkout"].split()
         for name in ("cancel_superseded_pr_runs.py", "shed_superseded_runs.py", "deadline_http.py"):
-            self.assertIn(name, fetch)
-
-    def test_fetches_its_three_scripts_and_never_checks_out_the_repository(self):
-        # A checkout of the monorepo, sparse or not, ran past the job's 3 minutes on fsr and hetzner runners:
-        # 10 of 30 cancelled runs from 11-27 to 11-28 stopped in "Check out the cancel script" (runs 46104592832,
-        # 46109874519, 46129780764), and that cancelled check then held the pull request's land (cmux#63869,
-        # rerun_failed_cap). Three files over HTTP fit the budget; the checkout never did.
-        doc = yaml.load(WORKFLOW.read_text(), Loader=yaml.BaseLoader)
-        steps = doc["jobs"]["cancel"]["steps"]
-        self.assertEqual([step.get("uses", "") for step in steps if "actions/checkout" in step.get("uses", "")], [])
-        fetch = steps[0]["run"]
-        self.assertIn("$GITHUB_SHA", fetch)
-        self.assertIn("--max-time", fetch)
+            self.assertIn(f"scripts/ci/{name}", sparse)
 
 
 if __name__ == "__main__":

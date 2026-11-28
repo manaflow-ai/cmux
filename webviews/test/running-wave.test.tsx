@@ -8,19 +8,14 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { SubagentsSection } from "../src/agent-session/acpmux/session-info/SubagentsSection";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 import type { SpinnerAnimation } from "../src/ui/spinnerClock";
-import { importWithDom } from "./support/importWithDom";
-
-const { SubagentsSection } = await importWithDom(
-  () => import("../src/agent-session/acpmux/session-info/SubagentsSection"),
-);
-const { alignWave, WAVE_CLASS, WAVE_KEYFRAMES, waveIndices, waveProps } = await importWithDom(
-  () => import("../src/ui/wave"),
-);
-const { SESSION_INFO_WAVE_PERIOD_MS, SESSION_INFO_WAVE_STEP_MS } = await importWithDom(
-  () => import("../src/agent-session/acpmux/session-info/native/wave"),
-);
+import { alignWave, WAVE_CLASS, WAVE_KEYFRAMES, waveIndices, waveProps } from "../src/ui/wave";
+import {
+  SESSION_INFO_WAVE_PERIOD_MS,
+  SESSION_INFO_WAVE_STEP_MS,
+} from "../src/agent-session/acpmux/session-info/native/wave";
 
 type Item = { id: string; state: "running" | "done" | "failed" };
 const live = (item: Item) => item.state === "running";

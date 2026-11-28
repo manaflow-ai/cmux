@@ -4,12 +4,10 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { renderToStaticMarkup } from "react-dom/server";
-import { importWithDom } from "./support/importWithDom";
+import { translate as t } from "../src/agent-session/acpmux/i18n";
+import { runSandbox } from "../src/agent-session/acpmux/sandboxRun";
+import { SandboxRunView } from "../src/agent-session/acpmux/SandboxRunView";
 import { actTurn, until } from "./support/until";
-
-const { translate: t } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
-const { runSandbox } = await importWithDom(() => import("../src/agent-session/acpmux/sandboxRun"));
-const { SandboxRunView } = await importWithDom(() => import("../src/agent-session/acpmux/SandboxRunView"));
 
 let dom: JSDOM;
 beforeAll(() => {

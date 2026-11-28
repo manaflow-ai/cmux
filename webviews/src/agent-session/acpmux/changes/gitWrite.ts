@@ -246,6 +246,12 @@ export function failureText(op: GitWriteOp, failure: WriteFailure): string {
   return translate(key ?? (op === "commit" ? "git.commit.failed" : "git.push.failed"));
 }
 
+/// Every machine reason the spec lists for either op, for tests that keep the texts complete.
+export const KNOWN_REASONS = {
+  commit: [...Object.keys(COMMIT_REASONS), ...Object.keys(SHARED_REASONS), "git_failed"],
+  push: [...Object.keys(PUSH_REASONS), ...Object.keys(SHARED_REASONS), "git_failed"],
+};
+
 /// Whether Commit can run: no merge, rebase, cherry-pick or revert stopped partway (the host
 /// refuses `merge_in_progress` then). A status not read yet leaves Commit on.
 export function canCommit(status: WriteStatus | undefined): boolean {

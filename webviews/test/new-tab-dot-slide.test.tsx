@@ -6,11 +6,9 @@ import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { MOTION_EASE_OUT, MOTION_MS } from "../src/motion/scale.generated";
+import { DotSwitch } from "../src/agent-session/acpmux/newtab/StyleSwitch";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { MOTION_EASE_OUT, MOTION_MS } = await importWithDom(() => import("../src/motion/scale.generated"));
-const { DotSwitch } = await importWithDom(() => import("../src/agent-session/acpmux/newtab/StyleSwitch"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"];

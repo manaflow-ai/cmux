@@ -17,18 +17,27 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxAgentPair, AcpmuxRow } from "../src/agent-session/acpmux/model";
-import type { Step } from "./support/agentPairDaemon";
+import { AgentPairNote } from "../src/agent-session/acpmux/conversation/AgentPairNote";
+import { spelledWindow } from "../src/agent-session/acpmux/conversation/agentPairNoteModel";
+import { reduceAgentPair } from "../src/agent-session/acpmux/conversation/agentPairs";
+import { translate } from "../src/agent-session/acpmux/i18n";
+import {
+  CHAT,
+  OTHER_CHAT,
+  PEER,
+  START,
+  type Step,
+  connect,
+  dropped,
+  fakeDaemon,
+  held,
+  paused,
+  pairs,
+  record,
+  released,
+  resumed,
+} from "./support/agentPairDaemon";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { AgentPairNote } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/AgentPairNote"));
-const { spelledWindow } = await importWithDom(
-  () => import("../src/agent-session/acpmux/conversation/agentPairNoteModel"),
-);
-const { reduceAgentPair } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/agentPairs"));
-const { translate } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
-const { CHAT, OTHER_CHAT, PEER, START, connect, dropped, fakeDaemon, held, paused, pairs, record, released, resumed } =
-  await importWithDom(() => import("./support/agentPairDaemon"));
 
 /// What a row says, compactly: why, what it still holds, what settled, whether it resumed.
 const summary = (pair: AcpmuxAgentPair) => ({

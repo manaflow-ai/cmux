@@ -70,12 +70,8 @@ export const CMUX_TUI_SMOKE_PIN_TIMEOUT_SECONDS = 60;
  * Seconds the smoke polls the spawned pane's snapshot for its marker. It used to
  * sleep a fixed 2 s and judge one snapshot: rebake run 45903367893 judged a pane
  * still blank (`through_sequence` 0) because its `bash -l` had not printed yet.
- * 30 s was still short on a cold restore: rebake run 46108248937 booted the md
- * desktop snapshot with its daemon ready only at 154 s (86 s in derive), and
- * the pane was still blank at +40 s. The poll ends at the marker, so a passing
- * smoke pays nothing for the longer bound.
  */
-export const CMUX_TUI_SMOKE_OUTPUT_TIMEOUT_SECONDS = 90;
+export const CMUX_TUI_SMOKE_OUTPUT_TIMEOUT_SECONDS = 30;
 
 /**
  * The guest-side script behind {@link cmuxTuiWebsocketSmokeCommand}. Exported
@@ -228,16 +224,6 @@ while :; do
   sleep 0.25
 done
 mark output
-# A pane still blank past the bound: say whether its shell is running, stuck
-# (wchan), or gone, and how loaded the machine is, before the check fails.
-if ! echo "$FIRST" | jq -e --arg marker "$MARKER" 'tostring | contains($marker)' >/dev/null; then
-  {
-    echo "cmux-tui websocket smoke: pane $PROCESS_ID still blank after \${OUTPUT_TIMEOUT_SECONDS}s; load $(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null || echo unknown); pane processes:"
-    for pid in $(pgrep -f "$MARKER" 2>/dev/null || true); do
-      ps -o pid=,etimes=,stat=,wchan:24=,args= -p "$pid" --ppid "$pid" 2>/dev/null || true
-    done
-  } >&2
-fi
 echo "$FIRST" | jq -e --arg marker "$MARKER" 'tostring | contains($marker)' >/dev/null
 # The whole point of the daemon layout: a pane it opens is a shell of the work
 # user on a machine named cmux, which is what the prompt shows a person.

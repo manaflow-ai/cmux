@@ -8,22 +8,14 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import { ChatHeaderTools } from "../src/agent-session/acpmux/header/ChatHeaderTools";
+import { chatAccessGrants, revokeAccessRows } from "../src/agent-session/acpmux/header/grantsMenu";
+import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
+import { configureQuickActions } from "../src/agent-session/acpmux/header/quickActions";
+import { translate } from "../src/agent-session/acpmux/i18n";
+import { resetSessionInfoState } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { ChatHeaderTools } = await importWithDom(() => import("../src/agent-session/acpmux/header/ChatHeaderTools"));
-const { chatAccessGrants, revokeAccessRows } = await importWithDom(
-  () => import("../src/agent-session/acpmux/header/grantsMenu"),
-);
-const { setHeaderState } = await importWithDom(() => import("../src/agent-session/acpmux/header/headerState"));
-const { configureQuickActions } = await importWithDom(() => import("../src/agent-session/acpmux/header/quickActions"));
-const { translate } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
-const { resetSessionInfoState } = await importWithDom(
-  () => import("../src/agent-session/acpmux/session-info/sessionInfoState"),
-);
-const { SESSION_INFO } = await importWithDom(
-  () => import("../src/agent-session/acpmux/session-info/sessionInfoSelectors"),
-);
+import { SESSION_INFO } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

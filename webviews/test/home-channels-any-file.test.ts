@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { importWithDom } from "./support/importWithDom";
-
-const { AttachmentService, GENERIC_FILE_TYPE, hashFile, looksLikeText, refusal, resolvedType } = await importWithDom(
-  () => import("../src/pages/home-channels/attachmentService"),
-);
+import {
+  AttachmentService,
+  GENERIC_FILE_TYPE,
+  hashFile,
+  looksLikeText,
+  refusal,
+  resolvedType,
+} from "../src/pages/home-channels/attachmentService";
 
 // Any file attaches (Lawrence 2026-10-20, "“index.html” can't be attached ... need to fix this"):
 // UTF-8 text of any name goes as text/plain, other bytes as a generic file; only empty files refuse.

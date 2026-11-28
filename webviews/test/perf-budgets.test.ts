@@ -6,10 +6,7 @@
 import { describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { perfBudgetsDevEntry } from "../dev-server/plugins";
-import type { PerfBudgetsOptions } from "../src/devkit/perfBudgets";
-import { importWithDom } from "./support/importWithDom";
-
-const { PERF_BUDGET_PREFIX, startPerfBudgets } = await importWithDom(() => import("../src/devkit/perfBudgets"));
+import { PERF_BUDGET_PREFIX, startPerfBudgets, type PerfBudgetsOptions } from "../src/devkit/perfBudgets";
 
 type Hook = { onCommitFiberRoot: (id: number, root: unknown) => void };
 

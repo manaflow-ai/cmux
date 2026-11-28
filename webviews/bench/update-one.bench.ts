@@ -211,10 +211,7 @@ function printProfile(profile: Profile, size: number) {
 
 async function openPage(page: Page, port: number, size: number, surface: Surface) {
   await page.addInitScript((count) => {
-    const mock = globalThis as { cmuxAcpmuxMockListSize?: number; cmuxAcpmuxMockPaged?: boolean };
-    mock.cmuxAcpmuxMockListSize = count;
-    // The list in pages of the client's `limit`, as acpmux sends it (mock.ts `listPage`).
-    mock.cmuxAcpmuxMockPaged = true;
+    (globalThis as { cmuxAcpmuxMockListSize?: number }).cmuxAcpmuxMockListSize = count;
   }, size);
   // Before the page's own code: the recorder has to see react-dom's request
   // (bench/support/benchPage.ts installReactWatch).

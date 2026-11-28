@@ -2,11 +2,9 @@ import { afterAll, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { CONNECTION_QUIET_MS } from "../src/ui/lasting";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
 import { historySizes, installVirtualSizes } from "./support/virtualSizes";
-
-const { CONNECTION_QUIET_MS } = await importWithDom(() => import("../src/ui/lasting"));
 
 const scope = globalThis as Record<string, unknown>;
 const names = [

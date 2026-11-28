@@ -9,11 +9,9 @@ import { join } from "node:path";
 import { JSDOM } from "jsdom";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
+import { StyleSwitch } from "../src/agent-session/acpmux/newtab/StyleSwitch";
+import { pickNewTabStyle } from "../src/agent-session/acpmux/newtab/templates";
 import { teardownDom } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { StyleSwitch } = await importWithDom(() => import("../src/agent-session/acpmux/newtab/StyleSwitch"));
-const { pickNewTabStyle } = await importWithDom(() => import("../src/agent-session/acpmux/newtab/templates"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;

@@ -11,7 +11,6 @@ import { chat } from "../../gallery/fixtures/acpmux";
 import { countMotionPhases, type MotionSample } from "../../gallery/motionPhases";
 import type { PlayContext } from "../../gallery/play";
 import { COMPOSER_EDITOR } from "./composerSelectors";
-import { MOTION_MS } from "../../motion/scale.generated";
 
 const EDITOR = { selector: COMPOSER_EDITOR };
 /// The boxes a send moves: the composer card, the last prompt before it, the sent prompt, the thinking row.
@@ -26,7 +25,6 @@ const TRUSTED = "~/code/cmux";
 const fresh = chat([]);
 const snapshot = { ...fresh, summary: { ...fresh.summary!, cwd: TRUSTED } };
 
-// gallery-capture: `pause` is awaited only inside the play that samples the send; it changes nothing a still draws.
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /// Every frame from just before the send to SAMPLE_MS after it, read after the frame's
@@ -103,29 +101,6 @@ function transcriptMoving(doc: Document): boolean {
   });
 }
 
-/// A collapse starts in the frame the prompt clears or the next one (two frames at 60 Hz, with slack
-/// for a loaded runner's late frame).
-const COLLAPSE_START_MS = 50;
-
-/// The composer's collapse in a send's frames: how long after the prompt cleared its box first moved
-/// (`startLag`) and last moved (`rest`), ms. Undefined when the box never moved (a one-line draft).
-export function collapseTiming(frames: readonly Sample[]): { startLag: number; rest: number } | undefined {
-  const cleared = frames.findIndex((frame, index) => index > 0 && frame.text < frames[index - 1]!.text);
-  if (cleared < 0) return undefined;
-  let first = -1;
-  let last = -1;
-  for (let index = 1; index < frames.length; index += 1) {
-    const before = frames[index - 1]!.composer;
-    const after = frames[index]!.composer;
-    if (before == null || after == null || Math.abs(after - before) <= 0.5) continue;
-    if (first < 0) first = index;
-    last = index;
-  }
-  if (first < 0) return undefined;
-  const at = frames[cleared]!.t;
-  return { startLag: Math.max(0, frames[first]!.t - at), rest: frames[last]!.t - at };
-}
-
 export async function settle(ctx: PlayContext) {
   await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-cancel"), { capMs: 30_000 });
   await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-thread")?.hasAttribute("data-turn-end-folding"));
@@ -157,13 +132,8 @@ function sendOnce(lines: number, busy: boolean, scrolled: boolean) {
     const doc = ctx.document;
     await seedCompletedTurns(ctx, ["first question", "second question", "third question"]);
     await pause(400);
-    const win = doc.defaultView! as Window & { cmuxAcpmuxMockStepMs?: number };
     if (busy) {
       await ctx.type("a running question", EDITOR);
-      // The running turn holds after its first step: a reply line streamed during the send starts the
-      // follow chase (~3 px a frame up), and the send turning it back read as a second phase that the
-      // send never drew (5-lines-busy-latest failed 2 runs in 4 on that alone, 2026-11-28).
-      win.cmuxAcpmuxMockStepMs = 60_000;
       await ctx.press("Enter");
       await ctx.waitFor(() => doc.querySelector(".acpmux-row.acpmux-thinking, .acpmux-row.acpmux-working"));
     }
@@ -189,7 +159,6 @@ function sendOnce(lines: number, busy: boolean, scrolled: boolean) {
     await pause(80);
     await ctx.press("Enter");
     const window = sendWindow(await frames.done);
-    delete win.cmuxAcpmuxMockStepMs;
     const send = countMotionPhases(window, BOXES);
     // The frames, for a reader of a failed play: each box's top, every frame of the send.
     doc.documentElement.dataset.sendFrames = JSON.stringify(window);
@@ -199,19 +168,6 @@ function sendOnce(lines: number, busy: boolean, scrolled: boolean) {
     // (up, then most of the way back), on the base code too: a separate cause, recorded, not failed.
     if (send.phases > 1 && !(busy && scrolled))
       throw new Error(`the send moved in ${send.phases} phases: ${send.detail.join("; ")}`);
-    // The composer collapses as the prompt clears, and is at rest within the standard step (Leo,
-    // 2026-11-22, a tall send while a turn ran: the composer's collapse took too long and the send
-    // jumped). A queued send's collapse was held for a prompt row that never comes: drawn tall and
-    // still for 266 ms, then dropped 149 px in one frame.
-    const collapse = collapseTiming(window);
-    doc.documentElement.dataset.sendCollapse = JSON.stringify(collapse);
-    // An idle send's collapse rides the send's own clock (the prompt row's rise, ~230 ms measured): the
-    // one motion Leo asked for on 2026-11-22, so only its start is bounded there.
-    const restBound = busy ? MOTION_MS.standard : Infinity;
-    if (collapse && (collapse.startLag > COLLAPSE_START_MS || collapse.rest > restBound))
-      throw new Error(
-        `the composer collapse started ${collapse.startLag} ms after the prompt cleared and rested at ${collapse.rest} ms (bounds ${COLLAPSE_START_MS}, ${restBound})`,
-      );
   };
 }
 

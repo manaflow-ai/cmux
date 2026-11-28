@@ -167,3 +167,8 @@ export function dockedHeader<T>(layout: GridLayout<T>, top: number): { title: st
   }
   return null;
 }
+
+/** The docked header's title, or null. */
+export function dockedTitle<T>(layout: GridLayout<T>, top: number): string | null {
+  return dockedHeader(layout, top)?.title ?? null;
+}

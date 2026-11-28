@@ -153,9 +153,9 @@ def is_comparison(text: str, end: int) -> bool:
 def default_chain_reaches_literal(text: str, end: int) -> bool:
     """True when a chain ends in a literal, a literal label list or a declared runner pool.
 
-    A literal list (`fromJSON('["cmux-mac","xcode-27.2"]')`) is a constant non-empty runs-on, as a quoted label
+    A literal list (`fromJSON('["cmux-mac","xcode-27.0"]')`) is a constant non-empty runs-on, as a quoted label
     is, and so is a list read that falls back to one inside fromJSON (`fromJSON(needs.X.outputs.fallback != '' &&
-    needs.X.outputs.fallback || '["cmux-mac","xcode-27.2"]')`, ios-internal-nightly's archive fallback).
+    needs.X.outputs.fallback || '["cmux-mac","xcode-27.0"]')`, ios-internal-nightly's archive fallback).
     """
     rest = text[end:]
     while True:
@@ -355,7 +355,7 @@ def check_runs_on(path: Path, errors: list[str]) -> None:
         if re.search(r"\|\|\s*'[^']+'\s*\}\}\s*(#.*)?$", line):
             continue
         # A last top-level `|| fromJSON('["label", ...]')` is a literal label set, the same fallback
-        # (ios-internal-nightly's archive: cmux-mac AND xcode-27.2 when no picker output applies).
+        # (ios-internal-nightly's archive: cmux-mac AND xcode-27.0 when no picker output applies).
         if re.search(r"\|\|\s*fromJSON\('\[\s*\"[^\"']+\"(?:\s*,\s*\"[^\"']+\")*\s*\]'\)\s*\}\}\s*(#.*)?$", line):
             continue
         errors.append(

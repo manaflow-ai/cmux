@@ -8,11 +8,8 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { teardownDom } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { manySessions, noChat } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
-const {
+import { manySessions, noChat } from "../src/gallery/fixtures/acpmux";
+import {
   NEW_TAB_TEMPLATES,
   PAGE_STYLES,
   parseNewTabTemplate,
@@ -21,7 +18,8 @@ const {
   screenTemplate,
   shownTemplate,
   RETIRED_NEW_TAB_TEMPLATES,
-} = await importWithDom(() => import("../src/agent-session/acpmux/newtab/templates"));
+} from "../src/agent-session/acpmux/newtab/templates";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [

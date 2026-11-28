@@ -459,8 +459,7 @@ class BaseAutofixFinishes(unittest.TestCase):
         # held. The graph is made on Linux from the manifest alone, so its own job needs only the batch
         # window (one Linux read, cmux#49308), never the Mac exports.
         job = DOC["jobs"]["target-graph"]
-        # The push preflight is one API read on a JIT Linux runner (2026-11-27), never the Mac job.
-        self.assertIn(job.get("needs", "window"), ("window", ["window"], ["window", "push-preflight"]))
+        self.assertIn(job.get("needs", "window"), ("window", ["window"]))
         cells = workflow_jobs.runs_on_cells(job)
         self.assertIsNotNone(cells, "target-graph runs-on reads a matrix value nothing resolves")
         self.assertTrue(cells)

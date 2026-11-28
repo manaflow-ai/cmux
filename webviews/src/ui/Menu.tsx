@@ -6,6 +6,7 @@ import {
   use,
   useCallback,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ComponentProps,
@@ -15,7 +16,6 @@ import {
   type PointerEvent,
   type ReactNode,
   type RefObject,
-  useMemo,
 } from "react";
 import { Menu as BaseMenu } from "@base-ui/react/menu";
 import { useOverlayPosition, usePopupHost, usePortalContainer } from "./UiProvider";
@@ -259,7 +259,6 @@ export interface MenuButtonProps {
   /** The hover tooltip (the page's title tooltips show it). */
   title?: string;
   disabled?: boolean;
-  "aria-disabled"?: boolean;
   "aria-haspopup"?: "menu" | "listbox" | "dialog";
   "aria-labelledby"?: string;
   /** The name automation finds the menu by (`button[data-menu]`), whatever the UI language. */
@@ -282,7 +281,6 @@ export function MenuButton({
   label,
   title,
   disabled,
-  "aria-disabled": ariaDisabled,
   "aria-haspopup": ariaHasPopup,
   "aria-labelledby": ariaLabelledBy,
   "data-menu": dataMenu,
@@ -312,7 +310,6 @@ export function MenuButton({
       aria-label={label}
       title={title}
       aria-labelledby={ariaLabelledBy}
-      aria-disabled={ariaDisabled}
       aria-haspopup={ariaHasPopup}
       data-menu={dataMenu}
       data-tooltip-shortcut={tooltipShortcut || undefined}

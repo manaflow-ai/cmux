@@ -24,7 +24,7 @@ import {
 } from "../play";
 import { createMotionController } from "../motionEvidence";
 import { isExpansionShift, startBoxTracker } from "../shift";
-import { declareMove, openDeclarations, type MotionEvent } from "../../layout/motionContract";
+import { declareMove, type MotionEvent } from "../../layout/motionContract";
 import type { JudgeDeclaration } from "../../layout/motionJudge";
 import { earnFocusRing } from "../../ui/focusModality";
 
@@ -481,10 +481,7 @@ async function measured(
         if (isSubpixelLayoutShift(sources)) continue;
         // What the step opened pushing the rows under it is the step's transition, not a shift
         // (shift.ts `isExpansionShift`, the rules the box shift below keeps too).
-        // A move the page declares on targets (an expand it runs itself, like the model picker's
-        // account card) is related to those targets too, as the box shift and the motion judge do.
-        const declaredTargets = openDeclarations().flatMap((declaration) => declaration.targets ?? []);
-        if (isExpansionShift(sources, [...targets, ...declaredTargets])) continue;
+        if (isExpansionShift(sources, targets)) continue;
         shifts.push({
           value: entry.value,
           sources: sources.map((source) => {

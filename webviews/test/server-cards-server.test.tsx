@@ -7,12 +7,10 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { PageClient } from "../src/pages/shared/pageClient";
+import { createStrings } from "../src/pages/shared/i18n";
 import table from "../src/pages/server-cards/generated/strings.json";
+import { MockServerOwner } from "../src/pages/server-cards/server/mockOwner";
 import { teardownDom } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { createStrings } = await importWithDom(() => import("../src/pages/shared/i18n"));
-const { MockServerOwner } = await importWithDom(() => import("../src/pages/server-cards/server/mockOwner"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [

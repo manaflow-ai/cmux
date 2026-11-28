@@ -103,7 +103,7 @@ describe("harnesses this machine does not have", () => {
     expect(pickerFaceHarness([gemini, pi])).toBeUndefined();
   });
 
-  test("the composer keeps the harness login and flags a catalog harness that is not installed", async () => {
+  test("the composer's entries flag a catalog harness that is not installed", async () => {
     const { composerPickerEntries } = await import("../src/agent-session/acpmux/composerPickerEntries");
     const harness = (id: string, installed: boolean) => ({
       id,
@@ -114,8 +114,7 @@ describe("harnesses this machine does not have", () => {
       pickable: true,
       models: [],
     });
-    const installed = { id: "claude", name: "Claude Code", models: [], auth: { login: "claude login" } };
-    const entries = composerPickerEntries({ catalog: [installed], summary: undefined } as never, {
+    const entries = composerPickerEntries({ catalog: [], summary: undefined } as never, {
       harnesses: [harness("claude", true), harness("pi", false)],
       provisional: false,
     });
@@ -123,7 +122,6 @@ describe("harnesses this machine does not have", () => {
       ["claude", true, undefined],
       ["pi", false, true],
     ]);
-    expect(entries[0]?.auth?.login).toBe("claude login");
   });
 
   test("a composer combo lands on the mounted picker without first opening its menu", async () => {

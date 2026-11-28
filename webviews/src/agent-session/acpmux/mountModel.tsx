@@ -106,10 +106,7 @@ export function mountAcpmux(initialChat?: InitialChat): void {
     createRoot(container).render(
       <PaneViewContext.Provider value={mounts > 1 ? `mount-${index}` : null}>
         <UiProvider container={container} popupHost={popupHost}>
-          <PaneBoundary
-            onRetry={() => window.location.reload()}
-            onFailed={() => void postNative("pane.renderFailed").catch(() => undefined)}
-          >
+          <PaneBoundary onRetry={() => window.location.reload()}>
             <AcpmuxApp initialChat={initialChat} />
           </PaneBoundary>
         </UiProvider>

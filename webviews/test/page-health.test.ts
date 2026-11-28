@@ -5,9 +5,7 @@
 // (one rest beat, no timer) on a host that takes rests, until something happens in it.
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { importWithDom } from "./support/importWithDom";
-
-const {
+import {
   captureState,
   HEALTH_INJECT_NAME,
   HEALTH_INJECT_ALLOWED_NAME,
@@ -18,7 +16,7 @@ const {
   restoreState,
   markUnsavedEdits,
   UNSAVED_EDITS_ATTRIBUTE,
-} = await importWithDom(() => import("../src/pages/shared/pageHealth"));
+} from "../src/pages/shared/pageHealth";
 
 type Call = { op: string; params: unknown };
 

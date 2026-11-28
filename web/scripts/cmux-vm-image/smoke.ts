@@ -52,9 +52,8 @@ import { CREDENTIAL_FILES_CHECK, devTreeCredentialCheckCommand, devTreeUserPaths
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { DNS_SMOKE_COMMAND, dnsCheckProblems } from "./dns";
 import { ipv6RouteProblems, ipv6RouteSmokeCommand } from "./ipv6-route";
-import { netBaselineProblems, netBaselineSmokeCommand } from "./net-baseline";
 import { machineHealthSmokeCommand, machineHealthSmokeProblems } from "./machine-health";
-import { argValue, createVm, type CreateTlsRule, deleteVm, firstExec, freestyleClient, Ledger, run, runHeld, sleep, type Vm } from "./guest";
+import { argValue, createVm, type CreateTlsRule, deleteVm, firstExec, freestyleClient, Ledger, run, sleep, type Vm } from "./guest";
 import { bakedPrograms, CURRENT_BIN, DEFAULT_LOCK_PATH, type InputsLock, percentile, readInputsLock, ROLES_MANIFEST_PATH, sq } from "./lock";
 import { AGENT_TOOLS_BIN } from "./agent-tools";
 import { browserRoleProbe } from "./browser-probe";
@@ -604,14 +603,6 @@ async function ipv6RouteChecks(vm: Vm, report: Report): Promise<void> {
   check(report, "ipv6-public-routed", problems.length === 0, problems.join("\n") || out.stdout.trim().split("\n").filter((l) => !l.startsWith("==")).join(" ; "));
 }
 
-/** The fleet's network baseline is live on a clone: first SYN resent after 200 ms, BBR where baked, IPv6 first (net-baseline.ts). */
-async function netBaselineChecks(vm: Vm, report: Report): Promise<void> {
-  const out = await run(vm, netBaselineSmokeCommand(), 60_000);
-  const problems = netBaselineProblems(out.stdout);
-  report.netBaseline = out.stdout.trim().split("\n");
-  check(report, "net-baseline", problems.length === 0, problems.join("\n") || out.stdout.trim().split("\n").join(" ; "));
-}
-
 /**
  * The session host stays up HOLD_SECONDS after boot and again after one forced rebind (daemon-uptime.ts).
  * Last on its clone: the rebind restarts the session host and rewrites the bound id.
@@ -624,7 +615,7 @@ async function daemonUptimeChecks(vm: Vm, report: Report): Promise<void> {
 const HOLD_TIMEOUT_MS = (HOLD_SECONDS + 60) * 1000;
 
 async function daemonBootHold(vm: Vm, report: Report): Promise<void> {
-  const boot = await runHeld(vm, "daemon-stays-up", daemonHoldCommand(), HOLD_TIMEOUT_MS);
+  const boot = await run(vm, daemonHoldCommand(), HOLD_TIMEOUT_MS);
   const bootProblems = daemonUptimeProblems(boot.stdout);
   check(report, "daemon-stays-up", boot.code === 0 && bootProblems.length === 0, bootProblems.join("\n") || daemonUptimeDetail(boot.stdout));
 }
@@ -634,7 +625,7 @@ async function daemonRebindHold(vm: Vm, report: Report): Promise<void> {
   const hold = HOLD_TIMEOUT_MS;
   const rebind = await run(vm, forcedRebindCommand(), 120_000);
   const rebound = /^rebound=1$/m.test(rebind.stdout);
-  const after = rebound ? await runHeld(vm, "daemon-stays-up-after-rebind", daemonHoldCommand(), hold) : undefined;
+  const after = rebound ? await run(vm, daemonHoldCommand(), hold) : undefined;
   const afterProblems = after ? daemonUptimeProblems(after.stdout) : [`forced rebind did not finish: ${rebind.stdout.trim() || rebind.stderr.slice(-200)}`];
   check(report, "daemon-stays-up-after-rebind", after?.code === 0 && afterProblems.length === 0, afterProblems.join("\n") || daemonUptimeDetail(after?.stdout ?? ""));
 }
@@ -737,7 +728,6 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
       await machineHealthChecks(kept[1].vm, report);
       await resolverChecks(kept[1].vm, report);
       await ipv6RouteChecks(kept[1].vm, report);
-      await netBaselineChecks(kept[1].vm, report);
       if (options.agentProbe) {
         const probe = await agentBindProbe(kept[1].vm);
         check(report, "vm-agent-bind-probe", probe.ok, probe.detail);
@@ -752,17 +742,7 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
       else await daemonUptimeChecks(kept[1].vm, report);
     };
     const phases: Record<string, number> = {};
-    // A phase that throws names itself: roll 46106332407's smoke failed as a bare "TimeoutError: The operation timed
-    // out." with four phases running at once and nothing saying which one hung.
-    const timed = (label: string, f: () => Promise<void>) => async () => {
-      const t = Date.now();
-      try {
-        await f();
-      } catch (error) {
-        throw new Error(`${label} after ${Math.round((Date.now() - t) / 1000)} s: ${String(error)}`);
-      }
-      phases[label] = Date.now() - t;
-    };
+    const timed = (label: string, f: () => Promise<void>) => async () => { const t = Date.now(); await f(); phases[label] = Date.now() - t; };
     // The edge-rule clone needs the dev API for its bind probe, as the agent probe does.
     const edgeRule = async () => {
       await edgeRuleChecks(fs, ledger, options.tag, options.snapshotId, report).catch((error: unknown) => {
@@ -775,7 +755,7 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
     report.phasesMs = phases;
     if (options.agentProbe && options.edgeBaseline === "live") await edgeRuleLiveControl(fs, ledger, options.tag, options.snapshotId, options.outDir, report);
     if (options.resizeProbe) {
-      report.resize = await resizeProbe(kept[0].vm).catch((error: unknown) => { throw new Error(`resize-probe: ${String(error)}`); });
+      report.resize = await resizeProbe(kept[0].vm);
       // The clone booted from the snapshot before the probe grew it: an image whose snapshot carries a grown builder's
       // size would boot every default create larger than asked (people are billed by size), so it is refused here.
       const before = JSON.parse(String((report.resize as Record<string, unknown>).before)) as { cpu: number; memoryMb: number; rootMb: number };

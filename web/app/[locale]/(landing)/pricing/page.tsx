@@ -68,10 +68,7 @@ import {
   TEAM_PRICING_USD,
 } from "../../../../services/billing/plans";
 import { isVaultEnabled } from "../../../../services/vault/config";
-import {
-  isWebPlusPlanEnabled as isGoPlanEnabled,
-  isWebPlusPlanEnabledImmediately,
-} from "../../../../services/billing/goPlanFlag";
+import { isWebPlusPlanEnabled as isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
 import { isCloudIntroEnabled } from "../../../../services/billing/cloudIntro";
 
 const ENTERPRISE_CTA_URL = "/enterprise";
@@ -135,7 +132,7 @@ export default async function PricingPage({
     t,
     query: {},
     snapshot: unknownPlan,
-    goPlanEnabled: isWebPlusPlanEnabledImmediately(),
+    goPlanEnabled: false,
     pending: true,
   };
   const personalize = (section: "individual" | "team" | "comparison") => (
@@ -352,8 +349,6 @@ function PricingContent({
                   <DisabledButton>{t("currentPlan")}</DisabledButton>
                 )}
               </div>
-            ) : pending ? (
-              <DisabledButton>{t("go.cta")}</DisabledButton>
             ) : (
               <PricingCheckoutButton
                 href={withCheckoutAttribution(GO_CHECKOUT_URL, attribution)}
@@ -462,8 +457,6 @@ function PricingContent({
           ) : (
             <DisabledButton size="compact">{t("currentPlan")}</DisabledButton>
           )
-        ) : pending ? (
-          <DisabledButton size="compact">{t("go.cta")}</DisabledButton>
         ) : (
           <PricingCheckoutButton
             href={withCheckoutAttribution(GO_CHECKOUT_URL, attribution)}

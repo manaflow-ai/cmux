@@ -3,6 +3,8 @@ import { afterEach, beforeEach, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { RowShimmer, ShimmerEnabledContext, ShimmerText } from "../src/agent-session/acpmux/conversation/ShimmerText";
+import { startShimmerCadence } from "../src/agent-session/acpmux/conversation/shimmerCadence";
 import {
   configureThinkingLook,
   DEFAULT_THINKING_LOOK,
@@ -14,14 +16,6 @@ import {
   thinkingLook,
 } from "../src/agent-session/acpmux/conversation/thinkingLook";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { RowShimmer, ShimmerEnabledContext, ShimmerText } = await importWithDom(
-  () => import("../src/agent-session/acpmux/conversation/ShimmerText"),
-);
-const { startShimmerCadence } = await importWithDom(
-  () => import("../src/agent-session/acpmux/conversation/shimmerCadence"),
-);
 
 let dom: JSDOM;
 let root: Root | undefined;

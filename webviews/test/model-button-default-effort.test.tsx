@@ -8,9 +8,7 @@ import { JSDOM } from "jsdom";
 import { act, useState } from "react";
 import type { Root } from "react-dom/client";
 import { teardownDom } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { MODEL_PICKER } = await importWithDom(() => import("../src/agent-session/acpmux/composerSelectors"));
+import { MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [

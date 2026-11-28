@@ -13,16 +13,11 @@
 //     fork point (the record it forked through, not the chat's newest), each row once after.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
+import { resetKeptTailsForTests } from "../src/agent-session/acpmux/tailCache";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
+import { openFork, openInOwnTab } from "../src/agent-session/acpmux/conversation/openFork";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-type AcpmuxDirectClient = import("../src/agent-session/acpmux/direct").AcpmuxDirectClient;
-const { AcpmuxDirectClient } = await importWithDom(() => import("../src/agent-session/acpmux/direct"));
-const { resetKeptTailsForTests } = await importWithDom(() => import("../src/agent-session/acpmux/tailCache"));
-const { openFork, openInOwnTab } = await importWithDom(
-  () => import("../src/agent-session/acpmux/conversation/openFork"),
-);
 
 const START = Date.UTC(2026, 10, 7, 9, 0, 0);
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });

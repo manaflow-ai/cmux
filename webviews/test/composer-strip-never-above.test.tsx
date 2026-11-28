@@ -14,10 +14,8 @@ import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments
 import type { ComposerBoxHandle } from "../src/agent-session/acpmux/ComposerBox";
 import type { PendingAttachment } from "../src/agent-session/acpmux/composer/attachmentIntakeModel";
 import type { MarkdownFieldHandle } from "../src/agent-session/acpmux/MarkdownField";
+import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 import { teardownDom } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { proseMirrorGlobals } = await importWithDom(() => import("../src/agent-session/acpmux/promptFieldTesting"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [

@@ -332,35 +332,6 @@ class GuardStepInputs(unittest.TestCase):
         self.assertEqual(g.escapes(inputs, trace, root),
                          ["lists scripts/", "reads unrelated.txt", "runs git ls-files"])
 
-    def test_verify_flags_an_undeclared_read_of_a_declared_source(self):
-        inputs = g.step_inputs(self.tree, "python3 tests/test_m.py", None, frozenset())
-        self.assertTrue(inputs.declared)
-        root = self.tree.root
-        trace = "\n".join([
-            f"open\t{root}/templates/deep/b.tmpl",  # outside the declared glob templates/*.tmpl
-            f"open\t{root}/templates/a.tmpl",
-            f"open\t{root}/specs/one.yml",
-            f"list\t{root}/templates",
-            f"list\t{root}/specs",
-            f"list\t{root}/docs",
-            f"open\t{root}/unrelated.txt",
-            f'exec\t["git", "ls-files"]\t{root}',  # a declared source may list names; its opens are checked
-            f'exec\t["git", "log", "-1"]\t{root}',
-        ])
-        self.assertEqual(g.escapes(inputs, trace, root),
-                         ["lists docs/", "reads templates/deep/b.tmpl", "reads unrelated.txt", "runs git log -1"])
-
-    def test_a_walk_to_a_declared_glob_lists_the_folders_on_its_way(self):
-        inputs = g.Inputs(patterns={"Sources/**/*.swift"}, declared=True)
-        self.assertTrue(inputs.lists("Sources"))
-        self.assertTrue(inputs.lists("Sources/A/B"))
-        self.assertFalse(inputs.lists("Tests"))
-
-    def test_verify_traces_an_isolated_python_and_the_workspace_root_is_not_a_file(self):
-        self.assertEqual(g.ISOLATED.sub("python3", 'python3 -I x.py "$GITHUB_WORKSPACE"'), 'python3 x.py "$GITHUB_WORKSPACE"')
-        files, _ = g.command_files('python3 -I tests/test_a.py "$GITHUB_WORKSPACE"', None)
-        self.assertEqual(files, ["tests/test_a.py"])
-
     def test_every_real_guard_step_gets_a_verdict(self):
         tree = g.Tree()
         steps = g.guard_steps()

@@ -1,11 +1,9 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { measureRailDrag, railDragTargetPainted } from "../../bench/thread-rail-drag.adapter";
+import { RAIL_DRAG_PAGE } from "./actions";
+import { aggregateAdapterAction } from "./adapter-measure";
 import { settleReact } from "../support/domTeardown";
-import { importWithDom } from "../support/importWithDom";
-
-const { RAIL_DRAG_PAGE } = await importWithDom(() => import("./actions"));
-const { aggregateAdapterAction } = await importWithDom(() => import("./adapter-measure"));
 type Page = Parameters<typeof railDragTargetPainted>[0];
 
 const dom = new JSDOM(

@@ -6,22 +6,14 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { readFileSync } from "node:fs";
+import { SubagentDoneLine } from "../src/agent-session/acpmux/subagents/SubagentDoneLine";
+import { shortReason } from "../src/agent-session/acpmux/subagents/subagentDoneLineModel";
+import { TurnActionsContext } from "../src/agent-session/acpmux/conversation/turnActions";
+import { SUBAGENT_DONE } from "../src/agent-session/acpmux/subagents/subagentRows";
 import { SubagentNavContext } from "../src/agent-session/acpmux/subagents/subagentGroupModel";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { SubagentDoneLine } = await importWithDom(
-  () => import("../src/agent-session/acpmux/subagents/SubagentDoneLine"),
-);
-const { shortReason } = await importWithDom(
-  () => import("../src/agent-session/acpmux/subagents/subagentDoneLineModel"),
-);
-const { TurnActionsContext } = await importWithDom(
-  () => import("../src/agent-session/acpmux/conversation/turnActions"),
-);
-const { SUBAGENT_DONE } = await importWithDom(() => import("../src/agent-session/acpmux/subagents/subagentRows"));
 
 const css = readFileSync(new URL("../src/agent-session/acpmux/subagents/subagents.css", import.meta.url), "utf8");
 

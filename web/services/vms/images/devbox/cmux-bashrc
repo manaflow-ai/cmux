@@ -28,8 +28,7 @@ fi
 
 # Seed ble.sh's per-TERM tput caches (baked by the Dockerfile for the TERMs
 # cmux uses) so no shell prints "ble/term.sh: updating tput cache ... done"
-# into the pane before its first prompt (nor "updating cache/keymap.emacs").
-# ble.sh uses ~/.cache only when it
+# into the pane before its first prompt. ble.sh uses ~/.cache only when it
 # already exists (else it falls back to <blesh>/cache.d/<uid>, seeded in the
 # image). Per file, not per directory: a durable home carries the cache dir of
 # an older image (other ble version dir, or entries stale against a newer
@@ -39,14 +38,10 @@ fi
 # beats init-term.sh; mv publishes the complete seed atomically.
 if [ -d /etc/cmux/blesh-cache-seed/blesh ]; then
   __cmux_cache_base="${XDG_CACHE_HOME:-$HOME/.cache}"
-  for __cmux_seed in /etc/cmux/blesh-cache-seed/blesh/*/term.* /etc/cmux/blesh-cache-seed/blesh/*/keymap.emacs; do
+  for __cmux_seed in /etc/cmux/blesh-cache-seed/blesh/*/term.*; do
     [ -f "$__cmux_seed" ] || continue
     __cmux_dst="$__cmux_cache_base/${__cmux_seed#/etc/cmux/blesh-cache-seed/}"
-    # keymap.emacs is stale against lib/keymap.emacs.sh (ble.sh also checks
-    # init-cmap.sh, which ships with it), term.* against lib/init-term.sh.
-    __cmux_src=/usr/local/share/blesh/lib/init-term.sh
-    case "$__cmux_seed" in */keymap.emacs) __cmux_src=/usr/local/share/blesh/lib/keymap.emacs.sh ;; esac
-    if [ ! -f "$__cmux_dst" ] || [ "$__cmux_src" -nt "$__cmux_dst" ]; then
+    if [ ! -f "$__cmux_dst" ] || [ /usr/local/share/blesh/lib/init-term.sh -nt "$__cmux_dst" ]; then
       # Clean up only a temp file this attempt made, never an inherited value.
       __cmux_tmp=
       if mkdir -p "${__cmux_dst%/*}" 2>/dev/null \
@@ -59,7 +54,7 @@ if [ -d /etc/cmux/blesh-cache-seed/blesh ]; then
       fi
     fi
   done
-  unset __cmux_cache_base __cmux_seed __cmux_dst __cmux_tmp __cmux_src
+  unset __cmux_cache_base __cmux_seed __cmux_dst __cmux_tmp
 fi
 
 if [ -f /usr/local/share/blesh/ble.sh ] && [ -z "${BLE_VERSION:-}" ]; then

@@ -7,16 +7,12 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { noChat } from "../src/gallery/fixtures/acpmux";
+import { EMPTY_OMNIBAR } from "../src/agent-session/acpmux/omnibar";
+import { defaultSelection, screenRows } from "../src/agent-session/acpmux/newtab/screenModel";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 import { teardownDom } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { noChat } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
-const { EMPTY_OMNIBAR } = await importWithDom(() => import("../src/agent-session/acpmux/omnibar"));
-const { defaultSelection, screenRows } = await importWithDom(
-  () => import("../src/agent-session/acpmux/newtab/screenModel"),
-);
-const { proseMirrorGlobals } = await importWithDom(() => import("../src/agent-session/acpmux/promptFieldTesting"));
 
 const ask = { harness: "claude", agent: "Claude Code" };
 const omnibar = { ...EMPTY_OMNIBAR, workspaces: [{ id: "ws", name: "ff-scratch" }] };

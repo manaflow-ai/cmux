@@ -36,7 +36,7 @@ export class TenantLimitsObject extends DurableObject {
   /** Used only by the object named PROVIDER_CREATE_QUEUE_NAME: the environment's provider create queue. */
   private readonly createQueue = new CreateAdmissionQueue(storageOf(this.ctx.storage));
 
-  admitCreate(holder: string, cap: number, queueWaitMs: number, leaseMs: number, background?: boolean, tenant?: string): Promise<CreateAdmission> { return this.createQueue.admit(holder, { cap, queueWaitMs, leaseMs }, background === true, tenant); }
+  admitCreate(holder: string, cap: number, queueWaitMs: number, leaseMs: number): Promise<CreateAdmission> { return this.createQueue.admit(holder, { cap, queueWaitMs, leaseMs }); }
   releaseCreate(holder: string): Promise<void> { return this.createQueue.release(holder); }
 
   meshCreation(command: MeshCreationCommand, nowMs: number): Promise<MeshCreationResult> { return this.ledger.meshCreation(command, nowMs); }
@@ -70,8 +70,7 @@ export class TenantLimitsObject extends DurableObject {
     return this.ledger.reserve(kind, limit, liveCount, nowMs, reservationId);
   }
 
-  admitAgentSlot(agent: string, limit: number, ownedVmIds: ReadonlyArray<string>, nowMs: number, slotId: string, heldBoundMs?: number): Promise<boolean> { return this.ledger.admitAgentSlot(agent, limit, ownedVmIds, nowMs, slotId, heldBoundMs); }
-  describeAgentSlots(agent: string, ownedVmIds: ReadonlyArray<string>, nowMs: number): Promise<ReadonlyArray<string>> { return this.ledger.describeAgentSlots(agent, ownedVmIds, nowMs); }
+  admitAgentSlot(agent: string, limit: number, ownedVmIds: ReadonlyArray<string>, nowMs: number, slotId: string): Promise<boolean> { return this.ledger.admitAgentSlot(agent, limit, ownedVmIds, nowMs, slotId); }
   settleAgentSlot(agent: string, slotId: string, outcome: AgentSlotOutcome, nowMs: number): Promise<void> { return this.ledger.settleAgentSlot(agent, slotId, outcome, nowMs); }
   bindAgentCreation(agent: string, creationKey: string, vmId: string, nowMs: number): Promise<void> { return this.ledger.bindAgentCreation(agent, creationKey, vmId, nowMs); }
   forgetAgentVm(vmId: string, creationKey: string | null): Promise<void> { return this.ledger.forgetAgentVm(vmId, creationKey); }

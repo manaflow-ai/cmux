@@ -19,22 +19,24 @@
 //   the chain as one. "You stopped after" neither flashes between the cancel and the steer's
 //   record nor comes back when an older history page ends at the steer.
 import { afterEach, expect, test } from "bun:test";
+import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { importWithDom } from "./support/importWithDom";
-
-const { AcpmuxDirectClient } = await importWithDom(() => import("../src/agent-session/acpmux/direct"));
-const { translate } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
-const { turnFoldFor, turnFooterFrom, turnView, SUPERSEDED, WORKED, THINKING, workedLabel } = await importWithDom(
-  () => import("../src/agent-session/acpmux/conversation/turns"),
-);
-const { endsTurn, turnRows } = await importWithDom(() => import("../src/agent-session/acpmux/diff"));
-const { readTurnFromRows } = await importWithDom(
-  () => import("../src/agent-session/acpmux/changes/turnCheckpointSource"),
-);
-const { runningGroups } = await importWithDom(() => import("../src/agent-session/acpmux/subagents/subagentRows"));
-const { SUBAGENTS } = await importWithDom(() => import("../src/agent-session/acpmux/subagents/subagentFold"));
-const { minimapTurns } = await importWithDom(() => import("../src/agent-session/acpmux/threadMinimap/model"));
-const { endedEditRow, markRows } = await importWithDom(() => import("../src/agent-session/acpmux/rowMarks"));
+import { translate } from "../src/agent-session/acpmux/i18n";
+import {
+  turnFoldFor,
+  turnFooterFrom,
+  turnView,
+  SUPERSEDED,
+  WORKED,
+  THINKING,
+  workedLabel,
+} from "../src/agent-session/acpmux/conversation/turns";
+import { endsTurn, turnRows } from "../src/agent-session/acpmux/diff";
+import { readTurnFromRows } from "../src/agent-session/acpmux/changes/turnCheckpointSource";
+import { runningGroups } from "../src/agent-session/acpmux/subagents/subagentRows";
+import { SUBAGENTS } from "../src/agent-session/acpmux/subagents/subagentFold";
+import { minimapTurns } from "../src/agent-session/acpmux/threadMinimap/model";
+import { endedEditRow, markRows } from "../src/agent-session/acpmux/rowMarks";
 
 /// These cases read a steered turn as one fold (turnFoldSteered `nested-open`); its in-order default,
 /// each message that came in mid-turn ending a fold, is turn-fold-in-order.test.ts's.

@@ -4,7 +4,7 @@
 // A background command in the Background tasks panel renders as Claude Desktop's panel renders it
 // (Leo, 2026-11-07: "only showing the terminal thing, I don't think is very useful ... They have it
 // as a properly rendered thing"): under "Running N" each running command is a card, open, with its
-// whole command in mono, wrapped, and its output streaming (nothing under the command until it prints); the
+// whole command in mono, wrapped, and its output streaming ("No output yet" until it prints); the
 // ended ones are under "Finished N", folded. Real Chromium on the gallery stage
 // (backgroundTasks/BackgroundTaskCard.gallery.tsx), light and dark.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -64,16 +64,16 @@ await requireBrowserLane("background-task-card-browser.test.ts", async () => {
       test(`a running command's card shows its whole command and its output (${colorScheme})`, async () => {
         const { page, errors } = await stage("running-output", colorScheme);
         try {
-          await page.locator(".cv-shell__output").waitFor({ timeout: 30_000 });
+          await page.locator(".acpmux-bg-card__output").waitFor({ timeout: 30_000 });
           const card = await page.evaluate(() => ({
-            command: document.querySelector(".cv-shell__command")?.textContent ?? "",
-            output: document.querySelector(".cv-shell__output")?.textContent ?? "",
+            command: document.querySelector(".acpmux-bg-card__command")?.textContent ?? "",
+            output: document.querySelector(".acpmux-bg-card__output")?.textContent ?? "",
             title: document.querySelector(".acpmux-bg-card__title")?.textContent ?? "",
             open: document.querySelector(".acpmux-bg-card__toggle")?.getAttribute("aria-expanded"),
           }));
           expect(card.title).toBe("Run the panel tests");
           expect(card.open).toBe("true");
-          expect(card.command).toContain("bun test test/background-tasks-open.test.tsx");
+          expect(card.command).toContain("cd webviews && bun test test/background-tasks-open.test.tsx");
           expect(card.output).toContain("41 pass");
           expect(await heads(page)).toEqual([{ text: "1", open: "true" }]);
           expect(errors).toEqual([]);
@@ -82,13 +82,12 @@ await requireBrowserLane("background-task-card-browser.test.ts", async () => {
         }
       });
 
-    test("a command that printed nothing shows its command alone, with no filler line", async () => {
+    test("a command that printed nothing says No output yet", async () => {
       const { page } = await stage("running-no-output");
       try {
-        await page.locator(".cv-shell__command").waitFor({ timeout: 30_000 });
-        expect(await page.locator(".cv-shell__command").textContent()).toContain("gh pr checks 37840 --watch");
-        expect(await page.getByText("No output yet").count()).toBe(0);
-        expect(await page.locator(".cv-shell__output").count()).toBe(0);
+        await page.locator(".acpmux-bg-card__empty").waitFor({ timeout: 30_000 });
+        expect(await page.locator(".acpmux-bg-card__empty").textContent()).toBe("No output yet");
+        expect(await page.locator(".acpmux-bg-card__command").textContent()).toContain("gh pr checks 37840 --watch");
       } finally {
         await page.close();
       }
@@ -97,7 +96,7 @@ await requireBrowserLane("background-task-card-browser.test.ts", async () => {
     test("a long multi-line command shows in full, wrapped, never cut to one line", async () => {
       const { page } = await stage("long-command");
       try {
-        const command = page.locator(".cv-shell__command");
+        const command = page.locator(".acpmux-bg-card__command");
         await command.waitFor({ timeout: 30_000 });
         const seen = await command.evaluate((node) => {
           const style = getComputedStyle(node);
@@ -132,10 +131,12 @@ await requireBrowserLane("background-task-card-browser.test.ts", async () => {
         await page.waitForFunction(() => document.querySelectorAll(".acpmux-bg-card").length === 4);
         // The finished cards are folded; one opens to its command in place.
         const finished = page.locator('[data-section="finished"] .acpmux-bg-card');
-        expect(await finished.locator(".cv-shell__command").count()).toBe(0);
+        expect(await finished.locator(".acpmux-bg-card__command").count()).toBe(0);
         await finished.first().locator(".acpmux-bg-card__toggle").click();
-        await finished.first().locator(".cv-shell__command").waitFor();
-        expect(await finished.first().locator(".cv-shell__command").textContent()).toContain("scripts/web-lint.sh");
+        await finished.first().locator(".acpmux-bg-card__command").waitFor();
+        expect(await finished.first().locator(".acpmux-bg-card__command").textContent()).toContain(
+          "scripts/web-lint.sh",
+        );
       } finally {
         await page.close();
       }

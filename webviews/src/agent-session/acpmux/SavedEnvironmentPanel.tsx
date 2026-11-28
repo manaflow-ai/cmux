@@ -243,7 +243,6 @@ export function SavedEnvironmentPanel({
                 </span>
               }
               folders={folderChoices}
-              remote={ssh}
               {...(draft.folder ? { current: draft.folder } : {})}
               onPick={(folder) => update({ folder })}
               {...(!ssh && onBrowse

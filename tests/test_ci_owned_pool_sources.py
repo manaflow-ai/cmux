@@ -37,19 +37,12 @@ any tree off CI, is the branch whose freshly fetched tip changes the fewest path
 under .github/workflows and scripts/ci against it (a snapshot has no history to
 count commits in), skipped when neither branch can be fetched. (Both branches
 carry a cmux-next.yml, so no single file tells them apart.)
-
-With both trees read, it also holds the two copies of each workflow both branches carry (a twin) to one
-set of runner labels and one GITHUB_TOKEN floor per job (scripts/ci/workflow_twins.py; the jobs that already
-differed are scripts/ci/workflow_twins_known_drift.tsv, and a new one fails): cmux#63743 moved main's
-ui-proof-stale-sweep.yml and feat-cmux-next's copy stayed on cmux-linux with no floor.
 """
 
 from __future__ import annotations
 
 import functools
-import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -62,7 +55,6 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import owned_pool_sources as sources  # noqa: E402
-import workflow_twins  # noqa: E402  (main and feat-cmux-next copies of one workflow agree)
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
 from os import path as _git_fixture_path  # noqa: E402
@@ -171,8 +163,7 @@ def fetch_tip(name: str) -> str | None:
     """origin's current tip of branch name, as a private ref; None when it cannot be fetched. Once per run.
 
     Under Actions, in a checkout that is already shallow and blob-less, the tip comes at depth 1 with
-    no blobs (fetch() adds the ones the test reads); in a shallow full checkout it comes at depth 1 with its
-    blobs. Anywhere else it is a plain fetch of that one
+    no blobs (fetch() adds the ones the test reads). Anywhere else it is a plain fetch of that one
     branch: --depth would make a full checkout shallow, and --filter would make it a partial clone.
     The checkout is the job's own, shared with every test running beside this one: a --depth=1
     fetch into car guards' full blob-less checkout wrote .git/shallow under
@@ -183,10 +174,6 @@ def fetch_tip(name: str) -> str | None:
     git("update-ref", "-d", private)
     if ON_CI and already_shallow_and_partial():
         git("fetch", "--no-tags", "--depth=1", "--filter=blob:none", "origin", f"+refs/heads/{name}:{private}")
-    elif ON_CI and is_shallow():
-        # A shallow full checkout (the PR pipeline's fetch-depth 2): a plain fetch walks the other branch's whole
-        # history into it (45 s, then refused, in the 11-28 probe) and --depth=1 keeps it as shallow as it was.
-        git("fetch", "--no-tags", "--depth=1", "origin", f"+refs/heads/{name}:{private}")
     else:
         git("fetch", "--no-tags", "origin", f"+refs/heads/{name}:{private}")
     return private if has_ref(private) else None
@@ -300,14 +287,6 @@ class OwnedPoolSources(unittest.TestCase):
                          f"{sources.RESCUE_SCRIPT} watches workflows that take no owned pool on main or "
                          f"feat-cmux-next any more; remove them")
         self.assertFalse(self.watched & self.unrescued, "a workflow is both watched and left to a person")
-
-    def test_twin_workflows_share_runner_and_floor(self) -> None:
-        # scripts/ci/workflow_twins.py: a workflow both branches hold runs each job on one runner and reads one
-        # token floor; cmux#63743 moved main's ui-proof-stale-sweep.yml and feat-cmux-next's copy stayed behind.
-        if self.other is None:
-            self.skipTest(f"{self.ref} is not available, so no twin was compared")
-        lines = workflow_twins.drift(sources.Tree(ROOT), self.other)
-        self.assertFalse(lines, "\n".join([workflow_twins.HINT] + lines))
 
     def test_the_markers_come_from_the_pool_code(self) -> None:
         # Both branches' policies: feat-cmux-next's drifted_runner_variables() also names LINUX_RUNNER and the
@@ -447,195 +426,6 @@ class OwnedPoolSources(unittest.TestCase):
         if feat is None:
             self.skipTest("feat-cmux-next's workflows are not readable here")
         self.assertIn(".github/workflows/cmux-next-base-autofix.yml", self.owned[str(feat)])
-
-
-def _sweep(runs_on: str, floor: bool, floor_dir: str = "floor/", jobs: tuple[str, ...] = ("sweep",)) -> str:
-    """A ui-proof-stale-sweep.yml-shaped workflow: one runner, the token floor read or not."""
-    text = ['on:', '  schedule:', '    - cron: "17 * * * *"', '  workflow_dispatch:', 'jobs:']
-    for job in jobs:
-        text += [f'  {job}:', f'    runs-on: {runs_on}', '    steps:', '      - uses: actions/checkout@v6']
-        if floor:
-            text += ['      - id: job-floor',
-                     f'        run: python3 -I {floor_dir}scripts/ci/job_token_floor.py ui-proof-stale-sweep/{job}']
-        text += ['      - run: python3 -I scripts/ci/ui_proof_verdict.py sweep']
-    return "\n".join(text) + "\n"
-
-
-JIT = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}"
-
-
-class WorkflowTwins(unittest.TestCase):
-    """scripts/ci/workflow_twins.py: a workflow on both branches runs on one runner and reads one token floor."""
-
-    def tree(self, workflows: dict[str, str]) -> sources.Tree:
-        root = Path(tempfile.mkdtemp(prefix="workflow-twins-"))
-        self.addCleanup(shutil.rmtree, root, True)
-        (root / sources.WORKFLOWS_DIR).mkdir(parents=True)
-        for name, text in workflows.items():
-            (root / sources.WORKFLOWS_DIR / name).write_text(text, encoding="utf-8")
-        return sources.Tree(root)
-
-    def test_cmux_63743s_drift_is_named(self) -> None:
-        # main took the secret JIT label and the floor (cmux#63743); feat-cmux-next's copy kept cmux-linux, no floor.
-        main = self.tree({"ui-proof-stale-sweep.yml": _sweep(JIT, True)})
-        feat = self.tree({"ui-proof-stale-sweep.yml": _sweep("cmux-linux", False)})
-        lines = workflow_twins.drift(feat, main, known=set())
-        self.assertEqual(len(lines), 1, lines)
-        self.assertIn("ui-proof-stale-sweep.yml job sweep", lines[0])
-        self.assertIn("runs-on", lines[0])
-        self.assertIn("floor", lines[0])
-        self.assertIn("cmux-gcp-secret-jit-x64", lines[0])
-
-    def test_matching_copies_pass_wherever_each_checks_out_the_floor(self) -> None:
-        main = self.tree({"ui-proof-stale-sweep.yml": _sweep(JIT, True, floor_dir="floor/")})
-        feat = self.tree({"ui-proof-stale-sweep.yml": _sweep(JIT, True, floor_dir="")})
-        self.assertEqual(workflow_twins.drift(feat, main, known=set()), [])
-        self.assertEqual(workflow_twins.drift(main, feat, known=set()), [])
-
-    def test_a_floor_for_another_tag_is_drift(self) -> None:
-        main = self.tree({"a.yml": _sweep(JIT, True)})
-        feat = self.tree({"a.yml": _sweep(JIT, True).replace("ui-proof-stale-sweep/sweep", "other/sweep")})
-        self.assertEqual(len(workflow_twins.drift(feat, main, known=set())), 1)
-
-    def test_two_workflows_on_one_path_are_no_twin(self) -> None:
-        # main's nightly.yml is classic's build and feat-cmux-next's is NEXT's: other job ids, never compared.
-        main = self.tree({"nightly.yml": _sweep("cmux-linux", False, jobs=("build", "sign"))})
-        feat = self.tree({"nightly.yml": _sweep(JIT, True, jobs=("build", "notarize"))})
-        self.assertEqual(workflow_twins.drift(feat, main, known=set()), [])
-
-    def test_a_path_on_one_branch_only_is_no_twin(self) -> None:
-        main = self.tree({"a.yml": _sweep(JIT, True)})
-        feat = self.tree({"b.yml": _sweep("cmux-linux", False)})
-        self.assertEqual(workflow_twins.drift(feat, main, known=set()), [])
-
-    def test_each_branchs_clauses_around_the_labels_are_its_own(self) -> None:
-        # feat-cmux-next's fork-PR fallback and main's overflow variable land on the same labels: one runner.
-        feat_on = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == "
-                   "'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && "
-                   "'ubuntu-24.04' || 'cmux-linux' }}")
-        main_on = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || "
-                   "'cmux-linux' }}")
-        main = self.tree({"a.yml": _sweep(main_on, False)})
-        feat = self.tree({"a.yml": _sweep(feat_on, False)})
-        self.assertEqual(workflow_twins.drift(feat, main, known=set()), [])
-
-    def test_known_drift_passes_and_an_entry_that_agrees_again_is_named_not_failed(self) -> None:
-        main = self.tree({"a.yml": _sweep(JIT, True)})
-        feat = self.tree({"a.yml": _sweep("cmux-linux", True)})
-        known = {(f"{sources.WORKFLOWS_DIR}/a.yml", "sweep")}
-        self.assertEqual(workflow_twins.drift(feat, main, known=known), [])
-        self.assertEqual(workflow_twins.agreed(feat, main, known=known), [])
-        same = self.tree({"a.yml": _sweep(JIT, True)})
-        self.assertEqual(workflow_twins.drift(same, main, known=known), [])
-        self.assertEqual(workflow_twins.agreed(same, main, known=known), [f"{sources.WORKFLOWS_DIR}/a.yml\tsweep"])
-
-    def test_the_known_drift_file_reads_back(self) -> None:
-        rows = workflow_twins.known_drift()
-        self.assertTrue(all(path.startswith(f"{sources.WORKFLOWS_DIR}/") for path, _ in rows), rows)
-        self.assertNotIn((f"{sources.WORKFLOWS_DIR}/ui-proof-stale-sweep.yml", "sweep"), rows,
-                         "cmux#63743's twin is fixed here; it is no known drift")
-
-
-# A main twin is a workflow both branches carry because main's copy is the one that runs (a schedule fires the
-# default branch's copy) while it reads feat-cmux-next's scripts. Its header says so ("main twin", "Main-Twin").
-# 2026-11-28: cmux#63743 moved main's ui-proof-stale-sweep.yml onto the secret JIT label and added its GITHUB_TOKEN
-# floor, and feat-cmux-next's copy (cmux#63625) kept `runs-on: cmux-linux` with no floor, so a dispatch on
-# feat-cmux-next ran the sweep where main's guards refuse it. The twins must agree job by job on where a job runs
-# and whether it reads the floor; anything else may differ (the pre-push gate, scripts/cmux-next/prepush-gate.py,
-# judges their steps and schedules).
-TWIN_MARK = re.compile(r"(?i)\bmain[- ]twin\b")
-
-
-def declares_twin(text: str) -> bool:
-    """Whether a workflow's header (its comment lines before `jobs:`) calls it a main twin: a step named for the
-    pre-push gate's main-twin test (ci-guards.yml) is no twin."""
-    for line in text.splitlines():
-        if line.startswith("jobs:"):
-            return False
-        if line.lstrip().startswith("#") and TWIN_MARK.search(line):
-            return True
-    return False
-
-
-def twin_jobs(text: str) -> dict[str, tuple[str, bool]]:
-    """{job: (its runs-on, whether it runs job_token_floor.py)} of a workflow's TEXT."""
-    import yaml  # noqa: PLC0415
-    document = yaml.safe_load(text) or {}
-    jobs = document.get("jobs") if isinstance(document, dict) else None
-    found = {}
-    for name, job in (jobs or {}).items():
-        if isinstance(job, dict):
-            runs_on = job.get("runs-on")
-            found[str(name)] = (json.dumps(runs_on, sort_keys=True) if not isinstance(runs_on, str)
-                                else " ".join(runs_on.split()), "job_token_floor.py" in yaml.safe_dump(job))
-    return found
-
-
-def twin_drift(here: str, there: str) -> list[str]:
-    """How two copies of a main twin differ in where a job runs or whether it reads the floor."""
-    mine, theirs = twin_jobs(here), twin_jobs(there)
-    drift = []
-    for job in sorted(set(mine) & set(theirs)):
-        (runs_here, floor_here), (runs_there, floor_there) = mine[job], theirs[job]
-        if runs_here != runs_there:
-            drift.append(f"job {job} runs-on {runs_here!r} here, {runs_there!r} on the other branch")
-        if floor_here != floor_there:
-            drift.append(f"job {job} {'reads' if floor_here else 'does not read'} the GITHUB_TOKEN floor here "
-                         f"(scripts/ci/job_token_floor.py), the other branch's copy "
-                         f"{'does' if floor_there else 'does not'}")
-    return drift
-
-
-class MainTwinsAgree(unittest.TestCase):
-    """Both copies of a main twin run each job on the same runner, with the same GITHUB_TOKEN floor."""
-
-    @classmethod
-    def setUpClass(cls) -> None:
-        if branch() is None:
-            raise unittest.SkipTest("cannot tell whether this tree is main or feat-cmux-next; set "
-                                    "CMUX_OWNED_POOL_BRANCH")
-        cls.ref = other_ref()
-        fresh = fetch(cls.ref)
-        if fresh is None:
-            if ON_CI:
-                raise AssertionError(f"{cls.ref} is not available, so the main twins were not compared")
-            raise unittest.SkipTest(f"{cls.ref} is not available")
-        cls.here, cls.other = sources.Tree(ROOT), sources.Tree(ROOT, fresh)
-
-    def twins(self) -> list[str]:
-        shared = sorted(set(self.here.workflows()) & set(self.other.workflows()))
-        return [path for path in shared
-                if any(declares_twin(tree.read(path) or "") for tree in (self.here, self.other))]
-
-    def test_every_main_twin_runs_where_its_twin_does(self) -> None:
-        drifted = {}
-        for path in self.twins():
-            drift = twin_drift(self.here.read(path) or "", self.other.read(path) or "")
-            if drift:
-                drifted[path] = drift
-        if os.environ.get("CMUX_TWIN_REPORT"):
-            print(f"main twins: {len(self.twins())}: {', '.join(self.twins())}", file=sys.stderr)
-        self.assertFalse(drifted, "\n".join(
-            [f"{self.ref}: these main twins run a job differently from this branch's copy; change both copies "
-             "in the same change (one pull request per branch):"]
-            + [f"  {path}: {line}" for path, lines in sorted(drifted.items()) for line in lines]))
-
-    def test_the_drift_reader(self) -> None:
-        sweep = ("on:\n  schedule:\n    - cron: '17 * * * *'\njobs:\n  sweep:\n    runs-on: {runs_on}\n    steps:\n"
-                 "{floor}      - run: python3 sweep.py\n")
-        floor = "      - run: python3 scripts/ci/job_token_floor.py ui-proof-stale-sweep/sweep\n"
-        main = sweep.format(runs_on="${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
-                                    "'cmux-gcp-secret-jit-x64' }}", floor=floor)
-        feat = sweep.format(runs_on="cmux-linux", floor="")
-        self.assertEqual(twin_drift(main, main), [])
-        drift = twin_drift(main, feat)
-        self.assertEqual(len(drift), 2, drift)
-        self.assertIn("runs-on", drift[0])
-        self.assertIn("GITHUB_TOKEN floor", drift[1])
-        # A job only one copy has is the pre-push gate's to judge, not a runner drift.
-        self.assertEqual(twin_drift(main, main.replace("sweep:", "other:")), [])
-        self.assertTrue(declares_twin("name: x\n# main carries this same file (its Main-Twin)\non: push\n"))
-        self.assertFalse(declares_twin("jobs:\n  a:\n    steps:\n      - name: Validate the prepush main twin\n"))
 
 
 class FetchLeavesTheCheckoutAlone(unittest.TestCase):

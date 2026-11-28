@@ -6,17 +6,20 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import type { PageClient } from "../src/pages/shared/pageClient";
+import {
+  attentionRows,
+  formatDay,
+  formatDuration,
+  formatHour,
+  formatWait,
+  heatmap,
+  hourShares,
+} from "../src/pages/stats/shape";
+import { pageError, type PageClient } from "../src/pages/shared/pageClient";
+import { mockSummary } from "../src/pages/stats/mockProvider";
 import type { StatsSummary } from "../src/pages/stats/types";
 import { teardownDom } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
 import { actTurn, until } from "./support/until";
-
-const { attentionRows, formatDay, formatDuration, formatHour, formatWait, heatmap, hourShares } = await importWithDom(
-  () => import("../src/pages/stats/shape"),
-);
-const { pageError } = await importWithDom(() => import("../src/pages/shared/pageClient"));
-const { mockSummary } = await importWithDom(() => import("../src/pages/stats/mockProvider"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;

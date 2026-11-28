@@ -7,25 +7,23 @@
 // the App's glass never shows before the content (Leo, 2026-11-09, on the empty glass box before menus).
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import type { HostGlassSurface } from "../src/ui/glass/hostGlass";
-import { importWithDom } from "./support/importWithDom";
-
-const {
+import {
   HOST_GLASS_DEADLINE_MS,
   HOST_GLASS_DRAWN_ATTRIBUTE,
   HOST_GLASS_HOLD_FRAMES,
   HOST_GLASS_MAX,
   HOST_GLASS_ROOT_ATTRIBUTE,
-  HOST_GLASS_ENGINES_ATTRIBUTE,
-  HOST_GLASS_OWN_ATTRIBUTE,
-  HOST_GLASS_ROLE_ATTRIBUTE,
   hostGlassApplies,
-  hostGlassPageZoom,
-  hostGlassSurface,
   reportHostGlass,
+  type HostGlassSurface,
+  HOST_GLASS_ENGINES_ATTRIBUTE,
+  HOST_GLASS_ROLE_ATTRIBUTE,
+  hostGlassSurface,
+  hostGlassPageZoom,
+  HOST_GLASS_OWN_ATTRIBUTE,
   stackedHostGlass,
-} = await importWithDom(() => import("../src/ui/glass/hostGlass"));
-const { INTERFACE_SCALE_EVENT } = await importWithDom(() => import("../src/ui/interfaceScale"));
+} from "../src/ui/glass/hostGlass";
+import { INTERFACE_SCALE_EVENT } from "../src/ui/interfaceScale";
 
 let dom: JSDOM | undefined;
 let stop: (() => void) | undefined;

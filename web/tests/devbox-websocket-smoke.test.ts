@@ -117,7 +117,6 @@ describe("cmux-tui WebSocket smoke", () => {
     expect(result.status).not.toBe(0);
     expect(result.stderr).toMatch(/cmux-tui websocket smoke: line \d+ failed: jq -e --arg marker/);
     expect(result.stderr).toContain('"through_sequence":0');
-    expect(result.stderr).toMatch(/pane \S+ still blank after 1s; load \S+/);
   }, 30_000);
 
   test("approves its own pending request, not another device's listed first", async () => {

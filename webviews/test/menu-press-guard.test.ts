@@ -1,10 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { importWithDom } from "./support/importWithDom";
-
-const { installMenuPressGuard, swallowsPress } = await importWithDom(
-  () => import("../src/agent-session/acpmux/menuPressGuard"),
-);
+import { installMenuPressGuard, swallowsPress } from "../src/agent-session/acpmux/menuPressGuard";
 
 let dom: JSDOM | undefined;
 let remove: (() => void) | undefined;

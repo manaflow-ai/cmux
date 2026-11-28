@@ -145,7 +145,7 @@ def path_without_timeout(temp):
 
 class PerFileRunner(unittest.TestCase):
     def run_runner(self, files, without_timeout=False, contents=None, shard=None, shard_count=None, extra_env=None, args=(),
-                   uname=None, no_bun=False):
+                   uname=None):
         temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
         web = temp / "webviews"
         for name in files:
@@ -158,9 +158,8 @@ class PerFileRunner(unittest.TestCase):
         subprocess.run(["git", "-C", str(temp), "add", "-A"], check=True)
         bin_dir = temp / "bin"
         bin_dir.mkdir()
-        if not no_bun:
-            (bin_dir / "bun").write_text(FAKE_BUN, encoding="utf-8")
-            (bin_dir / "bun").chmod(0o755)
+        (bin_dir / "bun").write_text(FAKE_BUN, encoding="utf-8")
+        (bin_dir / "bun").chmod(0o755)
         if uname is not None:
             # The host the runner believes it is on (`uname -s`), whatever runs this test.
             (bin_dir / "uname").write_text(f"#!/usr/bin/env bash\necho {uname}\n", encoding="utf-8")
@@ -182,7 +181,7 @@ class PerFileRunner(unittest.TestCase):
         if getattr(self, "web_hook", None):
             self.web_hook(web)
         self.shared_cache = web / "node_modules" / ".vite"
-        system_path = path_without_timeout(temp) if without_timeout or no_bun else os.environ["PATH"]
+        system_path = path_without_timeout(temp) if without_timeout else os.environ["PATH"]
         base_env = {k: v for k, v in os.environ.items() if k not in ("CMUX_BROWSER_TESTS", "GITHUB_ACTIONS")}
         env = {**base_env, "PATH": f"{bin_dir}:{system_path}", "BUN_CALLS": str(calls),
                "BUN_OVERLAPS": str(self.overlaps), "SHARED_VITE_CACHE": str(web / "node_modules" / ".vite"),
@@ -212,21 +211,6 @@ class PerFileRunner(unittest.TestCase):
         self.assertRegex(output, r"FAIL[^\n]*src/pages/fail\.test\.ts")
         self.assertNotRegex(output, r"(FAIL|TIMEOUT)[^\n]*test/a\.test\.ts")
         self.assertIn("(fail) a broken test", output)
-
-    def test_a_runner_without_bun_fails_before_any_file_and_records_no_verdicts(self):
-        # Hetzner pool slots whose setup-bun failed EACCES ran every file without bun and wrote 628-1,032
-        # file-level reds a shard into the base history (batch 46040477174 shard 4, tick 46023562151 shards 6-7).
-        temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
-        verdicts = temp / "results.json"
-        files = ["test/a.test.ts", "src/b.test.tsx"]
-        result, elapsed, calls = self.run_runner(files, no_bun=True, extra_env={"CMUX_WEB_TEST_RESULTS": str(verdicts)})
-        output = result.stdout + result.stderr
-        self.assertEqual(result.returncode, 3, output)
-        self.assertIn("::error::", output)
-        self.assertIn("no bun on PATH", output)
-        self.assertEqual(calls, [], output)
-        self.assertFalse(verdicts.exists(), output)
-        self.assertLess(elapsed, 10, output)
 
     def test_a_host_without_timeout_still_runs_and_limits_each_file(self):
         files = ["test/a.test.ts", "test/hang.test.tsx", "src/b.test.tsx"]

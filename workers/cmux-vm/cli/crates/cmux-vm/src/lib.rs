@@ -980,7 +980,7 @@ async fn dispatch(
             }))?;
             let key_text = args.idempotency_key.unwrap_or_else(new_idempotency_key);
             let key = parse_key::<types::VmsCreateVmIdempotencyKey>(&key_text)?;
-            let vm = fetch_body(client.vms_create_vm(Some(&key), None, None, None, &body))
+            let vm = fetch_body(client.vms_create_vm(Some(&key), None, &body))
                 .await
                 .map_err(|e| e.with_idempotency_hint(&key_text))?;
             if args.image.is_some() || args.public_egress || !args.egress_allow.is_empty() {
@@ -1133,7 +1133,7 @@ async fn dispatch(
             out.vm_list(&page)
         }
         Command::Start(VmArg { vm_id }) => {
-            let vm = fetch_body(client.vms_start_vm(&vm_id, None, None))
+            let vm = fetch_body(client.vms_start_vm(&vm_id, None))
                 .await
                 .map_err(|e| e.for_vm(&vm_id, "start"))?;
             out.vm(&vm)
@@ -1165,13 +1165,13 @@ async fn dispatch(
             out.identity(&body)
         }
         Command::Stop(VmArg { vm_id }) => {
-            let vm = fetch_body(client.vms_stop_vm(&vm_id, None, None))
+            let vm = fetch_body(client.vms_stop_vm(&vm_id, None))
                 .await
                 .map_err(|e| e.for_vm(&vm_id, "stop"))?;
             out.vm(&vm)
         }
         Command::Pause(VmArg { vm_id }) => {
-            let vm = fetch_body(client.vms_pause_vm(&vm_id, None, None))
+            let vm = fetch_body(client.vms_pause_vm(&vm_id, None))
                 .await
                 .map_err(|e| e.for_vm(&vm_id, "pause"))?;
             out.vm(&vm)
@@ -1216,7 +1216,7 @@ async fn dispatch(
             out.exec(&result)
         }
         Command::Resume(VmArg { vm_id }) => {
-            let vm = fetch_body(client.vms_resume_vm(&vm_id, None, None))
+            let vm = fetch_body(client.vms_resume_vm(&vm_id, None))
                 .await
                 .map_err(|e| e.for_vm(&vm_id, "resume"))?;
             out.vm(&vm)

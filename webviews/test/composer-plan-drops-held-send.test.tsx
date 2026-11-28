@@ -7,13 +7,11 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, createRef } from "react";
 import type { Root } from "react-dom/client";
+import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import type { UploadResult } from "../src/agent-session/acpmux/cloudUploads";
 import { teardownDom } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { noChat } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
 
 const MIB = 1024 * 1024;
 /// Each screenshot's preview: under the 1.5 MiB image budget, so twenty of them exceed the prompt's.

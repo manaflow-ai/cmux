@@ -81,12 +81,12 @@ variants["named-long-name"] = {
   props: { link: longName },
 };
 
-// Automatic connecting/reconnecting stays quiet at any duration. Under LINK_DOWN_SAID_MS (afterDelay.ts) a link acpmux brings back on its own is not said (Leo,
+// Under LINK_DOWN_SAID_MS (afterDelay.ts) a link acpmux brings back on its own is not said (Leo,
 // 2026-11-14: "i also want all our connectivity stuff to shut the fuck up"): the plain dot, no spinner,
 // no words, in every state that heals by itself.
 for (const [state, link] of Object.entries({ connecting, reconnecting, offline }))
   variants[`quiet-${state}`] = {
-    note: `${state}, down for less than 10 s: the plain dot; no progress line.`,
+    note: `${state}, down for less than 10 s: the plain dot; nothing is said yet.`,
     props: { link, quietMs: 3_600_000 },
   };
 

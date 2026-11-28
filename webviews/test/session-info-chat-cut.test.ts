@@ -2,9 +2,7 @@
 // nothing scrolls behind it (Leo, 2026-11-03: "the session info thing not flicker EVER when im
 // scrolling"); where they do not overlap, the transcript keeps its whole box.
 import { expect, test } from "bun:test";
-import { importWithDom } from "./support/importWithDom";
-
-const { chatCut } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/chatCut"));
+import { chatCut } from "../src/agent-session/acpmux/session-info/chatCut";
 
 const scroller = { left: 100, top: 44, right: 900, bottom: 744 };
 

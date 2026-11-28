@@ -1,21 +1,13 @@
 // l10n-allow-file: assertions use the localized builder output, not shipped copy.
 import { expect, test } from "bun:test";
-import type { Translate } from "../src/agent-session/acpmux/i18n";
+import { translate, type Translate } from "../src/agent-session/acpmux/i18n";
+import { NativeInfoActions } from "../src/agent-session/acpmux/session-info/native/model";
+import { usageSection } from "../src/agent-session/acpmux/session-info/native/usage";
 import type { SessionUsageStats } from "../src/agent-session/acpmux/usageStats";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
-import type { IMessageView } from "../src/agent-session/acpmux/session-info/imessage";
+import { connectorsSection } from "../src/agent-session/acpmux/session-info/native/connectors";
+import { IMESSAGE_INITIAL, type IMessageView } from "../src/agent-session/acpmux/session-info/imessage";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { translate } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
-const { NativeInfoActions } = await importWithDom(
-  () => import("../src/agent-session/acpmux/session-info/native/model"),
-);
-const { usageSection } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/native/usage"));
-const { connectorsSection } = await importWithDom(
-  () => import("../src/agent-session/acpmux/session-info/native/connectors"),
-);
-const { IMESSAGE_INITIAL } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/imessage"));
 
 const t: Translate = (key, values) => translate(key, values, "en");
 const stats = (overrides: Partial<SessionUsageStats> = {}): SessionUsageStats => ({

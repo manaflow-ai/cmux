@@ -5,10 +5,8 @@ import { act, startTransition, useCallback, useLayoutEffect, useRef, useState } 
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import { LayeredMap } from "../src/agent-session/acpmux/conversation/layeredMap";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { LayeredMap } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/layeredMap"));
 
 // Exercise the production callback with React's real priority queues, without mounting the
 // whole agent pane. In particular, an updater is not interchangeable with its eager result.
@@ -53,7 +51,7 @@ type Height = {
 };
 type Heights = Map<string, Height>;
 /// The drawn heights as the transcript keeps them (conversation/layeredMap.ts).
-type Drawn = import("../src/agent-session/acpmux/conversation/layeredMap").LayeredMap<Height>;
+type Drawn = LayeredMap<Height>;
 type Ref<T> = { current: T };
 type Inputs = {
   drawnRef: Ref<Drawn>;

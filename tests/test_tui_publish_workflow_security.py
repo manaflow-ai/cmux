@@ -422,11 +422,7 @@ def test_tree_request_keys_each_revision_in_its_blobless_sparse_checkout() -> No
                                               "--no-checkout", "--branch", "feat-cmux-next")
         git("sparse-checkout", "set", "--cone", "scripts/ci", cwd=checkout)
         git("checkout", "-q", "--detach", requested, cwd=checkout)
-        # The older inputs list is not local and the script reads no object lazily, but it fetches that one blob
-        # itself: a revision keys by its own list, never the checkout's newer one (before, the newer list named an
-        # input the older revision lacks, and hot-verify plans of such commits stopped on "no cmux-tui tree key").
-        unfetched = key(checkout, older)
-        assert unfetched.returncode == 0 and unfetched.stdout == expected[older].stdout, unfetched.stderr
+        assert key(checkout, older).returncode != 0, "without the prefetch the older inputs list is not local"
 
         subprocess.run(("bash", "-c", f'set -euo pipefail\n{prefetch.group(1)}\n'
                         f'prefetch_key_inputs {requested}\nprefetch_key_inputs {older}\n'),
@@ -1531,7 +1527,6 @@ def _evaluate_branch_expression(template: str, context: dict[str, object]) -> st
 
     def evaluate(match: re.Match[str]) -> str:
         python = match.group(1).replace("needs.tree-preflight.outputs.key", "github.key")
-        python = python.replace("needs.tree-owner-wait.outputs.takeover", "github.takeover")
         python = re.sub(r"\bgithub(?:\.[A-Za-z_]+)+", lookup, python)
         python = python.replace("&&", " and ").replace("||", " or ")
         python = re.sub(r"!(?!=)", " not ", python)
@@ -1592,33 +1587,6 @@ def test_branch_push_build_cancels_only_its_own_branch_older_build() -> None:
             assert not render(daemon["group"], event_name, ref).startswith("cmux-tui-daemon-ref-"), (event_name, ref)
     assert "concurrency" not in jobs["publish"] or jobs["publish"]["concurrency"]["cancel-in-progress"] == "false"
     assert document["concurrency"]["cancel-in-progress"] == "false"
-
-    # FEAT_BUILD_COALESCED: a feat-cmux-next push's first attempt (not a takeover) shares one build group that
-    # nothing cancels, so GitHub keeps one running and one pending and a newer push replaces the pending one.
-    # A re-run, a takeover, a dispatch and every other trunk ref keep the per-run group.
-    def feat(template: str, event_name: str = "push", ref: str = "refs/heads/feat-cmux-next", attempt: int = 1,
-             takeover: str = "", run_id: str = "7") -> str:
-        return _evaluate_branch_expression(
-            template, {"github": {"event_name": event_name, "ref": ref, "run_id": run_id, "key": "k" * 12,
-                                "run_attempt": attempt, "takeover": takeover, "repository": "manaflow-ai/cmux"}}
-        )
-
-    for name, prefix in (("build", "cmux-tui-build-"), ("build-linux", "cmux-tui-build-linux-")):
-        group = jobs[name]["concurrency"]["group"]
-        assert feat(group) == prefix + "feat-push", name
-        assert feat(group, run_id="8") == feat(group), name
-        assert feat(jobs[name]["concurrency"]["cancel-in-progress"]) == "False", name
-        assert feat(group, attempt=2) == prefix + "k" * 12 + "-7", name
-        assert feat(group, takeover="true") == prefix + "k" * 12 + "-7", name
-        assert feat(group, event_name="workflow_dispatch") == prefix + "k" * 12 + "-7", name
-        for ref in kept:
-            if ref != "refs/heads/feat-cmux-next":
-                assert feat(group, ref=ref) == prefix + "k" * 12 + "-7", (name, ref)
-    # A replaced pending feat-cmux-next build plans no macOS fallback once the branch has moved.
-    assert feat(plan_env := next(s for s in jobs["darwin-fallback-plan"]["steps"]
-                                 if s.get("id") == "plan")["env"]["BRANCH_PUSH"]) == "1"
-    assert feat(plan_env, attempt=2) == "" and feat(plan_env, takeover="true") == ""
-    assert "tree-owner-wait" in jobs["darwin-fallback-plan"]["needs"]
     # A build a newer push cancelled plans no macOS fallback once the branch has moved;
     # a timeout's cancel (FALLBACK_AFTER_TIMEOUT) and a failed head read still plan one.
     plan = next(s for s in jobs["darwin-fallback-plan"]["steps"] if s.get("id") == "plan")
@@ -1630,16 +1598,10 @@ def test_branch_push_build_cancels_only_its_own_branch_older_build() -> None:
     assert '"$BUILD_RESULT" == cancelled && -n "${BRANCH_PUSH:-}"' in plan["run"]
     assert '"$head" =~ ^[0-9a-f]{40}$ && "$head" != "$GITHUB_SHA"' in plan["run"]
     assert jobs["darwin-fallback-plan"]["permissions"]["contents"] == "read"
-    # The rule is the push-gate's: the same branches are superseded there and here. A
-    # feat-cmux-next-* push takes the gate too, for its branch-inputs step only (#62047): the
-    # superseded check never supersedes it (cmux_tui_superseded_push.TRUNK_PREFIXES), and its
-    # build keeps the per-run group nothing cancels.
+    # The rule is the push-gate's: the same branches are superseded there and here.
     gate = jobs["push-gate"]["if"]
     for ref in kept + ["refs/heads/fix/a"]:
-        cancels = render(concurrency["cancel-in-progress"], "push", ref) == "True"
-        inputs_only = ref.startswith("refs/heads/feat-cmux-next-")
-        assert (render(gate, "push", ref) == "True") == (cancels or inputs_only), ref
-        assert not (inputs_only and cancels), ref
+        assert (render(gate, "push", ref) == "True") == (render(concurrency["cancel-in-progress"], "push", ref) == "True"), ref
 
 
 def test_daemon_gate_tests_only_the_newest_published_feat_tree() -> None:
@@ -1717,14 +1679,7 @@ def test_cmux_next_daemon_tests_take_linux_and_the_mac_shadow_never_the_promote_
     document = yaml.load(workflow("cmux-tui-artifacts.yml"), Loader=yaml.BaseLoader)
     jobs = document["jobs"]
     daemon_cells = workflow_jobs.runs_on_cells(jobs["cmux-next-daemon-tests"])
-    # #64136: a nightly-ref rerun leaves the cmux-linux box that failed it for the reserved GCP Linux
-    # pool (tests/test_cmux_tui_daemon_tests_gate.py routes every context); still never the promote pool.
-    assert daemon_cells == [
-        "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && "
-        "(github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || "
-        "github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}"
-    ], daemon_cells
-    assert "PROMOTE" not in daemon_cells[0], daemon_cells
+    assert daemon_cells == ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"]
     assert "cmux-next-daemon-macos-shadow" not in jobs
     shadow_doc = yaml.load(workflow("cmux-next-daemon-macos-shadow.yml"), Loader=yaml.BaseLoader)
     shadow_cells = workflow_jobs.runs_on_cells(shadow_doc["jobs"]["cmux-next-daemon-macos-shadow"])

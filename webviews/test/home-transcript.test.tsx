@@ -2,20 +2,18 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import { DetailToggle, readDetail } from "../src/pages/home-channels/presentation";
+import { runBlocks } from "../src/pages/home-channels/runBlocks";
+import { HomeToolGroup } from "../src/pages/home-channels/HomeToolGroup";
+import { RunTranscript } from "../src/pages/home-channels/RunTranscript";
+import { RunsContext } from "../src/pages/home-channels/RunCard";
+import { MessageRow } from "../src/pages/home-channels/MessageRow";
+import { RunBook } from "../src/pages/home-channels/runs";
 import type { HomeMessage, HomeRun, HomeRunStep } from "../src/pages/home-channels/types";
 import table from "../src/pages/home-channels/generated/strings.json";
 import paneTable from "../src/pages/home-channels/generated/pane-strings.json";
+import { createStrings } from "../src/pages/shared/i18n";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { DetailToggle, readDetail } = await importWithDom(() => import("../src/pages/home-channels/presentation"));
-const { runBlocks } = await importWithDom(() => import("../src/pages/home-channels/runBlocks"));
-const { HomeToolGroup } = await importWithDom(() => import("../src/pages/home-channels/HomeToolGroup"));
-const { RunTranscript } = await importWithDom(() => import("../src/pages/home-channels/RunTranscript"));
-const { RunsContext } = await importWithDom(() => import("../src/pages/home-channels/RunCard"));
-const { MessageRow } = await importWithDom(() => import("../src/pages/home-channels/MessageRow"));
-const { RunBook } = await importWithDom(() => import("../src/pages/home-channels/runs"));
-const { createStrings } = await importWithDom(() => import("../src/pages/shared/i18n"));
 
 const strings = createStrings(table, ["en"]);
 let dom: JSDOM;

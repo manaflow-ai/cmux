@@ -7,17 +7,12 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { noChat, user } from "../src/gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import type { CmuxCommand } from "../src/agent-session/acpmux/cmuxCommands";
-import type { LocalCommand } from "../src/agent-session/acpmux/localCommands";
+import { localCommand, localCommandNames, type LocalCommand } from "../src/agent-session/acpmux/localCommands";
 import { teardownDom } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { noChat, user } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
-const { localCommand, localCommandNames } = await importWithDom(
-  () => import("../src/agent-session/acpmux/localCommands"),
-);
 
 const PNG = new Uint8Array(8);
 const scope = globalThis as Record<string, unknown>;

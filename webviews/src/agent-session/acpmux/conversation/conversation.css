@@ -473,15 +473,6 @@
   margin-inline-end: -4px;
   margin-bottom: calc(var(--cv-user-attachment-gap) - var(--grid-half-step));
 }
-/* The inline view draws an unplaced prompt's attachments at the end of its bubble, under its text
-   (UserBubble.tsx `legacyInBubble`): the bubble's width, from its start, the band's gap above. */
-.cv-user__images.cv-user__images--in-bubble,
-.cv-user__files.cv-user__files--in-bubble {
-  justify-content: flex-start;
-  max-width: 100%;
-  margin-top: var(--cv-user-attachment-gap);
-  margin-bottom: 0;
-}
 /* A tile in the strip lays its thumbnail out as a flex box, not on a text line: a line adds the
    font's descent (3px) under the thumbnail, so the gap to the bubble would be 9px, not the 6px
    model.ts reserves. */
@@ -7534,8 +7525,7 @@ a.cv-sha:focus-visible {
  * read as lag (Leo, 2026-11-09: "thinking, tool calls, etc... cannot lag nor can they take long").
  * A zero token (motion off, the minimal motion under load) makes it zero. */
 .cv-fresh {
-  animation: cv-enter-fade var(--cmux-motion-stream, var(--agent-motion-in, 120ms))
-    var(--cmux-ease-stream, var(--agent-ease-out, ease-out)) both;
+  animation: cv-enter-fade var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out) both;
 }
 
 /* Footnotes (Markdown.tsx): a superscript number that scrolls to its note, and the notes
@@ -9074,24 +9064,6 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
 article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble)) > .cv-user__body > .cv-user__actions {
   top: calc(100% + (var(--grid-gap-block) - var(--cv-meta-row)) / 2);
 }
-/* A person's own message right over another of theirs: the two stick together, the footer gap apart
-   (transcriptGrid.ts), so the upper one's action row has no gap to sit in. It sits beside its bubble
-   instead, bottom-aligned at the bubble's inner edge (flipped when the look puts bubbles on the left), with
-   no layout room, so hovering still moves nothing. */
-@supports (anchor-name: --cv-user-bubble) {
-  .cv-user__bubble {
-    anchor-name: --cv-user-bubble;
-  }
-  article.acpmux-row--before-own-message .cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble)) > .cv-user__actions,
-  article.acpmux-row--before-own-message .cv-user:is(:not(:has(.cv-user__pending)), :has(.cv-user__bubble)) > .cv-user__body > .cv-user__actions {
-    position-anchor: --cv-user-bubble;
-    top: auto;
-    bottom: anchor(bottom);
-    right: anchor(left);
-    margin: 0 var(--grid-gap-footer) calc((var(--cv-line-height) + 2 * var(--grid-gap-footer) - var(--cv-meta-row)) / 2) 0;
-    position-try-fallbacks: flip-inline;
-  }
-}
 
 
 .cv-repo-recovery {
@@ -9285,8 +9257,7 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   overflow: hidden;
   white-space: nowrap;
 }
-/* With nothing under the fold yet (`disabled`, WorkingFor.tsx) the label opens nothing, so it does not light. */
-.cv-worked__toggle:not(:disabled):is(:hover, :focus-visible) * {
+.cv-worked__toggle:is(:hover, :focus-visible) * {
   color: var(--cv-text);
 }
 .cv-worked__toggle:focus-visible {

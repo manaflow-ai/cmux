@@ -1150,26 +1150,6 @@ test("an edit pulled back while its images load, from a row that turned out a te
   expect(touched).toEqual([]);
 });
 
-test("a prompt sent now that acpmux has not taken yet is an ordinary queued row: no Steering label, no Steer button", async () => {
-  // Leo, 2026-11-27: "this just shouldnt exist tho i think i just said that like it should just be
-  // steered if steered".
-  const container = await render(
-    async () => true,
-    async () => true,
-    [
-      { id: "n-1", prompt: "fix the space thing first", next: true },
-      { id: "n-2", prompt: "then the other one" },
-    ],
-  );
-  expect(container.querySelector(".acpmux-queued-kind")).toBeNull();
-  expect(container.textContent).not.toContain("composer.steering");
-  expect(container.querySelector('[data-prompt-id="n-1"] .acpmux-queued-text')?.textContent).toBe(
-    "fix the space thing first",
-  );
-  expect(actions(container, "n-1").some((b) => b.dataset.action === "steer")).toBe(false);
-  expect(actions(container, "n-2").some((b) => b.dataset.action === "steer")).toBe(true);
-});
-
 test("acpmux's ask to resume a subagent never draws in the composer's queue", async () => {
   // Leo, 2026-11-24: "why would a user steer or whatever on these? they should be separated out from
   // the user visible steer ui area." It lists in Session Info's Background tasks (agentSide.ts).
@@ -1304,33 +1284,4 @@ test("a prompt listed twice draws one row, and the list carries no summary toolt
   expect(container.querySelectorAll('[data-prompt-id="p-1"]').length).toBe(1);
   expect(container.querySelectorAll(".acpmux-queued").length).toBe(2);
   expect(container.querySelector("ol")?.hasAttribute("title")).toBe(false);
-});
-
-test("a thumbnail whose first read failed is read again, not left blank", async () => {
-  let reads = 0;
-  const container = installDom();
-  const first = { ...pictured[0]!, images: [{ ...pictured[0]!.images![0]!, src: undefined }] };
-  await act(async () => {
-    root = createRoot(container);
-    root.render(
-      <ComposerQueue
-        queue={[first]}
-        chat="c"
-        t={t}
-        readImage={async () => {
-          reads += 1;
-          // The first read misses (acpmux paused or slow); the next one answers.
-          return reads === 1 ? undefined : "data:image/png;base64,QQ==";
-        }}
-      />,
-    );
-  });
-  await settle();
-  const slot = () => container.querySelector(".acpmux-queued-image-slot");
-  expect(slot()?.getAttribute("data-thumbnail")).toBe("missing");
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 1200));
-  });
-  expect(reads).toBe(2);
-  expect(slot()?.querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,QQ==");
 });

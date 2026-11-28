@@ -75,8 +75,6 @@ PS = textwrap.dedent('''\
     app, park, exe = state.get("app_pid"), state.get("park_pid"), os.environ["FAKE_EXE"]
     if args[:1] == ["-axo"]:
         if alive(app): print(f"  {app} {exe}")
-        helper = state.get("helper_pid")
-        if alive(helper): print(f"  {helper} {exe}d")
     elif "-p" in args:
         pid = int(args[args.index("-p") + 1])
         if pid == app and alive(app): print(exe)
@@ -126,11 +124,11 @@ class SideInstanceParkedLaunchTests(unittest.TestCase):
         """Ends the sleeps this test started that the script under test did not."""
         if not self.state.exists():
             return
-        for key in ("app_pid", "park_pid", "helper_pid"):
+        for key in ("app_pid", "park_pid"):
             pid = json.loads(self.state.read_text()).get(key)
             if pid:
                 try:
-                    os.kill(pid, signal.SIGKILL)
+                    os.kill(pid, signal.SIGTERM)
                 except OSError:
                     pass
 
@@ -173,31 +171,8 @@ class SideInstanceParkedLaunchTests(unittest.TestCase):
                 self.open_log.unlink(missing_ok=True)
                 result = self.side("launch", "probe", flag)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                copy = self.copy_open()
-                self.assertEqual(copy[0], "-n")
-                self.assertEqual("-g" in copy, "-g" in expected)
-                self.assertNotIn("--env", copy)
-                self.assertEqual(copy[-1], self.env["FAKE_EXE"].rsplit("/Contents/", 1)[0])
+                self.assertEqual(self.opens(), [expected + [self.env["FAKE_EXE"].rsplit("/Contents/", 1)[0]]])
                 self.assertEqual(self.side("stop", "probe").returncode, 0)
-
-    def test_explicit_environment_reaches_launch_services_intact(self):
-        values = [f"HOME={self.tmp}/isolated home", f"CFFIXED_USER_HOME={self.tmp}/isolated home",
-                  "ACPMUX_SOCKET=/tmp/isolated=copy.sock"]
-        args = [part for value in values for part in ("--env", value)]
-        result = self.side("launch", "probe", "--shown", *args)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        copy = self.copy_open()
-        for value in values:
-            self.assertIn(value, copy)
-            self.assertEqual(copy[copy.index(value) - 1], "--env")
-
-    def test_bad_environment_refuses_before_launch(self):
-        for args in (("--env",), ("--env", "HOME"), ("--env", "=value"), ("--env", "BAD-KEY=value")):
-            with self.subTest(args=args):
-                result = self.side("launch", "probe", "--shown", *args)
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn("--env needs KEY=VALUE", result.stderr)
-                self.assertFalse(self.open_log.exists())
 
     def test_placement_env_sets_the_default_and_a_flag_wins(self):
         result = self.side("launch", "probe", CMUX_SIDE_PLACEMENT="shown")
@@ -214,8 +189,7 @@ class SideInstanceParkedLaunchTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("(shown)", result.stdout)
         self.assertIn("no park display", result.stderr)
-        self.assertEqual(self.copy_open()[0], "-n")
-        self.assertIn("-g", self.copy_open())
+        self.assertEqual(self.copy_open()[:2], ["-n", "-g"])
         self.assertNotIn("--env", self.copy_open())
 
     def park_opens(self) -> int:
@@ -273,22 +247,6 @@ class SideInstanceParkedLaunchTests(unittest.TestCase):
         self.state.write_text(json.dumps(state))
         self.assertEqual(self.side("stop", "probe").returncode, 0)
         self.assertFalse(self.gone(state["park_pid"]))
-
-    def test_stop_kills_a_helper_of_the_copy_that_ignores_term(self):
-        # 2026-11-27, two fleet Macs: a UI look whose every step passed failed at teardown with "processes of hv-fleet
-        # still run: 17136", a helper run from the copy's bundle that outlived TERM. It is the copy's, so stop KILLs it.
-        self.assertEqual(self.side("launch", "probe").returncode, 0)
-        helper = subprocess.Popen([sys.executable, "-c", "import signal, time; signal.signal(signal.SIGTERM, "
-                                   "signal.SIG_IGN); time.sleep(300)"], start_new_session=True).pid
-        self.addCleanup(lambda: subprocess.run(["kill", "-KILL", str(helper)], capture_output=True))
-        state = json.loads(self.state.read_text())
-        state["helper_pid"] = helper
-        self.state.write_text(json.dumps(state))
-        time.sleep(0.3)  # the helper has set its TERM handler
-        result = self.side("stop", "probe")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("probe stopped", result.stdout)
-        self.assertTrue(self.gone(helper))
 
 
 if __name__ == "__main__":

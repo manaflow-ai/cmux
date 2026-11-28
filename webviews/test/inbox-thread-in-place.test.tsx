@@ -10,28 +10,24 @@ import { afterEach, expect, test } from "bun:test";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import type { InboxMessage, InboxNotice } from "../src/agent-session/acpmux/conversation/inboxNotice";
+import { InboxNoticeCard } from "../src/agent-session/acpmux/conversation/InboxNoticeCard";
+import {
+  inboxThreadKey,
+  type InboxMessage,
+  type InboxNotice,
+} from "../src/agent-session/acpmux/conversation/inboxNotice";
+import { setMessageOpened } from "../src/agent-session/acpmux/conversation/incomingOpened";
+import { configureInboxThreadLook } from "../src/agent-session/acpmux/conversation/inboxThreadLook";
+import { configureReceivedLook } from "../src/agent-session/acpmux/conversation/receivedLook";
+import {
+  newestWholeKey,
+  readForIds,
+  setThreadRead,
+  THREAD_PAGE,
+} from "../src/agent-session/acpmux/conversation/inboxThreadRead";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { clockTime } from "../src/agent-session/acpmux/clock";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { InboxNoticeCard } = await importWithDom(
-  () => import("../src/agent-session/acpmux/conversation/InboxNoticeCard"),
-);
-const { inboxThreadKey } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/inboxNotice"));
-const { setMessageOpened } = await importWithDom(
-  () => import("../src/agent-session/acpmux/conversation/incomingOpened"),
-);
-const { configureInboxThreadLook } = await importWithDom(
-  () => import("../src/agent-session/acpmux/conversation/inboxThreadLook"),
-);
-const { configureReceivedLook } = await importWithDom(
-  () => import("../src/agent-session/acpmux/conversation/receivedLook"),
-);
-const { newestWholeKey, readForIds, setThreadRead, THREAD_PAGE } = await importWithDom(
-  () => import("../src/agent-session/acpmux/conversation/inboxThreadRead"),
-);
-const { clockTime } = await importWithDom(() => import("../src/agent-session/acpmux/clock"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

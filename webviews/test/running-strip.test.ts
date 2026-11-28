@@ -208,11 +208,11 @@ await requireBrowserLane("running-strip.test.ts", async () => {
       await page.waitForSelector(".acpmux-running-tray");
       await openRunningTray(page);
       await page.click(".acpmux-running-tray .acpmux-agent-line__button");
-      await page.waitForSelector(".acpmux-running-tray__terminal");
+      await page.waitForSelector(".acpmux-running-tray__tail button");
       await page.waitForSelector(".acpmux-running-tray__tail a");
       const fit = await page.evaluate(() => {
         const tail = document.querySelector<HTMLElement>(".acpmux-running-tray__tail")!.getBoundingClientRect();
-        return [...document.querySelectorAll<HTMLElement>(".acpmux-running-tray__tail-foot :is(a, button)")].map(
+        return [...document.querySelectorAll<HTMLElement>(".acpmux-running-tray__tail :is(a, button)")].map(
           (control) => {
             const box = control.getBoundingClientRect();
             return { left: box.left - tail.left, right: tail.right - box.right };
@@ -229,7 +229,7 @@ await requireBrowserLane("running-strip.test.ts", async () => {
     }
   });
 
-  test("an open command's time and Open in terminal share one line, Open in terminal shown on hover", async () => {
+  test("an open command's time, state and Open in terminal share one line on the command's left edge", async () => {
     // Leo, 2026-11-07, on the open command's last line ("33s", "No output yet", "Open in terminal" each at
     // their own height): "also for the hat wow this is wildly misaligned at the bottom".
     const page = await browser!.newPage({ viewport: { width: 760, height: 400 } });
@@ -241,7 +241,7 @@ await requireBrowserLane("running-strip.test.ts", async () => {
       await page.waitForSelector(".acpmux-running-tray");
       await openRunningTray(page);
       await page.click(".acpmux-running-tray .acpmux-agent-line__button");
-      await page.waitForSelector(".acpmux-running-tray__terminal");
+      await page.waitForSelector(".acpmux-running-tray__tail button");
       await page.mouse.move(0, 0);
       const line = await page.evaluate(() => {
         const tail = document.querySelector<HTMLElement>(".acpmux-running-tray__tail")!;
@@ -253,9 +253,14 @@ await requireBrowserLane("running-strip.test.ts", async () => {
           const bottom = Math.max(...rects.map((rect) => rect.bottom));
           return { left: rects[0]!.left, middle: (top + bottom) / 2 };
         };
-        const command = tail.querySelector(".cv-shell")!;
+        const leaf = (text: string) =>
+          [...tail.querySelectorAll<HTMLElement>("*")].find(
+            (element) => element.childElementCount === 0 && element.textContent?.trim() === text,
+          ) ?? [...tail.querySelectorAll<HTMLElement>("*")].find((element) => element.textContent?.trim() === text)!;
+        const command = tail.querySelector(".acpmux-bg-card__command")!;
         const time = tail.querySelector(".acpmux-running-tray__meta")!;
-        const button = tail.querySelector(".acpmux-running-tray__terminal")!;
+        const state = leaf("No output yet");
+        const button = tail.querySelector("button")!;
         const label = [...button.childNodes].find((node) => node.nodeType === Node.TEXT_NODE)!;
         const labelRange = document.createRange();
         labelRange.selectNodeContents(label);
@@ -263,13 +268,18 @@ await requireBrowserLane("running-strip.test.ts", async () => {
         const icon = button.querySelector("svg")!.getBoundingClientRect();
         const size = (element: Element) => getComputedStyle(element).fontSize;
         return {
-          commandLeft: command.getBoundingClientRect().left,
+          commandLeft: textBox(command).left,
           timeLeft: textBox(time).left,
-          middles: [textBox(time).middle, labelRect.top + labelRect.height / 2, icon.top + icon.height / 2],
-          sizes: [size(time), size(button)],
+          middles: [
+            textBox(time).middle,
+            textBox(state).middle,
+            labelRect.top + labelRect.height / 2,
+            icon.top + icon.height / 2,
+          ],
+          sizes: [size(time), size(state), size(button)],
         };
       });
-      expect(line.timeLeft).toBeGreaterThanOrEqual(line.commandLeft - 0.5);
+      expect(Math.abs(line.timeLeft - line.commandLeft)).toBeLessThan(1);
       const [first, ...rest] = line.middles;
       for (const middle of rest) expect(Math.abs(middle - first!)).toBeLessThan(1);
       expect(new Set(line.sizes).size).toBe(1);
@@ -414,12 +424,8 @@ await requireBrowserLane("running-strip.test.ts", async () => {
       await page.click(command);
       await settle(page);
       expect(await opened()).toEqual([]);
-      await page.waitForSelector(
-        ".acpmux-running-tray [data-line-detail] .acpmux-running-tray__tail .acpmux-running-tray__terminal",
-      );
-      await page.click(
-        ".acpmux-running-tray [data-line-detail] .acpmux-running-tray__tail .acpmux-running-tray__terminal",
-      );
+      await page.waitForSelector(".acpmux-running-tray [data-line-detail] .acpmux-running-tray__tail button");
+      await page.click(".acpmux-running-tray [data-line-detail] .acpmux-running-tray__tail button");
       expect(await opened()).toEqual(["command:w/1"]);
     } finally {
       await page.close();

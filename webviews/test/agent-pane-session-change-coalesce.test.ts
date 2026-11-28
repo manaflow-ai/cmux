@@ -11,14 +11,9 @@
 // change to the pane's own chat still reaches a hidden pane, so its tab row stays right.
 import { afterAll, beforeAll, beforeEach, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-type AcpmuxDirectClient = import("../src/agent-session/acpmux/direct").AcpmuxDirectClient;
-const { AcpmuxDirectClient } = await importWithDom(() => import("../src/agent-session/acpmux/direct"));
-const { keptTail, rememberTail, resetKeptTailsForTests } = await importWithDom(
-  () => import("../src/agent-session/acpmux/tailCache"),
-);
+import { keptTail, rememberTail, resetKeptTailsForTests } from "../src/agent-session/acpmux/tailCache";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;

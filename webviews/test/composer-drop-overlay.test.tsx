@@ -10,15 +10,16 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import type { DropOverlayState } from "../src/agent-session/acpmux/composer/dropOverlayState";
+import { installFileDropLifecycle } from "../src/agent-session/acpmux/attachments";
+import {
+  HIDDEN_DROP,
+  type DropOverlayState,
+  landDropOverlay,
+  stepDropOverlay,
+  summarizeDrag,
+} from "../src/agent-session/acpmux/composer/dropOverlayState";
+import { DropOverlay } from "../src/agent-session/acpmux/composer/DropOverlay";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { installFileDropLifecycle } = await importWithDom(() => import("../src/agent-session/acpmux/attachments"));
-const { HIDDEN_DROP, landDropOverlay, stepDropOverlay, summarizeDrag } = await importWithDom(
-  () => import("../src/agent-session/acpmux/composer/dropOverlayState"),
-);
-const { DropOverlay } = await importWithDom(() => import("../src/agent-session/acpmux/composer/DropOverlay"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [

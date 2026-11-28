@@ -36,8 +36,7 @@ server.bind(path)
 server.listen(8)
 lock = threading.Lock()
 with open(log, "a") as out:
-    out.write(json.dumps({"method": "_launch", "params": {"no_activate": os.environ.get("CMUX_NEXT_NO_ACTIVATE"),
-                                                         "skip_onboarding": os.environ.get("CMUX_NEXT_SKIP_ONBOARDING")}}) + "\n")
+    out.write(json.dumps({"method": "_launch", "params": {"no_activate": os.environ.get("CMUX_NEXT_NO_ACTIVATE")}}) + "\n")
     markers = {key: os.environ[key] for key in ("CMUX_SOCKET_PATH", "CMUX_BUNDLE_ID", "CMUX_TAG", "MUX_AGENT_TOKEN_FILE")
                if key in os.environ}
     out.write(json.dumps({"method": "_markers", "params": markers}) + "\n")
@@ -207,15 +206,7 @@ class AppWindowCaptureTests(unittest.TestCase):
         self.assertFalse(Path(f"{self.log}.osascript").exists())
         launches = [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
         launches = [entry["params"] for entry in launches if entry["method"] == "_launch"]
-        self.assertEqual([entry["no_activate"] for entry in launches], ["1"], "the app refuses activation itself")
-
-    def test_the_tour_skips_first_run_onboarding(self) -> None:
-        # A fresh profile's onboarding sheet covered the window, so every shot showed it, not the tour.
-        done, _ = self.run_tour()
-        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        launches = [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
-        launches = [entry["params"] for entry in launches if entry["method"] == "_launch"]
-        self.assertEqual([entry["skip_onboarding"] for entry in launches], ["1"])
+        self.assertEqual(launches, [{"no_activate": "1"}], "the app refuses activation itself")
 
     def test_the_app_runs_as_under_capture_with_a_fixture_prompt(self) -> None:
         # pr-media's privacy check refused every core-tour shot for the CI Mac's name in the

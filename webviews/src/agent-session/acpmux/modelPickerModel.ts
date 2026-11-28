@@ -27,7 +27,6 @@ export type HarnessChoice = {
   }[];
   unavailable?: string;
   acpmuxHarness?: string;
-  login?: string;
   /** The catalog's launcher kind (`_acpmux/models` `kind`): acpmux's own Claude Code backend is
    * CLAUDE_STDIO_KIND. */
   kind?: string;
@@ -64,7 +63,6 @@ export function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessCh
       },
       unavailable: entry.unavailable,
       acpmuxHarness: entry.id,
-      login: entry.auth?.login,
       ...(entry.kind ? { kind: entry.kind } : {}),
       pickable: entry.pickable !== false,
       folder: entry.folder,
@@ -79,8 +77,7 @@ export function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessCh
   for (const entry of ordered) {
     if (entry.folder || (entry.pickable === false && !entry.notInstalled)) continue;
     const name = agentName(entry.id, entry.name);
-    const key = entry.endpoint ? `endpoint:${entry.id}` : `name:${name}`;
-    const existing = byName.get(key);
+    const existing = byName.get(name);
     // An installed harness of the same name already stands for it.
     if (existing && entry.notInstalled) continue;
     if (!existing) {
@@ -103,14 +100,13 @@ export function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessCh
         },
         unavailable: entry.unavailable,
         acpmuxHarness: entry.id,
-        login: entry.auth?.login,
         ...(entry.kind ? { kind: entry.kind } : {}),
         pickable: true,
         ...(entry.notInstalled ? { notInstalled: true } : {}),
         ...(entry.top ? { top: entry.top } : {}),
       };
       result.push(next);
-      byName.set(key, { choice: next, sources });
+      byName.set(name, { choice: next, sources });
       continue;
     }
     existing.sources.push(entry);

@@ -9,15 +9,15 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import { translate } from "../src/agent-session/acpmux/i18n";
+import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
+import {
+  DEFAULT_SECTIONS,
+  resetSessionInfoState,
+  setSessionInfoMore,
+} from "../src/agent-session/acpmux/session-info/sessionInfoState";
+import { chat } from "../src/gallery/fixtures/acpmux";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { translate } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
-const { SessionInfo } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/SessionInfo"));
-const { DEFAULT_SECTIONS, resetSessionInfoState, setSessionInfoMore } = await importWithDom(
-  () => import("../src/agent-session/acpmux/session-info/sessionInfoState"),
-);
-const { chat } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

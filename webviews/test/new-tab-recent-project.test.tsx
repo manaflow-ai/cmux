@@ -6,14 +6,12 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { noChat, session } from "../src/gallery/fixtures/acpmux";
+import { EMPTY_OMNIBAR } from "../src/agent-session/acpmux/omnibar";
+import { mostRecentProject } from "../src/agent-session/acpmux/sessionList";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 import { teardownDom } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { noChat, session } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
-const { EMPTY_OMNIBAR } = await importWithDom(() => import("../src/agent-session/acpmux/omnibar"));
-const { mostRecentProject } = await importWithDom(() => import("../src/agent-session/acpmux/sessionList"));
-const { proseMirrorGlobals } = await importWithDom(() => import("../src/agent-session/acpmux/promptFieldTesting"));
 
 const HOME = "/Users/you";
 const AGENT_HOME = "/Users/you/Library/Application Support/cmux/agent-home/ws-1";

@@ -8,23 +8,12 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import type { BackgroundGroup } from "../src/agent-session/acpmux/backgroundTasks/backgroundTasks";
+import { backgroundGroups, type BackgroundGroup } from "../src/agent-session/acpmux/backgroundTasks/backgroundTasks";
+import { SUBAGENTS } from "../src/agent-session/acpmux/subagents/subagentFold";
+import { BackgroundTasksPanel } from "../src/agent-session/acpmux/backgroundTasks/BackgroundTasksPanel";
+import { SubagentTranscript } from "../src/agent-session/acpmux/backgroundTasks/SubagentTranscript";
+import { NestedAgents, WINDOW } from "../src/agent-session/acpmux/backgroundTasks/subagentTranscriptModel";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { backgroundGroups } = await importWithDom(
-  () => import("../src/agent-session/acpmux/backgroundTasks/backgroundTasks"),
-);
-const { SUBAGENTS } = await importWithDom(() => import("../src/agent-session/acpmux/subagents/subagentFold"));
-const { BackgroundTasksPanel } = await importWithDom(
-  () => import("../src/agent-session/acpmux/backgroundTasks/BackgroundTasksPanel"),
-);
-const { SubagentTranscript } = await importWithDom(
-  () => import("../src/agent-session/acpmux/backgroundTasks/SubagentTranscript"),
-);
-const { NestedAgents, WINDOW } = await importWithDom(
-  () => import("../src/agent-session/acpmux/backgroundTasks/subagentTranscriptModel"),
-);
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

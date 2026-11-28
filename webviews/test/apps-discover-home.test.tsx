@@ -6,15 +6,13 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { Strings } from "../src/pages/shared/i18n";
+import { AppsPage } from "../src/pages/apps/AppsPage";
 import type { AppsSnapshot, AppsStore } from "../src/pages/apps/store";
 import { GRID_ROW_ESTIMATE } from "../src/pages/apps/model";
 import type { CatalogApp } from "../src/pages/apps/types";
+import { languageDirection, UiProvider } from "../src/ui/UiProvider";
 import { teardownDom } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
 import { installVirtualSizes } from "./support/virtualSizes";
-
-const { AppsPage } = await importWithDom(() => import("../src/pages/apps/AppsPage"));
-const { languageDirection, UiProvider } = await importWithDom(() => import("../src/ui/UiProvider"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;

@@ -4,13 +4,11 @@ import { join } from "node:path";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import { ContextMenu } from "../src/ui/ContextMenu";
+import { UiProvider } from "../src/ui/UiProvider";
 import type { PopupHost } from "../src/ui/popupHost";
 import type { NativePopupEvent, NativePopupModel } from "../src/ui/nativePopup";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { ContextMenu } = await importWithDom(() => import("../src/ui/ContextMenu"));
-const { UiProvider } = await importWithDom(() => import("../src/ui/UiProvider"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

@@ -9,20 +9,16 @@ import { JSDOM } from "jsdom";
 import { act, useImperativeHandle, type Ref } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
+import { promptBlocks, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import type { UploadResult } from "../src/agent-session/acpmux/cloudUploads";
-import type { AttachmentIntakeOptions } from "../src/agent-session/acpmux/composer/attachmentIntakeModel";
-import type { IntakeEvents } from "../src/agent-session/acpmux/composer/intakeFiles";
+import { AttachmentStrip } from "../src/agent-session/acpmux/composer/attachmentIntake";
+import {
+  useAttachmentIntake,
+  type AttachmentIntakeOptions,
+} from "../src/agent-session/acpmux/composer/attachmentIntakeModel";
+import { intakeFiles, type IntakeEvents } from "../src/agent-session/acpmux/composer/intakeFiles";
 import { LASTING_MS, setLastingGrace } from "../src/ui/lasting";
 import { teardownDom } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { promptBlocks } = await importWithDom(() => import("../src/agent-session/acpmux/attachments"));
-const { AttachmentStrip } = await importWithDom(() => import("../src/agent-session/acpmux/composer/attachmentIntake"));
-const { useAttachmentIntake } = await importWithDom(
-  () => import("../src/agent-session/acpmux/composer/attachmentIntakeModel"),
-);
-const { intakeFiles } = await importWithDom(() => import("../src/agent-session/acpmux/composer/intakeFiles"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [

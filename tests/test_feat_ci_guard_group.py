@@ -61,9 +61,7 @@ def runs_ci_group(job: dict, event: str) -> bool:
     """The opted-in full-CI PR or a push can run the default ci guard group."""
     context = {
         "github.event_name": event,
-        # The one-shot full-ci (#63464): the full tier runs on the `full-ci` label event, not every push after it.
-        "github.event.action": "labeled" if event == "pull_request" else "",
-        "github.event.label.name": "full-ci" if event == "pull_request" else "",
+        "github.event.action": "synchronize" if event == "pull_request" else "",
         "github.event.pull_request.base.ref": "feat-cmux-next",
         "github.event.pull_request.labels.*.name": ["full-ci"],
         "vars.CI_GUARD_GROUP_ON_FULL_CI": "1",

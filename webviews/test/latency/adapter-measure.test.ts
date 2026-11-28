@@ -1,9 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { aggregateAdapterAction, measureAdapterOnce } from "./adapter-measure";
 import type { AdapterRun, LatencyAction } from "./measure";
 import { evidenceErrors } from "../../scripts/latency/run";
-import { importWithDom } from "../support/importWithDom";
-
-const { aggregateAdapterAction, measureAdapterOnce } = await importWithDom(() => import("./adapter-measure"));
 type Page = Parameters<typeof measureAdapterOnce>[0];
 
 const measured = (): AdapterRun => ({

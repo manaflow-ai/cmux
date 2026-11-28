@@ -6,12 +6,12 @@
 import { act } from "react";
 import { afterAll, beforeEach, expect, test } from "bun:test";
 import { installDom } from "../src/pages/settings/testDom";
-import { importWithDom } from "./support/importWithDom";
-
-const { EditorFind } = await importWithDom(() => import("../src/pages/editor/editorFind"));
-const { MARKDOWN_FIND_ACTIVE_HIGHLIGHT, MARKDOWN_FIND_HIGHLIGHT, markdownFindTarget } = await importWithDom(
-  () => import("../src/pages/markdown/markdownFind"),
-);
+import { EditorFind } from "../src/pages/editor/editorFind";
+import {
+  MARKDOWN_FIND_ACTIVE_HIGHLIGHT,
+  MARKDOWN_FIND_HIGHLIGHT,
+  markdownFindTarget,
+} from "../src/pages/markdown/markdownFind";
 
 const restore = installDom();
 afterAll(() => restore());

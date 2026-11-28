@@ -20,7 +20,6 @@ import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/rea
 import { useStableHandlers } from "../../agent-session/acpmux/stableHandlers";
 import { PageMenu, type PageMenuItem } from "../shared/PageMenu";
 import type { Strings } from "../shared/i18n";
-import { Button } from "../../ui/Button";
 import { ConnectionChip } from "../../ui/ConnectionChip";
 import { useConnectionQuiet } from "../../ui/lasting";
 import { isEditableTarget, type KeyStyle, type ShortcutLayout } from "../../ui/keyStyle";
@@ -299,13 +298,13 @@ export function HistoryPage({
               {t(RangeLabel[snap.range])}
             </button>
             {/* Whose page visits show (RFD 0125 D5): the person's by default, agents' one choice away. */}
-            <Button
-              bare
+            <button
+              type="button"
               className={`history-menu-button history-actor${snap.actor === "mine" ? "" : " selected"}`}
               onClick={(event) => headerMenu(event, actorItems())}
             >
               {t(ActorLabel[snap.actor])}
-            </Button>
+            </button>
             <button
               type="button"
               className="history-menu-button"

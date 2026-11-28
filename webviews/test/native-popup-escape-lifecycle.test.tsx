@@ -2,13 +2,9 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import type { PopupHost } from "../src/ui/popupHost";
-import type { NativePresentation, SurfaceSemantics } from "./helpers/nativePopupGuard";
+import { useEscapingPopup, type PopupHost } from "../src/ui/popupHost";
+import { inspectNativePopups, type NativePresentation, type SurfaceSemantics } from "./helpers/nativePopupGuard";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { useEscapingPopup } = await importWithDom(() => import("../src/ui/popupHost"));
-const { inspectNativePopups } = await importWithDom(() => import("./helpers/nativePopupGuard"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

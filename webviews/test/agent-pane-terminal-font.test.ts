@@ -5,10 +5,8 @@
 // (AgentPaneTheme.swift `script`); the pane's code variables follow the terminal's face.
 import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { applyAgentTheme } from "../src/agent-session/shared/theme";
 import type { AgentSessionTheme } from "../src/agent-session/shared/types";
-import { importWithDom } from "./support/importWithDom";
-
-const { applyAgentTheme } = await importWithDom(() => import("../src/agent-session/shared/theme"));
 
 type ThemeWindow = Window & { cmuxTheme?: { current?: unknown } };
 

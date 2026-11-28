@@ -4,10 +4,8 @@
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, createElement, useRef } from "react";
+import { useListMotion } from "../src/agent-session/acpmux/newtab/listMotion";
 import { teardownDom } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { useListMotion } = await importWithDom(() => import("../src/agent-session/acpmux/newtab/listMotion"));
 
 const scope = globalThis as Record<string, unknown>;
 const globalKeys = [

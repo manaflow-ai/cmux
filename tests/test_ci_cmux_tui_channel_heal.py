@@ -34,20 +34,6 @@ class Decide(unittest.TestCase):
         a, rid, _ = heal.decide(120, [run(3, conclusion="failure"), run(2)], NOW)
         self.assertEqual((a, rid), ("rerun", 3))
 
-    def test_compile_red_holds_instead_of_rerun_or_dispatch(self):
-        # 11-27 14Z..11-28 11Z: this job's reruns of red builds were 2,942 re-run runner-min; a compile error fails
-        # the same way on a rerun (same source) and on a dispatch (same tip), so the heal holds and the alarm speaks.
-        a, rid, _ = heal.decide(120, [run(3, conclusion="failure"), run(2)], NOW, compile_red=lambda i: i == 3)
-        self.assertEqual((a, rid), ("hold", 3))
-        a, _, _ = heal.decide(120, [run(3, conclusion="failure", attempt=3)], NOW, compile_red=lambda i: True)
-        self.assertEqual(a, "hold")
-
-    def test_compile_red_is_read_only_for_a_failed_newest_run(self):
-        seen = []
-        a, _, _ = heal.decide(120, [run(4), run(3, conclusion="failure")], NOW,
-                              compile_red=lambda i: seen.append(i) or True)
-        self.assertEqual((a, seen), ("dispatch", []))
-
     def test_spent_attempts_dispatch_instead(self):
         self.assertEqual(heal.decide(120, [run(3, conclusion="failure", attempt=3)], NOW)[0], "dispatch")
 

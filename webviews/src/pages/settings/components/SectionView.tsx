@@ -1,5 +1,5 @@
 import { categoryById, type CategoryCard } from "../categories";
-import { text, t } from "../strings";
+import { text } from "../strings";
 import { GroupList } from "./GroupList";
 import { APPEARANCE_CATEGORIES } from "../appearanceUndo";
 import { AppearanceBar } from "./AppearanceBar";
@@ -19,11 +19,11 @@ import {
   SPACE_ROWS,
   THEME_EDITS_KEY,
   THEME_FILE_KEY,
+  SELECTION_KEY,
+  DOCTOR_NOTICE_KEY,
   THEME_KEY,
   useBackdropsShown,
   useSeveralSpaces,
-  SELECTION_KEY,
-  DOCTOR_NOTICE_KEY,
 } from "../cardRows";
 import { arrangeGroups } from "../rowLevels";
 import { Card } from "./cardModules";
@@ -116,18 +116,7 @@ export function SectionView({
       {category.lead.map((card) => (
         <CardSlot key={card} card={card} focus={focus} workspace={workspace} reveal={reveal === card} />
       ))}
-      {cards.length > 0 && (
-        <GroupList
-          groups={cards}
-          focus={focus}
-          pageTitle={text(category.title)}
-          groupHelp={
-            category.id === "cloud"
-              ? { "settings.group.cloudWorkspaces": t("settingsWindow.cloud.workspaces.help") }
-              : undefined
-          }
-        />
-      )}
+      {cards.length > 0 && <GroupList groups={cards} focus={focus} pageTitle={text(category.title)} />}
       {category.trail.map((card) => (
         <CardSlot key={card} card={card} focus={focus} workspace={workspace} reveal={reveal === card} />
       ))}

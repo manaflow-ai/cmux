@@ -2,9 +2,7 @@
 // before the process ends. The page waits there for the typed draft to reach acpmux, so the last
 // keystroke is never a write still on its way when the app goes.
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { importWithDom } from "./support/importWithDom";
-
-const {
+import {
   draftWriteLimits,
   forgetQueuedDraft,
   hasPendingDraftWrite,
@@ -12,8 +10,8 @@ const {
   settleDraftWithin,
   settlePendingDraftWrites,
   writePersistedDraft,
-} = await importWithDom(() => import("../src/agent-session/acpmux/composerDraft"));
-const { webSwapHold } = await importWithDom(() => import("../src/pages/shared/webSwap"));
+} from "../src/agent-session/acpmux/composerDraft";
+import { webSwapHold } from "../src/pages/shared/webSwap";
 
 type Write = { sessionId: string; text: string };
 const scope = globalThis as Record<string, unknown>;

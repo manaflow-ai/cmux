@@ -1,18 +1,14 @@
 // l10n-allow-file: synthetic transcript test fixture.
 import { expect, test } from "bun:test";
+import {
+  WorkflowTranscript,
+  workflowPaneId,
+  workflowPaneRequest,
+} from "../src/agent-session/acpmux/summary/workflowTranscript";
+import { openSubagentPane, revealedSubagent } from "../src/agent-session/acpmux/subagents/subagentPanes";
+import { SubagentFold } from "../src/agent-session/acpmux/subagents/subagentFold";
+import { createWorkflowAdapter } from "../src/agent-session/acpmux/summary/foldWorkflows";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { WorkflowTranscript, workflowPaneId, workflowPaneRequest } = await importWithDom(
-  () => import("../src/agent-session/acpmux/summary/workflowTranscript"),
-);
-const { openSubagentPane, revealedSubagent } = await importWithDom(
-  () => import("../src/agent-session/acpmux/subagents/subagentPanes"),
-);
-const { SubagentFold } = await importWithDom(() => import("../src/agent-session/acpmux/subagents/subagentFold"));
-const { createWorkflowAdapter } = await importWithDom(
-  () => import("../src/agent-session/acpmux/summary/foldWorkflows"),
-);
 
 const request = { sessionId: "chat", runId: "wf_demo", agentId: "review" };
 const text = (text: string) => ({

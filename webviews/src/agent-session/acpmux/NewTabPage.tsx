@@ -28,8 +28,7 @@ import { firstProject, FolderRecency, homePath, projectLabel, isTemporaryFolder 
 import { useT } from "./i18n";
 import { ShortcutKeycaps } from "./ButtonKeycaps";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
-import { isStartableProject, rememberStartedProject, startedProjectChoices } from "./newtab/startedProject";
-import { callNative } from "./callNative";
+import { isStartableProject, startedProjectChoices } from "./newtab/startedProject";
 import { useNoEntryMotion } from "./newtab/noEntryMotion";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
 import { newTabStart, useNewTabChipModel } from "./newtab/chipDefaults";
@@ -126,10 +125,6 @@ type Props = NewTabCommandActions & {
   startFailure?: { error: string };
   /// The field's text as typed, after each edit (for a draft it was handed: what a pick leaves again).
   onFieldEdit?(text: string): void;
-  /// What draws over the field: the clock (`tabs.newTabClock.*`) and an extension's slot
-  /// (`tabs.newTabApp`), in the same room the other New Tab looks give them (newtab/appSlot.css
-  /// `.nt-above-room`), never in the field's place.
-  above?: React.ReactNode;
   now?: number;
 };
 
@@ -167,7 +162,6 @@ export function NewTabPage({
   takeDraft,
   startFailure,
   onFieldEdit,
-  above,
 }: Props) {
   const t = useT();
   const allChatsKey = useShortcut(SHORTCUT_ACTIONS.searchChats);
@@ -201,12 +195,6 @@ export function NewTabPage({
     setBrowseError(undefined);
     setProjectCwd(path);
   };
-  // A folder of this Mac the person picked is the next New Tab's default (newtab/startedProject.ts); another
-  // machine's row (`peer`) or a page on another machine (no `home`) never is.
-  const pickByPerson = (path: string, peer?: string) => {
-    pickProject(path);
-    if (home && !peer) rememberStartedProject(path, callNative);
-  };
   const browseProject = async (request?: BrowseRequest): Promise<BrowseResult> => {
     if (browsePending.current) return BROWSE_BUSY;
     browsePending.current = true;
@@ -217,10 +205,7 @@ export function NewTabPage({
       setBrowseError(undefined);
       try {
         const path = await onBrowseProject?.(request);
-        if (browseRequest.current === id && typeof path === "string" && path.length > 0) {
-          setProjectCwd(path);
-          if (home) rememberStartedProject(path, callNative);
-        }
+        if (browseRequest.current === id && typeof path === "string" && path.length > 0) setProjectCwd(path);
         return path;
       } catch (error) {
         if (browseRequest.current === id) setBrowseError(browseFailureMessage(error));
@@ -652,7 +637,6 @@ export function NewTabPage({
 
   return (
     <div className="acpmux-newtab" data-kind={kind}>
-      {above !== undefined && <div className="nt-above-room">{above}</div>}
       {/* The suggestions float under the field (cx-6k6cg): opening them moves nothing below. */}
       <div className="acpmux-newtab-anchor">
         <form
@@ -772,7 +756,7 @@ export function NewTabPage({
                   current={projectCwd}
                   currentLabel={selectedProject}
                   icon={<FolderIcon />}
-                  onPick={pickByPerson}
+                  onPick={pickProject}
                   onBrowse={onBrowseProject && browseProject}
                 />
               )}

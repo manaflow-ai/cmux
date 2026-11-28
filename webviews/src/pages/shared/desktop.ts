@@ -44,6 +44,11 @@ type Caller = { call(op: string, params: unknown): Promise<unknown> };
 
 let caller: Caller | null = null;
 
+/** Gives the layer the page client, for the title bar double-click (pages without one skip it). */
+export function setDesktopCaller(client: Caller | null): void {
+  caller = client;
+}
+
 /** True when `target` is inside a region a page marked as its title bar (`data-titlebar`). */
 export function isTitleBar(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false;
@@ -133,36 +138,13 @@ export function updateHairline(doc: Document = document): void {
   hairlineWatches.set(doc, { ratio, query, listener });
 }
 
-const SURFACE_BACKGROUND = "--cmux-surface-background";
-
-/** Per document: the host's inline page background the attribute was last decided for, settled (no
- * color transition was carrying the drawn value elsewhere then); "" while a decision is unsettled. */
-const seeThroughDecided = new WeakMap<Document, string>();
-
 /** Sets or clears ``SEE_THROUGH_ATTRIBUTE`` from the resolved page background. Without a host theme
- * (the plain-browser dev loop) the page is on the browser's canvas, not art: the attribute stays off.
- *
- * The host writes `--cmux-surface-background` only inline on `<html>` (WebTheme.swift `apply`, an
- * `rgba()` or `color(srgb ...)`), and no stylesheet declares it but glass-parity's, which sets the
- * attribute itself. So the page's start decides from that inline value, with no computed-style read:
- * a computed read restyles whatever is dirty first, and at a chat page's start that is every element
- * of its drawn copy (chatSnapshot/paint.ts) too. A `cmux-theme` whose inline value is the one already
- * decided reads nothing; a changed one is read computed, as before, so a theme's color transition
- * (WebTheme `settled`) flips the attribute when it did. */
+ * (the plain-browser dev loop) the page is on the browser's canvas, not art: the attribute stays off. */
 export function updateSeeThrough(doc: Document = document): void {
   const root = doc.documentElement;
   const view = doc.defaultView;
-  const inline = root.style.getPropertyValue(SURFACE_BACKGROUND).trim();
-  if (!view || inline === "") {
-    seeThroughDecided.delete(doc);
+  if (!view || view.getComputedStyle(root).getPropertyValue("--cmux-surface-background").trim() === "") {
     root.removeAttribute(SEE_THROUGH_ATTRIBUTE);
-    return;
-  }
-  if (seeThroughDecided.get(doc) === inline) return;
-  const declared = parseComputedColor(inline);
-  if (declared && !seeThroughDecided.has(doc)) {
-    seeThroughDecided.set(doc, inline);
-    root.toggleAttribute(SEE_THROUGH_ATTRIBUTE, declared.a < 1);
     return;
   }
   const probe = doc.createElement("span");
@@ -171,11 +153,7 @@ export function updateSeeThrough(doc: Document = document): void {
   root.append(probe);
   const color = parseComputedColor(view.getComputedStyle(probe).backgroundColor);
   probe.remove();
-  const seeThrough = color !== null && color.a < 1;
-  root.toggleAttribute(SEE_THROUGH_ATTRIBUTE, seeThrough);
-  // Only a decision the drawn value agrees with is kept; one read mid-transition (or from a value this
-  // parser does not know) leaves "" (unsettled), so the next `cmux-theme` reads as drawn again.
-  seeThroughDecided.set(doc, declared !== null && declared.a < 1 === seeThrough ? inline : "");
+  root.toggleAttribute(SEE_THROUGH_ATTRIBUTE, color !== null && color.a < 1);
 }
 
 if (typeof document !== "undefined") installDesktopLayer();

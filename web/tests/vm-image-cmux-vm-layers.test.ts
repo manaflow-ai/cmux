@@ -224,29 +224,6 @@ describe("layer snapshot GC", () => {
     expect(layerLabel(`cmuxnp-dev-vmimg-${"x".repeat(41)}`, `cmuxnp-dev-vmimg-agt-${key("a")}`)).toBe(`cmuxnp-dev-vmimg-${"x".repeat(41)}`);
   });
 
-  test("a stalled layer is rebuilt under its evict slug, which every later bake picks over the snapshot it replaced", async () => {
-    const { evictedLayerSlug, pickLayer, labelParent, layerLabel } = await import("../scripts/cmux-vm-image/layers");
-    const { isStallError } = await import("../scripts/cmux-vm-image/bake");
-    const own = `cmuxnp-dev-vmimg-agt-${key("a")}`;
-    // Roll 46107492079 attempts 2 and 3: a cached-layer builder ran a step past its budget, then the client timed out.
-    expect(isStallError(new Error("step clean failed (status 124, timed out)"))).toBe(true);
-    expect(isStallError(Object.assign(new Error("The operation timed out."), { name: "TimeoutError" }))).toBe(true);
-    expect(isStallError(new Error("step identity-final failed: no status (timed out)"))).toBe(true);
-    expect(isStallError(new Error("step identity-final failed"))).toBe(false);
-    const fresh = evictedLayerSlug(own, "sh-6c5a2351f39e44f8a916c2ffbe813a95");
-    expect(fresh).toBe(`${own}-e6c5a`);
-    // A rebuild of a rebuild keeps one suffix.
-    expect(evictedLayerSlug(fresh, "sh-beef0000")).toBe(`${own}-ebeef`);
-    const old = { id: "sh-old", slug: own, createdAt: at(1) };
-    const rebuilt = { id: "sh-new", slug: fresh, createdAt: at(2) };
-    expect(pickLayer([old], own)?.id).toBe("sh-old");
-    expect(pickLayer([old, rebuilt], own)?.id).toBe("sh-new");
-    expect(pickLayer([rebuilt, old], own)?.id).toBe("sh-new");
-    expect(pickLayer([{ id: "sh-x", slug: `${own}0`, createdAt: at(3) }, { id: "sh-y", slug: `cmuxnp-dev-vmimg-agt-${key("b")}-e1234`, createdAt: at(3) }], own)).toBeUndefined();
-    // An image built on the rebuild still records it as its parent, so gc-layers.ts keeps it.
-    expect(labelParent(layerLabel("cmuxnp-dev-vmimg-ci-46107492079-3", fresh))).toBe(fresh);
-  });
-
   test("keeps the newest per layer and every labeled chain under a live image; deletes the rest of the layers", async () => {
     const { planLayerGc } = await import("../scripts/cmux-vm-image/gc-layers");
     const all = [sys("1", 1), sys("2", 2), sys("3", 3), agt("4", 1, "1"), agt("5", 2, "2"), agt("6", 3, "3"), app(1, 1.5, "4")];

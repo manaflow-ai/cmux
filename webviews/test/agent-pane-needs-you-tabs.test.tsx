@@ -8,18 +8,17 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import type { NeedsYouItem } from "../src/agent-session/acpmux/needsYou/model";
-import type { NeedsYouActions } from "../src/agent-session/acpmux/needsYou/NeedsYou";
+import { translate } from "../src/agent-session/acpmux/i18n";
+import {
+  ATTENTION_OPEN_OP,
+  attentionTabs,
+  parseAttentionTabs,
+  setAttentionTabs,
+} from "../src/agent-session/acpmux/needsYou/attentionTabs";
+import { needsYouItems, type NeedsYouItem } from "../src/agent-session/acpmux/needsYou/model";
+import { NeedsYouPanel, type NeedsYouActions } from "../src/agent-session/acpmux/needsYou/NeedsYou";
+import { useNeedsYou } from "../src/agent-session/acpmux/needsYou/useNeedsYou";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { translate } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
-const { ATTENTION_OPEN_OP, attentionTabs, parseAttentionTabs, setAttentionTabs } = await importWithDom(
-  () => import("../src/agent-session/acpmux/needsYou/attentionTabs"),
-);
-const { needsYouItems } = await importWithDom(() => import("../src/agent-session/acpmux/needsYou/model"));
-const { NeedsYouPanel } = await importWithDom(() => import("../src/agent-session/acpmux/needsYou/NeedsYou"));
-const { useNeedsYou } = await importWithDom(() => import("../src/agent-session/acpmux/needsYou/useNeedsYou"));
 
 const pushed = [
   {

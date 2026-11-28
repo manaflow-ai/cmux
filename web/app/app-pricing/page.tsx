@@ -9,10 +9,7 @@ import {
   isDevelopmentProAccessEnabled,
   resolveProPlanStatus,
 } from "../../services/billing/pro";
-import {
-  isWebPlusPlanEnabled as isGoPlanEnabled,
-  isWebPlusPlanEnabledImmediately,
-} from "../../services/billing/goPlanFlag";
+import { isWebPlusPlanEnabled as isGoPlanEnabled } from "../../services/billing/goPlanFlag";
 import { PricingView } from "../components/pricing-checkout";
 import { AppPricingContent, type AppPlanSnapshot } from "./pricing-content";
 import { AppPricingFallback, unknownPlan } from "./pricing-fallback";
@@ -49,7 +46,7 @@ async function RequestPricing({
     params,
     headersList,
     snapshot: unknownPlan,
-    goPlanEnabled: isWebPlusPlanEnabledImmediately(),
+    goPlanEnabled: false,
     pending: true,
   };
   const personalize = (

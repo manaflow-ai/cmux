@@ -6,16 +6,14 @@ import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import * as agentRows from "../src/agent-session/acpmux/conversation/agentMessageRowModel";
+import { RunCard } from "../src/pages/home-channels/RunCard";
+import { RunSheet } from "../src/pages/home-channels/RunSheet";
 import table from "../src/pages/home-channels/generated/strings.json";
 import paneTable from "../src/pages/home-channels/generated/pane-strings.json";
+import { createStrings } from "../src/pages/shared/i18n";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
 import { factsCardText } from "./support/factsCard";
-
-const agentRows = await importWithDom(() => import("../src/agent-session/acpmux/conversation/agentMessageRowModel"));
-const { RunCard } = await importWithDom(() => import("../src/pages/home-channels/RunCard"));
-const { RunSheet } = await importWithDom(() => import("../src/pages/home-channels/RunSheet"));
-const { createStrings } = await importWithDom(() => import("../src/pages/shared/i18n"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

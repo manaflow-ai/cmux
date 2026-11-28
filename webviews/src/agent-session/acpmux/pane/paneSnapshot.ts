@@ -72,7 +72,6 @@ import { liveThought, thoughtOnly } from "../liveThought";
 import { changeHidden } from "../drawnRows";
 import { callOnly, liveCallLine, setLiveLine } from "../liveCallLine";
 import { liveSummary, usageOnly } from "../liveSummary";
-import { hiddenReply, hiddenReplyOnly } from "../hiddenReply";
 import { pageLanes } from "../schedule/lanes";
 import type { ComposerHandle, ComposerWake } from "../Composer";
 import { composerReadback, takeExternalInto } from "../composer/externalAttach";
@@ -155,10 +154,10 @@ import {
   lostRetryDelay,
   nextRetryDelay,
   offersAcpmuxRestart,
-  hostPlannedRestart,
   quickRetry,
   readHostRestoring,
   troubleSinceAfterLoss,
+  hostPlannedRestart,
   hostRetryStep,
   HOST_WAKE_EVENTS,
   hostWakeAsks,
@@ -167,12 +166,11 @@ import {
   RETRY_FIRST_MS,
 } from "../hostRetry";
 import {
+  acpmuxSendsReady,
   heldStartStop,
   sendsHeldForHost,
   untilHostAnswers,
-  acpmuxSendsReady,
   pageClientLink,
-  paneSends,
 } from "../sendWhenReady";
 import { revealedSubagent, SUBAGENT_REVEAL } from "../subagents/subagentPanes";
 import { newChatFolder } from "../startFolderModel";
@@ -930,7 +928,6 @@ export function paneSnapshotEffect({
     toolOutputEpoch.current = liveToolOutput.redraw();
     thoughtEpoch.current = liveThought.redraw();
     liveCallLine.redraw(next);
-    hiddenReply.redraw(next);
     const drewBefore = drawnSnapshot.current;
     drawnSnapshot.current = next;
     const draw = () =>
@@ -951,11 +948,6 @@ export function paneSnapshotEffect({
   // A pass drew the running turn from the pane's older rows while its line ran ahead on hidden
   // calls (liveCallLine.ts): the client's newest snapshot, at once.
   const unregisterLineFlush = liveCallLine.onFlush(() => {
-    const next = receivedSnapshot.current;
-    if (!cancelled && next) redrawPane(next, true);
-  });
-  // A pass drew a background reply the pane went around while its line hid it (hiddenReply.ts).
-  const unregisterHiddenFlush = hiddenReply.onFlush(() => {
     const next = receivedSnapshot.current;
     if (!cancelled && next) redrawPane(next, true);
   });
@@ -1386,14 +1378,6 @@ export function paneSnapshotEffect({
           const at = drawn ? streamedOnly(drawn, next) : -1;
           if (drawn && at >= 0) {
             streamingRow.set(next.rows[at]!, drawn.rows[at]!);
-            liveCallLine.follow(received, next);
-            return;
-          }
-          // Only a background turn's reply grew while its line hides it (hiddenReply.ts): no row
-          // anyone sees changed; the pane, the transcript and the composer keep what they drew.
-          const hidden = drawn ? hiddenReplyOnly(drawn, next) : -1;
-          if (drawn && hidden >= 0) {
-            hiddenReply.set(next, hidden);
             liveCallLine.follow(received, next);
             return;
           }
@@ -2120,7 +2104,6 @@ export function paneSnapshotEffect({
           harness,
           cwd,
           peer,
-          cloudRegistryId,
           deferred,
           noProject,
           model,
@@ -2245,8 +2228,6 @@ export function paneSnapshotEffect({
             noProject === true,
             peer && model ? String(model) : undefined,
             newTabRetainsDraft.current,
-            false,
-            typeof cloudRegistryId === "string" ? cloudRegistryId : undefined,
           );
           await persistSession(started);
           return started;
@@ -3213,7 +3194,6 @@ export function paneSnapshotEffect({
   return () => {
     cancelled = true;
     unregisterLineFlush();
-    unregisterHiddenFlush();
     unregisterViewBridge?.();
     for (const name of HOST_WAKE_EVENTS.document) document.removeEventListener(name, wake);
     for (const name of HOST_WAKE_EVENTS.window) window.removeEventListener(name, wake);

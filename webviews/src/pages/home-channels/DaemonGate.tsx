@@ -15,6 +15,7 @@ import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { DaemonSocket, type DaemonAuth } from "../shared/daemonSocket";
 import type { Strings } from "../shared/i18n";
 import { OWNER_SENTENCE, userMessage } from "../shared/userMessage";
+import { useLasting } from "../../ui/lasting";
 import { useAutoRetry } from "../../agent-session/acpmux/autoRetry";
 import "./DaemonGate.css";
 
@@ -65,25 +66,16 @@ export interface HostCredential {
 /** Where the page's daemon comes from: a URL the person authenticates, or the hosting app. */
 export type DaemonSource = { kind: "url"; url: string } | { kind: "host"; load(): Promise<HostCredential> };
 
-type ReadyPhase = {
-  kind: "ready";
-  daemon: DaemonSocket;
-  owner?: DaemonSocket;
-  generation: number;
-  pages?: string;
-  endpoint: string;
-};
-
 type Phase =
   | { kind: "form"; error?: string }
-  | { kind: "connecting"; note?: string; previous?: ReadyPhase }
+  | { kind: "connecting"; note?: string }
   | { kind: "pairing"; code: string }
   /** The host says this daemon cannot serve the page and cmux cannot fix it by itself: no connect
    *  loop, and the page says why. `restart` when restarting cmux-tui is the fix (a button: a restart is
    *  the person's call); otherwise the page asks again on its own (`useAutoRetry`), so it opens once the
    *  person has done what the sentence says, with no Connect to click. */
   | { kind: "blocked"; error: string; restart?: boolean }
-  | ReadyPhase;
+  | { kind: "ready"; daemon: DaemonSocket; owner?: DaemonSocket; generation: number; pages?: string };
 
 const BACKOFF_MIN_MS = 500;
 const BACKOFF_MAX_MS = 10_000;
@@ -103,12 +95,7 @@ export function afterConnectFailure(code: string | undefined, source: "url" | "h
     : "form";
 }
 
-export function DaemonGate(props: Parameters<typeof DaemonGateConnection>[0]) {
-  const key = props.source.kind === "url" ? props.source.url : "host";
-  return <DaemonGateConnection key={key} {...props} />;
-}
-
-function DaemonGateConnection({
+export function DaemonGate({
   source,
   strings,
   restart,
@@ -149,7 +136,6 @@ function DaemonGateConnection({
     timer: 0 as ReturnType<typeof setTimeout> | 0,
     daemon: null as DaemonSocket | null,
     owner: null as DaemonSocket | null,
-    endpointKey: undefined as string | undefined,
   });
 
   /** A socket that serves the conversations to a page: authenticated and new enough. `closed`
@@ -175,11 +161,6 @@ function DaemonGateConnection({
     pages?: string,
     ownerCredential?: HostCredential["owner"],
   ) => {
-    // A host reconnect may hand us a different daemon or Chief owner. Do not keep presenting
-    // the previous endpoint's cached Home while that replacement handshakes; same endpoints
-    // retain the last frame until HomeStorePresentation receives fresh data.
-    const endpointKey = JSON.stringify([endpoint, ownerCredential?.url]);
-    if (live.current.endpointKey && live.current.endpointKey !== endpointKey) setPhase({ kind: "connecting" });
     const opening = [
       open(endpoint, auth),
       ownerCredential ? open(ownerCredential.url, { token: ownerCredential.token }) : Promise.resolve(undefined),
@@ -207,7 +188,6 @@ function DaemonGateConnection({
         live.current.attempt = 0;
         live.current.daemon = daemon;
         live.current.owner = owner ?? null;
-        live.current.endpointKey = endpointKey;
         const generation = ++live.current.generation;
         const lost = (reason: string) => {
           if (!live.current.mounted || live.current.generation !== generation || live.current.daemon !== daemon) return;
@@ -223,14 +203,7 @@ function DaemonGateConnection({
         };
         daemon.onClose(lost);
         owner?.onClose(lost);
-        setPhase({
-          kind: "ready",
-          daemon,
-          owner,
-          generation,
-          pages,
-          endpoint: JSON.stringify([endpoint, ownerCredential?.url]),
-        });
+        setPhase({ kind: "ready", daemon, owner, generation, pages });
       })
       .catch((error: Error & { code?: string }) => {
         if (!live.current.mounted) return;
@@ -272,11 +245,7 @@ function DaemonGateConnection({
   /** Capped exponential backoff with jitter, one attempt in flight (spec transports.md "Reconnect"). */
   const retry = (note?: string) => {
     if (!live.current.mounted || live.current.daemon) return;
-    setPhase((previous) => ({
-      kind: "connecting",
-      note,
-      previous: previous.kind === "ready" ? previous : previous.kind === "connecting" ? previous.previous : undefined,
-    }));
+    setPhase({ kind: "connecting", note });
     const step = live.current.attempt++;
     const max = document.visibilityState === "visible" ? SHOWN_BACKOFF_MAX_MS : BACKOFF_MAX_MS;
     const delay = Math.min(max, BACKOFF_MIN_MS * 2 ** step) * (0.5 + Math.random() / 2);
@@ -297,23 +266,29 @@ function DaemonGateConnection({
       state.owner?.close();
       state.daemon = null;
       state.owner = null;
-      state.endpointKey = undefined;
     };
     // Runs once per endpoint.
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- resume is rebuilt each render; the effect runs once per endpoint.
   }, [url, source.kind]);
 
+  // Connecting (a launch, the daemon or this build's Chief starting or restarting, a dropped link):
+  // nothing shows while the retries can still outlast it. Only one that lasts past the grace is
+  // said, as one muted line: the last attempt's reason, never in red, since the retries go on.
+  const lasting = useLasting(phase.kind === "connecting");
   // A final refusal with no restart to offer (a daemon too old, a listener cmux cannot restart here):
   // its fix is outside this page, so asking again is the only thing left, and it is not the person's
   // decision (Leo, 2026-11-22: "vacuous decisions like that should be just done"). One local connect
   // per ask, on the shared backoff, only while the page is shown.
   useAutoRetry(phase.kind === "blocked" && !(phase.restart && restart) ? phase : undefined, resume);
-  // Automatic reconnects stay silent; final credential/setup refusals below keep their action.
-  // Reconnecting the same endpoints keeps presentation and drafts mounted. A different owner
-  // or daemon endpoint gets a new subtree, so its cached content can never carry across.
-  const ready = phase.kind === "ready" ? phase : phase.kind === "connecting" ? phase.previous : undefined;
-  if (ready) return <Fragment key={ready.endpoint}>{children(ready.daemon, ready.pages, ready.owner)}</Fragment>;
-  if (phase.kind === "connecting") return <section className="hc-gate" aria-busy="true" />;
+  // A new store per connection: the key remounts the page on every reconnect.
+  if (phase.kind === "ready")
+    return <Fragment key={phase.generation}>{children(phase.daemon, phase.pages, phase.owner)}</Fragment>;
+  if (phase.kind === "connecting")
+    return (
+      <section className="hc-gate" aria-busy="true">
+        {lasting && <output className="hc-gate-line">{phase.note ?? t("connect.connecting")}</output>}
+      </section>
+    );
   return (
     <section className="hc-gate" aria-labelledby="hc-gate-title">
       <h1 id="hc-gate-title">{t("connect.title")}</h1>

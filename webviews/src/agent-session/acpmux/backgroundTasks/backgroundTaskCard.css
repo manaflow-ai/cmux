@@ -37,7 +37,6 @@
 .acpmux-bg-card__toggle:focus-visible {
   outline: var(--cmux-focus-ring-width) solid var(--ds-color-focus);
 }
-.acpmux-bg-card__glyph,
 .acpmux-bg-card__disclosure {
   display: inline-flex;
   flex: none;
@@ -56,51 +55,64 @@
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
 }
-/* A command's row is its terminal glyph, then its title in the muted tone: an agent's row (the panel's
-   `acpmux-bg__task`) leads with the agent glyph in the normal one. */
-.acpmux-bg-card__title {
-  color: var(--agent-muted);
+/* The body lines up under the title, past the disclosure. */
+.acpmux-bg-card__body-inner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  padding: 0 var(--ds-space-3) var(--ds-space-2) calc(var(--ds-space-2) * 2 + var(--ds-icon-12));
 }
-.acpmux-bg-card[data-state="running"] .acpmux-bg-card__title {
+/* The whole command, wrapped: never cut to one line. */
+.acpmux-bg-card__command,
+.acpmux-bg-card__output {
+  display: block;
+  min-width: 0;
+  margin: 0;
+  color: var(--agent-muted);
+  font-family: var(--cv-mono, ui-monospace, monospace);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.acpmux-bg-card__command {
   color: var(--agent-text);
 }
-.acpmux-bg-card[data-state="failed"] .acpmux-bg-card__title {
-  color: var(--agent-status-failure);
+.acpmux-bg-card__prompt {
+  color: var(--agent-muted);
+  user-select: none;
 }
-/* Open in terminal: on the head, shown while the card is hovered or has focus, never at rest. */
-.acpmux-bg-card__terminal {
-  appearance: none;
-  flex: none;
+.acpmux-bg-card__output {
+  max-height: calc(var(--text-detail--line-height) * 12);
+  overflow: auto;
+}
+.acpmux-bg-card__empty {
+  margin: 0;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+.acpmux-bg-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-2);
+}
+.acpmux-bg-card__action {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: var(--ds-control-compact);
-  height: var(--ds-control-compact);
-  padding: 0;
+  gap: var(--ds-space-1);
   border: 0;
-  border-radius: var(--ds-radius-control);
-  background: transparent;
+  padding: 0;
   color: var(--agent-muted);
+  background: transparent;
+  font: inherit;
+  font-size: var(--text-detail);
   cursor: default;
-  opacity: 0;
 }
-.acpmux-bg-card:hover .acpmux-bg-card__terminal,
-.acpmux-bg-card:has([data-popup-open]) .acpmux-bg-card__terminal,
-.acpmux-bg-card:is(:has([data-popup-open]), :focus-within) .acpmux-bg-card__terminal,
-.acpmux-bg-card__terminal:focus-visible {
-  opacity: 1;
-}
-.acpmux-bg-card__terminal:hover {
-  background: var(--ds-color-hover);
+.acpmux-bg-card__action:hover,
+.acpmux-bg-card__action:focus-visible {
   color: var(--agent-text);
-}
-.acpmux-bg-card__terminal:focus-visible {
-  outline: var(--cmux-focus-ring-width) solid var(--ds-color-focus);
-}
-/* The body is the chat's Shell block, inset under the head's glyph. */
-.acpmux-bg-card__body-inner {
-  min-width: 0;
-  padding: 0 var(--ds-space-2) var(--ds-space-2);
 }
 /* In the composer hat the tail already sits under the row's title: no inset of its own. */
 .acpmux-running-tray__tail .acpmux-bg-card__body-inner {

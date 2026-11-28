@@ -3,10 +3,8 @@ import { JSDOM } from "jsdom";
 import { readFileSync } from "node:fs";
 import strings from "../src/agent-session/acpmux/generated/strings.json";
 import type { PlayContext } from "../src/gallery/play";
+import fixture from "../src/agent-session/acpmux/AuthHealth.gallery";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { default: fixture } = await importWithDom(() => import("../src/agent-session/acpmux/AuthHealth.gallery"));
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;

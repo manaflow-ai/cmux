@@ -280,12 +280,6 @@ export type AcpmuxBackgroundRun = {
   /// ended when they all ended alike: a run of only those reads "N subagents stopped".
   subagents?: number;
   subagentEnd?: "finished" | "stopped" | "disconnected" | "failed";
-  /// How many members are rows the harness wrote into the turn (backgroundRuns.ts `harnessWork`),
-  /// each folded as a tool call is: task notifications, messages from other agents (an inbox relay
-  /// counts its messages) and subagents' "Report from" lines.
-  notifications?: number;
-  messages?: number;
-  reports?: number;
   rows: string[];
 };
 
@@ -518,11 +512,6 @@ export type ClaimCheck = {
 /// session, and its title as the row's text names it (conversation/ForkedFromLine.tsx links it).
 export type ForkedFrom = { parentId: string; chat: string };
 
-/// The person's own prompt (typed here or on another of their devices), not another agent's
-/// message, a task's result or harness bookkeeping: what prompt recall and the scroll rail keep.
-export const sentByPerson = (row: AcpmuxRow) =>
-  row.kind === "user" && !row.incoming && !row.received && !row.untyped && row.from === undefined;
-
 export type AcpmuxRow = {
   id: string;
   version: number;
@@ -730,9 +719,6 @@ export type AcpmuxRow = {
   folded?: boolean;
   /// A Worked-for row's actual open state, including a provisional key from paged history.
   foldOpen?: boolean;
-  /// A running turn's header whose fold holds nothing to open yet (turns.ts `liveFoldHidesWork`): its
-  /// first call still runs on the live line, or no step came. It draws no chevron until work lands.
-  foldEmpty?: boolean;
   /// A turn's header ("Worked for", turns.ts `turnHeaderId`) is one row from the turn's start to its
   /// end: `running` while the turn runs ("Working for 32s", its clock ticking from `at`, or held at
   /// `durationMs` once the answer came), unset once it ended.
@@ -981,11 +967,6 @@ export type AcpmuxRow = {
   subagents?: Subagent[];
   /// A start line's: how many of its `subagents` it names; it counts the rest (runningTray.ts `startedLineModel`).
   startedNamed?: number;
-  /// A start line's: every subagent it names ended, none failed (runningTray.ts `startedLine`).
-  startedAllEnded?: true;
-  /// A start line beside its turn's closed "Worked for", whose done lines that fold hides: it reads
-  /// "{name} finished" (conversation/turns.ts `outside`; SubagentStartedLine.tsx).
-  startedEndedLine?: true;
   /// On a background turn's line: the subagent whose report started the turn, which the line names
   /// (subagents/runningTray.ts `withSubagentLines`; conversation/BackgroundTurnLine.tsx).
   subagentReport?: Subagent;
@@ -1407,8 +1388,6 @@ export type AcpmuxSnapshot = {
   peers?: string[];
   /// Each peer's transport by name: `ssh` for an `ssh://` peer, `cloud` for any other (environments.ts).
   peerKinds?: Record<string, "ssh" | "cloud">;
-  /// The workspace registry ID of each peer leased by a Cloud link.
-  peerCloudRegistries?: Record<string, string>;
   /// Whether each peer is connected, as `_acpmux/status` last said (environments.ts).
   peerConnected?: Record<string, boolean>;
   /// Each peer's link state (`connected`, `reconnecting`, …), as `_acpmux/status` last said (environments.ts).
@@ -1707,7 +1686,6 @@ export type AcpmuxSnapshot = {
     pickable?: boolean;
     /** The declared launcher or route kind; routers cannot represent a harness family. */
     kind?: string;
-    endpoint?: true;
     /** acpmux's family for the harness (`_acpmux/harnesses` `family`): joins it to a catalog harness. */
     family?: string;
     /** `_acpmux/harnesses` `icon`: the profile's own icon value (a brand id, an emoji, an SF
@@ -3173,8 +3151,8 @@ function fallbackRowHeight(
   // WorkflowCard: head, metadata, latest line, progress bar and focus line.
   if (row.kind === WORKFLOW_CARD) return finish(124);
   if (row.kind === SUBAGENT_ROW) return finish(row.status === "last" || row.status === "only" ? 56 : 48);
-  // Empty child copy (blank while loading, one line after) is one body line.
-  if (row.kind === SUBAGENT_EMPTY) return finish(metrics().lineHeight);
+  // Empty child copy is measured on mount; start with two body lines.
+  if (row.kind === SUBAGENT_EMPTY) return finish(2 * metrics().lineHeight);
   // The 27px disclosure line, and the live status lines in its place.
   // The running turn's line as its last row is the footer's slot (footerRow(), conversation.css
   // `.cv-worked.is-below`; transcriptGrid.ts MARK_FOOTER_SLOT), so the end-of-turn swap keeps its place.

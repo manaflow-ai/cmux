@@ -8,10 +8,8 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import React, { act, useRef } from "react";
 import type { Root } from "react-dom/client";
+import { noChat } from "../src/gallery/fixtures/acpmux";
 import { teardownDom } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { noChat } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [

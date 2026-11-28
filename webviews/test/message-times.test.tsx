@@ -12,13 +12,9 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { exactTime, messageAge, nextMessageAge } from "../src/agent-session/acpmux/conversation/relativeTime";
+import { pageClocks } from "../src/ui/pageClock";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { exactTime, messageAge, nextMessageAge } = await importWithDom(
-  () => import("../src/agent-session/acpmux/conversation/relativeTime"),
-);
-const { pageClocks } = await importWithDom(() => import("../src/ui/pageClock"));
 
 const SECOND = 1_000;
 const MINUTE = 60 * SECOND;

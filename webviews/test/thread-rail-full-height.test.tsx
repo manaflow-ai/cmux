@@ -11,6 +11,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { promptIndexOf } from "./support/promptIndex";
 import { teardownDom } from "./support/domTeardown";
 import { railFrame, withRail } from "./support/railFrame";
@@ -57,7 +58,6 @@ for (const key of Object.getOwnPropertyNames(dom.window))
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
-const { turnView } = await import("../src/agent-session/acpmux/conversation/turns");
 
 // jsdom has no layout: a 700 px view, a pane 1040 px wide, and a bottom stack `stack` px tall laid over
 // the view's foot.

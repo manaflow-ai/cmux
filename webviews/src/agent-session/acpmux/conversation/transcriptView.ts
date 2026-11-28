@@ -8,6 +8,7 @@
 // as Normal) and keeps the old names for the callers that set one.
 import {
   chatDetailOf,
+  hasOwnChatDetail,
   makeChatDetailDefault,
   resetChatDetails,
   setChatDetail,
@@ -21,6 +22,9 @@ export { foldPlays } from "./chatDetailChoice";
 /// The chat's view: its level's (Messages opens as Normal).
 export const transcriptViewOf = (sessionId: string | undefined): TranscriptView =>
   transcriptViewOfDetail(chatDetailOf(sessionId));
+
+/// Whether the chat has a level of its own.
+export const hasOwnTranscriptView = hasOwnChatDetail;
 
 /// The chat's view as a hook (the disclosure provider reads it once for its rows).
 export const useTranscriptView = (sessionId: string | undefined): TranscriptView =>

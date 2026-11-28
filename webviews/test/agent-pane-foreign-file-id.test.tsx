@@ -6,15 +6,11 @@
 import { expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { importWithDom } from "./support/importWithDom";
-
-const { foreignFileIds } = await importWithDom(() => import("../src/agent-session/acpmux/chips/paths"));
-const { AgentMessageBody } = await importWithDom(
-  () => import("../src/agent-session/acpmux/conversation/AgentMessageBody"),
-);
-const { PromptText } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/PromptText"));
-const { translate } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
-const { useDom } = await importWithDom(() => import("./support/unknownWrite"));
+import { foreignFileIds } from "../src/agent-session/acpmux/chips/paths";
+import { AgentMessageBody } from "../src/agent-session/acpmux/conversation/AgentMessageBody";
+import { PromptText } from "../src/agent-session/acpmux/conversation/PromptText";
+import { translate } from "../src/agent-session/acpmux/i18n";
+import { useDom } from "./support/unknownWrite";
 
 useDom();
 

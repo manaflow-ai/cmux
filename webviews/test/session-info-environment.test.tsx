@@ -9,25 +9,15 @@ import { act, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
+import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
+import { chatProject, internalFolder } from "../src/agent-session/acpmux/session-info/chatFolders";
+import { EnvironmentSection } from "../src/agent-session/acpmux/session-info/EnvironmentSection";
+import { environmentToSave } from "../src/agent-session/acpmux/session-info/environmentSectionModel";
+import { resetSessionInfoState } from "../src/agent-session/acpmux/session-info/sessionInfoState";
+import { setNativeHost } from "../src/agent-session/acpmux/native";
+import { translate } from "../src/agent-session/acpmux/i18n";
+import { activity, chat, tool } from "../src/gallery/fixtures/acpmux";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { SessionInfo } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/SessionInfo"));
-const { chatProject, internalFolder } = await importWithDom(
-  () => import("../src/agent-session/acpmux/session-info/chatFolders"),
-);
-const { EnvironmentSection } = await importWithDom(
-  () => import("../src/agent-session/acpmux/session-info/EnvironmentSection"),
-);
-const { environmentToSave } = await importWithDom(
-  () => import("../src/agent-session/acpmux/session-info/environmentSectionModel"),
-);
-const { resetSessionInfoState } = await importWithDom(
-  () => import("../src/agent-session/acpmux/session-info/sessionInfoState"),
-);
-const { setNativeHost } = await importWithDom(() => import("../src/agent-session/acpmux/native"));
-const { translate } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
-const { activity, chat, tool } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 

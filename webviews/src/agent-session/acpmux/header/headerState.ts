@@ -18,8 +18,6 @@ export interface HeaderPullRequest {
   readonly url: string;
   readonly number: number;
   readonly title: string;
-  /// Full GitHub head supplied by the daemon, binding explicit actions to the displayed revision.
-  readonly headSha?: string;
   /// `open`, `draft`, `merged` or `closed`.
   readonly state: string;
   /// `approved`, `changes_requested`, `review_required`, or empty.
@@ -237,7 +235,7 @@ function workspaceOf(value: unknown): HeaderWorkspace | undefined {
 }
 
 /// The App's pull request, if it has the fields the chip reads and an https link.
-export function pullRequestOf(value: unknown): HeaderPullRequest | undefined {
+function pullRequestOf(value: unknown): HeaderPullRequest | undefined {
   const raw = (value ?? {}) as Partial<Record<keyof HeaderPullRequest, unknown>>;
   const checks = (raw.checks ?? {}) as Partial<Record<keyof HeaderPullRequest["checks"], unknown>>;
   if (typeof raw.url !== "string" || !raw.url.startsWith("https://") || typeof raw.number !== "number")
@@ -247,7 +245,6 @@ export function pullRequestOf(value: unknown): HeaderPullRequest | undefined {
     url: raw.url,
     number: raw.number,
     title: text(raw.title),
-    ...(typeof raw.headSha === "string" && /^[a-f0-9]{40}$/i.test(raw.headSha) ? { headSha: raw.headSha } : {}),
     state: typeof raw.state === "string" ? raw.state : "open",
     review: text(raw.review),
     mergeable: text(raw.mergeable),

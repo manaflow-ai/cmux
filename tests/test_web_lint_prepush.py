@@ -2871,10 +2871,6 @@ class FreeMemoryHeavyTests(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp, True)
         self.addCleanup(self.release)
-        # The floor is judged on the meminfo below alone, not on this host's cgroup (CgroupHeadroomTests).
-        patcher = mock.patch.object(self.lint, "cgroup_headroom_gib", return_value=None)
-        patcher.start()
-        self.addCleanup(patcher.stop)
 
     def release(self):
         if self.lint._heavy_lock is not None:
@@ -2924,56 +2920,6 @@ class FreeMemoryHeavyTests(unittest.TestCase):
         ok, err = self.run_it("lots", 32 * 1024 * 1024)
         self.assertFalse(ok)
         self.assertIn("not a number", err)
-
-
-class CgroupHeadroomTests(unittest.TestCase):
-    """Free memory is the least of MemAvailable and every cgroup level's memory.max - memory.current, and the
-    type-aware checks start one per HEAVY_PEAK_GIB of it: a 16 GiB acpmux slice on a 64 GiB, 32 vCPU lane VM let 16
-    start and the OOM killer stopped tsgolint (2026-11-28)."""
-
-    def setUp(self):
-        self.lint = load_lint(Path(__file__).resolve().parent.parent)
-        self.tmp = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, self.tmp, True)
-        self.root = self.tmp / "cg"
-        self.leaf = self.root / "user.slice" / "session.slice" / "run.scope"
-        self.leaf.mkdir(parents=True)
-        self.proc = self.tmp / "cgroup"
-        self.proc.write_text("0::/user.slice/session.slice/run.scope\n")
-        self.meminfo = self.tmp / "meminfo"
-        self.meminfo.write_text(f"MemAvailable: {56 * 1024 * 1024} kB\n")
-
-    def limit(self, level, max_gib, current_gib):
-        (level / "memory.max").write_text("max\n" if max_gib is None else f"{int(max_gib * 1024 ** 3)}\n")
-        (level / "memory.current").write_text(f"{int(current_gib * 1024 ** 3)}\n")
-
-    def headroom(self):
-        return self.lint.cgroup_headroom_gib(str(self.proc), str(self.root))
-
-    def test_no_limit_anywhere_is_none(self):
-        self.limit(self.leaf, None, 1)
-        self.assertIsNone(self.headroom())
-
-    def test_a_parent_slice_limit_is_found_and_the_least_wins(self):
-        self.limit(self.leaf, None, 1)
-        self.limit(self.leaf.parent, 16, 2)
-        self.limit(self.leaf.parent.parent, 60, 10)
-        self.assertAlmostEqual(self.headroom(), 14.0)
-
-    def test_available_takes_the_cgroup_when_it_is_less(self):
-        with mock.patch.object(self.lint, "cgroup_headroom_gib", return_value=14.0):
-            self.assertAlmostEqual(self.lint.available_gib(str(self.meminfo)), 14.0)
-        with mock.patch.object(self.lint, "cgroup_headroom_gib", return_value=None):
-            self.assertAlmostEqual(self.lint.available_gib(str(self.meminfo)), 56.0)
-
-    def test_heavy_slots_follow_memory_not_only_cores(self):
-        with mock.patch.object(self.lint, "usable_cores", return_value=32):
-            self.assertEqual(self.lint.heavy_slots(free_gib=14.0), 1)
-            self.assertEqual(self.lint.heavy_slots(free_gib=4.0), 1)
-            self.assertEqual(self.lint.heavy_slots(free_gib=200.0), 16)
-        with mock.patch.object(self.lint, "usable_cores", return_value=2), \
-                mock.patch.object(self.lint, "available_gib", return_value=None):
-            self.assertEqual(self.lint.heavy_slots(), 1)
 
 
 class BloblessMirrorRefTests(unittest.TestCase):

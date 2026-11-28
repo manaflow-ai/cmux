@@ -1,9 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { receiveTransportEvent } from "../src/agent-session/acpmux/bridgeSocket";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { receiveTransportEvent } = await importWithDom(() => import("../src/agent-session/acpmux/bridgeSocket"));
 
 let dom: JSDOM | undefined;
 const scope = globalThis as Record<string, unknown>;

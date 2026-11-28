@@ -11,11 +11,9 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AgentQuestion, QuestionReply } from "../src/agent-session/acpmux/question/model";
+import { QuestionCard } from "../src/agent-session/acpmux/question/QuestionCard";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { QuestionCard } = await importWithDom(() => import("../src/agent-session/acpmux/question/QuestionCard"));
-const { COMPOSER_READY_EVENT } = await importWithDom(() => import("../src/agent-session/acpmux/composerFocus"));
+import { COMPOSER_READY_EVENT } from "../src/agent-session/acpmux/composerFocus";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

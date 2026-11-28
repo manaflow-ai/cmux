@@ -17,31 +17,17 @@ import { afterEach, beforeEach, expect, setSystemTime, spyOn, test } from "bun:t
 import { act, useMemo, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
-import type { StartedSession } from "../src/agent-session/acpmux/started/startedSessions";
-import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
-import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { transcriptColumn } = await importWithDom(() => import("../src/agent-session/acpmux/model"));
-const { translate } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
-const { SESSION_INFO_PLACEMENT_KEY, setChatDisplay } = await importWithDom(
-  () => import("../src/agent-session/acpmux/chatDisplay"),
-);
-const { ChatHeaderTools } = await importWithDom(() => import("../src/agent-session/acpmux/header/ChatHeaderTools"));
-const { setChipHost } = await importWithDom(() => import("../src/agent-session/acpmux/chips/host"));
-const { resetPullRequestStore } = await importWithDom(
-  () => import("../src/agent-session/acpmux/chips/pullRequestStore"),
-);
-const { setHeaderState } = await importWithDom(() => import("../src/agent-session/acpmux/header/headerState"));
-const { resetChangesStatuses } = await importWithDom(
-  () => import("../src/agent-session/acpmux/session-info/changesStatus"),
-);
-const { SessionInfo } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/SessionInfo"));
-const { SESSION_INFO } = await importWithDom(
-  () => import("../src/agent-session/acpmux/session-info/sessionInfoSelectors"),
-);
-const {
+import { transcriptColumn, type AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
+import { translate } from "../src/agent-session/acpmux/i18n";
+import { SESSION_INFO_PLACEMENT_KEY, setChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
+import { ChatHeaderTools } from "../src/agent-session/acpmux/header/ChatHeaderTools";
+import { setChipHost } from "../src/agent-session/acpmux/chips/host";
+import { resetPullRequestStore } from "../src/agent-session/acpmux/chips/pullRequestStore";
+import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
+import { resetChangesStatuses } from "../src/agent-session/acpmux/session-info/changesStatus";
+import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
+import { SESSION_INFO } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
+import {
   sessionInfoTopOffset,
   sessionInfoOverChat,
   sessionInfoPushes,
@@ -54,28 +40,30 @@ const {
   sessionInfoFits,
   FLOAT_MARGIN,
   pushes,
-} = await importWithDom(() => import("../src/agent-session/acpmux/session-info/sessionInfoModel"));
-const { useSessionInfo } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/useSessionInfo"));
-const {
+} from "../src/agent-session/acpmux/session-info/sessionInfoModel";
+import { useSessionInfo } from "../src/agent-session/acpmux/session-info/useSessionInfo";
+import {
   SESSION_INFO_WIDTH,
   sessionInfoState,
   resetSessionInfoState,
   setSessionInfoMore,
   setSessionInfoOpen,
   setSessionInfoSection,
-} = await importWithDom(() => import("../src/agent-session/acpmux/session-info/sessionInfoState"));
-const { sessionEntry } = await importWithDom(() => import("../src/agent-session/acpmux/sessionList"));
-const { spawnedSessions, startedSessions } = await importWithDom(
-  () => import("../src/agent-session/acpmux/started/startedSessions"),
-);
-const { openSourceFile } = await importWithDom(
-  () => import("../src/agent-session/acpmux/session-info/sourcesSectionModel"),
-);
-const { NativeError } = await importWithDom(() => import("../src/agent-session/acpmux/nativeError"));
-const { sessionSummary } = await importWithDom(() => import("../src/agent-session/acpmux/summary/sessionSummary"));
-const { activity, assistant, chat, tool } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
-const { withCloudMachineSummary } = await importWithDom(() => import("../src/agent-session/acpmux/cloudSummary"));
-const { SummaryCard } = await importWithDom(() => import("../src/agent-session/acpmux/summary/SummaryCard"));
+} from "../src/agent-session/acpmux/session-info/sessionInfoState";
+import { sessionEntry } from "../src/agent-session/acpmux/sessionList";
+import {
+  spawnedSessions,
+  startedSessions,
+  type StartedSession,
+} from "../src/agent-session/acpmux/started/startedSessions";
+import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
+import { openSourceFile } from "../src/agent-session/acpmux/session-info/sourcesSectionModel";
+import { NativeError } from "../src/agent-session/acpmux/nativeError";
+import { sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
+import { activity, assistant, chat, tool } from "../src/gallery/fixtures/acpmux";
+import { withCloudMachineSummary } from "../src/agent-session/acpmux/cloudSummary";
+import { SummaryCard } from "../src/agent-session/acpmux/summary/SummaryCard";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

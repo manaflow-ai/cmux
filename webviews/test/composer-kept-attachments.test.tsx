@@ -6,16 +6,11 @@ import { afterAll, afterEach, beforeAll, beforeEach, expect, jest, test } from "
 import { JSDOM } from "jsdom";
 import { act, createRef } from "react";
 import type { Root } from "react-dom/client";
+import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
-import type { KeptAttachments } from "../src/agent-session/acpmux/composer/keptAttachments";
+import { KEPT_ATTACHMENTS_SETTLE_MS, type KeptAttachments } from "../src/agent-session/acpmux/composer/keptAttachments";
 import { teardownDom } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { noChat } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
-const { KEPT_ATTACHMENTS_SETTLE_MS } = await importWithDom(
-  () => import("../src/agent-session/acpmux/composer/keptAttachments"),
-);
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [

@@ -9,16 +9,14 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import { translate } from "../src/agent-session/acpmux/i18n";
+import { AcpmuxRpcError } from "../src/agent-session/acpmux/handoff/protocol";
+import { NativeError } from "../src/agent-session/acpmux/nativeError";
+import { RequestBudget } from "../src/agent-session/acpmux/requestBudget";
 import type { AgentQuestion } from "../src/agent-session/acpmux/question/model";
+import { QuestionCard } from "../src/agent-session/acpmux/question/QuestionCard";
+import { directClientStub } from "./support/directClientStub";
 import { settleReact } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { translate } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
-const { AcpmuxRpcError } = await importWithDom(() => import("../src/agent-session/acpmux/handoff/protocol"));
-const { NativeError } = await importWithDom(() => import("../src/agent-session/acpmux/nativeError"));
-const { RequestBudget } = await importWithDom(() => import("../src/agent-session/acpmux/requestBudget"));
-const { QuestionCard } = await importWithDom(() => import("../src/agent-session/acpmux/question/QuestionCard"));
-const { directClientStub } = await importWithDom(() => import("./support/directClientStub"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

@@ -5,6 +5,17 @@
 // the person's click. These tests drive the card and its wire with a mocked client.
 import { afterAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import {
+  autoSignIn,
+  cloudAgentLogin,
+  localApiKeyLogin,
+  loginAgent,
+  loginFailure,
+  offersGateway,
+  signInURL,
+  signsInByPage,
+  takesApiKey,
+} from "../src/agent-session/acpmux/cloudAgentLogin";
 import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -43,17 +54,6 @@ for (const key of Object.getOwnPropertyNames(dom.window))
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
-const {
-  autoSignIn,
-  cloudAgentLogin,
-  localApiKeyLogin,
-  loginAgent,
-  loginFailure,
-  offersGateway,
-  signInURL,
-  signsInByPage,
-  takesApiKey,
-} = await import("../src/agent-session/acpmux/cloudAgentLogin");
 
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");

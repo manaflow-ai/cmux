@@ -14,6 +14,7 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { settleReact } from "./support/domTeardown";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { MOTION_SETTLE_MS } from "../src/motion/scale.generated";
 
 const dom = new JSDOM("<!doctype html><div id=host></div>", {
   url: "http://localhost/",
@@ -30,7 +31,6 @@ const replacements: Record<string, unknown> = {
 };
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
-const { MOTION_SETTLE_MS } = await import("../src/motion/scale.generated");
 afterAll(async () => {
   await settleReact();
   for (const [key, had, value] of saved) {

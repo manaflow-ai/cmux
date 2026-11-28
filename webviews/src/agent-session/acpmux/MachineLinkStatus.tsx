@@ -74,9 +74,10 @@ export function MachineLinkStatus({
 }) {
   const t = useT();
   useLinkRedial(link, onReconnect);
-  // Automatic connecting/reconnecting never needs a progress line (Leo, 2026-11-16: "pls no messages
-  // like this"). An offline link is said only after the existing ten-second bound. A refused sign-in
-  // or an update the machine needs (`stuck`) needs a person, so it is said at once.
+  // A link that is not up and needs no person stays the plain dot until it has been down past the
+  // bound (Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up"): a drop that
+  // heals within it draws nothing, one that lasts is said once, here. A refused sign-in or an update
+  // the machine needs is said at once.
   const waits = link !== null && link.link !== "connected" && !link.stuck;
   const due = useLinkDownSaid(waits, link?.since, quietMs);
   // A link still dialing that needs no person is the plain dot however long it takes (Leo, 2026-11-24:
@@ -93,7 +94,7 @@ export function MachineLinkStatus({
   const [shown, setShown] = useState({ words, name });
   if (said && (shown.words !== words || shown.name !== name)) setShown({ words, name });
   if (!link) return null;
-  const label = quiet ? name : `${name} · ${words}`;
+  const label = `${name} · ${words}`;
   return (
     <output
       className="acpmux-machine-link"

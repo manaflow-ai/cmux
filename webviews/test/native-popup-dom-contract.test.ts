@@ -1,16 +1,14 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import type {
-  NativePresentation,
-  PopupGuardOptions,
-  PopupIdentity,
-  SurfaceSemantics,
+import {
+  currentPopupEvent,
+  inspectNativePopups,
+  nativePresentationProblem,
+  type NativePresentation,
+  type PopupGuardOptions,
+  type PopupIdentity,
+  type SurfaceSemantics,
 } from "./helpers/nativePopupGuard";
-import { importWithDom } from "./support/importWithDom";
-
-const { currentPopupEvent, inspectNativePopups, nativePresentationProblem } = await importWithDom(
-  () => import("./helpers/nativePopupGuard"),
-);
 
 const windows: JSDOM[] = [];
 afterEach(() => {

@@ -1,14 +1,14 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
-import { useState, type ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { Spinner } from "./conversation/icons";
 import {
-  HostError,
-  HostUnavailableLine,
   type ConnectionChipVariant,
+  HostError,
   HostLineSlot,
   HostRecoveringLine,
+  HostUnavailableLine,
 } from "./HostError";
 
 type Props = {
@@ -217,7 +217,7 @@ export default componentEntry<Props>({
         initialRetrying: false,
         withRetry: true,
       },
-      note: 'Picked. A recovery still failing after 25 s (a machine rebooting, an agent service starting): nothing shows; the pane keeps connecting (Leo, 2026-11-24: "let\'s just keep optimistically connecting"). No chip, no Retry, no Details, no reassurance; a message sent meanwhile waits in the composer and goes once the agent is back.',
+      note: "Picked. A recovery still failing after 25 s (a machine rebooting, an agent service starting): nothing shows; the pane keeps connecting (Leo, 2026-11-24: \"let's just keep optimistically connecting\"). No chip, no Retry, no Details, no reassurance; a message sent meanwhile waits in the composer and goes once the agent is back.",
     },
     "outage-named": {
       props: { message: "", initialRetrying: false, withRetry: false, outage: "named" },

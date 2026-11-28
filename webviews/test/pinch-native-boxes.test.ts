@@ -4,11 +4,8 @@
 // the visual viewport only; getBoundingClientRect and clientX stay in the layout.
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import type { NativeMenuRequest } from "../src/ui/nativeMenu";
-import { importWithDom } from "./support/importWithDom";
-
-const { installNativeMenu, nativeMenu } = await importWithDom(() => import("../src/ui/nativeMenu"));
-const { elementBox } = await importWithDom(() => import("../src/agent-session/acpmux/toastAvoidance"));
+import { installNativeMenu, nativeMenu, type NativeMenuRequest } from "../src/ui/nativeMenu";
+import { elementBox } from "../src/agent-session/acpmux/toastAvoidance";
 
 const scope = globalThis as Record<string, unknown>;
 let saved: unknown;

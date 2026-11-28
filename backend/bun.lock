@@ -32,7 +32,6 @@
         "@cmux/home-core": "workspace:*",
         "@cmux/ownership": "workspace:*",
         "@cmux/protocol": "workspace:*",
-        "@cmux/saml": "workspace:*",
         "@cmux/vm": "workspace:*",
         "@earendil-works/chord": "1.0.0",
         "@earendil-works/pi-ai": "1.0.0",

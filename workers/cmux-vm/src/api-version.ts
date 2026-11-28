@@ -25,8 +25,6 @@
  *   request drops it, and its responses get `value` filled in.
  */
 
-import type { Defer, DeferringHandler } from "./after-response.ts";
-
 /** The date of the oldest version this Worker serves (the shape it had when the promise began). */
 export const BASE_DATE = "2026-11-24";
 
@@ -214,12 +212,12 @@ const translate = async (body: string, changes: ReadonlyArray<ApiChange>, forwar
  * version served in `Cmux-Api-Version`.
  */
 export const withApiVersion =
-  (handler: DeferringHandler, table: ApiVersionTable = API_VERSIONS) =>
-  async (request: Request, defer?: Defer): Promise<Response> => {
+  (handler: (request: Request) => Promise<Response>, table: ApiVersionTable = API_VERSIONS) =>
+  async (request: Request): Promise<Response> => {
     const pin = resolvePin(request.headers.get(API_VERSION_HEADER), table);
-    if (pin.kind === "unpinned") return handler(request, defer);
+    if (pin.kind === "unpinned") return handler(request);
     if (pin.kind === "refused") return pin.response;
-    if (pin.pending.length === 0) return named(await handler(request, defer), pin.date);
+    if (pin.pending.length === 0) return named(await handler(request), pin.date);
     const { pathname } = new URL(request.url);
     let upgraded = request;
     const up = changesFor(pin.pending, "request", request.method, pathname);
@@ -229,7 +227,7 @@ export const withApiVersion =
       upgraded = new Request(request.url, { method: request.method, headers: request.headers, body });
       upgraded.headers.delete("content-length");
     }
-    const response = await handler(upgraded, defer);
+    const response = await handler(upgraded);
     const down = changesFor(pin.pending, "response", request.method, pathname);
     if (down.length === 0 || response.body === null || !isJson(response.headers)) return named(response, pin.date);
     const text = await response.text();

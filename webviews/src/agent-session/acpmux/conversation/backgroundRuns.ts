@@ -25,15 +25,6 @@
 // with dozens of subagents drew one "Background command completed" row per subagent shell, dozens in
 // a row (Leo, 2026-11-12: "Holy crap, there are way too many [waits] here... this looks like a
 // degenerate [state], bro"). Now they are one line, "23 background commands finished".
-//
-// Rows the harness writes into a turn are members too, by what they are (`harnessWork`), never by
-// their text: a task-notification line, another session's message Claude Code relayed, acpmux's
-// inbox relay, a subagent's "Report from" line (Leo, 2026-11-24: "we can initiate the Worked for with
-// these background tasks as actual tool calls. we can indeed treat them as tool calls, even though
-// they're bursted at the end/start of turns. thereby we can have them be folded properly too."). A
-// burst of them reads as one count, "5 task notifications", or the parts of a mixed one, "3 task
-// notifications, 2 messages from agents, 1 background command". A run of messages alone is no
-// member run: it stays the turn's "Received N messages" row (laneNoticeBatches.ts).
 import type { AcpmuxBackgroundRun, AcpmuxRow } from "../model";
 import type { Translate } from "../i18n";
 import { experimentArm } from "../../../experiments/experiment";
@@ -43,50 +34,12 @@ import { SUBAGENT_DONE } from "../subagents/subagentRows";
 import { trayFoldHeadLook } from "../subagents/trayFoldHead.experiment";
 import type { Folds } from "./viewFolds";
 import { isVisiblyEmptyMessage } from "./visibleMessage";
-import { isWaitingMessage } from "./pendingMessages";
-import { inboxCounts } from "./inboxNotice";
-import { isSubagentReport } from "../subagents/subagentReportLineModel";
 
 export const BACKGROUND_RUN = "backgroundRun";
 
 export const backgroundRunRowId = (firstId: string) => `${BACKGROUND_RUN}-${firstId}`;
 
 type MemberKind = "finished" | "stopped" | "failed" | "scheduled" | "other";
-
-/// What a row the harness wrote into a turn is, when it is one (`harnessWork`).
-export type HarnessKind = "notification" | "message" | "report";
-
-/// A row the harness wrote into the turn it arrived in, which is that turn's tool-call work, by what
-/// it is: a task notification (an incoming notice, marked `lineOrigin: "task-notification"` or a
-/// legacy one known by its envelope), another session's message Claude Code relayed
-/// (`lineOrigin: "peer"`), acpmux's inbox relay, or a subagent's "Report from" line once its turn
-/// ended. Never a fixed point: the person's own prompt or steer (no `incoming`, RFD 0085), a message
-/// `fromPerson`, a tool's fire, one still waiting for the agent, a `received` result, a report whose
-/// task failed. A failed subagent's end is no row of this kind (it waits on a Retry).
-export function harnessWork(row: AcpmuxRow): HarnessKind | undefined {
-  if (row.kind === BACKGROUND_TURN) {
-    const turn = row.background;
-    return turn &&
-      !turn.running &&
-      isSubagentReport(row) &&
-      turn.cause?.weight !== "failure" &&
-      turn.cause?.status !== "failed"
-      ? "report"
-      : undefined;
-  }
-  if (row.kind !== "user" || row.received !== undefined || row.pending || row.failed) return undefined;
-  const incoming = row.incoming;
-  if (incoming?.kind === "notice") return "notification";
-  if (incoming?.kind === "inbox") return isWaitingMessage(row) ? undefined : "message";
-  if (incoming?.kind !== "message") return undefined;
-  const message = incoming.message;
-  if (message.lineOrigin !== "peer" || message.fromPerson || message.notice?.severity === "fire") return undefined;
-  return isWaitingMessage(row) ? undefined : "message";
-}
-
-/// How many messages a harness message row brings: an inbox relay counts its messages.
-const messagesIn = (row: AcpmuxRow) =>
-  row.incoming?.kind === "inbox" ? Math.max(1, inboxCounts(row.incoming.notice).messages) : 1;
 
 /// What a member adds to its run's line, or undefined for a row that is no member. `inline`: the
 /// default look, where background turns draw no line, so only shell ends are members.
@@ -160,60 +113,39 @@ function withoutHatEnds(rows: AcpmuxRow[]): AcpmuxRow[] {
 
 /// `rows` with each run of two or more background-task notifications folded under one line: the
 /// line alone while closed, the line and the run's rows while open (`expanded` holds the line's
-/// id). Without such a run, `rows` itself. `live`: the rows of a running turn, where a row the
-/// harness wrote draws as it came until the turn ends (a running turn folds nothing).
-export function foldBackgroundRuns(all: AcpmuxRow[], expanded: Folds, live = false): AcpmuxRow[] {
+/// id). Without such a run, `rows` itself.
+export function foldBackgroundRuns(all: AcpmuxRow[], expanded: Folds): AcpmuxRow[] {
   const rows = withoutHatEnds(all);
   // Inline, a background turn's calls draw as they came, as a tool call's row does
   // (backgroundTurnLook.experiment.ts); a run of shell ends still folds.
   const inline = backgroundTurnsInline(experimentArm(backgroundTurnLook));
-  const harness = (row: AcpmuxRow) => (live ? undefined : harnessWork(row));
-  const memberOf = (row: AcpmuxRow) => memberKind(row, inline) ?? harness(row);
   let out: AcpmuxRow[] | undefined;
   let index = 0;
   let outerOpen = false;
   while (index < rows.length) {
     const first = rows[index]!;
     if (first.kind === "worked") outerOpen = first.foldOpen === true;
-    if (!memberOf(first)) {
+    if (!memberKind(first, inline)) {
       out?.push(first);
       index += 1;
       continue;
     }
     const counts = { finished: 0, stopped: 0, failed: 0, scheduled: 0, other: 0 };
-    const harnessCounts = { notifications: 0, messages: 0, reports: 0 };
-    let messageRows = 0;
     let commands = 0;
     let subagents = 0;
-    const endKinds = new Set<SubagentEnd>();
+    const ends = new Set<SubagentEnd>();
     const lines = new Set<string>();
     let end = index;
     let last = index;
     for (; end < rows.length; end += 1) {
       const row = rows[end]!;
       const kind = memberKind(row, inline);
-      const written = kind ? undefined : harness(row);
-      // A failed subagent end waits on Retry in sight (lane/failed-subagents-group): harness rows never
-      // join a run with it, so a burst around it does not take it away.
-      if (
-        (written && counts.failed > 0) ||
-        (kind === "failed" && harnessCounts.notifications + harnessCounts.reports + messageRows > 0)
-      )
-        break;
-      if (written) {
-        if (written === "notification") harnessCounts.notifications += 1;
-        else if (written === "report") harnessCounts.reports += 1;
-        else {
-          harnessCounts.messages += messagesIn(row);
-          messageRows += 1;
-        }
-        last = end;
-      } else if (kind) {
+      if (kind) {
         counts[kind] += 1;
         if (row.kind === "backgroundTask") commands += 1;
         if (row.kind === SUBAGENT_DONE) {
           subagents += 1;
-          endKinds.add(subagentEnd(row));
+          ends.add(subagentEnd(row));
         }
         if (row.background) lines.add(row.background.id);
         last = end;
@@ -222,11 +154,8 @@ export function foldBackgroundRuns(all: AcpmuxRow[], expanded: Folds, live = fal
     }
     // Bare replies after the run's last member are not the run's: they draw (nothing) as before.
     end = last + 1;
-    const ends = counts.finished + counts.stopped + counts.failed + counts.scheduled + counts.other;
-    const written = harnessCounts.notifications + harnessCounts.reports + messageRows;
-    const members = ends + written;
-    // Other agents' messages alone stay the turn's "Received N messages" row (laneNoticeBatches.ts).
-    if (members < 2 || members === messageRows) {
+    const members = counts.finished + counts.stopped + counts.failed + counts.scheduled + counts.other;
+    if (members < 2) {
       out?.push(...rows.slice(index, end));
       index = end;
       continue;
@@ -242,10 +171,7 @@ export function foldBackgroundRuns(all: AcpmuxRow[], expanded: Folds, live = fal
     const run: AcpmuxBackgroundRun = {
       ...counts,
       commands,
-      ...(subagents > 0 && { subagents, ...(endKinds.size === 1 && { subagentEnd: [...endKinds][0] }) }),
-      ...(harnessCounts.notifications > 0 && { notifications: harnessCounts.notifications }),
-      ...(harnessCounts.messages > 0 && { messages: harnessCounts.messages }),
-      ...(harnessCounts.reports > 0 && { reports: harnessCounts.reports }),
+      ...(subagents > 0 && { subagents, ...(ends.size === 1 && { subagentEnd: [...ends][0] }) }),
       rows: folded.map((row) => row.id),
     };
     out.push({
@@ -291,7 +217,6 @@ export function backgroundRunFoldFor(drawn: readonly AcpmuxRow[], rowId: string)
 /// stopped shell, a scheduled check or another kind of background turn among them), with the failed
 /// count after it when one failed.
 export function backgroundRunLabel(t: Translate, run: AcpmuxBackgroundRun): string {
-  if (run.notifications || run.messages || run.reports) return harnessRunLabel(t, run);
   const failed = run.failed;
   const n = run.finished + run.stopped + failed + run.scheduled + run.other;
   const ended = n - failed;
@@ -314,34 +239,4 @@ export function backgroundRunLabel(t: Translate, run: AcpmuxBackgroundRun): stri
   }
   const words = n === run.finished ? t("backgroundRun.finished", { n }) : t("backgroundRun.updates", { n });
   return failed ? `${words}, ${t("backgroundRun.failedCount", { n: failed })}` : words;
-}
-
-/// Each part's words for one member and for `{n}` of them.
-const PARTS = {
-  notifications: ["backgroundRun.part.notifications.one", "backgroundRun.part.notifications.other"],
-  reports: ["backgroundRun.part.reports.one", "backgroundRun.part.reports.other"],
-  messages: ["backgroundRun.part.messages.one", "backgroundRun.part.messages.other"],
-  subagents: ["backgroundRun.part.subagents.one", "backgroundRun.part.subagents.other"],
-  commands: ["backgroundRun.part.commands.one", "backgroundRun.part.commands.other"],
-  updates: ["backgroundRun.part.updates.one", "backgroundRun.part.updates.other"],
-} as const;
-
-/// The line of a run that holds rows the harness wrote (`harnessWork`): each kind's count in the
-/// order a turn's work reads, "5 task notifications" alone, "3 task notifications, 2 messages from
-/// agents, 1 background command" mixed, with the failed count after it when one failed.
-function harnessRunLabel(t: Translate, run: AcpmuxBackgroundRun): string {
-  const part = (key: keyof typeof PARTS, n: number) => (n === 1 ? t(PARTS[key][0]) : t(PARTS[key][1], { n }));
-  const subagents = run.subagents ?? 0;
-  const ends = run.finished + run.stopped + run.failed + run.scheduled + run.other;
-  const updates = ends - subagents - run.commands;
-  const parts = [
-    ...(run.notifications ? [part("notifications", run.notifications)] : []),
-    ...(run.reports ? [part("reports", run.reports)] : []),
-    ...(run.messages ? [part("messages", run.messages)] : []),
-    ...(subagents ? [part("subagents", subagents)] : []),
-    ...(run.commands ? [part("commands", run.commands)] : []),
-    ...(updates > 0 ? [part("updates", updates)] : []),
-  ];
-  const words = parts.join(", ");
-  return run.failed ? `${words}, ${t("backgroundRun.failedCount", { n: run.failed })}` : words;
 }

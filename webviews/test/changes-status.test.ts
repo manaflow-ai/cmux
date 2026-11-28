@@ -4,14 +4,9 @@
 // row: it registers the list with the host up to sixty-four links to a `link.inspect` (one batched GraphQL
 // read on the host), at most once a minute per link, then asks `pr.inspect` for each answer.
 import { afterEach, expect, jest, setSystemTime, test } from "bun:test";
-import type { LinkedPullRequest } from "../src/agent-session/acpmux/chips/pullRequestStore";
-import { importWithDom } from "./support/importWithDom";
-
-const { setChipHost } = await importWithDom(() => import("../src/agent-session/acpmux/chips/host"));
-const { resetPullRequestStore } = await importWithDom(
-  () => import("../src/agent-session/acpmux/chips/pullRequestStore"),
-);
-const {
+import { setChipHost } from "../src/agent-session/acpmux/chips/host";
+import { resetPullRequestStore, type LinkedPullRequest } from "../src/agent-session/acpmux/chips/pullRequestStore";
+import {
   REGISTER_BATCH,
   REGISTER_EVERY_MS,
   changesStatus,
@@ -20,9 +15,9 @@ const {
   resetChangesStatuses,
   stableUrls,
   withHeader,
-} = await importWithDom(() => import("../src/agent-session/acpmux/session-info/changesStatus"));
-const { rowState } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/changesSectionModel"));
-const { pageClocks } = await importWithDom(() => import("../src/ui/pageClock"));
+} from "../src/agent-session/acpmux/session-info/changesStatus";
+import { rowState } from "../src/agent-session/acpmux/session-info/changesSectionModel";
+import { pageClocks } from "../src/ui/pageClock";
 
 afterEach(() => {
   jest.useRealTimers();
