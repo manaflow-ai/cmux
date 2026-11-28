@@ -96,6 +96,7 @@ public struct ComposerDictationTextMerger: Sendable {
         guard !transcript.allSatisfy(\.isWhitespace) else {
             return merged(base: base, transcript: phrases.map(\.text).joined(separator: " "))
         }
+        let normalizedTranscript = String(transcript.drop(while: \.isWhitespace))
         let validTiming = startTime.map { $0.isFinite && $0 >= 0 } == true
             && endTime.map { $0.isFinite && $0 > (startTime ?? 0) } == true
         if validTiming, let startTime {
@@ -111,8 +112,25 @@ public struct ComposerDictationTextMerger: Sendable {
             // this provisional text rather than append a duplicate of it.
             phrases.removeLast()
         }
+        if !validTiming {
+            // Speech can repeat a finished utterance in an untimed cumulative
+            // partial. Strip only a non-empty suffix; an exact repeat remains
+            // a new phrase so intentional repeated words are preserved.
+            let committed = phrases.prefix(while: \.isFinal).map(\.text).joined(separator: " ")
+            if !committed.isEmpty,
+               normalizedTranscript.hasPrefix(committed),
+               normalizedTranscript.count > committed.count,
+               normalizedTranscript.dropFirst(committed.count).first?.isWhitespace == true {
+                let suffix = String(normalizedTranscript.dropFirst(committed.count)
+                    .drop(while: \.isWhitespace))
+                if !suffix.isEmpty {
+                    phrases.append(Phrase(text: suffix, endTime: nil, isFinal: isUtteranceFinal))
+                    return merged(base: base, transcript: phrases.map(\.text).joined(separator: " "))
+                }
+            }
+        }
         phrases.append(Phrase(
-            text: String(transcript.drop(while: \.isWhitespace)),
+            text: normalizedTranscript,
             endTime: validTiming ? endTime : nil,
             isFinal: isUtteranceFinal
         ))
