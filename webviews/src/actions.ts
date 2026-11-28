@@ -33,13 +33,6 @@ function hasURLScheme(url: string): boolean {
   return /^[a-zA-Z][\w+.-]*:/.test(url);
 }
 
-export function diffSourceDetail(payload: any): string {
-  const parts = [payload.sourceLabel, payload.repoRoot, payload.branchBaseRef].filter(
-    (value) => typeof value === "string" && value.trim() !== "",
-  );
-  return parts.join(" | ");
-}
-
 export async function copyGitApplyCommand(
   patchURL: string | undefined,
   label: DiffViewerLabelResolver,

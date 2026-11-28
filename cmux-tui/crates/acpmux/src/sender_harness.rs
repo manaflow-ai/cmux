@@ -505,6 +505,11 @@ pub(crate) fn parent(pid: u32) -> Option<u32> {
     lookup(pid).map(|p| p.ppid)
 }
 
+/// The executable of `pid`, read for that pid alone (`hub/register.rs` names who asked).
+pub(crate) fn exe(pid: u32) -> Option<String> {
+    lookup(pid).map(|p| p.exe)
+}
+
 /// Where an app bundle keeps its own code: its main executable, its frameworks and helper apps
 /// (Claude.app's `Contents/Frameworks/Claude Helper.app`), its helpers, XPC services and login
 /// items.
