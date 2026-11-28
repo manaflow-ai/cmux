@@ -169,7 +169,8 @@ extension SidebarMapping {
         // naming the machine (Leo 2026-10-30: "JUST DEPICT IT SIMILARLY TO EVERYTHING ELSE"). A caller whose
         // `pageFace` gives no title (a pinned tile) has its shell's folder read as the label.
         let label = options.foldersLabel ? face?.cwd.map { ($0 as NSString).lastPathComponent } : page?.title
-        let title = Self.homeShellName(options.homeShellTitle, workspace: workspace, label: label, face: face)
+        let title = Self.homeShellName(options.homeShellTitle, workspace: workspace, label: label, face: face,
+                                       home: options.machine == .local ? home : nil)
             ?? Self.sidebarTitle(workspace, page: page)
         let agentTab = at(facts.agent)
         let rowAgent = Self.agentMark(agentTab, harnessIcons: harnessIcons)

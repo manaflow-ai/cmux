@@ -647,27 +647,27 @@
   "programs": [
     {
       "name": "cmux-tui",
-      "version": "c6cd14b59ba525aeb0a41f53c63f4c0cfac4c8aa",
-      "url": "https://files.cmux.com/cmux-tui/c6cd14b59ba525aeb0a41f53c63f4c0cfac4c8aa/cmux-tui-x86_64-unknown-linux-musl",
-      "sha256": "fbe69bb12c9866cdd7666ddcd0cce62bab4bd72a3f25829bd0c967e5c9eb0eff",
-      "size": 188892400,
+      "version": "d788eb8c134b9305d3086b3e0348a677255742d7",
+      "url": "https://files.cmux.com/cmux-tui/d788eb8c134b9305d3086b3e0348a677255742d7/machine/cmux-tui-x86_64-unknown-linux-musl",
+      "sha256": "1aa8e4fe8477288bd24cc772b0ee1805d9e3579c00f5daf5ac08527432243837",
+      "size": 236025968,
       "format": "raw",
       "fileName": "cmux-tui",
       "bin": { "acpmux": "cmux-tui", "cmux": "cmux-tui", "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
-      "source": "https://files.cmux.com/cmux-tui/c6cd14b59ba525aeb0a41f53c63f4c0cfac4c8aa/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/46122010957; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/d788eb8c134b9305d3086b3e0348a677255742d7/machine/ (the Cloud machine build, write-once; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "cmux-tui-hook",
-      "version": "c6cd14b59ba525aeb0a41f53c63f4c0cfac4c8aa",
-      "url": "https://files.cmux.com/cmux-tui/c6cd14b59ba525aeb0a41f53c63f4c0cfac4c8aa/cmux-tui-hook-x86_64-unknown-linux-musl",
-      "sha256": "44b3ec78d962f69a52fbf940b0e0f6895690138b2518e8266060b8c82caca2c0",
-      "size": 2635088,
+      "version": "d788eb8c134b9305d3086b3e0348a677255742d7",
+      "url": "https://files.cmux.com/cmux-tui/d788eb8c134b9305d3086b3e0348a677255742d7/machine/cmux-tui-hook-x86_64-unknown-linux-musl",
+      "sha256": "1b43e4791b95ea7a39d536778fb4eb44b2f067f29cb4986515b5833c3031944c",
+      "size": 7138136,
       "format": "raw",
       "fileName": "cmux-tui-hook",
       "bin": { "cmux-tui-hook": "cmux-tui-hook" },
       "versionArgs": [],
-      "source": "https://files.cmux.com/cmux-tui/c6cd14b59ba525aeb0a41f53c63f4c0cfac4c8aa/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/46122010957; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/d788eb8c134b9305d3086b3e0348a677255742d7/machine/ (the Cloud machine build, write-once; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "optchat-chief",
@@ -934,6 +934,7 @@
     {
       "name": "cmux-rd",
       "version": "0.2.9",
+      "pendingRelease": "0.2.10",
       "url": "https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v0.2.9/cmux-rd-0.2.9-x86_64-unknown-linux-gnu.tar.gz",
       "sha256": "09e4120d8428b2e7ce626e14dbbbb74e29f0a36c2ce5b4080c958fca4496305e",
       "size": 10234313,

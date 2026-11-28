@@ -323,6 +323,8 @@ mod move_interrupts;
 pub(crate) mod plan_first;
 pub(crate) mod prefetch;
 pub mod presence;
+/// `presence.live` followed into the presence table (RFD 0141 Live opt-in, off by default).
+pub(crate) mod presence_setting;
 mod processes;
 mod profile_respawn;
 #[cfg(test)]
