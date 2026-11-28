@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.display.effortChip.help" : {
+      "comment" : "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto lets the composer look decide. In Model Chip names the effort inside the model chip, so the composer shows one chip."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تلقائي يترك القرار لمظهر المحرر. داخل شريحة النموذج يعرض الجهد داخل شريحة النموذج، فيظهر المحرر شريحة واحدة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Automatski prepušta odluku izgledu pisača. U čipu modela navodi napor unutar čipa modela, pa pisač prikazuje jedan čip."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Auto lader skrivefeltets udseende bestemme. I modelchip viser indsatsen i modelchippen, så skrivefeltet viser én chip."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Automatisch überlässt es dem Eingabe-Look. Im Modell-Chip zeigt den Aufwand im Modell-Chip, sodass die Eingabe einen Chip zeigt."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Automático deja que decida el aspecto del editor. En el chip del modelo muestra el esfuerzo dentro del chip del modelo, así el editor muestra un solo chip."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Auto laisse le style du compositeur décider. Dans la puce du modèle affiche l'effort dans la puce du modèle, le compositeur n'en montre qu'une."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Automatico lascia decidere allo stile del compositore. Nel chip modello mostra lo sforzo nel chip del modello, così il compositore mostra un solo chip."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "自動はコンポーザーの外観に任せます。モデルチップ内は推論量をモデルチップの中に表示し、チップを1つにします。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ស្វ័យប្រវត្តិឲ្យរូបរាងកម្មវិធីសរសេរសម្រេច។ ក្នុងបន្ទះម៉ូដែលបង្ហាញកម្រិតប្រឹងប្រែងក្នុងបន្ទះម៉ូដែល ដូច្នេះមានបន្ទះតែមួយ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "자동은 작성기 모양이 정합니다. 모델 칩 안은 노력 수준을 모델 칩 안에 표시해 칩 하나만 보입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Auto lar skrivefeltets utseende bestemme. I modellbrikken viser innsatsen i modellbrikken, så skrivefeltet viser én brikke."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Automatycznie decyduje wygląd edytora. W chipie modelu pokazuje wysiłek w chipie modelu, więc edytor ma jeden chip."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Automático deixa a aparência do editor decidir. No chip do modelo mostra o esforço dentro do chip do modelo, então o editor mostra um só chip."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Авто: решает вид поля ввода. В чипе модели: усилие показано в чипе модели, и чип один."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "อัตโนมัติให้รูปแบบช่องเขียนเป็นผู้กำหนด ในชิปโมเดลแสดงระดับความพยายามในชิปโมเดล จึงมีชิปเดียว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Otomatik, karar verme görünümüne bırakır. Model çipinde, eforu model çipinin içinde gösterir; tek çip görünür."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Авто: вирішує вигляд поля введення. У чипі моделі: зусилля показано в чипі моделі, тож чип один."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tự động để giao diện khung soạn quyết định. Trong chip mô hình hiển thị mức nỗ lực trong chip mô hình, nên chỉ có một chip."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "自动由输入框外观决定。在模型标签中会把推理强度显示在模型标签里，只显示一个标签。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "自動由輸入框外觀決定。在模型標籤中會把推理強度顯示在模型標籤裡，只顯示一個標籤。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

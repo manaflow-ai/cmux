@@ -249,6 +249,12 @@ export const MODEL_PICKER_ORDER_KEY = "agentPane.display.modelPickerOrder";
 /// turns it on. Not part of ChatDisplay.
 export const MODEL_PICKER_STYLE_KEY = "agentPane.display.modelPickerStyle";
 export type ModelPickerStyle = "list" | "menu";
+/// Settings > Agent Chat > Effort Chip: where the composer names the reasoning effort
+/// (ComposerPickers.tsx). "auto", the default: the composer look decides (Studio draws its own
+/// effort chip). "joined": one model chip names the model and its effort, as the Codex app's
+/// composer does. A look turns it on. Not part of ChatDisplay.
+export const EFFORT_CHIP_KEY = "agentPane.display.effortChip";
+export type EffortChip = "auto" | "joined";
 /// Settings > Agent Chat > Only This Chat's Agent Updates (harnessUpdateList.ts `ownOnly`): the model
 /// menus' update footer offers the chat's own agent CLI alone, as a one-agent app's model menu does
 /// (the Claude Code app lists no Codex update; customize-app-profiles). Off by default: every
@@ -634,6 +640,7 @@ let sessionInfoHidden: readonly PickableSessionInfoSection[] = NO_HIDDEN_SECTION
 let environmentCardOn = false;
 let changesPillOn = false;
 let modelPickerStyle: ModelPickerStyle = "list";
+let effortChip: EffortChip = "auto";
 let ownHarnessUpdatesOnly = false;
 /// The PICKED_KEYS values as JSON, so a change to one of them alone reaches its listeners.
 let picked = "[]";
@@ -734,6 +741,7 @@ export function setChatDisplay(value: unknown): void {
   const environmentCard = raw[ENVIRONMENT_CARD_KEY] === true;
   const changesPill = raw[CHANGES_PILL_KEY] === true;
   const pickerStyle: ModelPickerStyle = raw[MODEL_PICKER_STYLE_KEY] === "menu" ? "menu" : "list";
+  const effortChipNow: EffortChip = raw[EFFORT_CHIP_KEY] === "joined" ? "joined" : "auto";
   const ownUpdates = raw[OWN_HARNESS_UPDATES_KEY] === true;
   const pickedNow = JSON.stringify(PICKED_KEYS.map((key) => raw[key] ?? null));
   const first = !received;
@@ -780,6 +788,7 @@ export function setChatDisplay(value: unknown): void {
     environmentCard === environmentCardOn &&
     changesPill === changesPillOn &&
     pickerStyle === modelPickerStyle &&
+    effortChipNow === effortChip &&
     ownUpdates === ownHarnessUpdatesOnly &&
     sameHiddenSections
   )
@@ -791,6 +800,7 @@ export function setChatDisplay(value: unknown): void {
   environmentCardOn = environmentCard;
   changesPillOn = changesPill;
   modelPickerStyle = pickerStyle;
+  effortChip = effortChipNow;
   ownHarnessUpdatesOnly = ownUpdates;
   minimapOn = minimap;
   renderPipelineOn = renderPipeline;
@@ -924,6 +934,7 @@ export function resetChatDisplayForTests(): void {
   displayHost = undefined;
   raw = {};
   chatDetail = "normal";
+  effortChip = "auto";
   picked = "[]";
   received = false;
 }
@@ -988,6 +999,11 @@ export const useOwnHarnessUpdatesOnly = (): boolean =>
 /// What a click on the model chip opens (MODEL_PICKER_STYLE_KEY): the harness columns or the compact menu.
 export const useModelPickerStyle = (): ModelPickerStyle =>
   useSyncExternalStore(subscribe, modelPickerStyleSnapshot, modelPickerStyleSnapshot);
+const effortChipSnapshot = () => effortChip;
+/// The Effort Chip setting now (EFFORT_CHIP_KEY), outside React.
+export const effortChipSetting = (): EffortChip => effortChip;
+/// Where the composer names the reasoning effort (EFFORT_CHIP_KEY): as the look decides, or inside the model chip.
+export const useEffortChip = (): EffortChip => useSyncExternalStore(subscribe, effortChipSnapshot, effortChipSnapshot);
 const trayTuckedSnapshot = () => trayTuckedOn;
 /// Whether a sent prompt pops in, read when a row enters (VirtualTranscript.tsx): the root's gate,
 /// which SEND_POP_KEY sets and a bench's arm may set by hand, as the CSS rule reads it.
