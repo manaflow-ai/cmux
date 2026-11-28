@@ -63,8 +63,14 @@ pub struct RelayOptions {
     /// again. A refusal can pass (a hub deploy, a proxy, a rotated token), so it never ends the
     /// relay: nothing would start it again before the daemon restarts.
     pub refused_retry: Duration,
-    /// Deliveries running at once; the inbox waits for one to end past it.
+    /// Sends and starts running at once; the inbox waits for one to end past it.
     pub max_in_flight: usize,
+    /// Reads running at once, in slots of their own (never queued behind hung sends or starts).
+    pub max_reads_in_flight: usize,
+    /// A send or start holds its slot at most this long, then is dropped unacked (its lease retries).
+    pub delivery_bound: Duration,
+    /// A read holds its slot at most this long, then answers a retryable error.
+    pub read_bound: Duration,
     /// Called when the hub takes a heartbeat again after failing ones (the joined relay states
     /// the machine's capabilities then, `cli/cloud_join/self_capabilities.rs`).
     pub on_reconnect: Option<fn()>,
@@ -83,6 +89,9 @@ impl Default for RelayOptions {
             backoff_cap: Duration::from_secs(60),
             refused_retry: Duration::from_secs(60),
             max_in_flight: 32,
+            max_reads_in_flight: 16,
+            delivery_bound: Duration::from_secs(90),
+            read_bound: Duration::from_secs(45),
             on_reconnect: None,
             capacity_every: None,
         }
@@ -636,12 +645,17 @@ async fn inbox(
         () = ended(&mut stop, &hub) => return,
     }
     let mut deliveries = tokio::task::JoinSet::new();
+    let mut reads = tokio::task::JoinSet::new();
     let in_flight: Arc<StdMutex<HashSet<String>>> = Arc::default();
     loop {
         while deliveries.try_join_next().is_some() {}
-        if deliveries.len() >= options.max_in_flight.max(1) {
+        while reads.try_join_next().is_some() {}
+        let other_room = options.max_in_flight.max(1).saturating_sub(deliveries.len());
+        let read_room = options.max_reads_in_flight.max(1).saturating_sub(reads.len());
+        if other_room + read_room == 0 {
             tokio::select! {
                 _ = deliveries.join_next() => continue,
+                _ = reads.join_next() => continue,
                 () = ended(&mut stop, &hub) => break,
             }
         }
@@ -658,7 +672,7 @@ async fn inbox(
         }
         let started = Instant::now();
         // Only as many as it can deliver now: a leased message waits for its ack.
-        let room = options.max_in_flight.max(1) - deliveries.len();
+        let room = other_room + read_room;
         let polled = tokio::select! {
             r = client.inbox(options.inbox_wait, room) => r,
             () = ended(&mut stop, &hub) => break,
@@ -683,6 +697,18 @@ async fn inbox(
                         }
                         continue;
                     }
+                    // Reads have slots of their own; a message whose slots are all held is left
+                    // unacked and its lease brings it back.
+                    let is_read =
+                        message.kind == Kind::Control && message.op.as_deref() == Some("read");
+                    let (pool, max, bound) = if is_read {
+                        (&mut reads, options.max_reads_in_flight, options.read_bound)
+                    } else {
+                        (&mut deliveries, options.max_in_flight, options.delivery_bound)
+                    };
+                    if pool.len() >= max.max(1) {
+                        continue;
+                    }
                     if !in_flight.lock_or_recover().insert(message.message_id.clone()) {
                         continue;
                     }
@@ -691,27 +717,9 @@ async fn inbox(
                     let (client, control, in_flight, beat) =
                         (client.clone(), control.clone(), in_flight.clone(), beat.clone());
                     let own_id = own.borrow().clone();
-                    deliveries.spawn(async move {
-                        let ack =
-                            deliver(&hub, &message, control.as_ref(), own_id.as_deref()).await;
-                        // A started session is in the hub's address book before its sender
-                        // hears the start went through.
-                        if message.kind == Kind::Control
-                            && message.op.as_deref() == Some("start")
-                            && ack
-                                .as_ref()
-                                .is_some_and(|a| a.state == crate::mesh::AckState::Delivered)
-                        {
-                            beat.now(START_LISTED_WAIT).await;
-                        }
-                        if let Some(ack) = ack
-                            && let Err(e) = client.ack(&message.message_id, &clip(ack)).await
-                        {
-                            // Its lease brings it back, and that delivery answers with this one.
-                            tracing::warn!("mesh relay: ack of {} failed: {e}", message.message_id);
-                        }
-                        in_flight.lock_or_recover().remove(&message.message_id);
-                    });
+                    pool.spawn(delivery::run(
+                        hub, message, control, own_id, client, beat, in_flight, bound, is_read,
+                    ));
                 }
                 options.min_poll_gap.saturating_sub(started.elapsed())
             }
@@ -2096,35 +2104,6 @@ mod tests {
         assert!(start_work_allowed(&message));
     }
 
-    /// Door A timing run (huge-blue/door-a-join-timing, 2026-11-16): `cmux chat --on doora-vm-1`
-    /// was refused "this harness has no reviewed asking mode for a remote WebSocket connection
-    /// (code -32602)", a text two refusals share. The ack names the refusal's reason, so the Mac
-    /// says which one it was.
-    #[test]
-    fn a_refused_control_ack_names_the_refusals_reason() {
-        let error = crate::rpc::RpcError::invalid_params("no reviewed asking mode")
-            .with_data(serde_json::json!({"reason": "remote.executable_refused"}));
-        let detail = refusal_detail(&error);
-        assert!(detail.contains("no reviewed asking mode"), "{detail}");
-        assert!(detail.contains("code -32602"), "{detail}");
-        assert!(detail.contains("reason remote.executable_refused"), "{detail}");
-        // An error with no reason reads as before.
-        let plain = crate::rpc::RpcError::invalid_params("bad params");
-        assert_eq!(refusal_detail(&plain), "bad params (code -32602)");
-    }
-
-    #[test]
-    fn heartbeats_come_at_a_third_of_the_ttl_at_most_every_heartbeat_every() {
-        let options = RelayOptions::default();
-        assert_eq!(heartbeat_wait(&options, 90), Duration::from_secs(30));
-        assert_eq!(heartbeat_wait(&options, 30), Duration::from_secs(10));
-        assert_eq!(heartbeat_wait(&options, 0), Duration::from_secs(30));
-        let mut backoff = Backoff::new(Duration::from_secs(1), Duration::from_secs(4));
-        let limited =
-            HubError { retry_after: Some(Duration::from_secs(9)), ..HubError::unavailable("") };
-        assert_eq!(after_failure(&mut backoff, &limited), Duration::from_secs(9));
-    }
-
     #[tokio::test(start_paused = true)]
     async fn a_late_rpc_result_survives_the_delivery_lease() {
         let ledger = ControlLedger::open(None);
@@ -2230,11 +2209,9 @@ mod tests {
         let own = hook.control(&hub, &read("person-1")).await.unwrap();
         assert_ne!(own.detail.as_deref(), Some("mesh.control_not_allowed"), "{own:?}");
     }
-
-    #[test]
-    fn an_ack_detail_is_clipped_to_what_the_hub_takes() {
-        let ack = clip(Ack::refused("é".repeat(5000)));
-        assert_eq!(ack.detail.unwrap().chars().count(), MAX_DETAIL_CHARS);
-        assert_eq!(clip(Ack::refused("short")).detail.as_deref(), Some("short"));
-    }
 }
+
+#[cfg(test)]
+mod slot_tests;
+
+mod delivery;
