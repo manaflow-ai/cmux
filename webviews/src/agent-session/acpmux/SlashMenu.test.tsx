@@ -63,10 +63,10 @@ const MATCHES: SlashMatch[] = [
   { command: { name: "review", description: "Review a pull request", source: "skill" }, ranges: [] },
 ];
 
-// The rows are names only (a1315's cuts, 2026-11-21): the highlighted row also reads its arguments,
-// then a dash and what it does, and the panel's line follows the highlight (popupHost re-reads the
-// rows on every change).
-test("the highlighted row reads as command, arguments, then a dash and what it does in the native panel", async () => {
+// Every row says what its command does since #50541 (Leo, 2026-11-22: "i think we should have short
+// descriptions of the skills/commands in the composer"); the highlighted row also reads its arguments,
+// and the panel's line follows the highlight (popupHost re-reads the rows on every change).
+test("every row reads as command, a dash and what it does; the highlighted one its arguments too, in the native panel", async () => {
   const host = installDom();
   root = createRoot(host);
   const show = (active: number) =>
@@ -87,15 +87,15 @@ test("the highlighted row reads as command, arguments, then a dash and what it d
   const labels = () => popupItems(list, "list").items.map((item) => item.label);
   expect(labels()).toEqual([
     "/compact — Clear conversation history but keep a summary",
-    "/model",
-    "/customize",
-    "/review",
+    "/model — Model",
+    "/customize — Customize cmux by asking: it changes live, then you apply or discard",
+    "/review — Review a pull request",
   ]);
   await show(2);
   expect(labels()).toEqual([
-    "/compact",
-    "/model",
+    "/compact — Clear conversation history but keep a summary",
+    "/model — Model",
     "/customize <change> — Customize cmux by asking: it changes live, then you apply or discard",
-    "/review",
+    "/review — Review a pull request",
   ]);
 });

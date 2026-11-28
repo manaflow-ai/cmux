@@ -362,22 +362,12 @@ test("the card's Approve names the revision it was drawn with, not a newer one",
 test("the requests the pane sends fit the native relay's param allowlist", async () => {
   const { readFileSync } = await import("node:fs");
   const { join } = await import("node:path");
-  const swift = readFileSync(
-    join(
-      import.meta.dir,
-      "../../../../../Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods+Params.swift",
-    ),
-    "utf8",
-  );
-  const allowed = (method: string) => {
-    const match = new RegExp(`"${method}": \\(\\[([^\\]]*)\\]`).exec(swift);
-    return new Set(
-      (match?.[1] ?? "")
-        .split(",")
-        .map((each) => each.trim().replace(/"/g, ""))
-        .filter(Boolean),
-    );
-  };
+  // The relay's params rule is cmux-agent-pane-policy's policy.json `known_params` since #64614 dropped the
+  // Swift copy (AcpmuxPaneMethods+Params.swift).
+  const policy = JSON.parse(
+    readFileSync(join(import.meta.dir, "../../../../../cmux-tui/crates/cmux-agent-pane-policy/policy.json"), "utf8"),
+  ) as { known_params: Record<string, { params: string[] }> };
+  const allowed = (method: string) => new Set(policy.known_params[method]?.params ?? []);
   const sent: Record<string, Record<string, unknown>> = {
     "_acpmux/queue_approve": { sessionId: "s", promptId: "p", turnId: "t", revision: 0 },
     "_acpmux/queue_decline": { sessionId: "s", promptId: "p" },

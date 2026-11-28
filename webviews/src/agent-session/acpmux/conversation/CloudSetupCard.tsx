@@ -4,7 +4,7 @@ import { cloudSetupAction, cloudSetupName, type CloudSetupAction, type CloudSetu
 import type { ConnectProgress } from "../claudeConnect";
 import { ConnectCard, type ConnectCardLook } from "../ConnectCard";
 import { CloudSetupSteps, type CloudSetupStepsLook } from "./CloudSetupSteps";
-import { Spinner } from "./icons";
+import { WaitSpinner } from "./WaitSpinner";
 
 export function CloudSetupCard({
   need,
@@ -72,7 +72,7 @@ export function CloudSetupCard({
         />
       ) : pending ? (
         <output className="acpmux-cloud-start__status" aria-busy="true">
-          <Spinner size={14} loading />
+          <WaitSpinner size={14} />
           <span>{t("cloudSetup.waiting")}</span>
         </output>
       ) : null}

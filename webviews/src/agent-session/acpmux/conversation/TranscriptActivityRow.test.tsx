@@ -74,7 +74,8 @@ test("the shared activity row lights only its chevron on hover and press, never 
   expect(css).not.toMatch(/\) > \.cv-agent-activity__control \{/);
   // A chevron beside the line's button lifts too (SubagentDoneLine.tsx).
   expect(css).toContain(":has(> button.cv-agent-activity__control:not(:disabled)) > .cv-agent-activity__chevron {");
-  expect(source("./AgentTag.css")).toContain(":is(:hover, :focus-visible, :active)");
+  // The chip lights under the pointer only once the pointer moved on it (#52969: no lit chip under a resting pointer).
+  expect(source("./AgentTag.css")).toContain(":is([data-pointed]:hover, :focus-visible, :active)");
 });
 
 test("the three activity kinds render through one row with an agent tag", () => {
