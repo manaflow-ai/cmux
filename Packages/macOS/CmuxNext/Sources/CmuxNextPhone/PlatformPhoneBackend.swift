@@ -44,10 +44,6 @@ public actor PlatformPhoneBackend: PhoneBackend {
     public func shutdown(_ id: PhoneDeviceID) async throws { try await route(id).shutdown(id) }
     public func screenshot(_ id: PhoneDeviceID, to file: URL) async throws { try await route(id).screenshot(id, to: file) }
 
-    public nonisolated func videoExtension(for id: PhoneDeviceID) -> String {
-        id.mode.isAndroid ? "mp4" : ios.videoExtension(for: id)
-    }
-
     public func startVideo(_ id: PhoneDeviceID, to file: URL) async throws -> any PhoneRunningCommand {
         try await route(id).startVideo(id, to: file)
     }
