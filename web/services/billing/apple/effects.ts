@@ -3,6 +3,7 @@
 // Kept apart from service.ts so the cron modules can use them without an
 // import cycle.
 
+import { nextPlanId } from "../nextPlans";
 import { appleBillingPeriodForProduct } from "./config";
 import type { AppleIapDependencies } from "./service";
 import type { AppleIapStore, AppleSubscriptionRow, AppleSubscriptionWrite } from "./store";
@@ -33,7 +34,8 @@ export async function captureEntitlementGranted(
 ): Promise<void> {
   if (!deps.activeEntitlement) return;
   try {
-    const granting = await deps.activeEntitlement(written.userId);
+    // A NEXT product's grant is the best NEXT subscription, a classic one's the best classic one.
+    const granting = await deps.activeEntitlement(written.userId, nextPlanId(written.planId) ? "next" : "classic");
     if (granting?.originalTransactionId !== written.originalTransactionId) return;
     await deps.captureEvent({
       event: "subscription_entitlement_granted",

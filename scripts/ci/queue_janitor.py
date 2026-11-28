@@ -226,6 +226,14 @@ is that newer run's head and not this run's; every unfinished job has sat `queue
 HOLDER_JOB_WAIT, read again right before the cancel; and no open pull request of the branch is labelled
 `no-janitor`. Finished jobs keep their results and no started job is cut. Its own lookup budget and cap; never
 re-run.
+
+Stale-ref routing is one more pass (g, scripts/ci/stale_route_runs.py; stale_route_pass()): a queued job on a pool
+over the threshold that asks for a label the run's branch copy of its workflow (main's, or a BRANCH_WORKFLOWS
+branch's) no longer names, in a run created before the commit that took the label out. A run follows the workflow
+file at its own ref, and a re-run reuses it, so a routing fix leaves every older run and re-run on the old label.
+At an open pull request's head the pull request is base-merged (update-branch, as cmux-bot), never cancelled; a
+merged or closed pull request's run, or a superseded head's, is shed. Each sweep names them per label and routing
+commit (an ::warning:: and the snapshot's `stale_routes`). hq docs/handbook/queued-job-keeps-its-old-route.md.
 """
 
 from __future__ import annotations
@@ -269,6 +277,7 @@ import owned_pool_rescue as rescue  # noqa: E402
 import owned_warm_state  # noqa: E402
 import ui_tests_dispatch  # noqa: E402
 import starved_labels  # noqa: E402
+import stale_route_runs  # noqa: E402
 from delivery_workflows import REPLACEMENT_JOB_READS, attempt_jobs, build_started, is_delivery_run  # noqa: E402
 from delivery_workflows import delivers, is_delivery_event, is_delivery_workflow  # noqa: E402
 from delivery_workflows import newer_head_runs, superseded_unstarted  # noqa: E402
@@ -311,6 +320,12 @@ MAX_JOB_LISTINGS = 2000
 # The read token's installation budget a sweep never spends below (GitHub.read_token_floor_reached()): the Linux runner
 # scaler mints JIT runners on the same glaeda-route installation and holds its own creates below 1,600 left.
 READ_TOKEN_FLOOR = 3000
+# Under READ_TOKEN_FLOOR the sweep's reads move onto the sweep's own token (cmux-bot) while its installation has more
+# than this left (GitHub.sweep_token_has_room()), above HQ's cmux-bot floors (app_budget.py's 2,500 default and NOW's
+# 1,500 reserve). From 19:14Z to 20:05Z on 2026-11-27 glaeda-route sat under its floor (2,574 left at 19:22Z, 796 at
+# 19:52Z) while cmux-bot had 8,000+ left; every sweep in between stopped at its first run page, succeeded and
+# uploaded no macos-pool-load snapshot for 55 minutes, so the pool pickers routed on a stale or missing queue.
+SWEEP_TOKEN_READ_FLOOR = 4000
 JOB_LISTING_WORKERS = 6
 GRAPHQL_BATCH = 25
 # A read that meets a 5xx or a dropped connection is made again after each of these delays (seconds),
@@ -521,6 +536,10 @@ PROTECTED_WORKFLOW = re.compile(r"release|nightly|testflight|app[-_ ]?store|apps
 # files nothing, so dep-fleet's ruling (#27521) does not cover it and the sweep treats it as any pull request run.
 PULL_REQUEST_PROTECTED_WORKFLOW = re.compile(r"release|testflight|app[-_ ]?store|appstore|publish|notar",
                                              re.IGNORECASE)
+# ci.yml's run-name carries routing settings (`v1;sha=...;release=arm64;coverage=...`). The `release=` setting names
+# no release workflow, so protected_reason() drops it before matching, as orphan_protected_reason() matches the path
+# alone and HQ's stale_runs.py drops the same setting.
+CI_RUN_NAME_RELEASE_SETTING = re.compile(r"(?<=;)release=[^;\s]*")
 TAG_LIKE_REF = re.compile(r"^(v\d|cmux-tui-v\d|.*-v\d+\.\d+)")
 
 UTC = dt.timezone.utc
@@ -553,7 +572,11 @@ def protected_reason(run: Mapping[str, Any]) -> str | None:
     """Why a run must never be cancelled, or None when policy may look at it."""
     event = run.get("event") or ""
     branch = run.get("head_branch") or ""
-    haystack = " ".join(str(run.get(key) or "") for key in ("name", "path"))
+    # Without dropping `;release=<arch>`, every ci.yml run read as a release workflow: run 46059745828, ten macOS
+    # jobs queued 179 minutes on blacksmith-12vcpu-macos-26 at the head of PR #53898 (merged 2026-11-27 19:51Z),
+    # was never a candidate for category b, which cancels a merged pull request's run on any pool.
+    haystack = CI_RUN_NAME_RELEASE_SETTING.sub(
+        "", " ".join(str(run.get(key) or "") for key in ("name", "path")))
     if not event or not branch:
         return "missing event or branch"
     if event in PROTECTED_EVENTS:
@@ -1001,6 +1024,13 @@ FLEET_GATES_HELD = ("total", "units", "cpu", "livelock", "other")
 FLEET_GATES_MAX_LABELS = 200
 
 
+def fleet_gates_label(label: Any) -> bool:
+    """A label the fleet gates own: a glaeda Mac pool, or an owned Linux one (pr_runner_pool.OWNED_POOL_LEAD_LINUX,
+    which the dashboard's reading has carried since `cmux-fleet-linux-x64` got native listeners; until 2026-11-25 this
+    reader took glaeda- labels alone and refused every such reading whole, so starved-label pages said no reading)."""
+    return isinstance(label, str) and (label.startswith("glaeda-") or label in OWNED_POOL_LEAD_LINUX)
+
+
 def fleet_gates(raw: str | None) -> tuple[dict[str, Any] | None, str | None]:
     """(reading, None) from the CI_FLEET_GATES variable's text, checked and cut to the fields above, or (None, why).
 
@@ -1030,7 +1060,7 @@ def fleet_gates(raw: str | None) -> tuple[dict[str, Any] | None, str | None]:
     out: dict[str, dict[str, Any]] = {}
     for label, row in labels.items():
         held = row.get("held_offline") if isinstance(row, dict) else None
-        if (not isinstance(label, str) or not label.startswith("glaeda-") or not isinstance(held, dict)
+        if (not fleet_gates_label(label) or not isinstance(held, dict)
                 or not all(count(row.get(key)) for key in FLEET_GATES_COUNTS)
                 or not all(count(held.get(key)) for key in FLEET_GATES_HELD)):
             return None, f"CI_FLEET_GATES label {str(label)[:80]!r} is out of shape"
@@ -2905,6 +2935,7 @@ def branches_to_resolve(
 PR_FIELDS = """
         number state headRefOid url
         headRepositoryOwner { login }
+        author { login }
         labels(first: 100) { pageInfo { hasNextPage } nodes { name } }
         files(first: 100) { pageInfo { hasNextPage } nodes { path } }
         timelineItems(last: 50, itemTypes: [LABELED_EVENT, UNLABELED_EVENT]) {
@@ -2925,6 +2956,7 @@ OPEN_PRS_UNREAD = "openPullRequestsUnread"
 OPEN_PR_FIELDS = """
         number state headRefOid url
         headRepositoryOwner { login }
+        author { login }
         labels(first: 100) { pageInfo { hasNextPage } nodes { name } }
 """
 
@@ -4959,6 +4991,11 @@ class GitHub:
         self.read_token = ""
         # The read token's installation budget a sweep leaves for its other users (read_token_floor_reached()).
         self.read_token_floor = 0
+        # The sweep token's own budget its reads keep once the read token is under its floor (sweep_token_has_room());
+        # 0 turns the move off: under the read floor the sweep then stops, as before 2026-11-27.
+        self.sweep_token_read_floor = 0
+        # Said once, when the reads first move onto the sweep token for the read floor.
+        self.moved_reads = ""
         self.headers = {
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {token}",
@@ -5007,6 +5044,31 @@ class GitHub:
             return False
         return limits["remaining"] <= self.read_token_floor
 
+    def sweep_token_has_room(self) -> bool:
+        """Whether the sweep's own token (cmux-bot) has more than sweep_token_read_floor calls left this hour: the
+        newest reading of its `core`, else one GET /rate_limit on it, which GitHub does not count. Only then do reads
+        the read token's floor holds back go on it (_request()); below it the sweep stops as before."""
+        if self.sweep_token_read_floor <= 0:
+            return False
+        with self._count_lock:
+            limits = self.rate_limits.get("core")
+        if not limits or ("reset" in limits and time.time() >= limits["reset"]):
+            request = urllib.request.Request(API + "/rate_limit", headers=dict(self.headers), method="GET")
+            try:
+                with urllib.request.urlopen(request, timeout=10) as response:
+                    core = (json.loads(response.read() or b"{}").get("resources") or {}).get("core") or {}
+            except (OSError, ValueError, urllib.error.URLError) as error:
+                print(f"queue-janitor: the sweep token's budget is unread ({error}); the read floor holds",
+                      file=sys.stderr)
+                return False
+            if not isinstance(core.get("remaining"), int):
+                return False
+            limits = {key: int(core[key]) for key in ("limit", "remaining", "used", "reset")
+                      if isinstance(core.get(key), int)}
+            with self._count_lock:
+                self.rate_limits["core"] = limits
+        return limits["remaining"] > self.sweep_token_read_floor
+
     def request(self, method: str, path: str, body: Any | None = None, *, app_only: bool = False) -> Any:
         """One API call. A read (GET, or a GraphQL query) that meets a 5xx or a dropped connection is
         made again after each RETRY_DELAYS delay; a write is not, since it may have taken effect."""
@@ -5037,12 +5099,28 @@ class GitHub:
         read_token = self.read_token if method == "GET" and not app_only and not self.cancel_phase else ""
         if read_token and self.read_token_floor_reached():
             left = self.rate_limits["core (read token)"]["remaining"]
-            limited = RateLimited(f"{method} {path.split('?')[0]} not sent: the read token's installation has {left} "
-                                  f"calls left, at or under the {self.read_token_floor} the sweep leaves for the "
-                                  "runner scaler (READ_TOKEN_FLOOR)")
-            with self._count_lock:
-                self.rate_limited = self.rate_limited or str(limited)
-            raise limited
+            if self.sweep_token_has_room():
+                # The runner scaler keeps the read installation's floor, and the sweep still lists the whole queue
+                # and writes its snapshot, on the sweep token's own budget above SWEEP_TOKEN_READ_FLOOR.
+                read_token = ""
+                with self._count_lock:
+                    if not self.moved_reads:
+                        self.moved_reads = (f"the read token's installation has {left} calls left, at or under the "
+                                            f"{self.read_token_floor} the sweep leaves for the runner scaler "
+                                            "(READ_TOKEN_FLOOR); the sweep's reads went on its own token from "
+                                            f"{method} {path.split('?')[0]}, which keeps "
+                                            f"{self.sweep_token_read_floor} (SWEEP_TOKEN_READ_FLOOR)")
+                        print(f"queue-janitor: {self.moved_reads}", file=sys.stderr)
+            else:
+                bot = (self.rate_limits.get("core") or {}).get("remaining")
+                limited = RateLimited(f"{method} {path.split('?')[0]} not sent: the read token's installation has "
+                                      f"{left} calls left, at or under the {self.read_token_floor} the sweep leaves "
+                                      "for the runner scaler (READ_TOKEN_FLOOR), and the sweep's own token has "
+                                      f"{bot if bot is not None else 'an unread number of'} calls left, at or under "
+                                      f"its {self.sweep_token_read_floor} (SWEEP_TOKEN_READ_FLOOR)")
+                with self._count_lock:
+                    self.rate_limited = self.rate_limited or str(limited)
+                raise limited
         if read_token:
             headers["Authorization"] = f"Bearer {read_token}"
         request = urllib.request.Request(API + path, data=data, headers=headers, method=method)
@@ -5185,15 +5263,25 @@ class GitHub:
         return names
 
     def jobs(self, run_id: int) -> list[dict[str, Any]]:
+        """Every job of the run's latest attempt, or RuntimeError when the listing is not complete.
+
+        A listing cut short at MAX_JOB_PAGES, or a short page under total_count, can hide a running job, and a cancel
+        made on it would cut that job (the review BLOCK on cmux#27114). Every caller takes RuntimeError as unread.
+        """
         jobs: list[dict[str, Any]] = []
+        total = 0
         for page in range(1, MAX_JOB_PAGES + 1):
             query = urllib.parse.urlencode({"filter": "latest", "per_page": 100, "page": page})
             payload = self.request("GET", f"/repos/{self.repo}/actions/runs/{run_id}/jobs?{query}")
             batch = payload.get("jobs") or []
             jobs.extend(batch)
+            if isinstance(payload.get("total_count"), int):
+                total = max(total, payload["total_count"])
             if len(batch) < 100:
-                break
-        return jobs
+                if total > len(jobs):
+                    raise RuntimeError(f"run {run_id}: job listing incomplete ({len(jobs)} of {total} jobs)")
+                return jobs
+        raise RuntimeError(f"run {run_id}: job listing incomplete (more than {MAX_JOB_PAGES * 100} jobs)")
 
     def pull_requests(self, branches: Sequence[str]) -> dict[str, list[dict[str, Any]]]:
         owner, name = self.repo.split("/", 1)
@@ -5510,6 +5598,47 @@ def render_listing(listing: Mapping[str, Any]) -> str:
     return text
 
 
+def stale_route_pass(github: "GitHub", repo: str, runs: Sequence[Mapping[str, Any]],
+                     jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]],
+                     prs_by_branch: Mapping[str, Sequence[Mapping[str, Any]]], *,
+                     queued_by_pool: Mapping[str, int], threshold: int, copies: Mapping[str, Path],
+                     already_cancelled: Iterable[int], dry_run: bool, can_merge: bool,
+                     ) -> tuple[list["stale_route_runs.StaleRoute"], dict[int, str], int]:
+    """Category g (stale_route_runs.py): runs on a saturated pool that ask for a label their branch's workflow copy
+    was routed off. Reads only files on disk until a suspect exists; then a commit listing and a few commit reads per
+    (file, label) to name the routing change. Returns the decisions, what was done per run, and failed writes."""
+    saturated = [pool for pool, count in queued_by_pool.items() if count > threshold]
+    if not saturated:
+        return [], {}, 0
+
+    def pool_of(job: Mapping[str, Any]) -> tuple[str, ...]:
+        return counted_pools(runner_pool(job)) if is_macos_job(job) else ()
+
+    suspects = stale_route_runs.find_suspects(runs, jobs_by_run, saturated, copies, pool_of=pool_of,
+                                              protected=protected_reason)
+    if not suspects:
+        return [], {}, 0
+
+    def lookup(branch: str, path: str, label: str) -> "stale_route_runs.Change | None":
+        try:
+            return stale_route_runs.routing_change(lambda url: github.request("GET", url), repo, branch, path, label)
+        except RateLimited:
+            raise
+        except RuntimeError as error:
+            print(f"queue-janitor: routing change of {label} in {path} on {branch}: {error}", file=sys.stderr)
+            return None
+
+    decisions = stale_route_runs.plan(suspects, prs_by_branch, lookup=lookup, resolve=resolve_pull_request,
+                                      already_cancelled=already_cancelled)
+    if dry_run:
+        return decisions, {}, 0
+    results, failures = stale_route_runs.act(
+        decisions, can_merge=can_merge, cancel=github.cancel,
+        update_branch=lambda number, sha: github.request(
+            "PUT", f"/repos/{repo}/pulls/{number}/update-branch", {"expected_head_sha": sha}))
+    return decisions, results, failures
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """One sweep (sweep()). A sweep that met a rate limit ends green with a ::warning:: (an infra skip).
 
@@ -5635,6 +5764,9 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
         # the runner scaler's JIT creates and about 30 workflows' mints share (read_token_floor_reached()).
         if hasattr(github, "read_token_floor"):
             github.read_token_floor = env_int("READ_TOKEN_FLOOR", READ_TOKEN_FLOOR)
+        # SWEEP_TOKEN_READ_FLOOR: under that floor the reads go on cmux-bot while it has more than this left.
+        if hasattr(github, "sweep_token_read_floor"):
+            github.sweep_token_read_floor = env_int("SWEEP_TOKEN_READ_FLOOR", SWEEP_TOKEN_READ_FLOOR)
     now = utc_now()
     linux_only = linux_only_workflow_paths(args.workflows_dir)
     branch_linux_only = branch_linux_only_paths(args.branch_workflows)
@@ -6060,6 +6192,32 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
     superseded_decisions = [*superseded_decisions, *dev_decisions]
     failures += dev_failures
 
+    # Category g: a run asking for a saturated label its branch's workflow copy no longer names (stale_route_pass()).
+    copies = {"main": args.workflows_dir}
+    for spec in args.branch_workflows:
+        copy_branch, _, copy_dir = (part.strip() for part in spec.partition("="))
+        if copy_branch and copy_dir and copy_branch != "main":
+            copies[copy_branch] = Path(copy_dir)
+    cancelled_ids = {candidate.run["id"] for candidate in plan.to_cancel()} | {
+        d.orphan.run["id"] for d in [*orphan_decisions, *holder_decisions, *jobless_decisions] if d.action == "cancel"}
+    try:
+        stale_decisions, stale_results, stale_failures = stale_route_pass(
+            github, args.repo, runs, jobs_by_run, prs_by_branch, queued_by_pool=plan.queued_by_pool,
+            threshold=threshold, copies=copies, already_cancelled=cancelled_ids, dry_run=args.dry_run,
+            can_merge=cmux_bot())
+    except RuntimeError as error:  # a rate limit: the next sweep looks again
+        print(f"queue-janitor: stale-ref routing: {error}", file=sys.stderr)
+        if isinstance(error, RateLimited):
+            github.rate_limited = github.rate_limited or str(error)
+        stale_decisions, stale_results, stale_failures = [], {}, 1
+    failures += stale_failures
+    stale_summary, stale_warnings = stale_route_runs.render(stale_decisions, stale_results, dry_run=args.dry_run)
+    for line in stale_warnings:
+        print(line)
+    if snapshot is not None and args.pool_load:
+        snapshot[stale_route_runs.STALE_ROUTES_KEY] = stale_route_runs.snapshot_entry(stale_decisions)
+        args.pool_load.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
+
     summary = render_summary(plan, dry_run=args.dry_run, now=now, results=results)
     summary += render_open_head_reruns(open_head_decisions, open_head_results, freed=open_head_freed)
     summary += render_lost_reruns(rerun_decisions, dry_run=args.dry_run, results=rerun_results)
@@ -6076,6 +6234,7 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
     summary += render_jobless_summary(jobless_decisions, jobless_notes, dry_run=args.dry_run, results=jobless_results)
     summary += push_summary
     summary += render_superseded_summary(superseded_decisions)
+    summary += stale_summary
     summary += f"\n_{render_listing(listing)}._\n"
     summary += f"\n_{len(runs)} in-flight runs, {len(jobs_by_run)} job listings " \
                f"({branch_skipped} more runs not listed: linux-only on their branch), {len(branches)} PR branches, " \

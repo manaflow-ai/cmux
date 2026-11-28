@@ -58,7 +58,7 @@ jobs:
     # Analysis only reads trusted main history and the Actions/PR APIs, but it
     # mints App tokens to read on their budget, so it runs on a literal
     # Blacksmith label no variable can move (tests/test_ci_fork_runner_routing.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 15
     permissions:
       actions: read
@@ -87,15 +87,29 @@ jobs:
 
       # The analysis only reads: on the manaflow-glaeda-route App's own budget, with
       # GH_TOKEN for what it may not read or is refused (guard_attribution.GitHub).
+      - name: Check out the App token spread action
+        # Why: .github/actions/app-token-spread (mint on both Apps, spend the fuller one).
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .app-token-spread
+          sparse-checkout: .github/actions/app-token-spread
+          persist-credentials: false
+
       - name: Mint the glaeda-route token
         id: glaeda-token
         if: vars.GLAEDA_ROUTE_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.app-token-spread/.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-actions: read
@@ -105,7 +119,7 @@ jobs:
           skip-token-revoke: true
 
       - name: Checkout main with history
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 60
           filter: blob:none
@@ -140,7 +154,7 @@ jobs:
         id: analyze
         env:
           GH_TOKEN: ${{ steps.app-spend.outputs.low != 'true' && steps.cmux-bot-token.outputs.token || github.token }}
-          READ_TOKEN: ${{ steps.app-spend.outputs.low != 'true' && steps.cmux-bot-token.outputs.token || steps.glaeda-token.outputs.token }}
+          READ_TOKEN: ${{ steps.glaeda-token.outputs.token || (steps.app-spend.outputs.low != 'true' && steps.cmux-bot-token.outputs.token) || github.token }}
           HEAD_INPUT: ${{ inputs.head }}
         run: |
           set -euo pipefail
@@ -185,7 +199,7 @@ jobs:
     name: ${{ needs.analyze.outputs.headline || 'report' }}
     needs: analyze
     if: ${{ needs.analyze.outputs.state == 'red' || needs.analyze.outputs.state == 'green' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: attribution must follow a failed compile within a minute; CI_TRUSTED_RUNNER picks the Blacksmith size
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }} # ephemeral-required: attribution must follow a failed compile within a minute
     timeout-minutes: 10
     permissions:
       actions: write # dispatches main-compile-probe.yml
@@ -209,7 +223,7 @@ jobs:
           permission-pull-requests: write
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 1
           persist-credentials: false
@@ -282,7 +296,7 @@ jobs:
     name: Fix forward or revert
     needs: [analyze, report]
     if: ${{ needs.analyze.outputs.state == 'red' && needs.analyze.outputs.fix == 'true' && !inputs.dry_run && !inputs.head }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds the Claude token and the fix PR App key; CI_TRUSTED_RUNNER picks the Blacksmith size
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }} # ephemeral-required: holds the Claude token and the fix PR App key
     timeout-minutes: 30
     concurrency:
       group: ci-compile-attribution-fix
@@ -291,6 +305,7 @@ jobs:
       contents: read
       issues: write
       pull-requests: write
+      id-token: write # The tailnet join for the Claude login pool (.github/actions/claude-pool).
     steps:
       - name: Mint the cmux-bot token
         id: cmux-bot-token
@@ -308,11 +323,21 @@ jobs:
           permission-pull-requests: write
 
       - name: Checkout main's head
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: main
+          ref: refs/heads/main
           fetch-depth: 60
           persist-credentials: false
+
+      # The pool's logins instead of the one shared token when the pool answers; '' keeps the token.
+      - name: Reach the Claude login pool
+        id: pool
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: ./.github/actions/claude-pool
+        with:
+          oauth-client-id: ${{ vars.CLAUDE_POOL_TS_OIDC_CLIENT_ID }}
+          audience: ${{ vars.CLAUDE_POOL_TS_OIDC_AUDIENCE }}
 
       # The cmux-bot installation's hour before this job spends any of it (GET /rate_limit is free), as an
       # `app-spend-pool:` line HQ's spend publisher sums, and the floor (HQ's default floor, 2,500): below it
@@ -364,9 +389,11 @@ jobs:
         timeout-minutes: 15
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CLAUDE_POOL_URL: ${{ steps.pool.outputs.base-url }}
           REPORT: ${{ runner.temp }}/compile-report/compile-report.json
         run: |
           set -euo pipefail
+          if [ -n "${CLAUDE_POOL_URL:-}" ]; then export ANTHROPIC_BASE_URL="$CLAUDE_POOL_URL" ANTHROPIC_AUTH_TOKEN=subrouter2; unset CLAUDE_CODE_OAUTH_TOKEN; fi
           # Every file under .git, by name and bytes (the check step below repeats it).
           git_dir_digest() {
             (cd .git && find . \( -type f -o -type l \) -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256) | shasum -a 256

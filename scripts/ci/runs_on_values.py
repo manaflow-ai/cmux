@@ -43,6 +43,7 @@ Two halves, so a pull request is blocked too:
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Iterable, Mapping
 from pathlib import Path
@@ -211,6 +212,22 @@ def problems(trees: Iterable[tuple[str, Path]], values: Mapping[str, str]) -> li
 
 
 RUNS_ON_VARIABLES_ENV = "CMUX_CI_RUNS_ON_VARIABLES"
+# Every repository variable at once (`${{ toJSON(vars) }}`), so a runs-on variable a branch adds needs no edit to
+# the NAME=value list above: that list fell behind three times in two days (cmux#48436, #50841, and 1,337 red
+# scheduled runs on CI_FORK_LINUX_RUNNER, CI_OVERFLOW_MAC, CI_REACT_SHARD_RUNNER until 11-24). A name absent from
+# it is unset, so `vars.X` reads empty and falls through, as the workflow itself would.
+ALL_VARIABLES_ENV = "CMUX_CI_RUNS_ON_ALL_VARIABLES"
+
+
+def parse_all(raw: str) -> dict[str, str] | None:
+    """toJSON(vars) as a name -> value map; None when it is not handed in or not a JSON object."""
+    if not raw.strip():
+        return None
+    try:
+        doc = json.loads(raw)
+    except ValueError:
+        return None
+    return {str(k): "" if v is None else str(v) for k, v in doc.items()} if isinstance(doc, dict) else None
 
 
 def parse_values(raw: str) -> dict[str, str]:
@@ -247,7 +264,15 @@ def main(argv: list[str], env: Mapping[str, str]) -> int:
         found = [f"{RUNS_ON_VARIABLES_ENV} is empty: the workflow passed no variable values to check"]
     else:
         try:
-            found = problems(parse_trees(argv), parse_values(raw))
+            trees = parse_trees(argv)
+            values = parse_values(raw)
+            everything = parse_all(env.get(ALL_VARIABLES_ENV, ""))
+            if everything is not None:
+                # GitHub matches variable names in any case: vars.new_one reads NEW_ONE. An explicit value wins.
+                given = {name.upper(): value for name, value in (everything | values).items()}
+                values = everything | values | {name: values[name] if name in values else given.get(name.upper(), "")
+                                                for name in read_variables(trees)}
+            found = problems(trees, values)
         except ValueError as error:
             found = [str(error)]
     if not argv:

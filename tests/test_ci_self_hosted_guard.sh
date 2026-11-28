@@ -309,7 +309,12 @@ allowed = {
     ("build", "owned-state", "Reuse this owned Mac's build state", ""),
     ("build", "prefer-seed", "Prefer a near seed over this owned Mac's DerivedData", ""),
     ("build", "owned-adopt", "Adopt this owned Mac's DerivedData", ""),
-    ("test", "parallel-product", "Read the compiled test product over parallel range requests", ""),
+    # A JavaScript action, so the transport has the Actions runtime token.
+    ("test", "parallel-product", "Read the compiled test product over parallel range requests",
+     "actions/github-script"),
+    # The first bounded stream: the next step retries it on a fresh stream
+    # without continue-on-error, so a second failure still fails the job.
+    ("test", "download-product", "Download the compiled test product", "./.github/actions/download-test-product"),
     # The git object seed: a miss leaves checkout to fetch everything, and a
     # checkout the seed breaks is retried without it by the next steps.
     ("build", None, "Restore git object seed", ""),
@@ -321,10 +326,11 @@ allowed = {
     ("runner", None, "Upload the persistent pool marker", "actions/upload-artifact"),
     # The sweeper's fixed-name marker: without it the run is only not watched.
     ("runner", None, "Upload the owned-pool watch marker", "actions/upload-artifact"),
-    # The routing App's token: without it the pool choice reads the janitor snapshot.
-    ("runner", "route-token", "Mint the owned-pool routing token", "actions/create-github-app-token"),
+    # The routing token (minted on both Apps, the fuller one spent): without it the pool
+    # choice reads the janitor snapshot.
+    ("runner", "route-token", "Mint the owned-pool routing token", "./.github/actions/app-token-spread"),
     ("runner", "route-token-repo", "Mint the routing token without the org permission",
-     "actions/create-github-app-token"),
+     "./.github/actions/app-token-spread"),
 }
 for job_id, job in document["jobs"].items():
     if "continue-on-error" in job:
@@ -1533,6 +1539,8 @@ PY_LIGHT
                "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || 'blacksmith-4vcpu-windows-2025' }}" \
                "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
                "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-8vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
+               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}" \
+               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}" \
                "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-8vcpu-ubuntu-2404\",\"cmux-gcp-secret-jit-x64\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
                "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\",\"cmux-gcp-secret-jit-x64\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
                "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}" \

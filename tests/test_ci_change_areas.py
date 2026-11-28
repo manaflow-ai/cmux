@@ -637,7 +637,7 @@ def test_release_build_waits_for_linux_preflight_admission() -> None:
         " && github.event.pull_request.head.repo.full_name != github.repository"
         " && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)"
         " && 'ubuntu-24.04'"
-        " || 'cmux-linux' }}"
+        " || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}"
     ) in admission
     assert 'TARGET_JOB: "linux-preflight"' in admission
     assert "actions/runs/{run_id}/jobs?filter=latest&per_page=100" in admission
@@ -6688,7 +6688,10 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
         "CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) "
         "&& (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_26 }}"
     ) in release_block
-    assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in release_block
+    # release-build derives the SDK major from the Xcode it selects (Xcode 27.2
+    # on the macOS 26 lane), so it requires SDK 27 there and 26 otherwise.
+    assert "CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains(" in release_block
+    assert "'Xcode_27') && '27' || '26' }}" in release_block
 
 
 def test_required_macos_topology_collapses_display_and_release_helper_jobs() -> None:

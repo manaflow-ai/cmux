@@ -568,11 +568,24 @@ async function reconcileProMetadataIfAvailable(
   activePlan: PersonalPlanId | null,
   withFreshMetadataUser: FreshProMetadataUserMutation,
 ): Promise<boolean> {
+  return await withFreshProMetadataUserIfAvailable(
+    userId,
+    (freshUser, lease) => reconcileFreshProMetadata(freshUser, activePlan, lease),
+    withFreshMetadataUser,
+  );
+}
+
+/**
+ * Runs `operation` on the user's fresh metadata under the account-deletion
+ * guard; false when the account is being deleted or is gone.
+ */
+export async function withFreshProMetadataUserIfAvailable(
+  userId: string,
+  operation: (user: ProReconcileUser, lease: AccountDeletionUserMutationLease) => Promise<boolean>,
+  withFreshMetadataUser: FreshProMetadataUserMutation = withDefaultFreshProMetadataUser,
+): Promise<boolean> {
   try {
-    return await withFreshMetadataUser(
-      userId,
-      (freshUser, lease) => reconcileFreshProMetadata(freshUser, activePlan, lease),
-    );
+    return await withFreshMetadataUser(userId, operation);
   } catch (error) {
     if (
       error instanceof AccountDeletionMutationBlockedError ||

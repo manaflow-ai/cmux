@@ -204,6 +204,27 @@ export function workflowReader(github, owner, repo) {
   };
 }
 
+// GitHub refuses to parse a workflow file over this many bytes.
+export const WORKFLOW_BYTE_LIMIT = 512_000;
+
+// Calls read(key) once per key; later calls share its promise.
+function onceEach(read) {
+  const seen = new Map();
+  return (key) => {
+    if (!seen.has(key)) seen.set(key, read(key));
+    return seen.get(key);
+  };
+}
+
+// The UTF-8 byte size of <sha>'s nightly.yml, or null when it cannot be read.
+export async function nightlyWorkflowBytes(readWorkflow, sha) {
+  try {
+    return Buffer.byteLength(String(await readWorkflow(sha)), 'utf8');
+  } catch {
+    return null;
+  }
+}
+
 // true when <sha>'s nightly.yml has TREE_AT_INSTALL_LINE, false when it
 // does not, and { error } when it cannot be read.
 export async function waitsForTreeAtInstall(readWorkflow, sha) {
@@ -654,6 +675,20 @@ export async function decide({
     }
   }
 
+  // G6: GitHub will start its nightly. GitHub does not parse a workflow file
+  // over WORKFLOW_BYTE_LIMIT: the push records a run named after the file's
+  // path that fails with no jobs, and nightly-next sits on a commit that never
+  // builds. 2026-11-26: 711b39cb7 (18:25Z) and a94af7249 had a 512,450-byte
+  // nightly.yml (two PRs each under the limit merged over it); this guard
+  // reported "Promoted ... its push run publishes it" and nothing published
+  // for five hours. An unreadable file promotes as before (G5 decides).
+  // One read per commit serves G6 and G5.
+  const readOnce = onceEach(readWorkflow || workflowReader(github, owner, repo));
+  const workflowSize = await nightlyWorkflowBytes(readOnce, sha);
+  if (workflowSize > WORKFLOW_BYTE_LIMIT) {
+    return refuse(`${NIGHTLY_WORKFLOW_PATH} at ${sha} is ${workflowSize} bytes, over GitHub's ${WORKFLOW_BYTE_LIMIT}-byte workflow limit: GitHub would not start its nightly, so ${TARGET} stays where it is; bring the file under the limit on ${SOURCE}`);
+  }
+
   // G5: the tree is published and daemon-tested. A train commit carries its
   // second parent's tree minus its listed reverts; the parent's marker stands
   // for it (the train is off unless vars.NIGHTLY_NEXT_TRAIN is on).
@@ -663,7 +698,7 @@ export async function decide({
     // marker) of a feat-cmux-next commit whose own nightly waits for its tree
     // at install (TREE_AT_INSTALL_LINE).
     if (train || treeMissing !== true) return refuse(treeRefusal);
-    const waits = await waitsForTreeAtInstall(readWorkflow || workflowReader(github, owner, repo), sha);
+    const waits = await waitsForTreeAtInstall(readOnce, sha);
     if (waits !== true) {
       return refuse(waits?.error ? `${treeRefusal} (and ${waits.error}, so whether its nightly waits for its tree is unknown)` : treeRefusal);
     }

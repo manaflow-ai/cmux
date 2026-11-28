@@ -35,9 +35,10 @@ the live attempt and current open PR again; incomplete history and unmarked canc
 
 `--backlog` is a second, separate pass (ci-hosted-backlog-rescue.yml, every 10 minutes and on dispatch) for what the
 minute pass leaves: any pull request run, up to GitHub's 24 h queue limit, whose every unfinished job has waited
-BACKLOG_STALL on hosted Ubuntu (or on Blacksmith Ubuntu, when its re-run takes the owned LINUX_RUNNER: RerunRoutes). A
-run at its pull request's head is cancelled, journalled in the pass's log, and re-run on today's routes by the next
-pass once the cancel settled; a superseded one is only cancelled (see BACKLOG_STALL below).
+BACKLOG_STALL on hosted Ubuntu, on a one-job JIT label its route moved off (MOVED_JIT_LABELS), or on Blacksmith Ubuntu
+when its re-run takes the owned LINUX_RUNNER (RerunRoutes). A run at its pull request's head is cancelled, journalled in
+the pass's log, and re-run on today's routes by the next pass once the cancel settled; a superseded one is only cancelled
+(see BACKLOG_STALL below).
 
 Quota: reads go out as the cmux-bot App (HOSTED_LIGHT_TOKEN is its installation token when the workflow minted one;
 with BOT_APP_ID and BOT_APP_KEY a new one is minted before the hour is up), whose installation pool is its own. The
@@ -1053,6 +1054,38 @@ def reads_left(client: Any) -> float:
     return getattr(client, "reads_left", float("inf"))
 
 
+# One-job JIT labels a route moved off, and the workflows whose re-run (attempt 2) takes the job somewhere else. On
+# 2026-11-21 cmux#49216 moved cmux-next.yml's Linux control hops from cmux-gcp-pr-control-jit-x64 (one fresh VM per
+# job, created at most about 60 a minute) to cmux-linux, the persistent pool; at 18:20Z 1,420 jobs were still queued on
+# the JIT label, the oldest from 15:24Z, and 30 on cmux-gcp-gate-jit-x64, since GitHub never re-routes a queued job.
+# A job queued alone on one of these labels for BACKLOG_STALL counts as stalled. A superseded run is cancelled for good
+# whatever its workflow. A run at its pull request's head is cancelled and re-run only when its workflow's re-run
+# leaves the label: cmux-next.yml names cmux-gcp-pr-control-jit-x64 on `github.run_attempt == 1` only, so attempt 2
+# falls through to RUNNER_POOLS. The other workflows on these labels (main's pull_request_target control workflows,
+# backend-migrations.yml on the gate label) name it on every attempt; a re-run there would only rejoin the queue at
+# its tail, so such a run stays queued at its head.
+MOVED_JIT_LABELS: Mapping[str, frozenset[str]] = {
+    "cmux-gcp-pr-control-jit-x64": frozenset({"cmux-next.yml"}),
+    "cmux-gcp-gate-jit-x64": frozenset(),
+}
+
+
+def backlog_rerun_moves(stuck: Sequence[Mapping[str, Any]], workflow: str | None) -> str:
+    """"" when a re-run takes every stalled job off its label; else the moved JIT label a re-run would return to."""
+    for job in stuck:
+        labels = [str(label) for label in job.get("labels") or ()]
+        if len(labels) == 1 and labels[0] in MOVED_JIT_LABELS and workflow not in MOVED_JIT_LABELS[labels[0]]:
+            return labels[0]
+    return ""
+
+
+def backlog_where(stuck: Sequence[Mapping[str, Any]]) -> str:
+    """Where the stalled jobs wait: hosted Ubuntu, a moved JIT label, or both (Blacksmith jobs are counted apart)."""
+    jit = sorted({str(label) for job in stuck for label in job.get("labels") or () if label in MOVED_JIT_LABELS})
+    hosted = any(all(HOSTED_LABEL.match(str(label)) for label in job.get("labels") or ()) for job in stuck)
+    return " and ".join((["hosted Ubuntu"] if hosted else []) + jit)
+
+
 # Blacksmith is overflow only, and owned labels come first (Leo: "stop ... relying on it"). A job queued on a Blacksmith
 # Ubuntu label keeps it, like any queued job, after its route moved to an owned label; on 2026-11-21 about 70 waited
 # there at 12:00Z while owned Linux runners sat idle. A cancel and re-run moves such a job only when its `runs-on`
@@ -1167,14 +1200,17 @@ class RerunRoutes:
 
 def backlog_stalled(job: Mapping[str, Any], now: dt.datetime,
                     leaves: Callable[[Mapping[str, Any]], bool] | None = None) -> bool:
-    """Queued with no runner for BACKLOG_STALL or more on GitHub-hosted Ubuntu labels only, or on Blacksmith Ubuntu
-    labels (with hosted ones or alone) when `leaves(job)` says its re-run takes an owned label."""
+    """Queued with no runner for BACKLOG_STALL or more on GitHub-hosted Ubuntu labels only, on one moved JIT label
+    (MOVED_JIT_LABELS) alone, or on Blacksmith Ubuntu labels (with hosted ones or alone) when `leaves(job)` says its
+    re-run takes an owned label."""
     labels = [str(label) for label in job.get("labels") or ()]
     created = parse_time(job.get("created_at"))
     if not (job.get("status") == "queued" and not job.get("runner_id") and not job.get("runner_name")
             and bool(labels) and created is not None and now - created >= BACKLOG_STALL):
         return False
     if all(HOSTED_LABEL.match(label) for label in labels):
+        return True
+    if len(labels) == 1 and labels[0] in MOVED_JIT_LABELS:
         return True
     return (all(HOSTED_LABEL.match(label) or BLACKSMITH_LINUX_LABEL.match(label) for label in labels)
             and leaves is not None and leaves(job))
@@ -1499,7 +1535,7 @@ def backlog_sweep(client: Any, *, now: dt.datetime, dry_run: bool, declared: Seq
     del sleep, clock
     lines: list[str] = EchoLines(echo)
     counts = {"candidates": 0, "read": 0, "stalled": 0, "cancelled": 0, "superseded": 0, "journalled": 0,
-              "recovered": 0, "expired": 0, "pending": 0, "requests": 0}
+              "recovered": 0, "expired": 0, "pending": 0, "stays": 0, "requests": 0}
     actions = max(0, min(int(actions), BACKLOG_ACTIONS_MAX))
     client = BacklogReads(client, BACKLOG_READS)
     if budget_short(client, lines) or pool_low(client, now):
@@ -1526,6 +1562,8 @@ def backlog_sweep(client: Any, *, now: dt.datetime, dry_run: bool, declared: Seq
                  f"{counts['cancelled']} cancelled ({counts['superseded']} superseded), {counts['recovered']} "
                  f"earlier cancels re-run, {counts['pending']} wait for their re-run; {client.spent} of "
                  f"{BACKLOG_READS} API calls")
+    if counts["stays"]:
+        lines.append(f"{counts['stays']} stalled runs at their head left queued: their re-run takes the same JIT label")
     if journal is not None:
         lines.extend(journal_lines(journal, whole=not read.partial))
     return lines, counts
@@ -1626,8 +1664,8 @@ def backlog_scan(client: Any, journal: dict[int, Journalled] | None, *, now: dt.
             if not rescue_it:
                 if run_ids:
                     lines.append(f"{where}: not every unfinished job has waited {int(BACKLOG_STALL.total_seconds() // 60)}"
-                                 f" min with no runner on hosted Ubuntu (or on Blacksmith Ubuntu with an owned re-run "
-                                 f"route); left alone")
+                                 f" min with no runner on hosted Ubuntu, a moved JIT label (or on Blacksmith Ubuntu with an"
+                                 f" owned re-run route); left alone")
                 continue
             counts["stalled"] += 1
             head = backlog_head(client, run)
@@ -1635,12 +1673,20 @@ def backlog_scan(client: Any, journal: dict[int, Journalled] | None, *, now: dt.
             lines.append(f"{where}: could not read ({error}); left alone")
             continue
         oldest = max(int((now - parse_time(job["created_at"])).total_seconds() // 60) for job in stuck)
-        on_blacksmith = sum(1 for job in stuck if not all(HOSTED_LABEL.match(str(label)) for label in job.get("labels") or ()))
-        detail = (f"{len(stuck)} jobs queued on hosted Ubuntu, the oldest {oldest} min" if not on_blacksmith else
-                  f"{len(stuck)} jobs queued ({on_blacksmith} on Blacksmith Ubuntu, re-run on {routes.linux_runner}), "
-                  f"the oldest {oldest} min")
+        on_blacksmith = sum(1 for job in stuck
+                            if not all(HOSTED_LABEL.match(str(label)) for label in job.get("labels") or ())
+                            and not set(job.get("labels") or ()) & set(MOVED_JIT_LABELS))
+        on_where = backlog_where(stuck)
+        detail = (f"{len(stuck)} jobs queued on {on_where}, the oldest {oldest} min" if not on_blacksmith else
+                  f"{len(stuck)} jobs queued{' on ' + on_where if on_where else ''} ({on_blacksmith} on Blacksmith"
+                  f" Ubuntu, re-run on {routes.linux_runner}), the oldest {oldest} min")
         if head == "unknown":
             lines.append(f"{where}: {detail}; its pull request could not be told; left alone")
+            continue
+        stays = backlog_rerun_moves(stuck, run["_workflow"]) if head == "current" else ""
+        if stays:
+            counts["stays"] += 1
+            lines.append(f"{where}: {detail}; at its head, and its re-run would queue on {stays} again; left alone")
             continue
         if head == "current" and (journal is None or hold or len(journal) >= BACKLOG_PENDING_MAX):
             # A cancel the next pass could not re-run would leave its pull request with no checks: leave it queued.

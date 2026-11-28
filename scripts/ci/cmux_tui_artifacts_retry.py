@@ -6,10 +6,11 @@ gets up to two more attempts. A run cannot rerun itself while it is in
 progress (GitHub answers 403 "This workflow is already running"), so the
 cmux-tui-artifacts-retry workflow calls this after the run completes.
 "Re-run failed jobs" also reruns the jobs that depend on them, so the publish
-jobs are evaluated again.
+jobs are evaluated again. Once the tree is published, a daemon test runner lost
+on attempt 1 gets one job-specific retry to complete its dependent tested marker.
 
-Only tree-publishing runs (feat-cmux-next's workflow, with its tree preflight
-job) are retried; main's own cmux-tui artifacts runs share the workflow name
+Only tree-publishing runs (feat-cmux-next's and nightly-next's pushes, with
+the tree preflight job) are retried; main's own cmux-tui artifacts runs share the workflow name
 and are left alone.
 
 An immutable R2 conflict (annotation title immutable-r2-conflict, written by
@@ -33,19 +34,38 @@ import argparse
 from dataclasses import dataclass
 import json
 import os
+import re
 import sys
 import urllib.request
 
 MAX_ATTEMPTS = 3
 CONFLICT_TITLE = "immutable-r2-conflict"
 TREE_PREFLIGHT_JOB = "cmux-tui tree preflight"
+RETRIED_BRANCHES = ("feat-cmux-next", "nightly-next")
 TREE_PUBLISH_JOBS = ("publish tree-addressed cmux-tui", "publish pull request tree-addressed cmux-tui")
 
 
 @dataclass(frozen=True)
 class Decision:
-    action: str  # "rerun-failed-jobs", "refuse" or "skip"
+    action: str  # "rerun-failed-jobs", "rerun-job", "refuse" or "skip"
     reason: str
+    job_id: int | None = None
+
+
+def daemon_runner_lost(job: dict, annotations: list[dict]) -> bool:
+    if job.get("name") != "cmux_next_ daemon tests" or job.get("conclusion") != "failure":
+        return False
+    # Run 46018008596: a shutdown cancelled the running step, but GitHub marked
+    # the job failed. A cancelled cleanup after a failed test is a different case.
+    states = {step.get("conclusion") for step in job.get("steps") or []}
+    if states.intersection(("failure", "timed_out")):
+        return False
+    if "cancelled" in states:
+        return True
+    # A disconnected runner may leave only a check annotation and no step result.
+    return any(re.match(r"The runner has received a shutdown signal\b|"
+                        r"The (?:self-)?hosted runner.* lost communication with the server\b",
+                        note.get("message") or "", re.IGNORECASE) for note in annotations)
 
 
 def never_started(job: dict) -> bool:
@@ -115,9 +135,13 @@ def decide(run: dict, jobs: list[dict], annotations: dict[int, list[dict]], newe
                         + ", ".join(job["name"] for job in orphaned))
     if run.get("status") != "completed" or run.get("conclusion") != "failure":
         return Decision("skip", f"run is {run.get('status')}/{run.get('conclusion')}, not a completed failure")
-    # The pushes nightly-next promotes from; a red lane branch or PR is usually a real failure.
-    if run.get("event") != "push" or not (branch == "feat-cmux-next" or branch.startswith("cmux-tui-pin-")):
-        return Decision("skip", f"{run.get('event')} on {branch or '?'}: only feat-cmux-next and cmux-tui-pin-* pushes are retried")
+    # The pushes nightly-next promotes from, and nightly-next itself: its run signs the Linux release file
+    # the linux-nightly channel follows (2026-11-27 run 45981368445 at 7682aa45 failed on an aarch64 runner
+    # shutdown, was never retried, and the channel stayed a NIGHTLY behind). A red lane branch or PR is
+    # usually a real failure.
+    if run.get("event") != "push" or not (branch in RETRIED_BRANCHES or branch.startswith("cmux-tui-pin-")):
+        return Decision("skip", f"{run.get('event')} on {branch or '?'}: only "
+                        + ", ".join(RETRIED_BRANCHES) + " and cmux-tui-pin-* pushes are retried")
     # main's cmux-tui artifacts workflow has the same name but publishes no tree;
     # only feat-cmux-next's tree-publishing runs (they have this job) are retried.
     if not any(job.get("name") == TREE_PREFLIGHT_JOB for job in jobs):
@@ -129,9 +153,13 @@ def decide(run: dict, jobs: list[dict], annotations: dict[int, list[dict]], newe
     mac_delivery_failed = any(job.get("name") == "publish the Mac live update"
                               and job.get("conclusion") in ("failure", "cancelled", "timed_out")
                               for job in jobs)
-    if published and not mac_delivery_failed:
-        return Decision("skip", f"{published[0]} succeeded: the tree is published")
     attempt = int(run.get("run_attempt") or 1)
+    lost_daemon = None
+    if published and not mac_delivery_failed:
+        if attempt == 1:
+            lost_daemon = next((job for job in jobs if daemon_runner_lost(job, annotations.get(job["id"], []))), None)
+        if lost_daemon is None:
+            return Decision("skip", f"{published[0]} succeeded: the tree is published")
     if attempt >= MAX_ATTEMPTS:
         return Decision("skip", f"attempt {attempt} reached the cap of {MAX_ATTEMPTS}")
     # A job that its own timeout cancels ends `cancelled` in a run that ends `failure` (a cancelled run ends
@@ -151,6 +179,8 @@ def decide(run: dict, jobs: list[dict], annotations: dict[int, list[dict]], newe
             "immutable R2 conflict in " + ", ".join(conflicts)
             + ": a rebuild is not byte-identical, so a retry cannot fix it",
         )
+    if lost_daemon is not None:
+        return Decision("rerun-job", "published tree needs its daemon-tested marker after runner loss", lost_daemon["id"])
     now = failure_fingerprint(jobs)
     if previous and now and now <= failure_fingerprint(previous):
         return Decision("skip", f"attempts {attempt - 1} and {attempt} failed the same way ("
@@ -216,6 +246,9 @@ def main(argv: list[str]) -> int:
     if decision.action == "rerun-failed-jobs" and not args.dry_run:
         _api("POST", f"{base}/actions/runs/{args.run_id}/rerun-failed-jobs", token)
         print(f"Reran the failed jobs of run {args.run_id}.")
+    elif decision.action == "rerun-job" and not args.dry_run:
+        _api("POST", f"{base}/actions/jobs/{decision.job_id}/rerun", token)
+        print(f"Reran job {decision.job_id} and its dependents.")
     return 0
 
 

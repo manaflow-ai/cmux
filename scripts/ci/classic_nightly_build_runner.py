@@ -8,7 +8,9 @@ way out but the owned-pool rescue. While that one mini was busy or away the buil
 
 This reads the pinned runner live once, before the build is queued:
 - online and idle: `trusted=true`, and the build asks for the same pinned tuple as before;
-- online and busy: look again every LOOK_SECONDS for up to WAIT_SECONDS, then Blacksmith;
+- online and busy: Blacksmith now. It used to look again every 30 s for up to 5 min first, and that
+  wait was the 4.6 min "Pick the trusted mini" step of 2026-11-25's nightlies: a mini busy with a
+  nightly build stays busy for its whole build, so the wait almost never kept the pin;
 - offline, or no runner carries both labels: Blacksmith now;
 - the runner list could not be read: count the nightly builds already queued or running on the
   pinned runner label (BACKLOG, read with SNAPSHOT_TOKEN's actions: read); any, Blacksmith now;
@@ -59,7 +61,6 @@ import json
 import os
 import re
 import sys
-import time
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
@@ -71,8 +72,6 @@ CANDIDATES = (LARGE, SMALL)
 SIZES = {"12vcpu": LARGE, "6vcpu": SMALL}
 # The pinned mini's previous nightly usually ends inside this; past it a cold Blacksmith build
 # (about 60 min) starts sooner than the wait the 2026-10-27 runs saw.
-WAIT_SECONDS = 5 * 60
-LOOK_SECONDS = 30
 TRUSTED_POOL = re.compile(r"glaeda-(?:root-)?trusted-(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
 TRUSTED_RUNNER = re.compile(r"glaeda-runner-[a-z0-9][a-z0-9-]*")
 # The nightly's own runs read for the pinned runner's backlog when the runner list is unread.
@@ -129,11 +128,9 @@ def census_runners(raw: str | None, now: dt.datetime) -> list[Mapping[str, Any]]
 
 
 def trusted_route(pool: str, runner: str, read: Callable[[], Sequence[Mapping[str, Any]] | None],
-                  enabled: bool, attempt: str, *, wait_seconds: float = WAIT_SECONDS,
-                  look_seconds: float = LOOK_SECONDS, sleep: Callable[[float], None] = time.sleep,
-                  clock: Callable[[], float] = time.monotonic, unread_keeps: bool = True,
+                  enabled: bool, attempt: str, *, unread_keeps: bool = True,
                   backlog: Callable[[], int | None] | None = None) -> tuple[bool, str]:
-    """(whether the build asks for the pinned trusted tuple, why).
+    """(whether the build asks for the pinned trusted tuple, why), from one read of the runner list.
 
     `unread_keeps` False (the prepare pick) takes Blacksmith when the runner list cannot be read."""
     if not enabled:
@@ -142,27 +139,23 @@ def trusted_route(pool: str, runner: str, read: Callable[[], Sequence[Mapping[st
         return False, f"attempt {attempt} takes Blacksmith"
     if not (TRUSTED_POOL.fullmatch(pool) and TRUSTED_RUNNER.fullmatch(runner)):
         return False, "the trusted pool or runner variable is unset or not a trusted label"
-    deadline = clock() + wait_seconds
-    while True:
-        state = runner_state(pool, runner, read())
-        if state == "idle":
-            return True, f"`{runner}` is online and idle"
-        if state == "unread":
-            if not unread_keeps:
-                return False, "the runner list could not be read"
-            waiting = backlog() if backlog is not None else None
-            if waiting:
-                return False, (f"the runner list could not be read and {waiting} nightly build(s) already queue or "
-                               f"run on `{runner}`")
-            if waiting == 0:
-                return True, (f"the runner list could not be read and no other nightly build queues on `{runner}`, "
-                              "so it keeps the build (the rescue watches it)")
-            return True, f"the runner list could not be read, so `{runner}` keeps the build (the rescue watches it)"
-        if state == "offline":
-            return False, f"`{runner}` is offline"
-        if clock() + look_seconds > deadline:
-            return False, f"`{runner}` stayed busy for {wait_seconds / 60:g} min"
-        sleep(look_seconds)
+    state = runner_state(pool, runner, read())
+    if state == "idle":
+        return True, f"`{runner}` is online and idle"
+    if state == "unread":
+        if not unread_keeps:
+            return False, "the runner list could not be read"
+        waiting = backlog() if backlog is not None else None
+        if waiting:
+            return False, (f"the runner list could not be read and {waiting} nightly build(s) already queue or "
+                           f"run on `{runner}`")
+        if waiting == 0:
+            return True, (f"the runner list could not be read and no other nightly build queues on `{runner}`, "
+                          "so it keeps the build (the rescue watches it)")
+        return True, f"the runner list could not be read, so `{runner}` keeps the build (the rescue watches it)"
+    if state == "offline":
+        return False, f"`{runner}` is offline"
+    return False, f"`{runner}` is busy, so Blacksmith now rather than wait on it"
 
 
 def candidates(first: str = "") -> tuple[str, ...]:
@@ -295,7 +288,6 @@ def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
          read_runners: Callable[[str, str], Sequence[Mapping[str, Any]]] | None = None,
          read_snapshot: Callable[[str, str], Any] | None = None, now: dt.datetime | None = None,
          read_backlog: Callable[[str, str, str, str], int] | None = None,
-         sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic,
          wall: Callable[[], dt.datetime] = lambda: dt.datetime.now(dt.timezone.utc)) -> int:
     repo = env.get("GITHUB_REPOSITORY", "")
     route_token = env.get("ROUTE_TOKEN", "")
@@ -333,15 +325,12 @@ def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
                   f"({str(error)[:200]})")
             return None
 
-    # Wall time before the wait: the snapshot's queue ages are read against it plus the wait.
     now = now or wall()
-    started = clock()
     prepare = list(argv[:1]) == ["prepare"]
     trusted, trusted_why = trusted_route((env.get("TRUSTED_POOL") or "").strip(),
                                          (env.get("TRUSTED_RUNNER") or "").strip(), read,
                                          (env.get("ENABLED") or "").strip() == "1",
-                                         (env.get("GITHUB_RUN_ATTEMPT") or "").strip(), sleep=sleep, clock=clock,
-                                         wait_seconds=0 if prepare else WAIT_SECONDS, unread_keeps=not prepare,
+                                         (env.get("GITHUB_RUN_ATTEMPT") or "").strip(), unread_keeps=not prepare,
                                          backlog=backlog)
     if prepare:
         line = f"prepare: {'trusted' if trusted else 'blacksmith'} ({trusted_why})"
@@ -353,7 +342,6 @@ def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
             with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
                 handle.write(f"\nNightly prepare runner:\n- {line}\n")
         return 0
-    now += dt.timedelta(seconds=max(0.0, clock() - started))
     snapshot = evidence = None
     snapshot_token = env.get("SNAPSHOT_TOKEN", "")
     if snapshot_token and repo:

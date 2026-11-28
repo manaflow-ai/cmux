@@ -5,12 +5,18 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import signal
 import subprocess
 import tempfile
+import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / 'scripts/ci/notarize-computer-use-helper.sh'
+# One helper run takes well under a second here and a few seconds on a slow
+# runner. Without a bound, any stall burned the job's whole 20-minute timeout
+# with no output (run 45677870805). A run past this fails with its own output.
+HELPER_TIMEOUT_SECONDS = float(os.environ.get('CMUX_TEST_HELPER_TIMEOUT_SECONDS', '120'))
 TOOL = r'''#!/usr/bin/env python3
 import hashlib, json, os, pathlib, shutil, stat, sys
 name = pathlib.Path(sys.argv[0]).name
@@ -52,6 +58,10 @@ if name == 'codesign':
     elif '--verify' in args and os.environ.get('FIXTURE_VERIFY_FAIL'):
         sys.exit(1)
 elif name == 'lipo':
+    if os.environ.get('FIXTURE_LIPO_HANG'):
+        import time
+        (root / 'lipo.pid').write_text(str(os.getpid()))
+        time.sleep(float(os.environ['FIXTURE_LIPO_HANG']))
     if os.environ.get('FIXTURE_LIPO_FAIL'):
         sys.exit(1)
     print(' '.join(arches()))
@@ -102,6 +112,25 @@ elif name == 'sign-bundle':
 '''
 
 
+def stop_session(process):
+    for signum in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(process.pid, signum)
+        except ProcessLookupError:
+            return
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            continue
+        if signum == signal.SIGTERM:
+            # The leader is gone; still stop any fixture left in its session.
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        return
+
+
 class HelperNotarizationTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix='cmux-notary-test-')
@@ -131,12 +160,24 @@ class HelperNotarizationTests(unittest.TestCase):
             path.chmod(0o755)
             self.env['CMUX_' + tool.upper().replace('-', '_') + '_TOOL'] = str(path)
 
-    def run_helper(self, *args, success=True, **env):
+    def run_helper(self, *args, success=True, timeout=None, **env):
         # Only the repository script and fixture arguments are executed, without a shell.
-        result = subprocess.run([str(SCRIPT), *map(str, args), str(self.app),  # noqa: S603
-                                 str(self.entitlements), 'Developer ID Application: Fixture'],
-                                env=dict(self.env, **env), text=True,
-                                capture_output=True, check=False)
+        # Its own session, so a timeout stops every fixture it started, and a stray
+        # child holding the output pipes cannot keep this test waiting either.
+        timeout = HELPER_TIMEOUT_SECONDS if timeout is None else timeout
+        process = subprocess.Popen([str(SCRIPT), *map(str, args), str(self.app),  # noqa: S603
+                                    str(self.entitlements), 'Developer ID Application: Fixture'],
+                                   env=dict(self.env, **env), text=True, stdin=subprocess.DEVNULL,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   start_new_session=True)
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            stop_session(process)
+            stdout, stderr = process.communicate()
+            self.fail(f'notarize-computer-use-helper.sh {" ".join(map(str, args))} ran past {timeout:g}s; '
+                      f'its session was killed\n{stdout}{stderr}')
+        result = subprocess.CompletedProcess(process.args, process.returncode, stdout, stderr)
         self.assertEqual(result.returncode == 0, success, result.stdout + result.stderr)
         return result
 
@@ -283,6 +324,22 @@ class HelperNotarizationTests(unittest.TestCase):
                 self.run_helper(success=False, **{missing: ''})
         self.assertFalse(self.calls('xcrun', 'notarytool'))
 
+    def test_stalled_fixture_fails_within_bound_and_stops_its_session(self):
+        # The bound itself is proven by the timeout message, not a wall clock.
+        with self.assertRaisesRegex(AssertionError, r'ran past 5s; its session was killed'):
+            self.run_helper(timeout=5, FIXTURE_LIPO_HANG='120')
+        stalled = int((self.root / 'lipo.pid').read_text())
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            try:
+                os.kill(stalled, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.05)
+        else:
+            self.fail(f'stalled fixture {stalled} outlived the helper timeout')
+        self.assertFalse(self.calls('xcrun', 'notarytool', 'submit'))
+
     def test_existing_submission_cannot_be_overwritten(self):
         self.run_helper('--start', self.state)
         state = self.state.read_bytes()
@@ -292,4 +349,5 @@ class HelperNotarizationTests(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    unittest.main()
+    # Verbose: a CI log names the test that is running if one ever stalls.
+    unittest.main(verbosity=2)

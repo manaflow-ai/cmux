@@ -76,6 +76,9 @@ EXCLUDED_SHARED: dict[tuple[str, str], str] = {
     ("nightly-next-tick.yml", "request"): "the tick dispatches no build itself; a sha request has its own group",
     ("nightly-next-tick.yml", "unstick"): "reads every run's state when it starts; builds nothing",
     ("nightly.yml", ""): "the scheduled cache seed builds the branch tip when it starts; pushes are per run",
+    ("nightly.yml", "decide"): (
+        "main's app ticks decide one at a time so the in-flight cap sees the previous tick's build; "
+        "each decides main HEAD when it starts and builds nothing in decide itself"),
     ("nightly.yml", "promote-nightly-next"): "a promotion request builds nothing; decideNewest() covers an evicted one",
     ("nightly.yml", "await-release-surface-ack"): "retired (if: false); it never runs",
     ("nightly.yml", "publish-nightly"): (
@@ -110,7 +113,9 @@ PER_SOURCE_RUN: dict[str, str] = {
 # runs on one branch are not all interchangeable, so the queue janitor never collapses their stuck runs.
 SOURCE_KEYED: dict[str, str] = {
     "ci-failure-attribution.yml": "one group per source head repository and branch",
-    "ci-guard-attribution.yml": "one group per pull request branch, or per source workflow on main",
+    "ci-guard-attribution.yml": (
+        "one group per pull request branch, per source workflow for main's push and dispatch runs, and per "
+        "event and branch for every other source run (merge_group, feat-cmux-next, schedule)"),
 }
 
 # cancel-in-progress expressions that are false on the schedule event, which the shared reader

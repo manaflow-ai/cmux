@@ -36,6 +36,11 @@ self-hosted-runner:
     - macos-26
 
 paths:
+  .github/workflows/cloud-mvp-nightly-readback.yml:
+    ignore:
+      # `environment.deployment: false` (an environment's secrets without a deployment record) is a real GitHub
+      # key; actionlint 1.7.7 predates it and 1.7.12 knows it.
+      - 'unexpected key "deployment" for "environment" section'
   .github/workflows/test-ios.yml:
     ignore:
       # `swift_package` is a workflow_dispatch choice input whose first option

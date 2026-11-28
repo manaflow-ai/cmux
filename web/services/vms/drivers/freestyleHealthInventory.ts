@@ -21,6 +21,7 @@ const MAX_PAGES = 50;
 const LIST_REQUEST_TIMEOUT_MS = 20_000;
 
 type ClientFactory = (timeoutMs?: number, signal?: AbortSignal) => Freestyle;
+type ProbeOptions = { readonly timeoutMs: number; readonly signal?: AbortSignal };
 
 export function freestyleHealthInventory(client: ClientFactory): VmHealthInventory {
   return {
@@ -117,55 +118,67 @@ export function tlsRuleRef(rule: TlsRuleData): ProviderTlsRuleRef {
 async function probeControl(
   client: ClientFactory,
   vmId: string,
-  options: { readonly timeoutMs: number; readonly signal?: AbortSignal },
+  options: ProbeOptions,
 ): Promise<VmControlProbe> {
   const started = Date.now();
-  const timeout = AbortSignal.timeout(options.timeoutMs);
-  const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
-  const api = client(options.timeoutMs, signal);
+  const stateTimeout = AbortSignal.timeout(options.timeoutMs);
+  const stateSignal = options.signal ? AbortSignal.any([options.signal, stateTimeout]) : stateTimeout;
   const elapsed = () => Date.now() - started;
   let stateResponse: Response;
   try {
-    stateResponse = await api.fetch(`/v5/vms/${encodeURIComponent(vmId)}`, { method: "GET", signal });
+    stateResponse = await client(options.timeoutMs, stateSignal).fetch(`/v5/vms/${encodeURIComponent(vmId)}`, { method: "GET", signal: stateSignal });
   } catch (error) {
-    return { outcome: "error", latencyMs: elapsed(), detail: sanitizeDetail(`state read: ${timeout.aborted ? "timeout" : errorName(error)}`) };
+    return { outcome: "error", latencyMs: elapsed(), detail: sanitizeDetail(`state read: ${stateTimeout.aborted ? "timeout" : errorName(error)}`) };
   }
   if (stateResponse.status === 404) return { outcome: "gone", latencyMs: elapsed() };
-  if (!stateResponse.ok) return { outcome: "error", latencyMs: elapsed(), detail: `state read: ${await errorDetail(stateResponse)}` };
+  if (!stateResponse.ok) return { outcome: "error", latencyMs: elapsed(), detail: `state read: ${(await probeErrorResponse(stateResponse)).detail}` };
   const state = await stateResponse.json().then((body: unknown) => (body as { state?: unknown })?.state).catch(() => undefined);
   // Only a known state skips the probe; an unreadable body says nothing about the VM.
   if (typeof state !== "string") return { outcome: "error", latencyMs: elapsed(), detail: "state read: unreadable body" };
   if (state !== "running") return { outcome: "not_running", latencyMs: elapsed() };
+  // The VM gets its full response window after the provider confirms it is running.
+  if (stateSignal.aborted) return { outcome: "error", latencyMs: elapsed(), detail: "state read: interrupted" };
+  return probeGuestFilesystem(client, vmId, options, elapsed);
+}
+
+async function probeGuestFilesystem(
+  client: ClientFactory,
+  vmId: string,
+  options: ProbeOptions,
+  elapsed: () => number,
+): Promise<VmControlProbe> {
+  const guestTimeout = AbortSignal.timeout(options.timeoutMs);
+  const signal = options.signal ? AbortSignal.any([options.signal, guestTimeout]) : guestTimeout;
   let response: Response;
   try {
-    response = await api.fetch(`/v5/vms/${encodeURIComponent(vmId)}/fs/stat?path=${encodeURIComponent("/")}`, { method: "GET", signal });
+    response = await client(options.timeoutMs, signal).fetch(`/v5/vms/${encodeURIComponent(vmId)}/fs/stat?path=${encodeURIComponent("/")}`, { method: "GET", signal });
   } catch (error) {
-    if (timeout.aborted) return { outcome: "hung", latencyMs: elapsed(), detail: `timeout after ${options.timeoutMs}ms` };
-    return { outcome: "error", latencyMs: elapsed(), detail: sanitizeDetail(errorName(error)) };
+    // A local deadline cannot tell whether the provider delivered this request to the guest.
+    const detail = guestTimeout.aborted ? "fs/stat: request timed out" : sanitizeDetail(errorName(error));
+    return { outcome: "error", latencyMs: elapsed(), detail };
   }
   if (response.ok) {
     await response.body?.cancel().catch(() => undefined);
     return { outcome: "ok", latencyMs: elapsed() };
   }
   if (response.status === 404) return { outcome: "gone", latencyMs: elapsed() };
-  const detail = await errorDetail(response);
-  // 409 is the stale-runtime conflict seen in the incident; 5xx is a provider
-  // that reached for the VM and could not get an answer. 401, 403 and 429 say
-  // nothing about the VM, so they are probe errors, not hangs.
-  if (response.status === 409 || response.status >= 500) return { outcome: "hung", latencyMs: elapsed(), detail };
-  return { outcome: "error", latencyMs: elapsed(), detail };
+  const { detail, guestUnresponsive } = await probeErrorResponse(response);
+  return { outcome: guestUnresponsive ? "hung" : "error", latencyMs: elapsed(), detail };
 }
 
 function errorName(error: unknown): string {
   return error instanceof Error ? error.name : "fetch_failed";
 }
 
-async function errorDetail(response: Response): Promise<string> {
+async function probeErrorResponse(response: Response): Promise<{ detail: string; guestUnresponsive: boolean }> {
   const body: unknown = await response.json().catch(() => null);
   const record = body && typeof body === "object" ? body as Record<string, unknown> : {};
   const code = typeof record.code === "string" ? record.code : "";
   const message = typeof record.message === "string" ? record.message : "";
-  return sanitizeDetail([`${response.status}`, code, message].filter(Boolean).join(" "));
+  // Gate on a guest-specific error. Capacity conflicts and provider or proxy outages also use 409 and 5xx.
+  const guestUnresponsive = ((response.status === 409 || response.status >= 500) && code === "VM_NON_RESPONSIVE")
+    || (response.status === 409 && code === "CONFLICT" && /\bstale runtime instance\b.*\bresponsive=false\b/i.test(message));
+  return { detail: sanitizeDetail([`${response.status}`, code, message].filter(Boolean).join(" ")), guestUnresponsive };
 }
 
 function finiteOrNull(value: number | null | undefined): number | null {

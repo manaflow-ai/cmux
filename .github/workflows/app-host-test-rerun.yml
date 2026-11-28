@@ -80,7 +80,7 @@ jobs:
       runner: ${{ steps.plan.outputs.runner }}
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.ref }}
           fetch-depth: 0
@@ -90,7 +90,7 @@ jobs:
       # The helper comes from this workflow's revision, not the tested one,
       # which may predate it.
       - name: Checkout rerun helper
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           path: .rerun-tools
           sparse-checkout: scripts/ci
@@ -151,7 +151,7 @@ jobs:
       TEST_SHA: ${{ needs.plan.outputs.sha }}
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
@@ -159,7 +159,7 @@ jobs:
       # The helper comes from this workflow's revision, not the tested one,
       # which may predate it.
       - name: Checkout rerun helper
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           path: .rerun-tools
           sparse-checkout: scripts/ci

@@ -69,12 +69,13 @@ class FastChecksFailoverTests(unittest.TestCase):
     def test_admission_guard_keeps_the_overflow_set_exact(self) -> None:
         selector = yaml.safe_load(WORKFLOW.read_text())["jobs"]["admit"]["runs-on"]
         self.assertEqual(runner_label_errors(selector), [])
+        # Swapping the 8 vCPU arm for POOL (`inputs.runner == POOL && POOL || ...`) is a well-formed literal the label
+        # check accepts; the exact-expression pin below refuses it.
         for unsafe in (
-            selector.replace("blacksmith-8vcpu-ubuntu-2404", POOL),
             selector.replace("'blacksmith-2vcpu-ubuntu-2404'", "'self-hosted'"),
             selector.replace("'blacksmith-2vcpu-ubuntu-2404'", "'ubuntu-24.04'"),
-            selector.replace("contains(", "startsWith("),
-            selector.replace("&& inputs.runner", "&& inputs.other_runner"),
+            selector.replace("&& 'blacksmith-8vcpu-ubuntu-2404'", "&& inputs.runner"),
+            selector.replace("&& 'blacksmith-8vcpu-ubuntu-2404'", "&& inputs.other_runner"),
         ):
             with self.subTest(selector=unsafe):
                 self.assertNotEqual(runner_label_errors(unsafe), [])
@@ -209,12 +210,15 @@ class FastChecksFailoverTests(unittest.TestCase):
         self.assertRegex(text, r"sparse-checkout: \|\n\s+scripts/ci/fast_checks_runner\.py\n\s+scripts/ci/pr_runner_pool\.py")
         # pr_runner_pool imports github_spend at load (#34270): without it every admit step failed.
         self.assertRegex(admission, r"\n\s+scripts/ci/github_spend\.py\n")
+        # The #52730 pin imports deadline_http at load, and reads the published census (its fleet tallies) first:
+        # #34270's live read saw 500 of the fleet group's ~3,700 registrations, none online (run 46049698131).
+        self.assertRegex(admission, r"\n\s+scripts/ci/deadline_http\.py\n")
+        self.assertIn("CI_RUNNER_STATE: ${{ vars.FAST_CHECKS_LIVE_CENSUS != '1' && vars.CI_RUNNER_STATE || '' }}", admission)
         self.assertIn("needs: admit", text)
         self.assertIn("if: startsWith(needs.admit.outputs.runner, 'blacksmith-')", text)
 
     def test_display_commands_skip_with_a_success_receipt(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("import json, os, pathlib, shlex, signal, subprocess, time", text)
         self.assertIn("command_words[:2] == ['cmux-ci', 'run']", text)
         self.assertIn("not any(operator in command_text for operator in ('&&', '||', ';', '|', '&', '\\n'))", text)
         self.assertIn("assert actual == os.environ['FAST_CHECKS_SOURCE']", text)

@@ -1,0 +1,84 @@
+name: iOS App Store subscription records
+
+# Brings the App Store record's subscriptions up to what App Review needs: an
+# App Review screenshot, a promotional image and a localization for each
+# subscription cmux-next-ios/AppStoreReview/subscriptions/records.json lists
+# (asc_subscription_records.py). `asc validate --strict` in
+# ios-app-review-readiness.yml blocks on each one missing.
+#
+# Dispatch only. mode=plan (the default) reads App Store Connect and prints the
+# writes; mode=apply makes only those writes. Each write is skipped when the
+# record already has it, so a second apply writes nothing. Never written:
+# prices, availability, submissions, deletions, or a subscription the file
+# does not list (the retired trial included).
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: plan prints the writes; apply makes them
+        type: choice
+        options: [plan, apply]
+        default: plan
+      ref:
+        description: Branch or SHA whose records.json and images to use
+        required: false
+        default: feat-cmux-next
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-asc-subscription-records
+  cancel-in-progress: false
+
+jobs:
+  records:
+    name: Subscription records (${{ inputs.mode }})
+    if: github.repository == 'manaflow-ai/cmux'
+    environment: release
+    # It holds the App Store Connect key, so it takes an ephemeral Linux
+    # machine, as the readiness workflow's key-holding job does.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }} # ephemeral-required: holds the App Store Connect key
+    timeout-minutes: 15
+    env:
+      ASC_APP_ID: ${{ vars.IOS_APPSTORE_APP_ID }}
+      MODE: ${{ inputs.mode }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+          sparse-checkout: |
+            cmux-next-ios/scripts
+            cmux-next-ios/AppStoreReview/subscriptions
+            .gitmodules
+          sparse-checkout-cone-mode: false
+      - name: Plan or apply
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+        run: |
+          set -euo pipefail
+          case "$MODE" in plan|apply) ;; *) echo "mode is plan or apply, not $MODE"; exit 2 ;; esac
+          if ! [[ "$ASC_APP_ID" =~ ^[0-9]+$ ]]; then
+            echo "no App Store Connect app id (repository variable IOS_APPSTORE_APP_ID)"; exit 1
+          fi
+          key="$RUNNER_TEMP/AuthKey.p8"
+          trap 'rm -f "$key"' EXIT
+          printf '%s' "$ASC_API_KEY_P8_BASE64" | base64 --decode > "$key"
+          chmod 600 "$key"
+          unset ASC_API_KEY_P8_BASE64
+          export ASC_API_KEY_PATH="$key"
+          mkdir -p out
+          python3 -I cmux-next-ios/scripts/asc_subscription_records.py "$MODE" --app "$ASC_APP_ID" \
+            --json out/subscription-records.json | tee out/subscription-records.txt
+          { echo '```'; cat out/subscription-records.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: subscription-records-${{ inputs.mode }}
+          path: out/subscription-records.*
+          if-no-files-found: ignore
+          retention-days: 14
