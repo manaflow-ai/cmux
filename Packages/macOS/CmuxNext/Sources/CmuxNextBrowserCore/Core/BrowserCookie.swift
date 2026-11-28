@@ -11,8 +11,10 @@ public nonisolated struct BrowserCookie: Sendable, Hashable {
     public var expires: Date?
     public var secure: Bool
     public var httpOnly: Bool
+    /// Engine-provided SameSite attribute (`lax`, `strict`, or `none`), nil if absent.
+    public var sameSite: String?
 
-    public init(name: String, value: String, domain: String, path: String, expires: Date?, secure: Bool, httpOnly: Bool) {
+    public init(name: String, value: String, domain: String, path: String, expires: Date?, secure: Bool, httpOnly: Bool, sameSite: String? = nil) {
         self.name = name
         self.value = value
         self.domain = domain
@@ -20,5 +22,6 @@ public nonisolated struct BrowserCookie: Sendable, Hashable {
         self.expires = expires
         self.secure = secure
         self.httpOnly = httpOnly
+        self.sameSite = sameSite?.lowercased()
     }
 }
