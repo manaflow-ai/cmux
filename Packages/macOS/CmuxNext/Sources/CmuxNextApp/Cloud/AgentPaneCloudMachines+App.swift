@@ -18,7 +18,7 @@ extension AgentPaneCloudMachines {
                   age != .zero || (services.cloud.lastError == nil && services.cloud.unavailableReason == nil) else {
                 return Inventory(signedIn: services.cloud.isSignedIn, loaded: false, machines: [], team: TeamRowText.paneTeam(services.cloud.auth), teams: TeamRowText.paneTeams(services.cloud.auth))
             }
-            let machines = services.machines.cloud.compactMap { session in session.effectiveStatus == .destroyed ? nil : Machine(id: session.machineID, name: session.machine.title, stage: session.stage.name, evictAt: session.machine.evictAt, size: Machine.Size(session.machine.size)) }
+            let machines = services.machines.cloud.compactMap { session in session.effectiveStatus == .destroyed ? nil : Machine(id: session.machineID, name: session.machine.title, stage: session.stage.name, evictAt: session.machine.evictAt, size: Machine.Size(session.machine.size), cloudRegistryID: session.daemon.store.registryID ?? session.daemon.identity?.sessionID) }
             if complete { services.cloud.lastSeen.keep(machines, for: services.cloud.account) } // only a whole server answer
             return Inventory(signedIn: true, loaded: true, machines: machines, account: services.cloud.account, complete: complete, team: TeamRowText.paneTeam(services.cloud.auth), teams: TeamRowText.paneTeams(services.cloud.auth), plan: await self?.planReads.read(account: services.cloud.account) { try await services.cloud.appOps("cloud.plan.get", .object([:]), nil, .script) } ?? .unknown) // cloud.plan.get, else unknown
         }
@@ -29,7 +29,7 @@ extension AgentPaneCloudMachines {
         // The facts the typing prewarm and wake on intent (hidden `cloud.wakeOnIntent`) give their Rust rules.
         let facts: @MainActor (String) -> [String: Any] = { [weak services] id in guard let services else { return [:] }
             let cloud = services.cloud, status = services.machines.cloud.first(where: { $0.machineID == id })?.effectiveStatus, allowed = !services.registry.disabledFeatures.contains(.cloud) && cloud.mayCallCloud && cloud.unavailableReason == nil
-            var facts: [String: Any] = ["enabled": CloudTunables.wakeOnIntent.value, "allowed": allowed && cloud.isSignedIn, "loaded": cloud.hasLoadedCurrentMachines]
+            var facts: [String: Any] = ["enabled": CloudTunables.wakeOnIntent.value, "allowed": allowed && cloud.isSignedIn, "loaded": cloud.hasLoadedCurrentMachines, "readsWithoutWake": CloudTunables.openWithoutWake.value]
             if let status { facts["status"] = status.rawValue }
             return facts
         }

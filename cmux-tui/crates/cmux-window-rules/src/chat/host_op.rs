@@ -368,8 +368,8 @@ pub fn is_github_owner(value: &str) -> bool {
     let bytes = value.as_bytes();
     (1..=39).contains(&bytes.len())
         && bytes.iter().all(|byte| byte.is_ascii_alphanumeric() || *byte == b'-')
-        && bytes[0] != b'-'
-        && bytes[bytes.len() - 1] != b'-'
+        && bytes.first() != Some(&b'-')
+        && bytes.last() != Some(&b'-')
 }
 
 /// A GitHub repository's full name as Connect GitHub passes it on: an owner

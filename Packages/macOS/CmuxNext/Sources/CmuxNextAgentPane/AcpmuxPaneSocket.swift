@@ -18,7 +18,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         var task: URLSessionWebSocketTask?
         var opening: CheckedContinuation<Void, any Error>?
         var opened = false
-        var inbox: [String] = []
+        var inbox = AcpmuxPageInbox()
         var inboxBytes = 0
         /// Replies kept from the page while this Mac enrolls on a peer and answers again, by page
         /// id (``AcpmuxDecisionContexts/Answer/enrollThenRetry(peer:pageID:frame:)``).
@@ -607,8 +607,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                 bytes += size
                 count += 1
             }
-            let frames = Array(state.inbox.prefix(count))
-            state.inbox.removeFirst(count)
+            let frames = state.inbox.removeFirst(count)
             state.awaitedThrough = max(0, state.awaitedThrough - count)
             state.answeredThrough = max(0, state.answeredThrough - count)
             state.inboxBytes -= bytes
@@ -692,6 +691,8 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         session?.finishTasksAndInvalidate()
         if first, let wire { wire.cancel(code: code, reason: reason) }
         resolveChallenge(nil)
+        // No frame is taken in once closed: after the pass already queued, this connection's starts can't be answered.
+        if first { inbound.async { [self] in replacements.ended(connection: connection) } }
         if wake { signal() }
     }
 
@@ -714,6 +715,9 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
             return (opening, state.session, true, closeWaiters)
         }
         opening?.resume(throwing: AgentPaneTransportError.connectFailed)
+        // On the inbound queue, after every frame that came before the close was read: a start this
+        // connection never answered no longer holds the tab (``AcpmuxPaneReplacements/ended(connection:)``).
+        replacements.ended(connection: connection)
         for waiter in closeWaiters { waiter.resume() }
         session?.finishTasksAndInvalidate()
         resolveChallenge(nil)

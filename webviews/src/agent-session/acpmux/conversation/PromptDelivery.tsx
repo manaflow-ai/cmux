@@ -8,48 +8,15 @@
 // Remove or Details (Leo, 2026-11-24: "these 4 buttons are really bad tho. i dont ever want to see
 // these, it should just fix itself automtically"). Only a refusal that would come back the same
 // says why, in one short line under its prompts.
-import { useContext, useEffect, useState } from "react";
-import { PROMPT_PENDING_AFTER_MS, type AcpmuxRow, type PromptDelivery } from "../model";
-import { useT, type StringKey } from "../i18n";
-import { isTrustCause, sendCause, sendRetriesItself } from "../sendFailure";
+import { useContext } from "react";
+import type { AcpmuxRow, PromptDelivery } from "../model";
+import { useT } from "../i18n";
+import { isTrustCause, sendCause } from "../sendFailure";
 import { useTranscriptReadOnly } from "./readOnly";
-import { FailedSendsContext } from "./promptDeliveryModel";
+import { FailedSendsContext, pendingLabel, resendsItself } from "./promptDeliveryModel";
+import { Tooltip } from "../../../ui/Tooltip";
 import { Clock, Close } from "./icons";
 import { ROW_ICON } from "./messageActionsModel";
-const PENDING_AFTER_MS = PROMPT_PENDING_AFTER_MS;
-
-/// A prompt that did not get there and goes again by itself: shown as on its way, never as failed.
-export const resendsItself = (delivery: PromptDelivery | undefined): boolean =>
-  delivery?.state === "failed" && sendRetriesItself(delivery);
-
-/// Whether `delivery` draws its pending row now: on its way past its first second, held for the host
-/// or not, so a send that lands within a second shows nothing (Leo, 2026-11-24: "this "sending" is
-/// bad"), or going again by itself. Re-renders once when the second passes. `queued`: a steer acpmux
-/// holds for the running turn draws that row on its own terms (PendingSteer.tsx).
-export function usePendingShown(delivery: PromptDelivery | undefined, queued = false): boolean {
-  const sending = delivery?.state === "sending";
-  const sentAt = delivery?.sentAt ?? 0;
-  const [late, setLate] = useState(() => Date.now() - sentAt >= PENDING_AFTER_MS);
-  useEffect(() => {
-    if (!sending || late) return;
-    const timer = setTimeout(() => setLate(true), Math.max(0, PENDING_AFTER_MS - (Date.now() - sentAt)));
-    return () => clearTimeout(timer);
-  }, [sending, late, sentAt]);
-  // Once it went again by itself, its next try keeps the row from its first frame: no footer
-  // flashing between tries.
-  const again = resendsItself(delivery);
-  useEffect(() => {
-    if (again && !late) setLate(true);
-  }, [again, late]);
-  if (again) return true;
-  return sending && late && !queued;
-}
-
-/// What a prompt still on its way says: the one sentence its footer shows.
-export function pendingLabel(delivery: PromptDelivery): StringKey {
-  return delivery.waitingForHost ? "prompt.delivery.whenReady" : "prompt.delivery.sending";
-}
-
 /// The footer's time slot while the prompt is on its way: a clock and its one sentence, in the
 /// slot the age takes once it lands, so the row moves nothing when it does.
 export function PendingDelivery({ delivery }: { delivery: PromptDelivery }) {
@@ -96,15 +63,16 @@ export function DeliveryFailure({ row }: { row: AcpmuxRow }) {
             {t("trust.trustFolder")}
           </button>
         )}
-        <button
-          type="button"
-          className="cv-user__take-back cv-iconbtn cv-iconbtn--compact"
-          aria-label={t("composer.queueEditMessage")}
-          title={t("composer.queueEditMessage")}
-          onClick={takeBack}
-        >
-          <Close size={ROW_ICON} />
-        </button>
+        <Tooltip label={t("composer.queueEditMessage")}>
+          <button
+            type="button"
+            className="cv-user__take-back cv-iconbtn cv-iconbtn--compact"
+            aria-label={t("composer.queueEditMessage")}
+            onClick={takeBack}
+          >
+            <Close size={ROW_ICON} />
+          </button>
+        </Tooltip>
       </div>
     </div>
   );

@@ -13,12 +13,14 @@ import {
 } from "./cloudStartProgress";
 import { AlertCircle, Check, ChevronDown, ChevronRight, Folder } from "./conversation/icons";
 
-import { DelayedSpinner, SPINNER_DELAY_MS } from "./conversation/DelayedSpinner";
+import { DelayedSpinner } from "./conversation/DelayedSpinner";
+import { SPINNER_DELAY_MS } from "./conversation/useDelayedVisible";
 import { ShimmerText } from "./conversation/ShimmerText";
 import { cloudStartGoes } from "./cloudStartJustGo.experiment";
 import { Thinking } from "./conversation/Thinking";
 import { CloudSetupCard } from "./conversation/CloudSetupCard";
-import { CloudSetupSteps, cloudSetupStep, type CloudSetupStepsLook } from "./conversation/CloudSetupSteps";
+import { CloudSetupSteps } from "./conversation/CloudSetupSteps";
+import { cloudSetupStep, type CloudSetupStepsLook } from "./conversation/cloudSetupStep";
 import type { CloudSetupAction } from "./cloudSetup";
 import { usePaneLanguage, useT, type Translate } from "./i18n";
 import { cloudPlanRecoveryLabels } from "./cloudPlanRecoveryLabels";
@@ -26,11 +28,11 @@ import type { CloudPlanTeam, CloudPlanTeamRefusal } from "./cloudPlanTeams";
 import {
   CLOUD_PLAN_IDS,
   CLOUD_PLANS,
-  cloudPlanMachineWords,
   sizeFits,
   type CloudPlanId,
   type CloudPlanView,
   type CloudSizeLocked,
+  cloudPlanMachineWords,
 } from "./cloudPlans";
 import { useCloudPlanSubscribe, type CloudPlanSubscribeStore } from "./cloudPlanSubscribe";
 import { useGitHubPicker, type GitHubPickerStore, gitHubPickerStore, githubFullName } from "./githubRepos";
@@ -44,7 +46,7 @@ type QuietLook = "inline" | "stacked" | "hint" | "thinking";
 /// When the stage on the line began: the host's start time, else the moment this view first showed
 /// the stage, so the clock always counts (a host that sends no start time for a step still gets
 /// seconds on its line, never a bare label). A new stage starts its own count.
-export function useStageSince(stage: Pick<QuietStage, "id" | "since"> | undefined, now: number): number | undefined {
+function useStageSince(stage: Pick<QuietStage, "id" | "since"> | undefined, now: number): number | undefined {
   const seen = useRef<{ id: QuietStage["id"]; at: number } | undefined>(undefined);
   if (!stage) {
     seen.current = undefined;
@@ -673,8 +675,7 @@ export function CloudStartView({
   onPickRepo?: (path: string) => void;
   onPickFolder?: () => void;
   onStartWithoutFolder?: () => void;
-  /// Set up Cloud's buttons (`cloud_setup_required`, cloudSetup.ts): one of Settings > Models' ways in, then
-  /// the start goes again by itself once a connection serves the model; and its Not now.
+  /// Opens Settings > Cloud > Cloud models for a missing connection. A held start resumes once the family is served.
   onSetUp?: (action: CloudSetupAction) => void;
   onSetUpDismiss?: () => void;
   /// A start refused because a chat is already starting in this tab (`unavailable_now`): a new Cloud chat with the
@@ -777,6 +778,8 @@ export function CloudStartView({
           need={setup}
           steps={setupStepsLook}
           waiting={!failed}
+          runHereLabel={planLabels.runHere}
+          {...(onRunHere ? { onRunHere } : {})}
           {...(onSetUp ? { onSetUp } : {})}
           {...(onSetUpDismiss ? { onDismiss: onSetUpDismiss } : {})}
           {...(onSetUpDismiss && !failed ? { onCancel: onSetUpDismiss } : {})}

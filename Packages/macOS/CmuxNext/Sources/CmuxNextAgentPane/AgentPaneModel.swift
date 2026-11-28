@@ -87,6 +87,8 @@ public final class AgentPaneModel {
     /// Every `pane.painted` report, the first one too, after ``markPainted()``: a page that loaded again
     /// (a reload, a crash retry) reports its first frame here (``AgentPaneDocumentCover``).
     @ObservationIgnored var onPaintReport: (() -> Void)?
+    /// The page's error boundary caught a render error (`pane.renderFailed`): the view covers the empty document.
+    @ObservationIgnored var onRenderFailed: (() -> Void)?
     /// The new tab page this pane shows until it has a session (cleared then), nil for a plain chat.
     public private(set) var newTab: AgentPaneNewTab? {
         didSet {
@@ -107,6 +109,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onRememberNewTab: ((AgentPaneRememberedPick) -> Void)?
     /// Cloud's last pick as the app keeps it (``NewTabChoiceMemory/cloudStartedProject``, the same defaults).
     @ObservationIgnored public var cloudPick: @MainActor () -> String? = { NewTabChoiceMemory().cloudStartedProject }
+    /// Cloud's own agent pick as the app keeps it (``NewTabChoiceMemory/cloudAgent``, the same defaults).
+    @ObservationIgnored public var cloudAgentPick: @MainActor () -> AgentPaneLastPicks.Pick? = { NewTabChoiceMemory().cloudAgent }
     /// The new tab page's style switch picked a template.
     @ObservationIgnored public var onEditNewTab: ((AgentPaneNewTabEdit) -> Void)?
     /// The location bar picked an open tab or workspace (`tab.jump`).
@@ -212,17 +216,30 @@ public final class AgentPaneModel {
     /// Signs into the app's Cloud account for inline first-send recovery; nil when Cloud is unavailable.
     @ObservationIgnored public var onCloudSignIn: (@MainActor () async -> Bool)?
     /// The Set up Cloud card's way in, then the wait for a connection serving the family (``CloudSetup/setUp(_:family:)``);
-    /// false when the wait ended without one. nil when Cloud is unavailable.
-    @ObservationIgnored public var onCloudSetUp: (@MainActor (CloudSetup.Action, String) async -> Bool)?
-    /// Which families a Cloud chat can run now (``CloudSetup/serving()``); nil when Cloud is unavailable or nothing was read.
+    /// The result binds the retry to its Cloud placement. Nil means the wait ended or Cloud is unavailable.
+    @ObservationIgnored public var onCloudSetUp: (@MainActor (CloudSetup.Action, String, String?, String?) async -> CloudSetup.SetupCompletion?)?
+    /// Per family a Cloud chat runs, readiness and the reason when disconnected (``CloudSetup/served()``); nil when Cloud is unavailable.
+    @ObservationIgnored public var onCloudServed: (@MainActor (String?, String?) async -> CloudSetup.Readiness)?
+    /// Opens Settings > Cloud > Cloud models for the picker's Connect (``CloudSetup/connect(family:)``); nil when Cloud is unavailable.
+    @ObservationIgnored public var onCloudConnect: (@MainActor (String, String?, String?, String?) -> Void)?
+    /// Proves the current tab's connection to its own Cloud machine before opening Models for recovery.
+    @ObservationIgnored var ownsCloudConnectionMachine: (@MainActor (String) -> Bool)?
+    @ObservationIgnored public var mayRecoverCloudConnection: (@MainActor (String) async -> String?)?
+    /// Which families an unscoped Cloud start can run now, or nil when there was no read.
     @ObservationIgnored public var onCloudSetupState: (@MainActor () async -> [String: Bool]?)?
 
-    /// Wires the app's Cloud first use (``CloudSetup``): the Set up Cloud card's way in (``onCloudSetUp``) and the model
-    /// picker's read of which families Cloud runs (``onCloudSetupState``); nil (Cloud unavailable) wires neither.
+    /// Wires Cloud setup, scoped readiness, the unscoped picker read and the Settings action.
     public func useCloudSetup(_ setup: CloudSetup?) {
-        guard let setup else { (onCloudSetUp, onCloudSetupState) = (nil, nil); return }
-        onCloudSetUp = { [weak setup] action, family in await setup?.setUp(action, family: family) ?? false }
-        onCloudSetupState = { [weak setup] in await setup?.serving() }
+        guard let setup else {
+            (onCloudSetUp, onCloudServed, onCloudConnect, onCloudSetupState) = (nil, nil, nil, nil)
+            ownsCloudConnectionMachine = nil
+            return
+        }
+        ownsCloudConnectionMachine = { setup.ownsMachine?($0) == true }
+        onCloudSetUp = { await setup.setUp($0, family: $1, machine: $2, environment: $3) }
+        onCloudServed = { await setup.served(machine: $0, environment: $1) }
+        onCloudSetupState = { await setup.serving() }
+        onCloudConnect = { setup.connect(family: $0, machine: $1, environment: $2, recoverySession: $3) }
     }
     /// Whether the app's Cloud account is signed in now (in another pane, window or Settings, say):
     /// a `cloud.signIn` then resumes without opening the browser. nil reads as not signed in.
@@ -238,12 +255,12 @@ public final class AgentPaneModel {
     /// This pane's browser sign-in while a `cloud.signIn` waits on it; an expired `cloud.signInCancel` cancels it.
     @ObservationIgnored var cloudSignInBrowser: Task<Bool, Never>?
     /// This pane's Set up Cloud wait while a `cloud.setUp` waits on it; `cloud.signInCancel` cancels it.
-    @ObservationIgnored var cloudSetUpWait: Task<Bool, Never>?
+    @ObservationIgnored var cloudSetUpWait: Task<CloudSetup.SetupCompletion?, Never>?
     /// The model picker's set up wait (`cloud.setUp` with no key), apart from the card's ``cloudSetUpWait``.
-    @ObservationIgnored var pickerSetUpWait: Task<Bool, Never>?
+    @ObservationIgnored var pickerSetUpWait: Task<CloudSetup.SetupCompletion?, Never>?
     /// The click a `cloud.signIn` kept once it signed in, for the page's one send again of that start
     /// (``AgentPaneModel/takeCloudSignInGrant(_:)``); `cloud.signInCancel` drops it.
-    @ObservationIgnored var cloudSignInGrant: (key: String, generation: Int, until: ContinuousClock.Instant)?
+    @ObservationIgnored var cloudSignInGrant: (key: String, generation: Int, until: ContinuousClock.Instant, completion: CloudSetup.SetupCompletion)?
     /// Reads this Mac's local repository catalog through its cmux daemon frame connection.
     @ObservationIgnored public var onCloudRepositoryLocal: (@MainActor () async throws -> Data)?
     /// For a Cloud chat, forwards machine actions through its tab host even while the page's
@@ -507,6 +524,20 @@ public final class AgentPaneModel {
     /// runs it and runs where a session has no pasteboard server (the fleet's: every write failed there).
     @ObservationIgnored let writeClipboard: @MainActor (String) -> Bool
 
+    /// `newTab.cloudPick`'s answer: Cloud's last folder (`cloudStarted`) and its own agent pick (`cloudAgent`:
+    /// harness, model, effort), each when there is one.
+    nonisolated static func cloudPickReply(folder: String?, agent: AgentPaneLastPicks.Pick?) -> [String: Any] {
+        var reply: [String: Any] = [:]
+        if let folder { reply["cloudStarted"] = folder }
+        if let agent {
+            var pick: [String: Any] = ["harness": agent.harness]
+            if agent.model != AgentPaneLastPicks.defaultModel { pick["model"] = agent.model }
+            if let effort = agent.effort { pick["effort"] = effort }
+            reply["cloudAgent"] = pick
+        }
+        return reply
+    }
+
     /// The app's clipboard write: replaces the general pasteboard's contents with `text`.
     public static func writeGeneralClipboard(_ text: String) -> Bool {
         NSPasteboard.general.clearContents()
@@ -631,7 +662,7 @@ public final class AgentPaneModel {
     public func respond(to request: AgentPaneRequest, userGesture: Bool = false) async -> [String: Any] {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
-        case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .composerFilled, .painted, .launchSettle, .inputEchoed, .clientReady, .newTabInputReady, .newTabContext, .newTabCloudPick, .newTabWarm, .unsupported,
+        case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .composerFilled, .painted, .renderFailed, .launchSettle, .inputEchoed, .clientReady, .newTabInputReady, .newTabContext, .newTabCloudPick, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportAck, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
              .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .sessionInfoPinch, .hostGlass, .toastAvoidance, .toast, .projectIcon, .completeFolder, .agentAvatar, .miniSubject, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .environment(.list), .cloudMachine(.list), .cloudMachine(.freshList), .cloudMachine(.recoveryList), .cloudMachine(.prewarm),
              .sandboxState, .subagentShown, .dictationSources: break
@@ -697,6 +728,9 @@ public final class AgentPaneModel {
                 AgentPaneLaunchTimings.shared.layoutSettle(at: settledAt, maxMovePx: maxMovePx, element: element, shifts: shifts)
             }
             return AgentPaneReply.success()
+        case .renderFailed:
+            onRenderFailed?()
+            return AgentPaneReply.success()
         case .inputEchoed(let echoedAt):
             // A New Tab page's composer is not the launch's front chat.
             if newTab == nil { AgentPaneLaunchTimings.shared.inputEchoed(at: echoedAt) }
@@ -743,7 +777,7 @@ public final class AgentPaneModel {
             guard sessionId == nil, let newTab = newTabForPage, let object = newTabReply(newTab, always: true) else { return AgentPaneReply.success() }
             return AgentPaneReply.success(["newTab": object])
         // Cloud's last pick names a folder of this Mac or a repository: a chat on another machine gets none.
-        case .newTabCloudPick: return AgentPaneReply.success(remoteChat ? [:] : cloudPick().map { ["cloudStarted": $0] } ?? [:])
+        case .newTabCloudPick: return AgentPaneReply.success(remoteChat ? [:] : Self.cloudPickReply(folder: cloudPick(), agent: cloudAgentPick()))
         // Another machine's chats are not this Mac's: only a local page's list warms the next page.
         case .newTabWarm(let warm): if !remoteChat { AgentPaneNewTab.warmed = warm }; return AgentPaneReply.success()
         case .newTabInputReady(let token): guard newTab?.inputToken == token else { return Self.unsupported("newTab.inputReady") }; onNewTabInputReady?(token); return AgentPaneReply.success()
@@ -852,9 +886,11 @@ public final class AgentPaneModel {
         // A new chat's send elsewhere spends Cloud time: the Send's own gesture (``AgentPaneHandOff``).
         case .sandboxRun(let task, let agent, let key): return await AgentPaneHandOff(model: self).sandbox(task: task, agent: agent, key: key)
         case .cloudSignIn(let key): return await signInToCloud(key: key)
-        case .cloudSetUp(let key, let action, let family): return await setUpCloud(key: key, action: action, family: family)
-        // A read for the picker: no gesture, starts nothing.
-        case .cloudSetupState: return await cloudSetupState()
+        case .cloudSetUp(let key, let action, let family, let machine, let environment): return await setUpCloud(key: key, action: action, family: family, machine: machine, environment: environment)
+        // A read for the model picker: needs no gesture and changes nothing.
+        case .cloudSetupState(let machine, let environment): return await cloudSetupState(machine: machine, environment: environment)
+        case .cloudConnect(let family, let machine, let environment): return await connectCloud(family: family, machine: machine, environment: environment)
+        case .cloudPickerSetupState: return await cloudPickerSetupState()
         // Starts nothing and needs no gesture: it only withdraws a pending sign-in's kept click.
         case .cloudSignInCancel(let expired): return cancelCloudSignIn(expired: expired)
         // Opens the plan's checkout in the browser on the person's click (one gesture).
@@ -1078,6 +1114,18 @@ public final class AgentPaneModel {
         case .computerUsePreview(let action): return AgentPaneComputerUsePreview.respond(action, in: self)
         case .upload(let files): return await AgentPaneUpload.respond(files, in: self)
         case .uploadStage(let stage):
+            // A native drop on another machine names the host-side path token instead of
+            // streaming bytes through the page. Consume that one-shot token before the normal
+            // staged uploader, whose batch target quite intentionally rejects unknown tokens.
+            switch stage {
+            case .begin(let name, _, let batchToken?, _)
+                where AgentPaneDroppedPaths.isPutToken(batchToken):
+                return await putDropped(token: batchToken, name: name)
+            case .cancel(let token) where AgentPaneDroppedPaths.isPutToken(token):
+                return cancelDroppedPut(token)
+            default:
+                break
+            }
             // A chat with no session yet (a new chat, the New Tab page) stages too: its stager says
             // whether it can take one. Refusing it as unsupported told the page this host is too old
             // to stream, so a recording over the one-frame size failed with Retry (#28647).

@@ -57,7 +57,7 @@ public struct MobileHostState: Sendable, Equatable {
         case .deviceIDTaken:
             phase = .deviceIDTaken
             phones = []
-        case .needToken, .needAcpmux, .needCloudLinks, .pairRequest, .unpaired, .pairAnswer, .needBrowser, .browserStop, .needSurface, .surfaceStop:
+        case .needToken, .needAcpmux, .needCloudLinks, .needSiteData, .pairRequest, .unpaired, .pairAnswer, .needBrowser, .browserStop, .needSurface, .surfaceStop:
             break
         case .phoneUp(var link):
             link.since = now

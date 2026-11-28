@@ -71,7 +71,7 @@ fn whole_index(value: &Value) -> Option<usize> {
     }
     let number = value.as_f64()?;
     // Negative whole numbers parse in the app too, then fail the exactly-once check; none is an index.
-    (number.fract() == 0.0 && number >= 0.0 && number <= u32::MAX as f64).then(|| number as usize)
+    (number.fract() == 0.0 && number >= 0.0 && number <= u32::MAX as f64).then_some(number as usize)
 }
 
 /// What a classic surface is to a taker, the app's `SessionTransferItem` fields.
@@ -149,7 +149,7 @@ pub fn agent_session_id(harness: &str, command: Option<&str>) -> Option<String> 
         if harness == "codex" { &["resume"] } else { &["--resume", "-r", "--session-id"] };
     let index = words.iter().position(|word| flags.contains(word))?;
     let id = words.get(index + 1)?;
-    (!id.is_empty() && !id.starts_with('-')).then(|| (*id).to_owned())
+    (!id.is_empty() && !id.starts_with('-')).then_some((*id).to_owned())
 }
 
 /// The host of an `ssh` command: its first word past `ssh` that is no flag, skipping `-p`,

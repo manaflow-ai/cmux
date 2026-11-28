@@ -16,6 +16,8 @@ script, and nightly-next-one takes:
 The pick, in order:
 1. A free signer: a host in HOSTS with an online, idle signer runner, no busy signer runner and no open loop run's
    nightly-next-one queued, pending or running for it. cmux15 first when both are free (signer #1).
+   A host whose newest finished nightly-next-one failed goes after every healthy host, here and in step 2
+   (failed_last; read from the newest RECENT_DONE finished loop runs, advisory: a failed read keeps the pick).
 2. Else the host whose holder ends soonest: a host busy only with a signer tail job (keep-published-dsyms,
    the delta jobs; minutes), then a holder at or past FINISH_STEPS (notarizing or publishing), then the holder
    that started first. A host that already has a nightly-next-one waiting for it is never picked: a second waiting
@@ -32,8 +34,16 @@ the shared budget ran dry and the pick fell back (run 45575194160, 2026-11-25: "
 both builds took cmux15 and the second waited 10.5 min at the slot. Leo (ask-c0123d25e8): "why so long that they
 didnt publish either tho cuz it's been 5h". The script never fails the job.
 
+The hedge (nightly.yml's nightly-next-hedge): the OTHER signer Mac compiles the same tree, no signing, no publish,
+so a build that breaks on one Mac and not the other shows as a disagreement (the flake signal), not just a red
+nightly. Leo (ask-bedbdb1917): "YOU CANNOT HAVE A SINGLE LANE THAT IS UNRELIABLE FOR NIGHTLIES. YOU CANNOT. YOU
+MUST HAVE MORE." hedge() names that Mac only when it is wholly free: an online idle signer runner, no busy runner
+of that host (a tail job: pkg, dSYMs, deltas) and no nightly-next-one holding or waiting for it. Else no hedge
+(hedge_pin empty, with the reason): the hedge never takes a Mac from a tail job or a build. The fallback pick (the
+label alone) has no hedge either, since its host is not known.
+
 usage: nightly_next_signer_pick.py   (env: GITHUB_REPOSITORY, GITHUB_RUN_ID, GITHUB_TOKEN, CI_RUNNER_STATE)
-Writes host=..., pin=... and reason=... to $GITHUB_OUTPUT.
+Writes host=..., pin=..., reason=..., hedge_host=..., hedge_pin=... and hedge_reason=... to $GITHUB_OUTPUT.
 """
 from __future__ import annotations
 
@@ -68,6 +78,8 @@ WAITING = ("queued", "pending", "waiting", "requested")
 RUNNER_PIN = re.compile(r"^glaeda-runner-[a-z0-9._-]+$")
 READ_TIMEOUT = 10.0
 MAX_RUNS = 6
+# The newest finished loop runs read for each host's last nightly-next-one outcome (one jobs listing each).
+RECENT_DONE = 2
 # The census's age the pick accepts. vars are read when the run starts, and the pick runs after resolve (~13 min):
 # runs 44990363506, 44992267457 and 44993740115 (2026-11-22) read censuses 30, 36 and 23 min old against the pool's
 # 5 min, so every pick fell back and every build queued in nightly-next-one-push-cmux15, one at a time. The pick
@@ -76,10 +88,11 @@ MAX_RUNS = 6
 CENSUS_MAX_AGE_SECONDS = 50 * 60
 
 
-def loop_run(run: Mapping[str, Any]) -> bool:
+def loop_run(run: Mapping[str, Any], finished: bool = False) -> bool:
     """A nightly.yml run on nightly-next whose nightly-next-one takes a slot group: a push (not a resume) or the
-    loop's retry dispatch. Every other run's nightly-next-one is run-scoped."""
-    if run.get("head_branch") not in (None, "nightly-next") or run.get("status") == "completed":
+    loop's retry dispatch. Every other run's nightly-next-one is run-scoped. Open runs only, or with finished, only
+    completed ones."""
+    if run.get("head_branch") not in (None, "nightly-next") or (run.get("status") == "completed") != finished:
         return False
     title = str(run.get("display_title") or "")
     if run.get("event") == "push":
@@ -136,8 +149,26 @@ def holder_host(job: Mapping[str, Any], names: Sequence[str]) -> str:
     return FALLBACK_HOST
 
 
-def pick(runners: Sequence[Mapping[str, Any]], holders: Sequence[Mapping[str, Any]]) -> tuple[str, str, str]:
-    """(host, pin, why) from the census runners and the open loop runs' nightly-next-one jobs (not this run's)."""
+def failed_last(jobs: Sequence[Mapping[str, Any]], names: Sequence[str]) -> set[str]:
+    """The HOSTS whose newest finished nightly-next-one (jobs newest first) failed: a host that just broke a build.
+    Why: 2026-11-27 the pick sent nightly-next-one to ultra1 four runs running ("an idle signer") while each
+    crashed Xcode's build service there (runs 46074261734, 46076637784, 46079235693); with a second signer free,
+    the next build goes to it instead."""
+    seen: dict[str, str] = {}
+    for job in jobs:
+        if job.get("name") != ONE_JOB or job.get("status") != "completed" or not job.get("runner_name"):
+            continue
+        host = holder_host(job, names)
+        if host in HOSTS and host not in seen and job.get("conclusion") in ("success", "failure"):
+            seen[host] = str(job.get("conclusion"))
+    return {host for host, conclusion in seen.items() if conclusion == "failure"}
+
+
+def pick(runners: Sequence[Mapping[str, Any]], holders: Sequence[Mapping[str, Any]],
+         sick: set[str] | frozenset[str] = frozenset()) -> tuple[str, str, str]:
+    """(host, pin, why) from the census runners and the open loop runs' nightly-next-one jobs (not this run's).
+    A host in sick (its last nightly-next-one failed) comes after every healthy one, at each step."""
+    order = sorted(HOSTS, key=lambda host: host in sick)
     by_host = signers(runners)
     names = [str(r.get("name") or "") for r in runners]
     claims: dict[str, list[Mapping[str, Any]]] = {host: [] for host in HOSTS}
@@ -151,17 +182,18 @@ def pick(runners: Sequence[Mapping[str, Any]], holders: Sequence[Mapping[str, An
               for host, found in by_host.items()}
     idle = {host: [r for r in found if not r.get("busy")] for host, found in online.items()}
     busy = {host: any(r.get("busy") for r in found) for host, found in by_host.items()}
-    for host in HOSTS:
+    for host in order:
         if idle[host] and not busy[host] and not claims[host]:
             runner = str(idle[host][0].get("name"))
-            return host, pin_for(runner), f"`{runner}` on {host}: an idle signer with no nightly-next-one for it"
+            note = "; its last nightly-next-one failed and no healthy signer is free" if host in sick else ""
+            return host, pin_for(runner), f"`{runner}` on {host}: an idle signer with no nightly-next-one for it{note}"
     ranked = []
-    for host in HOSTS:
+    for host in order:
         if not online[host] or any(job.get("status") in WAITING for job in claims[host]) or len(claims[host]) > 1:
             continue
         runner = str((idle[host] or online[host])[0].get("name"))
         if not claims[host]:
-            ranked.append(((0, ""), host, runner, "busy only with a signer tail job"))
+            ranked.append(((host in sick, 0, ""), host, runner, "busy only with a signer tail job"))
             continue
         job = claims[host][0]
         started = str(job.get("started_at") or "")
@@ -169,14 +201,36 @@ def pick(runners: Sequence[Mapping[str, Any]], holders: Sequence[Mapping[str, An
         if held and any(str(r.get("name")) == held for r in online[host]) and not idle[host]:
             runner = held
         if finishing(job):
-            ranked.append(((1, started), host, runner, "its nightly-next-one is notarizing or publishing"))
+            ranked.append(((host in sick, 1, started), host, runner, "its nightly-next-one is notarizing or publishing"))
         else:
-            ranked.append(((2, started or "~"), host, runner, f"its nightly-next-one started first ({started or '?'})"))
+            ranked.append(((host in sick, 2, started or "~"), host, runner, f"its nightly-next-one started first ({started or '?'})"))
     if ranked:
         _, host, runner, why = sorted(ranked)[0]
         return host, pin_for(runner), f"`{runner}` on {host}, no signer is free: {why}"
     return FALLBACK_HOST, FALLBACK_PIN, ("no signer is free and none can take a waiting build without replacing one; "
                                          "the signer label alone, as before")
+
+
+def hedge(runners: Sequence[Mapping[str, Any]], holders: Sequence[Mapping[str, Any]],
+          primary: str) -> tuple[str, str, str]:
+    """(host, pin, why) for the hedge compile on the signer Mac that is not primary, or ("", "", why) when that Mac
+    is not wholly free (a busy runner of the host, a nightly-next-one holding or waiting for it, or none online)."""
+    others = [host for host in HOSTS if host != primary]
+    if primary not in HOSTS or not others:
+        return "", "", f"no hedge: the primary pick {primary!r} is not one signer host"
+    host = others[0]
+    names = [str(r.get("name") or "") for r in runners]
+    found = signers(runners)[host]
+    if any(r.get("busy") for r in found):
+        return "", "", f"no hedge: {host} is busy (a tail job or a build holds it)"
+    if any(job.get("name") == ONE_JOB and job.get("status") in (*WAITING, "in_progress") and holder_host(job, names) == host
+           for job in holders):
+        return "", "", f"no hedge: a nightly-next-one holds or waits for {host}"
+    idle = sorted((r for r in found if r.get("status") == "online"), key=lambda r: str(r.get("name")))
+    if not idle:
+        return "", "", f"no hedge: no signer runner of {host} is online"
+    runner = str(idle[0].get("name"))
+    return host, pin_for(runner), f"`{runner}` on {host}: wholly free"
 
 
 def api_get(repo: str, tokens: Sequence[str]) -> Callable[[str], Any]:
@@ -202,6 +256,12 @@ def api_get(repo: str, tokens: Sequence[str]) -> Callable[[str], Any]:
 def evaluate(env: Mapping[str, str], get: Callable[[str], Any] | None = None,
              now: dt.datetime | None = None) -> tuple[str, str, str]:
     """(host, pin, why); any failure is the fallback (cmux15, the label alone)."""
+    return evaluate_all(env, get, now)[0]
+
+
+def evaluate_all(env: Mapping[str, str], get: Callable[[str], Any] | None = None,
+                 now: dt.datetime | None = None) -> tuple[tuple[str, str, str], tuple[str, str, str]]:
+    """((host, pin, why), (hedge_host, hedge_pin, hedge_why)); any failure is the fallback and no hedge."""
     try:
         repo = env.get("GITHUB_REPOSITORY", "")
         document = pool.runner_state(repo, raw=env.get("CI_RUNNER_STATE", ""), now=now,
@@ -223,24 +283,38 @@ def evaluate(env: Mapping[str, str], get: Callable[[str], Any] | None = None,
         holders = []
         for run in runs:
             holders.extend(get(f"actions/runs/{int(run['id'])}/jobs?filter=latest&per_page=100")["jobs"])
-        return pick(runners, holders)
+        done = []
+        try:  # the health read is advisory: a failure here keeps the pick, without it
+            for run in [run for run in listing["workflow_runs"] if loop_run(run, finished=True)][:RECENT_DONE]:
+                done.extend(get(f"actions/runs/{int(run['id'])}/jobs?filter=latest&per_page=100")["jobs"])
+        except Exception as error:  # noqa: BLE001
+            print(f"::warning title=nightly-next signer pick::last-outcome read failed ({type(error).__name__})")
+        chosen = pick(runners, holders, failed_last(done, [str(r.get("name") or "") for r in runners]))
+        if chosen[1] == FALLBACK_PIN:
+            return chosen, ("", "", "no hedge: the pick fell back to the signer label alone")
+        return chosen, hedge(runners, holders, chosen[0])
     except Exception as error:  # noqa: BLE001 - never fail the job: the label alone is the routing before this
         why = f"pick failed ({type(error).__name__}: {str(error)[:200]}); the signer label alone, as before"
         print(f"::warning title=nightly-next signer pick::{why}")
-        return FALLBACK_HOST, FALLBACK_PIN, why
+        return (FALLBACK_HOST, FALLBACK_PIN, why), ("", "", "no hedge: the pick failed")
 
 
 def main(env: Mapping[str, str] = os.environ) -> int:
-    host, pin, why = evaluate(env)
+    (host, pin, why), (hedge_host, hedge_pin, hedge_why) = evaluate_all(env)
     if host not in HOSTS or not pin.startswith(f'["{SIGNER_LABEL}"'):
         host, pin, why = FALLBACK_HOST, FALLBACK_PIN, f"refused an unexpected pick ({host!r}, {pin!r})"
-    print(f"nightly-next signer: host={host} pin={pin} ({why})")
+        hedge_host, hedge_pin, hedge_why = "", "", "no hedge: the pick was refused"
+    if hedge_pin and (hedge_host not in HOSTS or hedge_host == host or not hedge_pin.startswith(f'["{SIGNER_LABEL}",')):
+        hedge_host, hedge_pin, hedge_why = "", "", f"no hedge: refused an unexpected hedge ({hedge_host!r}, {hedge_pin!r})"
+    print(f"nightly-next signer: host={host} pin={pin} ({why}); hedge: {hedge_host or 'none'} ({hedge_why})")
     if env.get("GITHUB_OUTPUT"):
         with open(env["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
-            handle.write(f"host={host}\npin={pin}\nreason={why}\n")
+            handle.write(f"host={host}\npin={pin}\nreason={why}\n"
+                         f"hedge_host={hedge_host}\nhedge_pin={hedge_pin}\nhedge_reason={hedge_why}\n")
     if env.get("GITHUB_STEP_SUMMARY"):
         with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
-            handle.write(f"\nnightly-next signer: `{host}`, runs-on `{pin}` ({why})\n")
+            handle.write(f"\nnightly-next signer: `{host}`, runs-on `{pin}` ({why})\n"
+                         f"\nnightly-next hedge compile: `{hedge_host or 'none'}` ({hedge_why})\n")
     return 0
 
 

@@ -139,8 +139,11 @@ public final class AgentPaneCloudMachines {
         /// The machine's size as its record says it (``CloudMachine/Size``); nil when it says none.
         /// The composer's machine card names it (webviews MachineCard.tsx).
         public var size: Size?
-        public init(id: String, name: String, stage: String, evictAt: Date? = nil, size: Size? = nil) {
+        /// The workspace registry shared by this VM's app and acpmux links.
+        public var cloudRegistryID: String?
+        public init(id: String, name: String, stage: String, evictAt: Date? = nil, size: Size? = nil, cloudRegistryID: String? = nil) {
             (self.id, self.name, self.stage, self.evictAt, self.size) = (id, name, stage, evictAt, size)
+            self.cloudRegistryID = cloudRegistryID
         }
 
         /// vCPUs, memory and disk; each nil when the record does not say.
@@ -362,6 +365,7 @@ extension AgentPaneCloudMachineRequest {
                 if let evictAt = machine.evictAt { row["evictAt"] = (evictAt.timeIntervalSince1970 * 1000).rounded() }
                 // vCPUs, memory and disk (cloudMachines.ts `size`), for the composer's machine card.
                 if let size = machine.size?.reply, !size.isEmpty { row["size"] = size }
+                if let id = machine.cloudRegistryID { row["cloudRegistryId"] = id }
                 return row
             }
             var value: [String: Any] = ["signedIn": inventory.signedIn, "loaded": inventory.loaded, "machines": rows, "complete": inventory.complete && inventory.machines.count <= Self.maximumListed]

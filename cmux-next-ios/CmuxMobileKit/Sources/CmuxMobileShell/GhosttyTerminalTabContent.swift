@@ -17,14 +17,16 @@ private let warmLog = Logger(subsystem: "dev.cmux.mobile", category: "terminal")
 /// owns the status bar area and the toolbar, the terminal's actions go into
 /// the page menu, and the grid card is a snapshot of the page (no second live
 /// surface). One host (model + controller) per tab. The `warmLimit` most
-/// recently shown tabs keep their surface and attached session, so switching
-/// between them needs no reattach and no new surface; an older one is cooled
-/// (session detached, surface released) and keeps its last rows, which its
-/// new surface is fed at once: live at full opacity, scrolling and taking keys
-/// (queued for the attach) while it reattaches.
+/// recently shown tabs keep their surface and parsed grid, so switching
+/// between them needs no new surface; an older one is cooled (session
+/// detached, surface released) and keeps its last rows, which its new surface
+/// is fed at once: live at full opacity, scrolling and taking keys (queued for
+/// the attach) while it reattaches. A warm tab is a cache, not a live stream:
+/// off screen past its grace its session closes its attach
+/// (`TerminalStreamGate`), and shown again it attaches once to catch up.
 @MainActor
 final class GhosttyTerminalTabContent: TerminalTabContent {
-    /// Live Ghostty surfaces (and Mac attaches) kept across tab switches.
+    /// Ghostty surfaces (parsed grids) kept across tab switches.
     static let warmLimit = 4
     private var hosts: [String: TerminalTabHost] = [:]
     private var warm = TerminalWarmSet<String>(limit: GhosttyTerminalTabContent.warmLimit)
@@ -608,6 +610,14 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         model.focusComposer()
     }
 
+    func sendPrompt(_ text: String, for tab: WorkspaceTab, in workspace: Workspace) -> Bool {
+        host(for: tab, in: workspace).model.sendPrompt(text)
+    }
+
+    func interruptAgent(for tab: WorkspaceTab, in workspace: Workspace) -> Bool {
+        host(for: tab, in: workspace).model.interruptAgent()
+    }
+
     /// Each tab's card view, made once per slot: a card body is a lookup.
     private var cardViews: [String: (slot: ObjectIdentifier, view: AnyView)] = [:]
 
@@ -838,8 +848,11 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         let known = tabs.filter { hosts[$0.id] != nil }
         let states = known.compactMap { tab -> TerminalCardLiveRefresh.Tab? in
             guard let model = hosts[tab.id]?.model, !tab.hasEndedShell else { return nil }
+            // A page whose output stream stopped (off screen past its grace) shows its cache:
+            // its card reads the Mac's screen instead of copying the page.
             return TerminalCardLiveRefresh.Tab(id: tab.id, pageStarted: model.pageStarted,
-                                               capturable: model.pageStarted && model.canCaptureCard, behind: model.cardIsBehind)
+                                               capturable: model.pageStarted && model.canCaptureCard && model.outputStreaming,
+                                               behind: model.cardIsBehind)
         }
         for action in liveRefresh.due(states, now: CACurrentMediaTime()) {
             switch action {
@@ -881,10 +894,10 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             actions.append(TerminalTabAction(title: "Connected Devices…", systemImage: "laptopcomputer.and.iphone") { show(live, macID) })
         }
         // Fit to Phone, one tap away and remembered for this program (Leo, 2026-11-21): on,
-        // the Mac's terminal resizes to the phone; off, the phone projects it.
+        // the Mac's terminal resizes to the phone; off, the Mac keeps its columns.
         if liveTabs.contains(tab.id) {
-            let fits = !(model.session is TerminalProjectingSession)
             let program = model.session.programName
+            let fits = fitToPhoneMemory.fitToPhone(for: program)
             actions.append(TerminalTabAction(title: "Fit to Phone", systemImage: fits ? "checkmark" : "iphone") { [weak self] in
                 self?.setFitToPhone(!fits, program: program, tab: tab, in: workspace)
             })
@@ -936,8 +949,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// builds in the new mode when it is shown next.
     private func setFitToPhone(_ fit: Bool, program: String, tab: WorkspaceTab, in workspace: Workspace) {
         fitToPhoneMemory.set(fit, for: program)
-        for (id, other) in hosts where id != tab.id && other.model.session.programName == program
-            && (other.model.session is TerminalProjectingSession) == fit {
+        for (id, other) in hosts where id != tab.id && other.model.session.programName == program {
             cool(id)
         }
         guard let old = hosts[tab.id], liveTabs.contains(tab.id) else { return }

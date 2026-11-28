@@ -1,0 +1,136 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.models.dialog.cloudflare.description" : {
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "سيرسل cmux الطلبات عبر بوابتك باستخدام رصيد Cloudflare. الصق رمزًا بصلاحية AI Gateway Run."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux će slati zahtjeve preko tvog pristupnika koristeći Cloudflare kredit. Zalijepi token s dozvolom AI Gateway Run."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux sender forespørgsler via din gateway og bruger dine Cloudflare-kreditter. Indsæt et token med tilladelsen AI Gateway Run."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux sendet Anfragen über dein Gateway und verwendet dein Cloudflare-Guthaben. Füge ein Token mit der Berechtigung AI Gateway Run ein."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux will send requests through your gateway and use your Cloudflare credits. Paste a token with AI Gateway Run permission."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux enviará solicitudes a través de tu puerta de enlace con tus créditos de Cloudflare. Pega un token con el permiso AI Gateway Run."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux enverra les requêtes via votre passerelle avec vos crédits Cloudflare. Collez un jeton avec l’autorisation AI Gateway Run."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux invierà le richieste tramite il gateway usando i tuoi crediti Cloudflare. Incolla un token con l’autorizzazione AI Gateway Run."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmuxはゲートウェイ経由でリクエストを送り、Cloudflareクレジットを使用します。AI Gateway Run権限を持つトークンを貼り付けてください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux នឹងផ្ញើសំណើតាមច្រកចេញចូលរបស់អ្នក ហើយប្រើឥណទាន Cloudflare។ បិទភ្ជាប់ថូខឹនដែលមានសិទ្ធិ AI Gateway Run។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux는 게이트웨이를 통해 요청을 보내고 Cloudflare 크레딧을 사용합니다. AI Gateway Run 권한이 있는 토큰을 붙여넣으세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux sender forespørsler via gatewayen din med Cloudflare-kredittene dine. Lim inn et token med tillatelsen AI Gateway Run."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux wyśle żądania przez Twoją bramę, korzystając z kredytów Cloudflare. Wklej token z uprawnieniem AI Gateway Run."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O cmux enviará solicitações pelo seu gateway usando os créditos da Cloudflare. Cole um token com a permissão AI Gateway Run."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux отправит запросы через ваш шлюз и использует кредиты Cloudflare. Вставьте токен с разрешением AI Gateway Run."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux จะส่งคำขอผ่านเกตเวย์และใช้เครดิต Cloudflare ของคุณ วางโทเค็นที่มีสิทธิ์ AI Gateway Run"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux istekleri ağ geçidinizden gönderir ve Cloudflare kredilerinizi kullanır. AI Gateway Run izinli bir belirteç yapıştırın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux надсилатиме запити через ваш шлюз, використовуючи кредити Cloudflare. Вставте токен із дозволом AI Gateway Run."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux sẽ gửi yêu cầu qua cổng của bạn và dùng tín dụng Cloudflare. Dán mã thông báo có quyền AI Gateway Run."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 将通过你的网关发送请求并使用 Cloudflare 额度。请粘贴具有 AI Gateway Run 权限的令牌。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 將透過你的閘道傳送要求並使用 Cloudflare 額度。請貼上具有 AI Gateway Run 權限的權杖。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

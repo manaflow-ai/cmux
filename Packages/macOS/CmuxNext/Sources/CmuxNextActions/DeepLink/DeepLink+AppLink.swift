@@ -1,5 +1,9 @@
 public import Foundation
+// Linux's action exporter (LinuxActionExports/sources.txt) builds this file without os; its Logger is
+// LinuxExportStandIns.swift's stand-in there.
+#if canImport(os)
 import os
+#endif
 
 extension DeepLink {
     /// The scheme the Chief and its documents write, whatever the build.
@@ -17,16 +21,7 @@ extension DeepLink {
     ///   - chiefHost: This app's Chief host (`chief:<home id>`), nil when it has none.
     /// - Returns: The link to open, or nil.
     public static func appLink(for url: URL, linkScheme: String, chiefHost: String?) -> DeepLink? {
-        // A cloud group's https form (`https://cloud-api.cmux.dev/g/grp_…`) opens here too.
-        guard let link = parse(url, scheme: chiefScheme) ?? parse(url, scheme: linkScheme) ?? parseGroupWeb(url) else { return nil }
-        switch link.target {
-        case .workspace, .pane, .tab, .session, .agent, .group, .cloudSession:
-            return link
-        case .chiefSession: // any Chief home of this Mac: a named Chief writes its own (#28877)
-            return link.machine == nil && chiefHost != nil ? link : nil
-        case .legacyWorkspace, .legacyPane, .legacySurface:
-            return nil
-        }
+        RustDeepLink.link(["op": "appLink", "url": url.absoluteString, "scheme": linkScheme, "chief": chiefHost != nil])
     }
 
     /// The hosts that serve the agent session link's web page (`/deeplink/agent?harness=&session=`,
@@ -39,30 +34,14 @@ extension DeepLink {
     /// its web page (Leo, 2026-11-03: "we need to be able to link WITHIN THE APP"). Nil for any
     /// other URL, and for the opaque `?id=` form, which names no session.
     public static func parseAgentWeb(_ url: URL) -> DeepLink? {
-        guard let query = agentWebQuery(url) else { return nil }
-        func one(_ name: String) -> String? {
-            let items = query.filter { $0.name == name }
-            return items.count == 1 ? items[0].value : nil
-        }
-        guard let harness = one("harness"), let session = one("session") else { return nil }
-        var native = URLComponents()
-        native.scheme = chiefScheme
-        native.host = "agent"
-        native.percentEncodedPath = "/" + [harness, session].map { $0.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/"))) ?? $0 }.joined(separator: "/")
-        let hints = query.filter { [hostHintKey, nameHintKey, messageKey].contains($0.name) }
-        native.queryItems = hints.isEmpty ? nil : hints
-        guard let link = native.url.flatMap({ parse($0, scheme: chiefScheme) }), link.target.isAgent else { return nil }
-        return link
+        RustDeepLink.link(["op": "agentWeb", "url": url.absoluteString])
     }
 
     /// The harness session id an https agent link names when it names no harness (`?host=&session=`,
     /// as lanes print them): acpmux resolves a bare id against its chats' agent session ids. Nil for
     /// any other URL, and for a link with a harness (``parseAgentWeb(_:)`` reads that one).
     public static func agentWebSession(_ url: URL) -> String? {
-        guard let query = agentWebQuery(url), !query.contains(where: { $0.name == "harness" }) else { return nil }
-        let sessions = query.filter { $0.name == "session" }
-        guard sessions.count == 1, let session = sessions[0].value, isAgentSession(session) else { return nil }
-        return session
+        RustDeepLink.text(["op": "agentWebSession", "url": url.absoluteString])
     }
 
     /// The opaque agent reference (`aid-` and 20 lowercase hex digits) a link names in place of a
@@ -73,53 +52,20 @@ extension DeepLink {
     /// under this Mac's key, so it opens only a chat the reader can already reach. Nil for any other
     /// URL, for one that also names a harness or session, and for an `id` written twice.
     public static func agentReference(_ url: URL, linkScheme: String) -> String? {
-        let query: [URLQueryItem]
-        if let web = agentWebQuery(url) {
-            query = web
-        } else {
-            guard let scheme = url.scheme?.lowercased(), scheme == chiefScheme || scheme == linkScheme.lowercased(),
-                  let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-                  components.host?.lowercased() == "agent", components.path.isEmpty || components.path == "/",
-                  components.user == nil, components.port == nil, components.fragment == nil else { return nil }
-            query = components.queryItems ?? []
-        }
-        guard !query.contains(where: { $0.name == "harness" || $0.name == "session" }) else { return nil }
-        let ids = query.filter { $0.name == "id" }
-        guard ids.count == 1, let id = ids[0].value, isAgentReference(id) else { return nil }
-        return id
+        RustDeepLink.text(["op": "agentReference", "url": url.absoluteString, "scheme": linkScheme])
     }
 
     /// Whether `url` opens an agent's chat: an agent link (`cmux://agent/<harness>/<session>`) or an
     /// opaque reference (``agentReference(_:linkScheme:)``). Such a link opened from another app is an
     /// address from a public page or trailer, so it never takes the keys (`ExternalOpenController`).
     public static func opensAgentChat(_ url: URL, linkScheme: String) -> Bool {
-        if agentReference(url, linkScheme: linkScheme) != nil { return true }
-        if case .agent = read(url, scheme: linkScheme)?.link.target { return true }
-        return false
+        RustDeepLink.bool(["op": "opensAgentChat", "url": url.absoluteString, "scheme": linkScheme])
     }
 
     /// `aid-` and 20 lowercase hex digits: the opaque id agent-identity writes (cmux.com's
     /// `AGENT_REFERENCE_PATTERN`, acpmux's `opaque_agent_id::is_id`).
     public static func isAgentReference(_ text: String) -> Bool {
-        // The count too: `$` also matches before a final newline a decoded `%0A` could leave.
-        text.utf8.count == 24 && text.range(of: "^aid-[0-9a-f]{20}$", options: .regularExpression) != nil
-    }
-
-    /// The query of an https agent session link's page (cmux.com, `/deeplink/agent`, an optional
-    /// locale segment and trailing slash; no user, port or fragment), nil for any other URL.
-    private static func agentWebQuery(_ url: URL) -> [URLQueryItem]? {
-        guard url.scheme?.lowercased() == "https",
-              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              components.user == nil, components.password == nil, components.port == nil, components.fragment == nil,
-              let host = components.host?.lowercased(), agentWebHosts.contains(host) else { return nil }
-        let segments = components.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
-        let path = segments.count == 3 && isLocale(segments[0]) ? Array(segments.dropFirst()) : segments
-        return path == ["deeplink", "agent"] ? components.queryItems ?? [] : nil
-    }
-
-    /// A cmux.com locale segment (`en`, `zh-CN`).
-    private static func isLocale(_ segment: String) -> Bool {
-        segment.range(of: "^[a-z]{2}(-[A-Z]{2})?$", options: .regularExpression) != nil
+        RustDeepLink.valid("agentReference", text)
     }
 
     /// What a settings link runs: an action and its arguments, run as the person's click.
@@ -177,30 +123,65 @@ extension DeepLink {
         return settingsRoutes[url.path.lowercased()]
     }
 
-    /// The Settings page place a settings link opens: `cmux://settings/models` is Settings > Models
-    /// (`#/settings/models`), `cmux://settings/models/add` its Add a Connection
-    /// (`#/settings/models?focus=models.add`). `cmux://settings/cloud` is Settings > Cloud, and
-    /// `cmux://settings/cloud/claude`, `/cloud/chatgpt` and `/cloud/api-key` open it on that row of
-    /// Models for Cloud (``cloudRoute(row:)``). `cmux://settings/integrations` (or `/connections`) is
-    /// Settings > Integrations, where a connector's sign-in returns (`?connected=` or `?error=` are left
-    /// to the page's own refresh). `cmux://settings/connections/github` (or `/github`,
-    /// `/accounts/github`) is the GitHub connection on Settings > Accounts. Every other settings path
-    /// passes through to the page (``settingsPassThrough(_:)``); nil for an action path
-    /// (``settingsRoutes``) or another URL.
+    /// The Settings page a link opens, including older links to Cloud setup.
     public static func settingsRoute(for url: URL, linkScheme: String) -> String? {
         guard let scheme = url.scheme?.lowercased(), scheme == chiefScheme || scheme == linkScheme.lowercased(),
               url.host?.lowercased() == "settings" else { return nil }
-        switch url.path.lowercased() {
-        case "/models", "/models/": return "#/settings/models"
-        case "/models/add", "/models/add/": return "#/settings/models?focus=models.add"
-        case "/cloud", "/cloud/": return cloudRoute(row: nil)
-        case "/cloud/claude", "/cloud/claude/": return cloudRoute(row: "claude")
-        case "/cloud/chatgpt", "/cloud/chatgpt/": return cloudRoute(row: "chatgpt")
-        case "/cloud/api-key", "/cloud/api-key/": return cloudRoute(row: "apiKey")
-        case "/integrations", "/integrations/", "/connections", "/connections/": return "#/settings/integrations"
-        case "/github", "/github/", "/connections/github", "/connections/github/", "/accounts/github", "/accounts/github/":
-            return "#/settings/accounts?focus=connection.github"
+        let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        let provider = query.first { $0.name == "provider" }?.value
+        let machine = query.first { $0.name == "machine" }?.value
+        let machineName = query.first { $0.name == "machineName" }?.value
+        let environment = query.first { $0.name == "environment" }?.value
+        let recoverySession = query.first { $0.name == "recoverySession" }?.value
+        let focus = query.first { $0.name == "focus" }?.value
+        let fromSend = query.first { $0.name == "fromSend" }?.value == "1"
+        let scopedConnection = { (family: String) in
+            cloudModelConnectionsRoute(family: family, fromSend: fromSend, machine: machine, environment: environment,
+                                       recoverySession: recoverySession, machineName: machineName)
+        }
+        let path = url.path.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        switch path {
+        case "models", "models/add", "cloud", "cloud/models", "cloud/models/add", "cloud/api-key":
+            if focus == "cloud.claude" { return scopedConnection("claude") }
+            if let focus, let route = modelSettingsRoute(focus: focus, fromSend: fromSend) { return route }
+            if let provider, !provider.isEmpty {
+                if path == "models/add" || (path == "models" && ["ollama", "lm-studio"].contains(provider)) {
+                    return modelSettingsRoute(focus: "models.add." + provider)
+                }
+                return scopedConnection(provider)
+            }
+            switch path {
+            case "models": return "#/settings/models"
+            case "models/add": return modelSettingsRoute(focus: "models.add")
+            case "cloud": return "#/settings/cloud"
+            case "cloud/models": return modelSettingsRoute(focus: "card.cloudModels")
+            default: return modelSettingsRoute(focus: "cloudModels.add")
+            }
+        case "cloud/claude": return scopedConnection("claude")
+        case "cloud/chatgpt": return cloudModelConnectionsRoute(family: "chatgpt", fromSend: fromSend)
+        case "integrations", "connections": return "#/settings/integrations"
+        case "github", "connections/github", "accounts/github": return "#/settings/accounts?focus=connection.github"
         default: return settingsPassThrough(url.path)
+        }
+    }
+
+    /// Settings anchors opened through the app action, CLI, MCP, or older Cloud setup links.
+    public static func modelSettingsRoute(focus: String, fromSend: Bool = false) -> String? {
+        let focus = focus.trimmingCharacters(in: .whitespacesAndNewlines)
+        if focus.hasPrefix("models.add.") || ["models.add", "claude-login", "codex-login", "gemini-login"].contains(focus) {
+            let encoded = focus.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(CharacterSet(charactersIn: ".-"))) ?? ""
+            return "#/settings/models?focus=\(encoded)&open=\(UUID().uuidString)"
+        }
+        return switch focus {
+        case "cloud.claude":
+            cloudModelConnectionsRoute(family: "claude", fromSend: fromSend)
+        case "cloud.chatgpt":
+            cloudModelConnectionsRoute(family: "chatgpt", fromSend: fromSend)
+        case "cloud.apiKey", "cloudModels.add":
+            "#/settings/cloud?focus=cloudModels.add&open=\(UUID().uuidString)"
+        case "cloudModels", "card.cloudModels":
+            "#/settings/cloud?focus=card.cloudModels&open=\(UUID().uuidString)"
+        default: nil
         }
     }
 
@@ -223,11 +204,28 @@ extension DeepLink {
         return "#/settings/\(first)?focus=\(focus)"
     }
 
-    /// Settings > Cloud (`#/settings/cloud`), opened on a row of its Models for Cloud card
-    /// (`claude`, `chatgpt`, `apiKey`: `?focus=cloud.<row>`) when one is named.
+    /// Opens Settings > Cloud or one of its legacy connection rows.
     public static func cloudRoute(row: String?) -> String {
-        row.map { "#/settings/cloud?focus=cloud.\($0)" } ?? "#/settings/cloud"
+        guard let row else { return "#/settings/cloud" }
+        let focus = row.hasPrefix("cloud.") ? row : "cloud." + row
+        return modelSettingsRoute(focus: focus) ?? "#/settings/cloud?focus=\(focus)"
     }
+
+    /// Cloud models opens the form on every click. A held send gets its own confirmation.
+    public static func cloudModelConnectionsRoute(family: String, fromSend: Bool = false, machine: String? = nil, environment: String? = nil, recoverySession: String? = nil, machineName: String? = nil) -> String {
+        let provider = family.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
+        let route = "#/settings/cloud?focus=card.cloudModels&provider=\(provider)&open=\(UUID().uuidString)"
+        let machineQuery = machine.flatMap { $0.addingPercentEncoding(withAllowedCharacters: .alphanumerics) }
+            .map { "&machine=\($0)" } ?? ""
+        let envQuery = environment.flatMap { $0.addingPercentEncoding(withAllowedCharacters: .alphanumerics) }
+            .map { "&environment=\($0)" } ?? ""
+        let nameQuery = machineName.flatMap { $0.addingPercentEncoding(withAllowedCharacters: .alphanumerics) }
+            .map { "&machineName=\($0)" } ?? ""
+        let recoveryQuery = recoverySession.flatMap { $0.addingPercentEncoding(withAllowedCharacters: .alphanumerics) }
+            .map { "&recoverySession=\($0)" } ?? ""
+        return route + machineQuery + envQuery + nameQuery + recoveryQuery + (fromSend ? "&fromSend=1" : "")
+    }
+
     /// The settings link path that turns Start Agent from Any App on.
     public nonisolated static let startAgentFromAnyAppPath = "/start-agent-from-any-app"
 

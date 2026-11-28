@@ -9,14 +9,14 @@ import { chatPlace } from "./chatMachine";
 import React, {
   useCallback,
   useEffect,
+  useId,
   useImperativeHandle,
+  useInsertionEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
-  useInsertionEffect,
-  useId,
 } from "react";
 import type { ExtraFolderControl } from "./extraFolders";
 import { createPortal, flushSync } from "react-dom";
@@ -31,10 +31,10 @@ import {
   MAX_IMAGE_BYTES,
   placeInline,
   withoutInlineTokens,
-  inlineTokenSpans,
   type ComposerAttachment,
   type DroppedKind,
   type KnownPaths,
+  inlineTokenSpans,
 } from "./attachments";
 import { useReleasedPicks } from "./designSelection";
 import type { SendGesture } from "./heldPrompt";
@@ -188,7 +188,8 @@ import { keepSendOrigins, noteSendOrigins } from "./conversation/sendMorph";
 import { playUnpop } from "./conversation/unpopMorph";
 import { sendTucks, tuckContent, tuckSent } from "./conversation/sendTuck";
 import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
-import { ComposerStatusFoot, statusDotMounts, dotSaysQueuePaused } from "./ComposerStatusDot";
+import { ComposerStatusFoot } from "./ComposerStatusDot";
+import { dotSaysQueuePaused, statusDotMounts } from "./composerStatusDotModel";
 import { peerLink, type PeerLink } from "./peerLink";
 import type { EmojiTrigger } from "./emojiShortcodes";
 import type { MentionTrigger } from "./composer/emojiTokens";
@@ -384,7 +385,7 @@ type Props = {
   /// absent where the chat opens no side chat.
   onQueueSideChat?(promptId: string, prompt: string): Promise<boolean>;
   /// `/side <prompt>` can fork this chat now (App.tsx, the command's own refusal rule): Send's menu
-  /// offers Send in side chat, and Option-Return sends there (composer/sendMenuModel.ts).
+  /// offers Send in side chat (composer/sendMenuModel.ts).
   sendsToSide?: boolean;
   /// Text the prompt starts with, such as what a chat opened from another tab inherited.
   /// Each new value fills an empty prompt once, caret at the end; it is never sent by itself.
@@ -644,7 +645,7 @@ const noStop = () => {};
 
 /// The chat's snapshot as a relayed composer reads it: its machine and connection, with no turn,
 /// queue, commands, prompt history, suggestion, usage or modes of the chat's.
-export function relayedSnapshot(snapshot: AcpmuxSnapshot): AcpmuxSnapshot {
+function relayedSnapshot(snapshot: AcpmuxSnapshot): AcpmuxSnapshot {
   const {
     sessionId: _session,
     stopping: _stopping,
@@ -3163,13 +3164,6 @@ function ComposerFrame({
     if (commandReturn && queues && (text.trim() || attachments.length > 0)) {
       event.preventDefault();
       send(false, followUpSteers("commandReturn", followUpMode, followUp));
-      return;
-    }
-    // Option-Return sends the draft in a side chat, where Send's menu offers that (sendMenuModel.ts);
-    // elsewhere it is left as it was.
-    if (sendChoiceForKey(event) === "side" && sendChoices.includes("side")) {
-      event.preventDefault();
-      chooseSend("side");
       return;
     }
     // ⌘Return on an empty prompt after a turn answers a waiting tagged ask (NextStepCard.tsx).
