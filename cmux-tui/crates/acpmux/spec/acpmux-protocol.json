@@ -1159,6 +1159,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/github/read",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/worktree/report",
       "params": true,
       "result": true
@@ -2425,6 +2431,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/agent_login/status",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_login/logout",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/agent_login/start",
       "params": {
         "$ref": "#/types/AgentLoginStartParams"
@@ -2434,6 +2452,22 @@
     {
       "kind": "request",
       "name": "_acpmux/agent_login/finish",
+      "params": {
+        "$ref": "#/types/AgentLoginFinishParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_login/recover_start",
+      "params": {
+        "$ref": "#/types/AgentLoginStartParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/agent_login/recover_finish",
       "params": {
         "$ref": "#/types/AgentLoginFinishParams"
       },
@@ -2699,6 +2733,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/connections/secret.store",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/secret.delete",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/connections/chatgpt.begin",
       "params": true,
       "result": true
@@ -2712,6 +2758,48 @@
     {
       "kind": "request",
       "name": "_acpmux/connections/chatgpt.cancel",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/chatgpt.device.begin",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/chatgpt.device.wait",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/chatgpt.device.cancel",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/subscription.begin",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/subscription.wait",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/subscription.cancel",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/grok.hook",
       "params": true,
       "result": true
     },
@@ -3415,6 +3503,7 @@
     "AcpmuxRequestMeta": {
       "additionalProperties": false,
       "properties": {
+        "abi": true,
         "adopt": true,
         "agentSessionId": true,
         "answeredBy": true,
@@ -3424,6 +3513,7 @@
         "author": true,
         "autoPlace": true,
         "beforePromptId": true,
+        "build": true,
         "callerKind": true,
         "callerProtocol": true,
         "callerSession": true,
@@ -3578,6 +3668,7 @@
         },
         "code": true,
         "loginId": true,
+        "recoverySession": true,
         "sessionId": true
       },
       "type": "object"
@@ -3589,6 +3680,8 @@
           "$ref": "#/types/RequestMeta"
         },
         "agent": true,
+        "recoverySession": true,
+        "reuseExisting": true,
         "sessionId": true
       },
       "type": "object"

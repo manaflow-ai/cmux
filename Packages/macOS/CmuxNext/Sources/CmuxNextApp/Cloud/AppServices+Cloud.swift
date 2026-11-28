@@ -1,10 +1,14 @@
+import AppKit
+import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextAgentCursor
+import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextCloud
 import CmuxNextCloudUI
 import CmuxNextDaemon
+import CmuxNextDesign
 public import CmuxNextHomeEngine
 import CmuxNextHostedChief
 import CmuxNextMacScreen
@@ -226,3 +230,78 @@ extension AppServices {
 }
 
 extension RemoteDesktopWatchFeed: HomeChiefComputerLiveFeed {}
+
+extension AppServices {
+    typealias ModelSignInOpened = @MainActor (String, @escaping @MainActor () -> Void) -> Void
+
+    func settingsClaudeLogin(beside anchor: @escaping @MainActor () -> NSView?,
+                             onOpened: @escaping ModelSignInOpened) -> SettingsCloudClaudeLogin {
+        let host = SettingsCloudClaudeLoginHost(
+            account: { [weak self] in
+                guard let cloud = self?.cloud, cloud.auth.isSignedIn, !cloud.isSigningOut else { return nil }
+                return cloud.account
+            },
+            caller: { [weak self] in self?.cloud.auth.platformUserID },
+            personal: { [weak self] in self?.accounts.agentKeys.isPersonal == true },
+            hasLoadedMachines: { [weak self] in self?.cloud.hasLoadedCurrentMachines == true },
+            machineIDs: { [weak self] in self?.cloud.listedMachineIDs ?? [] },
+            machine: { [weak self] id in
+                guard let self, let session = machines.session(id) else { return nil }
+                return settingsClaudeLink(session, beside: anchor, onOpened: onOpened)
+            },
+            refreshMachines: { [weak self] in await self?.cloud.refresh() ?? false },
+            createMachine: { [weak self] environment, name, check in
+                guard let self else { throw CancellationError() }
+                return try await createSettingsClaudeMachine(beside: anchor, environment: environment, name: name, checking: check, onOpened: onOpened)
+            })
+        return SettingsCloudClaudeLogin(host: host)
+    }
+
+    private func settingsClaudeLink(_ session: CloudMachineSession, beside anchor: @escaping @MainActor () -> NSView?,
+                                    onOpened: @escaping ModelSignInOpened) -> SettingsCloudClaudeMachineLink {
+        let daemon = session.daemon
+        let capability = DaemonCapability.agentSessionLoginSettings.rawValue
+        let supportsLogin: @MainActor @Sendable () -> Bool = { daemon.liveIdentity?.supports(capability) == true }
+        return SettingsCloudClaudeMachineLink(
+            candidate: .init(record: session.machine, status: session.effectiveStatus,
+                             linked: daemon.liveIdentity != nil, supportsLogin: supportsLogin()),
+            ownerLink: CloudMachineLinks(appLink: session.appLink).ownerLink,
+            endpoint: AgentTabRemoteHost.endpoint(on: daemon), linkHeld: { session.linkHeld() }, supportsLogin: supportsLogin,
+            connect: { [weak self] check in
+                guard let self else { throw CancellationError() }
+                try await CloudStartSession(services: self).connected(session, byPerson: true, checking: check,
+                                                                         failure: SettingsCloudClaudeLogin.startFailure)
+            },
+            openCallback: { [weak self] url, owner, scope in
+                await self?.chatSignIn.openSettings(url, daemon: daemon, from: anchor().flatMap { self?.linkOpener.source(containing: $0) },
+                                                    callbackPort: AgentPaneSignInPage.callbackPort(url), owner: owner, checking: scope, onOpened: onOpened) == true
+            }
+        )
+    }
+
+    private func createSettingsClaudeMachine(beside anchor: @escaping @MainActor () -> NSView?, environment: String?, name: String?,
+                                            checking check: @MainActor () throws -> Void,
+                                            onOpened: @escaping ModelSignInOpened) async throws -> SettingsCloudClaudeMachineLink? {
+        do {
+            var request = CloudMachineRequest()
+            request.environment = environment
+            let session = try await cloud.createMachine(name: name, startedByPerson: true, ownCreate: true, request: request, proceed: check)
+            return settingsClaudeLink(session, beside: anchor, onOpened: onOpened)
+        } catch CloudMachineCreateFlow.Failure.declined, CloudMachineCreateFlow.Failure.upgradeRequired(_), is CloudMachineCap.RunHere {
+            return nil
+        } catch let error where CloudMachineCap.refusal(error) != nil {
+            return nil
+        } catch {
+            guard let refusal = CloudMachineCreation.proRefusal(error),
+                  let window = anchor()?.window ?? windows.active?.window else { throw error }
+            try check()
+            let spec = CloudPresenter.planOfferSpec(refusal.message, plan: refusal.plan)
+            let answer = await CmuxDialogCenter.shared.present(spec, in: .window(window))
+            try check()
+            if answer.button == "confirm" {
+                _ = await paidPlanUpgrade().start(plan: refusal.plan, source: .cloudRefusal, fallback: refusal.upgradeURL)
+            }
+            return nil
+        }
+    }
+}
