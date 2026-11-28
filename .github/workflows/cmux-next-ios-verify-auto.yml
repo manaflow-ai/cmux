@@ -83,6 +83,7 @@ jobs:
 
   # -fleet: the gateway runner's hook takes only job ids ending in it.
   verify-fleet:
+    environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
     name: cmux ios verify
     if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && vars.CI_EVAL_STEP_GATEWAY != '' && format('{0}', vars.CI_IOS_VERIFY_AUTO) != '0' }}
     # It fetches the fleet client, and the cmux-linux pool has no route to the tailnet-only controller (#64245).
