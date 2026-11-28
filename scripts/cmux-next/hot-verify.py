@@ -1507,6 +1507,18 @@ def start_dev_server_behind(tree: Path, side: Side, env: dict) -> int | None:
     return started.pid
 
 
+def squash_landed(repo: Path, pr: object) -> bool:
+    """Whether pull request PR is on feat-cmux-next as a squash merge: a first-parent commit whose subject ends
+    "(#PR)", which only cmux's writers can put there. A squash-merged head is an ancestor of nothing and its
+    branch is deleted, yet refs/pull/PR/head (what the look fetched) keeps it: it is landed code, not a fork's
+    (cmux#62289, 2026-11-27: "19e26fb953a4 is on no branch of origin", the look kept only the default scene)."""
+    if not isinstance(pr, int) or pr <= 0:
+        return False
+    listed = subprocess.run(["git", "-C", str(repo), "log", "--first-parent", "--format=%s", "-F",
+                             f"--grep=(#{pr})", base_tip(repo)], capture_output=True, text=True)
+    return listed.returncode == 0 and any(line.rstrip().endswith(f"(#{pr})") for line in listed.stdout.splitlines())
+
+
 def apply_web(repo: Path, planned: dict, src_tree: Path | None, side: Side, scratch: Path,
               settle: bool = True) -> dict:
     """The head's web into the copy: published bundles as its overlay, else a dev server of the head. web-overlay.sh
@@ -1542,6 +1554,8 @@ def apply_web(repo: Path, planned: dict, src_tree: Path | None, side: Side, scra
         tips = git(repo, "ls-remote", "--heads", "origin", check=False).split()
         merged = subprocess.run(["git", "-C", str(repo), "merge-base", "--is-ancestor", head, base_tip(repo)],
                                 capture_output=True).returncode == 0
+        if head not in tips and not merged:
+            merged = squash_landed(repo, planned.get("pr"))
         if head not in tips and not merged:
             raise LookError(f"{head[:12]} is on no branch of origin (a fork?): its dev server would run its code here")
         tree = web_checkout(repo, head, scratch)
