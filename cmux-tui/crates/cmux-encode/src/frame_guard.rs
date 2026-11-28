@@ -27,6 +27,15 @@ pub const MIN_FLOOR: i32 = 12;
 /// (fleet M6, 4K, the same with or without an idle gap). A screen-share click flapped the floor
 /// between 0 and about 13 and put a quarter of the presses on the slow side.
 pub const HOLD_FLOOR_MAX: i32 = MIN_FLOOR + 6;
+/// A floor this far under the wanted one stays: the frame is aimed at [`FILL`] of its budget,
+/// so one QP short (+12% size) still lands at 90% of it, and the encode skips the ~3 ms a
+/// MinAllowedFrameQP change costs. In motion the running `k` moves the wanted floor by a QP
+/// or two most frames, so without this nearly every frame paid it.
+pub const RISE_SLACK: i32 = 1;
+/// A floor at most this far over the wanted one stays rather than falling: two QP is about
+/// 20% of the frame's size, not worth a ~3 ms encode. A larger drop (text after noise) falls
+/// at once.
+pub const FALL_SLACK: i32 = 2;
 /// The share of the budget a frame is aimed at, leaving room for the model's error.
 pub const FILL: f64 = 0.8;
 /// `k` for the session's first changed frame, before anything is learned: full-screen noise
@@ -79,9 +88,21 @@ impl FrameGuard {
         self.floor
     }
 
-    /// `wanted`, or the current floor when that is lower and near lossless.
+    /// `wanted`, or the current floor when that is lower and near lossless, or within
+    /// [`RISE_SLACK`] under or [`FALL_SLACK`] over `wanted` (each MinAllowedFrameQP change
+    /// costs the next encode about 3 ms). A floor never stays when `wanted` is none and the
+    /// current one is above the near-lossless hold, nor when there is no floor yet.
     fn held(&self, wanted: i32) -> i32 {
-        if wanted < self.floor && self.floor <= HOLD_FLOOR_MAX { self.floor } else { wanted }
+        if self.floor == 0 || wanted == self.floor {
+            return wanted;
+        }
+        if wanted < self.floor && self.floor <= HOLD_FLOOR_MAX {
+            return self.floor;
+        }
+        if wanted > 0 && (wanted - RISE_SLACK..=wanted + FALL_SLACK).contains(&self.floor) {
+            return self.floor;
+        }
+        wanted
     }
 
     /// The screen went still (the encoder saw a gap in changed frames): the next changed frame

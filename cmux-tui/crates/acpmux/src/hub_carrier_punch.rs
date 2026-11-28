@@ -55,6 +55,9 @@ use super::{
 #[path = "hub_carrier_portmap.rs"]
 pub mod portmap;
 
+#[path = "hub_carrier_reflexive.rs"]
+pub mod reflexive;
+
 /// The service name a hello gives [`CircuitService::DirectOffer`].
 pub const DIRECT_OFFER_SERVICE: &str = "direct-offer";
 /// How often each side opens toward a candidate that has not connected.
@@ -83,6 +86,21 @@ const PENDING_KEEP: Duration = Duration::from_secs(30);
 const MAX_CANDIDATES: usize = 16;
 /// The longest offer line.
 const MAX_OFFER_BYTES: usize = 4096;
+
+/// Keep `port`'s public addresses offered while `carrier` lives: the router's mapping
+/// ([`portmap`]) and, unless `ACPMUX_PUNCH_REFLEXIVE=0`, the STUN-read address ([`reflexive`]).
+pub fn keep_public(carrier: &Arc<HubCarrier>, port: u16) {
+    let mapping = Arc::downgrade(carrier);
+    super::direct::scope().spawn_named("hub carrier port map", async move {
+        portmap::keep_mapped(mapping, port).await;
+    });
+    if reflexive::enabled() {
+        let learning = Arc::downgrade(carrier);
+        super::direct::scope().spawn_named("hub carrier public address", async move {
+            reflexive::keep_learned(learning, port).await;
+        });
+    }
+}
 
 /// Whether this process punches: unless `ACPMUX_DIRECT_PUNCH=0`.
 pub fn enabled() -> bool {
@@ -130,13 +148,14 @@ pub fn candidate_ip(ip: IpAddr) -> bool {
     }
 }
 
-/// The candidates of a machine listening on `port` with these interface addresses and the
-/// router's `mapped` address: the mapping first (reachable from anywhere), then IPv6 (no NAT
-/// between two IPv6 hosts), then LAN IPv4. Deduplicated, at most [`MAX_CANDIDATES`].
+/// The candidates of a machine listening on `port` with these interface addresses and its
+/// `mapped` public addresses (the router's mapping, then the port's STUN-read public address,
+/// [`reflexive`]): the mapped first (reachable from anywhere), then IPv6 (no NAT between two
+/// IPv6 hosts), then LAN IPv4. Deduplicated, at most [`MAX_CANDIDATES`].
 pub fn local_candidates(
     port: u16,
     addresses: impl IntoIterator<Item = IpAddr>,
-    mapped: Option<SocketAddr>,
+    mapped: impl IntoIterator<Item = SocketAddr>,
 ) -> Vec<SocketAddr> {
     let mut v6 = Vec::new();
     let mut v4 = Vec::new();
@@ -202,6 +221,8 @@ pub(crate) struct Punches {
     carrier: RwLock<std::sync::Weak<HubCarrier>>,
     /// The router's mapping of that port, when one was granted.
     mapped: RwLock<Option<SocketAddr>>,
+    /// That port's public address as a STUN server saw it ([`reflexive`]), when one answered.
+    reflexive: RwLock<Option<SocketAddr>>,
     /// Interface addresses a test names in place of this machine's own.
     addresses: RwLock<Option<Vec<IpAddr>>>,
     /// Punched connections waiting for a dial, by machine and lane.
@@ -264,6 +285,7 @@ impl Punches {
     fn candidates(&self) -> Vec<SocketAddr> {
         let Some(port) = self.listen_port() else { return Vec::new() };
         let mapped = *self.mapped.read().unwrap_or_else(|e| e.into_inner());
+        let reflexive = *self.reflexive.read().unwrap_or_else(|e| e.into_inner());
         let named = self.addresses.read().unwrap_or_else(|e| e.into_inner()).clone();
         if let Some(named) = named {
             // A test's addresses as named, loopback included.
@@ -274,7 +296,7 @@ impl Punches {
             .into_iter()
             .filter(|(name, _)| !host_bridge(name))
             .map(|(_, ip)| ip);
-        local_candidates(port, addresses, mapped)
+        local_candidates(port, addresses, mapped.into_iter().chain(reflexive))
     }
 
     fn held_off(&self, daemon: &str) -> bool {
@@ -401,6 +423,12 @@ impl HubCarrier {
     /// Offer `mapped` (a router's mapping of the punch port) as a candidate.
     pub fn set_punch_mapped(&self, mapped: Option<SocketAddr>) {
         *self.direct.punch.mapped.write().unwrap_or_else(|e| e.into_inner()) = mapped;
+    }
+
+    /// Offer `reflexive` (the punch port's public address as a STUN server saw it) as a
+    /// candidate.
+    pub fn set_punch_reflexive(&self, reflexive: Option<SocketAddr>) {
+        *self.direct.punch.reflexive.write().unwrap_or_else(|e| e.into_inner()) = reflexive;
     }
 
     /// Offer these addresses in place of this machine's interfaces (tests).
