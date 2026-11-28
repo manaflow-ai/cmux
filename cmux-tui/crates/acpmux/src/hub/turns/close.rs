@@ -104,10 +104,12 @@ impl Hub {
         } else {
             None
         };
-        // Its approvals audit entries go first (`audit_log.rs`), before anything of the chat is
-        // stopped or marked purged: a purge that fails or times out fails the delete with the
-        // chat as it was, still recording (the writer lifts its own fence again).
+        // Both ledgers acknowledge deletion before the chat is stopped or marked purged.
+        // Ask deletion goes first: its failure must not leave a live chat behind an audit
+        // fence from a successful audit purge. The Ask fence stays on failure for a retry;
+        // a failed audit purge lifts its own fence (`audit_log.rs`).
         if purge {
+            self.asks.purge(&session.id).await.map_err(RpcError::internal)?;
             self.audit_purge(&session.id).await?;
         }
         // Counted first: a start for a request from before this stop ends (`ensure_child`).

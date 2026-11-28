@@ -267,9 +267,9 @@ pub(super) enum Target {
 #[derive(Clone, Debug, Default)]
 pub(super) struct Closing {
     /// What its arguments name, counted once the call completes.
-    named: Vec<Target>,
+    named: Vec<(Target, bool)>,
     /// What gh printed it settled, counted however the call ends.
-    printed: Vec<Target>,
+    printed: Vec<(Target, bool)>,
     /// gh said it only queued or refused the merge.
     unsettled: bool,
 }
@@ -297,7 +297,7 @@ const VALUE_FLAGS: [&str; 13] = [
 /// first argument is: a URL, or a number (`5`, `#5`) with `--repo OWNER/REPO` or without. A
 /// branch name, or `--auto` (nothing is merged yet), names none. A lane VM's direct form,
 /// `lane-gh call land|close OWNER/REPO JSON`, names the `"number"` its JSON holds.
-fn gh_pr_closes(script: &str) -> Option<Vec<Target>> {
+fn gh_pr_settlements(script: &str) -> Option<Vec<(Target, bool)>> {
     let mut found = None;
     for (command, _) in commands(script) {
         let words: Vec<&str> = command
@@ -307,25 +307,29 @@ fn gh_pr_closes(script: &str) -> Option<Vec<Target>> {
                     || w.split_once('=').is_some_and(|(k, _)| !k.is_empty() && !k.starts_with('-'))
             })
             .collect();
-        if let ["lane-gh", "call", "land" | "close", repo, ..] = words[..] {
+        if let ["lane-gh", "call", action @ ("land" | "close"), repo, ..] = words.as_slice() {
             // A lane VM's broker call, `lane-gh call land OWNER/REPO '{"number": 5, ...}'`.
-            let targets: &mut Vec<Target> = found.get_or_insert_with(Vec::new);
+            let targets: &mut Vec<(Target, bool)> = found.get_or_insert_with(Vec::new);
             if let Some(n) = LANE_GH_NUMBER
                 .as_ref()
                 .and_then(|number| number.captures(&command))
                 .and_then(|c| c[1].parse::<u64>().ok())
                 && repo.split('/').count() == 2
             {
-                targets.push(Target::Url(format!("https://github.com/{repo}/pull/{n}")));
+                targets.push((
+                    Target::Url(format!("https://github.com/{repo}/pull/{n}")),
+                    *action == "land",
+                ));
             }
             continue;
         }
-        if !matches!(words.get(..3), Some(["gh", "pr", "merge" | "close"])) {
+        let ["gh", "pr", action @ ("merge" | "close"), args @ ..] = words.as_slice() else {
             continue;
-        }
-        let targets: &mut Vec<Target> = found.get_or_insert_with(Vec::new);
+        };
+        let targets: &mut Vec<(Target, bool)> = found.get_or_insert_with(Vec::new);
+        let merged = *action == "merge";
         let (mut repo, mut first, mut auto) = (None, None, false);
-        let mut rest = words[3..].iter().map(|w| w.trim_matches(|c| c == '\'' || c == '"'));
+        let mut rest = args.iter().map(|w| w.trim_matches(|c| c == '\'' || c == '"'));
         while let Some(word) = rest.next() {
             if word == "--auto" {
                 auto = true;
@@ -342,16 +346,24 @@ fn gh_pr_closes(script: &str) -> Option<Vec<Target>> {
         }
         let Some(first) = first.filter(|_| !auto) else { continue };
         if PULL_URL.is_match(&first) {
-            targets.push(Target::Url(first));
+            targets.push((Target::Url(first), merged));
         } else if let Ok(n) = first.trim_start_matches('#').parse::<u64>() {
             let repo = repo.map(|r| r.trim_start_matches("https://github.com/").to_owned());
-            targets.push(match repo.filter(|r| r.split('/').count() == 2) {
-                Some(repo) => Target::Url(format!("https://github.com/{repo}/pull/{n}")),
-                None => Target::Number(n),
-            });
+            targets.push((
+                match repo.filter(|r| r.split('/').count() == 2) {
+                    Some(repo) => Target::Url(format!("https://github.com/{repo}/pull/{n}")),
+                    None => Target::Number(n),
+                },
+                merged,
+            ));
         }
     }
     found
+}
+
+#[cfg(test)]
+fn gh_pr_closes(script: &str) -> Option<Vec<Target>> {
+    gh_pr_settlements(script).map(|items| items.into_iter().map(|(target, _)| target).collect())
 }
 
 /// What gh prints when a merge is only queued or refused: none of the call's pull requests is
@@ -377,31 +389,53 @@ const UNSETTLED: [&str; 8] = [
 /// `None` only if the constant pattern failed to build, which its tests rule out.
 static SETTLED: LazyLock<Option<Regex>> = LazyLock::new(|| {
     Regex::new(
-        r"(?m)(?:(?:Squashed and merged|Rebased and merged|Merged|Closed) (?:pull request )?|Pull request |^merged )([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([0-9]+)(?: was already (?:merged|closed)| at [0-9a-f]{7,}|[ ]\(|$)",
+        r"(?m)(?:(?P<action>Squashed and merged|Rebased and merged|Merged|Closed|^merged) (?:pull request )?|Pull request )(?P<repo>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#(?P<number>[0-9]+)(?: was already (?P<already>merged|closed)| at [0-9a-f]{7,}|[ ]\(|$)",
     )
     .ok()
 });
 
 /// The pull requests `output` says gh merged or closed, as their URLs, once each.
-fn settled_urls(output: &str) -> Vec<String> {
-    let mut urls: Vec<String> = vec![];
-    let Some(settled) = SETTLED.as_ref() else { return urls };
+fn settled_targets(output: &str) -> Vec<(Target, bool)> {
+    let mut targets = vec![];
+    let Some(settled) = SETTLED.as_ref() else { return targets };
     for found in settled.captures_iter(output) {
-        let url = format!("https://github.com/{}/pull/{}", &found[1], &found[2]);
-        if !urls.contains(&url) {
-            urls.push(url);
+        let url = format!("https://github.com/{}/pull/{}", &found["repo"], &found["number"]);
+        let Some(action) = found.name("already").or_else(|| found.name("action")) else { continue };
+        let target = Target::Url(url);
+        let merged = action.as_str().to_ascii_lowercase().ends_with("merged");
+        if let Some((_, old)) = targets.iter_mut().find(|(known, _)| *known == target) {
+            *old = merged;
+        } else {
+            targets.push((target, merged));
         }
     }
-    urls
+    targets
+}
+
+#[cfg(test)]
+fn settled_urls(output: &str) -> Vec<String> {
+    settled_targets(output)
+        .into_iter()
+        .filter_map(|(target, _)| match target {
+            Target::Url(url) => Some(url),
+            Target::Number(_) => None,
+        })
+        .collect()
 }
 
 /// Follows a `tool_call` or `tool_call_update` of `session`: a shell call that runs `gh pr merge`
 /// or `gh pr close` is remembered while it runs, and the pull requests it settled are returned
 /// when it ends, for `m.closed_pull_requests` ([`record_closed`]) and the review queue
 /// (`review_queue.rs`), whoever's session opened them.
-pub(super) fn absorb_closed(session: &Session, update: &Value) -> Vec<Target> {
+/// Each target says whether it merged (else it closed).
+pub(super) fn absorb_closed(session: &Session, update: &Value) -> Vec<(Target, bool)> {
     let mut calls = session.pr_closes.lock().unwrap_or_else(|e| e.into_inner());
-    track_closed(&mut calls, update)
+    track_settled(&mut calls, update)
+}
+
+#[cfg(test)]
+fn track_closed(calls: &mut HashMap<String, Closing>, update: &Value) -> Vec<Target> {
+    track_settled(calls, update).into_iter().map(|(target, _)| target).collect()
 }
 
 /// Adds `url` to `m.closed_pull_requests` once, dropping the oldest past
@@ -421,34 +455,47 @@ pub(super) fn record_closed(m: &mut SessionMeta, url: &str) {
 /// completes counts the pull requests its arguments name, unless gh said it only queued or
 /// refused the merge. What gh printed it settled (`was already merged`, a wrapper's `merged
 /// o/r#5 at SHA`) counts however the call ends: a `| tail` after gh makes the call's status the
-/// pipe's, not gh's.
-fn track_closed(calls: &mut HashMap<String, Closing>, update: &Value) -> Vec<Target> {
-    let Some(id) = update.get("toolCallId").and_then(Value::as_str) else { return vec![] };
+/// pipe's, not gh's. Each target carries its own settlement state.
+fn track_settled(calls: &mut HashMap<String, Closing>, update: &Value) -> Vec<(Target, bool)> {
+    let none = vec![];
+    let Some(id) = update.get("toolCallId").and_then(Value::as_str) else { return none };
     let execute = update.get("kind").and_then(Value::as_str) == Some("execute");
     if execute
         && !calls.contains_key(id)
-        && let Some(named) = script(update).and_then(|s| gh_pr_closes(&s))
+        && let Some(script) = script(update)
+        && let Some(named) = gh_pr_settlements(&script)
     {
         calls.insert(id.to_owned(), Closing { named, ..Default::default() });
     }
-    let Some(closing) = calls.get_mut(id) else { return vec![] };
+    let Some(closing) = calls.get_mut(id) else { return none };
     let output = output_text(update);
     closing.unsettled |= UNSETTLED.iter().any(|line| output.contains(line));
-    for url in settled_urls(&output) {
-        let target = Target::Url(url);
-        if !closing.printed.contains(&target) {
-            closing.printed.push(target);
+    for (target, merged) in settled_targets(&output) {
+        if let Some((_, old)) = closing.printed.iter_mut().find(|(known, _)| *known == target) {
+            *old = merged;
+        } else {
+            closing.printed.push((target, merged));
         }
     }
     let status = update.get("status").and_then(Value::as_str);
     if !matches!(status, Some("completed" | "failed")) {
-        return vec![];
+        return none;
     }
-    let Some(Closing { named, mut printed, unsettled }) = calls.remove(id) else { return vec![] };
+    let Some(Closing { named, mut printed, unsettled }) = calls.remove(id) else {
+        return none;
+    };
     if status == Some("completed") && !unsettled {
-        for target in named {
-            if !printed.contains(&target) {
-                printed.push(target);
+        for (target, merged) in named {
+            if !printed.iter().any(|(known, _)| {
+                *known == target
+                    || match (&target, known) {
+                        // A bare-number command and its explicit output describe the same PR.
+                        (Target::Number(n), Target::Url(url)) => super::asks::parse_pull_url(url)
+                            .is_some_and(|(_, printed_n)| *n == printed_n),
+                        _ => false,
+                    }
+            }) {
+                printed.push((target, merged));
             }
         }
     }
@@ -543,21 +590,22 @@ fn created_url(output: &str) -> Option<String> {
 
 /// Notes a `tool_call` or `tool_call_update` into `m`: a shell call that runs `gh pr create` is
 /// remembered, and the pull request URL its output prints joins `m.pull_requests`, opened `at`
-/// (`m.pull_request_times`). Returns a URL that joined it, for the review queue
-/// (`review_queue.rs`) and the cost ledger (`hub/ledger`).
+/// (`m.pull_request_times`). Returns the first newly joined PR and its ask traces for the
+/// review queue (`review_queue.rs`), cost ledger (`hub/ledger`) and Ask ledger (`hub/asks`).
 pub(super) fn absorb(
     session: &Session,
     update: &Value,
     m: &mut SessionMeta,
     at: u64,
-) -> Option<String> {
+) -> Option<Created> {
     let mut creates = session.pr_creates.lock().unwrap_or_else(|e| e.into_inner());
     let mut joined = None;
-    for url in follow(&mut creates, update) {
-        if m.pull_requests.len() < MAX_PULL_REQUESTS && !m.pull_requests.contains(&url) {
+    for created in follow_created(&mut creates, update) {
+        let url = &created.url;
+        if m.pull_requests.len() < MAX_PULL_REQUESTS && !m.pull_requests.contains(url) {
             m.pull_requests.push(url.clone());
             m.pull_request_times.insert(url.clone(), at);
-            joined.get_or_insert(url);
+            joined.get_or_insert(created);
         }
     }
     joined
@@ -568,7 +616,7 @@ pub(super) fn absorb(
 #[derive(Debug, Default)]
 pub(crate) struct Creates {
     /// A `gh pr create` call's (or a broker `pr_create`'s) id, and the URL it printed so far.
-    calls: HashMap<String, Option<String>>,
+    calls: HashMap<String, Creating>,
     /// `bg_start` calls whose command opens a pull request, by tool call id.
     launches: HashSet<String>,
     /// Their background tasks (`bg-…`), whose output is read when a tool reads it (`bg_output`,
@@ -585,11 +633,16 @@ impl Creates {
 }
 
 /// Follows one tool update into `creates`: the pull request URLs it settled as opened. A
-/// `gh pr create` or broker `pr_create` call counts once it completes (`track`). A `bg_start`
+/// `gh pr create` or broker `pr_create` call counts once it completes (`track_created`). A `bg_start`
 /// whose command opens one is remembered by its task id, and every bare pull request URL that
 /// task printed counts when a tool result shows its output.
 pub(crate) fn follow(creates: &mut Creates, update: &Value) -> Vec<String> {
-    let mut urls: Vec<String> = track(&mut creates.calls, update).into_iter().collect();
+    follow_created(creates, update).into_iter().map(|created| created.url).collect()
+}
+
+/// Keeps literal inline ask traces with direct creates; background output supplies only URLs.
+fn follow_created(creates: &mut Creates, update: &Value) -> Vec<Created> {
+    let mut urls: Vec<Created> = track_created(&mut creates.calls, update).into_iter().collect();
     let Some(id) = update.get("toolCallId").and_then(Value::as_str) else { return urls };
     let opens = |s: &str| s.contains("gh pr create") || s.contains("pr_create");
     if tool_name(update).is_some_and(is_bg_start_tool) && script(update).is_some_and(|s| opens(&s))
@@ -612,8 +665,8 @@ pub(crate) fn follow(creates: &mut Creates, update: &Value) -> Vec<String> {
             && let Some(text) = answer.get("text").and_then(Value::as_str)
         {
             for url in bare_urls(text) {
-                if !urls.contains(&url) {
-                    urls.push(url);
+                if !urls.iter().any(|created| created.url == url) {
+                    urls.push(Created { url, traces: Vec::new() });
                 }
             }
         }
@@ -633,24 +686,170 @@ pub(crate) fn follow_notice(creates: &mut Creates, message: &Value) -> Vec<Strin
     message.get("text").and_then(Value::as_str).map(bare_urls).unwrap_or_default()
 }
 
+/// A `gh pr create` call while it runs (`Session::pr_creates`).
+#[derive(Clone, Debug, Default)]
+pub(super) struct Creating {
+    /// The URL it printed so far.
+    url: Option<String>,
+    /// The ask ids its literal inline body carries (`hub/asks`).
+    traces: Vec<String>,
+}
+
+/// A pull request a `gh pr create` call opened.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct Created {
+    pub url: String,
+    /// The ask ids the call's literal inline body carried (`hub/asks::trace_ids`).
+    pub traces: Vec<String>,
+}
+
+/// Literal shell words only. Never evaluate expansions, substitutions, redirections or
+/// heredocs to guess a body. Single-quoted data remains literal, including `$` and backticks.
+fn literal_words(command: &str) -> Option<Vec<String>> {
+    let mut words = Vec::new();
+    let mut word = String::new();
+    let mut started = false;
+    let mut quote = None;
+    let mut chars = command.chars();
+    while let Some(c) = chars.next() {
+        if quote == Some('\'') {
+            if c == '\'' {
+                quote = None;
+            } else {
+                word.push(c);
+            }
+            continue;
+        }
+        if c == '\\' {
+            let next = chars.next()?;
+            if quote == Some('"') && !matches!(next, '$' | '`' | '"' | '\\' | '\n') {
+                word.push('\\');
+            }
+            if next != '\n' {
+                word.push(next);
+                started = true;
+            }
+            continue;
+        }
+        if c == '$' || c == '`' {
+            return None;
+        }
+        if quote == Some('"') {
+            if c == '"' {
+                quote = None;
+            } else {
+                word.push(c);
+            }
+            continue;
+        }
+        match c {
+            '\'' | '"' => {
+                quote = Some(c);
+                started = true;
+            }
+            c if c.is_whitespace() => {
+                if started {
+                    words.push(std::mem::take(&mut word));
+                    started = false;
+                }
+            }
+            // These words are not guaranteed to reach gh literally.
+            ';' | '&' | '|' | '<' | '>' | '(' | ')' | '*' | '?' | '[' | '~' | '#' => return None,
+            _ => {
+                word.push(c);
+                started = true;
+            }
+        }
+    }
+    if quote.is_some() {
+        return None;
+    }
+    if started {
+        words.push(word);
+    }
+    Some(words)
+}
+
+fn inline_body(words: &[String]) -> Option<&str> {
+    let mut args = words.iter().map(String::as_str).skip_while(|w| {
+        *w == "env" || w.split_once('=').is_some_and(|(k, _)| !k.is_empty() && !k.starts_with('-'))
+    });
+    if !matches!((args.next(), args.next(), args.next()), (Some("gh"), Some("pr"), Some("create")))
+    {
+        return None;
+    }
+    let mut body = None;
+    while let Some(arg) = args.next() {
+        let (flag, value) = arg.split_once('=').map_or((arg, None), |(k, v)| (k, Some(v)));
+        match flag {
+            "--body" | "-b" => {
+                if body.is_some() {
+                    return None;
+                }
+                body = Some(value.or_else(|| args.next())?);
+            }
+            "--body-file" | "-F" => return None,
+            "--assignee" | "-a" | "--base" | "-B" | "--head" | "-H" | "--label" | "-l"
+            | "--milestone" | "-m" | "--project" | "-p" | "--reviewer" | "-r" | "--template"
+            | "-T" | "--title" | "-t" | "--recover" | "--repo" | "-R" => {
+                value.or_else(|| args.next())?;
+            }
+            "--draft" | "-d" | "--fill" | "--fill-first" | "--fill-verbose" | "--web" | "-w" => {}
+            _ => return None,
+        }
+    }
+    body
+}
+
+/// Read only an actual command argument, never a tool title, branch name or preceding command.
+/// An argv preserves its boundaries; a shell script supports literal inline bodies only.
+fn created_traces(update: &Value) -> Vec<String> {
+    let command = update.pointer("/rawInput/command").or_else(|| update.pointer("/rawInput/cmd"));
+    let words = match command {
+        Some(Value::Array(argv))
+            if !argv.first().and_then(Value::as_str).is_some_and(|first| {
+                matches!(first.rsplit('/').next(), Some("bash" | "sh" | "zsh"))
+            }) =>
+        {
+            argv.iter().map(Value::as_str).map(|v| v.map(str::to_owned)).collect::<Option<Vec<_>>>()
+        }
+        Some(Value::Array(_)) | Some(Value::String(_)) => script(update).and_then(|script| {
+            let commands = commands(&script);
+            literal_words(&commands.last()?.0)
+        }),
+        _ => None,
+    };
+    words.as_deref().and_then(inline_body).map(super::asks::trace_ids).unwrap_or_default()
+}
+
+/// [`track_created`]'s URL alone.
+#[cfg(test)]
+fn track(calls: &mut HashMap<String, Creating>, update: &Value) -> Option<String> {
+    track_created(calls, update).map(|c| c.url)
+}
+
 /// Follows one update of a `gh pr create` call in `calls` (its id, and the URL it printed so far):
-/// the URL to record once the call completes. A failed call records none, though it printed one
-/// before failing ("a pull request for branch ... already exists: URL"). A broker `pr_create`
-/// tool call (`is_pr_create_tool`) counts the same way, with the URL its JSON answer names.
-fn track(calls: &mut HashMap<String, Option<String>>, update: &Value) -> Option<String> {
+/// the URL and literal inline ask traces to record once the call completes. A failed call records
+/// none. Broker `pr_create` tool calls count the URL their JSON answer names too.
+fn track_created(calls: &mut HashMap<String, Creating>, update: &Value) -> Option<Created> {
     let id = update.get("toolCallId").and_then(Value::as_str)?;
     let execute = update.get("kind").and_then(Value::as_str) == Some("execute");
-    if execute && script(update).is_some_and(|s| is_gh_pr_create(&s))
-        || tool_name(update).is_some_and(is_pr_create_tool)
+    if !calls.contains_key(id)
+        && (execute && script(update).is_some_and(|s| is_gh_pr_create(&s))
+            || tool_name(update).is_some_and(is_pr_create_tool))
     {
-        calls.entry(id.to_owned()).or_default();
+        let traces = created_traces(update);
+        calls.insert(id.to_owned(), Creating { url: None, traces });
     }
-    let printed = calls.get_mut(id)?;
+    let creating = calls.get_mut(id)?;
     if let Some(url) = created_url(&output_text(update)) {
-        *printed = Some(url);
+        creating.url = Some(url);
     }
     match update.get("status").and_then(Value::as_str) {
-        Some("completed") => calls.remove(id).flatten(),
+        Some("completed") => {
+            let Creating { url, traces } = calls.remove(id)?;
+            url.map(|url| Created { url, traces })
+        }
         Some("failed") => {
             calls.remove(id);
             None

@@ -81,6 +81,7 @@
 //! found", like `_acpmux/directories`. Agents and MCP get them only through
 //! the `chats.read` scope, which is never granted by default.
 
+mod asks;
 mod ledger;
 mod offers;
 mod scorecard;
@@ -305,6 +306,11 @@ pub(super) async fn route(
     // What turns cost (`hub/ledger`): local and the app's pane, never a peer's.
     if m == crate::rpc::method::MUX_LEDGER {
         return ledger::handle(hub, conn.origin, &params);
+    }
+    // What the person asked and the pull requests that name it (`hub/asks`): local and the
+    // app's pane, never a peer's.
+    if let Some(reply) = asks::handle(hub, conn.origin, m, &params) {
+        return reply;
     }
     // The team's spend, from cmux-platform with this daemon's sign-in: local and the app's pane.
     if m == crate::rpc::method::MUX_TEAM_AUDIT {

@@ -9,12 +9,16 @@
 // They live here because this page is one the app already opens; they need no host of their own.
 // Team (teamAudit/TeamAuditScreen.tsx, the team's shared agent spend) joins them while the
 // `team-audit` experiment is on, and People (teamDirectory/TeamDirectoryScreen.tsx, RFD 0170's team
-// navigator) while the `team-directory` one is.
+// navigator) while the `team-directory` one is. Your asks (asks/AsksScreen.tsx, acpmux's Ask ledger:
+// what the person typed into chats here, each linked to its chat and the pull requests that name
+// it) sits beside Waiting on you: the same "what is open with me" list, read the other way round.
 import type { ComponentProps } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Tabs, TabsList, TabsTrigger } from "../../../ui/Tabs";
 import { experimentArm } from "../../../experiments/experiment";
 import { useT } from "../i18n";
+import { askLedgerEnabled } from "../asks/asksModel";
+import { AsksScreen } from "../asks/AsksScreen";
 import { LedgerScreen } from "../ledger/LedgerScreen";
 import { QueueScreen } from "../queue/QueueScreen";
 import { createQueueCache } from "../queue/useQueue";
@@ -28,7 +32,7 @@ import { type LoadChatsPage } from "./allChatsListModel";
 import { useNoEntryMotion } from "./noEntryMotion";
 import { useNt } from "./strings";
 
-export type HistoryTab = "history" | "queue" | "ledger" | "team" | "people";
+export type HistoryTab = "history" | "queue" | "asks" | "ledger" | "team" | "people";
 
 export function HistoryScreen({
   load,
@@ -39,6 +43,7 @@ export function HistoryScreen({
   queue,
   ledger,
   team: teamProps,
+  yourAsks: asksProps,
   directory: directoryProps,
   initialTab = "history",
 }: {
@@ -53,6 +58,8 @@ export function HistoryScreen({
   ledger?: ComponentProps<typeof LedgerScreen>;
   /// Team's read; no tab without it, or while the `team-audit` experiment is off.
   team?: ComponentProps<typeof TeamAuditScreen>;
+  /// Your asks' read and opens; no tab without them.
+  yourAsks?: ComponentProps<typeof AsksScreen>;
   /// People's reads; no tab without them, or while the `team-directory` experiment is off.
   directory?: ComponentProps<typeof TeamDirectoryScreen>;
   initialTab?: HistoryTab;
@@ -71,11 +78,37 @@ export function HistoryScreen({
   useEffect(() => {
     if (queueKey !== undefined) queueCache.note(queueKey);
   }, [queueCache, queueKey]);
+  // The daemon owns the startup-only Labs gate. Older daemons and failed reads
+  // keep the experiment hidden. Probe once per mount, never on a timer.
+  const asksRef = useRef(asksProps);
+  useEffect(() => {
+    asksRef.current = asksProps;
+  }, [asksProps]);
+  const [asksEnabled, setAsksEnabled] = useState(false);
+  const hasAsks = Boolean(asksProps);
+  useEffect(() => {
+    let current = true;
+    if (hasAsks) {
+      void asksRef.current?.load({ limit: 1 }).then(
+        (reply) => {
+          if (current) setAsksEnabled(askLedgerEnabled(reply));
+        },
+        () => {
+          if (current) setAsksEnabled(false);
+        },
+      );
+    }
+    return () => {
+      current = false;
+    };
+  }, [hasAsks]);
+  const yourAsks = asksEnabled ? asksProps : undefined;
   const team = experimentArm(teamAudit) === "on" ? teamProps : undefined;
   const directory = experimentArm(teamDirectory) === "on" ? directoryProps : undefined;
-  const tabbed = Boolean(queue || ledger || team || directory);
+  const tabbed = Boolean(queue || ledger || team || yourAsks || directory);
   const shown: HistoryTab =
     (tab === "queue" && !queue) ||
+    (tab === "asks" && !yourAsks) ||
     (tab === "ledger" && !ledger) ||
     (tab === "team" && !team) ||
     (tab === "people" && !directory)
@@ -95,6 +128,7 @@ export function HistoryScreen({
           <TabsList aria-label={nt("history")}>
             <TabsTrigger value="history">{nt("history")}</TabsTrigger>
             {queue && <TabsTrigger value="queue">{t("waiting.title")}</TabsTrigger>}
+            {yourAsks && <TabsTrigger value="asks">{t("asks.title")}</TabsTrigger>}
             {ledger && <TabsTrigger value="ledger">{t("ledger.title")}</TabsTrigger>}
             {team && <TabsTrigger value="team">{t("teamAudit.title")}</TabsTrigger>}
             {directory && <TabsTrigger value="people">{t("teamDirectory.title")}</TabsTrigger>}
@@ -103,6 +137,8 @@ export function HistoryScreen({
       )}
       {shown === "queue" && queue ? (
         <QueueScreen {...queue} cache={queueCache} {...(now !== undefined ? { now } : {})} />
+      ) : shown === "asks" && yourAsks ? (
+        <AsksScreen {...yourAsks} {...(now !== undefined ? { now } : {})} />
       ) : shown === "ledger" && ledger ? (
         <LedgerScreen {...ledger} cache={ledgerCache} {...(now !== undefined ? { now } : {})} />
       ) : shown === "team" && team ? (

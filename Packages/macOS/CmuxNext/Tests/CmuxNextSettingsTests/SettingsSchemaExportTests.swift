@@ -15,11 +15,21 @@ import Testing
     /// (scripts/cmux-next/string_catalogs.py), each a catalog of that one key.
     static func catalog() throws -> Set<String> {
         let folder = repoRoot.appending(path: "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings.d")
-        var keys = Set<String>()
-        for name in try FileManager.default.contentsOfDirectory(atPath: folder.path) where name.hasSuffix(".xcstrings") {
-            keys.formUnion(try SettingsSchemaExport().catalogKeys(xcstrings: Data(contentsOf: folder.appending(path: name))))
-        }
-        return keys
+        return try SettingsSchemaExport().catalogKeys(directory: folder)
+    }
+
+    @Test func splitCatalogReadsEveryShardAndRejectsCorruption() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try Data(#"{"strings":{"first":{},"shared":{}}}"#.utf8).write(to: folder.appending(path: "first.xcstrings"))
+        try Data(#"{"strings":{"second":{},"shared":{}}}"#.utf8).write(to: folder.appending(path: "second.xcstrings"))
+        try Data("ignored metadata".utf8).write(to: folder.appending(path: "README.md"))
+        let export = SettingsSchemaExport()
+        #expect(try export.catalogKeys(directory: folder) == ["first", "second", "shared"])
+        try Data(#"{"notStrings":{}}"#.utf8).write(to: folder.appending(path: "broken.xcstrings"))
+        #expect(throws: (any Error).self) { try export.catalogKeys(directory: folder) }
+        #expect(throws: (any Error).self) { try export.catalogKeys(directory: folder.appending(path: "missing")) }
     }
 
     /// `CMUX_UPDATE_ACTION_SURFACES=1 swift test --filter SettingsSchemaExportTests` rewrites it.

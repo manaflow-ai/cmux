@@ -848,6 +848,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `notifications.delivery.blocked` | string | `"off"` | `off`, `badge`, `banner` | Agent Blocked. When an agent's status turns Blocked without its own approval or question alert, as screen detection and plugins report it. |
 | `notifications.delivery.taskComplete` | string | `"banner"` | `off`, `banner` | Task Complete |
 | `labs.previewFeatures` | boolean | `false` |  | Show Preview Features. Unfinished surfaces, such as the agent session's coverage label and Pull requests view. |
+| `labs.askLedger` | boolean | `false` |  | Your Asks. Keep your chat requests on this Mac and link them to pull requests in History. Takes effect after cmux restarts. |
 | `labs.appStore` | boolean | `false` |  | Show App Store. Browse, install and update apps for cmux. Still being shaped. |
 | `labs.liveTree` | boolean | `false` |  | Live Tree. Show the shared live-tree path and compile lanes in the agent pane. |
 | `labs.voiceRoom` | boolean | `false` |  | Voice Room. While a room is open, cmux sends a transcript of your mic and your screen's text to it. |

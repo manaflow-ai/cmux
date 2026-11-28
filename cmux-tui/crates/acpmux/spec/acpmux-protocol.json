@@ -767,6 +767,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/asks",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/asks_link_pr",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/team_audit",
       "params": true,
       "result": true

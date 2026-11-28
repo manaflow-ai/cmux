@@ -6,128 +6,128 @@
       "localizations" : {
         "ar" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "كل مساحة عمل في سطر واحد، وينتقل Cmd-Shift-[ و ] بين مساحات العمل."
+            "state" : "translated",
+            "value" : "تظهر كل مساحة عمل في سطر واحد في الشريط الجانبي، الذي يظل قائمة (وليس شريط علامات تبويب)، ويبدّل Cmd-Shift-[ و ] بين مساحات العمل كما يبدّلان بين علامات التبويب."
           }
         },
         "bs" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Svaki radni prostor je jedan red, a Cmd-Shift-[ i ] mijenjaju radne prostore."
+            "state" : "translated",
+            "value" : "Svaki radni prostor zauzima jedan red u bočnoj traci, koja ostaje lista (a ne traka s karticama), a Cmd-Shift-[ i ] mijenjaju radne prostore kao što mijenjaju kartice."
           }
         },
         "da" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Hvert arbejdsområde er én linje, og Cmd-Shift-[ og ] skifter arbejdsområde."
+            "state" : "translated",
+            "value" : "Hvert arbejdsområde fylder én linje i sidebjælken, som forbliver en liste (ikke en fanelinje), og Cmd-Shift-[ og ] skifter mellem arbejdsområder, ligesom de skifter mellem faner."
           }
         },
         "de" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Jeder Arbeitsbereich belegt eine Zeile, und Cmd-Shift-[ und ] wechseln Arbeitsbereiche."
+            "state" : "translated",
+            "value" : "Jeder Arbeitsbereich belegt eine Zeile in der Seitenleiste, die eine Liste bleibt (keine Tableiste). Cmd-Shift-[ und ] wechseln zwischen Arbeitsbereichen wie zwischen Tabs."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Each workspace is one line, and Cmd-Shift-[ and ] switch workspaces."
+            "value" : "Each workspace is one line in the sidebar, which stays a list (not a tab strip), and Cmd-Shift-[ and ] switch workspaces as they switch tabs."
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cada espacio de trabajo ocupa una línea, y Cmd-Shift-[ y ] cambian de espacio de trabajo."
+            "state" : "translated",
+            "value" : "Cada espacio de trabajo ocupa una línea en la barra lateral, que sigue siendo una lista (no una barra de pestañas), y Cmd-Shift-[ y ] cambian de espacio de trabajo igual que cambian de pestaña."
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Chaque espace de travail tient sur une ligne, et Cmd-Shift-[ et ] changent d’espace de travail."
+            "state" : "translated",
+            "value" : "Chaque espace de travail occupe une ligne dans la barre latérale, qui reste une liste (pas une barre d’onglets), et Cmd-Shift-[ et ] changent d’espace de travail comme ils changent d’onglet."
           }
         },
         "it" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ogni workspace occupa una riga, e Cmd-Shift-[ e ] cambiano workspace."
+            "state" : "translated",
+            "value" : "Ogni workspace occupa una riga nella barra laterale, che rimane un elenco (non una barra di schede), e Cmd-Shift-[ e ] cambiano workspace come cambiano scheda."
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "各ワークスペースを1行で表示し、Cmd-Shift-[ と ] でワークスペースを切り替えます。"
+            "state" : "translated",
+            "value" : "各ワークスペースはサイドバーに1行で表示されます。サイドバーはリストのままで、タブバーにはなりません。Cmd-Shift-[ と ] で、タブと同じようにワークスペースを切り替えます。"
           }
         },
         "km" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "កន្លែងធ្វើការនីមួយៗជាមួយបន្ទាត់ ហើយ Cmd-Shift-[ និង ] ប្ដូរកន្លែងធ្វើការ។"
+            "state" : "translated",
+            "value" : "កន្លែងធ្វើការនីមួយៗមានមួយបន្ទាត់នៅក្នុងរបារចំហៀង ដែលនៅតែជាបញ្ជី (មិនមែនជារបារផ្ទាំងទេ) ហើយ Cmd-Shift-[ និង ] ប្ដូរកន្លែងធ្វើការដូចដែលវាប្ដូរផ្ទាំង។"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "워크스페이스마다 한 줄로 표시되며, Cmd-Shift-[ 와 ]로 워크스페이스를 전환합니다."
+            "state" : "translated",
+            "value" : "각 워크스페이스는 사이드바에서 한 줄로 표시됩니다. 사이드바는 탭 표시줄이 아닌 목록으로 유지되며, Cmd-Shift-[ 와 ]로 탭을 전환하듯 워크스페이스를 전환합니다."
           }
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Hvert arbeidsområde er én linje, og Cmd-Shift-[ og ] bytter arbeidsområde."
+            "state" : "translated",
+            "value" : "Hvert arbeidsområde opptar én linje i sidefeltet, som fortsatt er en liste (ikke en fanelinje), og Cmd-Shift-[ og ] bytter mellom arbeidsområder slik de bytter mellom faner."
           }
         },
         "pl" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Każdy obszar roboczy zajmuje jeden wiersz, a Cmd-Shift-[ i ] przełączają obszary robocze."
+            "state" : "translated",
+            "value" : "Każdy obszar roboczy zajmuje jeden wiersz na pasku bocznym, który pozostaje listą (nie paskiem kart), a Cmd-Shift-[ i ] przełączają obszary robocze tak samo jak karty."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cada espaço de trabalho ocupa uma linha, e Cmd-Shift-[ e ] alternam entre espaços de trabalho."
+            "state" : "translated",
+            "value" : "Cada espaço de trabalho ocupa uma linha na barra lateral, que continua sendo uma lista (não uma barra de abas), e Cmd-Shift-[ e ] alternam entre espaços de trabalho como alternam entre abas."
           }
         },
         "ru" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Каждое рабочее пространство занимает одну строку, а Cmd-Shift-[ и ] переключают рабочие пространства."
+            "state" : "translated",
+            "value" : "Каждое рабочее пространство занимает одну строку на боковой панели, которая остаётся списком (а не полосой вкладок), а Cmd-Shift-[ и ] переключают рабочие пространства так же, как вкладки."
           }
         },
         "th" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "แต่ละเวิร์กสเปซเป็นหนึ่งบรรทัด และ Cmd-Shift-[ กับ ] จะสลับเวิร์กสเปซ"
+            "state" : "translated",
+            "value" : "แต่ละเวิร์กสเปซแสดงเป็นหนึ่งบรรทัดในแถบด้านข้าง ซึ่งยังคงเป็นรายการ (ไม่ใช่แถบแท็บ) และ Cmd-Shift-[ กับ ] จะสลับเวิร์กสเปซเช่นเดียวกับการสลับแท็บ"
           }
         },
         "tr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Her çalışma alanı tek satırdır; Cmd-Shift-[ ve ] çalışma alanları arasında geçer."
+            "state" : "translated",
+            "value" : "Her çalışma alanı kenar çubuğunda bir satır kaplar. Kenar çubuğu sekme çubuğuna dönüşmez, liste olarak kalır. Cmd-Shift-[ ve ] ise sekmeler arasında geçiş yaptıkları gibi çalışma alanları arasında geçiş yapar."
           }
         },
         "uk" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Кожен робочий простір займає один рядок, а Cmd-Shift-[ і ] перемикають робочі простори."
+            "state" : "translated",
+            "value" : "Кожен робочий простір займає один рядок на бічній панелі, яка залишається списком (а не смугою вкладок), а Cmd-Shift-[ і ] перемикають робочі простори так само, як вкладки."
           }
         },
         "vi" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Mỗi không gian làm việc là một dòng, và Cmd-Shift-[ và ] chuyển không gian làm việc."
+            "state" : "translated",
+            "value" : "Mỗi không gian làm việc chiếm một dòng trong thanh bên, vốn vẫn là danh sách (không phải thanh tab), và Cmd-Shift-[ và ] chuyển giữa các không gian làm việc như khi chuyển tab."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "每个工作区占一行，Cmd-Shift-[ 和 ] 切换工作区。"
+            "state" : "translated",
+            "value" : "每个工作区在侧边栏中占一行；侧边栏仍是列表（不是标签栏），Cmd-Shift-[ 和 ] 像切换标签页一样切换工作区。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "每個工作區佔一行，Cmd-Shift-[ 和 ] 會切換工作區。"
+            "state" : "translated",
+            "value" : "每個工作區在側邊欄中佔一行；側邊欄仍是清單（不是分頁列），Cmd-Shift-[ 和 ] 就像切換分頁一樣切換工作區。"
           }
         }
       }

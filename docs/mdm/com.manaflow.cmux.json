@@ -5419,6 +5419,12 @@
       "title" : "Show App Store",
       "type" : "boolean"
     },
+    "labs.askLedger" : {
+      "default" : false,
+      "description" : "Keep your chat requests on this Mac and link them to pull requests in History. Takes effect after cmux restarts.",
+      "title" : "Your Asks",
+      "type" : "boolean"
+    },
     "labs.bundledCodexAppServer" : {
       "default" : false,
       "description" : "New Codex chats use the app server bundled with cmux when it checks out, else your installed Codex.",

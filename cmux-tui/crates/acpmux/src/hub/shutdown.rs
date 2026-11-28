@@ -240,6 +240,13 @@ impl Hub {
                         );
                         hub.ledger.wait_closed();
                     }
+                    let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+                    if !hub.asks.close(left) {
+                        tracing::warn!(
+                            "ask ledger did not drain before the shutdown deadline; waiting for it"
+                        );
+                        hub.asks.wait_closed();
+                    }
                 })
                 .await
             }

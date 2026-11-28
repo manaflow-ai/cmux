@@ -605,6 +605,7 @@ imessage.automationSkipped
 imessage.enabled
 labs.agentCustomization
 labs.appStore
+labs.askLedger
 labs.bundledCodexAppServer
 labs.chatMultiplayer
 labs.classicHome
