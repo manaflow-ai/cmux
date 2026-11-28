@@ -1,0 +1,9 @@
+{
+  "coordinators": 2000,
+  "hosts": 10,
+  "latency_ms": 0,
+  "rate": 0.333,
+  "readers": 1,
+  "run_s": 300,
+  "schema": "coord-sim-fanin.v1"
+}
