@@ -11,9 +11,16 @@ name: chat-size ladder
 #
 # Advisory: not a required check; a slower head never fails the job (the numbers are the product). The job fails
 # only when a run measures nothing.
+#
+# Once per merged change, not per PR head (Leo, 2026-11-26: "de facto, im asking for 99% fewer minutes of ci time,
+# period."): every PR head that touched acpmux ran two release builds and two 1 GB chats, about 57 runner-min per
+# merged cmux PR on 11-28 06:30-09:30Z, and 48 of 60 such runs failed. The push to feat-cmux-next measures each
+# merged change against its parent; a pull request gets a run only when the `full-ci` label is added, and
+# workflow_dispatch measures any ref on demand.
 
 on:
   pull_request:
+    types: [labeled]
     paths:
       - "cmux-tui/crates/acpmux/**"
       - "cmux-tui/crates/coord-sim/**"
@@ -54,7 +61,7 @@ permissions:
 jobs:
   ladder:
     name: chat-size ladder (base vs head, advisory)
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ github.event_name != 'pull_request' || (github.event.label.name == 'full-ci' && github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 120
     steps:

@@ -10,10 +10,15 @@
 #
 # Never blocking: the job is continue-on-error and not a required check. It reports in the step summary and
 # the artifact; a red run is information, not a gate. No fleet or self-hosted runner is used.
+#
+# Once per PR, at land (Leo, 2026-11-26: "de facto, im asking for 99% fewer minutes of ci time, period."): on every
+# iOS PR head it cost about 15 macOS runner-min per merged cmux PR on 11-28 06:30-09:30Z. It now runs when the
+# `ready-to-land` label (the land handoff) or `full-ci` is added, still fire and forget, and on workflow_dispatch.
 name: iOS simulator screenshot loop
 
 on:
   pull_request:
+    types: [labeled]
     paths:
       - cmux-next-ios/**
       - Packages/iOS/**
@@ -31,6 +36,7 @@ concurrency:
 jobs:
   loop:
     name: composer + terminal keyboard screenshots
+    if: ${{ github.event_name != 'pull_request' || contains(fromJSON('["ready-to-land","full-ci"]'), github.event.label.name) }}
     runs-on: macos-26
     continue-on-error: true
     # The hosted simulator build and both UI suites can exceed an hour. Keep the
