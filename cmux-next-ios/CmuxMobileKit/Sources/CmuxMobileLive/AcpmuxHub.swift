@@ -287,7 +287,8 @@ public final class AcpmuxHub {
                 // breakdown: the phone draws none in any attach or chat row on this connection (acpmux
                 // `server/requests/time_breakdown_gate.rs`). A Mac that predates a key ignores it and
                 // sends that part whole, as before.
-                "_meta": .object(["acpmux": .object(AcpmuxDeltas.initializeMeta.merging(["omitTimeBreakdown": .bool(true)]) { $1 })]),
+                "_meta": .object(["acpmux": .object(AcpmuxDeltas.initializeMeta.merging(["omitTimeBreakdown": .bool(true)]) { $1 }
+                    .merging(Self.initializeABIMeta) { $1 })]),
             ]), timeout: requestTimeout)
             let pageID = try await connection.submit("_acpmux/watch", watchParams(following: following), timeout: requestTimeout)
             // Each open chat's catch-up attach goes in the same burst (acpmux answers in order,
@@ -301,7 +302,16 @@ public final class AcpmuxHub {
                 return
             }
             await connection.admit()
-            let initialized = try await Self.reply(connection, initializeID, "initialize", timeout: requestTimeout)
+            // The ABI range both ways (hq RFD 0224): a Mac that refused this app's range, or whose
+            // range this app does not read, is one error naming what to update, never a list that
+            // stops making sense.
+            let initialized: JSONValue
+            do {
+                initialized = try await Self.reply(connection, initializeID, "initialize", timeout: requestTimeout)
+            } catch {
+                throw Self.abiIncompatible(refusal: error) ?? error
+            }
+            if let incompatible = Self.abiIncompatible(initialized: initialized) { throw incompatible }
             personInstance = initialized["_meta"]?["acpmux"]?["personInstance"]?.stringValue
             fullAccess = initialized["_meta"]?["acpmux"]?["fullAccess"] == .bool(true)
             capabilities = Set((initialized["_meta"]?["acpmux"]?["capabilities"]?.arrayValue ?? []).compactMap(\.stringValue))

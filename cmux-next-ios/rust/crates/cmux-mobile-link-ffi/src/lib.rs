@@ -33,6 +33,7 @@ mod follow_camera;
 mod harness_tuck;
 mod lan;
 mod last_place;
+mod link_abi;
 mod link_progress;
 mod link_side;
 pub mod local_link;
