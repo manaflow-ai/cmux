@@ -28,6 +28,9 @@ struct AgentPaneDisplaySettingTests {
         // What the model chip opens (webviews ModelPicker.tsx): the harness columns unless a look picks the compact menu.
         Row(key: "agentPane.display.modelPickerStyle", fallback: .string("list"), accepted: [.string("menu")],
             refused: [.string("columns"), .bool(true)]),
+        // The model menus' update footer: every outdated agent CLI unless a look keeps it to the chat's own.
+        Row(key: "agentPane.display.ownHarnessUpdatesOnly", fallback: .bool(false), accepted: [.bool(true)],
+            refused: [.string("own")]),
         // The VS Code-style chat minimap: off unless turned on.
         Row(key: "agentPane.display.vscodeMinimap", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         // Status pills on the live chats of All Chats (a taste prototype): off unless turned on.

@@ -80,7 +80,6 @@ enum AppActions {
         ColumnDocking.bind(into: registry, context: context); laps.lap("ColumnDocking.bind")
         ColumnAvailability.bind(into: registry, context: context); laps.lap("ColumnAvailability.bind")
         ScreenHandlers.bind(into: registry, context: context); laps.lap("ScreenHandlers.bind")
-        TerminalHandlers.bind(into: registry, context: context); laps.lap("TerminalHandlers.bind")
         BrowserHandlers.bind(into: registry, context: context); laps.lap("BrowserHandlers.bind")
         ScreenshotHandlers.bind(into: registry, context: context); laps.lap("ScreenshotHandlers.bind")
         DevToolsHandlers.bind(into: registry, context: context); laps.lap("DevToolsHandlers.bind")
@@ -144,6 +143,7 @@ enum AppActions {
         VoiceRoomHandlers.bind(into: registry, context: context); laps.lap("post_frame.VoiceRoomHandlers"); NowPlayingCardHandlers.bind(into: registry, context: context); laps.lap("post_frame.NowPlayingCardHandlers")
         PictureInPictureHandlers.bind(into: registry, context: context); laps.lap("post_frame.PictureInPictureHandlers"); StatsPageTab.bind(into: registry, context: context); laps.lap("post_frame.StatsPageTab")
         AccountsHandlers.bind(into: registry, context: context); laps.lap("post_frame.AccountsHandlers"); ProfileMenuHandlers.bind(into: registry, context: context); laps.lap("post_frame.ProfileMenuHandlers")
+        TerminalHandlers.bind(into: registry, context: context); laps.lap("post_frame.TerminalHandlers") // read only by keys, menus and palette rows opened after the frame; the gate runs this before any input
     }
 
     static func scope(_ services: AppServices, _ invocation: ActionInvocation = ActionInvocation()) -> ActionScope {

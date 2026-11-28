@@ -198,6 +198,33 @@ impl Synced {
         self.peers.lock().unwrap_or_else(|e| e.into_inner()).insert(name.to_owned(), vv);
     }
 
+    /// Status reads only peer vectors, never stored chat keys, then sorts the peers by name.
+    /// Read peer vectors before the local vector so a concurrent local edit can only make a
+    /// peer look behind; it cannot make an unacknowledged edit look delivered.
+    pub fn peer_status(
+        &self,
+        connected: impl Fn(&str) -> bool,
+    ) -> Vec<crate::protocol::here::HereSyncPeer> {
+        let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let ours = self.vv();
+        let mut result: Vec<_> = peers
+            .into_iter()
+            .map(|(peer, theirs)| {
+                let unacknowledged_edits = ours.iter().fold(0u64, |total, (actor, seq)| {
+                    total.saturating_add(seq.saturating_sub(theirs.get(actor)))
+                });
+                crate::protocol::here::HereSyncPeer {
+                    connected: connected(&peer),
+                    peer,
+                    acknowledged: ours == theirs,
+                    unacknowledged_edits,
+                }
+            })
+            .collect();
+        result.sort_by(|a, b| a.peer.cmp(&b.peer));
+        result
+    }
+
     pub fn known_peers(&self) -> Vec<String> {
         self.peers.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect()
     }

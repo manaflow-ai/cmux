@@ -180,6 +180,10 @@ struct RecordChiefVoiceNoteIntent: AppIntent {
 }
 """
 
+# copy_sources -> the TemporaryDirectory holding its base fixture (PrePushGateTests.setUp).
+_BASE_FIXTURES = {}
+
+
 class PrePushGateTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="cmux-prepush-gate-")
@@ -199,17 +203,30 @@ class PrePushGateTests(unittest.TestCase):
                         CMUX_PREPUSH_LOAD_FOR_TEST="0")
         git_fixture_env.without_auto_maintenance(self.env)
 
-        git_fixture_env.init_repo(self.origin, "--bare", "--initial-branch=feat-cmux-next", env=self.env)
-        self.repo.mkdir()
-        self.git("init", "--quiet", "--initial-branch=feat-cmux-next")
-        self.git("remote", "add", "origin", str(self.origin))
-        self.copy_sources()
-        self.write(f"{PKG}/Package.swift", PACKAGE)
-        self.write(f"{PKG}/Sources/CmuxNextApp/CmuxNextApp.swift", APP)
-        self.write(f"{PKG}/Sources/CmuxNextKit/Old.swift", OLD)  # base debt: one try! already there
-        self.commit("base")
-        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
-        self.git("fetch", "--quiet", "origin")
+        # The base (repository and origin, before the hook installs) is the same for every test of a class's
+        # copy_sources: made once a process, then copied, since making it is most of a test's git work.
+        base = _BASE_FIXTURES.get(type(self).copy_sources)
+        if base is None:
+            git_fixture_env.init_repo(self.origin, "--bare", "--initial-branch=feat-cmux-next", env=self.env)
+            self.repo.mkdir()
+            self.git("init", "--quiet", "--initial-branch=feat-cmux-next")
+            self.git("remote", "add", "origin", str(self.origin))
+            self.copy_sources()
+            self.write(f"{PKG}/Package.swift", PACKAGE)
+            self.write(f"{PKG}/Sources/CmuxNextApp/CmuxNextApp.swift", APP)
+            self.write(f"{PKG}/Sources/CmuxNextKit/Old.swift", OLD)  # base debt: one try! already there
+            self.commit("base")
+            self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+            self.git("fetch", "--quiet", "origin")
+            base = tempfile.TemporaryDirectory(prefix="cmux-prepush-gate-base-")
+            for name in (self.repo.name, self.origin.name):
+                shutil.copytree(self.root / name, Path(base.name) / name, symlinks=True)
+            _BASE_FIXTURES[type(self).copy_sources] = base
+        else:
+            for name in (self.repo.name, self.origin.name):
+                shutil.copytree(Path(base.name) / name, self.root / name, symlinks=True)
+            self.git("remote", "set-url", "origin", str(self.origin))
+            self.git("fetch", "--quiet", "origin")
         installed = subprocess.run(["bash", INSTALLER], cwd=self.repo, env=self.env, text=True, capture_output=True)
         self.assertEqual(installed.returncode, 0, installed.stderr)
 
@@ -1071,6 +1088,35 @@ class PrePushGateTests(unittest.TestCase):
             self.assertIn("try!", output, refs)
             self.assertEqual(self.remote_head(), before, refs)
             self.assertEqual(self.remote_head_of("refs/heads/doomed"), doomed, f"{refs}: the hook refused the delete too")
+
+    def test_a_machine_checkpoint_to_a_wip_side_ref_is_kept_not_judged(self):
+        # 2026-11-25..28: a lane VM's lane/sidebar-root-fix work stayed only on disk for 2 days (red wip-dirty,
+        # 263 NOW passes) because the cmux-next gate refused tools/wip_checkpoint.py's push of it to the
+        # lane/sidebar-root-fix-wip side ref, which never lands and runs no CI. Such a push passes; the commit that
+        # picks the work up is judged. Anything else that adds a try! is still refused.
+        self.kit("Fresh", NEW_WITH_TRY)
+        self.git("add", "-A")
+        self.git("commit", "--quiet", "--no-verify", "-m",
+                 "WIP: automatic checkpoint (sweep)\n\n[skip ci]: a machine checkpoint ref; it never lands.\n")
+        kept = self.push_ref("HEAD:refs/heads/lane/x-host-wip")
+        output = kept.stdout + kept.stderr
+        self.assertEqual(kept.returncode, 0, output)
+        self.assertIn("machine checkpoint", output)
+        self.assertNotIn("cmux-next-gate", output)
+        self.assertTrue(self.remote_has("refs/heads/lane/x-host-wip"))
+
+        # The same commit to a branch that lands, or judged on purpose: refused for its try!.
+        for ref, env in (("HEAD:refs/heads/lane/x", {}), ("HEAD:refs/heads/lane/y-wip", {"CMUX_PREPUSH_CHECKPOINT_PASS": "0"})):
+            refused = self.push_ref(ref, **env)
+            self.assertNotEqual(refused.returncode, 0, f"{ref}: {refused.stdout + refused.stderr}")
+            self.assertIn("try!", refused.stdout + refused.stderr, ref)
+
+        # A -wip ref whose commit is not the checkpoint's (no [skip ci], or another message): judged.
+        for message in ("WIP: automatic checkpoint (sweep)\n", "adds a try!\n\n[skip ci]\n"):
+            self.git("commit", "--quiet", "--no-verify", "--amend", "-m", message)
+            refused = self.push_ref("HEAD:refs/heads/lane/z-wip")
+            self.assertNotEqual(refused.returncode, 0, f"{message!r}: {refused.stdout + refused.stderr}")
+            self.assertFalse(self.remote_has("refs/heads/lane/z-wip"), message)
 
     def long_lived_branch(self, name, debt):
         """A long-lived integration branch NAME on the remote, three commits ahead of feat-cmux-next (its own merge
