@@ -193,14 +193,17 @@ pub fn serve_terminal_host_stdio(
     // The discovery files' remaining syncs, after Ready: they only order
     // the files on disk for a power cut, which also ends this host.
     let record_dir = Path::new(&launch.record_path).parent().map(Path::to_path_buf);
-    let _ = thread::Builder::new().name("terminal-host-publication-sync".into()).spawn(move || {
-        if let Some(lease) = unsynced_lease {
-            let _ = sys::barrier_sync(&lease);
-        }
-        if let Some(record_dir) = record_dir {
-            let _ = sys::barrier_sync_dir(&record_dir);
-        }
-    });
+    let _ = thread::Builder::new()
+        .name("terminal-host-publication-sync".into())
+        .stack_size(super::super::LIGHT_HOST_THREAD_STACK_BYTES)
+        .spawn(move || {
+            if let Some(lease) = unsynced_lease {
+                let _ = sys::barrier_sync(&lease);
+            }
+            if let Some(record_dir) = record_dir {
+                let _ = sys::barrier_sync_dir(&record_dir);
+            }
+        });
 
     let launch_owner_deadline = Instant::now() + HOST_LAUNCH_OWNER_TIMEOUT;
     let mut backoff = host_accept::accept_backoff();
