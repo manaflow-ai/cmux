@@ -322,8 +322,9 @@ describe("start, stop, pause, resume", () => {
     expect(t.upstreamRequests.map((call) => `${call.method} ${call.path}`)).toEqual([`POST /v5/vms/${upstreamId}/start`]);
     expect(t.audit).toEqual([expect.objectContaining({ action: "vm.start", cmuxId: vmId, outcome: "ok" })]);
     // The provider's share of the request, for the caller's own trace (cmuxterm-hq goals/cloud-resume-gap.md).
-    // cmux-vm's own gate (scope, rate limit, ownership) is named beside it, so the trace splits ours too.
-    expect(response.headers.get("server-timing")).toMatch(/^upstream;dur=\d+;desc="1 call", own;dur=\d+$/);
+    // cmux-vm's own gate (scope, rate limit, ownership) is named beside it, so the trace splits ours too; its two
+    // concurrent halves (the rate spend and the ownership read) are named after it, so the slower one is readable.
+    expect(response.headers.get("server-timing")).toMatch(/^upstream;dur=\d+;desc="1 call", own;dur=\d+, rate;dur=\d+, read;dur=\d+$/);
   });
 
   it("writes the start's audit row after the answer when the Worker can keep the request alive", async () => {
@@ -358,7 +359,7 @@ describe("start, stop, pause, resume", () => {
     const response = await action(t, key, vmId, "start");
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("server-timing")).toMatch(/^upstream;dur=\d+;desc="1 call", own;dur=\d+, admit;dur=\d+$/);
+    expect(response.headers.get("server-timing")).toMatch(/^upstream;dur=\d+;desc="1 call", own;dur=\d+, rate;dur=\d+, read;dur=\d+, admit;dur=\d+$/);
     // The release was a second round trip to the queue object on the answer's path; it now runs on waitUntil.
     expect(calls).toEqual(["admit start"]);
     expect(deferred).toHaveLength(1);
@@ -411,7 +412,7 @@ describe("start, stop, pause, resume", () => {
     expect(await json(response)).toMatchObject({ state: "running" });
     expect(t.upstream.callsTo("POST", new RegExp(`^/v5/vms/${upstreamId}/start$`))).toHaveLength(1);
     // The state read and the start: both the provider's.
-    expect(response.headers.get("server-timing")).toMatch(/^upstream;dur=\d+;desc="2 calls", own;dur=\d+$/);
+    expect(response.headers.get("server-timing")).toMatch(/^upstream;dur=\d+;desc="2 calls", own;dur=\d+, rate;dur=\d+, read;dur=\d+$/);
   });
 
   it("resume refuses a VM that is not paused", async () => {
