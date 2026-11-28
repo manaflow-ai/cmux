@@ -4,6 +4,8 @@
 //!   the person's shortcuts (`ChiefWelcome`, `ChiefWelcome+Shortcuts`, `ChiefWelcomePlayer`'s steps).
 //! - [`intro`]: which intro an empty Chief conversation shows and what showing it records
 //!   (`ChiefIntroStore`, `ChiefIntroKind`), and whether the Switching card shows (`HomeSwitchKeysSource`).
+//! - [`onboarding`]: Meet Chief's once-per-install state, its steps, where a Chief chat shows it and the
+//!   look step's text size (`ChiefOnboarding`).
 //! - [`pet`]: each Chief's pet character (`ChiefMascotPicks`) and the pet's notice from a daemon
 //!   notification (`ChiefPetNotice+Daemon`).
 //! - [`views`]: the Chief view gallery's Fleet and Landing reads and its agent rows (`ChiefViewsFeeds`,
@@ -23,6 +25,7 @@ pub mod attachments;
 pub mod colors;
 pub mod intro;
 pub mod memory;
+pub mod onboarding;
 pub mod pet;
 pub mod script;
 pub mod text;
@@ -47,6 +50,10 @@ pub const OPS: &[&str] = &[
     "intro",
     "markShown",
     "switchKeys",
+    // onboarding
+    "onboarding",
+    "onboardingPlace",
+    "onboardingLook",
     // pet
     "mascotPicksLoad",
     "mascot",
@@ -101,6 +108,7 @@ pub fn call(name: &str, request: &Value) -> Result<Value, OpError> {
         "beats" | "typingTime" | "readingPause" | "playSteps" | "importRequest" | "shortcut"
         | "shortcutActions" | "aboutText" => script::call(name, request),
         "intro" | "markShown" | "switchKeys" => intro::call(name, request),
+        "onboarding" | "onboardingPlace" | "onboardingLook" => onboarding::call(name, request),
         "mascotPicksLoad" | "mascot" | "mascotPicked" | "mascotRemember" | "petNotice" => {
             pet::call(name, request)
         }

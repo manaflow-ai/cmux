@@ -7,8 +7,9 @@
 #     Contents/MacOS/cmux-screen-sharing
 #     Contents/Info.plist   <app bundle id>.screen-sharing (every DEV build: com.cmuxterm.app.debug.screen-sharing),
 #                           LSUIElement, named "<app name> Helper"
-#     Contents/Resources/AppIcon.icns   the app's own icon (its CFBundleIconFile), so onboarding's drag row and
-#                           System Settings show cmux, not the generic blank app
+#     Contents/Resources/AppIcon.icns   Computer Use's icon (the cursor "cmux Computer Use.app" ships), else the
+#                           app's own (its CFBundleIconFile), so onboarding's drag row and System Settings show
+#                           Computer Use, not the generic blank app
 #
 # The name is what macOS permission alerts show ("cmux NIGHTLY Helper"). The bundle id keeps
 # ".screen-sharing" (Screen Recording and Accessibility grants are keyed to it), and the executable
@@ -59,20 +60,26 @@ plist_get() {
   fi
 }
 
-# The helper's icon file in its Resources (CFBundleIconFile), copied from the app's own: without one macOS draws
+# The helper's icon file in its Resources (CFBundleIconFile), Computer Use's or the app's own: without one macOS draws
 # the generic blank app icon for the helper in the Computer Use onboarding's drag row and in System Settings'
 # Privacy & Security lists (Austin: "We need to show the icon instead of the blank white icon").
 HELPER_ICON=AppIcon
 
-# Copies the app's icon into the helper: <app> <helper bundle> [icon name...]. Each name (the build's
-# ASSETCATALOG_COMPILER_APPICON_NAME first: in the Xcode phase the processed Info.plist may not be written yet),
-# then the app's CFBundleIconFile, names Resources/<name>.icns; the first that is there is copied. Prints
-# $HELPER_ICON when it copied one, nothing when the app has no icns (the helper then keeps the generic icon).
+# Computer Use's own icon, the one the onboarding page and the agent permission card draw for a helper that names
+# none (CmuxNextDesign's ComputerUseAppIcon). CMUX_NEXT_COMPUTER_USE_ICON: another file (tests; empty: none).
+COMPUTER_USE_ICON="${CMUX_NEXT_COMPUTER_USE_ICON-$repo_root/Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/ComputerUseIcon.icns}"
+
+# Copies the helper's icon in: <app> <helper bundle> [icon name...]. Computer Use's icon when it is there; else
+# each name (the build's ASSETCATALOG_COMPILER_APPICON_NAME first: in the Xcode phase the processed Info.plist may
+# not be written yet), then the app's CFBundleIconFile, names Resources/<name>.icns; the first that is there is
+# copied. Prints $HELPER_ICON when it copied one, nothing when there is none (the helper keeps the generic icon).
 copy_icon() {
   local app="$1" helper="$2" name src=""
   shift 2
   rm -f "$helper/Contents/Resources/$HELPER_ICON.icns"
+  if [[ -n "$COMPUTER_USE_ICON" && -f "$COMPUTER_USE_ICON" ]]; then src="$COMPUTER_USE_ICON"; fi
   for name in "$@" "$(plist_get "$app/Contents/Info.plist" CFBundleIconFile)"; do
+    [[ -z "$src" ]] || break
     name="${name%.icns}"
     [[ -n "$name" && "$name" != */* && -f "$app/Contents/Resources/$name.icns" ]] || continue
     src="$app/Contents/Resources/$name.icns"

@@ -14,7 +14,7 @@ extension PageDescriptor {
                                           ownsSearchField: true)
 }
 
-extension InternalPageID {
+nonisolated extension InternalPageID {
     static let passwords = InternalPageID(rawValue: "passwords")
 }
 

@@ -105,6 +105,18 @@
       ],
       "jobs": {"sweep": "acpmux simulation sweep"}
     },
+    "chat-size-ladder": {
+      "workflow": "chat-size-ladder.yml",
+      "paths": [
+        "cmux-tui/crates/acpmux/**",
+        "cmux-tui/crates/coord-sim/**",
+        "cmux-tui/Cargo.lock",
+        "scripts/measure/chat-size-sweep.sh",
+        "scripts/measure/chat-size-compare.py",
+        ".github/workflows/chat-size-ladder.yml"
+      ],
+      "jobs": {"ladder": "chat-size ladder, base vs head (advisory)"}
+    },
     "swift-acpmux-protocol": {
       "workflow": "swift-acpmux-protocol.yml",
       "paths": [
@@ -258,6 +270,7 @@
         "scripts/ci/ios_link_ffi.sh",
         "scripts/ci/ios_sim_udid.py",
         "scripts/ci/ios-sim-pool.sh",
+        "scripts/ci/ios-sim-linux-test.sh",
         ".github/actions/setup-cmux-tui-rust/**",
         ".github/actions/runner-cargo-home/**",
         "cmux-tui/rust-toolchain.toml",
@@ -297,9 +310,11 @@
         "cmux-tui/crates/cmux-egress/**",
         "cmux-tui/crates/cmux-felt/**",
         "cmux-tui/crates/cmux-follow-cam/**",
+        "cmux-tui/crates/cmux-local-url/**",
         "cmux-tui/crates/cmux-mobile-core/**",
         "cmux-tui/crates/cmux-mobile-last-place/**",
         "cmux-tui/crates/cmux-process/**",
+        "cmux-tui/crates/cmux-proxy/**",
         "cmux-tui/crates/cmux-rd-core/**",
         "cmux-tui/crates/cmux-rd-ffi/**",
         "cmux-tui/crates/cmux-rd-link/**",
@@ -311,9 +326,12 @@
         "cmux-tui/crates/cmux-scope/**",
         "cmux-tui/crates/cmux-share-approval/**",
         "cmux-tui/crates/cmux-tab-snapshots/**",
+        "cmux-tui/crates/cmux-tailnet-join/**",
+        "cmux-tui/crates/cmux-tailnet/**",
         "cmux-tui/crates/cmux-terminal-prediction/**",
         "cmux-tui/crates/cmux-terminal-sizing/**",
         "cmux-tui/crates/cmux-unix-socket/**",
+        "cmux-tui/crates/cmux-vault-e2e/**",
         "cmux-tui/crates/cmux-vnc/**",
         "cmux-tui/crates/cmux-window-rules/**",
         "cmux-tui/vendor/crossterm/**",

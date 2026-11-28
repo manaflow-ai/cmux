@@ -344,6 +344,11 @@ pub enum SunEvent {
 
 impl When {
     /// `H:MM`/`HH:MM`, or a sun event with an optional `+/-Nm` or `+/-Nh`.
+    #[allow(
+        clippy::indexing_slicing,
+        clippy::string_slice,
+        reason = "positions come from the value's own length or search, so they are in range"
+    )]
     pub fn parse(text: &str) -> Option<When> {
         let digits = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit());
         if let Some((hour, minute)) = text.split_once(':') {

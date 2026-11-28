@@ -18,7 +18,7 @@ struct ColumnCloseClampVelocityTests {
 
     /// Four columns, focus on p1, the camera at `value` moving at `velocity` toward `target`.
     static func moving(value: CGFloat, velocity: CGFloat, target: CGFloat) -> ColumnScrollState {
-        var state = ColumnScrollState()
+        let state = ColumnScrollState()
         state.reduce(.sync(strip(4), focused: "p1", source: .keyboard, animated: false))
         state.spring.value = value
         state.spring.velocity = velocity
