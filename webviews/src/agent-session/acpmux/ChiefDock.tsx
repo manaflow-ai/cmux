@@ -108,10 +108,10 @@ export function ChiefDock({
   const mascotButton = useRef<HTMLButtonElement>(null);
   // Kept as the list changes (sessionReaders.ts): a chat's change moves that chat, not a sort of every chat.
   // Every chat that waits counts in `attention`, also one past the four cards drawn.
-  const ranking = useRef<ChiefRanking | null>(null);
+  const [ranking] = useState(() => new ChiefRanking());
   const { cards, attention } = useMemo(
-    () => (ranking.current ??= new ChiefRanking()).read(sessions, currentId, MAX_CARDS),
-    [currentId, sessions],
+    () => ranking.read(sessions, currentId, MAX_CARDS),
+    [currentId, ranking, sessions],
   );
   const cardsRef = useRef<HTMLDivElement>(null);
   // Folding makes the cards inert: focus on one of them (a card's close, Escape) moves to the
