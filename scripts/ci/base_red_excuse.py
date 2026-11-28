@@ -10122,10 +10122,11 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
         kind, said = fault
         raise Refused(f"'{name}' was refused at setup by its runner (job {job.get('id')}: a machine fault, "
                       f"[cmux-ci machine: {kind}]: {said[:300]}); it gets re-run, never excused")
-    if (died := checkout_death(repo, base, sha, job, head_log, github)) is not None:
-        raise Refused(f"'{name}' was refused at setup by its runner's {died}; it gets re-run, never excused")
+    # A network checkout red is infra (#57288) unless the change moves a submodule pin, which can fail it on its own.
     if (why := test_reds.checkout_infra(job, head_log)) and pins_unmoved(repo, base, sha, job, github):
         raise infra(name, job, why)
+    if (died := checkout_death(repo, base, sha, job, head_log, github)) is not None:
+        raise Refused(f"'{name}' was refused at setup by its runner's {died}; it gets re-run, never excused")
     if name == TREE_HANDOFF_JOB and (said := tree_handoff_quota_only(job, head_log)) is not None:
         raise JobRateLimited(f"'{name}' reported only its repo installation API quota refusal ({said}); rerun the job "
                              "after that boundary")
