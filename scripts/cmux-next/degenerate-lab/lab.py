@@ -187,12 +187,73 @@ def failure_lines(code: int, text: str) -> list[str]:
     lines = text.splitlines()
     picked = [line for line in lines if PANIC.search(line)][:40]
     tail = [line for line in lines[-FAIL_TAIL:] if line not in picked]
-    return [f"exit {code}" + (" (timed out)" if code == 124 else ""), *picked, *tail]
+    return [f"exit {code}" + (" (timed out)" if code == 124 else ""), *killed_lines(lines), *picked, *tail]
+
+
+# cargo's `process didn't exit successfully: `<rustc command, thousands of characters>` (signal: 9, SIGKILL: kill)`:
+# a LAB-FAIL line is cut at LOG_LINE, so the reason at its end never reached the job log (the 2026-11-28 14:53Z
+# nightly's 11 daemon and chat reds read only as `could not compile acpmux`; the artifact said SIGKILL, the
+# runner slot's out-of-memory kill of the release compile).
+KILLED = re.compile(r"process didn't exit successfully: `(\S*)[^`]*`\s*\((signal: [^)]*)\)")
+
+
+def killed_lines(lines: list[str]) -> list[str]:
+    """One short line per process a signal ended, reason first, so the cut log keeps it."""
+    out = []
+    for line in lines:
+        m = KILLED.search(line)
+        if m:
+            why = f"killed ({m.group(2)}): {os.path.basename(m.group(1)) or m.group(1)}"
+            if "SIGKILL" in m.group(2):
+                why += " (a SIGKILL mid-build is the runner slot's out-of-memory kill)"
+            if why not in out:
+                out.append(why)
+    return out[:5]
+
+
+GIB = 1 << 30
+GIB_PER_JOB = 3  # scripts/ci/cargo-groups.sh's CARGO_GROUPS_GIB_PER_CORE: one rustc of the acpmux release build
+
+
+def memory_gib(cgroup_root: str = "/sys/fs/cgroup", proc_cgroup: str = "/proc/self/cgroup",
+               meminfo: str = "/proc/meminfo") -> int | None:
+    """The smallest memory.max on this process's cgroup v2 path, else MemTotal, in GiB (None off Linux)."""
+    caps = []
+    try:
+        rel = next((line.split(":", 2)[2].strip() for line in open(proc_cgroup) if line.startswith("0::")), "")
+    except OSError:
+        rel = ""
+    path = Path(cgroup_root + rel.rstrip("/"))
+    while rel:
+        try:
+            v = (path / "memory.max").read_text().strip()
+            if v.isdigit():
+                caps.append(int(v))
+        except OSError:
+            pass
+        if str(path) == cgroup_root or path == path.parent:
+            break
+        path = path.parent
+    if not caps:
+        try:
+            caps = [int(line.split()[1]) * 1024 for line in open(meminfo) if line.startswith("MemTotal:")]
+        except (OSError, ValueError, IndexError):
+            return None
+    return min(caps) // GIB if caps else None
+
+
+def build_jobs(cores: int, mem_gib: int | None) -> int:
+    """Cargo jobs the runner's memory holds: a pool slot shows every host core under a smaller memory.max."""
+    return max(1, min(cores, mem_gib // GIB_PER_JOB)) if mem_gib is not None else cores
 
 
 def cargo_env(args) -> dict:
     env = dict(os.environ)
     env.setdefault("CARGO_PROFILE_RELEASE_DEBUG", "line-tables-only")
+    # 11-28 19:17Z (cmux#65262's own run): a 16-core slot capped below 16 x 3 GiB ran the acpmux release
+    # compile at 16 jobs and the kernel SIGKILLed rustc; cargo-groups.sh's cap never reached this cargo call.
+    if not env.get("CARGO_BUILD_JOBS"):
+        env["CARGO_BUILD_JOBS"] = str(build_jobs(os.cpu_count() or 4, memory_gib()))
     if args.target_dir:
         env["CARGO_TARGET_DIR"] = args.target_dir
     # The store refuses a state folder under a writable, non-sticky shared folder: a private TMPDIR.
