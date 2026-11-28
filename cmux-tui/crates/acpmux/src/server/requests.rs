@@ -3906,8 +3906,10 @@ async fn dispatch_method(
                     {
                         let total = list.len();
                         list.truncate(limit.max(1));
-                        reply["total"] = json!(total);
-                        reply["more"] = json!(total > limit.max(1));
+                        if let Some(map) = reply.as_object_mut() {
+                            map.insert("total".into(), json!(total));
+                            map.insert("more".into(), json!(total > limit.max(1)));
+                        }
                     }
                     Ok(reply)
                 }

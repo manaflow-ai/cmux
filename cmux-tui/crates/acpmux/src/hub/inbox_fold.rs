@@ -159,7 +159,9 @@ fn inbox_at(items: &[Item], at: usize) -> u64 {
 /// An archive line: the message as a thread read shows it, and its thread.
 pub(super) fn archive_line(item: &Item) -> Value {
     let mut line = message_json(item);
-    line["thread"] = Value::String(item.thread.clone());
+    if let Some(map) = line.as_object_mut() {
+        map.insert("thread".into(), Value::String(item.thread.clone()));
+    }
     line
 }
 
@@ -228,11 +230,11 @@ pub(super) fn append_archive(dir: &Path, lines: &[Value]) -> std::io::Result<()>
     let path = dir.join(ARCHIVE_FILE);
     let have: HashSet<String> = read_archive(&path, |_| true)
         .into_iter()
-        .filter_map(|l| l["promptId"].as_str().map(str::to_owned))
+        .filter_map(|l| l.get("promptId").and_then(Value::as_str).map(str::to_owned))
         .collect();
     let mut out = String::new();
     for line in lines {
-        if line["promptId"].as_str().is_some_and(|id| have.contains(id)) {
+        if line.get("promptId").and_then(Value::as_str).is_some_and(|id| have.contains(id)) {
             continue;
         }
         out.push_str(&line.to_string());
@@ -256,9 +258,9 @@ fn read_archive(path: &Path, mut keep: impl FnMut(&Value) -> bool) -> Vec<Value>
 pub(super) fn archive_threads(dir: &Path) -> (HashSet<String>, HashSet<String>) {
     let (mut held, mut scanned) = (HashSet::new(), HashSet::new());
     for line in read_archive(&dir.join(ARCHIVE_FILE), |_| true) {
-        if let Some(t) = line["thread"].as_str() {
+        if let Some(t) = line.get("thread").and_then(Value::as_str) {
             held.insert(t.to_owned());
-        } else if let Some(t) = line["scanned"].as_str() {
+        } else if let Some(t) = line.get("scanned").and_then(Value::as_str) {
             scanned.insert(t.to_owned());
         }
     }

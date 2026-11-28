@@ -196,7 +196,7 @@ impl Hub {
         // journal (gigabytes for a coordinator, 26 s a read). A held thread an older daemon let
         // go reads the journal once, and the archive keeps what it found.
         for line in self.archived_inbox_thread(session, thread, evicted) {
-            if !line["promptId"].as_str().is_some_and(|id| shown.contains(id)) {
+            if !line.get("promptId").and_then(Value::as_str).is_some_and(|id| shown.contains(id)) {
                 messages.push(line);
             }
         }

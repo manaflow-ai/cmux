@@ -406,7 +406,11 @@ impl Hub {
         let mut threads: Vec<(&str, Vec<&Item>)> = Vec::new();
         for item in &inbox.items {
             match at.get(item.thread.as_str()) {
-                Some(&i) => threads[i].1.push(item),
+                Some(&i) => {
+                    if let Some((_, list)) = threads.get_mut(i) {
+                        list.push(item);
+                    }
+                }
                 None => {
                     at.insert(&item.thread, threads.len());
                     threads.push((&item.thread, vec![item]));
@@ -424,7 +428,7 @@ impl Hub {
         }
         let total = threads.len();
         let limit = limit.unwrap_or(usize::MAX).max(1);
-        let more = (total > limit).then(|| threads[limit - 1].0);
+        let more = if total > limit { threads.get(limit - 1).map(|t| t.0) } else { None };
         threads.truncate(limit);
         let rows: Vec<Value> = threads
             .iter()
