@@ -591,4 +591,72 @@ struct AgentPaneVideoInfoTests {
         }
         print("BENCH video.info first answer, 30 s 1080p recording, ms: \(times.map { String(format: "%.1f", $0) }.joined(separator: " "))")
     }
+
+    /// Leo, 2026-11-08: "there was a problem loading thse two videos together in the composer for
+    /// some reason i added one after the other really quickly and the whole thing lagged/froze?". Two
+    /// 30 s 1080p recordings dropped back to back, every read the page asks of each (`video.info`,
+    /// `video.probes`, 16 picked `video.frames`, `video.transcript`) out at once, as the composer asks
+    /// them (composer/videoAttachments.ts): the main actor keeps running other work meanwhile (its
+    /// longest stall, measured by a 5 ms ticker, stays under a frame budget), and the second
+    /// video's poster does not wait behind the first video's frames.
+    @Test func twoVideosDroppedBackToBackKeepTheMainActorFree() async throws {
+        let folder = try Self.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let home = folder.appendingPathComponent("home", isDirectory: true)
+        let desktop = home.appendingPathComponent("Desktop", isDirectory: true)
+        try FileManager.default.createDirectory(at: desktop, withIntermediateDirectories: true)
+        let first = desktop.appendingPathComponent("Screen Recording 1.mov")
+        let second = desktop.appendingPathComponent("Screen Recording 2.mov")
+        try await Self.screenRecording(at: first, seconds: 30)
+        try FileManager.default.copyItem(at: first, to: second)
+        let model = AgentPaneModel(host: NoHost())
+        model.replyLinks.home = home.path
+        model.replyLinks.videoFolder = folder.appendingPathComponent("videos", isDirectory: true)
+        let picked = (0..<16).map { 900 + $0 * 1800 }
+
+        @MainActor final class Log {
+            var stalls: [Double] = []
+            var running = true
+            var posters: [String: Double] = [:]
+            var done: [String: Double] = [:]
+        }
+        let log = Log()
+        let ticker = Task { @MainActor in
+            while log.running {
+                let asked = ContinuousClock.now
+                try? await Task.sleep(for: .milliseconds(5))
+                let took = (ContinuousClock.now - asked).components
+                log.stalls.append(Double(took.seconds) * 1000 + Double(took.attoseconds) / 1e15 - 5)
+            }
+        }
+        let started = ContinuousClock.now
+        @Sendable func ms(_ since: ContinuousClock.Instant) -> Double {
+            let took = (ContinuousClock.now - since).components
+            return Double(took.seconds) * 1000 + Double(took.attoseconds) / 1e15
+        }
+        await withTaskGroup(of: Void.self) { group in
+            for clip in [first, second] {
+                let src = clip.path, name = clip.lastPathComponent
+                group.addTask { @MainActor in
+                    let info = await Self.ask(model, "video.info", ["src": src])
+                    #expect((info["value"] as? [String: Any])?["width"] as? Int == 1920, "\(info)")
+                    log.posters[name] = ms(started)
+                    async let probes = Self.ask(model, "video.probes", ["src": src])
+                    async let speech = Self.ask(model, "video.transcript", ["src": src])
+                    _ = await probes
+                    let frames = await Self.ask(model, "video.frames", ["src": src, "times": picked])
+                    #expect(((frames["value"] as? [String: Any])?["frames"] as? [Any])?.count == 16, "\(frames)")
+                    _ = await speech
+                    log.done[name] = ms(started)
+                }
+            }
+        }
+        log.running = false
+        await ticker.value
+        let stalls = log.stalls, posters = log.posters, done = log.done
+        let longest = stalls.max() ?? 0
+        print("BENCH two videos back to back: main-actor longest stall ms \(String(format: "%.1f", longest)), ticks \(stalls.count), posters ms \(posters.values.sorted().map { String(format: "%.0f", $0) }), all reads ms \(done.values.sorted().map { String(format: "%.0f", $0) })")
+        #expect(longest < 50, "the main actor stalled \(longest) ms while two videos were read")
+        #expect((posters.values.max() ?? .infinity) < (done.values.min() ?? 0), "a poster waited behind the other video's reads")
+    }
 }
