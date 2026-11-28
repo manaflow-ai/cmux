@@ -23,10 +23,10 @@ import { retireVm } from "./retire.ts";
 import { VmInstanceIdentity } from "../api/instance-identity.ts";
 import { INSTANCE_IDENTITY_SCHEME } from "../../../../libs/vm-instance-identity/src/identity.ts";
 import { name, type Named } from "@gdp-ts/core";
-import { Clock, Effect, Either, Exit, Option, Schema } from "effect";
+import { Cause, Clock, Effect, Either, Exit, Option, Schema } from "effect";
 import { idempotent, requestFingerprint } from "./idempotency.ts";
 import type { VmCreationProbe, RetainedVmCreation } from "../domain/vm-creation.ts";
-import { CREATE_SEND_GRACE_MS, type IdempotencyProgress, type ForkCaptureProgress } from "../limits/ledger.ts";
+import { CREATE_SEND_GRACE_MS, createSendOpen, type IdempotencyProgress, type ForkCaptureProgress } from "../limits/ledger.ts";
 import { resizeVm } from "./resize.ts";
 import { toVm } from "./vm-view.ts";
 import { replaceVmHttpsProxy } from "./https-proxies.ts";
@@ -208,11 +208,26 @@ const createRecorded = <C, S, M = never>(
       Effect.onExit((exit) => "recoverMs" in phases || "verifyImageMs" in phases || "admitWaitMs" in phases || "createMs" in phases
         ? Effect.flatMap(Clock.currentTimeMillis, (at) => logTimedEvent("vm_create", vmCreateLine(phases, {
             ok: Exit.isSuccess(exit), enteredAt: attempt.entered ?? started, preMs: started - (attempt.entered ?? started),
-            totalMs: at - (attempt.entered ?? started), meshId: proofs.mesh?.mesh.value ?? null,
+            totalMs: at - (attempt.entered ?? started), meshId: proofs.mesh?.mesh.value ?? null, failure: createFailureOf(exit),
           })))
         : Effect.void),
     );
   });
+
+/**
+ * Which step failed a create, for its vm_create line: the UpstreamError's operation (an internal name, never provider
+ * text) and the provider's HTTP status, or the error's tag. Production 2026-11-28 17:25-17:55Z logged 111 admitted
+ * creates failing in under a second with no field naming why; the send fence (createSendUncertain) was read off code.
+ */
+const createFailureOf = (exit: Exit.Exit<unknown, unknown>): { readonly step: string; readonly status: number | null } | null => {
+  if (Exit.isSuccess(exit)) return null;
+  const failure = Cause.failureOption(exit.cause);
+  if (Option.isNone(failure)) return { step: Cause.isInterruptedOnly(exit.cause) ? "interrupted" : "defect", status: null };
+  const error = failure.value;
+  if (error instanceof UpstreamError) return { step: error.operation, status: error.status };
+  const tag = typeof error === "object" && error !== null ? Reflect.get(error, "_tag") : undefined;
+  return { step: typeof tag === "string" ? tag : "unknown", status: null };
+};
 
 /**
  * The vm_create line: one per create that reached the provider. A phase that made no provider call is null
@@ -222,9 +237,10 @@ const createRecorded = <C, S, M = never>(
  * that recovered a VM from a snapshot its entry no longer lists); null without one. `oversized`: a large boot answered
  * bigger than was asked and was refused. `admit*` (only with the provider create queue on, limits/create-admission.ts):
  * how long the create waited for a send slot, the creates sent and waiting when it was answered, and, on a refusal,
- * `admission` (queue_full or wait_expired) with the estimated wait; a refused create has no createMs.
+ * `admission` (queue_full or wait_expired) with the estimated wait; a refused create has no createMs. A failed create
+ * names its step: `failedStep` (createSendUncertain, createQueueFull, createVm, ...) and `failedStatus`.
  */
-const vmCreateLine = (phases: TimedPhases, request: { readonly ok: boolean; readonly enteredAt: number; readonly preMs: number; readonly totalMs: number; readonly meshId: string | null }) => ({
+const vmCreateLine = (phases: TimedPhases, request: { readonly ok: boolean; readonly enteredAt: number; readonly preMs: number; readonly totalMs: number; readonly meshId: string | null; readonly failure: ReturnType<typeof createFailureOf> }) => ({
   vmId: phases["vmId"] ?? null,
   ok: request.ok,
   recovered: phases["recovered"] ?? null,
@@ -248,6 +264,7 @@ const vmCreateLine = (phases: TimedPhases, request: { readonly ok: boolean; read
   providerTotalMs: phases["providerTotalMs"] ?? null,
   providerTimingsMs: phases["providerTimingsMs"] ?? null,
   totalMs: request.totalMs,
+  ...(request.failure === null ? {} : { failedStep: request.failure.step, failedStatus: request.failure.status }),
 });
 
 /** A mesh of the caller's tenant that a create joins, with the proofs an attach of an existing VM needs. */
@@ -284,22 +301,34 @@ const createRecordedTimed = <C, S, M>(
     const createdAt = attempt.prior?.phase === "capturing" ? new Date(attempt.prior.createdAt) : new Date(yield* Clock.currentTimeMillis);
     let intent: RetainedVmCreation | undefined = attempt.prior?.phase === "creating" ? attempt.prior.intent : undefined;
     const dispatch = attempt.prior?.phase === "creating" ? attempt.prior.dispatch : { state: "ready" as const, token: crypto.randomUUID() };
+    const priorSendFence = Effect.gen(function* () {
+      // A recorded allocation is never sent again. Nothing at its exact slug may only be propagation until the
+      // send's grace window has passed; after it, the recorded upstream id is checked before the VM counts as gone.
+      if (attempt.prior?.phase === "creating") {
+        const recorded = yield* store.allocationStatus(caller.value.tenantId, cmuxId).pipe(Effect.mapError(() => new UpstreamError({ operation: "createFence", status: null })));
+        if (recorded !== "absent") {
+          const sent = attempt.prior.dispatch, now = yield* Clock.currentTimeMillis;
+          const settled = recorded === "pending" && sent !== undefined && (sent.state !== "sent" || (sent.at !== undefined && now - sent.at >= CREATE_SEND_GRACE_MS));
+          return yield* Effect.fail(new UpstreamError({ operation: settled ? "createGone" : "createSendUncertain", status: null }));
+        }
+      }
+    });
     const journal = {
       active: limits.creationActive(caller.value.tenantId, attempt.key, cmuxId).pipe(
         Effect.mapError(() => new UpstreamError({ operation: "createFence", status: null })),
         Effect.flatMap((active) => active ? Effect.void : Effect.fail(new UpstreamError({ operation: "createCancelled", status: null }))),
       ),
+      checkSend: () => Effect.gen(function* () {
+        yield* priorSendFence;
+        // The read-only half of beginCreateSend's gate, before the provider create slot is taken (live-create.ts): a
+        // retry whose send the gate would refuse answers createSendUncertain at once and holds no slot. Production
+        // 2026-11-28 17:25-17:55Z: 111 of 153 admitted creates failed here within a second of taking a slot, behind 35
+        // provider sends cut at 45 s, while people's creates were refused queue_full.
+        const record = yield* limits.inspect(caller.value.tenantId, attempt.key).pipe(Effect.mapError(() => new UpstreamError({ operation: "createFence", status: null })));
+        if (!createSendOpen(record, cmuxId, yield* Clock.currentTimeMillis)) return yield* Effect.fail(new UpstreamError({ operation: "createSendUncertain", status: null }));
+      }),
       beginSend: () => Effect.gen(function* () {
-        // A recorded allocation is never sent again. Nothing at its exact slug may only be propagation until the
-        // send's grace window has passed; after it, the recorded upstream id is checked before the VM counts as gone.
-        if (attempt.prior?.phase === "creating") {
-          const recorded = yield* store.allocationStatus(caller.value.tenantId, cmuxId).pipe(Effect.mapError(() => new UpstreamError({ operation: "createFence", status: null })));
-          if (recorded !== "absent") {
-            const sent = attempt.prior.dispatch, now = yield* Clock.currentTimeMillis;
-            const settled = recorded === "pending" && sent !== undefined && (sent.state !== "sent" || (sent.at !== undefined && now - sent.at >= CREATE_SEND_GRACE_MS));
-            return yield* Effect.fail(new UpstreamError({ operation: settled ? "createGone" : "createSendUncertain", status: null }));
-          }
-        }
+        yield* priorSendFence;
         const token = crypto.randomUUID();
         const allowed = yield* limits.beginCreateSend(caller.value.tenantId, attempt.key, cmuxId, token).pipe(Effect.mapError(() => new UpstreamError({ operation: "createFence", status: null })));
         if (!allowed) return yield* Effect.fail(new UpstreamError({ operation: "createSendUncertain", status: null }));

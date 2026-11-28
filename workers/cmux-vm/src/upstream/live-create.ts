@@ -281,8 +281,12 @@ export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: S
     if (phases !== undefined) phases["recovered"] = Option.isSome(existing);
     const created = Option.isSome(existing) ? existing.value : yield* Effect.gen(function* () {
       if (Either.isLeft(imageVerdict)) return yield* Effect.fail(imageVerdict.left);
-      // A provider create slot (limits/create-admission.ts) is taken before the send begins, so a refusal sent
-      // nothing and the same key's retry starts clean, like a failed image read above.
+      // Every check that can refuse this send runs before the provider create slot (limits/create-admission.ts) is
+      // taken: a retry the send fence would refuse never holds a slot a person's create is waiting for. PATCH, not
+      // the root fix: the slots fill because the provider holds creates to the 45 s cut (CREATE_SEND_TIMEOUT_MS).
+      yield* journal.checkSend();
+      // The slot is taken before the send begins, so a refusal sent nothing and the same key's retry starts clean,
+      // like a failed image read above. beginSend still decides in the ledger's transaction (a race since checkSend).
       const release = yield* admitSend(config.createAdmission, spec.cmuxId, phases, spec.background === true || caller.value.agent !== undefined || caller.value.maxRunSeconds !== undefined, caller.value.tenantId, spec.deadlineAt);
       const token = yield* journal.beginSend().pipe(Effect.onError(() => release));
       // Staging, 2026-11-27 05:51-06:01Z: in a burst of creates the provider held POST /v5/vms past the 120 s cut, 13
