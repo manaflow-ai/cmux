@@ -102,6 +102,15 @@ final class TerminalChatFaceRelaunchUITests: XCTestCase {
         XCTAssertEqual(seen, wanted, "\(step): the tab shows \(seen ?? "no face row")\n\(app.debugDescription)")
     }
 
+    /// Starts the open tab on its terminal. A fresh install opens there; a face an earlier test
+    /// in this class left is kept across launches (the simulator's app data outlives a test), so
+    /// a tab left on chat is put back first.
+    @MainActor
+    func startOnTerminal(_ app: XCUIApplication, _ step: String) {
+        if face(app) == "chat" { show(app, "terminal") }
+        expectFace(app, "terminal", step)
+    }
+
     /// A tap on the page menu's row that shows `face`.
     @MainActor
     func show(_ app: XCUIApplication, _ face: String) {
@@ -117,7 +126,7 @@ final class TerminalChatFaceRelaunchUITests: XCTestCase {
 
         // Claude Code: opens on its terminal; the person shows its chat.
         open(app, Self.claude)
-        expectFace(app, "terminal", "01-claude-opens-on-terminal")
+        startOnTerminal(app, "01-claude-opens-on-terminal")
         show(app, "chat")
         expectFace(app, "chat", "02-before-relaunch-claude-on-chat")
 
@@ -150,12 +159,13 @@ final class TerminalChatFaceRelaunchUITests: XCTestCase {
     func testAPromptOnTheChatFaceIsTypedIntoItsTerminal() throws {
         let app = launch(["-cmux-mobile-term-no-intro", "-cmux-mobile-terminal-text-probe"])
         open(app, Self.claude)
-        expectFace(app, "terminal", "11-claude-opens-on-terminal")
+        startOnTerminal(app, "11-claude-opens-on-terminal")
         show(app, "chat")
         expectFace(app, "chat", "12-claude-on-chat")
 
-        // The regular chat's composer, under the View Only chat.
-        let bar = app.buttons["Reply to Claude"].firstMatch
+        // The regular chat's composer, under the View Only chat. The collapsed capsule's label is
+        // the chat's title ("Reply…" until the agent names it, issue 51331): found by its id.
+        let bar = app.descendants(matching: .any)["agentChat.composer.collapsed"].firstMatch
         let field = app.textViews["chat.composer.field"].firstMatch
         if !field.waitForExistence(timeout: 5) {
             XCTAssertTrue(bar.waitForExistence(timeout: 15), "the Chat face shows a composer\n\(app.debugDescription)")
