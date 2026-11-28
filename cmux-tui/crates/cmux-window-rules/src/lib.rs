@@ -70,11 +70,21 @@
 //!   last tab closed: it closes; its terminal was lost: it gets a new one).
 //! - [`update_idle`]: whether Update When Idle installs a staged app update
 //!   now, or why it waits (input, a running turn, an unsent draft).
+//! - [`banner`]: what a system banner says (`workspace › tab`, the state
+//!   headline, the message as plain text).
+//! - [`status_alerts`]: which OSC 7501 record a terminal notification was
+//!   posted for, which `cmux status run`s finished and whether they notify.
+//! - [`notifications_panel`]: the notifications panel's keyboard selection.
+//! - [`notification_settings`]: `notifications.*` and the feed mirror in
+//!   cmux.json, parsed, with each bad value's diagnostic.
+//! - [`notification_keys`]: the key a machine's workspace's mute or sound
+//!   rule is saved under, and the legacy bare ids a remote one still reads.
 //! - [`onboarding`]: the onboarding tool window's footer (the primary
 //!   button, Skip, Back) and Import from Browser's selection rules.
 
 pub mod appearance;
 pub mod auto_namer;
+pub mod banner;
 pub mod browser;
 pub mod chat;
 pub mod close;
@@ -94,16 +104,20 @@ pub mod history;
 pub mod keybind_route;
 pub mod launch;
 pub mod launch_recovery;
+pub mod notification_keys;
 pub mod notification_notices;
 pub mod notification_policy;
 pub mod notification_rings;
+pub mod notification_settings;
 pub mod notifications;
+pub mod notifications_panel;
 pub mod onboarding;
 pub mod remote;
 pub mod restore;
 pub mod right_column;
 pub mod screen_share;
 pub mod server;
+pub mod status_alerts;
 pub mod subagent_panes;
 pub mod tabs;
 pub mod targets;
