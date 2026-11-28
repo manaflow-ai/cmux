@@ -28,6 +28,8 @@
 //! - [`identity`]: the install identity's rules that are not key calls: the
 //!   `cmux auth token` mint's team, token claims, transient refusals, install
 //!   key names, share install origins.
+//! - [`install_auth`]: the install token mint and revoke as a step machine (events in, one
+//!   effect out): every rule of the challenge exchange the app's InstallAuthClient drives.
 //! - [`install_key_slots`]: which login Keychain item holds an install key, and
 //!   where a rotation puts the fresh key when another build's item stays.
 //! - [`keychain`]: the deadline of the app's calls into its own Keychain items,
@@ -37,6 +39,9 @@
 //!   at most its bound, and name the step of a mint that stalls (remote-cloud-durability F13).
 //! - [`stack_redirects`]: the redirect URLs the hosted sign-in page sends Stack and Stack's
 //!   trusted-domain check of them, so a test proves a fresh build's sign-in passes.
+//! - [`shared_session_store`]: the token store of a Team-signed production build that shares its
+//!   session ([`config::shared_session`]): its own session wins, a signed-out launch imports the
+//!   shared item read-only in memory, and only its own session is written to or withdrawn from it.
 //! - [`agent_key`]: `vm.agent_key.create` and `cmux vm token create`: the
 //!   request a VM agent key is minted with and how the VM API's answer reads.
 
@@ -49,9 +54,11 @@ pub mod device_identity_slots;
 pub mod device_list;
 pub mod handoff;
 pub mod identity;
+pub mod install_auth;
 pub mod install_key_slots;
 pub mod keychain;
 pub mod origin;
 pub mod screen_picker;
+pub mod shared_session_store;
 pub mod signin;
 pub mod stack_redirects;

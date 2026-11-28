@@ -7,127 +7,127 @@
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "تتطلب البيئات اتصال cmux-next السحابي وحسابًا مسجّل الدخول."
+            "value" : "سجّل الدخول لاستخدام البيئات السحابية."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Okruženja zahtijevaju cmux-next Cloud vezu i prijavljeni račun."
+            "value" : "Prijavite se za korištenje okruženja u oblaku."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Miljøer kræver cmux-next Cloud-forbindelsen og en konto, der er logget ind."
+            "value" : "Log ind for at bruge Cloud-miljøer."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Umgebungen brauchen die cmux-next-Cloud-Verbindung und ein angemeldetes Konto."
+            "value" : "Melde dich an, um Cloud-Umgebungen zu nutzen."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Environments need the cmux-next Cloud connection and a signed-in account."
+            "value" : "Sign in to use Cloud environments."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Los entornos necesitan la conexión de Cloud de cmux-next y una cuenta con sesión iniciada."
+            "value" : "Inicia sesión para usar entornos en la nube."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les environnements nécessitent la connexion Cloud cmux-next et un compte connecté."
+            "value" : "Connectez-vous pour utiliser les environnements Cloud."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Gli ambienti richiedono la connessione Cloud cmux-next e un account con accesso effettuato."
+            "value" : "Accedi per usare gli ambienti Cloud."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "環境には cmux-next の Cloud 接続とサインイン済みのアカウントが必要です。"
+            "value" : "クラウド環境を使用するにはサインインしてください。"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "បរិស្ថានត្រូវការការតភ្ជាប់ Cloud របស់ cmux-next និងគណនីដែលបានចូល។"
+            "value" : "ចូលគណនីដើម្បីប្រើបរិស្ថាន Cloud។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "환경에는 cmux-next Cloud 연결과 로그인된 계정이 필요합니다."
+            "value" : "Cloud 환경을 사용하려면 로그인하세요."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Miljøer krever cmux-next Cloud-tilkoblingen og en pålogget konto."
+            "value" : "Logg inn for å bruke Cloud-miljøer."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Środowiska wymagają połączenia Cloud cmux-next i zalogowanego konta."
+            "value" : "Zaloguj się, aby używać środowisk Cloud."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Os ambientes precisam da conexão do Cloud do cmux-next e de uma conta conectada."
+            "value" : "Entre para usar ambientes Cloud."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Для окружений нужно подключение Cloud cmux-next и вход в аккаунт."
+            "value" : "Войдите, чтобы использовать облачные среды."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "สภาพแวดล้อมต้องใช้การเชื่อมต่อ Cloud ของ cmux-next และบัญชีที่ลงชื่อเข้าใช้แล้ว"
+            "value" : "ลงชื่อเข้าใช้เพื่อใช้สภาพแวดล้อมบนคลาวด์"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ortamlar cmux-next Cloud bağlantısı ve oturum açılmış bir hesap gerektirir."
+            "value" : "Cloud ortamlarını kullanmak için oturum açın."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Для середовищ потрібні з'єднання Cloud cmux-next і обліковий запис, у який виконано вхід."
+            "value" : "Увійдіть, щоб користуватися хмарними середовищами."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Môi trường cần kết nối Cloud của cmux-next và một tài khoản đã đăng nhập."
+            "value" : "Đăng nhập để sử dụng môi trường Cloud."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "环境需要 cmux-next 的 Cloud 连接和已登录的账户。"
+            "value" : "登录后即可使用云环境。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "環境需要 cmux-next 的 Cloud 連線和已登入的帳號。"
+            "value" : "登入後即可使用雲端環境。"
           }
         }
       }

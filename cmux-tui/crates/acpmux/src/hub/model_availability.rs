@@ -31,8 +31,12 @@ pub(crate) fn mark_unavailable(
 ) {
     for model in models {
         let Some(id) = model.get("id").and_then(Value::as_str) else { continue };
-        if let Some(reason) = refused.get(&(harness.to_owned(), id.to_owned())) {
-            model["unavailable"] = Value::String(reason.clone());
+        if let Some(reason) = refused.get(&(harness.to_owned(), id.to_owned()))
+            && let Some(fields) = model.as_object_mut()
+        {
+            // A newer CLI alone cannot resolve an explicit refusal from this provider.
+            fields.remove("codexUpdateVersion");
+            fields.insert("unavailable".into(), Value::String(reason.clone()));
         }
     }
 }
@@ -57,3 +61,7 @@ impl Hub {
         self.refused_models.lock().unwrap().insert((meta.harness.clone(), model), reason);
     }
 }
+
+#[cfg(test)]
+#[path = "model_availability_tests.rs"]
+mod tests;

@@ -388,7 +388,7 @@ pub(super) fn subscribe_command(
                 {
                     event_mux
                         .with_state(|state| {
-                            crate::server::selection_changed_json(state, *workspace)
+                            crate::tree_wire::selection_changed_json(state, *workspace)
                         })
                         .unwrap_or_else(|| json!({"event": "tree-changed"}))
                 }
@@ -401,7 +401,7 @@ pub(super) fn subscribe_command(
                 {
                     event_mux
                         .with_state(|state| {
-                            crate::server::workspace_presentation_changed_json(
+                            crate::tree_wire::workspace_presentation_changed_json(
                                 state,
                                 &event_mux.tree_decorations_in_state(state),
                                 *workspace,
@@ -605,8 +605,10 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
                 "last_prompt": last_prompt.as_deref(),
             });
             // Optional, never null: an older remote daemon's forwarded event names no terminal.
-            if let Some(terminal_id) = terminal_id.as_deref() {
-                event["terminal_id"] = json!(terminal_id);
+            if let (Some(terminal_id), Some(fields)) =
+                (terminal_id.as_deref(), event.as_object_mut())
+            {
+                fields.insert("terminal_id".to_owned(), json!(terminal_id));
             }
             event
         }

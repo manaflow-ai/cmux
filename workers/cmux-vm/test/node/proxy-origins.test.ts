@@ -49,3 +49,11 @@ it("lets production's machines keep the production API and carrier relay, and on
   ]));
   expect(origins.filter((o) => /development|staging/u.test(o))).toEqual([]);
 });
+
+// The platform edge rule (cmux-platform PlatformEdge.ts) names each platform's edge host as its destination, and a
+// create whose proxy destination is not listed is refused: every edge team's create answered 400 after
+// cmux-platform#2370 moved the destination to these custom domains (production, 2026-11-27 10:29Z).
+it("lets edge teams' machines reach each platform's edge host", () => {
+  expect(originsOf("staging")).toContain("https://platform-edge-dev.cmux.dev");
+  expect(originsOf("production")).toContain("https://platform-edge.cmux.dev");
+});

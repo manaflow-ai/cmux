@@ -4,8 +4,20 @@
 `.github/nightly-step-coverage.json` keys every step of nightly.yml and the local
 reusable workflows it calls by job id and step name ("uses: <action>" if unnamed):
 {"pr": "<workflow>:<job>:<step>"} (that step runs the same check for a
-feat-cmux-next pull request), {"plumbing": true}, or {"nightly_only": "<reason>"},
-plus an optional "note". External PLUMBING_ACTIONS steps need no entry; local
+feat-cmux-next pull request), {"table": "<ci/steps.toml step>"} (a step-table step
+whose `nightly` names this step back; pr_router.py runs it on a landing head of
+the affected tier, so the landing fails, not the nightly), {"plumbing": true}, or
+{"nightly_only": "<reason>"}, plus an optional "note".
+
+The registry's "gates" names the job that publishes the nightly and its last
+step: every blocking step before it stops the publish. Such a step's entry may
+be "pr" only if "gates.pr_grandfathered" lists it (shrink-only), because a
+"pr" counterpart need not run on a landing head (cmux-next-guards.yml's
+rust-notices-tree ran only with full-ci, and #59540's IJG license stopped the
+nightly hours after the merge). A new gating step is "table", plumbing,
+nightly_only, or "pr" in a workflow "gates.every_tier" names: one pr-router.yml
+calls on every head, its `if:` reading no route output (the compile preflight). Leo, 2026-11-27: "shouldn't a build check fail beforehand fast
+like fast-fail is useful ci all stuff". External PLUMBING_ACTIONS steps need no entry; local
 actions do, and external reusable workflows are refused. A "pr" step must be
 reachable: trigger filters, caller, job, needed-job and step `if:`s, matrix rows.
 Conditions the evaluator cannot decide count as possibly true.
@@ -23,6 +35,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+import ci_steps  # noqa: E402
 import detect_linux_guard_changes  # noqa: E402
 sys.path.insert(0, str(ROOT / "tests"))
 import workflow_jobs  # noqa: E402
@@ -30,7 +43,7 @@ import workflow_jobs  # noqa: E402
 WORKFLOWS = ROOT / ".github" / "workflows"
 REGISTRY = ROOT / ".github" / "nightly-step-coverage.json"
 LOCAL_WORKFLOW = "./.github/workflows/"
-KINDS = ("pr", "plumbing", "nightly_only")
+KINDS = ("pr", "table", "plumbing", "nightly_only")
 MIN_REASON = 20
 # Checkout, artifact transfer, caches and toolchain setup: no check of their own.
 PLUMBING_ACTIONS = {
@@ -105,6 +118,8 @@ def entry_problem(entry):
         return "plumbing must be true"
     if "pr" in entry and not re.fullmatch(r"[^:]+:[^:]+:.+", str(entry["pr"] or "")):
         return f"pr must be <workflow>:<job>:<step>, got {entry['pr']!r}"
+    if "table" in entry and not (isinstance(entry["table"], str) and entry["table"].strip()):
+        return f"table must name a ci/steps.toml step, got {entry['table']!r}"
     if "nightly_only" in entry and (not isinstance(entry["nightly_only"], str)
                                     or len(entry["nightly_only"].strip()) < MIN_REASON):
         return "nightly_only needs a reason a reviewer can check"
@@ -356,7 +371,80 @@ def counterpart_problem(workflows: dict, routes: dict, target: str):
     return f"{workflow} job {job_id!r} step {name!r} does not run for a {BASE} pull request: {reasons[0]}"
 
 
-def coverage_problems(workflows: dict, registry: dict) -> list:
+def gating_steps(workflows: dict, gates: dict) -> list:
+    """The step keys of gates["job"] (nightly.yml) before gates["until"] that are not continue-on-error: true."""
+    job = jobs(workflows.get("nightly.yml") or {}).get(gates.get("job")) or {}
+    names = [step_key(step) for step in job.get("steps") or []]
+    if gates.get("until") not in names:
+        return []
+    steps = (job.get("steps") or [])[:names.index(gates["until"])]
+    return [step_key(step) for step in steps if step.get("continue-on-error") is not True
+            and str(step.get("uses") or "").split("@", 1)[0] not in PLUMBING_ACTIONS]
+
+
+def gate_problems(workflows: dict, registry: dict, entries: dict) -> list:
+    gates = registry.get("gates")
+    if gates is None:
+        return []
+    job, until = gates.get("job"), gates.get("until")
+    names = [step_key(s) for s in (jobs(workflows.get("nightly.yml") or {}).get(job) or {}).get("steps") or []]
+    if until not in names:
+        return [f"gates: nightly.yml job {job!r} has no step {until!r}; name the publishing job and its last step"]
+    gating = gating_steps(workflows, gates)
+    allowed = set(gates.get("pr_grandfathered") or [])
+    every_tier = set(gates.get("every_tier") or [])
+    problems = []
+    callers = {str(j.get("uses") or "").rsplit("/", 1)[-1]: str(j.get("if") or "")
+               for j in jobs(workflows.get("pr-router.yml") or {}).values() if isinstance(j, dict)}
+    for workflow in sorted(every_tier):
+        if workflow not in callers or "outputs." in callers[workflow]:
+            problems.append(f"gates.every_tier: pr-router.yml does not call {workflow!r} on every head (a job whose "
+                            "`if:` reads no route output)")
+    for name in gating:
+        entry = entries.get(("nightly.yml", job, name)) or {}
+        if "pr" in entry and str(entry["pr"]).split(":", 1)[0] in every_tier:
+            continue
+        if "pr" in entry and name not in allowed:
+            problems.append(
+                f"nightly.yml job {job!r} step {name!r}: a step that stops the nightly's publish maps to a step-table "
+                "step that runs on landing heads ({\"table\": \"<ci/steps.toml step>\"}, the step naming it in "
+                "`nightly`), not a \"pr\" counterpart a landing head may skip; or plumbing / nightly_only")
+    for name in sorted(allowed):
+        entry = entries.get(("nightly.yml", job, name)) or {}
+        if name not in gating or "pr" not in entry:
+            problems.append(f"gates.pr_grandfathered: {name!r} is no longer a gating \"pr\" step; remove it "
+                            "(the list only shrinks)")
+    return problems
+
+
+def table_problems(steps: dict, entries: dict, table) -> list:
+    """{"table": NAME} entries against ci/steps.toml's `nightly` back-pointers, both directions."""
+    if table is None:
+        return []
+    problems = []
+    for key, entry in entries.items():
+        if not isinstance(entry, dict) or not isinstance(entry.get("table"), str):
+            continue
+        step = table.get(entry["table"])
+        pointer = ":".join(key)
+        if step is None:
+            problems.append(f"{label(key)}: table names {entry['table']!r}, which ci/steps.toml has no step of")
+        elif pointer not in step.nightly:
+            problems.append(f"{label(key)}: ci/steps.toml step {entry['table']!r} does not list {pointer!r} in "
+                            "`nightly`")
+    for name, step in table.items():
+        for pointer in step.nightly:
+            key = tuple(pointer.split(":", 2))
+            if key not in steps:
+                problems.append(f"ci/steps.toml step {name!r}: `nightly` names {pointer!r}, which is no nightly step")
+            elif (entries.get(key) or {}).get("table") != name:
+                problems.append(f"ci/steps.toml step {name!r}: {label(key)} is not {{\"table\": \"{name}\"}} in "
+                                ".github/nightly-step-coverage.json")
+    return problems
+
+
+def coverage_problems(workflows: dict, registry: dict, table=None) -> list:
+    """TABLE: ci/steps.toml's steps by name (None: the registry has no "table" entries to check)."""
     problems = []
     roots = registry.get("roots") or []
     if "nightly.yml" not in roots:
@@ -379,13 +467,19 @@ def coverage_problems(workflows: dict, registry: dict) -> list:
             why = counterpart_problem(workflows, routes, entry["pr"])
         if why:
             problems.append(f"{label(key)}: {why}")
-    return problems
+    return problems + table_problems(steps, entries, table) + gate_problems(workflows, registry, entries)
 
 
 class NightlyStepCoverageTests(unittest.TestCase):
     def test_the_nightly_is_covered(self) -> None:
-        problems = coverage_problems(load_workflows(), json.loads(REGISTRY.read_text(encoding="utf-8")))
+        registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
+        problems = coverage_problems(load_workflows(), registry, ci_steps.load().steps)
         self.assertEqual(problems, [], f"fix {REGISTRY.relative_to(ROOT)}:\n" + "\n".join(problems))
+
+    def test_the_publishing_job_is_named(self) -> None:
+        gates = json.loads(REGISTRY.read_text(encoding="utf-8")).get("gates") or {}
+        self.assertTrue(gating_steps(load_workflows(), gates), "the registry's gates name nightly.yml's publishing "
+                        "job and its last step (the Final publication gate)")
 
 
 def counterpart(on=None, job=None, step_if=None, pr="pull_request") -> dict:
@@ -514,6 +608,63 @@ class CoverageFixtureTests(unittest.TestCase):
         nightly = {"jobs": {"x": {"uses": "owner/repo/.github/workflows/check.yml@abc"}}}
         self.assert_rejected("not a local reusable workflow", coverage_problems(
             {"nightly.yml": nightly}, {"roots": ["nightly.yml"], "workflows": {}}))
+
+    def gate_fixture(self, entry: dict, grandfathered=(), table=None) -> list:
+        nightly = {"on": {"push": None}, "jobs": {"publish": {"steps": [
+            {"name": "Gate", "run": "./gate.sh"}, {"name": "Soft", "run": "true", "continue-on-error": True},
+            {"name": "Final", "run": "./publish.sh"}, {"name": "After", "run": "true"}]}}}
+        plumbing = {"plumbing": True}
+        registry = {"roots": ["nightly.yml"], "gates": {"job": "publish", "until": "Final",
+                                                       "pr_grandfathered": list(grandfathered)},
+                    "workflows": {"nightly.yml": {"publish": {
+                        "Gate": entry, "Soft": {"pr": "pr.yml:check:Dry run"}, "Final": plumbing,
+                        "After": {"pr": "pr.yml:check:Dry run"}}}}}
+        return coverage_problems({"pr.yml": counterpart(), "nightly.yml": nightly}, registry, table)
+
+    def test_a_new_gating_step_maps_to_a_table_step(self) -> None:
+        # Only the blocking steps before the last one count: Soft (continue-on-error) and After stay "pr".
+        self.assert_rejected("'Gate': a step that stops the nightly's publish", self.gate_fixture(
+            {"pr": "pr.yml:check:Dry run"}))
+        self.assertEqual(self.gate_fixture({"pr": "pr.yml:check:Dry run"}, grandfathered=["Gate"]), [])
+        self.assertEqual(self.gate_fixture({"nightly_only": "needs the release keys, which a pull request lacks"}), [])
+        gate = ci_steps.Step(name="gate", job="linux", run="true", nightly=("nightly.yml:publish:Gate",))
+        self.assertEqual(self.gate_fixture({"table": "gate"}, table={"gate": gate}), [])
+
+    def test_a_gating_step_may_map_to_a_workflow_every_head_runs(self) -> None:
+        def problems(condition: str) -> list:
+            router = {"on": {"pull_request": None}, "jobs": {"route": {"steps": [{"run": "true"}]},
+                      "every": {"needs": "route", "if": condition, "uses": "./.github/workflows/pr.yml"}}}
+            nightly = {"on": {"push": None}, "jobs": {"publish": {"steps": [
+                {"name": "Gate", "run": "./gate.sh"}, {"name": "Final", "run": "./publish.sh"}]}}}
+            registry = {"roots": ["nightly.yml"],
+                        "gates": {"job": "publish", "until": "Final", "every_tier": ["pr.yml"]},
+                        "workflows": {"nightly.yml": {"publish": {
+                            "Gate": {"pr": "pr.yml:check:Dry run"}, "Final": {"plumbing": True}}}}}
+            return coverage_problems({"pr.yml": counterpart(), "nightly.yml": nightly, "pr-router.yml": router},
+                                     registry)
+        self.assertEqual([p for p in problems("${{ !cancelled() && needs.route.result == 'success' }}")
+                          if "every_tier" in p or "'Gate'" in p], [])
+        self.assert_rejected("does not call 'pr.yml' on every head", problems(
+            "${{ contains(needs.route.outputs.start, 'pr.yml') }}"))
+
+    def test_the_grandfather_list_only_shrinks(self) -> None:
+        self.assert_rejected("'Gate' is no longer a gating", self.gate_fixture(
+            {"nightly_only": "needs the release keys, which a pull request lacks"}, grandfathered=["Gate"]))
+        self.assert_rejected("'After' is no longer a gating", self.gate_fixture(
+            {"pr": "pr.yml:check:Dry run"}, grandfathered=["Gate", "After"]))
+
+    def test_table_entries_and_nightly_pointers_agree(self) -> None:
+        stray = ci_steps.Step(name="stray", job="linux", run="true", nightly=("nightly.yml:publish:Gone",))
+        unlisted = ci_steps.Step(name="gate", job="linux", run="true")
+        self.assert_rejected("which ci/steps.toml has no step of", self.gate_fixture({"table": "gate"}, table={}))
+        self.assert_rejected("does not list 'nightly.yml:publish:Gate'", self.gate_fixture(
+            {"table": "gate"}, table={"gate": unlisted}))
+        self.assert_rejected("which is no nightly step", self.gate_fixture(
+            {"table": "gate"}, table={"gate": ci_steps.Step(name="gate", job="linux", run="true",
+                                                           nightly=("nightly.yml:publish:Gate",)), "stray": stray}))
+        pointing = ci_steps.Step(name="other", job="linux", run="true", nightly=("nightly.yml:publish:Gate",))
+        self.assert_rejected("is not {\"table\": \"other\"}", self.gate_fixture(
+            {"nightly_only": "needs the release keys, which a pull request lacks"}, table={"other": pointing}))
 
     def test_local_actions_are_never_derived_plumbing(self) -> None:
         problems = self.problems({"pr.yml": counterpart()}, nightly_steps_=[

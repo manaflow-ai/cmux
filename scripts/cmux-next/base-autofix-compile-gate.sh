@@ -31,10 +31,20 @@ if [[ -z "$repo" || -z "$token" ]]; then
   exit 2
 fi
 ref="refs/heads/autofix-compile/${sha:0:12}"
-if ! git push --quiet "$remote" "$sha:$ref"; then
-  echo "::error::compile gate: could not push ${sha:0:12} to $ref for the fleet to fetch; no verdict" >&2
-  exit 2
-fi
+# GitHub sometimes refuses the staging push on its own timeout ("Unable to determine if workflow can
+# be created or updated due to timeout", run 46113326457, 2026-11-28), which cost that run its verdict.
+# The push is idempotent, so a refused one is tried again before the gate gives up.
+push_attempts="${CMUX_BASE_AUTOFIX_COMPILE_PUSH_ATTEMPTS:-3}"
+attempt=1
+until git push --quiet "$remote" "$sha:$ref"; do
+  if ((attempt >= push_attempts)); then
+    echo "::error::compile gate: could not push ${sha:0:12} to $ref for the fleet to fetch ($attempt attempts); no verdict" >&2
+    exit 2
+  fi
+  echo "::warning::compile gate: push of ${sha:0:12} to $ref refused (attempt $attempt of $push_attempts); trying again"
+  attempt=$((attempt + 1))
+  sleep "${CMUX_BASE_AUTOFIX_COMPILE_PUSH_DELAY:-15}"
+done
 trap 'git push --quiet "$remote" ":$ref" >/dev/null 2>&1 || true' EXIT
 if ! GH_TOKEN="$token" gh workflow run fleet-compile-check.yml -R "$repo" --ref feat-cmux-next -f sha="$sha" >/dev/null; then
   echo "::error::compile gate: could not dispatch fleet-compile-check.yml for ${sha:0:12}; no verdict" >&2

@@ -94,7 +94,8 @@ extension BrowserProfileService {
     /// another profile.
     func requireMovable(_ tab: TabModel, to profile: String, allowSame: Bool) throws {
         guard tab.kind == .browser, tab.isFrontendOwned else { throw ActionFailure.invalidTarget(BrowserProfileAppStrings.notBrowserTab) }
-        guard !services.cache.browserTabs.isIncognitoTab(tab.id) else { throw ActionFailure.invalidTarget(BrowserProfileAppStrings.incognitoTab) }
+        let tabs = services.cache.browserTabs
+        guard tabs.privacy.permitsPersistence(for: tab.id, incognito: tabs.isIncognitoTab(tab.id)) else { throw ActionFailure.invalidTarget(BrowserProfileAppStrings.incognitoTab) }
         if !allowSame, profileID(ofTab: tab) == profile { throw ActionFailure.invalidTarget(BrowserProfileAppStrings.alreadyInProfile) }
     }
 }

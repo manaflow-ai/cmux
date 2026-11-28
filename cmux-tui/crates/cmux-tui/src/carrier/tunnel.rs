@@ -306,7 +306,10 @@ impl Default for TunnelTiming {
             // one small signed POST.
             refresh_every: Duration::from_secs(5 * 60),
             retry_floor: Duration::from_secs(1),
-            retry_ceiling: Duration::from_secs(60),
+            // A busy mesh hub (503 `mesh.node.unavailable`) answers a fresh join for tens of
+            // seconds (cloud-carrier-ssh-failover rows 2026-11-27T22:40Z, 11-28T00:58Z, 02:29Z):
+            // a 60 s ceiling left the hub up to a minute behind the platform once it answered.
+            retry_ceiling: Duration::from_secs(15),
             max_failures: 8,
         }
     }
@@ -462,10 +465,27 @@ fn code(body: &Value) -> &str {
     body.get("code").and_then(Value::as_str).unwrap_or("")
 }
 
+/// The refusal's own words (`message`), one line of at most
+/// [`MESSAGE_CHARS`] characters: a 503 `mesh.node.unavailable` is several
+/// causes (a device delete still pending, the VM API not answering), and only
+/// the message tells them apart in link.log.
+fn message(body: &Value) -> Option<String> {
+    let text = body.get("message").and_then(Value::as_str)?;
+    let line: String =
+        text.chars().map(|c| if c.is_control() { ' ' } else { c }).take(MESSAGE_CHARS).collect();
+    let line = line.trim();
+    (!line.is_empty()).then(|| line.to_owned())
+}
+
+const MESSAGE_CHARS: usize = 160;
+
 /// The attach answer's status read as a step outcome.
 fn attach_miss(status: u16, body: &Value) -> Miss {
     let code = code(body);
-    let detail = format!("attach answered {status} {code}");
+    let detail = match message(body) {
+        Some(said) => format!("attach answered {status} {code}: {said}"),
+        None => format!("attach answered {status} {code}"),
+    };
     match (status, code) {
         (404, "mesh.device.unavailable") => Miss::NoMesh(NO_MESH.into()),
         (409, "mesh.device.superseded") => Miss::Reattach(detail),
@@ -597,6 +617,8 @@ impl Supervisor {
         let proof = identity.proof("tunnel", &tunnel.device_id, "", "").map_err(Miss::Fatal)?;
         let origin = tunnel.vm_api_origin.as_deref().unwrap_or(&self.plan.vm_api);
         let url = format!("{origin}/v1/devices/{}/signed/tunnel", tunnel.device_id);
+        // The proxy answer for the VM API, asked off this thread once; the client reads it cached.
+        cmux_proxy::proxy::warm(&url).await;
         let response = client
             .post(url)
             .json(&proof)
@@ -623,7 +645,10 @@ impl Supervisor {
             Ok(space) => space,
             Err(error) => return HubEnd::Final(TunnelStatus::Failed(error.to_string())),
         };
+        // Through the system's proxy when it names one for the VM API (macOS PAC included;
+        // `cmux-proxy`), as the attach's client does. The hub's own WireGuard UDP is not HTTP.
         let client = match cmux_egress::client_builder("cmux_tui::carrier::tunnel")
+            .proxy(reqwest::Proxy::custom(cmux_proxy::proxy::http_proxy_url))
             .default_headers(space)
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(30))

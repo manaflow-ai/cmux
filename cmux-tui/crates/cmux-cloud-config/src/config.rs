@@ -15,6 +15,18 @@ use crate::origin;
 pub const NEXT_DEV_BUNDLE_ID: &str = "com.cmuxterm.app.debug.next";
 /// cmux NIGHTLY, whose session a signed NEXT DEV build on the NIGHTLY account adopts.
 pub const NIGHTLY_BUNDLE_ID: &str = "com.cmuxterm.app.nightly";
+/// cmux RC.
+pub const RC_BUNDLE_ID: &str = "com.cmuxterm.app.rc";
+/// cmux (the release channel).
+pub const RELEASE_BUNDLE_ID: &str = "com.cmuxterm.app";
+/// The Keychain access group every Team-signed channel with a provisioning profile carries after
+/// its own (cmux.release / cmux.nightly / cmux.rc entitlements): the shared sign-in item lives there.
+pub const SHARED_ACCESS_GROUP: &str = "7WLXT3NR37.com.cmuxterm.app.shared";
+/// The channels signed with a Developer ID profile that grants [`SHARED_ACCESS_GROUP`]. Signed NEXT
+/// DEV and NEXT Stable embed no profile (cmux.next-dev.entitlements), so their signature cannot
+/// carry a Keychain access group: they are not here.
+pub const SHARED_SESSION_BUNDLE_IDS: [&str; 3] =
+    [RELEASE_BUNDLE_ID, NIGHTLY_BUNDLE_ID, RC_BUNDLE_ID];
 /// The placeholder configuration's bundle id (`CloudConfiguration.unavailable`): a test or capture
 /// composition root that builds services before the runtime bootstrap. Its token store is its own,
 /// so it never restores a real bundle's credentials.
@@ -94,6 +106,45 @@ pub struct LegacyStore {
     pub credentials_subpath: Vec<String>,
 }
 
+/// The sign-in session the Team-signed production builds share, in [`SHARED_ACCESS_GROUP`].
+///
+/// A build that has one writes its OWN session there after a sign-in or a refresh (never one it
+/// adopted) and removes it on its sign-out while the item still holds it. Signed out at launch, it
+/// imports the item read-only, in memory: the session stays the writer's, so a sign-out in the
+/// importer leaves it alive on the server and leaves the item, as the NIGHTLY adoption does. A
+/// session of its own (its Keychain store, or its earlier namespaced store) always wins over it.
+///
+/// A launch with its own state root (`CMUX_NEXT_STATE_ROOT`, #50830) has none: it has its own
+/// state and sign-in, so it neither imports the item another build wrote (#46910) nor writes it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SharedSession {
+    /// `com.cmuxterm.app.shared.auth.<stack project>`.
+    pub keychain_service: String,
+    /// [`SHARED_ACCESS_GROUP`]: every query on the item names it.
+    pub access_group: String,
+}
+
+/// The shared session of a build: a non-Debug build of a channel in [`SHARED_SESSION_BUNDLE_IDS`]
+/// on the production backend; none for every other (a development backend's accounts are its own,
+/// and a build without the profile has no access group). [`from_selection`] also gives none to a
+/// launch with its own state root (#50830): its sign-in is its own, never the item's (#46910).
+pub fn shared_session(
+    bundle_id: &str,
+    is_debug_build: bool,
+    production: bool,
+    stack_project_id: &str,
+) -> Option<SharedSession> {
+    let shares = !is_debug_build
+        && production
+        && !stack_project_id.is_empty()
+        && SHARED_SESSION_BUNDLE_IDS.contains(&bundle_id);
+    shares.then(|| SharedSession {
+        keychain_service: format!("com.cmuxterm.app.shared.auth.{stack_project_id}"),
+        access_group: SHARED_ACCESS_GROUP.to_owned(),
+    })
+}
+
 /// One build's Cloud.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -115,6 +166,9 @@ pub struct Configuration {
     /// Still serialized because the pinned app's decoder requires the key; remove it once the app no
     /// longer reads it (docs/ci/app-ffi-release.md, step A of cmux#43648).
     pub adopts_nightly_session: bool,
+    /// The session Team-signed production builds share ([`shared_session`]); none for a launch
+    /// with its own state root (#50830).
+    pub shared_session: Option<SharedSession>,
 }
 
 /// The configuration of a build running `inputs.selection` (the app's `CloudConfiguration.from`).
@@ -152,9 +206,32 @@ pub fn from_selection(inputs: &Inputs) -> Configuration {
         storage: storage_names(Some(&bundle_id), Some(selection)),
         namespaced_legacy_store: namespaced_legacy_store(&bundle_id, selection),
         adopts_nightly_session: false,
+        // A launch with its own state root (#50830) starts signed out and stays apart: it neither
+        // imports nor writes the shared item (#46910), so another build's session never leaks in.
+        shared_session: if has_state_root(&inputs.process) {
+            None
+        } else {
+            shared_session(
+                &bundle_id,
+                inputs.is_debug_build,
+                production,
+                &selection.stack_project_id,
+            )
+        },
         bundle_id,
         is_debug_build: inputs.is_debug_build,
     }
+}
+
+/// The launch's state root variable (`cmux_cloud_environment::STATE_ROOT_ENV`, #50830).
+pub const STATE_ROOT_ENV: &str = "CMUX_NEXT_STATE_ROOT";
+
+/// Whether the launch runs with its own state root (#50830): [`STATE_ROOT_ENV`] holds an absolute
+/// path. The same test as `cmux_cloud_environment::state_root` (trimmed, a leading `/`), kept here
+/// so this pure crate does not link that one (its egress and socket crates) into the cmux vm CLI;
+/// `the_state_root_test_matches_the_environment_crate` holds the two together.
+pub fn has_state_root(process: &BTreeMap<String, String>) -> bool {
+    process.get(STATE_ROOT_ENV).is_some_and(|value| value.trim().starts_with('/'))
 }
 
 /// The namespace that keeps a build's tokens apart: the selection's storage namespace for a legacy

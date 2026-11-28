@@ -15,6 +15,12 @@
 //! and puts [`ENV`] into the profile's env; the launch turns it into the
 //! header line in `ANTHROPIC_CUSTOM_HEADERS` ([`custom_headers`]), after any
 //! lines already there. A value a profile or login set itself wins.
+//!
+//! Only a request that goes through a gateway carries the header ([`via_gateway`]): a base
+//! URL that is not Anthropic's own API, or the sr/sr2 launcher. A plain Claude Code chat on
+//! a person's own login sends nothing; until 2026-11-26 every Claude chat of every user sent
+//! it (Leo, 2026-11-26: "identify all the weird opinoinated fleet things we shipped into the
+//! app and remove them").
 
 use crate::subrouter_session::HEADERS_ENV;
 
@@ -57,6 +63,22 @@ pub fn classify(name: &str, for_person: bool) -> &'static str {
 
 /// The session tag that sets a session's priority by hand: `interactive` or `background`.
 pub const TAG: &str = "priority";
+
+/// The [`TAG`] a `session/new` asks for in `_meta.acpmux.tags` (`interactive` or `background`),
+/// which the hub keeps on the chat before its agent first spawns (`NewRequest::priority`).
+///
+/// The tags the create carries were applied only after `new_session_with_id` had spawned the
+/// agent, whose priority is fixed at spawn (`lifecycle_cold_start.rs`), so a create's own tag
+/// never reached its first process. On a Cloud machine every chat the person starts (the app,
+/// `cmux cloud start-chat`, the phone) arrives from the cmux daemon over the unix socket, which
+/// proves no person: it was created by a script, ran `background`, and the gateway refused it
+/// from the interactive reserve (cloud-chat-replies-production, 2026-11-28 02:49Z: "Request
+/// rejected (429) · background requests are held out of the interactive reserve"). The tag is
+/// already writable by any local client (`_acpmux/tag`), so taking it at create grants nothing new.
+pub fn asked_tag(acpmux_meta: Option<&serde_json::Value>) -> Option<String> {
+    let value = acpmux_meta?.get("tags")?.get(TAG)?.as_str()?.trim().to_ascii_lowercase();
+    matches!(value.as_str(), INTERACTIVE | BACKGROUND).then_some(value)
+}
 
 /// Whether a session's role makes it a coordinator, whatever its name.
 ///
@@ -105,10 +127,30 @@ pub fn set(env: &mut std::collections::BTreeMap<String, String>, name: &str, for
     env.entry(ENV.to_owned()).or_insert_with(|| classify(name, for_person).to_owned());
 }
 
+/// Whether a launch whose final env is `get` reaches a gateway that reads the header: its
+/// `ANTHROPIC_BASE_URL` names a host other than Anthropic's API, or `launcher` (the program
+/// is the sr or sr2 launcher, which adds its own gateway). A direct Anthropic request, the
+/// default for anyone not on our gateways, is not one.
+pub fn via_gateway(get: impl Fn(&str) -> Option<String>, launcher: bool) -> bool {
+    if launcher {
+        return true;
+    }
+    let Some(url) = get("ANTHROPIC_BASE_URL") else { return false };
+    let rest = url.trim().split_once("://").map_or(url.trim(), |(_, r)| r);
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let host = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+    let name = host.rsplit_once(':').map_or(host, |(n, _)| n).to_ascii_lowercase();
+    !name.is_empty() && name != "api.anthropic.com"
+}
+
 /// The `ANTHROPIC_CUSTOM_HEADERS` value for a process whose final env is
 /// `get`: the existing lines (an older priority line dropped) plus this
-/// one, or `None` when [`ENV`] is unset or not a known priority.
-pub fn custom_headers(get: impl Fn(&str) -> Option<String>) -> Option<String> {
+/// one, or `None` when [`ENV`] is unset or not a known priority, or the
+/// request goes to no gateway ([`via_gateway`]; `launcher` as there).
+pub fn custom_headers(get: impl Fn(&str) -> Option<String>, launcher: bool) -> Option<String> {
+    if !via_gateway(&get, launcher) {
+        return None;
+    }
     let priority = get(ENV)?.trim().to_ascii_lowercase();
     if !is_known(&priority) {
         return None;

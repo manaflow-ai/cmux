@@ -21,10 +21,17 @@
 # Falls back to the members alone (all their test targets) when a match is in
 # a file it cannot place in one target, and to `--workspace` when a match is
 # outside a member it can name.
-# Usage (from the repository root or cmux-tui/): scripts/ci/cmux-next-daemon-test-packages.sh
+# Usage (from the repository root or cmux-tui/): scripts/ci/cmux-next-daemon-test-packages.sh [MEMBER_DIR]
+# MEMBER_DIR (a member's directory under cmux-tui/, e.g. crates/acpmux) prints that one member's package and
+# targets only: the per-member pull request steps of ci/steps.toml (cmux-next-acpmux and the rest) run those.
 set -euo pipefail
 root="$(git rev-parse --show-toplevel)/cmux-tui"
 cd "$root"
+member="${1:-}"
+if [[ -n "$member" && ! -f "$member/Cargo.toml" ]]; then
+  echo "$0: $member is not a member directory under cmux-tui/" >&2
+  exit 2
+fi
 # The [[test]] target of an `autotests = false` member that builds tests/... file REL, or nothing.
 declared_test() {
   local manifest="$1" rel="$2" top entries name path gather="" gathers=0
@@ -59,6 +66,13 @@ while IFS= read -r file; do
   if [[ "$dir" != */* && ! -f "$dir/Cargo.toml" ]] || ! grep -q '^\[package\]' "$dir/Cargo.toml" 2>/dev/null; then
     echo "--workspace"; exit 0
   fi
+  # A crate with its own [workspace] table is not a cmux-tui member (cmux-next-linux, cmux-rd-host: they link
+  # GTK and WebKitGTK, which the workspace build lacks), so `-p NAME` fails the whole job ("package ID
+  # specification `cmux-next-linux` did not match any packages"). #64481 added cmux-next-linux, whose
+  # `cmux_next_linux::` matched, at 2026-11-28 14:44Z: every feat-cmux-next window's run then failed
+  # here, no tree published, and no Cloud VM image roll was requested (run 46156345440). Its tests are
+  # its own workspace's, not this gate's.
+  grep -q '^\[workspace\]' "$dir/Cargo.toml" && continue
   name="$(sed -n 's/^name *= *"\([^"]*\)".*/\1/p' "$dir/Cargo.toml" | head -n 1)"
   [[ -n "$name" ]] || { echo "--workspace"; exit 0; }
   packages+=("-p" "$name")
@@ -86,7 +100,7 @@ while IFS= read -r file; do
       ;;
     *) placed=0 ;;
   esac
-done < <(git grep -l 'cmux_next_' -- '*.rs')
+done < <(git grep -l 'cmux_next_' -- "${member:+$member/}*.rs")
 if (( ${#packages[@]} == 0 )); then echo "--workspace"; exit 0; fi
 pairs() { printf '%s %s\n' "$@" | sort -u | tr '\n' ' '; }
 out="$(pairs "${packages[@]}")"

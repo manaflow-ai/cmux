@@ -2,7 +2,7 @@
 //! `server/cloud_api.rs`) and the cmux CLI (`cmux cloud api`, which sends its request to the
 //! daemon): a machine's SCP route, domains, publications, the person's hand-offs and acpmux
 //! routes, previews and a machine's files and exec. The macOS app sent these from Swift
-//! (`CloudAPIClient`, `CloudOwnerAPIClient`); the requests, their deadlines, the hand-off paging
+//! (`CloudDaemon`, `CloudOwnerAPIClient`); the requests, their deadlines, the hand-off paging
 //! and every refusal's reading live here. Sandboxed Runs are the daemon's own ([`sandbox`]): a
 //! Cloud chat on a machine made for the task, never classic Cloud's Run API.
 //!
@@ -19,6 +19,7 @@
 //! refused before any request. `vm.scp_endpoint` is cmux-platform's
 //! `/v1/cloud/machines/{id}/ssh-endpoint` and `machine.setup_desktop` its
 //! `/v1/cloud/machines/{id}/desktop` (a `stack` call of either is refused before any request).
+//! `vm.agent_key_create` is the cmux VM API's agent key mint (`POST /v1/agent-keys`, [`vm_agent_key`]).
 //!
 //! Classic cmux.com's `/api/vm` is gone from NEXT: the tunnel and firewall calls
 //! ([`NOT_ON_THIS_CLOUD`]) have no cmux-platform route yet, so each answers a 501
@@ -39,8 +40,19 @@
 //! [`auto_sessions`] is not a call of [`perform`]: it is Auto mode's store as the owner, a typed
 //! client (`cmux_auto_session::AutoCloud`) the acpmux daemon holds while a chat has Auto on.
 //!
+//! `owner.op` is the feed's own `POST /v1/ops` or `/v1/read` (`args.route`) with `args.body` as
+//! sent, as the person's session or this Mac's install token: it answers `{status, reply}` for
+//! every status, and the app reads the reply (`FeedService`, `FeedInstallPrincipal`).
+//!
+//! `artifacts.read` is the Artifacts page's read of cmux-platform's `/v1/artifacts/{tree,history,file}`
+//! as the person's session: it answers `{status, content_type, commit, size, body_base64}` for
+//! every status ([`artifacts`]); a `stack` call is refused before any request.
+//!
 //! `owner.turn_checkpoint`, `owner.turn_rewind` and `owner.turns` are a Cloud chat's "back to
 //! before this turn": whole-machine turn checkpoints on cmux-platform (`turns.rs`).
+//!
+//! `owner.slack` and `owner.slack_awake` are Settings' Slack page: the connection, its install
+//! link, a bot of the person's own and a Chief's Slack awake time (`slack.rs`).
 //!
 //! An answer is `Ok(body)` or a [`Failure`]; [`answer_line`] writes `{"ok": true, "body": B}` or
 //! `{"ok": false, "error": E}`, where `E.kind` is `timed_out` (with `path`), `transport`
@@ -50,8 +62,9 @@
 //!
 //! Auth: `stack` is classic cmux.com's, which no call sends to any more (a call under it is
 //! refused before any request): the Stack access token as the bearer, the refresh token in `X-Stack-Refresh-Token`, the team in `X-Cmux-Team-Id`. `owner` is
-//! the cmux API Worker's person routes: `Authorization` and `x-cmux-team` only (the Worker's
-//! invocation log records every other header and the URL, so nothing else may carry a key).
+//! the cmux API Worker's person routes: `Authorization` and `x-cmux-team` only, plus `owner.op`'s
+//! `x-cmux-client-version` (the app's version, no secret; the Worker's invocation log records
+//! every other header and the URL, so nothing else may carry a key).
 //! `worker` is the platform's machine routes through the generated client, `previews.*` and the
 //! publication calls (`vm.domains`, `vm.publications`, `vm.provision_api`,
 //! `vm.publication_api_keys`, `vm.revoke_publication_api_key`) among them. No redirect is followed
@@ -59,6 +72,7 @@
 
 #![cfg(unix)]
 
+mod artifacts;
 pub mod auto_sessions;
 pub mod background;
 mod chat;
@@ -77,7 +91,9 @@ mod owner;
 mod previews;
 pub mod sandbox;
 pub mod session;
+mod slack;
 mod turns;
+mod vm_agent_key;
 
 use serde_json::{Map, Value, json};
 use zeroize::Zeroizing;
@@ -156,8 +172,11 @@ pub async fn perform(request: &Request, tail: Zeroizing<Vec<u8>>) -> Result<Valu
             Err(not_on_this_cloud(call))
         }
         call if chat::CALLS.contains(&call) => chat::run(request, call, args).await,
+        "artifacts.read" if request.auth == Auth::Stack => Err(not_on_this_cloud("artifacts.read")),
+        "artifacts.read" => artifacts::read(&http, args).await,
         "vm.networks" => network::networks(&http, request.auth).await,
         "vm.scp_endpoint" => machine::scp_endpoint(&http, args).await,
+        "vm.agent_key_create" => vm_agent_key::create(&http, args).await,
         "machine.setup_desktop" => machine::setup_desktop(&http, args).await,
         call if previews::PUBLICATION_CALLS.contains(&call) => {
             previews::publications(request, call, args).await
@@ -168,6 +187,8 @@ pub async fn perform(request: &Request, tail: Zeroizing<Vec<u8>>) -> Result<Valu
             "{call} is the cmux daemon's own sandboxed Run; send it to the daemon"
         ))),
         "owner.acpmux_keyed_start" => owner::keyed_start(&http, args, tail).await,
+        "owner.slack" => slack::slack(&http, args).await,
+        "owner.slack_awake" => slack::slack_awake(&http, args).await,
         "owner.turn_checkpoint" | "owner.turn_rewind" | "owner.turns" => {
             turns::run(&http, request.call.as_str(), args).await
         }
@@ -209,8 +230,9 @@ pub fn answer_line(result: &Result<Value, Failure>) -> String {
 }
 
 /// Every call [`perform`] answers.
-pub const CALLS: [&str; 48] = [
+pub const CALLS: [&str; 53] = [
     "vm.scp_endpoint",
+    "vm.agent_key_create",
     "vm.tunnel_enroll",
     "vm.tunnel_revoke",
     "vm.tunnel_attach",
@@ -242,9 +264,12 @@ pub const CALLS: [&str; 48] = [
     "owner.github_app",
     "owner.github_repos",
     "owner.github_connect",
+    "owner.op",
     "owner.github_complete",
     "owner.github_list",
     "owner.github_clone_token",
+    "owner.slack",
+    "owner.slack_awake",
     "owner.turn_checkpoint",
     "owner.turn_rewind",
     "owner.turns",
@@ -258,6 +283,7 @@ pub const CALLS: [&str; 48] = [
     "machine.chief_resize",
     "machine.setup_desktop",
     "machine.fork",
+    "artifacts.read",
 ];
 
 /// A bound past every fixed deadline of a call (the longest, a staged machine read's, is about

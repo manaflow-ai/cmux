@@ -218,6 +218,25 @@ fn a_computer_status_needs_its_session_and_reads_a_live_hybrid_show() {
 }
 
 #[test]
+fn the_live_status_reads_the_headers_facts_and_the_drivers_show() {
+    let moving = json!({
+        "session": "s1",
+        "at": "local",
+        "move": {"direction": "toCloud", "trigger": "person", "state": "moving", "startedMs": 8,
+                 "canCancel": true}
+    });
+    let (code, status) = call(c"cloud_computer_status_live", &moving);
+    assert_eq!(code, OK);
+    assert_eq!((&status["phase"], &status["home"]), (&json!("moving"), &json!("this_mac")));
+    assert_eq!(status["why"], json!({"at_ms": 8, "reason": "person_moved"}));
+    // No `start` sent and a sessions folder with no driver log: no hybrid start, running.
+    let dir = std::env::temp_dir().join(format!("cmux-status-live-{}", std::process::id()));
+    let ask = json!({"session": "s1", "stateDir": dir});
+    assert_eq!(call(c"cloud_computer_status_live", &ask).1["phase"], "running");
+    assert_eq!(call(c"cloud_computer_status_live", &json!({"at": "cloud"})).0, ERR_INVALID);
+}
+
+#[test]
 fn the_balance_simulates_each_place_and_picks_one() {
     let kept = json!({"folderBytes": 500_000_000u64, "headBytes": 5_000_000u64,
                       "uploadBytesPerSec": 5_000_000u64, "wakeMs": 8_000, "keepRunning": true});
@@ -273,4 +292,37 @@ fn an_autosize_notice_becomes_a_chat_row_and_a_repeated_hold_folds() {
         (json!(false), 1)
     );
     assert_eq!(call(c"cloud_autosize_rows", &json!({"rows": []})).0, ERR_INVALID);
+}
+
+#[test]
+fn a_cloud_wire_autosize_frame_feeds_its_chats_rows() {
+    let frame = |machine: &str, at: u64| {
+        json!({
+            "t": "ephemeral", "stream": "cloud:t_feed", "event": "cloud.machine.autosize",
+            "data": {
+                "v": 1, "machine": machine, "record": "rec_feed", "team": "t_feed", "creator": "u1",
+                "kind": "grow", "reason": "memory", "reason_text": "it ran out of memory",
+                "from": {"vcpu": 2, "mem_gib": 4, "disk_gib": 20, "hourly_usd": 0.148},
+                "to": {"vcpu": 4, "mem_gib": 8, "disk_gib": 20, "hourly_usd": 0.296},
+                "hourly_usd": 0.296, "line": "Machine grew to 4 vCPU / 8 GiB", "at": at
+            }
+        })
+    };
+    let ask = json!({"frame": frame("vm_feed_a", 1), "team": "t_feed"});
+    let (code, fed) = call(c"cloud_autosize_frame", &ask);
+    assert_eq!((code, fed), (OK, json!({"added": true, "machine": "vm_feed_a"})));
+    assert_eq!(call(c"cloud_autosize_frame", &ask).1, json!({"added": false}), "a resend");
+    let other_team = json!({"frame": frame("vm_feed_a", 2), "team": "t_other"});
+    assert_eq!(call(c"cloud_autosize_frame", &other_team).1["added"], false);
+    let not_autosize = json!({"frame": {"t": "ephemeral", "event": "cloud.machine.pausing"}});
+    assert_eq!(call(c"cloud_autosize_frame", &not_autosize).1["added"], false);
+
+    let (code, chat) = call(c"cloud_autosize_chat", &json!({"machine": "vm_feed_a"}));
+    assert_eq!(code, OK);
+    assert_eq!(chat["rows"].as_array().unwrap().len(), 1);
+    assert_eq!(chat["rows"][0]["key"], "rec_feed:grow:1");
+    let none = call(c"cloud_autosize_chat", &json!({"machine": "vm_feed_none"})).1;
+    assert_eq!(none, json!({"rows": []}));
+    assert_eq!(call(c"cloud_autosize_chat", &json!({})).0, ERR_INVALID);
+    assert_eq!(call(c"cloud_autosize_frame", &json!({})).0, ERR_INVALID);
 }

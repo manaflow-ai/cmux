@@ -83,6 +83,13 @@ DOCS_ONLY_PATHS: tuple[str, ...] = (
     "**/notices/**",  # third-party notice inputs (hand-written.md, REVIEW.md) that the bundle and release tests read
     "vendor/stack-auth-swift-sdk-prerelease/README.cmux.md",  # tests/test_supplychain_security.py
     "cmux-tui/README.md",  # the Testbox tour named its public fallback here
+    # Read by the cmux-tui spec checks (scripts/ci/spec_checks.py INPUTS; tests/test_ci_spec_checks.py lists any new
+    # one): an event heading removed from spec/events.md alone is a spec inventory red (#56203's class).
+    "cmux-tui/spec/**",
+    "cmux-tui/docs/**",
+    "cmux-tui/bindings/**",
+    "cmux-tui/frontends/README*.md",
+    "cmux-tui/frontends/web/README*.md",
     # Compiled in by include_str! (the detector lists any new one).
     "docs/remote-agents-and-cloud.md",
     "docs/cmux-next/customize-recipes.md",
@@ -293,7 +300,7 @@ jobs:
       missing: ${{{{ steps.plan.outputs.missing }}}}
     steps:
       - name: Checkout the planner
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # The merge commit and its parents' trees: merge_files() and merge_commit_files() list the changed paths

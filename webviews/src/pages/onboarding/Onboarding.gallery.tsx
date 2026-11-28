@@ -45,6 +45,20 @@ export default componentEntry<OnboardingGalleryProps>({
     "make-it-yours-preview-terminal": {
       props: { step: "makeItYours", makeItYours: "terminal", makeLook: "preview" },
     },
+    // [taste] Label fit (goal intro-walk-front-door): the segmented tracks cut "Ultra-compact", "Comfortable" and
+    // "Clear Glass" with an ellipsis. Raycast, Linear and macOS pickers show the whole word; three ways to do it.
+    "make-it-yours-preview-labels-wrap": {
+      note: "Labels wrap onto a second line inside the track instead of ending in an ellipsis; the track grows to the tallest label.",
+      props: { step: "makeItYours", makeItYours: "picked", makeLook: "preview", makeLabels: "wrap" },
+    },
+    "make-it-yours-preview-labels-tight": {
+      note: "Labels stay on one line: tighter padding and a slightly smaller type size so the whole word fits.",
+      props: { step: "makeItYours", makeItYours: "picked", makeLook: "preview", makeLabels: "tight" },
+    },
+    "make-it-yours-preview-labels-fit": {
+      note: "Tighter padding and type, and a label that still does not fit wraps instead of being cut.",
+      props: { step: "makeItYours", makeItYours: "picked", makeLook: "preview", makeLabels: "fit" },
+    },
     "make-it-yours-segmented": {
       note: "The cards' layout, calmer: Recommended as quiet text, density as one segmented track, unnamed tiles with the chosen work's whole name under the row.",
       props: { step: "makeItYours", makeItYours: "picked", makeLook: "segmented" },
@@ -72,6 +86,31 @@ export default componentEntry<OnboardingGalleryProps>({
     "intro-walk-work": {
       note: "Screen 2 of 4: how you work, Agents First checked.",
       props: { step: "makeItYours", makeItYours: "fresh", introWalk: true, makeScreen: "work" },
+    },
+    // Screen 2's Sending a Prompt row, one arm per chat feel (cmux#56827, Leo: "sent message scrolls to top").
+    "intro-walk-chat-feel-instant": {
+      note: "Sending a Prompt: Instant checked, as cmux ships (both settings unset).",
+      props: { step: "makeItYours", makeItYours: "fresh", introWalk: true, makeScreen: "work" },
+    },
+    "intro-walk-chat-feel-pop": {
+      note: "Sending a Prompt: Pop In checked (agentPane.display.sendPop on).",
+      props: {
+        step: "makeItYours",
+        makeItYours: "fresh",
+        introWalk: true,
+        makeScreen: "work",
+        walkValues: { "agentPane.display.sendPop": true },
+      },
+    },
+    "intro-walk-chat-feel-pinned": {
+      note: "Sending a Prompt: Pinned checked (agentPane.display.sendScrollsToTop on): a sent prompt scrolls to the top with room below for the reply.",
+      props: {
+        step: "makeItYours",
+        makeItYours: "fresh",
+        introWalk: true,
+        makeScreen: "work",
+        walkValues: { "agentPane.display.sendScrollsToTop": true },
+      },
     },
     "intro-walk-trust": {
       note: "Screen 3 of 4: what agents may do, each mode explained, Full Access (as shipped) checked; banners and sound.",

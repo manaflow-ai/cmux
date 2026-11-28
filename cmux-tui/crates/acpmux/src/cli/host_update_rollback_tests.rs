@@ -33,6 +33,53 @@ fn a_daemon_that_does_not_answer_with_the_pushed_build_is_rolled_back() {
     }
 }
 
+/// The forced-bad build of the update RFD's health check: a daemon that answers, on the pushed
+/// build, but shares no wire ABI with the build it replaced (`abiRange` past ours, so the old
+/// app and peers could no longer talk to it) is rolled back like one that never answered, and
+/// the previous binary serves again. One whose range overlaps, N+1 still serving N, is kept.
+#[test]
+#[cfg(unix)]
+fn a_daemon_that_drops_the_replaced_builds_abi_is_rolled_back() {
+    let past = crate::protocol::ABI + 1;
+    let peer = FakePeer::new("abi-gap");
+    peer.offer(NEW, Some(NEW));
+    peer.write(
+        &format!("abi-{}", NEW.split(' ').next().unwrap()),
+        &format!(",\n  \"abiRange\": {{\"min\": {past}, \"max\": {past}}}"),
+    );
+    let up = peer.update(true);
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::RolledBack, Some("abiIncompatible")),
+        "{up:?}"
+    );
+    assert!(up.error.as_deref().unwrap_or_default().contains("no revision in common"), "{up:?}");
+    assert_eq!(up.build.as_deref(), Some(OLD), "the previous build answers again");
+    assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(OLD, Some(OLD)));
+    assert_eq!(peer.daemon(), OLD);
+
+    let peer = FakePeer::new("abi-next");
+    peer.offer(NEW, Some(NEW));
+    peer.write(
+        &format!("abi-{}", NEW.split(' ').next().unwrap()),
+        &format!(",\n  \"abiRange\": {{\"min\": {}, \"max\": {past}}}", crate::protocol::ABI),
+    );
+    let up = peer.update(true);
+    assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
+    assert_eq!(peer.daemon(), NEW);
+}
+
+#[test]
+fn abi_gap_judges_only_a_status_that_names_a_range() {
+    assert_eq!(abi_gap(r#"{"pid": 1, "build": "x"}"#), None, "a daemon from before the field");
+    let ours = crate::protocol::ABI;
+    assert_eq!(abi_gap(&format!(r#"{{"pid": 1, "abiRange": {{"min": 0, "max": {ours}}}}}"#)), None);
+    assert!(
+        abi_gap(&format!(r#"{{"pid": 1, "abiRange": {{"min": {0}, "max": {0}}}}}"#, ours + 5))
+            .is_some()
+    );
+}
+
 /// huge-blue, 2026-11-06: the restart ran, then ssh's link to the host
 /// timed out ("Connection to UNKNOWN port 65535 timed out", ssh's words for
 /// a ProxyJump peer) and the update rolled back a daemon that served the new
@@ -762,6 +809,7 @@ fn a_macos_daemon_restarts_by_bootout_then_bootstrap_once_the_old_one_exited() {
             allow_downgrade: false,
             caller: None,
             now: true,
+            same_build_installed: false,
         },
     );
     assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
@@ -838,6 +886,7 @@ fn a_host_that_does_not_answer_is_unreachable_before_anything_runs() {
         allow_downgrade: false,
         caller: None,
         now: true,
+        same_build_installed: false,
     };
     let up = update_locked(&Down, &opts);
     assert_eq!(
@@ -875,6 +924,7 @@ fn a_held_peer_is_left_alone_without_reaching_it() {
         allow_downgrade: false,
         caller: None,
         now: true,
+        same_build_installed: false,
     };
     let now = 1_793_000_000_000; // 2026-10-26
     let up = update_unless_held("peer-a", &Unreachable, &path, now, &opts);

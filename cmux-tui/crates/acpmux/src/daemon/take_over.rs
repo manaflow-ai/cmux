@@ -52,6 +52,14 @@ fn launchd_job(xpc_service_name: Option<&str>) -> bool {
 /// (`exe_swap.rs`) and the installer starts another. Asking only the first holder left the
 /// later start waiting forever on the one that won (`take_over_under_load`, 2026-11-20).
 ///
+/// A holder that never answers is replaced, not waited on forever (`hung_holder.rs`). Each ask's
+/// connect and status are bounded by the probe bound, and once no ask reached the holder and its
+/// beat stopped, both past its phase's bound ([`hung_holder::stalled`]), this start replaces it
+/// ([`hung_holder::replace`], which proves the pid is this home's daemon first). Lane VMs,
+/// 2026-11-28: a detached daemon a CLI started in the unit's restart window hung, and each start
+/// of `acpmux.service` sat for hours on "the daemon has not answered the connection's hello",
+/// restarted every few minutes by its repair, while the machine served no hub carrier.
+///
 /// launchd's own start of the LaunchAgent (`unready`: no `--ready-fd`, so not a child that
 /// inherited the job's environment and reports to its starter) waits too, without asking
 /// ([`launchd_job`]).
@@ -71,6 +79,17 @@ pub(super) async fn acquire_daemon_lock(
     // it must own the home, or the unit is left failed while a detached daemon serves it.
     let yields_since = (!unit).then(crate::store::now_ms);
     let stands_by = !unit && launchd_standby::this_start_stands_by(take_over);
+    #[cfg(unix)]
+    let bounds = hung_holder::Bounds::current();
+    #[cfg(not(unix))]
+    let probe = Duration::from_secs(20);
+    #[cfg(unix)]
+    let probe = bounds.probe;
+    // The holder whose answers this start counts, and since when no ask reached it.
+    #[cfg(unix)]
+    let mut watched: Option<u32> = None;
+    #[cfg(unix)]
+    let mut unanswered_since = tokio::time::Instant::now();
     loop {
         match acquire_lock(path) {
             Ok(lock) => return Ok(lock),
@@ -104,19 +123,69 @@ pub(super) async fn acquire_daemon_lock(
                 let holder = live_holder_pid(path);
                 #[cfg(not(unix))]
                 let holder = None;
-                if asked != Some(holder)
-                    && let Some(answered) = take_over_holder(&socket_path(), yields_since).await?
+                #[cfg(unix)]
+                if holder != watched {
+                    // Another holder (a successor, or the first look): its own clock.
+                    watched = holder;
+                    unanswered_since = tokio::time::Instant::now();
+                }
+                if asked != Some(holder) {
+                    let answer = take_over_holder(&socket_path(), yields_since, probe).await?;
+                    #[cfg(unix)]
+                    if answer.is_some() {
+                        unanswered_since = tokio::time::Instant::now();
+                    }
                     // What answered is the holder (or the lock named none): asked. Another
                     // daemon answering for a holder still starting is not; ask again.
-                    && (holder.is_none() || answered == holder)
+                    if let Some(answered) = answer
+                        && (holder.is_none() || answered == holder)
+                    {
+                        asked = Some(holder);
+                    }
+                }
+                #[cfg(unix)]
+                if asked != Some(holder)
+                    && let Some(pid) = holder
                 {
-                    asked = Some(holder);
+                    let unanswered = unanswered_since.elapsed();
+                    let beat = hung_holder::beat_of(&home(), pid);
+                    if hung_holder::stalled(unanswered, beat, bounds) {
+                        replace_hung(pid, unanswered, beat).await;
+                        // Its clock starts again: one replace (or refusal) a bound, not a look.
+                        unanswered_since = tokio::time::Instant::now();
+                        continue;
+                    }
                 }
                 // Still no wall-clock cutoff: the wait only looks again at who holds the lock.
                 wait_for_lock_release_with_budget(path.to_owned(), Some(HOLDER_LOOK)).await;
             }
             Err(error) => return Err(error),
         }
+    }
+}
+
+/// Replaces the hung holder `pid` as the home's one standing waiter (`hung_holder::stand`): when
+/// another start already stands, that one replaces it and this start keeps waiting for the lock.
+#[cfg(unix)]
+async fn replace_hung(
+    pid: u32,
+    unanswered: Duration,
+    beat: Option<(hung_holder::Phase, Duration)>,
+) {
+    let why = format!(
+        "daemon {pid} holds the lock but answered no hand-over ask for {}s and its beat is {} old",
+        unanswered.as_secs(),
+        beat.map_or("missing".to_owned(), |(_, age)| format!("{}s", age.as_secs()))
+    );
+    let _standing = match hung_holder::stand(&home()) {
+        Ok(standing) => standing,
+        Err(waiter) => {
+            tracing::info!("{why}; start {waiter} stands as this home's waiter and replaces it");
+            return;
+        }
+    };
+    if let Err(refusal) = hung_holder::replace(&home(), &why).await {
+        tracing::warn!("{why}; not replacing it: {refusal}");
     }
 }
 
@@ -128,19 +197,26 @@ const HOLDER_LOOK: Duration = Duration::from_secs(1);
 /// Ask the daemon at `socket` to hand this home over: `_acpmux/shutdown` with its agents kept,
 /// as `acpmux daemon shutdown` sends it, once its status names this home and socket. Best
 /// effort: a holder that does not answer, or one that is already stopping, is waited out by the
-/// caller. The pid that answered its status, or `None` when nothing answered (a holder still
-/// starting has no socket yet): the caller asks again. With `yields_since` (when a start that may
+/// caller. The pid that answered its status, or `None` when nothing answered within `probe` (a
+/// holder still starting has no socket yet; a hung one never answers its hello): the caller asks
+/// again, and replaces a holder hung past its bound. With `yields_since` (when a start that may
 /// yield began waiting), a holder of this home that runs this build and started since is not asked:
 /// the error [`take_over_yield::ServedByThisBuild`] says so.
 async fn take_over_holder(
     socket: &std::path::Path,
     yields_since: Option<u64>,
+    probe: Duration,
 ) -> Result<Option<Option<u32>>> {
-    // Client::connect and request finish promptly on a closed socket. If the
-    // peer is alive but busy, keep the handover request alive until it answers.
-    let Ok(client) = crate::client::Client::connect(socket).await else { return Ok(None) };
-    let Ok(status) = client.request(crate::rpc::method::MUX_STATUS, serde_json::json!({})).await
-    else {
+    // Bounded: a connect into a queue nobody accepts from, or a hello nobody answers, waits
+    // forever otherwise. A holder that answered its status and took the hand-over request is
+    // stopping; that request is not cut.
+    let asked = async {
+        let client = crate::client::Client::connect(socket).await.ok()?;
+        let status =
+            client.request(crate::rpc::method::MUX_STATUS, serde_json::json!({})).await.ok()?;
+        Some((client, status))
+    };
+    let Ok(Some((client, status))) = tokio::time::timeout(probe, asked).await else {
         return Ok(None);
     };
     let same = |key: &str, want: &std::path::Path| {
@@ -162,6 +238,10 @@ async fn take_over_holder(
         .into());
     }
     tracing::info!(pid, "another daemon of this home serves its socket; asking it to hand over");
+    #[cfg(unix)]
+    if let Some(pid) = pid {
+        listener_handover::note_took_over_from(pid);
+    }
     // Its listeners too, by descriptor, so the listen queue never closes
     // (`daemon/listener_handover.rs`). A daemon from before this ignores the key and stops.
     #[cfg(unix)]
@@ -169,8 +249,9 @@ async fn take_over_holder(
     #[cfg_attr(not(unix), allow(unused_mut))]
     let mut params = serde_json::json!({"reason": "handover: another daemon of this home starts"});
     #[cfg(unix)]
-    if let Some(side) = &side {
-        params[listener_handover::PARAM] = serde_json::json!(side.path());
+    if let (Some(side), Some(map)) = (&side, params.as_object_mut()) {
+        map.insert(listener_handover::PARAM.to_owned(), serde_json::json!(side.path()));
+        map.insert(listener_handover::PARAM_CONNS.to_owned(), serde_json::json!(true));
     }
     let answer = client.request(crate::rpc::method::MUX_SHUTDOWN, params).await;
     #[cfg(unix)]
@@ -190,23 +271,5 @@ async fn take_over_holder(
 }
 
 #[cfg(test)]
-mod launchd_job_tests {
-    /// Only this user's `com.acpmux.daemon` job waits for the lock, and only on macOS.
-    #[test]
-    fn only_the_acpmux_launch_agent_waits_for_the_home() {
-        assert_eq!(super::launchd_job(Some("com.acpmux.daemon")), cfg!(target_os = "macos"));
-        assert!(!super::launchd_job(Some("com.cmuxterm.app.nightly.keepalive")));
-        assert!(!super::launchd_job(Some("application.com.cmuxterm.app.nightly.1.2")));
-        assert!(!super::launchd_job(None));
-    }
-
-    /// The per-home job a command starts waits too, so a `KeepAlive` copy of it never loops on
-    /// exit 75 while a take-over start serves the home (cmuxterm-hq #22842).
-    #[test]
-    fn the_per_home_job_waits_for_the_home() {
-        let mac = cfg!(target_os = "macos");
-        assert_eq!(super::launchd_job(Some("com.cmux.acpmux.daemon.077f602dcb3c3936")), mac);
-        assert!(!super::launchd_job(Some("com.cmux.acpmux.daemon.")));
-        assert!(!super::launchd_job(Some("com.cmux.acpmux.daemonx")));
-    }
-}
+#[path = "take_over_launchd_job_tests.rs"]
+mod launchd_job_tests;

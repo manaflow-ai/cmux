@@ -62,6 +62,9 @@ entry, scripts/ci/entry_logs.py; editing the frozen sidebar-owner.md still count
 many changes to sidebar?"). CMUX_NEXT_CHECKS_SKIP_REASON does not skip it. A commit the owner logged in
 that note or an entry file (its 11-character sha) passes. CI also sweeps every commit since the check landed
 (`--only sidebar --commits`), so a push from an old hook copy or a cancelled CI run is still caught.
+A commit that adds a new kind of sidebar row (a case of SidebarRowKey, or of a fold's SidebarDoneFoldID.Kind)
+needs its Sidebar-Look quote to name that row: #49506 added an "Automatic" row under a quote that named none
+(Leo 2026-11-27: "WE NEED TO NOT HAVE THOSE THINGS MERGE").
 Also on every push: "Chrome layer look" (schemas/theme/chrome-layer-colors.json): a commit that changes that
 file (the colours ChromeLayerColorTests reads off the sidebar, footer and titlebar in the default themes, plain
 and over a picture), or a hunk of a chrome-layer token source naming a chrome token, carries a `Chrome-Look-OK:`
@@ -90,6 +93,9 @@ action.yml) the push changes must parse at the pushed head (PyYAML, else Ruby's 
 new [syntax-check] findings when it is on PATH), for a push to any branch, main and feat-cmux-next included.
 CMUX_NEXT_CHECKS_SKIP_REASON does not skip it: GitHub runs no job of a workflow it cannot load (dd8b867f,
 2026-11-06: no nightly for 3.5 hours). CI's "Lint every workflow" step is the backstop.
+Every run, CI's fast gates too: "Cargo manifests parse (Cargo.toml)": each Cargo.toml the range changes must load
+as TOML at the head (tomllib, else tomli). CMUX_NEXT_CHECKS_SKIP_REASON does not skip it: #60612 (2026-11-27)
+merged a duplicate `url.workspace = true` and every pull request's `plan (changed Cargo workspaces)` went red.
 Also on every local run, the same way: "Runs-on variables declare their single-host fallback": when the push changes
 .github/workflows/ or .github/single-host-fallbacks.json, check-single-host-fallbacks.py (the installed copy for the
 hook) refuses each runs-on variable or single-host label the head reads with no declared fallback that the base did
@@ -127,6 +133,10 @@ caller, or gives a listed one a caller without `--update` is refused; an export 
 (Packages/macOS/CmuxNext/app-ffi-pin.json) lacks is a note until the re-pin. It runs only when the push changes a
 header, the baseline, the checker or a Swift line naming a cmux_/acpmux_ function: a push that only moves the pin
 (the re-pin bot's, or one by hand) is not judged. The fast gates' --advisory pass warns.
+Also on every local run: "Panic ratchet allow reasons" (panic_allow_reasons): CI's Rust panic ratchet's own source scan
+(rust_panic_ratchet.py allow_without_reason) over the cmux-tui crate and binding files the push changes, at HEAD: an
+allow of the ratchet's lints without `reason =` (or an expect of them) is refused, a base one in a touched file too,
+as CI refuses it; the counting half of that ratchet needs a clippy build and stays CI's.
 Also on every local run, the same way: "Crash ratchet" (crash_ratchet_findings): the Rust classes of CI's crash
 ratchet (crash_ratchet.py: unwrap, expect, panic!/unreachable!/todo!/unimplemented!, process::exit/abort, outside
 test code), judged per crate over the files the push changes: a crate whose count rises in those files is refused
@@ -371,6 +381,13 @@ CONFLICT_CHECK = "Merge conflict markers"
 # nightly.yml input description, every push made a 0-job failed run and no nightly built for 3.5 hours.
 WORKFLOW_CHECK = "Workflow YAML parses (.github/workflows, .github/actions)"
 WORKFLOW_FILE = re.compile(r"^\.github/(?:workflows/[^/]+|actions/.+/action)\.ya?ml$")
+# A Cargo.toml TOML cannot load stops its whole workspace: #60612 (2026-11-27) merged a second `url.workspace = true`
+# into cmux-next-ios/rust/crates/cmux-mobile-link-ffi/Cargo.toml, cargo refused the manifest, and every pull request's
+# `plan (changed Cargo workspaces)` failed in rust-workspaces.py's tomllib read until #62073 dropped the key.
+CARGO_MANIFEST_CHECK = "Cargo manifests parse (Cargo.toml)"
+CARGO_MANIFEST_HINT = ("Fix the manifest: a key may appear once per table (a duplicate dependency line is the usual "
+                       "cause), then push. Cargo cannot load a Cargo.toml that does not parse, so no crate of its "
+                       "workspace builds and no skip reason passes it.")
 WORKFLOW_HINT = ("Fix the workflow: quote a value that holds `: ` or ` #` (description: \"a: b\"), then push. GitHub "
                  "cannot load a workflow that does not parse and runs none of its jobs, so no skip reason passes it.")
 # Ruby's Psych (libyaml), the parser a Mac without PyYAML still has: it parses only, it builds no objects.
@@ -493,6 +510,15 @@ SIDEBAR_NOTE = "plans/cmux-next/sidebar-owner.md"
 SIDEBAR_ENTRIES = "plans/cmux-next/sidebar-owner/"
 SIDEBAR_TRAILER = re.compile(r"^Sidebar-Look:[ \t]*(\S.*)$", re.MULTILINE)
 SIDEBAR_NO_VISUAL = re.compile(r"^no visual change\b", re.IGNORECASE)
+# A new kind of sidebar row (a case added to `SidebarRowKey`, or to a fold's `SidebarDoneFoldID.Kind`) needs words in the
+# Sidebar-Look quote that name it. #49506 added an "Automatic (N)" fold row, shown by default, under a Leo quote
+# that asked for fewer sessions in the sidebar and named no row (Leo 2026-11-27: "what the hell is automatic!? ...
+# WE NEED TO NOT HAVE THOSE THINGS MERGE"); #55721 removed it. The file -> the enum whose cases are row kinds.
+SIDEBAR_ROW_KINDS = {f"{SIDEBAR_CODE}Logic/SidebarRow.swift": "SidebarRowKey",
+                     f"{SIDEBAR_CODE}Logic/SidebarLayout+DoneFold.swift": "Kind"}
+SIDEBAR_QUOTED = re.compile(r"[\"“]([^\"“”]{3,})[\"”]")
+# Words of a case name that say nothing about which row it is.
+SIDEBAR_KIND_GENERIC = frozenset(("fold", "row", "rows"))
 # The chrome layer (sidebar, footer, titlebar) keeps its colour unless Leo asks (#39984 laid a 20% black dim on the
 # sidebar for a non-Leo issue; Leo 2026-11-11: "bro why is the sidebar now a different color?", reverted by #41047).
 # ChromeLayerColorTests holds the colours each region paints in the default dark and light themes, plain and over a
@@ -557,6 +583,24 @@ RATCHET_BASELINES = {
     "swift-type-scale-baseline.tsv": ((0, 1), 2),
     "visible-only-baseline.tsv": ((0, 1), 2),
 }
+
+
+def classic_ids_text(text: str) -> str:
+    """A classic-ids row's text in the trimmed form check-state-roots.sh keys on (cmux#55211): the character after
+    the match (a quote, slash, comma or paren) is context, not key. Base's old-form rows (the matched text with its
+    trailing quote, slash or comma kept) and the trimmed ones then key the same, so an installed copy of either form
+    never reads the other's rows as deleted and its hits as new (2026-11-25: #55211 was refused for ~60 such rows)."""
+    if text.startswith("com.cmuxterm.app"):
+        return "com.cmuxterm.app"
+    if re.match(r"(\.config|\.local|Library|\.cache)", text):
+        return re.sub(r"cmux.$", "cmux", text)
+    if not text.startswith("/tmp/"):
+        return re.sub(r"[,)]$", ")", text)
+    return text
+
+
+# A ratchet baseline whose key text has more than one written form: file -> {key column: its one form}.
+RATCHET_KEY_FORMS = {"classic-ids-baseline.tsv": {1: classic_ids_text}}
 # Shrink-only baselines kept as a list of lines (path and the line's text): a push that fixes a listed site removes
 # its line, and the installed copy over both trees then reads the fix as "fixed, remove from the baseline", a new
 # finding (2026-11-17: the act-as-me consent card moved onto the shared dialog card and could not push). Each tree
@@ -778,7 +822,7 @@ def ratchet_row_files(repo: Path, base: str, head: str) -> list[str]:
         raise CannotDecide(f"prepush-gate: {error}")
     files: set[str] = set()
     for name, (keys, count) in RATCHET_BASELINES.items():
-        rows = [_ratchet_rows(blob.decode(errors="replace"), keys, count) if blob else {}
+        rows = [_ratchet_rows(blob.decode(errors="replace"), keys, count, name) if blob else {}
                 for blob in (blobs[f"{rev}:{SCRIPTS}/{name}"] for rev in (base, head))]
         files.update(key[0] for key in rows[0].keys() | rows[1].keys() if rows[0].get(key) != rows[1].get(key))
     files = {p for p in files if p.startswith(CHANGED_SCOPES)}
@@ -1098,15 +1142,19 @@ def source_line(tree: Path, roots: list[Path], rel: str, number: int) -> str | N
     return None
 
 
-def normalize(text: str, tree: Path) -> str:
-    """A finding's identity: file, rule and source text; no tree path, no line or count numbers."""
+def normalize(text: str, tree: Path, moved: dict[str, str] | None = None) -> str:
+    """A finding's identity: file, rule and source text; no tree path, no line or count numbers. MOVED ({new path:
+    old path}, the push's renames) keys a head finding in a moved file by its old path, so the base's same finding
+    there matches it (2026-11-27: a695910bf8bb `git mv`d SleepySceneView.swift to another module with its two raw
+    font sizes and was refused for adding them)."""
     text = text.replace(str(tree.resolve()) + "/", "").replace(str(tree) + "/", "")
     roots = [tree, tree / PKG, tree / PKG / "Sources", tree / PKG / "Tests", tree / "Packages"]
 
     def keyed(match: re.Match) -> str:
         line = source_line(tree, roots, match.group("path"),
                            parse_tool_int(match.group("line"), "finding line"))
-        return f"{match.group('path')}:«{line}»" if line is not None else match.group("path")
+        path = renamed_from(match.group("path"), moved) if moved else match.group("path")
+        return f"{path}:«{line}»" if line is not None else path
     parts = []
     last = 0
     for match in LOCATION.finditer(text):
@@ -1115,6 +1163,18 @@ def normalize(text: str, tree: Path) -> str:
         last = match.end()
     parts.append(NUMBER.sub("N", text[last:]))
     return "".join(parts).strip()
+
+
+def renamed_from(path: str, moved: dict[str, str]) -> str:
+    """PATH's old path when the push moved it (MOVED is repo-relative; a finding may name its path from a package
+    root, so a moved path that ends with PATH maps by its matching tail), else PATH."""
+    if path in moved:
+        return moved[path]
+    for new, old in moved.items():
+        if new.endswith("/" + path):
+            root = new[:len(new) - len(path)]  # the root the finding names its path from
+            return old[len(root):] if old.startswith(root) else old
+    return path
 
 
 def records(output: str) -> list[str]:
@@ -1238,11 +1298,14 @@ def no_verdict(code: int, out: str, codes: tuple[int, ...] | None = None) -> str
     return None
 
 
-def new_records(base_out: str, head_out: str, base_tree: Path, head_tree: Path) -> list[str]:
+def new_records(base_out: str, head_out: str, base_tree: Path, head_tree: Path,
+                moved: dict[str, str] | None = None) -> list[str]:
+    """HEAD_OUT's findings the base run did not print; a finding in a file the push moved (MOVED) matches its old
+    path's."""
     seen = collections.Counter(normalize(r, base_tree) for r in records(base_out))
     fresh = []
     for record in records(head_out):
-        key = normalize(record, head_tree)
+        key = normalize(record, head_tree, moved)
         if seen[key] > 0:
             seen[key] -= 1
         elif not re.search(r": ok\b|^All |passed|^ok\b", record) and not INFO.match(record):
@@ -1616,14 +1679,17 @@ def crash_raises(repo: Path, base: str, head: str) -> list[tuple[str, str, str |
     return found
 
 
-def _ratchet_rows(text: str, keys: tuple[int, ...], count: int) -> dict[tuple[str, ...], int]:
-    """{key: count} of a ratchet baseline's rows; comments, blank and malformed lines are not rows."""
-    rows = {}
+def _ratchet_rows(text: str, keys: tuple[int, ...], count: int, name: str = "") -> dict[tuple[str, ...], int]:
+    """{key: count} of a ratchet baseline's rows; comments, blank and malformed lines are not rows. NAME's
+    RATCHET_KEY_FORMS bring each key to its one form, and rows that then share a key add up."""
+    forms = RATCHET_KEY_FORMS.get(name, {})
+    rows: dict[tuple[str, ...], int] = {}
     for line in text.splitlines():
         parts = line.split("\t")
         if line.startswith("#") or len(parts) <= max(*keys, count) or not parts[count].isdigit():
             continue
-        rows[tuple(parts[i] for i in keys)] = parse_tool_int(parts[count], "ratchet count")
+        key = tuple(forms[i](parts[i]) if i in forms else parts[i] for i in keys)
+        rows[key] = rows.get(key, 0) + parse_tool_int(parts[count], "ratchet count")
     return rows
 
 
@@ -1703,19 +1769,24 @@ def lower_ratchet_baselines(repo: Path, rev: str, scripts_dir: Path, moved: dict
         own = texts.get(f"{rev}:{SCRIPTS}/{name}")
         if not path.is_file() or own is None:
             continue
-        pushed = _ratchet_rows(own.decode(errors="replace"), keys, count)
+        pushed = _ratchet_rows(own.decode(errors="replace"), keys, count, name)
         installed_lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
-        carried = carry_renamed_rows(installed_lines, moved or {}, lambda line: _ratchet_rows(line, keys, count),
+        carried = carry_renamed_rows(installed_lines, moved or {},
+                                     lambda line: _ratchet_rows(line, keys, count, name),
                                      set(k[0] for k in pushed), count)
         taken += [f"{name}: {note}" for note in carried[1]]
         lines, changed = [], bool(carried[1])
+        # Installed rows that share a key (two written forms of one text) share the push's count: each takes what
+        # is left of it, in file order.
+        left = dict(pushed)
         for line in carried[0]:
-            row = _ratchet_rows(line, keys, count)
+            row = _ratchet_rows(line, keys, count, name)
             if not row:
                 lines.append(line)
                 continue
             (key, installed), = row.items()
-            now = pushed.get(key, 0)
+            now = min(installed, left.get(key, 0))
+            left[key] = left.get(key, 0) - now
             if now >= installed:
                 lines.append(line)
                 continue
@@ -1787,6 +1858,52 @@ def crash_allow_unreviewed(repo: Path, base: str, head: str) -> list[str]:
             f"{f' and {len(allow) - 3} more' if len(allow) > 3 else ''} to {CRASH_ALLOWLIST} without a "
             "`Crash-allow-OK: <reviewer or review id>` trailer"
             for sha, subject, trailer, allow, _ in crash_raises(repo, base, head) if allow and trailer is None]
+
+
+PANIC_ALLOW_CHECK = "Panic ratchet allow reasons (rust_panic_ratchet.py: an allow of its lints says reason = \"...\")"
+PANIC_RATCHET_SCRIPT = SCRIPTS + "/rust_panic_ratchet.py"
+PANIC_ALLOW_SCOPES = ("cmux-tui/crates/", "cmux-tui/bindings/")
+PANIC_ALLOW_HINT = ("Panic ratchet allow reasons: give each listed `#[allow(clippy::<lint>)]` its "
+                    "`reason = \"why it cannot panic\"` (and use allow, not expect, for these lints). CI's Rust panic "
+                    "ratchet fails a reasonless allow in any file the change touches, the base's own included.")
+
+
+def panic_allow_reasons(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
+    """The reasonless (or `expect`) allows of the panic ratchet's lints in the Rust files the push changes, as CI's
+    Rust panic ratchet (rust_panic_ratchet.py allow_without_reason, its own code) reports them at HEAD.
+
+    That half of the ratchet reads source text only, while its counting half needs a cmux-tui clippy build, so CI was
+    the first to say it: in a 2026-11-26 sample of 83 merged cmux PRs, 3 of 35 that took past an hour made a later
+    commit only to add a reason (#47140, #55721, #54225). CI fails such an allow in any file the change touches, a
+    base allow too (#56273 spared only untouched files), so this does as well: the push's own files are the change's.
+    """
+    names = git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=d", "-z", base, head, "--",
+                *PANIC_ALLOW_SCOPES).decode("utf-8", "surrogateescape").split("\0")
+    rust = [p for p in names if p.endswith(".rs")]
+    if not rust:
+        return []
+    script = check_script(repo, head, PANIC_RATCHET_SCRIPT, trusted_scripts, base)
+    if script is None:
+        return []  # a commit older than the ratchet
+    with tempfile.TemporaryDirectory(prefix="cmux-panic-allow-") as tmp:
+        root = absolute(Path(tmp))
+        check = root / "rust_panic_ratchet.py"
+        check.write_bytes(script)
+        spec = importlib.util.spec_from_file_location("cmux_panic_allow_" + hashlib.sha256(script).hexdigest()[:12],
+                                                      check)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        if not hasattr(module, "allow_without_reason"):
+            return []  # an older ratchet without the scan
+        tree = root / "tree"
+        for path in rust:
+            blob = blob_at(repo, head, path)
+            if blob is None:
+                continue
+            target = tree / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(blob)
+        return list(module.allow_without_reason(str(tree)))
 
 
 STALE_INSTALL = "the installed hook is older than the checks this push needs: rerun scripts/install-git-hooks.sh"
@@ -2993,6 +3110,38 @@ def actionlint_syntax(actionlint: str, path: str, text: str) -> set[str] | None:
     return found
 
 
+def cargo_manifest_problems(repo: Path, base: str, head: str, restrict: set[str] | None = None) -> list[str]:
+    """`file: problem` for each Cargo.toml BASE..HEAD changes that HEAD leaves unparsable as TOML.
+
+    Constant cost: only the manifests the range changes, read from git objects with tomllib (tomli on Python 3.9 and
+    3.10). Only the head counts, as with the workflow parse: cargo loads the pushed head's file. Not skippable by
+    CMUX_NEXT_CHECKS_SKIP_REASON (main())."""
+    names = git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=ACMRT", "-z", base, head).decode().split("\0")
+    files = sorted(n for n in names if n and (n == "Cargo.toml" or n.endswith("/Cargo.toml"))
+                   and (restrict is None or n in restrict))
+    if not files:
+        return []
+    try:
+        import tomllib as toml
+    except ModuleNotFoundError:
+        try:
+            import tomli as toml  # type: ignore[no-redef]
+        except ModuleNotFoundError:
+            log(f"prepush-gate: WARNING: no TOML parser here (Python 3.11+ or tomli), so {', '.join(files)} went "
+                "unchecked; CI's fast gates still check it.")
+            return []
+    found = []
+    for path in files:
+        data = blob_at(repo, head, path)
+        if data is None:
+            continue
+        try:
+            toml.loads(data.decode("utf-8", "replace"))
+        except toml.TOMLDecodeError as error:
+            found.append(f"{path}: {error} (the TOML does not parse; cargo refuses this manifest)")
+    return found
+
+
 def workflow_problems(repo: Path, base: str, head: str, restrict: set[str] | None = None) -> list[str]:
     """`file:line:column: problem` for each workflow (or composite action) BASE..HEAD changes that HEAD leaves
     unloadable: YAML that does not parse, and the local actionlint's new [syntax-check] findings when it is on PATH.
@@ -3436,7 +3585,59 @@ def sidebar_owner_by_commit(repo: Path, base: str, head: str, ack_rev: str | Non
               and not any(f.startswith(SIDEBAR_ENTRIES) for f in files)):
             found.append((sha, f"{where}: a visual change (`Sidebar-Look: {trailer.group(1).strip()[:60]}`) must add its "
                                f"entry under {SIDEBAR_ENTRIES} in the same commit: the target look and the commit log."))
+        for kind in sidebar_new_row_kinds(repo, sha, files):
+            if not row_kind_named(kind, SIDEBAR_TRAILER.findall(message)):
+                found.append((sha, f"{sha[:11]} {subject[:70]}: adds a new kind of sidebar row (`{kind}`) with no "
+                                   "`Sidebar-Look:` quote that names it. A new row ships only when someone asked for "
+                                   "that row: quote their words naming it (`Sidebar-Look: Leo <date> \"<his words>\"`), "
+                                   f"or leave {', '.join(sorted(SIDEBAR_ROW_KINDS.values()))} as they are."))
     return found
+
+
+def enum_cases(text: str, name: str) -> set[str]:
+    """The case names of enum NAME in Swift TEXT (its own level only, not a nested type's)."""
+    lines = text.split("\n")
+    start = next((i for i, line in enumerate(lines) if re.search(rf"\benum\s+{re.escape(name)}\b", line)), None)
+    if start is None:
+        return set()
+    cases: set[str] = set()
+    depth, opened = 0, False
+    for line in lines[start:]:
+        code = line.split("//", 1)[0]
+        if depth == 1 and (m := re.match(r"\s*case\s+(.+)", code)):
+            # `case a, b(X)` and `case a(Y, Z)`: drop payloads, then split on commas.
+            names = re.sub(r"\([^()]*\)", "", m.group(1))
+            cases.update(n.strip().split("=")[0].strip() for n in names.split(",") if n.strip())
+        depth += code.count("{") - code.count("}")
+        opened = opened or "{" in code
+        if opened and depth <= 0:
+            break
+    return {c for c in cases if re.fullmatch(r"[A-Za-z_]\w*", c)}
+
+
+def sidebar_new_row_kinds(repo: Path, sha: str, files: list[str]) -> list[str]:
+    """Row kinds commit SHA adds: cases of a SIDEBAR_ROW_KINDS enum at SHA that its first parent lacks."""
+    added: list[str] = []
+    for path, name in sorted(SIDEBAR_ROW_KINDS.items()):
+        if path not in files:
+            continue
+        head = git(repo, "show", f"{sha}:{path}", check=False).decode(errors="replace")
+        base = git(repo, "show", f"{sha}^:{path}", check=False).decode(errors="replace")
+        before = enum_cases(base, name)
+        # A commit that makes the enum (or moves it here) adds no row: its cases were rows before it.
+        if before:
+            added += sorted(enum_cases(head, name) - before)
+    return added
+
+
+def row_kind_named(kind: str, trailers: list[str]) -> bool:
+    """Whether the quote of a Sidebar-Look trailer (its first quoted span: the words that asked) names row KIND: a
+    word of its camelCase name (`automatic`, `doneFold` -> done), stem-matched so `archive` finds "archived". Only
+    the first span, so the commit's own description of the row later in the line ("Settled (N)") does not count."""
+    words = [w.lower() for w in re.findall(r"[A-Z]?[a-z]+|[A-Z]+(?![a-z])", kind)]
+    words = [w for w in words if len(w) >= 3 and w not in SIDEBAR_KIND_GENERIC]
+    quotes = " ".join(m.group(1) for t in trailers if (m := SIDEBAR_QUOTED.search(t)))
+    return any(re.search(rf"\b{re.escape(w[:max(4, len(w) - 2)])}", quotes, re.IGNORECASE) for w in words)
 
 
 def chrome_hunks(repo: Path, sha: str, sources: list[str]) -> list[str]:
@@ -3543,6 +3744,44 @@ def deferred_ci_layers(pushed_lines: list[str]) -> frozenset[str]:
     return CI_LAYER_CHECKS
 
 
+# A push of only backup/* refs saves old work (the consolidate step pushes a checkout's branches to
+# backup/<dir>[--<branch>] before its folder goes); no pull request is opened from them, and a PR made later is judged
+# by its own CI. The code-quality layers (the scanners, ast-grep, SwiftFormat, SwiftLint, the crash and panic
+# ratchets, the guardrails and their arch ratchet, the compile trailer) have nothing to guard there, and they refused
+# saves of work that predates their rows (2026-11-28: backup/cmux-cg-composer, backup/cmux-cg-tower and
+# backup/cmux-tp-mutedtokens.noindex, over arch-ratchet rows). The layers about what GitHub runs for any pushed branch
+# with the repo's secrets (its workflows: they parse, each job is bounded, a reusable call stays within its caller's
+# permissions) still judge them. Checkpoint `-wip` refs are not backups: the fleet opens draft PRs from them.
+# The WIP net's backup of a checkout the gate refused is one (lane/backup/<branch>-<host>-wip, leo-workspace
+# tools/wip_checkpoint.py backup_push): under lane/ because a lane VM's broker takes no other name, ending in -wip
+# because no first-push draft is opened for such a ref (lane_gh_auto_draft.side_ref), and never the head of a PR.
+# lane/cold-activation-865-next, 2026-11-28: the arch ratchet (CmuxNextApp +13 lines) refused every
+# checkpoint of lane/cold-activation-865-next-wip from 02:00Z to 14:17Z, so 3 commits were only on that VM's disk 12 h.
+BACKUP_PUSH_PREFIX = "refs/heads/backup/"
+WIP_BACKUP_PREFIX, WIP_BACKUP_SUFFIX = "refs/heads/lane/backup/", "-wip"
+BACKUP_PUSH_LAYERS = frozenset({"workflows", "job-bounds", "reusable-perms"})
+
+
+def backup_only_push(pushed_lines: list[str]) -> bool:
+    """True when every pushed ref with commits is under refs/heads/backup/ (BACKUP_PUSH_PREFIX) or is a WIP-net backup
+    (refs/heads/lane/backup/<name>-wip); a line the gate cannot read, a push with no commits, or any other ref beside
+    them is False (every layer runs)."""
+    refs = []
+    for line in pushed_lines:
+        parts = line.split()
+        if len(parts) != 4:
+            if line.strip():
+                return False
+            continue
+        if set(parts[1]) == {"0"}:
+            continue  # a delete sends no commits
+        refs.append(parts[2])
+    return bool(refs) and all((ref.startswith(BACKUP_PUSH_PREFIX) and len(ref) > len(BACKUP_PUSH_PREFIX))
+                              or (ref.startswith(WIP_BACKUP_PREFIX) and ref.endswith(WIP_BACKUP_SUFFIX)
+                                  and len(ref) > len(WIP_BACKUP_PREFIX) + len(WIP_BACKUP_SUFFIX))
+                              for ref in refs)
+
+
 def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
          trusted_scripts: Path | None = None, ack_rev: str | None = None,
          restrict: set[str] | None = None, swiftformat_layer: bool = False,
@@ -3572,6 +3811,11 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         markers = conflict_markers(repo, base, head)
         if markers:
             reserved.append((CONFLICT_CHECK, markers))
+    # Every run, CI's too: git objects only, and only the manifests the range changes.
+    if (only is None or "cargo-manifests" in only) and want(CARGO_MANIFEST_CHECK):
+        unparsable = cargo_manifest_problems(repo, base, head, restrict)
+        if unparsable:
+            reserved.append((CARGO_MANIFEST_CHECK, unparsable))
     # Every run, CI's too: git objects only, under a second, and only when the range adds a file.
     if (only is None or "generated-files" in only) and want(GENERATED_CHECK):
         generated = new_generated_files(repo, base, head, trusted_scripts)
@@ -3653,6 +3897,12 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         rewritten = xcstrings_rewrites(repo, base, head, trusted_scripts)
         if rewritten:
             reserved.append((XCSTRINGS_CHECK, rewritten))
+    # Local only, like the Cargo.lock check: CI's Rust panic ratchet stays the backstop. Source text only, the
+    # changed Rust files at HEAD, milliseconds.
+    if (highlights_layer if only is None else "panic-allow" in only) and restrict is None and want(PANIC_ALLOW_CHECK):
+        reasonless = panic_allow_reasons(repo, base, head, trusted_scripts)
+        if reasonless:
+            reserved.append((PANIC_ALLOW_CHECK, reasonless))
     if (only is None or "crash-allow" in only) and want(CRASH_ALLOW_CHECK):
         unreviewed = crash_allow_unreviewed(repo, base, head)
         if unreviewed:
@@ -3699,6 +3949,8 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         return reserved
     swift = [p for p in changed if p.startswith(SWIFT_SCOPE) and p.endswith(".swift")]
     sources = [p for p in swift if p.startswith(PKG + "/Sources/")]
+    # The push's renames ({new path: old path}): a moved file's findings are its old path's, not new ones.
+    moved = baseline_moves(repo, base, head, trusted_scripts) if changed else {}
     started = time.monotonic()
     found: list[tuple[str, list[str]]] = list(reserved)
     with scratch_dir() as tmp:
@@ -3767,13 +4019,16 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
             jobs[SWIFTLINT_JOB] = ("fn", swiftlint, ensure_tool(lock, "swiftlint"),
                                                 lint / "swiftlint.yml", swift)
 
-        def side(job, tree):
+        def side(job, tree, is_base=False):
             t0 = time.monotonic()
             tree = absolute(tree)
             if job[0] == "cmd":
                 code, out = run(fill(job[1], tree), tree)
             else:
                 _, fn, binary, config, files = job
+                if is_base:
+                    # A moved file's old path, so its findings there key the head's in the new path (new_records).
+                    files = [*files, *(moved[p] for p in files if p in moved)]
                 out = fn(absolute(binary), absolute(config), tree, files)
                 code = 1 if out else 0
             return code, out, time.monotonic() - t0
@@ -3782,7 +4037,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         crash_layer = (bool(crates) and (highlights_layer if only is None else "crash-ratchet" in only)
                        and want(CRASH_RATCHET_CHECK))
         with concurrent.futures.ThreadPoolExecutor(max_workers=side_workers()) as pool:
-            futures = {(name, i): pool.submit(side, job, tree)
+            futures = {(name, i): pool.submit(side, job, tree, i == 0)
                        for name, job in jobs.items()
                        for i, tree in enumerate(trees_for.get(name, (base_tree, head_tree)))}
             prepared = (pool.submit(prepare_crash_ratchet, repo, base, head, head_tree, trusted_scripts, absolute(Path(tmp)))
@@ -3832,7 +4087,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                                                         work=absolute(Path(tmp)) / "deps-head", trusted_scripts=trusted_scripts)
                 if head_code == 0:
                     continue  # passing on the head: what it prints is a warning tier, as in CI
-                fresh = new_records(base_out, head_out, name_base, name_head)
+                fresh = new_records(base_out, head_out, name_base, name_head, moved)
                 if fresh:
                     found.append((name, fresh))
         # Its scan after the scanners: it adds files to the trees (the modules that declare a changed file, deleted
@@ -4460,7 +4715,7 @@ def _main(argv: list[str] | None = None) -> int:
                                             "finding on a commit outside it (on the base) is a warning that names the "
                                             "commit and the owner file; one inside it is an error")
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,ui-font,conflicts,"
-                                       "cargo-lock,sidebar,crash-allow,crash-ratchet,freeze,highlights,pictures,workflows,"
+                                       "cargo-lock,sidebar,crash-allow,crash-ratchet,panic-allow,freeze,highlights,pictures,workflows,"
                                        "single-host-fallbacks,redefinitions,port-drift,new-crate-versions,"
                                        "settings-export-keys,main-twin,job-bounds,reusable-perms,generated-files,generated-fresh,xcstrings")
     parser.add_argument("--timings", action="store_true")
@@ -4566,13 +4821,21 @@ def _main(argv: list[str] | None = None) -> int:
             log("prepush-gate: this host is loaded (load average at one runnable process per core or more): the "
                 "scanners, ast-grep and SwiftLint are left to the pull request's fast-gates CI job, which runs them "
                 "with the same refusal; every other check runs here.")
+    backup_push = args.pre_push and only is None and backup_only_push(pushed_lines)
+    if backup_push:
+        only = set(BACKUP_PUSH_LAYERS)
+        log("prepush-gate: every pushed ref is under backup/ or lane/backup/...-wip (saved work, no pull request): "
+            "the code-quality layers "
+            "and the arch ratchet are skipped; the workflow checks (" + ", ".join(sorted(BACKUP_PUSH_LAYERS))
+            + ") still run.")
     for own in ranges:
         log(f"prepush-gate: judging {own.describe()}")
     # Next to the gate, in its own process group; joined (or killed at its deadline) after the gate's own checks.
     advised = (advisory_start(repo, args.base, args.head) if args.advisory and only is None and not args.pre_push
                else None)
     # Local only: CI runs this script too (--commits, and --base/--head on pull requests), and must gain no gate.
-    local_only = not args.no_guardrails and not os.environ.get("GITHUB_ACTIONS") and only is None
+    local_only = (not args.no_guardrails and not backup_push and not os.environ.get("GITHUB_ACTIONS")
+                  and only is None)
     started_guardrails = start_guardrails(repo, ranges, trusted_scripts) if local_only else None
     # SwiftFormat only for the pre-push hook and a plain local run (no --base: CI's pull request run, the fast gates
     # and the car guards name one), never on GitHub Actions.
@@ -4620,6 +4883,8 @@ def _main(argv: list[str] | None = None) -> int:
     if skip and any(name == CONFLICT_CHECK for name, _ in found_any):
         print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {CONFLICT_CHECK}: finish the merge "
               "(keep one side of each hunk), then push.")
+    elif skip and any(name == CARGO_MANIFEST_CHECK for name, _ in found_any):
+        print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {CARGO_MANIFEST_CHECK}. {CARGO_MANIFEST_HINT}")
     elif skip and any(name == WORKFLOW_CHECK for name, _ in found_any):
         # A workflow GitHub cannot load stops every run of it (all its jobs, on every push), not one check.
         print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {WORKFLOW_CHECK}. {WORKFLOW_HINT}")
@@ -4662,8 +4927,12 @@ def _main(argv: list[str] | None = None) -> int:
         print(FALLBACKS_HINT)
     if any(name == CRASH_RATCHET_CHECK for name, _ in found_any):
         print(CRASH_RATCHET_HINT)
+    if any(name == PANIC_ALLOW_CHECK for name, _ in found_any):
+        print(PANIC_ALLOW_HINT)
     if any(name == WORKFLOW_CHECK for name, _ in found_any):
         print(WORKFLOW_HINT)
+    if any(name == CARGO_MANIFEST_CHECK for name, _ in found_any):
+        print(CARGO_MANIFEST_HINT)
     if any(name == REDEFINITION_CHECK for name, _ in found_any):
         print(REDEFINITION_HINT)
     print(HOW_TO_FIX)

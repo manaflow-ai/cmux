@@ -77,6 +77,25 @@ re-blessing without `--spec` keeps the golden's spec.
 `missing` (no head; fails only with `--require-all`) or `error`, in `out/report.json`
 (`cmux-shotdiff.report/v1`) with `out/diff/<name>.png` for every one that is not identical.
 
+## Input keys (mac-golden-cache)
+
+```sh
+cmux-shotdiff key --inputs .github/golden-inputs.json --family ios-gate --variant iphone [--rev SHA]
+# {"schema":"cmux-shotdiff.key/v1","version":"golden-key/v2","family":"ios-gate","variant":"iphone","key":"f419…","files":16482,"rev":"SHA"}
+```
+
+A family in `.github/golden-inputs.json` names every file that can change its screenshots (`**` any folders,
+`*`/`?` within a name, `!` excludes, last match wins). The key is SHA-256 over the key version, family,
+variant, the family's entry as canonical JSON, and `mode blob path` of each matching file at REV from
+`git ls-tree` (no checkout needed, so a sparse or shallow clone works). Same inputs, same key, on any runner.
+
+A Mac files a render as a golden store named by its key; every later run with the same key, Linux included,
+restores that store and judges its own render with `batch`, with no Mac. The iOS gate's `seed-goldens` job
+saves `golden-ios-gate-<variant>-<key>` to R2 (`scripts/ci/r2-cache.sh`, namespace `goldens`); restores need
+no credentials. The first render of a key stays the golden; a later one is checked against it.
+
+Wide on purpose: a file left out lets a stale golden pass, one too many only costs a render.
+
 ## CI step
 
 ```yaml
@@ -98,3 +117,32 @@ summary and fails the step on a fail.
 (sources in `html/`, store in `store/`, specs with `min_tile_ssim: 0.9`): same renders pass at SSIM 1.0, a
 clock change under its mask passes, and a 6 px nudge and a shortened label fail on their worst tile (0.62 and
 0.37 against 0.9) while moving only 0.31% and 0.53% of pixels.
+
+### Desktop reference stores
+
+The Mac gallery fleet entry packs `goldens/` beside `render/` in its artifact. To reuse stores across
+captures, set `CMUX_DESKTOP_GOLDEN_ROOT` to a shared directory and `CMUX_DESKTOP_GOLDEN_RUNTIME` to the
+worker's versioned macOS build, display and font profile. The capture records that profile in
+`render/run.json`. Each engine, manifest and capture selector has its own store. A partial render is
+available for diagnosis in the original artifact but cannot seed a store.
+
+On Linux, with the built `cmux-shotdiff` on PATH (or set `CMUX_SHOTDIFF`), restore the reference for
+the source revision under test. Use the capture's profile and manifest, and a fresh output directory.
+
+```sh
+python3 scripts/cmux-next/desktop_goldens.py restore-gallery --root goldens --runtime "$profile" \
+  --rev "$rev" --manifest render/manifest.json --dir mac-reference
+uv run scripts/gallery-matrix/parity.py --linux linux-render --mac mac-reference --strict
+```
+
+For the native chrome comparison, file the three fixture crops that `cmux-fp/scripts/look-measure.py`
+reads (`ref-topleft.png`, `ref-sidebar.png` and `ref-topbar.png` at 2x). Use a synthetic NEXT
+workspace matching the replica's look fixture. Move the store to the Linux worker with its artifact.
+
+```sh
+python3 scripts/cmux-next/desktop_goldens.py file-chrome --root goldens --runtime "$profile" \
+  --rev "$rev" --dir fixture-crops
+python3 scripts/cmux-next/desktop_goldens.py restore-chrome --root goldens --runtime "$profile" \
+  --rev "$rev" --dir native-reference
+python3 ../cmux-fp/scripts/look-measure.py L1-rest.png native-reference
+```

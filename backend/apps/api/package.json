@@ -17,6 +17,7 @@
     "@cmux/home-core": "workspace:*",
     "@cmux/ownership": "workspace:*",
     "@cmux/protocol": "workspace:*",
+    "@cmux/saml": "workspace:*",
     "@earendil-works/chord": "1.0.0",
     "@earendil-works/pi-ai": "1.0.0",
     "@earendil-works/pi-durable": "1.0.0",
@@ -31,7 +32,7 @@
     "pg": "8.23.0"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "0.22.0",
+    "@cloudflare/vitest-plugin": "1.9.2",
     "@cloudflare/workers-types": "5.20260925.1",
     "@types/node": "26.6.2",
     "@types/pg": "8.23.1",

@@ -16,6 +16,7 @@ use std::time::Duration;
 /// Shorter than two faults a minute apart (a carrier fault run, 2026-11-23: with 60 s the counter
 /// was still at 3, and systemd waited 10.1 s to restart); a daemon that dies after it is restarted
 /// every `RestartSec` + 15 s at most, which is no hot loop.
+// timeout: a crash-loop window for the restart counter, not a wait on anything.
 pub(crate) const STEADY: Duration = Duration::from_secs(15);
 
 // timeout: cleanup for a wedged systemctl; nothing waits on the reset.
@@ -70,23 +71,5 @@ pub(crate) fn start(scope: &cmux_scope::Scope) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::own_unit;
-
-    #[test]
-    fn own_unit_reads_the_acpmux_service_from_cgroup_v2() {
-        let cg = "0::/user.slice/user-1000.slice/user@1000.service/app.slice/acpmux.service\n";
-        assert_eq!(own_unit(cg).as_deref(), Some("acpmux.service"));
-    }
-
-    #[test]
-    fn own_unit_is_none_outside_an_acpmux_service() {
-        // A daemon a client started from a login shell, another unit, cgroup v1 only.
-        assert_eq!(own_unit("0::/user.slice/user-1000.slice/session-3.scope\n"), None);
-        assert_eq!(
-            own_unit("0::/user.slice/user-1000.slice/user@1000.service/app.slice/other.service\n"),
-            None
-        );
-        assert_eq!(own_unit("12:pids:/user.slice\n1:name=systemd:/user.slice\n"), None);
-    }
-}
+#[path = "restart_backoff_tests.rs"]
+mod tests;
