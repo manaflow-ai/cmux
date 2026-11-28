@@ -483,7 +483,8 @@ final class ChatReplayPlayer {
         do {
             read = try await chat.source.replayRecording()
         } catch let error as AgentFeatureUnavailable where !chat.source.isOffline {
-            state = .unavailable(error.message)
+            // Not offered here (not retried); a recording this chat already showed stays drawn.
+            if state != .ready { state = .unavailable(error.message) }
             return
         } catch {
             // The kept recording stays on screen; only a replay with none says it failed.
