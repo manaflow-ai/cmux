@@ -15,6 +15,7 @@ cmux-action-catalog.workspace = true
 cmux-app-manifest.workspace = true
 cmux-config.workspace = true
 cmux-theme-tokens.workspace = true
+ress = "0.11.7"
 fs4.workspace = true
 cmux-file-lock.workspace = true
 serde.workspace = true

@@ -101,7 +101,7 @@
   gap: 2px;
   min-width: 0;
   min-height: 28px;
-  margin-left: -8px;
+  margin-left: calc(-1 * var(--ds-space-fixed-2));
 }
 .acpmux-task-spacer {
   flex: 1;

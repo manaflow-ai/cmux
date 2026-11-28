@@ -1,5 +1,5 @@
 // One list row, inside a `List`: an optional leading mark (icon, status, avatar), a title, an optional second line
-// and a trailing column (a pill, a count, a hover action). With `onSelect` the whole row is the one
+// and a trailing column (a pill or a count). With `onSelect` the whole row is the one
 // open target (the sidebar spec: no separate Open button); without it the row is static text.
 // Hover and selection fill the row from the theme's roles; nothing in the row changes weight.
 // A host that draws its own rows (a customize scene's) can hold the row element (`ref`), hand it any
@@ -7,6 +7,7 @@
 // selection its own fill with `--kit-row-selected-fill` on the row. Left out, the row is as before.
 import { forwardRef, type HTMLAttributes, type ReactNode, type Ref } from "react";
 import { cx } from "../ui/cx";
+import { revealControls } from "../ui/revealCover";
 
 export type RowDensity = "compact" | "comfortable";
 /** The second line's type step: `caption` (the default) or `detail`. */
@@ -23,8 +24,10 @@ export interface RowProps extends RowElementProps {
   subtitleSize?: RowSubtitleSize;
   /** The leading column: an `Icon`, a `StatusGlyph`, a spinner or an `Avatar`. */
   leading?: ReactNode;
-  /** The trailing column: a `Pill`, a count or a small `Button`. */
+  /** Always visible. Use a Pill or count here, and put interactive controls in hoverActions. */
   trailing?: ReactNode;
+  /** Secondary controls over the end of the text on hover or focus. Always visible on touch. */
+  hoverActions?: ReactNode;
   /** The row the person is on (`aria-current`): the selection fill. */
   selected?: boolean;
   /** compact 28, comfortable 32 (design/system.md rows). */
@@ -42,6 +45,7 @@ export const Row = forwardRef<HTMLElement, RowProps>(function Row(
     subtitleSize,
     leading,
     trailing,
+    hoverActions,
     selected = false,
     density = "compact",
     label,
@@ -51,10 +55,11 @@ export const Row = forwardRef<HTMLElement, RowProps>(function Row(
   },
   ref,
 ) {
+  const hasActions = hoverActions != null && typeof hoverActions !== "boolean";
   const body = (
     <>
       {leading !== undefined && <span className="kit-row-lead">{leading}</span>}
-      <span className="kit-row-text">
+      <span className={cx("kit-row-text", hasActions && "ui-reveal-text")}>
         <span className="kit-row-title">{title}</span>
         {subtitle !== undefined && <span className="kit-row-subtitle">{subtitle}</span>}
       </span>
@@ -72,7 +77,7 @@ export const Row = forwardRef<HTMLElement, RowProps>(function Row(
   // A button takes its name from aria-label; a plain element can't be named, so a static row reads
   // the label as hidden text and hides the visible text it replaces.
   return (
-    <li className="kit-row-item">
+    <li className={cx("kit-row-item", hasActions && "ui-reveal-host")}>
       {onSelect ? (
         <button
           type="button"
@@ -94,6 +99,11 @@ export const Row = forwardRef<HTMLElement, RowProps>(function Row(
             body
           )}
         </div>
+      )}
+      {hasActions && (
+        <span className="kit-row-actions ui-reveal" ref={revealControls}>
+          {hoverActions}
+        </span>
       )}
     </li>
   );

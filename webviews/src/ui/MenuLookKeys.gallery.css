@@ -4,8 +4,8 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 24px;
-  padding: 16px;
+  gap: var(--ds-space-fixed-5);
+  padding: var(--ds-space-fixed-4);
 }
 .menu-look-keys-two-line {
   display: flex;

@@ -5,7 +5,7 @@
   align-items: center;
   gap: var(--ds-space-2);
   min-height: 24px;
-  padding: 0 4px 0 8px;
+  padding: 0 var(--ds-space-fixed-1) 0 var(--ds-space-fixed-2);
   color: var(--agent-muted);
   font-size: var(--text-detail);
 }
@@ -26,7 +26,7 @@
 .acpmux-subagent-limit__reset {
   height: 20px;
   margin: 0 2px 0 0;
-  padding: 0 4px;
+  padding: 0 var(--ds-space-fixed-1);
   border: 0;
   border-radius: 5px;
   background: none;

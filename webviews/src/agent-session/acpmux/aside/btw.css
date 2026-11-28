@@ -1,6 +1,6 @@
 .acpmux-btw-note {
-  margin-block: 8px;
-  padding-inline-start: 12px;
+  margin-block: var(--ds-space-fixed-2);
+  padding-inline-start: var(--ds-space-fixed-3);
   border-inline-start: 2px solid var(--agent-muted);
   color: var(--agent-text);
   --cv-font-size: var(--text-detail);
@@ -16,7 +16,7 @@
   color: var(--agent-muted);
 }
 .acpmux-btw-label { font-weight: 500; }
-.acpmux-btw-question { margin-block: 4px; font-weight: 500; }
+.acpmux-btw-question { margin-block: var(--ds-space-fixed-1); font-weight: 500; }
 .acpmux-btw-status { color: var(--agent-muted); }
 .acpmux-btw-dismiss {
   display: inline-flex;

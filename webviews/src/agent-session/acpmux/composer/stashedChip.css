@@ -49,7 +49,7 @@
 .acpmux-stash-button {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   color: var(--agent-muted);
   white-space: nowrap;
 }
@@ -65,7 +65,7 @@
 .acpmux-stash-row {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   min-width: 0;
 }
 .acpmux-stash-preview {

@@ -1,7 +1,7 @@
 .acpmux-sender {
   display: inline-flex;
   align-items: baseline;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   min-width: 0;
   max-width: 100%;
   vertical-align: baseline;

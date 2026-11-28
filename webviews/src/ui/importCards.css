@@ -13,7 +13,7 @@
     var(--cmux-elevated-background, color-mix(in srgb, var(--import-text) 4%, Canvas))
   );
   display: grid;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   min-width: 0;
   color: var(--import-text);
 }
@@ -37,16 +37,16 @@
 
 .import-cards-grid {
   display: grid;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   min-width: 0;
 }
 
 .import-card {
   display: grid;
   align-content: start;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   min-width: 0;
-  padding: 12px;
+  padding: var(--ds-space-fixed-3);
   border: 1px solid var(--import-edge);
   border-radius: 10px;
   background: var(--import-surface);

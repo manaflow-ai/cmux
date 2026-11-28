@@ -78,7 +78,7 @@ export function WidgetFrame(
   options: { place?: WidgetPlace; spacing?: Space; background?: string } = {}
 ): View {
   const inset = options.place === "sidebar" ? WIDGET_INSET.sidebar : WIDGET_INSET.newtab
-  const frame = VStack({ spacing: options.spacing ?? 4, alignment: "leading" }, children)
+  const frame = VStack({ spacing: options.spacing ?? SPACE.xxs, alignment: "leading" }, children)
     .padding(inset)
     .frame({ maxWidth: "infinity", maxHeight: "infinity" })
   return options.background ? frame.background(options.background) : frame
@@ -89,7 +89,7 @@ export function WidgetTitle(text: string | (() => string), options: { symbol?: s
   const tint = options.tint ?? "accent"
   const label = TextIn("label", text).color(tint)
   if (!options.symbol) return label
-  return HStack({ spacing: 4 }, [Icon(options.symbol).size(WIDGET_TYPE.label).color(tint), label])
+  return HStack({ spacing: SPACE.xxs }, [Icon(options.symbol).size(WIDGET_TYPE.label).color(tint), label])
 }
 
 /** The glanceable value: a large, semibold, single-line number or word (a time, a temperature, a count). Its
@@ -148,7 +148,7 @@ export function Gauge(value: number | (() => number), options: { label?: string 
   const bar = ProgressView(value)
   const tinted = options.tint ? bar.color(options.tint) : bar
   if (options.label === undefined) return tinted
-  return VStack({ spacing: 2, alignment: "leading" }, [tinted, Caption(options.label)])
+  return VStack({ spacing: SPACE.hairline, alignment: "leading" }, [tinted, Caption(options.label)])
 }
 
 /** One row of a widget list: a tinted bar (as Apple's Calendar widget marks an event), a title and a detail.
@@ -182,14 +182,14 @@ function checkbox(item: () => ListItem): () => View {
  */
 export function RowList(items: () => readonly ListItem[], options: { max?: number; spacing?: Space } = {}): View {
   const max = options.max ?? 4
-  return VStack({ spacing: options.spacing ?? 6, alignment: "leading" }, [
+  return VStack({ spacing: options.spacing ?? SPACE.xs, alignment: "leading" }, [
     ForEach({ items: () => (items() ?? []).slice(0, max), key: (item) => item.id }, (item) => {
       const leading = item().check
         ? checkbox(item)
         : item().symbol
         ? Icon(() => item().symbol ?? "").size(WIDGET_TYPE.label).color(() => item().tint ?? "accent")
         : VStack([]).frame({ width: 3, minHeight: 28 }).background(() => item().tint ?? "accent").cornerRadius(1.5)
-      const row = HStack({ spacing: 8 }, [
+      const row = HStack({ spacing: SPACE.s }, [
         leading,
         VStack({ spacing: SPACE.hairline, alignment: "leading" }, [
           TextIn(item().check ? "body" : "label", () => item().title)
@@ -213,7 +213,7 @@ export function RowList(items: () => readonly ListItem[], options: { max?: numbe
 
 /** What a widget shows before it has data, or when it has none: a symbol, a line and a hint. */
 export function WidgetEmpty(title: string, options: { message?: string; symbol?: string } = {}): View {
-  return VStack({ spacing: 4, alignment: "leading" }, [
+  return VStack({ spacing: SPACE.xxs, alignment: "leading" }, [
     options.symbol ? WidgetSymbol(options.symbol, { size: 18, tint: "secondary" }) : null,
     Label(title),
     options.message ? Caption(options.message) : null,
@@ -278,9 +278,9 @@ export function Timeline(options: {
   for (let hour = options.startHour; hour <= options.endHour; hour++) hours.push(hour)
   const y = (hour: number) => (hour - options.startHour) * hourHeight
   const grid = VStack(
-    { spacing: 0 },
+    { spacing: SPACE.none },
     hours.map((hour) =>
-      HStack({ spacing: 4, alignment: "top" }, [
+      HStack({ spacing: SPACE.xxs, alignment: "top" }, [
         Text(label(hour)).font(WIDGET_TYPE.footnote).color("tertiary").lineLimit(1).frame({ width: labelWidth - 4 }).offset({ y: -6 }),
         // The grid's width, not the parent's: a row that only wraps its content would leave a frameless
         // Line no width and squeeze the hour label out.
@@ -295,7 +295,7 @@ export function Timeline(options: {
     return VStack({ alignment: "leading" }, [
       Text(() => event().title).font(WIDGET_TYPE.footnote).weight("semibold").lineLimit(1).color(() => event().tint ?? "accent"),
     ])
-      .padding({ top: 2, leading: 4, trailing: 4 })
+      .padding({ top: SPACE.hairline, leading: SPACE.xxs, trailing: SPACE.xxs })
       .frame(() => ({ width: laneWidth() - 2, height: height() }))
       .background("selected")
       .cornerRadius(4)

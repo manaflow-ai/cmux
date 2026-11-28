@@ -51,7 +51,7 @@ const RADIUS = new Set([0, 4, 6, 8, 12, 16]);
 const CAPSULE_RADIUS = 999;
 const WEIGHTS = new Set(["400", "600", "normal"]);
 /** Token definitions and generated sheets: the literals the rest of the tree must reference. */
-const TOKEN_FILES = new Set(["pages/shared/desktop.css"]);
+const TOKEN_FILES = new Set(["pages/shared/desktop.css", "pages/shared/fixed-spacing.css"]);
 const CONTROL_HEIGHT = new Set([0, 20, 24, 28, 32]);
 // An icon box's height is on the icon scale (design/grid.md: 12, 14, 16, 20), which check-icon-scale.ts owns.
 const ICON_HEIGHT = new Set([...CONTROL_HEIGHT, 12, 14, 16]);

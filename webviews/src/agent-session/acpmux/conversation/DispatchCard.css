@@ -12,7 +12,7 @@
 }
 .cv-dispatch__link {
   flex: none;
-  margin-inline-start: 8px;
+  margin-inline-start: var(--ds-space-fixed-2);
   color: var(--cv-text-muted);
   font-size: var(--text-caption);
   text-decoration: underline;
@@ -55,14 +55,14 @@
 .cv-dispatch__meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 12px;
+  gap: var(--ds-space-fixed-1) var(--ds-space-fixed-3);
   margin-top: 6px;
   color: var(--cv-text-dim);
   font-size: var(--text-caption);
   letter-spacing: var(--text-caption--letter-spacing);
 }
 .cv-dispatch__brief-link {
-  margin-bottom: 4px;
+  margin-bottom: var(--ds-space-fixed-1);
 }
 .cv-dispatch__brief-link a {
   color: var(--cv-text-muted);
@@ -70,5 +70,5 @@
   text-underline-offset: 2px;
 }
 .cv-dispatch__body > .cv-iconbtn {
-  margin-top: 4px;
+  margin-top: var(--ds-space-fixed-1);
 }

@@ -12,8 +12,8 @@
   flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: var(--ds-space-fixed-3);
+  margin-bottom: var(--ds-space-fixed-4);
 }
 
 .stats-title {
@@ -61,7 +61,7 @@
 }
 
 .stats-message {
-  margin: 12px 0;
+  margin: var(--ds-space-fixed-3) 0;
 }
 
 .stats-payoff {
@@ -90,7 +90,7 @@
 .stats-tiles {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
 }
 
 .stats-tile {
@@ -120,11 +120,11 @@
 }
 
 .stats-section {
-  margin-top: 24px;
+  margin-top: var(--ds-space-fixed-5);
 }
 
 .stats-section-title {
-  margin: 0 0 8px;
+  margin: 0 0 var(--ds-space-fixed-2);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
   font-weight: 600;
@@ -168,7 +168,7 @@
 .stats-day-label {
   display: flex;
   justify-content: center;
-  margin-top: 4px;
+  margin-top: var(--ds-space-fixed-1);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   font-variant-numeric: tabular-nums;
@@ -256,7 +256,7 @@
 .stats-outcomes {
   display: flex;
   flex-wrap: wrap;
-  gap: 24px;
+  gap: var(--ds-space-fixed-5);
   margin: 0;
 }
 
@@ -275,14 +275,14 @@
 .stats-usage-groups {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 16px 24px;
-  margin-bottom: 12px;
+  gap: var(--ds-space-fixed-4) var(--ds-space-fixed-5);
+  margin-bottom: var(--ds-space-fixed-3);
 }
 
 .stats-usage-head {
   display: flex;
   justify-content: space-between;
-  margin-bottom: 4px;
+  margin-bottom: var(--ds-space-fixed-1);
   color: var(--page-text-3);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
@@ -299,5 +299,5 @@
 }
 
 .stats-usage-since {
-  margin: 0 0 12px;
+  margin: 0 0 var(--ds-space-fixed-3);
 }

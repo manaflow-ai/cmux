@@ -20,7 +20,7 @@
 .pw-search-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   min-width: 0;
 }
 
@@ -93,7 +93,7 @@
 .pw-notice {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   margin: 10px var(--page-edge) 0;
   padding: 6px 10px;
   border-radius: 7px;
@@ -140,7 +140,7 @@
 
 .pw-section-title {
   margin: 0 0 6px;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
   font-size: 13px;
   font-weight: 600;
   color: var(--page-text-2);
@@ -149,19 +149,19 @@
 .pw-help,
 .pw-empty,
 .pw-unavailable {
-  margin: 4px 0 8px;
-  padding: 0 8px;
+  margin: var(--ds-space-fixed-1) 0 var(--ds-space-fixed-2);
+  padding: 0 var(--ds-space-fixed-2);
   color: var(--page-text-3);
 }
 
 /* A site's group is its header and its logins, each a windowed item: the group's space above is on
    its header, the space below on its last login. */
 .pw-site-head {
-  padding-top: 4px;
+  padding-top: var(--ds-space-fixed-1);
 }
 
 .pw-site-end {
-  padding-bottom: 4px;
+  padding-bottom: var(--ds-space-fixed-1);
 }
 
 .pw-site-header,
@@ -170,7 +170,7 @@
   align-items: center;
   gap: 10px;
   min-width: 0;
-  padding: 4px 8px;
+  padding: var(--ds-space-fixed-1) var(--ds-space-fixed-2);
   border-radius: var(--ds-radius-md);
 }
 
@@ -239,7 +239,7 @@
 
 .pw-badges {
   display: flex;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
 }
 
 .pw-badge {

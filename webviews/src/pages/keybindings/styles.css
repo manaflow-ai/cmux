@@ -35,7 +35,7 @@
 
 .keys-search-row {
   display: flex;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   min-width: 0;
 }
 
@@ -44,7 +44,7 @@
   display: flex;
   flex: 1;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   min-width: 0;
   border-radius: 7px;
   border: 1px solid var(--page-separator);
@@ -84,8 +84,8 @@
   display: inline-flex;
   align-items: center;
   height: 20px;
-  margin-right: 4px;
-  padding: 0 8px;
+  margin-right: var(--ds-space-fixed-1);
+  padding: 0 var(--ds-space-fixed-2);
   border-radius: 10px;
   font-size: 11px;
   font-weight: 600;
@@ -99,7 +99,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px 12px;
+  gap: var(--ds-space-fixed-1) var(--ds-space-fixed-3);
   min-width: 0;
 }
 
@@ -142,7 +142,7 @@
   font: inherit;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   margin: 10px 18px 0;
   padding: 6px 10px;
   border-radius: 7px;
@@ -174,7 +174,7 @@
   font-size: 11px;
   font-weight: 600;
   color: var(--page-text-2);
-  padding: 8px 8px 4px;
+  padding: var(--ds-space-fixed-2) var(--ds-space-fixed-2) var(--ds-space-fixed-1);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -202,7 +202,7 @@
 }
 
 .keys-table td {
-  padding: 4px 8px;
+  padding: var(--ds-space-fixed-1) var(--ds-space-fixed-2);
   vertical-align: middle;
   overflow: hidden;
 }
@@ -262,8 +262,8 @@
   align-items: center;
   max-width: 100%;
   min-height: 24px;
-  margin-left: -4px;
-  padding: 0 4px;
+  margin-left: calc(-1 * var(--ds-space-fixed-1));
+  padding: 0 var(--ds-space-fixed-1);
   border: 0;
   border-radius: var(--ds-radius-control);
   background: transparent;
@@ -437,7 +437,7 @@
   display: grid;
   place-items: center;
   color: var(--page-text-3);
-  padding: 24px;
+  padding: var(--ds-space-fixed-5);
   text-align: center;
 }
 
@@ -464,7 +464,7 @@
       "key source"
       "when when";
     border-radius: var(--ds-radius-md);
-    padding: 4px 0;
+    padding: var(--ds-space-fixed-1) 0;
     border-bottom: 1px solid var(--page-separator);
   }
 
@@ -518,7 +518,7 @@
   /* An empty condition keeps a thin click target instead of a full line. */
   .keys-row .keys-when:empty {
     min-height: 12px;
-    padding: 0 4px;
+    padding: 0 var(--ds-space-fixed-1);
   }
 }
 
@@ -556,10 +556,10 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   min-width: 240px;
   max-width: 320px;
-  padding: 12px;
+  padding: var(--ds-space-fixed-3);
   text-align: center;
 }
 
@@ -576,7 +576,7 @@
 
 /* A key inside a recorder line or button ("Close esc return") keeps a space from its words. */
 .keys-recorder-button .ui-key-hint {
-  margin-inline: 4px;
+  margin-inline: var(--ds-space-fixed-1);
 }
 
 .keys-recorder-keys {
@@ -584,9 +584,9 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   min-height: 32px;
-  padding: 4px 8px;
+  padding: var(--ds-space-fixed-1) var(--ds-space-fixed-2);
   border: 0;
   border-radius: var(--ds-radius-lg);
   background: transparent;
@@ -649,7 +649,7 @@
 
 .keys-recorder-stroke {
   display: inline-flex;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
 }
 
 .keys-recorder-cap {
@@ -659,7 +659,7 @@
   box-sizing: border-box;
   min-width: 24px;
   height: 24px;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
   border-radius: var(--ds-radius-md);
   font: inherit;
   font-size: var(--text-body);
@@ -680,12 +680,12 @@
 }
 
 .keys-recorder-conflict .keys-icon {
-  margin-inline-end: 4px;
+  margin-inline-end: var(--ds-space-fixed-1);
   vertical-align: -2px;
 }
 
 .keys-recorder-conflict-label {
-  margin-inline-end: 4px;
+  margin-inline-end: var(--ds-space-fixed-1);
 }
 
 /* The footer: the action on the left, cut to one line with an ellipsis, and a small Close with its
@@ -694,10 +694,10 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   align-self: stretch;
   min-width: 0;
-  padding-top: 8px;
+  padding-top: var(--ds-space-fixed-2);
   border-top: 0.5px solid var(--ui-line);
 }
 
@@ -716,7 +716,7 @@
 .keys-recorder-button {
   flex: none;
   height: 20px;
-  padding: 0 4px;
+  padding: 0 var(--ds-space-fixed-1);
   border: 0;
   border-radius: var(--ds-radius-control);
   background: transparent;
@@ -730,7 +730,7 @@
 .keys-recorder-choices {
   display: inline-flex;
   flex: none;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
 }
 
 /* The primary choice: the primary ink, no fill (the hover still fills). */

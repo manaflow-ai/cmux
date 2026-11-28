@@ -4869,7 +4869,7 @@ button.menu-disclosure {
   width: fit-content;
 }
 .models-claude-paste[open] > summary {
-  margin-bottom: 8px;
+  margin-bottom: var(--ds-space-fixed-2);
 }
 
 /* Settings > General's Replay the Intro card (ReplayIntroCard), right under Text Size: a line and a button that
@@ -4919,7 +4919,7 @@ button.menu-disclosure {
 /* A link that named nothing on the page says what it asked for. */
 .link-missing {
   display: block;
-  margin: 0 0 12px;
+  margin: 0 0 var(--ds-space-fixed-3);
 }
 
 /* RFD 0123 Slack awake card (gallery-first): the right-hand spent / allowance value. */
