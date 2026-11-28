@@ -596,9 +596,19 @@
             "moves and comes to the front. Build it from a `FloatingPaneSnapshot.Frame` with",
             "`init(pane:mode:frame:transaction:)`."
           ],
-          "order": ["pane", "mode", "x", "y", "w", "h", "transaction"],
+          "order": [
+            "pane",
+            "mode",
+            "x",
+            "y",
+            "w",
+            "h",
+            "transaction"
+          ],
           "fields": {
-            "mode": { "type": "Mode" }
+            "mode": {
+              "type": "Mode"
+            }
           },
           "response": "hand-written"
         },
@@ -1500,6 +1510,24 @@
             "approve"
           ],
           "response": "hand-written"
+        },
+        "set-personal-terminal": {
+          "name": "SetPersonalTerminalRequest",
+          "doc": [
+            "`set-personal-terminal` (`personal-terminals-v1`): sets or (nil `theme`) clears one terminal's own theme;",
+            "`theme` always encodes, JSON null clears."
+          ],
+          "order": [
+            "session_id",
+            "terminal_key",
+            "theme"
+          ],
+          "fields": {
+            "theme": {
+              "encode": "always"
+            }
+          },
+          "response": "EmptyResponse"
         }
       }
     },
@@ -1941,7 +1969,7 @@
       }
     },
     "Tabs": {
-      "$comment": "Hand-written still: set-terminal-keep, set-terminal-tail-pin, terminal-last-command and terminal-resume-command (an enum target), create-terminal {detached} (constant fields), new-frontend-browser-tab, new-remote-terminal-tab and terminal-resources (their inits do work), process-info (a failable init), SetFrontendBrowserTabProfileRequest (a second type for update-frontend-browser-tab).",
+      "$comment": "Hand-written still, with the emitter feature each needs: set-terminal-keep, set-terminal-tail-pin, terminal-last-command and terminal-resume-command (a request that takes exactly one of several targets: a one-of target enum with a custom encode), create-terminal {detached} (constant fields), new-frontend-browser-tab (a bound TabPlace wire type and the owner and transaction fields), terminal-resources (a request-level custom init that filters its arguments, and a private(set) field), SetFrontendBrowserTabProfileRequest (a deliberate second type for update-frontend-browser-tab, beside the generated UpdateFrontendBrowserTabRequest).",
       "requests": {
         "close-surface": {
           "name": "CloseTabRequest",
@@ -2164,6 +2192,50 @@
             }
           },
           "response": "CloseTabsResult"
+        },
+        "process-info": {
+          "name": "TerminalProcessInfoRequest",
+          "doc": [
+            "`process-info {surface}`: the PTY's child and its foreground process.",
+            "Used to ask before closing a workspace whose terminals run something."
+          ],
+          "order": [
+            "surface"
+          ],
+          "fields": {
+            "surface": {
+              "type": "SurfaceID"
+            }
+          },
+          "response": "hand-written"
+        },
+        "new-remote-terminal-tab": {
+          "name": "NewRemoteTerminalTabRequest",
+          "doc": [
+            "`new-remote-terminal-tab`: a remote-terminal tab in `pane` (default: the",
+            "active pane of the active workspace)."
+          ],
+          "order": [
+            "session_id",
+            "terminal_id",
+            "session_name",
+            "pane",
+            "title",
+            "cols",
+            "rows"
+          ],
+          "fields": {
+            "terminal_id": {
+              "type": "TerminalID"
+            },
+            "cols": {
+              "type": "Int"
+            },
+            "rows": {
+              "type": "Int"
+            }
+          },
+          "response": "hand-written"
         }
       },
       "enums": {
@@ -2298,7 +2370,7 @@
       }
     },
     "Workspace": {
-      "$comment": "Hand-written still: close, create and rename (fields sent only with another or only when set, a revision sent as a string), put-blob (its init base64-encodes).",
+      "$comment": "Hand-written still: close, create and rename (fields sent only with another or only when set, a revision sent as a string); create-workspace (conditional encode, a tagged-union first tab, and `allow_unadvertised_capability`, #57033). put-blob is generated; its Data init base64-encodes in an extension.",
       "enums": {},
       "requests": {
         "get-blob": {
@@ -2387,6 +2459,18 @@
             }
           },
           "response": "WorkspaceMetadataResult"
+        },
+        "put-blob": {
+          "name": "PutBlobRequest",
+          "doc": [
+            "`put-blob`: `data` is the asset's bytes in standard base64 (`init(mediaType:data:)` over `Data` encodes it)."
+          ],
+          "order": [
+            "media_type",
+            "data"
+          ],
+          "fields": {},
+          "response": "IconAssetBlob"
         }
       }
     },
