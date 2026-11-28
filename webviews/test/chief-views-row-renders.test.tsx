@@ -8,7 +8,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { PageClient } from "../src/pages/shared/pageClient";
-import type { ChiefAgent, LandingReply } from "../src/pages/chief-views/types";
+import type { ChiefAgent, FleetReply, LandingReply } from "../src/pages/chief-views/types";
 import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
@@ -52,12 +52,14 @@ const agents = (n: number, task = (_: number) => "Working"): ChiefAgent[] =>
     createdAt: NOW - 3_600_000,
   }));
 
-function client(first: ChiefAgent[], landing?: LandingReply) {
+function client(first: ChiefAgent[], landing?: LandingReply, fleet?: FleetReply) {
   let emit: (reply: { agents: ChiefAgent[] }) => void = () => {};
   const page: PageClient = {
     async call<R>(op: string): Promise<R> {
       if (op === "cmux.chief_views.agents") return { agents: first } as R;
-      if (op === "cmux.chief_views.landing" && landing) return landing as R;
+      if (op === "cmux.chief_views.landing" && landing) return structuredClone(landing) as R;
+      // A fresh copy per read, as the app's JSON is.
+      if (op === "cmux.chief_views.fleet" && fleet) return structuredClone(fleet) as R;
       throw new Error(`no ${op}`);
     },
     async subscribe<E>(_stream: string, onEvent: (data: E, seq: number) => void) {
@@ -69,14 +71,14 @@ function client(first: ChiefAgent[], landing?: LandingReply) {
   return { page, emit: (reply: { agents: ChiefAgent[] }) => act(() => emit(reply)) };
 }
 
-async function mount(view: string, n: number, landing?: LandingReply) {
+async function mount(view: string, n: number, landing?: LandingReply, fleet?: FleetReply) {
   const { ChiefViewsPage } = await import("../src/pages/chief-views/ChiefViewsPage");
   const { CHIEF_VIEWS } = await import("../src/pages/chief-views/registry");
   const { ChiefViewsStore } = await import("../src/pages/chief-views/store");
   const { createStrings } = await import("../src/pages/shared/i18n");
   const table = (await import("../src/pages/chief-views/generated/strings.json")).default;
   const strings = createStrings(table, ["en"]);
-  const { page, emit } = client(agents(n), landing);
+  const { page, emit } = client(agents(n), landing, fleet);
   const store = new ChiefViewsStore(page, CHIEF_VIEWS, {
     layout: { enabled: [view], main: view },
     persist: false,
@@ -91,7 +93,7 @@ async function mount(view: string, n: number, landing?: LandingReply) {
   await act(async () => {
     await Promise.resolve();
   });
-  return { emit };
+  return { emit, store };
 }
 
 for (const n of [100, 1_000]) {
@@ -147,4 +149,47 @@ test("on the board, one agent's change draws its card alone, not the pull reques
   rowRenders.reset();
   emit({ agents: agents(100, (index) => (index === 3 ? "Rebasing" : "Working")) });
   expect(rowRenders.count("PRCardRow")).toBe(1);
+});
+
+test("a Refresh whose replies did not change draws no agent row, card, event or machine on any view", async () => {
+  const merged = Array.from({ length: 30 }, (_, index) => ({
+    number: 40_000 + index,
+    title: `PR ${index}`,
+    url: `https://example.invalid/${index}`,
+    labels: ["ready-to-land"],
+    mergedAt: new Date(Date.now() - 60_000).toISOString(),
+  }));
+  const landing: LandingReply = { repo: "r", base: "b", open: merged.slice(0, 10), merged };
+  const fleet: FleetReply = {
+    machines: Array.from({ length: 20 }, (_, index) => ({
+      host: `m${index}.example`,
+      load: index,
+      ncpu: 8,
+      runnersBusy: 1,
+      runnersOnline: 2,
+    })),
+    queued: 0,
+    prs: merged.map((pr) => ({ number: pr.number, title: pr.title, branch: `b-${pr.number}`, status: "success" })),
+  };
+  const settle = () =>
+    act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  for (const view of ["where-is-everybody", "agent-board", "landing", "timeline", "fleet"]) {
+    const { store } = await mount(view, 100, landing, fleet);
+    await settle();
+    const counted = ["AgentRow", "PRCardRow", "EventRow", "MachineRow"];
+    const drawn = () => Object.fromEntries(counted.map((name) => [name, rowRenders.count(name)]));
+    expect(Object.values(drawn()).some((count) => count > 0)).toBe(true);
+    rowRenders.reset();
+    act(() => store.refresh(["fleet", "landing"]));
+    await settle();
+    expect({ view, ...drawn() } as Record<string, unknown>).toEqual({
+      view,
+      AgentRow: 0,
+      PRCardRow: 0,
+      EventRow: 0,
+      MachineRow: 0,
+    });
+  }
 });

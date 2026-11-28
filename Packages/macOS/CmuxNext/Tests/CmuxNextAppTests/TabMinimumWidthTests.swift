@@ -82,6 +82,19 @@ import Testing
         #expect(target.minX >= icon.maxX - 0.01, "close target \(target) covers the favicon \(icon)")
     }
 
+    /// Leo 2026-11-27 (ask-3729c9c563): "why dont your tabs have any names/letters showing up?" The x or a status mark
+    /// takes the trailing slot, so the room left must still pass the 3-character floor that hides a sliver.
+    @Test func aHoveredTabAtTheMinimumKeepsRoomForThreeTitleCharacters() {
+        DesignSettings.shared.tabOverflow = .shrink
+        DesignSettings.shared.setOverride(.tabMinInactiveWidth, nil)
+        let m = Harness().strip.metrics
+        let titleX = m.tabBackgroundInset + m.contentLeadingInset + m.iconSize + m.iconTitleSpacing
+        let closeX = m.minInactiveTabWidth - m.tabBackgroundInset - m.contentTrailingInset - m.closeButtonSize
+        let room = closeX - m.titleCloseSpacing - titleX
+        let floor = max(m.titleMinVisibleWidth, ceil(Typography.tabTitle.pointSize * 0.55 * 3))
+        #expect(room >= floor, "\(room) pt of title beside the x, the floor is \(floor)")
+    }
+
     @Test func minimumTabWidthSettingOverridesTheDefault() {
         DesignSettings.shared.tabOverflow = .shrink
         defer { DesignSettings.shared.setOverride(.tabMinInactiveWidth, nil) }

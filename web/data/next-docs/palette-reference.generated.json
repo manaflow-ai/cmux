@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1480,
-    "shortcuts": 205
+    "entries": 1510,
+    "shortcuts": 207
   },
   "sections": [
     {
@@ -172,10 +172,28 @@
           "command": "cmux home disable-channels"
         },
         {
+          "id": "home.editChief",
+          "title": "Edit Chief…",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "home.enableChannels",
           "title": "Enable Channels",
           "shortcut": null,
           "command": "cmux home enable-channels"
+        },
+        {
+          "id": "keyMode.enter",
+          "title": "Enter Key Mode…",
+          "shortcut": null,
+          "command": "cmux app key-mode-enter"
+        },
+        {
+          "id": "keyMode.exit",
+          "title": "Exit Key Mode",
+          "shortcut": null,
+          "command": "cmux app key-mode-exit"
         },
         {
           "id": "window.focusDock",
@@ -193,6 +211,12 @@
           "id": "focusHistoryBack",
           "title": "Go Back",
           "shortcut": "⌥⌘,",
+          "command": null
+        },
+        {
+          "id": "focusHistoryBackSession",
+          "title": "Go Back One Session",
+          "shortcut": null,
           "command": null
         },
         {
@@ -276,6 +300,12 @@
         {
           "id": "recentlyFocused",
           "title": "Location History…",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "home.adoptChief",
+          "title": "Make Agent a Chief…",
           "shortcut": null,
           "command": null
         },
@@ -472,6 +502,12 @@
           "command": null
         },
         {
+          "id": "relaunchKeepSessions",
+          "title": "Relaunch and Keep Sessions",
+          "shortcut": null,
+          "command": "cmux app relaunch"
+        },
+        {
           "id": "home.removeMember",
           "title": "Remove from Group…",
           "shortcut": null,
@@ -566,6 +602,24 @@
           "title": "Send Message…",
           "shortcut": null,
           "command": "cmux home send"
+        },
+        {
+          "id": "home.setChiefEffort",
+          "title": "Set Chief Effort…",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "home.setChiefModel",
+          "title": "Set Chief Model…",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "home.setMyAvatar",
+          "title": "Set My Picture…",
+          "shortcut": null,
+          "command": "cmux avatar set"
         },
         {
           "id": "home.showSetup",
@@ -1450,10 +1504,28 @@
           "command": "cmux space open-in-new-window"
         },
         {
+          "id": "workspace.openTerminalHere",
+          "title": "Open Terminal in Workspace Folder",
+          "shortcut": null,
+          "command": "cmux workspace open-terminal-here"
+        },
+        {
           "id": "palette.openWorkspaceTodoPane",
           "title": "Open Todo Pane",
           "shortcut": null,
           "command": "cmux workspace open-todo-pane"
+        },
+        {
+          "id": "workspace.openInEditor",
+          "title": "Open Workspace in Editor",
+          "shortcut": null,
+          "command": "cmux workspace open-in-editor"
+        },
+        {
+          "id": "workspace.openInApp",
+          "title": "Open Workspace In…",
+          "shortcut": null,
+          "command": "cmux workspace open-in"
         },
         {
           "id": "workspaceGroup.togglePin",
@@ -1712,6 +1784,12 @@
           "title": "Set Workspace Tint…",
           "shortcut": null,
           "command": "cmux workspace set-tint"
+        },
+        {
+          "id": "terminal.pinTail",
+          "title": "Show Last Line in Sidebar",
+          "shortcut": null,
+          "command": "cmux terminal pin-tail"
         },
         {
           "id": "terminal.project",
@@ -6028,6 +6106,12 @@
           "command": "cmux sidebar reset"
         },
         {
+          "id": "sidebar.priority.restore",
+          "title": "Restore Archived Chat",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "sidebar.noFade.off",
           "title": "Restore Sidebar Fade",
           "shortcut": null,
@@ -6568,6 +6652,12 @@
           "command": null
         },
         {
+          "id": "agentPane.copyCwdPath",
+          "title": "Copy Chat Folder Path",
+          "shortcut": null,
+          "command": "cmux agent copy-cwd-path"
+        },
+        {
           "id": "agentChat.copyHost",
           "title": "Copy Chat Host",
           "shortcut": null,
@@ -6784,6 +6874,12 @@
           "command": "cmux agent launch-codex-teams"
         },
         {
+          "id": "agentPane.adoptAsChief",
+          "title": "Make This Agent a Chief",
+          "shortcut": null,
+          "command": "cmux chief adopt"
+        },
+        {
           "id": "agentPane.markUnread",
           "title": "Mark Chat Unread",
           "shortcut": null,
@@ -6862,10 +6958,22 @@
           "command": "cmux agent open-tab"
         },
         {
+          "id": "agentPane.openCwdInEditor",
+          "title": "Open Chat Folder in Editor",
+          "shortcut": null,
+          "command": "cmux agent open-cwd-in-editor"
+        },
+        {
           "id": "agentPane.openCwdInTerminal",
           "title": "Open Chat Folder in Terminal",
           "shortcut": null,
           "command": "cmux agent open-cwd-in-terminal"
+        },
+        {
+          "id": "agentPane.openCwdInApp",
+          "title": "Open Chat Folder In…",
+          "shortcut": null,
+          "command": "cmux agent open-cwd-in"
         },
         {
           "id": "tasks.show",
@@ -6920,6 +7028,12 @@
           "title": "Remove Agent…",
           "shortcut": null,
           "command": "cmux agent remove-harness"
+        },
+        {
+          "id": "agentChat.renameSession",
+          "title": "Rename Agent Session…",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "agentPane.replayConversation",
@@ -7750,12 +7864,6 @@
           "command": null
         },
         {
-          "id": "remote.stopScreenSession",
-          "title": "cmux Remote: End Screen Sharing Session",
-          "shortcut": null,
-          "command": null
-        },
-        {
           "id": "remote.refreshPermissions",
           "title": "cmux Remote: Refresh Permissions",
           "shortcut": null,
@@ -7804,10 +7912,22 @@
           "command": "cmux remote forget"
         },
         {
+          "id": "machine.portForward",
+          "title": "Forward Port…",
+          "shortcut": null,
+          "command": "cmux machine port-forward"
+        },
+        {
           "id": "remote.install",
           "title": "Install cmux-tui on Machine…",
           "shortcut": null,
           "command": "cmux remote install"
+        },
+        {
+          "id": "machine.portList",
+          "title": "List Forwarded Ports",
+          "shortcut": null,
+          "command": "cmux machine port-list"
         },
         {
           "id": "remote.newGroup",
@@ -7906,10 +8026,22 @@
           "command": null
         },
         {
+          "id": "machine.portClose",
+          "title": "Stop Forwarding Port…",
+          "shortcut": null,
+          "command": "cmux machine port-close"
+        },
+        {
           "id": "macScreen.stopSharing",
           "title": "Stop Sharing This Mac",
-          "shortcut": null,
+          "shortcut": "⌥⇧⌘S",
           "command": null
+        },
+        {
+          "id": "machine.switch",
+          "title": "Switch Host…",
+          "shortcut": null,
+          "command": "cmux machine switch"
         },
         {
           "id": "macScreen.stopSharingThisMac",
@@ -7928,6 +8060,12 @@
           "title": "Add Server…",
           "shortcut": null,
           "command": "cmux servers add"
+        },
+        {
+          "id": "appearance.adjustBackground",
+          "title": "Adjust Background…",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "appearance.animations.cursor.toggle",
@@ -7970,6 +8108,18 @@
           "title": "Auto-Expand Tabs on Hover",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "appearance.background.fill",
+          "title": "Background: Fill Window",
+          "shortcut": null,
+          "command": "cmux settings background-fill"
+        },
+        {
+          "id": "appearance.background.fit",
+          "title": "Background: Fit Window",
+          "shortcut": null,
+          "command": "cmux settings background-fit"
         },
         {
           "id": "palette.shortcutKeymap",
@@ -8150,6 +8300,12 @@
           "title": "Follow @cmux on X",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "appearance.background.followDesktop",
+          "title": "Follow Desktop Wallpaper",
+          "shortcut": null,
+          "command": "cmux action appearance-background-follow-desktop"
         },
         {
           "id": "browser.hibernation.aggressive",
@@ -8446,6 +8602,12 @@
           "command": null
         },
         {
+          "id": "appearance.recentBackgrounds",
+          "title": "Recent Backgrounds…",
+          "shortcut": null,
+          "command": "cmux wallpaper recent"
+        },
+        {
           "id": "reloadConfiguration",
           "title": "Reload Configuration",
           "shortcut": "⇧⌘,",
@@ -8716,6 +8878,12 @@
           "command": null
         },
         {
+          "id": "appearance.previousBackground",
+          "title": "Switch to Previous Background",
+          "shortcut": null,
+          "command": "cmux wallpaper back"
+        },
+        {
           "id": "palette.switchAppChannel",
           "title": "Switch Update Channel…",
           "shortcut": null,
@@ -8812,10 +8980,22 @@
           "command": null
         },
         {
+          "id": "customize.revert",
+          "title": "Undo Look Change",
+          "shortcut": "⌃⌥⌘Z",
+          "command": null
+        },
+        {
           "id": "palette.uninstallCLI",
           "title": "Uninstall cmux CLI from PATH",
           "shortcut": null,
           "command": "cmux settings uninstall-cli-from-path"
+        },
+        {
+          "id": "updates.status",
+          "title": "Update Status",
+          "shortcut": null,
+          "command": "cmux settings update-status"
         },
         {
           "id": "palette.pro.upgrade",

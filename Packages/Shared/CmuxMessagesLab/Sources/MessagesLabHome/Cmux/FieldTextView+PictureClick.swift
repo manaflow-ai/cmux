@@ -10,7 +10,9 @@ extension FieldTextView {
     }
 
     /// After the field tracked a press: a single click that began and ended on the same picture (within
-    /// ``ComposeInlineAttachmentView/clickSlop``, so a drag or a selection does not count) opens it large.
+    /// ``ComposeInlineAttachmentView/clickSlop``, so a drag or a selection does not count) asks the host to open it large. The host
+    /// waits out the double-click interval and the field's next press cancels it (``DraftPictureClick``), so a
+    /// double click, whose first release is this single click, opens nothing.
     @discardableResult
     func openPictureClicked(down: NSEvent, up: NSEvent) -> Bool {
         guard down.clickCount == 1, !down.modifierFlags.contains(.shift), !down.modifierFlags.contains(.command),

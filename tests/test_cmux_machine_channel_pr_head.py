@@ -29,14 +29,19 @@ def pull(**over):
 
 
 class Fake:
-    def __init__(self, pulls, runs, artifacts, jobs=None):
+    def __init__(self, pulls, runs, artifacts, jobs=None, tips=None, numbered=None):
         self.pulls, self.runs, self.artifacts, self.jobs = pulls, runs, artifacts, jobs or {}
+        self.tips, self.numbered = tips or [], numbered or {}
         self.calls = []
 
     def __call__(self, path):
         self.calls.append(path)
         if path.startswith("commits/"):
             return self.pulls
+        if path.startswith("pulls/"):
+            return self.numbered.get(int(path.split("/")[1]), {})
+        if "branch=lane%2Fmerge-train" in path:
+            return {"workflow_runs": self.tips}
         if path.startswith("actions/workflows/"):
             return {"workflow_runs": self.runs() if callable(self.runs) else self.runs}
         run = int(path.split("/")[2])
@@ -46,18 +51,60 @@ class Fake:
         return {"jobs": self.jobs.get(run, [])}
 
 
-def run_find(api, keys=None, wait=0.0):
+def run_find(api, keys=None, wait=0.0, tree="t" * 40, subject=""):
     keys = keys or {MERGE: "k1", HEAD: "k1"}
     clock = [0.0]
     return pr_head.find(api, REPO, MERGE, PREFIX, wait, key=lambda r: keys.get(r, ""),
-                        sleep=lambda s: clock.__setitem__(0, clock[0] + s), now=lambda: clock[0])
+                        sleep=lambda s: clock.__setitem__(0, clock[0] + s), now=lambda: clock[0],
+                        tree=lambda r: tree if r == MERGE else "", subject=lambda r: subject if r == MERGE else "")
+
+
+TIP = "p" * 40
+
+
+def tip_run(id_, tree="t" * 40, sha=TIP):
+    return {"id": id_, "head_sha": sha, "head_commit": {"tree_id": tree}}
 
 
 class FindTest(unittest.TestCase):
+    def test_a_head_that_skipped_its_build_takes_the_earlier_head_with_its_key(self):
+        # The plan skipped HEAD's build: EARLIER, the branch's previous head with the merge's key, built both.
+        earlier = "e" * 40
+        own = [{"id": 30, "head_sha": HEAD, "head_branch": "lane/x", "status": "completed"}]
+        branch = own + [{"id": 25, "head_sha": earlier, "head_branch": "lane/x"}]
+        calls = []
+
+        def api(path):
+            calls.append(path)
+            if path.startswith("commits/"):
+                return [pull()]
+            if "branch=lane%2Fx" in path:
+                return {"workflow_runs": branch}
+            if path.startswith("actions/workflows/"):
+                return {"workflow_runs": own}
+            return {"artifacts": BOTH if "/25/" in path else []}
+
+        self.assertEqual(run_find(api, keys={MERGE: "k1", HEAD: "k1", earlier: "k1"}), 25)
+        self.assertIsNone(run_find(api, keys={MERGE: "k1", HEAD: "k1", earlier: "k2"}))
+
     def test_same_tree_key_and_both_artifacts_take_the_run(self):
         api = Fake([pull()], [{"id": 7, "status": "completed"}], {7: BOTH})
         self.assertEqual(run_find(api), 7)
         self.assertIn(f"actions/workflows/pr-router.yml/runs?head_sha={HEAD}&event=pull_request&per_page=20", api.calls)
+
+    def test_the_squash_subject_s_own_number_is_read_first(self):
+        # 2026-11-26 run 45874893836: the merge's own PR was past the first 30 of commits/SHA/pulls.
+        older = [pull(merge_commit_sha="x" * 40) for _ in range(30)]
+        api = Fake(older, [{"id": 7, "status": "completed"}], {7: BOTH}, numbered={54329: pull()})
+        self.assertEqual(run_find(api, subject="fix(mobile): per-phone mailbox paging (#54329)"), 7)
+        self.assertIn("pulls/54329", api.calls)
+        self.assertFalse([c for c in api.calls if c.startswith("commits/")])
+
+    def test_a_number_that_is_not_this_merge_falls_back_to_the_full_list(self):
+        api = Fake([pull()], [{"id": 7, "status": "completed"}], {7: BOTH},
+                   numbered={12: pull(merge_commit_sha="x" * 40)})
+        self.assertEqual(run_find(api, subject="revert something (#12)"), 7)
+        self.assertIn(f"commits/{MERGE}/pulls?per_page=100", api.calls)
 
     def test_the_newest_run_with_both_wins(self):
         api = Fake([pull()], [{"id": 5, "status": "completed"}, {"id": 9, "status": "completed"}], {5: BOTH, 9: BOTH})
@@ -67,6 +114,18 @@ class FindTest(unittest.TestCase):
         api = Fake([pull()], [{"id": 7, "status": "completed"}], {7: BOTH})
         self.assertIsNone(run_find(api, keys={MERGE: "k1", HEAD: "k2"}))
         self.assertIsNone(run_find(api, keys={MERGE: "", HEAD: ""}))
+
+    def test_a_stale_head_takes_the_train_tip_with_the_merges_tree(self):
+        runs = lambda: [{"id": 11, "status": "completed"}] if api.calls[-1].find(TIP) > 0 else []
+        api = Fake([pull()], runs, {11: BOTH},
+                   tips=[tip_run(3, tree="x" * 40, sha="q" * 40), tip_run(5)])
+        self.assertEqual(run_find(api, keys={MERGE: "k1", HEAD: "k2"}), 11)
+        self.assertIn(f"actions/workflows/pr-router.yml/runs?head_sha={TIP}&event=pull_request&per_page=20", api.calls)
+
+    def test_no_train_tip_with_the_merges_tree_builds_here(self):
+        api = Fake([pull()], [{"id": 11, "status": "completed"}], {11: BOTH}, tips=[tip_run(5, tree="x" * 40)])
+        self.assertIsNone(run_find(api, keys={MERGE: "k1", HEAD: "k2"}))
+        self.assertIsNone(run_find(Fake([pull()], [], {}, tips=[tip_run(5)]), keys={MERGE: "k1", HEAD: "k2"}, tree=""))
 
     def test_a_fork_head_another_base_or_a_non_squash_build_here(self):
         for pr in (pull(head={"sha": HEAD, "repo": {"full_name": "someone/cmux"}}),
@@ -172,6 +231,17 @@ class TreeKeyCliTest(unittest.TestCase):
         text = (ROOT / ".github/workflows/cmux-machine-channel.yml").read_text()
         self.assertNotIn('"$tk" key', text)
         self.assertIn('"$tk" --version v2', text)
+
+    def test_a_head_behind_the_base_does_not_build(self):
+        """find takes a build only when the head's key is the merge's, so a head behind the base (its key differs
+        from its merge with the base) builds a pair no merge can take: 470 head builds, 16.8k runner-minutes, in
+        04:30-07:11Z 2026-11-26 against 6 push builds (ci-min-per-pr-1500)."""
+        text = (ROOT / ".github/workflows/cmux-machine-channel.yml").read_text()
+        plan = text[text.index("if [[ \"$GITHUB_EVENT_NAME\" == pull_request ]]"):text.index("# The channel's commit")]
+        self.assertIn('"$tk" --version v2 HEAD^2', plan)
+        self.assertIn('"$head" != "$mine"', plan)
+        self.assertLess(plan.index('"$mine" != "$base"'), plan.index('"$head" != "$mine"'))
+        self.assertLess(plan.index('"$head" != "$mine"'), plan.index('echo "build=$build" >> "$GITHUB_OUTPUT"'))
 
 
 if __name__ == "__main__":

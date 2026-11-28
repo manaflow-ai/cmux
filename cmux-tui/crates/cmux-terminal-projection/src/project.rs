@@ -48,64 +48,9 @@ pub fn wrap_line(
     if compact && let Some(laid) = relayout::layout(term, rows, host_cols, cols, cursor) {
         return laid;
     }
-    // Glyphs with their offset in the host line.
-    // A spacer head (the host's empty last cell before a wide glyph that
-    // wrapped) is the host's own artifact: offsets after it do not count it.
-    let mut units: Vec<(usize, Cell)> = Vec::new();
-    let mut spacers = 0;
-    let mut cursor_spacers = 0;
     let cursor_cell = cursor.map(|(k, x)| k * host_cols + x);
-    for (k, row) in rows.iter().enumerate() {
-        for (x, cell) in row.cells.iter().enumerate() {
-            let at = k * host_cols + x;
-            if cell.kind == SPACER_HEAD {
-                spacers += 1;
-                if cursor_cell.is_some_and(|c| at < c) {
-                    cursor_spacers += 1;
-                }
-                continue;
-            }
-            if cell.kind == WIDE_TAIL {
-                continue;
-            }
-            units.push((at - spacers, *cell));
-        }
-    }
-    // Trailing blanks that draw nothing go (the host row's empty end). Laid
-    // out as the host's lines exactly, only cells never written go, as
-    // Ghostty's own reflow trims them: a space the program printed is a
-    // cell of the line (a right-aligned row's padding, a line ending in a
-    // space), and its rows wrap on the phone as on a resized Mac.
-    // Compact also drops written spaces that pad the line (a run of them,
-    // or one reaching the host's edge: an app filling its row or centering
-    // a title), not the one space a line ends in before the edge: the
-    // program drawn at the phone's width wraps that one too.
-    let edge = rows
-        .last()
-        .and_then(|row| row.cells.get(host_cols.saturating_sub(1)))
-        .is_some_and(|c| c.ch == u32::from(b' '));
-    let run = units
-        .iter()
-        .rev()
-        .skip_while(|(_, c)| c.ch == 0)
-        .take_while(|(_, c)| c.ch == u32::from(b' '))
-        .take(2)
-        .count();
-    let padded = edge || run >= 2;
-    while let Some((_, cell)) = units.last() {
-        let style = term.styles.get(cell.style);
-        let trimmed = if compact {
-            (cell.ch == 0 || (padded && cell.is_empty_or_space()))
-                && style.is_invisible_when_blank()
-        } else {
-            cell.ch == 0 && cell.kind != WIDE && style.bg == Color::Default
-        };
-        if trimmed {
-            units.pop();
-        } else {
-            break;
-        }
-    }
+    let Units { mut units, spacer_heads, padded } = line_units(term, rows, host_cols, compact);
+    let cursor_spacers = cursor_cell.map_or(0, |c| spacer_heads.partition_point(|&at| at < c));
     let cut = compact && compact_anchored(term, rows, host_cols, cols, &mut units);
     let cursor_offset = cursor_cell.map(|c| c - cursor_spacers);
     let mut out = vec![ProjectedRow::default()];
@@ -173,6 +118,148 @@ pub fn wrap_line(
     }
     let empty = units.is_empty() && cursor_at.is_none();
     Wrapped { rows: out, cursor: cursor_at, empty }
+}
+
+/// A logical line's glyphs for the cell-by-cell wrap: each with its offset
+/// in the host line, its trailing blanks trimmed.
+struct Units {
+    units: Vec<(usize, Cell)>,
+    /// Host offsets of the line's spacer heads, ascending. A spacer head (the
+    /// host's empty last cell before a wide glyph that wrapped) is the host's
+    /// own artifact: offsets after it do not count it.
+    spacer_heads: Vec<usize>,
+    /// Compact: the line's end was written padding (see below), dropped.
+    padded: bool,
+}
+
+fn line_units(term: &Terminal, rows: &[&Row], host_cols: usize, compact: bool) -> Units {
+    let mut units: Vec<(usize, Cell)> = Vec::new();
+    let mut spacer_heads = Vec::new();
+    for (k, row) in rows.iter().enumerate() {
+        for (x, cell) in row.cells.iter().enumerate() {
+            let at = k * host_cols + x;
+            if cell.kind == SPACER_HEAD {
+                spacer_heads.push(at);
+                continue;
+            }
+            if cell.kind == WIDE_TAIL {
+                continue;
+            }
+            units.push((at - spacer_heads.len(), *cell));
+        }
+    }
+    // Trailing blanks that draw nothing go (the host row's empty end). Laid
+    // out as the host's lines exactly, only cells never written go, as
+    // Ghostty's own reflow trims them: a space the program printed is a
+    // cell of the line (a right-aligned row's padding, a line ending in a
+    // space), and its rows wrap on the phone as on a resized Mac.
+    // Compact also drops written spaces that pad the line (a run of them,
+    // or one reaching the host's edge: an app filling its row or centering
+    // a title), not the one space a line ends in before the edge: the
+    // program drawn at the phone's width wraps that one too.
+    let edge = rows
+        .last()
+        .and_then(|row| row.cells.get(host_cols.saturating_sub(1)))
+        .is_some_and(|c| c.ch == u32::from(b' '));
+    let run = units
+        .iter()
+        .rev()
+        .skip_while(|(_, c)| c.ch == 0)
+        .take_while(|(_, c)| c.ch == u32::from(b' '))
+        .take(2)
+        .count();
+    let padded = edge || run >= 2;
+    while let Some((_, cell)) = units.last() {
+        let style = term.styles.get(cell.style);
+        let trimmed = if compact {
+            (cell.ch == 0 || (padded && cell.is_empty_or_space()))
+                && style.is_invisible_when_blank()
+        } else {
+            cell.ch == 0 && cell.kind != WIDE && style.bg == Color::Default
+        };
+        if trimmed {
+            units.pop();
+        } else {
+            break;
+        }
+    }
+    Units { units, spacer_heads, padded }
+}
+
+/// Where each host cell `(row in rows, column)` of `cells` lands on the
+/// phone, as `wrap_line(.., Some(cell), ..).cursor` would give it, from one
+/// pass over the line (a long line has as many cells as glyphs: one
+/// `wrap_line` per cell is quadratic).
+pub fn wrap_line_cells(
+    term: &Terminal,
+    rows: &[&Row],
+    host_cols: usize,
+    cols: usize,
+    compact: bool,
+    cells: &[(usize, usize)],
+) -> Vec<Option<(usize, usize)>> {
+    let cols = cols.max(2);
+    let Units { mut units, spacer_heads, padded } = line_units(term, rows, host_cols, compact);
+    let cut = compact && compact_anchored(term, rows, host_cols, cols, &mut units);
+    let mut targets: Vec<(usize, usize)> = cells
+        .iter()
+        .enumerate()
+        .map(|(i, &(k, x))| {
+            let c = k * host_cols + x;
+            (c - spacer_heads.partition_point(|&at| at < c), i)
+        })
+        .collect();
+    targets.sort_unstable();
+    let mut out = vec![None; cells.len()];
+    let mut next = 0;
+    let (mut row, mut col) = (0usize, 0usize);
+    let mut end_offset = 0;
+    for (offset, cell) in &units {
+        let width = cell.width();
+        while let Some(&(target, i)) = targets.get(next)
+            && *offset >= target
+        {
+            let w = 1.max(if *offset == target { width } else { 1 });
+            if let Some(slot) = out.get_mut(i) {
+                *slot = Some(if col + w > cols { (row + 1, 0) } else { (row, col) });
+            }
+            next += 1;
+        }
+        if col + width > cols {
+            row += 1;
+            col = 0;
+        }
+        col += width;
+        end_offset = offset + width;
+    }
+    // Past the line's end, by `wrap_line`'s rules: a row cut at the phone's
+    // edge, or compact padding it dropped, keeps the cell at the last row's
+    // end; else the blank cells up to the cell count, the line going on in
+    // blank cells past the phone's edge.
+    for &(target, i) in targets.get(next..).unwrap_or_default() {
+        let blanks = target.saturating_sub(end_offset);
+        let at = if cut || (compact && padded && col + blanks >= cols) {
+            (row, col.min(cols - 1))
+        } else if col + blanks < cols {
+            (row, col + blanks)
+        } else {
+            let (mut r, mut c, mut at) = (row, col, (row, col));
+            for _ in 0..=blanks {
+                if c + 1 > cols {
+                    r += 1;
+                    c = 0;
+                }
+                at = (r, c);
+                c += 1;
+            }
+            at
+        };
+        // `i` indexes `cells`, and `out` has one slot per cell.
+        if let Some(slot) = out.get_mut(i) {
+            *slot = Some(at);
+        }
+    }
+    out
 }
 
 /// Horizontal rules a program pads a frame with (`─` in `╭────╮`). Box
@@ -474,6 +561,78 @@ pub fn locate(
         start = end + 1;
     }
     Some(Located { from_bottom, column })
+}
+
+/// The host cell under a phone cell: the inverse of [`locate`], for a tap or
+/// a mouse click on the primary screen of an app that asked for the mouse
+/// (Aziz, cmux#42219: "I found no mapping from phone positions back to host
+/// cells"). `phone_from_bottom` counts the re-wrapped rows (1: the last),
+/// `phone_column` the phone's cells. The answer is host rows from the bottom
+/// (1: the screen's last row) and a host column. A phone cell past a row's
+/// last glyph, or on padding the compact layout shrank, gives the host cell
+/// of the nearest glyph before it on that row. None: the model holds fewer
+/// rows than that. Within a line, cells are placed by the cell-by-cell wrap
+/// (as [`locate`] places them); an inline app's paragraph that
+/// [`relayout::layout`] re-flows by words maps by that wrap's rows too.
+pub fn host_cell(
+    term: &Terminal,
+    cols: usize,
+    compact: bool,
+    phone_from_bottom: usize,
+    phone_column: usize,
+) -> Option<(usize, usize)> {
+    let rows: Vec<&Row> = term.history.iter().chain(term.primary_rows().iter()).collect();
+    if phone_from_bottom == 0 || rows.is_empty() {
+        return None;
+    }
+    // Logical lines from the bottom, counting the phone rows each takes.
+    let mut below = 0;
+    let mut end = rows.len();
+    while end > 0 {
+        let mut first = end - 1;
+        while first > 0 && joins_at(term, &rows, first - 1, compact) {
+            first -= 1;
+        }
+        let line = rows.get(first..end)?;
+        let wrapped = wrap_line(term, line, term.cols, cols, None, compact);
+        let taken = wrapped.rows.len().max(1);
+        if phone_from_bottom <= below + taken {
+            let target_row = taken - (phone_from_bottom - below);
+            // The last host cell of the line that lands at or before the
+            // tapped cell on the tapped row.
+            let mut best: Option<(usize, usize, usize)> = None;
+            let mut first_on_row: Option<(usize, usize)> = None;
+            let glyphs: Vec<(usize, usize)> = line
+                .iter()
+                .enumerate()
+                .flat_map(|(k, row)| {
+                    row.cells.iter().enumerate().filter_map(move |(x, &cell)| {
+                        let skip =
+                            cell.kind == WIDE_TAIL || cell.kind == SPACER_HEAD || cell.ch == 0;
+                        (!skip).then_some((k, x))
+                    })
+                })
+                .collect();
+            let places = wrap_line_cells(term, line, term.cols, cols, compact, &glyphs);
+            for (&(k, x), at) in glyphs.iter().zip(places) {
+                let Some((r, c)) = at else { continue };
+                if r != target_row {
+                    continue;
+                }
+                if first_on_row.is_none() {
+                    first_on_row = Some((k, x));
+                }
+                if c <= phone_column && best.is_none_or(|(_, _, bc)| c >= bc) {
+                    best = Some((k, x, c));
+                }
+            }
+            let (k, x) = best.map(|(k, x, _)| (k, x)).or(first_on_row).unwrap_or((0, 0));
+            return Some((rows.len() - (first + k), x));
+        }
+        below += taken;
+        end = first;
+    }
+    None
 }
 
 /// Host row `i`, the scrollback's rows then the screen's.
@@ -880,8 +1039,7 @@ impl View {
             let cols = self.cols;
             let compact = self.compact;
             let mut count = 0;
-            loop {
-                let Some(last) = settled_end(term, first, compact) else { break };
+            while let Some(last) = settled_end(term, first, compact) {
                 let (bytes, rows) =
                     self.line_cache.entry(base + first as u64).or_insert_with(|| {
                         let rows: Vec<&Row> =
@@ -1276,118 +1434,5 @@ pub(crate) fn write_style(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn locate_follows_a_host_cell_through_the_rewrap() {
-        let mut term = Terminal::new(10, 3, 100);
-        for &b in b"abcdefghijklmno\r\nxyz" {
-            term.advance(b);
-        }
-        // The host's screen: "abcdefghij" (wrapped), "klmno", "xyz".
-        // At 4 columns: abcd efgh ijkl mno xyz: 'j' (host row 3 from the
-        // bottom, column 9) is on the row 3 from the bottom, column 1.
-        let at = locate(&term, 4, false, 3, 9).unwrap();
-        assert_eq!(at, Located { from_bottom: 3, column: 1 });
-        // 'm' is on the host's row 2 from the bottom, column 2: phone row
-        // "mno", 2 from the bottom, column 0.
-        let at = locate(&term, 4, false, 2, 2).unwrap();
-        assert_eq!(at, Located { from_bottom: 2, column: 0 });
-        assert_eq!(locate(&term, 4, false, 99, 0), None);
-        assert_eq!(locate(&term, 4, false, 0, 0), None);
-    }
-
-    #[test]
-    fn a_line_rewraps_at_the_phone_width() {
-        let mut term = Terminal::new(10, 3, 100);
-        for &b in b"abcdefghijklmno" {
-            term.advance(b);
-        }
-        let rows: Vec<&Row> = term.primary_rows()[..2].iter().collect();
-        let wrapped = wrap_line(&term, &rows, 10, 4, Some((1, 5)), false);
-        let text: Vec<String> = wrapped
-            .rows
-            .iter()
-            .map(|r| r.cells.iter().map(|c| char::from_u32(c.ch).unwrap_or(' ')).collect())
-            .collect();
-        assert_eq!(text, ["abcd", "efgh", "ijkl", "mno"]);
-        assert_eq!(wrapped.cursor, Some((3, 3)));
-        assert!(wrapped.rows[..3].iter().all(|r| r.wrapped));
-    }
-
-    #[test]
-    fn a_cursor_past_the_line_and_the_phone_edge_extends_the_line() {
-        // A prompt "$ " with the host's cursor at column 90 (a right-side
-        // input, a cursor moved right): on a 33-column phone the cursor is
-        // on the line's third row, column 24, not clamped to column 32.
-        let mut term = Terminal::new(120, 3, 100);
-        for &b in b"$ \x1b[91G" {
-            term.advance(b);
-        }
-        let rows: Vec<&Row> = term.primary_rows()[..1].iter().collect();
-        let wrapped = wrap_line(&term, &rows, 120, 33, Some((0, 90)), false);
-        assert_eq!(wrapped.cursor, Some((2, 24)));
-        assert_eq!(wrapped.rows.len(), 3);
-        assert!(wrapped.rows[0].wrapped && wrapped.rows[1].wrapped && !wrapped.rows[2].wrapped);
-        assert_eq!(wrapped.rows[2].width(), 25, "blanks through the cursor's cell");
-        // Within the row: the cursor waits past the content, nothing added.
-        let wrapped = wrap_line(&term, &rows, 120, 33, Some((0, 10)), false);
-        assert_eq!(wrapped.cursor, Some((0, 10)));
-        assert_eq!(wrapped.rows.len(), 1);
-        // Exact: the space the prompt printed is a cell of the line, as
-        // Ghostty's reflow keeps it (only never-written cells are trimmed).
-        assert_eq!(wrapped.rows[0].width(), 2, "the prompt's printed space is kept");
-        // Compact too: the shell drawn at the phone's width prints that
-        // one space as well (a run of spaces padding the row would go).
-        let wrapped = wrap_line(&term, &rows, 120, 33, Some((0, 10)), true);
-        assert_eq!(wrapped.cursor, Some((0, 10)));
-        assert_eq!(wrapped.rows[0].width(), 2, "the prompt's one trailing space is a cell");
-    }
-
-    #[test]
-    fn compact_keeps_a_cursor_in_dropped_padding_on_the_line() {
-        // A status row cut by a network read inside its padding: 17 glyphs
-        // and 40 written spaces, the cursor after them. Compact drops the
-        // run and the cursor waits on the line's one row (a second row
-        // would scroll the phone, and the rest of the row takes it back
-        // only on the Mac). Exact keeps every space and wraps them.
-        let mut term = Terminal::new(120, 3, 100);
-        for &b in format!("  ? for shortcuts{}", " ".repeat(40)).as_bytes() {
-            term.advance(b);
-        }
-        let rows: Vec<&Row> = term.primary_rows()[..1].iter().collect();
-        let wrapped = wrap_line(&term, &rows, 120, 33, Some((0, 57)), true);
-        assert_eq!(wrapped.rows.len(), 1);
-        assert_eq!(wrapped.cursor, Some((0, 17)));
-        let wrapped = wrap_line(&term, &rows, 120, 33, Some((0, 57)), false);
-        assert_eq!(wrapped.rows.len(), 2);
-    }
-
-    #[test]
-    fn a_cursor_after_a_line_that_fills_the_phone_row_is_on_the_next_row() {
-        // 54 glyphs on a 54-column phone, the host's cursor right after
-        // them: the logical column is 54, the next row's first cell.
-        let mut term = Terminal::new(120, 3, 100);
-        for _ in 0..54 {
-            term.advance(b'x');
-        }
-        let rows: Vec<&Row> = term.primary_rows()[..1].iter().collect();
-        let wrapped = wrap_line(&term, &rows, 120, 54, Some((0, 54)), false);
-        assert_eq!(wrapped.cursor, Some((1, 0)));
-        assert!(wrapped.rows[0].wrapped);
-    }
-
-    #[test]
-    fn a_wide_glyph_never_splits() {
-        let mut term = Terminal::new(10, 3, 100);
-        for &b in "ab世界".as_bytes() {
-            term.advance(b);
-        }
-        let rows: Vec<&Row> = term.primary_rows()[..1].iter().collect();
-        let wrapped = wrap_line(&term, &rows, 10, 3, None, false);
-        assert_eq!(wrapped.rows.len(), 3);
-        assert_eq!(wrapped.rows[0].width(), 2);
-        assert_eq!(wrapped.rows[1].cells[0].kind, WIDE);
-    }
-}
+#[path = "project_tests.rs"]
+mod tests;

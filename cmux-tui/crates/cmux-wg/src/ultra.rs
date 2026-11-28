@@ -155,8 +155,10 @@ pub const CC_ENV: &str = "CMUX_WG_ULTRA_CC";
 /// 68.5 / 74.4 / 45.5, 2 % loss 49.1 / 55.6 / 33.6; one parity loses goodput
 /// from 1 % loss up, two match four at half the parity bytes.
 const BULK_PARITY: u8 = 2;
-/// Benches only: bulk parities per group (1 to 15), in place of
-/// [`BULK_PARITY`].
+/// Benches only: the cap on bulk parities per group (1 to 15), in place of
+/// [`BULK_PARITY`]. A cap, not a count: a bulk group sends the smaller of
+/// this and the mode's own parities, so a value above the mode's changes
+/// nothing (`Fec { group: 4, parity: 4 }` with 8 still sends 4).
 pub const BULK_PARITY_ENV: &str = "CMUX_WG_ULTRA_BULK_PARITY";
 
 /// Bulk parities per group: [`BULK_PARITY_ENV`] when set and in range, else

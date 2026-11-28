@@ -1,11 +1,12 @@
-//! policy.json against the macOS host's own tables (CmuxNextAgentPane
-//! `AcpmuxPaneMethods.requests` and `knownParams`), which enforce the pane's
-//! frames today. The Swift side of the parity tests is gone, so these say
-//! when one side gains a method or a param the other lacks: #20644 sent
-//! params only one table knew, and the host refused them (cx-ibngi).
+//! policy.json against the macOS host's hand-written rules that are not
+//! generated from it (the act-as-me covers, the click rule and its window).
+//! The tables `requests`, `knownParams`, the scope tables and `gestureRules`
+//! are generated from policy.json at every build
+//! (scripts/cmux-next/gen-agent-pane-policy-swift.py), so they cannot differ:
+//! #20644 sent params only one table knew, and the host refused them (cx-ibngi).
 
 use cmux_agent_pane_policy::policy;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 fn sources() -> PathBuf {
@@ -31,41 +32,6 @@ fn block(text: &str, start: &str, end: &str) -> String {
 /// Every `"..."` string in `text`.
 fn strings(text: &str) -> Vec<String> {
     text.split('"').skip(1).step_by(2).map(str::to_owned).collect()
-}
-
-#[test]
-fn the_requests_are_the_macos_hosts() {
-    let swift: BTreeSet<String> = strings(&block(
-        &read("AcpmuxPaneMethods.swift"),
-        "public static let requests: Set<String> = [",
-        "\n    ]",
-    ))
-    .into_iter()
-    .collect();
-    assert_eq!(policy().requests, swift, "policy.json requests vs AcpmuxPaneMethods.requests");
-}
-
-#[test]
-fn the_known_params_are_the_macos_hosts() {
-    let table = block(
-        &read("AcpmuxPaneMethods+Params.swift"),
-        "static let knownParams: [String: (params: Set<String>, acpmux: Set<String>)] = [",
-        "\n    ]",
-    );
-    // One entry per line: `"method": (["param", ...], ["acpmux key", ...]),`.
-    let mut swift = BTreeMap::new();
-    for line in table.lines().map(str::trim).filter(|line| line.starts_with('"')) {
-        let (method, rest) = line[1..].split_once('"').unwrap_or_else(|| panic!("entry: {line}"));
-        let (params, acpmux) = rest.split_once("], [").unwrap_or_else(|| panic!("entry: {line}"));
-        let set = |text: &str| strings(text).into_iter().collect::<BTreeSet<_>>();
-        swift.insert(method.to_owned(), (set(params), set(acpmux)));
-    }
-    let rust: BTreeMap<_, _> = policy()
-        .known_params
-        .iter()
-        .map(|(method, known)| (method.clone(), (known.params.clone(), known.acpmux.clone())))
-        .collect();
-    assert_eq!(rust, swift, "policy.json known_params vs AcpmuxPaneMethods.knownParams");
 }
 
 #[test]
@@ -98,71 +64,6 @@ fn the_act_as_me_managed_covers_are_the_macos_hosts() {
         swift,
         "policy.json act_as_me_managed_covers vs AgentPaneActAsMe.managedCovers"
     );
-}
-
-/// The method sets of one Swift `Set<String>` table, `// comments` dropped.
-fn swift_set(file: &str, declaration: &str) -> BTreeSet<String> {
-    strings(&block(&read(file), declaration, "\n    ]")).into_iter().collect()
-}
-
-#[test]
-fn the_session_scoped_methods_are_the_macos_hosts() {
-    let swift =
-        swift_set("AcpmuxPaneMethods.swift", "public static let sessionScoped: Set<String> = [");
-    assert_eq!(
-        policy().session_scoped,
-        swift,
-        "policy.json session_scoped vs AcpmuxPaneMethods.sessionScoped"
-    );
-    let swift = swift_set(
-        "AcpmuxPaneMethods.swift",
-        "public static let optionallySessionScoped: Set<String> = [",
-    );
-    assert_eq!(
-        policy().optionally_session_scoped,
-        swift,
-        "policy.json optionally_session_scoped vs AcpmuxPaneMethods.optionallySessionScoped"
-    );
-}
-
-/// `whenOptionAllows` as policy.json names it: `when_option_allows`.
-fn snake_case(swift_case: &str) -> String {
-    let mut out = String::new();
-    for c in swift_case.chars() {
-        if c.is_ascii_uppercase() {
-            out.push('_');
-            out.push(c.to_ascii_lowercase());
-        } else {
-            out.push(c);
-        }
-    }
-    out
-}
-
-#[test]
-fn the_gesture_rules_are_the_macos_hosts() {
-    let table = block(
-        &read("AcpmuxPaneMethods.swift"),
-        "public static let gestureRules: [String: GestureRule] = [",
-        "\n    ]",
-    );
-    // One entry per line: `"method": .rule,`.
-    let mut swift = BTreeMap::new();
-    for line in table.lines().map(str::trim).filter(|line| line.starts_with('"')) {
-        let (method, rest) = line[1..].split_once('"').unwrap_or_else(|| panic!("entry: {line}"));
-        let rule = rest.trim_start_matches(':').trim().trim_end_matches(',');
-        let rule = rule.strip_prefix('.').unwrap_or_else(|| panic!("entry: {line}"));
-        swift.insert(method.to_owned(), snake_case(rule));
-    }
-    let raw: serde_json::Value =
-        serde_json::from_str(include_str!("../policy.json")).expect("policy.json parses");
-    let rust: BTreeMap<String, String> = raw["gesture_rules"]
-        .as_object()
-        .expect("policy.json gesture_rules")
-        .iter()
-        .map(|(method, rule)| (method.clone(), rule.as_str().expect("a rule name").to_owned()))
-        .collect();
-    assert_eq!(rust, swift, "policy.json gesture_rules vs AcpmuxPaneMethods.gestureRules");
 }
 
 /// The click rule: the methods the Swift host answers only on a fresh click

@@ -46,6 +46,28 @@ public typealias PageHostHandler = @MainActor (PageHostMessage) async -> Any?
     func install(_ handler: @escaping PageHostHandler)
     /// Runs `script` in the page's main frame, page world. Fire and forget.
     func evaluate(_ script: String)
+    /// Delivers one router envelope, given as its JSON text (``PageRouter/receiveText(_:)``), to
+    /// `window.__cmuxPageReceive`, in order with ``evaluate(_:)``. Fire and forget.
+    func receive(_ envelopeText: String)
+    /// Runs `body` in the page's main frame, page world, with `text` as its string parameter
+    /// `name`, in order with ``evaluate(_:)``. Fire and forget. For a push sent at a steady rate:
+    /// WebKit runs the one fixed `body` with the text as an argument, never a new script text per push.
+    func evaluate(_ body: String, argument name: String, text: String)
     /// Stops answering; pending messages get no reply.
     func uninstall()
+}
+
+extension PageHostBridge {
+    /// The envelope as one script text; WebKit overrides it with a fixed body (``PageRouter/receiveBody``).
+    public func receive(_ envelopeText: String) {
+        evaluate(PageRouter.receiveScript(text: envelopeText))
+    }
+
+    /// `body` in a function of `name`, called with `text` as a JSON string literal.
+    public func evaluate(_ body: String, argument name: String, text: String) {
+        var script = "((\(name)) => { \(body) })("
+        JSONValue.string(text).appendCompactText(to: &script)
+        script += ");"
+        evaluate(script)
+    }
 }

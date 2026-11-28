@@ -85,13 +85,15 @@ class BranchOnRequest(unittest.TestCase):
         hv = (ROOT / ".github/workflows/cmux-next-hot-verify.yml").read_text()
         self.assertIn("gh workflow run cmux-tui-artifacts.yml", hv)
 
-    def test_hot_verify_sends_no_dispatch_that_cannot_publish(self) -> None:
-        # The artifacts workflow publishes a dispatched run only on main or feat-cmux-next, so a dispatch on a pull
-        # request's branch built three targets and published nothing (82 lane/* heads, 2026-11-24 05:08-10:20Z).
+    def test_a_branch_dispatch_publishes_and_hot_verify_sends_it_only_when_asked(self) -> None:
+        # Until 2026-11-26 the artifacts workflow published a dispatched run only on main or feat-cmux-next, so a
+        # dispatch on a pull request's branch built three targets and published nothing (82 lane/* heads,
+        # 2026-11-24 05:08-10:20Z). It now publishes the tree, the commit manifest and the head's mac-live.json
+        # (`cmux app try PR`); the hot verify look still sends one only with vars.CMUX_TUI_LOOK_DISPATCH=1.
         wf = (ROOT / ".github/workflows/cmux-tui-artifacts.yml").read_text()
-        publish_if = next(l for l in wf.split("\n  publish-tree:\n", 1)[1].splitlines() if l.strip().startswith("if:"))
-        self.assertIn("github.event_name == 'push'", publish_if)
-        self.assertNotIn("workflow_dispatch", publish_if)
+        for job in ("publish", "publish-tree"):
+            job_if = next(l for l in wf.split(f"\n  {job}:\n", 1)[1].splitlines() if l.strip().startswith("if:"))
+            self.assertIn("(github.event_name == 'push' || github.event_name == 'workflow_dispatch')", job_if, job)
         hv = (ROOT / ".github/workflows/cmux-next-hot-verify.yml").read_text()
         step = hv.split("- name: Ask for the head's tree when it is not published", 1)[1].split("\n  # ", 1)[0]
         self.assertIn("LOOK_DISPATCH: ${{ vars.CMUX_TUI_LOOK_DISPATCH }}", step)

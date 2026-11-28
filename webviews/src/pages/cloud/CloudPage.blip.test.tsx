@@ -1,7 +1,8 @@
 // A Cloud service blip on one of the page's reads (the account read, the machine list) is read again
-// quietly a few times before the page says anything (Leo, 2026-11-14: "i also want all our
-// connectivity stuff to shut the fuck up"): a retryable answer that heals within the bounded retries
-// shows nothing; one that keeps failing shows the page's error as before, with Retry.
+// on its own (store.ts `readAgainLater`, 1 s doubling to 10 s) and the page says nothing until it
+// lasts (Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up"): a retryable
+// answer that heals within the grace shows nothing; one that keeps failing shows one quiet line,
+// with no button (Leo, 2026-11-22: "vacuous decisions like that should be just done").
 import { act } from "react";
 import { afterAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -65,6 +66,7 @@ async function run(op: string, failures: number, ms: number) {
   document.body.append(element);
   const root = createRoot(element);
   let alerted = false;
+  let stillTrying = false;
   await act(async () => root.render(<CloudPage store={store} strings={strings} />));
   for (let t = 0; t <= ms; t += 100) {
     await act(async () => {
@@ -73,35 +75,42 @@ async function run(op: string, failures: number, ms: number) {
       await settle();
     });
     if (element.querySelector('[role="alert"]')) alerted = true;
+    if (element.querySelector(".cloud-still-trying")) stillTrying = true;
   }
   const titles = [...element.querySelectorAll(".cloud-machine-title")].map((node) => node.textContent);
+  const shownButtons = element.querySelectorAll("button").length;
   await act(async () => root.unmount());
   element.remove();
   jest.useRealTimers();
-  return { alerted, titles, store };
+  const buttons = shownButtons;
+  return { alerted, stillTrying, buttons, titles, store };
 }
 
 for (const op of [CloudOps.authStatus, CloudOps.machineList]) {
   test(`a blip on ${op} that heals within the retries shows nothing, then the machines`, async () => {
-    const { alerted, titles, store } = await run(op, 2, 10_000);
+    const { alerted, stillTrying, titles, store } = await run(op, 2, 10_000);
     expect(alerted).toBe(false);
+    expect(stillTrying).toBe(false);
     expect(titles).toHaveLength(sampleMachines().length);
     expect(store.getSnapshot().error).toBeUndefined();
   });
 
-  test(`a ${op} failure that keeps coming shows the page's error, with Retry`, async () => {
-    const { alerted } = await run(op, 100, 20_000);
-    expect(alerted).toBe(true);
+  test(`a ${op} failure that keeps coming says so in one quiet line, with no button`, async () => {
+    const { alerted, stillTrying, buttons } = await run(op, 100, 30_000);
+    expect(alerted).toBe(false);
+    expect(stillTrying).toBe(true);
+    expect(buttons).toBe(0);
   });
 }
 
-test("another account starts with its own quiet re-reads", async () => {
+test("another account whose list blips is read again on its own until its machines show", async () => {
   jest.useFakeTimers();
   const turn = async () => {
     for (let i = 0; i < 60; i++) await Promise.resolve();
   };
-  // One blip spends a quiet re-read; another user signs in before it runs, and that account's list
-  // blips three times: it gets its own three quiet re-reads, then its machines.
+  // One blip spends a step of the backoff; another user signs in before it runs, and that account's
+  // list blips three times. The backoff never gives up (1, 2, 4, 8 s): a spent step only lengthens
+  // the next wait, so the new account's machines come up on their own with no button to press.
   const provider = new BlipProvider(CloudOps.machineList, 1);
   const store = new CloudStore(provider);
   const stop = store.subscribe(() => undefined);
@@ -109,11 +118,11 @@ test("another account starts with its own quiet re-reads", async () => {
     await turn();
     provider.failuresLeft(3);
     provider.switchUser("user_2", sampleMachines());
-    for (let t = 0; t < 10_000; t += 100) {
+    for (let t = 0; t < 20_000; t += 100) {
       jest.advanceTimersByTime(100);
       await turn();
-      expect(store.getSnapshot().error).toBeUndefined();
     }
+    expect(store.getSnapshot().error).toBeUndefined();
     expect(store.getSnapshot().connection).toBe("connected");
     expect(store.getSnapshot().machines).toHaveLength(sampleMachines().length);
   } finally {

@@ -94,8 +94,10 @@ export async function mountMarkdownPage(state: MarkdownPageVariant, context: Sta
   const dir = state.path.replace(/[^/]*$/, "");
   const host = installMockHost(
     {
-      "cmux.markdown.config": () =>
-        state.text === null ? { pick: true, appearance: context.appearance } : config(state.path),
+      "cmux.markdown.config": () => {
+        if (state.disconnected) throw new HostError("cmux.protocol.closed", "the markdown owner is unavailable");
+        return state.text === null ? { pick: true, appearance: context.appearance } : config(state.path);
+      },
       "cmux.markdown.open": (params: { path: string }) => config(params.path),
       "cmux.markdown.read": () => {
         const file = files.get(state.path);
@@ -406,7 +408,8 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
   provider.snapshots = JSON.parse(JSON.stringify(state.snapshots));
   if (state.ports) provider.edge.forwards = JSON.parse(JSON.stringify(state.ports)) as PortForward[];
   if (state.maxActive !== undefined) provider.account.plan.max_active = state.maxActive;
-  if (state.snapshotsFail) provider.failNext = CloudOps.snapshotList;
+  // The list stays down: the sheet reads it again on its own, so a one-time failure would heal at once.
+  if (state.snapshotsFail) provider.failAlways = CloudOps.snapshotList;
   if (state.retention) provider.retention = JSON.parse(JSON.stringify(state.retention));
   if (state.machinesCap !== undefined) provider.machinesCap = state.machinesCap;
   if (state.freeUp) provider.freeUp = state.freeUp;
@@ -414,6 +417,8 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
   if (state.retentionForbidden) provider.retentionForbidden = true;
   if (state.spendCap) provider.spendCap = { ...state.spendCap };
   if (state.memberBudget) provider.memberBudget = { ...state.memberBudget };
+  // The page reads auth again on its own after a failure: an error frame keeps failing, or it heals at once.
+  if (state.mode === "error") provider.failAlways = CloudOps.authStatus;
   if (state.pool) provider.pool = { ...state.pool };
   if (state.spendLimitForbidden) provider.spendLimitForbidden = true;
   if (state.surge) provider.surge = JSON.parse(JSON.stringify(state.surge));
@@ -422,7 +427,7 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
   if (state.usage !== undefined)
     provider.usage = typeof state.usage === "string" ? state.usage : structuredClone(state.usage);
   const operations = pageOps(provider, [...Object.values(CloudOps), CLOUD_ACTION_RUN, CLOUD_PAGE_COMMAND], {
-    mode: state.mode === "normal" ? undefined : state.mode,
+    mode: state.mode === "normal" || state.mode === "error" ? undefined : state.mode,
     firstOperation: CloudOps.authStatus,
     error: state.error,
   });

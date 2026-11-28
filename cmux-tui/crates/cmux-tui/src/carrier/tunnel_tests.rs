@@ -767,3 +767,103 @@ fn a_hub_reaped_elsewhere_is_ended_without_a_signal() {
         assert!(why.contains("reaped elsewhere"), "{why}");
     }
 }
+
+/// Seeded secrets on the wire (cmux_egress::capture): the platform's carrier calls
+/// (`cmux_tui::carrier::answer`) carry the person's bearer only in `Authorization`, the team
+/// only in its header, and a command or key only in the body that asks for it.
+/// tests/egress_seeded.json names this test for `cmux_tui::carrier::answer`.
+#[tokio::test]
+async fn the_carrier_source_sends_its_bearer_and_team_only_in_their_headers() {
+    use crate::carrier::answer::CarrierSource as _;
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    cmux_egress::capture::install().unwrap();
+    let bearer = "SEEDcarrierBearer-9d41";
+    let team = "SEEDcarrierTeam-27fe";
+    let machine = "vm_seededcarrier0000001";
+    let command = "echo SEEDcarrierCommand-b602";
+    let ssh_key = "ssh-ed25519 SEEDcarrierSshKey-4c1d";
+    let source = HttpSource::new(
+        "https://cloud-api.cmux.dev".into(),
+        Credential::Value(Zeroizing::new(bearer.into())),
+        Some(team.into()),
+    )
+    .unwrap();
+    let _ = source.fetch(machine, Some(&[9u8; 32])).await;
+    let _ = source.ssh_endpoint(machine, ssh_key).await;
+    let _ = source.exec(machine, command, Duration::from_secs(5)).await;
+    let _ = source.machine_status(machine).await;
+
+    let sent: Vec<_> = cmux_egress::capture::requests_to("cloud-api.cmux.dev")
+        .into_iter()
+        .filter(|r| {
+            r.target.contains(machine) || String::from_utf8_lossy(&r.body).contains(machine)
+        })
+        .collect();
+    let targets: Vec<_> = sent.iter().map(|r| format!("{} {}", r.method, r.target)).collect();
+    assert_eq!(
+        targets,
+        [
+            format!("POST /v1/cloud/machines/{machine}/carrier"),
+            format!("POST /v1/cloud/machines/{machine}/ssh-endpoint"),
+            format!("POST /v1/cloud/machines/{machine}/exec"),
+            "POST /v1/read".to_owned(),
+        ]
+    );
+    let places = cmux_egress::capture::leaks(bearer);
+    assert_eq!(places.len(), 4, "{places:?}");
+    assert!(places.iter().all(|p| p.ends_with(": header authorization")), "{places:?}");
+    let places = cmux_egress::capture::leaks(team);
+    assert_eq!(places.len(), 4, "{places:?}");
+    assert!(places.iter().all(|p| p.ends_with(": header x-cmux-team")), "{places:?}");
+    assert_eq!(
+        cmux_egress::capture::leaks(command),
+        [format!("cloud-api.cmux.dev POST /v1/cloud/machines/{machine}/exec: body")]
+    );
+    assert_eq!(
+        cmux_egress::capture::leaks(ssh_key),
+        [format!("cloud-api.cmux.dev POST /v1/cloud/machines/{machine}/ssh-endpoint: body")]
+    );
+}
+
+/// Seeded secrets on the wire (cmux_egress::capture): the tunnel's own reads
+/// (`cmux_tui::carrier::tunnel`) go to the VM API with only the signed proof: no bearer, no
+/// device name, machine id or WireGuard private key. tests/egress_seeded.json names this test
+/// for `cmux_tui::carrier::tunnel`.
+#[tokio::test]
+async fn the_tunnel_read_carries_only_its_signed_proof() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    cmux_egress::capture::install().unwrap();
+    let mut timing = quick();
+    timing.refresh_every = Duration::from_millis(20);
+    let mut rig = rig("seeded", timing).await;
+    rig.platform.answer("/attach", vec![mesh_only(), enrolled(&rig.wg_public, "gw.example:51820")]);
+    let mut plan = rig.plan.take().unwrap();
+    // A listed host: the gate sends it to the capture server, which answers `{}` (no tunnel),
+    // so the reads fail up to the bound.
+    plan.vm_api = "https://cloud-api-staging.cmux.dev".into();
+    let handle = start(plan).unwrap();
+    let last = tokio::time::timeout(Duration::from_secs(10), handle.finished()).await.unwrap();
+    assert!(matches!(last, TunnelStatus::Failed(_)), "{last:?}");
+
+    let target = format!("/v1/devices/{DEVICE}/signed/tunnel");
+    let reads: Vec<_> = cmux_egress::capture::requests_to("cloud-api-staging.cmux.dev")
+        .into_iter()
+        .filter(|r| r.target == target)
+        .collect();
+    assert_eq!(reads.len(), quick().max_failures as usize, "{reads:?}");
+    for read in &reads {
+        assert_eq!(read.method, "POST");
+        assert!(
+            read.headers.iter().all(|(name, _)| !name.eq_ignore_ascii_case("authorization")),
+            "{read:?}"
+        );
+        let proof: Value = serde_json::from_slice(&read.body).unwrap();
+        assert!(signed(&rig, &proof, ["tunnel", DEVICE, "", ""]), "{proof}");
+    }
+    let ours = |secret: &str| -> Vec<String> {
+        cmux_egress::capture::leaks(secret).into_iter().filter(|p| p.contains(&target)).collect()
+    };
+    for secret in ["leo-mac", "machine_1", &STANDARD.encode([7u8; 32]), MESH] {
+        assert_eq!(ours(secret), Vec::<String>::new(), "{secret}");
+    }
+}

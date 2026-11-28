@@ -205,6 +205,9 @@ import UIKit
         try await Self.wait("both reads finish") { next.loads == 2 }
         let image = try #require(next.entry(Self.key("a")).image)
         #expect(image.size.width * image.scale == 40 && image.size.height * image.scale == 56)
+        #expect(next.entry(Self.key("a")).pixelWidth == 40)
+        #expect(next.entry(Self.key("a")).pixelHeight == 56)
+        #expect(next.entry(Self.key("a")).hasKnownPicture)
         #expect(next.entry(Self.key("never-seen")).image == nil)
     }
 
@@ -233,6 +236,26 @@ import UIKit
         try await Self.wait("both reads finish") { next.loads == 2 }
         #expect(next.entry(Self.key("marked")).image == nil, "the mark is never on a card")
         #expect(next.entry(Self.key("clean")).image != nil)
+    }
+
+    /// Leo, 2026-11-24: "there are too many empty previews in the safari grid thing". A page with
+    /// little on it (a short chat) is a picture of its tab, not a placeholder: a few thin strokes
+    /// anywhere on a page-sized picture keep it, though a 64-pixel copy of it reads as one colour.
+    @Test func aSparsePageIsAPictureNotAPlaceholder() {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let size = CGSize(width: 1206, height: 2622)
+        for mark in [CGRect(x: 611, y: 1307, width: 2, height: 2), CGRect(x: 1203, y: 2619, width: 3, height: 1),
+                     CGRect(x: 0, y: 0, width: 1, height: 1)] {
+            let page = UIGraphicsImageRenderer(size: size, format: format).image { context in
+                UIColor.black.setFill()
+                context.fill(CGRect(origin: .zero, size: size))
+                UIColor.white.setFill()
+                context.fill(mark)
+            }
+            #expect(!CardPictureGate.isPlaceholder(page), "a page with \(mark) drawn is a picture")
+        }
+        #expect(CardPictureGate.isPlaceholder(Self.solid(.black, width: 1206, height: 2622)))
     }
 
     /// Leo, 2026-11-24, on a grid of black cards: "wer need to chase all these placeholders doen and
@@ -392,6 +415,32 @@ import UIKit
         // A tab never seen: live, as before.
         #expect(Card.face(awaitingHistory: false, mayShowPicture: false, drawable: true, hasLastKnown: false) == .live)
         #expect(Card.face(awaitingHistory: true, mayShowPicture: false, drawable: true, hasLastKnown: false) == .live)
+    }
+
+    /// A chat this phone has no turns of (never opened here, or hibernated) shows the Mac's text
+    /// of its last turns, never an empty page; turns of its own, or a last-known picture while
+    /// history loads, still win.
+    @Test func aChatWithNoTurnsHereShowsTheMacsText() {
+        typealias Card = AgentTabCard
+        #expect(Card.face(awaitingHistory: false, mayShowPicture: false, drawable: true, hasLastKnown: false,
+                          hasTurns: false, hasMacScreen: true) == .macScreen)
+        #expect(Card.face(awaitingHistory: true, mayShowPicture: false, drawable: true, hasLastKnown: false,
+                          hasTurns: false, hasMacScreen: true) == .macScreen)
+        // A picture drawn of no turns is an empty page: the Mac's text instead.
+        #expect(Card.face(awaitingHistory: false, mayShowPicture: true, drawable: true, hasLastKnown: false,
+                          hasTurns: false, hasMacScreen: true) == .macScreen)
+        #expect(Card.face(awaitingHistory: true, mayShowPicture: false, drawable: true, hasLastKnown: true,
+                          hasTurns: false, hasMacScreen: true) == .lastKnown)
+        // A picture kept of the chat beats the Mac's text of it, loading or not.
+        #expect(Card.face(awaitingHistory: false, mayShowPicture: false, drawable: false, hasLastKnown: true,
+                          hasTurns: false, hasMacScreen: true) == .lastKnown)
+        #expect(Card.face(awaitingHistory: false, mayShowPicture: true, drawable: true, hasLastKnown: false,
+                          hasTurns: true, hasMacScreen: true) == .picture)
+        #expect(Card.face(awaitingHistory: false, mayShowPicture: false, drawable: true, hasLastKnown: false,
+                          hasTurns: true, hasMacScreen: true) == .live)
+        // No text from the Mac: as before.
+        #expect(Card.face(awaitingHistory: false, mayShowPicture: false, drawable: true, hasLastKnown: false,
+                          hasTurns: false, hasMacScreen: false) == .live)
     }
     // MARK: What the Mac pushes (`MacTabCards`)
 

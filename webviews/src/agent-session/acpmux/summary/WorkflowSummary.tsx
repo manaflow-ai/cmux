@@ -293,6 +293,7 @@ export function WorkflowSummaryRow({
                 )}
                 {resumeRefused && <output>{t("workflow.cannotResume")}</output>}
                 <button type="button" onClick={() => actions.onDraftWorkflow!(false)}>
+                  {/* retry-prompt-ok: drafts the whole workflow again, agents and paid model requests. */}
                   {t("workflow.runAgain")}
                 </button>
               </div>

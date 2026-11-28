@@ -67,7 +67,15 @@ struct SentryScrubCostBench {
     private static func threadCPUNanos() -> UInt64 { clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID) }
 
     @Test func cpuPerLagSpikeEventScrub() {
-        let scrubber = SentryScrubber(homeDirectory: "/Users/dev")
+        Self.measure(SentryScrubber(homeDirectory: "/Users/dev"), label: "memo on")
+    }
+
+    /// The same event with the memo off: every report runs the gated rules again (cmux#50306 alone).
+    @Test func cpuPerLagSpikeEventScrubWithoutMemo() {
+        Self.measure(SentryScrubber(homeDirectory: "/Users/dev", memoCapacity: 0), label: "memo off")
+    }
+
+    private static func measure(_ scrubber: SentryScrubber, label: String) {
         let event = Self.lagSpikeEvent()
         var sink = 0
         func scrubOnce() {
@@ -85,8 +93,8 @@ struct SentryScrubCostBench {
         perEvent.sort()
         let fieldCount = event.strings.count + event.dictionaries.reduce(0) { $0 + $1.count }
             + event.context.values.reduce(0) { $0 + $1.count }
-        print(String(format: "sentry-scrub bench: macOS %@, %d events of %d fields: thread CPU per event median %.0f us, p90 %.0f us, min %.0f us (sink %d)",
-                     ProcessInfo.processInfo.operatingSystemVersionString, Self.events, fieldCount,
+        print(String(format: "sentry-scrub bench (%@): macOS %@, %d events of %d fields: thread CPU per event median %.0f us, p90 %.0f us, min %.0f us (sink %d)",
+                     label, ProcessInfo.processInfo.operatingSystemVersionString, Self.events, fieldCount,
                      perEvent[perEvent.count / 2], perEvent[perEvent.count * 9 / 10], perEvent[0], sink & 1))
         #expect(perEvent.count == Self.events)
     }

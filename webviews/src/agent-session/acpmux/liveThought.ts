@@ -12,10 +12,12 @@
 // (`redraw`), and once that commits the entries made before it go (`settle`).
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import type { AcpmuxActivity, AcpmuxRow, AcpmuxSnapshot } from "./model";
-import { isThought } from "./conversation/thoughts";
+import { isQuietThought, isThought } from "./conversation/thoughts";
 import { oneRowChangeFrom } from "./rowChanges";
 import { rowsWithLiveOutput, sameButRows } from "./liveToolOutput";
 import { rowsWithStreamingRow } from "./streamingRow";
+import { drewEmptyFold, drewRunningTurn, hiddenUnderFold } from "./drawnRows";
+import { lineCalledNow } from "./liveCallLine";
 
 /// A row's thought now (`to`), and the thought item the pane's rows drew (`from`): a drawn row whose
 /// last item is still `from` draws `to`. `ahead`: the chunks since `from`, which the row's version
@@ -78,6 +80,7 @@ let drawn = new Map<string, AcpmuxActivity>();
 /// from the end back to the turn's prompt, so O(the running turn's rows), not the chat's.
 export function drewThoughts(rows: readonly AcpmuxRow[] | undefined): void {
   const next = new Map<string, AcpmuxActivity>();
+  drewRunningTurn(rows);
   if (rows)
     for (let index = rows.length - 1; index >= 0; index -= 1) {
       const row = rows[index]!;
@@ -141,6 +144,12 @@ export function thoughtOnly(
   // the current thought visible while it streams. `drewThoughts` proves that this row is the one
   // currently drawing it, so its chunks can stay on the row without redrawing the pane.
   const drawnNow = drawnThought(now.id);
+  // Under a closed "Working for" that had nothing to open, a thought that is no longer quiet gives it
+  // work to open (turns.ts `liveFoldHidesWork`): the pane draws, so the header shows its chevron.
+  if (drawnNow === undefined && hiddenUnderFold(next.rows, index)) {
+    if (drewEmptyFold() && !isQuietThought(after)) return undefined;
+    return { id: now.id, before, after };
+  }
   if (!sameThought(drawnNow, before)) return undefined;
   return { id: now.id, before, after };
 }
@@ -228,8 +237,11 @@ export const liveThoughtHeard = {
 };
 
 /// The live line as it is now: a thought chunk drawn without the pane moves its `heardKey` on
-/// (Thinking.tsx reads a new key as an event heard). The same row while none was.
-export function lineHeardNow(row: AcpmuxRow): AcpmuxRow {
+/// (Thinking.tsx reads a new key as an event heard), after the calls drawn without it moved the
+/// line (liveCallLine.ts). The same row while none was.
+export function lineHeardNow(drawnLine: AcpmuxRow): AcpmuxRow {
+  // A hidden call's start or end drawn without the pane moved the line itself (liveCallLine.ts).
+  const row = lineCalledNow(drawnLine);
   if (heard === 0 || row.kind !== "thinking" || typeof row.heardKey !== "string") return row;
   return { ...row, heardKey: `${row.heardKey}~${heard}`, version: row.version + heard };
 }

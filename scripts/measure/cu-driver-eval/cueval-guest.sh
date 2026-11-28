@@ -80,10 +80,15 @@ cli="$app/Contents/Resources/bin/cmux"
 [[ -x "$cli" ]] || { finish "the Nightly has no CLI at Contents/Resources/bin/cmux"; exit 4; }
 
 note "grant"
-# Who TCC asks about: the app (its daemon drives the screen), every executable it ships, the shell and
-# Python that start the agent and the fixtures.
+# Who TCC asks about: the app, every executable it ships, the shell and Python that start the agent and
+# the fixtures. That includes each nested app's executables: the Computer Use worker runs as
+# Contents/Library/cmux Helper.app/Contents/MacOS/cmux-screen-sharing (#48865), and a grant list that
+# missed it left every trial of a full run refusing with "the accessibility permission is not granted".
 grants=(/bin/bash "$work/python/bin/python3.12")
-while IFS= read -r exe; do grants+=("$exe"); done < <(find "$app/Contents/MacOS" "$app/Contents/Resources/bin" -maxdepth 1 -type f -perm -u+x 2>/dev/null)
+while IFS= read -r exe; do grants+=("$exe"); done < <({
+  find "$app/Contents/MacOS" "$app/Contents/Resources/bin" -maxdepth 1 -type f -perm -u+x
+  find "$app/Contents" -mindepth 2 -type f -perm -u+x -path '*.app/Contents/MacOS/*'
+} 2>/dev/null | sort -u)
 bash "$here/tcc-grant.sh" "${grants[@]}" || { bash "$here/tcc-grant.sh" --diagnose >"$out/cueval/tcc-diagnose.txt" 2>&1; finish "tcc-grant.sh failed (cueval/tcc-diagnose.txt)"; exit 4; }
 
 note "open"
@@ -92,6 +97,18 @@ sock="${TMPDIR:-/tmp}/cmux-tui-$(id -u)/cmux-app-nightly.sock"
 for _ in $(seq 1 60); do [[ -S "$sock" ]] && break; sleep 2; done
 [[ -S "$sock" ]] || { ls -la "$(dirname "$sock")" 2>&1; finish "the Nightly's daemon socket did not appear in 120 s ($sock)"; exit 4; }
 "$cli" --version 2>&1 | head -1
+
+note "doctor"
+# Computer Use must be able to capture and send input before any trial runs: a grant that did not
+# take otherwise shows up as 60 refusals scored as failures. The worker starts after the daemon, so
+# the doctor gets 60 s; a failing doctor stops the run with its fix lines and tccd's view of the grants.
+doctor_ok=0
+for _ in $(seq 1 20); do
+  "$cli" computer-use doctor >"$out/cueval/doctor.txt" 2>&1 && { doctor_ok=1; break; }
+  sleep 3
+done
+cat "$out/cueval/doctor.txt"
+(( doctor_ok )) || { bash "$here/tcc-grant.sh" --diagnose >"$out/cueval/tcc-diagnose.txt" 2>&1; finish "cmux computer-use doctor fails after the grants (cueval/doctor.txt, cueval/tcc-diagnose.txt)"; exit 4; }
 
 note "cueval"
 export PATH="$app/Contents/Resources/bin:/opt/homebrew/bin:$PATH" CUEVAL_CMUX_BIN="$cli" CUEVAL_CMUX_TAG=nightly

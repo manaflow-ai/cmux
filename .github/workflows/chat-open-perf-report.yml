@@ -58,12 +58,15 @@ jobs:
   # CI cut (goal ci-runner-min-per-day-10k; Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time,
   # period."): 18.0k runner-min on 11-23T18..11-24T18, 1,349 of 1,380 runs on pull requests, 2.3 runs a PR. The
   # `paths` filter reads the whole pull request's diff, so every later push of a PR that once touched the chat pane
-  # measured again, though most of those pushes changed nothing measured. This job asks GitHub for the push's own
-  # files (one compare call, no checkout) and measures only when the push changed a measured path; otherwise the
-  # previous head's report stands for this one. A draft head waits for ready_for_review. Every other event measures.
+  # measured again, though most of those pushes changed nothing measured. This job reads the push's own files and
+  # measures only when the push changed a measured path; otherwise the previous head's report stands for this one. A
+  # draft head waits for ready_for_review. Every other event measures.
+  # The files come from git (the two heads' trees, no blobs), not the REST compare: on 11-25 the compare call hit the
+  # repository's exhausted GITHUB_TOKEN budget ("API rate limit exceeded for installation") or its 300-file page on
+  # 15 of 20 sampled pushes, and each of those measured, so the gate skipped almost nothing.
   changed:
     name: chat-open perf report (does this push change the chat pane?)
-    if: ${{ (github.event_name == 'pull_request' && format('{0}', vars.CMUX_CHAT_OPEN_PR_REPORT) != 'off' && !github.event.pull_request.draft) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ (github.event_name == 'pull_request' && format('{0}', vars.CMUX_CHAT_OPEN_PR_REPORT) != 'off' && !github.event.pull_request.draft) && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 3
     outputs:
@@ -72,7 +75,6 @@ jobs:
       - name: The push's own files
         id: push
         env:
-          GH_TOKEN: ${{ github.token }}
           ACTION: ${{ github.event.action }}
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.event.pull_request.head.sha }}
@@ -82,13 +84,18 @@ jobs:
           if [[ "$ACTION" != synchronize || ! "$BEFORE" =~ ^[0-9a-f]{40}$ || ! "$AFTER" =~ ^[0-9a-f]{40}$ ]]; then
             echo "measure=true" >> "$GITHUB_OUTPUT"; echo "$ACTION: measure"; exit 0
           fi
-          # Files changed from merge-base(before, after) to after: a base merged in counts its own files, a force push
-          # every file since the fork point, so this errs toward measuring. 300 files is the API's page; at it, measure.
-          if ! files="$(gh api "repos/$GITHUB_REPOSITORY/compare/$BEFORE...$AFTER" --jq '.files[].filename')"; then
-            echo "measure=true" >> "$GITHUB_OUTPUT"; echo "compare failed: measure"; exit 0
+          # The paths whose content differs between the two heads' trees: the previous report stands for this head only
+          # when every measured file is byte for byte the same. A base merged in counts its own files. Both commits come
+          # with their trees and no blobs (about 3 MB, a second or two); any failure measures.
+          git init -q "$RUNNER_TEMP/push-files" && cd "$RUNNER_TEMP/push-files" || {
+            echo "measure=true" >> "$GITHUB_OUTPUT"; echo "git init failed: measure"; exit 0; }
+          if ! timeout 120 git -c protocol.version=2 fetch -q --no-tags --depth=1 --filter=blob:none \
+              "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" "$BEFORE" "$AFTER" ||
+            ! files="$(git diff --no-renames --name-only "$BEFORE" "$AFTER")"; then
+            echo "measure=true" >> "$GITHUB_OUTPUT"; echo "could not read the push's files: measure"; exit 0
           fi
           n="$(printf '%s\n' "$files" | grep -c . || true)"
-          if (( n >= 300 )) || printf '%s\n' "$files" | grep -Eq '^(webviews/src/agent-session/|webviews/bench/(chat-open|browsers\.ts$|daemonPage\.ts$|godFixture\.ts$|perfRow\.ts$|replayLogs\.ts$|runnerCalibration\.ts$|sourceMapper\.ts$)|webviews/test/support/(papercutChat|paintedFrames|systemChrome|warmDevServer)\.ts$|\.github/workflows/chat-open-perf-report\.yml$)'; then
+          if printf '%s\n' "$files" | grep -Eq '^(webviews/src/agent-session/|webviews/bench/(chat-open|browsers\.ts$|daemonPage\.ts$|godFixture\.ts$|perfRow\.ts$|replayLogs\.ts$|runnerCalibration\.ts$|sourceMapper\.ts$)|webviews/test/support/(papercutChat|paintedFrames|systemChrome|warmDevServer)\.ts$|\.github/workflows/chat-open-perf-report\.yml$)'; then
             echo "measure=true" >> "$GITHUB_OUTPUT"; echo "the push changes a measured path ($n files): measure"
           else
             echo "measure=false" >> "$GITHUB_OUTPUT"
@@ -100,7 +107,7 @@ jobs:
     name: chat-open p50/p95 (report only)
     needs: changed
     # vars.CMUX_CHAT_OPEN_PR_REPORT = 'off' skips the pull request run (the nightly-next push still measures it); unset keeps it.
-    if: ${{ (!cancelled() && (github.event_name != 'pull_request' || needs.changed.outputs.measure == 'true')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ (!cancelled() && (github.event_name != 'pull_request' || needs.changed.outputs.measure == 'true')) && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     # On the measuring job, not the workflow: a push that measures nothing never cancels the head still being measured.
     concurrency:
       group: chat-open-perf-report-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
@@ -113,7 +120,7 @@ jobs:
     continue-on-error: true
     steps:
       - name: Checkout exact PR head
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ env.HEAD_SHA }}
           fetch-depth: 1
@@ -159,19 +166,35 @@ jobs:
         with:
           node-version: "24.22.1"
 
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md (detector: tests/test_ci_bun_cache_warm.py).
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
+
       - name: Cache Bun package cache
         if: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Bun package cache (restore only off base branches)
-        if: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        if: ${{ (!(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref))) && steps.bun-warm.outputs.warm != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install webviews dependencies
         working-directory: webviews

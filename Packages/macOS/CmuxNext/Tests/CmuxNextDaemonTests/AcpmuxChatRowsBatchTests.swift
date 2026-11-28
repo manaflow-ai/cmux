@@ -18,11 +18,16 @@ func recordedChatChanges(_ name: String) throws -> [Data] {
     }
 }
 
-/// What a stand-in page receiver reads from the host's one call: the batch number and each change.
-func receivedBatch(_ script: String) throws -> (batch: Int, changes: [Data]) {
+/// What a stand-in page receiver reads from the host's one call (the batch's JSON text, or the
+/// whole script around it): the batch number and each change.
+func receivedBatch(_ text: String) throws -> (batch: Int, changes: [Data]) {
     let head = AcpmuxChatRowsBatch.receiver + "("
-    try #require(script.hasPrefix(head) && script.hasSuffix(")"))
-    let body = Data(script.dropFirst(head.count).dropLast().utf8)
+    var argument = Substring(text)
+    if text.hasPrefix(head) {
+        try #require(text.hasSuffix(")"))
+        argument = text.dropFirst(head.count).dropLast()
+    }
+    let body = Data(argument.utf8)
     let object = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
     let batch = try #require(object["batch"] as? Int)
     let changes = try #require(object["changes"] as? [String])
@@ -53,6 +58,10 @@ struct AcpmuxChatRowsBatchTests {
         #expect(received.batch == 7)
         #expect(received.changes == changes + [odd])
         #expect(!script.contains("\u{2028}") && !script.contains("\n"))
+        let argument = AcpmuxChatRowsBatch.argument(batch: 7, changes: changes + [odd])
+        #expect(script == AcpmuxChatRowsBatch.receiver + "(" + argument + ")")
+        #expect(try receivedBatch(argument).changes == changes + [odd])
+        #expect(AcpmuxChatRowsBatch.receiveBody == AcpmuxChatRowsBatch.receiver + "(JSON.parse(batch));")
     }
 
     @Test("a change's kind is read without parsing it")

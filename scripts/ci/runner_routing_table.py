@@ -50,6 +50,8 @@ Usage:
   python3 scripts/ci/runner_routing_table.py check
   python3 scripts/ci/runner_routing_table.py inventory   # print routed jobs
 """
+# guard-inputs: .github/workflows/
+# iter_jobs() walks WORKFLOWS, or a test's own fixture folder.
 
 from __future__ import annotations
 
@@ -75,7 +77,8 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 # are glaeda-* labels and the repository variables that name them.
 MACOS_HINT = re.compile(
     r"macos|glaeda-|MACOS_RUNNER|CI_SIDE_LANE_RUNNER|CI_LIGHT_LANE_RUNNER"
-    r"|CI_NEXT_[A-Z_]*POOL|CI_SEED_TRUSTED_POOL|NIGHTLY_[A-Z_]*(RUNNER|POOL)"
+    # inputs.nightly_runner is a boolean (cmux-tui-build-package.yml: take the nightly Linux pool), not a label.
+    r"|CI_NEXT_[A-Z_]*POOL|CI_SEED_TRUSTED_POOL|(?<!inputs\.)NIGHTLY_[A-Z_]*(RUNNER|POOL)"
     r"|pr_[a-z_]*runner|macos_runner|mini_runner|pick-nightly-build-runner\.outputs\.helper"
     r"|early_(?!(?:linux|mini)_runner)[a-z_]+_runner",
     re.IGNORECASE,

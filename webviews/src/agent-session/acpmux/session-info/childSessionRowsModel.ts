@@ -1,5 +1,5 @@
 import { type StringKey, type Translate } from "../i18n";
-import { retryLabel, sessionRetry } from "../subagents/retryState";
+import { retryLabel, sessionRetry, sessionRetryKey, type RetryQuiet } from "../subagents/retryState";
 import type { StartedSession, StartedState } from "../started/startedSessions";
 import type { SubagentStatus } from "../summary/subagentStatusListModel";
 
@@ -28,15 +28,20 @@ const retryOf = (child: StartedSession) => {
 export const sessionStatus = (child: StartedSession): SubagentStatus =>
   retryOf(child) ? "running" : stateOf(child).status;
 
-/// A started chat's state in words ("Done", "Retrying (2/4) after a capacity error"), as its row says
-/// it, and whether it works (the turning ring): while it runs (no word) or acpmux retries it.
+/// A started chat's state in words ("Done", "Retrying (2/4) after a capacity error" once the retry has
+/// waited the shared bound), as its row says it, and whether it works (the turning ring): while it runs
+/// (no word), or while acpmux retries it. `connectionQuiet`: the drawing component's
+/// `useConnectionQuietKeys`.
 export function sessionStateText(
   t: Translate,
   child: StartedSession,
+  connectionQuiet: RetryQuiet,
 ): { text: string; working: boolean; word: string } {
   const word = t(stateOf(child).word);
   const retry = retryOf(child);
-  if (retry) return { text: retryLabel(t, retry), working: true, word };
+  const lasting = connectionQuiet(sessionRetryKey(child.sessionId), retry !== undefined);
+  // A retry inside the bound reads as running: the turning ring, no word.
+  if (retry) return { text: lasting ? retryLabel(t, retry) : "", working: true, word };
   // Running is the turning ring, never a word (Leo, 2026-11-23: "\"running\" doesn't need text. it can
   // usually just be. you can put symbols for state.").
   if (stateOf(child).status === "running") return { text: "", working: true, word };

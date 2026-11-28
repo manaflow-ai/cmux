@@ -57,6 +57,23 @@ class UpdateFramesTests(unittest.TestCase):
         self.assertEqual(v["windows"]["partial_alpha_samples"], 1)
         self.assertEqual(v["windows"]["transition_states"], 2, "the faded window and the small first window")
 
+    def test_a_window_behind_an_opaque_one_at_its_frame_is_not_a_state(self):
+        # The launch shell's stage 0 in front, the real window ordered below it until it has drawn.
+        with tempfile.TemporaryDirectory() as tmp:
+            v = judge(round_dir(tmp, [(-500, [win(OLD)]), (40, []), (3000, [win(NEW, number=5)]),
+                                      (3100, [win(NEW, number=5), win(NEW, number=7)]), (3190, [win(NEW, number=7)])]))
+        self.assertFalse(v["transition_frames"])
+        self.assertEqual(v["windows"]["transition_states"], 0)
+        self.assertEqual(v["windows"]["covered_samples"], 1)
+
+    def test_a_window_seen_through_a_fading_one_still_counts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            v = judge(round_dir(tmp, [(-500, [win(OLD)]), (40, []), (3000, [win(NEW, number=5)]),
+                                      (3100, [win(NEW, alpha=0.5, number=5), win(NEW, number=7)]),
+                                      (3190, [win(NEW, number=7)])]))
+        self.assertTrue(v["transition_frames"])
+        self.assertEqual(v["windows"]["covered_samples"], 0)
+
     def test_relaunched_somewhere_else_is_not_the_same_frame(self):
         with tempfile.TemporaryDirectory() as tmp:
             v = judge(round_dir(tmp, [(-500, [win(OLD)]), (40, []), (3500, [win(NEW, frame=[50, 25, 1200, 800])])]))
