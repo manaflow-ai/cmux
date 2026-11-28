@@ -45,6 +45,11 @@ on:
         required: false
         default: "1M,1G"
         type: string
+  # A push of this file to feat-cmux-next registers the workflow with GitHub, so a dispatch of it does not
+  # answer 404 (tests/test_ci_workflows_registered.py); that run starts no job.
+  push:
+    branches: [feat-cmux-next]
+    paths: [.github/workflows/chat-size-ladder.yml]
 
 concurrency:
   # A newer dispatch on the same branch replaces its older ladder. A post-merge call (inputs.sha set) is keyed by its
@@ -58,7 +63,8 @@ permissions:
 jobs:
   ladder:
     name: chat-size ladder, base vs head (advisory)
-    if: ${{ inputs.only == '' || inputs.only == 'ladder' }}
+    # The push that registers this file (no sha: post-merge always passes one) starts no ladder.
+    if: ${{ !(github.event_name == 'push' && inputs.sha == '') && (inputs.only == '' || inputs.only == 'ladder') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 120
     steps:
