@@ -1691,6 +1691,9 @@ jobs:
       build_cmux_rd: ${{ fromJSON(needs.tree-preflight.outputs.build_profiles).shipped.build_cmux_rd }}
       darwin_builder: ${{ needs.tree-preflight.outputs.darwin_builder }}
       linux_runner: cmux-linux
+      # LINUX_RETRY_OFF_POOL: a nightly-path leg that failed on cmux-linux retries on the nightly's reserved
+      # label (RFD 0021's other pool), never the pool that just failed it (cmux-tui-build-package.yml).
+      linux_retry_runner: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || '' }}
 
 
   # MACHINE_CHANNEL_THIN, LINUX_X86_64_FIRST: the Cloud machine channel's thin copy of the two Linux musl
@@ -1790,6 +1793,9 @@ jobs:
       # `mac` to that file.
       darwin_builder: ${{ needs.tree-preflight.outputs.darwin_builder }}
       linux_runner: cmux-linux
+      # LINUX_RETRY_OFF_POOL: a nightly-path leg that failed on cmux-linux retries on the nightly's reserved
+      # label (RFD 0021's other pool), never the pool that just failed it (cmux-tui-build-package.yml).
+      linux_retry_runner: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || '' }}
 
   # The Windows legs of the build, in their own call so that publish and
   # publish-tree start as soon as the macOS and Linux targets are built: the
@@ -2132,6 +2138,9 @@ jobs:
       darwin_builder: ${{ needs.darwin-fallback-plan.outputs.builder }}
       macos_stubs_ref: ${{ needs.darwin-fallback-plan.outputs.stubs_ref }}
       linux_runner: cmux-linux
+      # LINUX_RETRY_OFF_POOL: a nightly-path leg that failed on cmux-linux retries on the nightly's reserved
+      # label (RFD 0021's other pool), never the pool that just failed it (cmux-tui-build-package.yml).
+      linux_retry_runner: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || '' }}
 
   # The publish jobs take the build from here: the matrix build, or that
   # build with its macOS targets rebuilt by build-darwin-fallback, or every
@@ -6432,7 +6441,7 @@ jobs:
   # 300 an hour, must not spend the 1,000-an-hour budget every workflow shares.
   drop-build-artifacts:
     name: drop this run's build artifacts
-    needs: [reject-untrusted-pin-ref, push-gate, coalesce, coalesce-failed, supersede-feat-runs, tree-preflight, tree-owner-wait, build-linux, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests, record-input-pass, publish-ref-notice, sentry-dsyms, publish, verify-publish, adopt-commit-manifest, rerun-deferred-commits, verify-cdn-publication, publish-windows, macos-cross-shadow, macos-cross-runtime-x86_64, publish-tree, publish-tree-windows, publish-tree-tested, keep-feat-channel, point-feat-channel, point-windows-channel, mark-tree-commits, sweep-commit-manifests, sweep-pending-tree-notify, point-machine-channel, point-mac-live-channel, request-image-roll, request-nightly-next, request-team-signed-tree, notify-unpublished-tree]
+    needs: [reject-untrusted-pin-ref, push-gate, coalesce, coalesce-failed, supersede-feat-runs, tree-preflight, tree-owner-wait, build-linux, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests, record-input-pass, publish-ref-notice, sentry-dsyms, publish, verify-publish, adopt-commit-manifest, rerun-deferred-commits, verify-cdn-publication, publish-windows, macos-cross-shadow, macos-cross-runtime-x86_64, publish-tree, publish-tree-windows, publish-tree-tested, keep-feat-channel, point-feat-channel, point-windows-channel, mark-tree-commits, sweep-commit-manifests, sweep-pending-tree-notify, point-machine-channel, point-mac-live-channel, request-image-roll, request-nightly-next, request-team-signed-tree, sign-nightly-linux-release, notify-unpublished-tree]
     # Not after notify-unpublished-tree ran: it must stay the run's last job so the
     # deferred run it re-runs finds this owner ended (cx-urd.26). Those runs keep
     # their artifacts to the 1-day retention.
