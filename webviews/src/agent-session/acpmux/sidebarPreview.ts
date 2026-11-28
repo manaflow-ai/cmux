@@ -11,7 +11,9 @@ export function readSidebarPreviewVariant(value: unknown): SidebarPreviewVariant
 }
 
 const queryVariant = (): SidebarPreviewVariant | undefined => {
-  if (typeof window === "undefined") return undefined;
+  // A closed window (a torn-down page, or a test's jsdom after close) keeps `window` but drops its
+  // location; this runs once at module load, so it must not throw there.
+  if (typeof window === "undefined" || !window.location) return undefined;
   const query = new URLSearchParams(window.location.search).get("sidebarPreview");
   return isVariant(query) ? query : undefined;
 };
