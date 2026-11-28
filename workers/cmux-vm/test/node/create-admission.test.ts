@@ -16,6 +16,10 @@ import {
   INITIAL_HOLD_MS,
   PROVIDER_CREATE_BUDGET_MS,
   parseCreateAdmission,
+  CREATE_DEADLINE_MARGIN_MS,
+  CREATE_QUEUE_WAIT_CEILING_MS,
+  localCreateAdmission,
+  queueWaitFor,
   type CreateAdmission,
   type CreateAdmissionSettings,
 } from "../../src/limits/create-admission.ts";
@@ -336,6 +340,71 @@ describe("parseCreateAdmission", () => {
     expect(parseCreateAdmission("8", "5000")).toEqual({ ...SETTINGS, cap: 8, queueWaitMs: 5000 });
     expect(parseCreateAdmission("three", "-1")).toEqual(SETTINGS);
     expect(parseCreateAdmission("100000", "999999")).toEqual(SETTINGS);
+  });
+});
+
+describe("a create that names its deadline (cmux-platform#2217)", () => {
+  /** Three people's creates hold every slot for 100 s, the shape of staging 2026-11-28 01:13Z. */
+  const fullQueue = async () => {
+    const queue = new CreateAdmissionQueue(memoryLedgerStorage());
+    const client = localCreateAdmission(queue, SETTINGS);
+    for (const holder of ["a", "b", "c"]) expect(await client.admit(holder)).toMatchObject({ admitted: true });
+    setTimeout(() => { void queue.release("a"); }, 100_000);
+    return client;
+  };
+
+  it("waits for a slot across the time left before its deadline, where 25 s refused it", async () => {
+    const client = await fullQueue();
+    const waiting = client.admit("d", false, Date.now() + 300_000);
+    await vi.advanceTimersByTimeAsync(100_000);
+    expect(await waiting).toMatchObject({ admitted: true, waitedMs: 100_000 });
+  });
+
+  it("with no deadline keeps the configured 25 s wait", async () => {
+    const client = await fullQueue();
+    const waiting = client.admit("d");
+    await vi.advanceTimersByTimeAsync(DEFAULT_CREATE_QUEUE_WAIT_MS);
+    expect(await waiting).toMatchObject({ admitted: false, reason: "wait_expired", waitedMs: DEFAULT_CREATE_QUEUE_WAIT_MS });
+  });
+
+  it("refuses at once when its deadline is past or too close to finish a create, even with a slot free", async () => {
+    const queue = new CreateAdmissionQueue(memoryLedgerStorage());
+    const client = localCreateAdmission(queue, SETTINGS);
+    expect(await client.admit("late", false, Date.now() - 1)).toMatchObject({ admitted: false, reason: "queue_full", waitedMs: 0 });
+    expect(await client.admit("close", false, Date.now() + CREATE_DEADLINE_MARGIN_MS - 1)).toMatchObject({ admitted: false, reason: "queue_full" });
+    expect(queue.state.inFlight).toBe(0);
+  });
+
+  it("staging 01:13Z, before and after: 3 slots held 120 s refused all 4 of a person's tries; with its deadline the first try gets the slot", async () => {
+    const tries = async (deadline: boolean) => {
+      vi.setSystemTime(0);
+      const queue = new CreateAdmissionQueue(memoryLedgerStorage());
+      const client = localCreateAdmission(queue, SETTINGS);
+      for (const holder of ["a", "b", "c"]) await client.admit(holder);
+      setTimeout(() => { void queue.release("a"); }, 120_000);
+      const outcome = (async () => {
+        for (let attempt = 0; attempt < 4; attempt++) {
+          const answer = await client.admit("person", false, deadline ? 300_000 : undefined);
+          if (answer.admitted) return { admittedAtMs: Date.now(), refusals: attempt };
+          await sleep(Math.min(30_000, 1000 * 2 ** attempt));
+        }
+        return { admittedAtMs: null, refusals: 4 };
+      })();
+      await vi.advanceTimersByTimeAsync(300_000);
+      return outcome;
+    };
+    const before = await tries(false);
+    const after = await tries(true);
+    process.stdout.write(`create-admission deadline ${JSON.stringify({ before, after })}\n`);
+    expect(before).toEqual({ admittedAtMs: null, refusals: 4 });
+    expect(after).toEqual({ admittedAtMs: 120_000, refusals: 0 });
+  });
+
+  it("waits at most the ceiling, under the platform's 270 s call, and ignores a deadline that is not a number", () => {
+    expect(queueWaitFor(SETTINGS, 10_000_000, 0)).toBe(CREATE_QUEUE_WAIT_CEILING_MS);
+    expect(queueWaitFor(SETTINGS, 100_000, 0)).toBe(100_000 - CREATE_DEADLINE_MARGIN_MS);
+    expect(queueWaitFor(SETTINGS, undefined, 0)).toBe(DEFAULT_CREATE_QUEUE_WAIT_MS);
+    expect(queueWaitFor(SETTINGS, Number.NaN, 0)).toBe(DEFAULT_CREATE_QUEUE_WAIT_MS);
   });
 });
 

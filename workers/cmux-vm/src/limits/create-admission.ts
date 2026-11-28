@@ -45,6 +45,30 @@ export const DEFAULT_CREATE_CONCURRENCY = 3;
 export const DEFAULT_CREATE_QUEUE_WAIT_MS = 25_000;
 
 /**
+ * What a create needs after its slot comes: the provider create at its staging median (14.4 s at 1 to 3 in flight),
+ * reads and records, and the platform's attach after it. A create that names its deadline (`x-cmux-create-deadline`)
+ * waits for a slot until this long before it, so an admitted create still has time to finish.
+ */
+export const CREATE_DEADLINE_MARGIN_MS = 30_000;
+
+/**
+ * The longest a create that names its deadline waits for a slot: under the platform's 270 s call (CloudProvider
+ * CREATE_TIMEOUT_MS) less the margin above.
+ */
+export const CREATE_QUEUE_WAIT_CEILING_MS = 240_000;
+
+/**
+ * How long this create may wait for a slot. With no deadline: the configured wait. With one: the time left before it
+ * less the margin, at most the ceiling; negative when even an admitted create could not finish in time, which the
+ * queue refuses at once. Staging 2026-11-28 01:13Z (cmux-platform#2217, synthetic-probes run 46090609354): with a
+ * fixed 25 s per try, 3 slots held up to 250 s refused all 4 tries of a person's create until create_overdue at 300 s.
+ */
+export const queueWaitFor = (settings: CreateAdmissionSettings, deadlineAt: number | undefined, now: number): number =>
+  deadlineAt === undefined || !Number.isFinite(deadlineAt)
+    ? settings.queueWaitMs
+    : Math.min(CREATE_QUEUE_WAIT_CEILING_MS, Math.floor(deadlineAt - now - CREATE_DEADLINE_MARGIN_MS));
+
+/**
  * How long a create's provider call may run, its background polls included (upstream/live-create.ts): under the 300 s
  * a caller's create waits. The slot is held for all of it, so the lease derives from it.
  */
@@ -148,6 +172,10 @@ export class CreateAdmissionQueue {
     if (held !== undefined) {
       this.take(slots, holder, held.startedMs, now, settings);
       return { admitted: true, waitedMs: 0, inFlight: slots.size, queued: this.waiters.length };
+    }
+    // Past its deadline (less the margin, queueWaitFor): no create sent now could finish, so nothing is sent.
+    if (settings.queueWaitMs < 0) {
+      return { admitted: false, reason: "queue_full", waitedMs: 0, inFlight: slots.size, queued: this.waiters.length, retryAfterMs: 0 };
     }
     const ahead = background ? this.waiters.length : this.foregroundWaiting();
     if (ahead === 0 && slots.size < settings.cap && (!background || backgroundHeld(slots) < backgroundCap(settings.cap))) {
@@ -279,13 +307,15 @@ const backgroundHeld = (slots: Map<string, Slot>) => {
 
 /** What a provider create asks before it sends (live-create.ts); null in UpstreamConfig means no queue. */
 export interface CreateAdmissionClient {
-  readonly admit: (holder: string, background?: boolean) => Promise<CreateAdmission>;
+  /** `deadlineAt` (epoch ms): when the caller stops waiting for this create; the wait for a slot spans it (queueWaitFor). */
+  readonly admit: (holder: string, background?: boolean, deadlineAt?: number) => Promise<CreateAdmission>;
   readonly release: (holder: string) => Promise<void>;
 }
 
 /** A queue in this isolate (tests, and any host with one process). */
 export const localCreateAdmission = (queue: CreateAdmissionQueue, settings: CreateAdmissionSettings): CreateAdmissionClient => ({
-  admit: (holder, background) => queue.admit(holder, settings, background === true),
+  admit: (holder, background, deadlineAt) =>
+    queue.admit(holder, { ...settings, queueWaitMs: queueWaitFor(settings, deadlineAt, Date.now()) }, background === true),
   release: (holder) => queue.release(holder),
 });
 
@@ -296,7 +326,9 @@ interface CreateQueueStub {
 
 /** Live: the environment's one queue object. The answer crosses an RPC boundary, so it is decoded. */
 export const durableObjectCreateAdmission = (stubOf: () => CreateQueueStub, settings: CreateAdmissionSettings): CreateAdmissionClient => ({
-  admit: async (holder, background) => Schema.decodeUnknownSync(CreateAdmission)(await stubOf().admitCreate(holder, settings.cap, settings.queueWaitMs, settings.leaseMs, background === true)),
+  admit: async (holder, background, deadlineAt) => Schema.decodeUnknownSync(CreateAdmission)(
+    await stubOf().admitCreate(holder, settings.cap, queueWaitFor(settings, deadlineAt, Date.now()), settings.leaseMs, background === true),
+  ),
   release: async (holder) => { await stubOf().releaseCreate(holder); },
 });
 

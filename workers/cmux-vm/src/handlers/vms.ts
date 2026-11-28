@@ -130,6 +130,8 @@ interface NewVm {
   readonly size: SizeRequest | undefined;
   /** `x-cmux-create-priority: background`: a create no one is waiting on (a spare), queued behind everyone else's. */
   readonly background?: boolean;
+  /** `x-cmux-create-deadline` (epoch ms): when the caller stops waiting; the create's wait for a provider slot spans it. */
+  readonly deadlineAt?: number;
 }
 
 /**
@@ -335,6 +337,7 @@ const createRecordedTimed = <C, S, M>(
           environment: policy.environment,
           ...(caller.value.actor.kind === "service" && policy.createsWithoutReads(caller.value.actor.serviceId) ? { withoutReads: true } : {}),
           ...(spec.background === true ? { background: true } : {}),
+          ...(spec.deadlineAt === undefined ? {} : { deadlineAt: spec.deadlineAt }),
           journal,
           phases,
         },
@@ -525,7 +528,11 @@ const withMeshToJoin = <C, A, E, R>(
     );
   });
 
-const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined, background = false) =>
+/** `x-cmux-create-deadline`: epoch ms, a whole number; anything else is no deadline (the configured queue wait). */
+const createDeadlineOf = (raw: string | undefined): number | undefined =>
+  raw !== undefined && /^[0-9]{13}$/u.test(raw.trim()) ? Number(raw.trim()) : undefined;
+
+const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined, background = false, deadlineAt?: number) =>
   withCaller("vm:write", "write", (caller, scope) =>
     Effect.flatMap(Clock.currentTimeMillis, (entered) =>
     Effect.gen(function* () {
@@ -571,6 +578,7 @@ const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined
         autoDeleteSeconds: payload.autoDeleteSeconds,
         size: payload.resources,
         ...(background ? { background: true } : {}),
+        ...(deadlineAt === undefined ? {} : { deadlineAt }),
       };
       if (imageIntent !== undefined) request.push(`image:${imageIntent.fingerprint}`);
       const generated = idempotencyKey === undefined ? yield* issueCreation(principal, "create", payload) : undefined;
@@ -927,7 +935,7 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
       ),
     )
     .handle("createVm", ({ payload, headers }) =>
-      audited("vm.create", null, createVm(payload, headers["idempotency-key"], headers["x-cmux-create-priority"] === "background"), (vm) => vm.id),
+      audited("vm.create", null, createVm(payload, headers["idempotency-key"], headers["x-cmux-create-priority"] === "background", createDeadlineOf(headers["x-cmux-create-deadline"])), (vm) => vm.id),
     )
     .handle("listVms", ({ urlParams }) => listVms(urlParams))
     .handle("resizeVm", ({ path, payload, headers }) =>
