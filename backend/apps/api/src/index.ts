@@ -69,6 +69,7 @@ export { PairingDO } from "./pairing-do.ts"
 export { HostDO } from "./host-do.ts"
 export { HandDO } from "./hand-do.ts"
 import { HAND_PATH, handleHands } from "./hand-routes.ts"
+import { SHARE_INVITE_MAIL_PATH, handleShareInviteMail } from "./share-invite-mail.ts"
 export { TeamVmDO } from "./team-vm-do.ts"
 export { WireTicketDO } from "./wire-ticket.ts"
 export { TrajectoryDO } from "./cloud-trajectory-store.ts"
@@ -339,6 +340,8 @@ export default {
     if (url.pathname === "/v1/sso/redeem") return handleSsoRedeem(request, env)
     // Sign-in hand-off to another device of the same person (auth-handoff.ts): each route checks its own credential.
     if (url.pathname === AUTH_HANDOFFS_PATH) return handleAuthHandoffMint(request, env)
+    // The mail to the person a chat is shared with (share-invite-mail.ts): off unless SHARE_INVITE_MAIL_SEND is "on".
+    if (url.pathname === SHARE_INVITE_MAIL_PATH) return handleShareInviteMail(request, env)
     if (url.pathname === AUTH_HANDOFFS_REDEEM_PATH) return handleAuthHandoffRedeem(request, env)
     // A GitHub Actions job signs in as its one test account by OIDC token (ci-session.ts): no stored password.
     if (url.pathname === CI_SESSION_PATH) return handleCiSession(request, env)
