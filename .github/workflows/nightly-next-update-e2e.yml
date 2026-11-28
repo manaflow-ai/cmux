@@ -48,7 +48,9 @@ jobs:
     # No secrets and no environment: it runs the published app.
     # An ephemeral Mac (tests/test_ci_paid_queue_pin.py PAID_ONLY_JOBS): the run installs a Nightly into /Applications
     # and has Sparkle replace and relaunch it.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    # A fork's pull request never reaches this job (the if: above), so only a fork repository's own run takes the
+    # hosted image: the one fork short-circuit the runner guard allows (tests/test_ci_self_hosted_guard.sh).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 45
     permissions:
       contents: read
