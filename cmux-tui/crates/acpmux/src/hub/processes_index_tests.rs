@@ -66,3 +66,72 @@ fn a_description_round_trips_and_is_left_out_when_absent() {
         json!("Wait for the PR checks to finish")
     );
 }
+
+/// A running daemon task (`bg_registry.rs`) stays out of the harness's live set through an index
+/// rebuild (a shrink, a checkpoint restore), so it never keeps its chat awake, and a row the table
+/// dropped (it had ended) is never put back.
+#[test]
+fn a_rebuilt_index_keeps_daemon_tasks_out_of_the_harness_live_set() {
+    let mut table = ProcessTable::default();
+    table.upsert(process("session/shell", "tool-shell"));
+    let mut daemon = process("session/bg-1", "tool-bg");
+    daemon.daemon_task = true;
+    table.upsert(daemon);
+    table.reindex();
+    assert_eq!(table.running.len(), 1, "only the harness's shell");
+    assert_eq!(table.daemon_live(), vec![("session/bg-1".to_owned(), "task".to_owned())]);
+    table.dropped.ids.push(key("session/bg-old"));
+    table.dropped.count = 1;
+    let mut gone = process("session/bg-old", "tool-old");
+    gone.state = ProcessState::Lost;
+    assert!(table.daemon_upsert(gone).is_none(), "a dropped row stays ended");
+    assert!(table.find_id("session/bg-old").is_none());
+}
+
+/// A daemon task an older daemon logged as a harness shell (no `daemonTask`): running, it moves
+/// from the harness's live set to the daemon's; lost with its harness, the task's folder, which
+/// says it runs, brings it back.
+#[test]
+fn a_daemon_task_an_older_daemon_logged_comes_back_as_a_daemon_task() {
+    let mut table = ProcessTable::default();
+    table.upsert(process("session/bg-1", "tool-1"));
+    assert_eq!(table.running.len(), 1, "read as a harness shell");
+    let mut daemon = process("session/bg-1", "tool-1");
+    daemon.daemon_task = true;
+    daemon.origin = "daemon".to_owned();
+    assert!(table.daemon_upsert(daemon.clone()).is_some());
+    assert_eq!(table.running.len(), 0, "out of the harness's live set");
+    assert_eq!(table.daemon_live().len(), 1);
+
+    let mut lost = process("session/bg-2", "tool-2");
+    lost.state = ProcessState::Lost;
+    lost.reason = Some(HARNESS_EXIT.to_owned());
+    table.upsert(lost);
+    assert!(table.daemon_row_missing("session/bg-2"));
+    let mut again = daemon;
+    again.id = "session/bg-2".to_owned();
+    again.tool_call_id = "tool-2".to_owned();
+    assert!(table.daemon_upsert(again).is_some(), "its folder says it runs");
+    assert_eq!(table.daemon_live().len(), 2);
+    assert!(!table.daemon_row_missing("session/bg-2"));
+}
+
+/// Daemon tasks with no call share an empty one: a shrink keys none for it, so a later row with no
+/// call never reads the whole history back.
+#[test]
+fn a_shrink_keys_no_empty_call() {
+    let mut table = ProcessTable::default();
+    for i in 0..(HELD_ENDED + 10) {
+        let mut row = process(&format!("session/bg-{i}"), "");
+        row.daemon_task = true;
+        row.state = ProcessState::Exited;
+        row.ended_at = Some(10 + i as u64);
+        table.upsert(row);
+    }
+    table.shrink(true);
+    assert!(!table.dropped.is_empty(), "it shrank");
+    assert!(!table.dropped.has_tool(""));
+    let mut next = process("session/bg-new", "");
+    next.daemon_task = true;
+    assert!(!table.upsert_needs_history(&next));
+}

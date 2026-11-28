@@ -1,0 +1,136 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.models.dialog.hugging-face.description" : {
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "سيستخدم cmux حسابك لدى Hugging Face للوصول إلى Inference Providers. الصق رمزًا بصلاحية Inference Providers."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux će koristiti tvoj nalog za Hugging Face za pristup opciji Inference Providers. Zalijepi token s dozvolom Inference Providers."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux bruger din konto hos Hugging Face til at tilgå Inference Providers. Indsæt et token med tilladelsen Inference Providers."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux verwendet dein Konto bei Hugging Face für den Zugriff auf Inference Providers. Füge ein Token mit der Berechtigung Inference Providers ein."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux will use your Hugging Face account to call Inference Providers. Paste a token with Inference Providers permission."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux usará tu cuenta de Hugging Face para acceder a Inference Providers. Pega un token con el permiso Inference Providers."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux utilisera votre compte Hugging Face pour accéder à Inference Providers. Collez un jeton avec l’autorisation Inference Providers."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux userà il tuo account Hugging Face per accedere a Inference Providers. Incolla un token con l’autorizzazione Inference Providers."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmuxはお使いのHugging Faceアカウントを使用してInference Providersにアクセスします。Inference Providers権限を持つトークンを貼り付けてください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux នឹងប្រើ គណនី Hugging Face របស់អ្នក ដើម្បីចូលប្រើ Inference Providers។ បិទភ្ជាប់ថូខឹនដែលមានសិទ្ធិ Inference Providers។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux에서 Hugging Face 계정로 Inference Providers에 액세스합니다. Inference Providers 권한이 있는 토큰을 붙여넣으세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux bruker kontoen din hos Hugging Face for å få tilgang til Inference Providers. Lim inn et token med tillatelsen Inference Providers."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux użyje Twojego konta w usłudze Hugging Face, aby uzyskać dostęp do Inference Providers. Wklej token z uprawnieniem Inference Providers."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O cmux usará sua conta de Hugging Face para acessar Inference Providers. Cole um token com a permissão Inference Providers."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux будет использовать ваш аккаунт Hugging Face для доступа к следующему: Inference Providers. Вставьте токен с разрешением Inference Providers."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux จะใช้บัญชี Hugging Face ของคุณเพื่อเข้าถึงInference Providers วางโทเค็นที่มีสิทธิ์ Inference Providers"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux Inference Providers kullanmak için Hugging Face hesabınızı kullanacak. Inference Providers izni olan bir belirteci yapıştırın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux використає ваш обліковий запис Hugging Face для доступу до такого: Inference Providers. Вставте токен із дозволом Inference Providers."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux sẽ dùng tài khoản Hugging Face của bạn để truy cập Inference Providers. Dán mã thông báo có quyền Inference Providers."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 将使用你的Hugging Face账号访问Inference Providers。粘贴具有Inference Providers权限的令牌。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 將使用你的Hugging Face帳號存取Inference Providers。貼上具有Inference Providers權限的權杖。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

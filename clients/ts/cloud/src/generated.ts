@@ -425,6 +425,8 @@ export type CloudPlan = {
     readonly checked_at: number | null
     readonly pause_at: number | null
     readonly paused_at: number | null
+    readonly included_usd?: number | "Infinity" | "-Infinity" | "NaN"
+    readonly overage_usd?: number | "Infinity" | "-Infinity" | "NaN" | null
   }
 }
 
