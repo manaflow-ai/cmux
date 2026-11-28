@@ -507,23 +507,36 @@ const BACKGROUND_ID = /^[A-Za-z0-9_.:-]{1,128}$/;
  * The final answer of a provider request sent with BACKGROUND_AFTER. Freestyle's edge cuts a request it holds open at
  * about 120 s (an exec-await of a 290 s command answered 524 after 125 s, production 2026-11-21), so a request still
  * running after 60 s answers 202 with a request id, and GET /v5/background-requests/{id} (with the same `headers`)
- * answers 202 until the stored answer is ready, then that answer, which comes back whatever its status. Five failed
- * polls in a row (no answer, 429 or 5xx), or no answer by `deadlineAt`, throw: the command may have run. cmux-vm
+ * answers 202 until the stored answer is ready, then that answer, which comes back whatever its status. Failed polls
+ * (no answer, 429 or 5xx) back off and keep going, past `deadlineAt` too, until none has answered for `outageMs`
+ * (Freestyle answered 503 to every poll for 9 min in rebake 45960390204, 2026-11-27, while the command ran on); no
+ * answer then, or by the deadline with the provider answering, throws: the command may have run. cmux-vm
  * (workers/cmux-vm/src/upstream/live-background.ts) and the CLI (cmux-cloud-api background.rs) do the same.
  */
-export async function settleBackground(answer: Answer, apiBase: string, headers: Record<string, string>, deadlineAt: number, pollMs = 2_000, fetchJson: typeof http = http): Promise<Answer> {
+export async function settleBackground(answer: Answer, apiBase: string, headers: Record<string, string>, deadlineAt: number, pollMs = 2_000, fetchJson: typeof http = http, outageMs = 300_000): Promise<Answer> {
   if (answer.status !== 202) return answer;
   const id = answer.headers?.get("x-freestyle-background-request-id") ?? answer.body?.requestId ?? answer.body?.request_id;
   if (typeof id !== "string" || !BACKGROUND_ID.test(id)) throw new Error("background request: the 202 names no request");
   const url = `${apiBase.replace(/\/+$/, "")}/v5/background-requests/${id}`;
-  let failures = 0;
-  while (Date.now() + pollMs < deadlineAt) {
-    await new Promise((r) => setTimeout(r, pollMs));
-    const poll = await fetchJson("GET", url, undefined, headers, Math.max(1, Math.min(30_000, deadlineAt - Date.now()))).catch(() => null);
-    if (poll && poll.status === 202) failures = 0;
-    else if (poll && poll.status !== 429 && poll.status < 500) return poll;
-    else if (++failures >= 5) break;
+  let lastAnswerAt = Date.now();
+  let wait = pollMs;
+  let failing = false;
+  for (;;) {
+    const until = failing ? Math.max(deadlineAt, lastAnswerAt + outageMs) : deadlineAt;
+    if (Date.now() + wait >= until) break;
+    await new Promise((r) => setTimeout(r, wait));
+    const poll = await fetchJson("GET", url, undefined, headers, Math.max(1, Math.min(30_000, until - Date.now()))).catch(() => null);
+    if (poll && poll.status === 202) {
+      lastAnswerAt = Date.now();
+      wait = pollMs;
+      failing = false;
+    } else if (poll && poll.status !== 429 && poll.status < 500) return poll;
+    else {
+      failing = true;
+      wait = Math.min(15_000, wait * 2);
+    }
   }
+  if (failing) throw new Error(`background request ${id}: provider outage, no poll answered for ${Math.round(outageMs / 1000)} s (the command may have run)`);
   throw new Error(`background request ${id}: no answer by the deadline (the command may have run)`);
 }
 
