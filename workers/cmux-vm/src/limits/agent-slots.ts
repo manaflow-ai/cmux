@@ -16,6 +16,11 @@
  *   2026-11-27 22:49Z: two production smoke creates failed 503 vm-provider.createQueueFull, refused by the create queue
  *   before any send, yet were held as "may exist" for 25 h; the smoke key sat at its maxVms cap of 2 with no VM, and
  *   every cmux-vm production deploy after it went red at smoke-production (429 agent_vms), rolling the image back.
+ * - a held slot of a key whose VMs have a run cap (a CI principal's maxRunSeconds) lapses once that cap plus the send
+ *   grace has passed since it was held: any VM its create made has been paused and deleted upstream by then, so it
+ *   holds nothing. 2026-11-28 02:45Z: after the never-sent fix deployed, the smoke key still sat at its cap of 2 with
+ *   no VM listed (cmux run 46098236710, smoke-production 429 agent_vms for its whole 10-minute wait): held slots whose
+ *   creation could not be proven unsent waited out the full 25 h meant for long-lived agent keys.
  */
 import { Schema } from "effect";
 import { deleteMany, type LedgerStorage } from "./storage.ts";
@@ -47,12 +52,14 @@ export type AgentSlotOutcome =
  * Takes `slotId` when the key's VMs and creates in flight stay under `limit`; false at the budget. `neverSent` answers,
  * inside the same transaction, whether a held slot's creation provably sent nothing (its intent never reached the
  * provider, or the provider rejected it): such a slot holds no VM and is dropped, not counted for HELD_TTL_MS.
+ * `heldBoundMs`, for a key whose VMs have a run cap, is the longest a held slot can still name a live VM.
  */
-export const admitAgentSlot = (storage: LedgerStorage, agent: string, limit: number, ownedVmIds: ReadonlyArray<string>, nowMs: number, slotId: string, neverSent?: (tx: LedgerStorage, creationKey: string) => Promise<boolean>): Promise<boolean> =>
+export const admitAgentSlot = (storage: LedgerStorage, agent: string, limit: number, ownedVmIds: ReadonlyArray<string>, nowMs: number, slotId: string, neverSent?: (tx: LedgerStorage, creationKey: string) => Promise<boolean>, heldBoundMs?: number): Promise<boolean> =>
   storage.transaction(async (tx) => {
     const held = new Set(ownedVmIds), expired: string[] = [];
     for (const [key, value] of await tx.list({ prefix: prefixOf(agent) })) {
       if (!isAgentSlot(value) || value.expiresMs <= nowMs) expired.push(key);
+      else if (value.creationKey !== undefined && heldBoundMs !== undefined && value.expiresMs - HELD_TTL_MS + heldBoundMs <= nowMs) expired.push(key);
       else if (value.creationKey !== undefined && neverSent !== undefined && await neverSent(tx, value.creationKey)) expired.push(key);
       else held.add(value.vmId ?? key);
     }

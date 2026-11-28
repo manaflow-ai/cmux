@@ -70,7 +70,7 @@ export class TenantLimitsObject extends DurableObject {
     return this.ledger.reserve(kind, limit, liveCount, nowMs, reservationId);
   }
 
-  admitAgentSlot(agent: string, limit: number, ownedVmIds: ReadonlyArray<string>, nowMs: number, slotId: string): Promise<boolean> { return this.ledger.admitAgentSlot(agent, limit, ownedVmIds, nowMs, slotId); }
+  admitAgentSlot(agent: string, limit: number, ownedVmIds: ReadonlyArray<string>, nowMs: number, slotId: string, heldBoundMs?: number): Promise<boolean> { return this.ledger.admitAgentSlot(agent, limit, ownedVmIds, nowMs, slotId, heldBoundMs); }
   settleAgentSlot(agent: string, slotId: string, outcome: AgentSlotOutcome, nowMs: number): Promise<void> { return this.ledger.settleAgentSlot(agent, slotId, outcome, nowMs); }
   bindAgentCreation(agent: string, creationKey: string, vmId: string, nowMs: number): Promise<void> { return this.ledger.bindAgentCreation(agent, creationKey, vmId, nowMs); }
   forgetAgentVm(vmId: string, creationKey: string | null): Promise<void> { return this.ledger.forgetAgentVm(vmId, creationKey); }

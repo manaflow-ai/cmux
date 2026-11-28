@@ -70,3 +70,16 @@ it("drops a held slot whose creation provably sent nothing, and keeps one whose 
   expect(await storage.get(`agentslot:${agent}:ck_ready`)).toBeUndefined();
   expect(await storage.get(`agentslot:${agent}:ck_sent`)).toBeDefined();
 });
+
+it("lapses a run-capped key's held slot once the run cap plus grace has passed, and only then", async () => {
+  const storage = memoryLedgerStorage();
+  const bound = 900_000 + 600_000;
+  expect(await admitAgentSlot(storage, agent, 1, [], 0, "s1")).toBe(true);
+  await settleAgentSlot(storage, agent, "s1", { held: "ck_1", vmId: "vm_x" }, 1);
+  // Inside the run cap a VM the create made may still run: the held slot counts.
+  expect(await admitAgentSlot(storage, agent, 1, [], bound, "s2", undefined, bound)).toBe(false);
+  // A key without a run cap keeps it for HELD_TTL_MS.
+  expect(await admitAgentSlot(storage, agent, 1, [], bound + 1, "s3")).toBe(false);
+  // Past the cap the run cap has paused and deleted any such VM: the slot holds nothing.
+  expect(await admitAgentSlot(storage, agent, 1, [], bound + 1, "s4", undefined, bound)).toBe(true);
+});
