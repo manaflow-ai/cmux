@@ -300,29 +300,20 @@ pub fn codex_with(
 /// that name, so it replaces the person's entry instead of starting a second copy.
 pub fn claude_leftover(env: &BTreeMap<String, String>, cwd: &Path) -> Option<String> {
     let claude = project_mcp::Claude::of(env, cwd);
-    let real = cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf());
-    let configs: Vec<Value> =
-        claude.configs.iter().filter_map(|f| project_mcp::read_json(f)).collect();
-    claude_leftover_in(&configs, &real)
+    claude_leftover_with(&claude, env, cwd)
 }
 
-/// [`claude_leftover`] over parsed `.claude.json` files, for a chat in folder `real`.
-pub fn claude_leftover_in(configs: &[Value], real: &Path) -> Option<String> {
-    let mut scopes: Vec<&Value> = Vec::new();
-    for config in configs {
-        for folder in real.ancestors() {
-            if let Some(p) = folder.to_str().and_then(|k| config.get("projects")?.get(k)) {
-                scopes.push(p);
-            }
-        }
-        scopes.push(config);
-    }
-    legacy_named(
-        scopes
-            .iter()
-            .filter_map(|scope| scope.get("mcpServers")?.as_object())
-            .flat_map(|servers| servers.iter().map(|(name, entry)| (name.as_str(), entry.clone()))),
-    )
+/// Resolve the same effective, enabled entry as sharing before recognizing a legacy server.
+/// A lower-priority user entry must never replace an unrelated project or local server.
+fn claude_leftover_with(
+    claude: &project_mcp::Claude,
+    env: &BTreeMap<String, String>,
+    cwd: &Path,
+) -> Option<String> {
+    let entries = claude_with(claude, &Share::All, env, cwd, &BTreeSet::new(), |spec| {
+        Some(json!({"command": spec.command, "args": spec.args}))
+    });
+    legacy_named(entries.iter().map(|(name, entry)| (name.as_str(), entry.clone())))
 }
 
 /// The legacy name under which the person's Codex `config.toml` still starts cmux's agent
