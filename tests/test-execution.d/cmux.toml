@@ -568,6 +568,10 @@ path = "tests/test_cmux_tui_tree_handoff.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_tui_tree_request_waits_out_limit.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_tui_tree_key_verb.py"
 lane = "linux-guard"
 

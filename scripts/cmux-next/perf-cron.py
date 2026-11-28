@@ -332,8 +332,11 @@ PARTS = [
     # the 1 MB chat's (chat_size.<size>.<axis>_ratio) and the worst of them (chat_size.ratio_max; missing when any size
     # crashed, stalled or read nothing). The bench configuration, as memory-agents: one build serves both. Seeding the
     # 4 GB chat and 12 launches are not timed on a fleet Mac yet, so it takes workspace-scaling's 60-minute cap.
+    # goal: NOW's infinite_chat_size_ratio_max (goal infinite-chats). Without it the part kept its PARTS place, 18th of
+    # 19 Mac parts: on 2026-11-28 a batch preempted at 14:21Z left its after number for cmux#65013 about 11 h out.
     {"name": "chat-size", "args": [*MEASURE, "--vdisplay-hold=3600", "--config=bench", "--suite=chat-size"],
-     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "chat-size", "run_seconds": 3600},
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "chat-size",
+     "goal": "infinite-chats", "goal_rows": r"chat_size\.ratio_max@", "run_seconds": 3600},
     # Leo 2026-11-25 "when you press enter, the stuff should just start playing": the agent chat's Enter to the sent
     # row's frame, its reserved turn in that frame, layout shifts per send, first token and chat switch, plain, in a
     # 1000-turn chat, with 12 other chats open and offline (scripts/measure/snappy-bench.py; chat_snappy.<duress>.*).
@@ -407,7 +410,10 @@ PARTS = [
     # run_seconds: chat-100k-flat's seven launches (each about a minute of CPU settle, then three idle and three
     # streaming windows) were still in long_x20 when the suite's 1200 s timeout killed it, so no chat_100k_flat row was
     # stored after 2026-11-17 (Actions run 45422305557). The suite's own timeoutMs sits 5 minutes under.
-    {"name": "web-ui-flat", "where": "linux", "kind": "webui", "needs": "web-ui-flat", "run_seconds": 2700},
+    # feeds_goal: the NOW goal its rows feed, for the side ask at a newer tip only (side_linux_pick); not "goal", which
+    # also moves a part that failed last time ahead of the stale ones (part_order).
+    {"name": "web-ui-flat", "where": "linux", "kind": "webui", "needs": "web-ui-flat", "run_seconds": 2700,
+     "feeds_goal": "chats-flat-at-any-length"},
     # Scrolling up a long chat page by page (webviews/bench/transcript-scroll-up-scale.bench.ts) at 1k, 10k and 100k
     # rows: each older page's ask to its drawn frame (target 50 ms p95), loading and blank frames, the anchor's shift
     # and the 100k / 1k ratio (transcript_scroll_up_scale.*.older_page_drawn_scale, target 1.2). Its own part.
@@ -418,7 +424,8 @@ PARTS = [
     {"name": "web-ui-god-curve", "where": "linux", "kind": "webui", "needs": "web-ui-god-curve", "run_seconds": 2700},
     # Its 20 chats grown live to 100k rows each, about 28 minutes on its own (chat_100k_flat.grown_many.*): a 55-minute
     # run cap (run_seconds), not the 30 minutes it timed out against on 2026-11-17 (bench cap 1770 s).
-    {"name": "web-ui-flat-grown", "where": "linux", "kind": "webui", "needs": "web-ui-flat", "run_seconds": 3300},
+    {"name": "web-ui-flat-grown", "where": "linux", "kind": "webui", "needs": "web-ui-flat", "run_seconds": 3300,
+     "feeds_goal": "chats-flat-at-any-length"},
     # The sim's stress ladder (webviews/bench/sim-ladder.bench.ts, goal sim-fidelity-flat-ladder in cmuxterm-hq's NOW):
     # chats and browser tabs at 1, 10 and 100, the cost per added item at 100 over at 10 on renderer CPU, script ms/s,
     # PSS and the focused chat's frame p95 (sim_ladder.ratio_max). Its own part, under the 30-minute run cap.
@@ -1613,6 +1620,78 @@ def build_never_ran(cur):
         build.get("infra_retried") or BUILD_NEVER_RAN_RE.search(str(build.get("why") or "")))
 
 
+# A budgets part whose app never came up: it measured no row and each of its benches exited nonzero within this many
+# seconds (a launch alone takes about 7 s), or logged split-spring's BENCH-LAUNCH line with reason "crashed". Every
+# other Mac part of the same build launches the same app, so a newer tip is as good a retry as for a failed build
+# (build_failed_tip). Tip cdf458ee (2026-11-28): cmux#59517 made debug builds trap at launch (`home rules op
+# chiefs_tab: unknownOp`, fixed by cmux#64336), switch's tab_switch and palette exited 1 in 6.4 s and 7.4 s, and its 19
+# Mac parts left (tabs, which NOW's tabs-keep-speed reads, among them) yielded to a busy host toward ABANDON_WALL_HOURS.
+LAUNCH_DEAD_SECONDS = 15.0
+LAUNCH_DEAD_MARK = "its app crashed at launch"
+BENCH_LAUNCH_CRASHED_RE = re.compile(r'BENCH-LAUNCH .*"reason":\s*"crashed"')
+
+
+def launch_dead_report(report):
+    """Why a part's report says its app never launched (LAUNCH_DEAD_SECONDS), or '' (pure)."""
+    if not isinstance(report, dict):
+        return ""
+    runs, counts = report.get("runs"), report.get("counts")
+    if not (isinstance(runs, dict) and runs and isinstance(counts, dict) and counts.get("measured") == 0):
+        return ""
+    for run in runs.values():
+        if not isinstance(run, dict):
+            return ""
+        crashed = any(BENCH_LAUNCH_CRASHED_RE.search(str(line)) for line in run.get("tail") or [])
+        code, seconds = run.get("exit"), run.get("seconds")
+        quick = (isinstance(code, int) and not isinstance(code, bool) and code != 0
+                 and isinstance(seconds, (int, float)) and seconds <= LAUNCH_DEAD_SECONDS)
+        if not (crashed or quick):
+            return ""
+    return ", ".join(f"{name}: exit {run.get('exit')} in {run.get('seconds')} s" for name, run in runs.items())[:200]
+
+
+def mark_launch_dead(cur, state_dir):
+    """Mark each done Mac part of the measurement whose stored report (parts/NAME.json) is launch-dead
+    (launch_dead_report) with entry['launch_dead']. Returns whether it marked one. Reads the stored reports, so a
+    measurement in flight from before this mark gets it at the next report."""
+    if not (isinstance(cur, dict) and cur.get("kind") == "tip"):
+        return False
+    marked = False
+    for name, entry in (cur.get("parts") or {}).items():
+        if (not isinstance(entry, dict) or entry.get("state") != "done" or is_linux_part(name) or name == "build"
+                or "launch_dead" in entry):
+            continue
+        try:
+            with open(os.path.join(state_dir, "parts", f"{name}.json")) as f:
+                stored = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if not isinstance(stored, dict) or stored.get("measurement") != measurement_id(cur):
+            continue
+        why = launch_dead_report(stored.get("report"))
+        if why:
+            entry["launch_dead"] = why
+            marked = True
+    return marked
+
+
+def launch_dead_tip(cur):
+    """The Mac parts of the tip measurement in flight whose app never launched (mark_launch_dead) (pure)."""
+    if not (isinstance(cur, dict) and cur.get("kind") == "tip" and not cur.get("superseded")):
+        return []
+    return sorted(n for n, p in (cur.get("parts") or {}).items() if isinstance(p, dict) and p.get("launch_dead"))
+
+
+def last_tip_launch_dead(state):
+    """The newest finished tip measurement's app never launched too (finish_measurement's launch_dead, or parts
+    superseded for it) (pure): the base is likely broken, so the tip in flight keeps its parts."""
+    entry = next((e for e in reversed(state.get("history") or []) if isinstance(e, dict) and e.get("kind") == "tip"), None)
+    if not entry:
+        return False
+    why = entry.get("failed_why") if isinstance(entry.get("failed_why"), dict) else {}
+    return bool(entry.get("launch_dead")) or any(str(w).startswith(LAUNCH_DEAD_MARK) for w in why.values())
+
+
 def unread_missing(state, cur):
     """The unread parts (unread_parts) the tip measurement in flight cannot run: its commit predates them (pure).
     Empty unless it still has a Mac part to do."""
@@ -1652,6 +1731,24 @@ def goal_harness_fixed(state, cur, newest, changed=None):
         if (changed or harness_changed)(cur["sha"], newest, part["harness"]):
             out.append(name)
     return out
+
+
+def wants_newest(state, cur, tip, tree_ready=lambda sha: True):
+    """Whether the tick looks up newest, the newer measurable tip supersede_for_unread hands the Mac to (pure but for
+    goal_harness_fixed's git diff). One predicate per supersede_for_unread branch that needs a newer tip: a part
+    that never produced a reading and that the tip in flight predates (unread_missing), a tip whose app build failed
+    (build_failed_tip), whose app crashed at launch (launch_dead_tip), whose Mac parts wait for a tree still
+    unpublished (tree_waiting), or a goal part that stored no goal row with a harness the tip fixes
+    (goal_harness_fixed). A branch missing here never fires: newest stays None.
+
+    2026-11-28: cmux#65310 added the launch-dead branch to supersede_for_unread but not to this gate; it fired on tip
+    cdf458ee only because unread_missing (infinite-tabs) also held there, and a launch-dead tip with every part read
+    would have kept its Mac parts to ABANDON_WALL_HOURS with newest None."""
+    if not cur:
+        return False
+    return bool(unread_missing(state, cur) or build_failed_tip(cur) or launch_dead_tip(cur)
+                or (tree_waiting(cur) and not tree_ready(cur["sha"]))
+                or goal_harness_fixed(state, cur, tip))
 
 
 def supersede_for_unread(state, t, newest, supported_parts, changed=None):
@@ -1705,6 +1802,19 @@ def supersede_for_unread(state, t, newest, supported_parts, changed=None):
             cur["parts_todo"] = []
             cur.pop("host_asked_since", None)
             end_yield(cur, t)
+        return why
+    dead = launch_dead_tip(cur)
+    if dead and newest and newest != cur["sha"] and not last_tip_launch_dead(state):
+        # Its app crashed at launch (LAUNCH_DEAD_SECONDS), so every Mac part left would fail the same way: the newer
+        # tip takes the Mac now, as for a failed build. When the tip before it never launched either, the base is
+        # likely broken and it keeps its parts.
+        why = f"{LAUNCH_DEAD_MARK} ({', '.join(dead)}); {newest[:12]} is newer"
+        cur["superseded"] = {"by": newest, "why": why, "at": iso(t)}
+        for name in list(cur["parts_todo"]):
+            cur["parts"][name] = {"state": "superseded", "reason": why}
+        cur["parts_todo"] = []
+        cur.pop("host_asked_since", None)
+        end_yield(cur, t)
         return why
     if tree_waiting(cur) and newest and newest != cur["sha"]:
         # Its tree may never be published: the tree publisher coalesces a window of pushes into one build of the
@@ -1761,11 +1871,12 @@ def supersede_for_unread(state, t, newest, supported_parts, changed=None):
     return why
 
 
-def part_order(state, todo, t):
+def part_order(state, todo, t, tail_by_age=False):
     """The order a tick takes a measurement's parts to do in (pure): the build first (every other Mac part reuses its
     app), then each part whose newest stored rows (state['part_stored'], store_part_rows) are older than
-    PART_STALE_HOURS, oldest first, then the rest in their PARTS order. A part with no stored rows yet goes before
-    the stale ones, and one with no row at all before those. A yielded part stays first in todo, so without this a part that keeps
+    PART_STALE_HOURS, oldest first, then the rest in their PARTS order (tail_by_age, for a batch's tail: those that
+    feed a goal first, each group oldest store first, ties in their PARTS order). A part with no stored rows yet goes
+    before the stale ones, and one with no row at all before those. A yielded part stays first in todo, so without this a part that keeps
     yielding, or a measurement dropped before its tail, starved the last parts: throughput, the 13th Mac part, went
     38 h without a row (2026-11-19), and terminal-scroll, added last, kept its place behind every stale part and never
     ran (2026-11-21)."""
@@ -1803,7 +1914,18 @@ def part_order(state, todo, t):
     lead = [n for n in unseen if n not in failing and not PART_BY_NAME.get(n, {}).get("goal")]
     goal = [n for n in first if PART_BY_NAME.get(n, {}).get("goal")]
     first = lead + goal + [n for n in first if n not in lead and n not in goal]
-    return [n for n in todo if n == "build"] + first + [n for n in todo if n != "build" and n not in first]
+    if not tail_by_age:
+        return [n for n in todo if n == "build"] + first + [n for n in todo if n != "build" and n not in first]
+    # The parts not due yet in a batch: a goal's part first, then the part furthest past its last store, so the order
+    # of a batch cut short does not decide which rows age. On 2026-11-28 every Mac part had stored at 08:05Z (870585ff),
+    # a preempted batch restarted from launch, and chat-size (goal infinite-chats) sat 18th of 19, about 11 h out.
+    rest = [(i, n) for i, n in enumerate(todo) if n != "build" and n not in first]
+    def rest_key(item):
+        i, n = item
+        e = stored.get(n)
+        at = parse_iso(e.get("at")) if isinstance(e, dict) else None
+        return (not PART_BY_NAME.get(n, {}).get("goal"), at.timestamp() if at else 0.0, i)
+    return [n for n in todo if n == "build"] + first + [n for _, n in sorted(rest, key=rest_key)]
 
 
 def goal_rows_missing(state, name, stored):
@@ -2035,8 +2157,10 @@ def commit_failed(cur):
 
 def batch_parts(state, cur, first, t):
     """The Mac parts a controller request lists after first, in part_order (pure): [first] and the measurement's
-    other Mac parts to do, at most BATCH_MAX; [first] alone when there is no other."""
-    rest = [p for p in part_order(state, cur["parts_todo"], t) if p != first and not is_linux_part(p)]
+    other Mac parts to do, at most BATCH_MAX; [first] alone when there is no other. The parts not due go goal parts
+    first, then oldest store first (tail_by_age): a batch is cut short by preemption and its bound, so its fixed tail
+    starved a part near its end (chat-size, 18th of 19, about 11 h out on 2026-11-28)."""
+    rest = [p for p in part_order(state, cur["parts_todo"], t, tail_by_age=True) if p != first and not is_linux_part(p)]
     return [first, *rest][:BATCH_MAX]
 
 
@@ -3904,6 +4028,9 @@ def finish_measurement(state, part_rows, refresh_ms, host, run_url, t, budgets_m
     entry["ran_failed"] = [n for n in failed if cur["parts"][n].get("state") == "failed"]
     if any(cur["parts"][n].get("state") == "build_failed" for n in failed):
         entry["build_failed"] = True  # its app did not build (last_tip_build_failed)
+    dead = sorted(n for n, p in cur["parts"].items() if isinstance(p, dict) and p.get("launch_dead"))
+    if dead:
+        entry["launch_dead"] = dead  # its app never launched (last_tip_launch_dead)
     state.setdefault("history", []).append(entry)
     state["history"] = state["history"][-60:]
     base_rows = judging_rows(state, t)
@@ -4226,7 +4353,8 @@ def stand_in_outputs(tip, error):
     trusted state alone. The Mac parts need the state (the measurement in flight, the host that built the app) and wait."""
     parts = stand_in_parts(tip)
     return {"action": "part" if parts else "none", "sha": tip if parts else "", "part": "",
-            "linux_matrix": linux_matrix(parts), "linux_request": "", "mac_parts": "", "worker": "",
+            "linux_matrix": linux_matrix(parts), "linux_request": "", "side_sha": "", "side_request": "",
+            "mac_parts": "", "worker": "",
             "frame_pacing": "false", "rate_limited": "true",
             "reason": (f"GitHub rate limit ({error}); the state was not read, so the tip's {len(parts)} Linux parts "
                        "run as a stand-in and nothing is saved")}
@@ -4242,8 +4370,8 @@ def cmd_plan(o):
         try:
             out = stand_in_outputs(git("rev-parse", "--verify", "--end-of-options", f"{o.tip}^{{commit}}"), error)
         except (subprocess.SubprocessError, OSError) as failure:
-            out = {"action": "none", "sha": "", "part": "", "linux_matrix": "[]", "worker": "", "frame_pacing": "false",
-                   "rate_limited": "true", "reason": f"GitHub rate limit ({error}); no tip to measure ({failure!r})"}
+            out = {"action": "none", "sha": "", "part": "", "linux_matrix": "[]", "side_sha": "", "side_request": "",
+                   "worker": "", "frame_pacing": "false", "rate_limited": "true", "reason": f"GitHub rate limit ({error}); no tip to measure ({failure!r})"}
         print(f"perf-cron plan: {json.dumps(out)}")
         write_outputs(o.output, out)
     print_calls("plan")
@@ -4371,13 +4499,8 @@ def plan(o):
                 break
     newest = None
     gone_by = state.get("current") or {}
-    if not no_mac and (unread_missing(state, gone_by) or build_failed_tip(gone_by)
-                       or (tree_waiting(gone_by) and not tree_ready(gone_by["sha"]))
-                       or goal_harness_fixed(state, gone_by, tip)):
-        # A part that never produced a reading (unread_parts) and that the tip in flight predates, a tip whose app
-        # build failed (build_failed_tip), one whose Mac parts wait for a tree still unpublished (tree_waiting), or a
-        # goal part that stored no goal row with a harness the tip fixes (goal_harness_fixed):
-        # the newest commit that can run it on the fleet (supersede_for_unread).
+    if not no_mac and wants_newest(state, gone_by, tip, tree_ready):
+        # The newest commit that can run on the fleet, for supersede_for_unread.
         later, _ = first_parent_since(tip, gone_by["sha"], CANDIDATE_DEPTH)
         for i, sha in enumerate(later):
             if sha == gone_by["sha"] or not fleet_runs(sha, tip_version):
@@ -4415,6 +4538,15 @@ def plan(o):
         if runners != d["linux_parts"]:
             d["reason"] += (f"; Linux: {', '.join(runners) or 'none'} on the runners, {linux_request or 'none'} asked of "
                             f"the controller, {len(waiting)} waiting for its answer")
+    side_request = ""
+    if not linux_request and not runners and not waiting:
+        side_request = side_linux_pick(state, tip, t, bool(getattr(o, "linux_controller", False)),
+                                       commit_has(tip, LINUX_SCRIPT), set(supported_parts_at(tip)))
+        if side_request:
+            side_ask(state, side_request, tip, t)
+            print(f"perf-cron: goal Linux part {side_request}: asked of the build controller at the tip {tip[:12]}, "
+                  f"beside the Mac pass of {state['current']['sha'][:12]}")
+            d["reason"] += f"; side: {side_request} asked at {tip[:12]}"
     cur = state.get("current")
     if cur and waiting and not (d.get("part") or runners or linux_request):
         # Only the controller's answer is awaited: the wait does not count against ABANDON_HOURS (review of
@@ -4435,7 +4567,8 @@ def plan(o):
             # What this file asks the part to measure with: its rows carry it (a later tick may run a newer file).
             state["current"].setdefault("configs", {})[requested] = part_config(requested)
     out = {"action": d["action"], "sha": d.get("sha", ""), "part": d.get("part", ""),
-           "linux_matrix": linux_matrix(runners), "linux_request": linux_request, "mac_parts": " ".join(mac_parts) if len(mac_parts) > 1 else "",
+           "linux_matrix": linux_matrix(runners), "linux_request": linux_request, "side_sha": tip if side_request else "", "side_request": side_request,
+           "mac_parts": " ".join(mac_parts) if len(mac_parts) > 1 else "",
            "worker": d.get("worker", ""), "reason": d["reason"], "stale_hours": round(stale_hours(state, t), 1),
            "not_measuring": state.get("not_measuring") or ""}
     if d.get("part"):
@@ -5232,6 +5365,87 @@ def store_part_rows(state, cur, name, p, report, mod, budgets, run_url, t):
     return len(named)
 
 
+def store_side(state, part, part_dir, run_url, t):
+    """Store a side ask's answer (side_linux_pick): a done part's rows at the side SHA (store_part_rows, state
+    ['part_rows'] and ['part_stored']); the measurement in flight is not touched. Its ask ends either way (a failed or
+    yielded answer is asked again in a later tick, LINUX_REQUESTS_MAX per tip). Each answer also notes its outcome
+    (note_part_outcomes, at the side SHA), as the measurement's own parts do: before, a failed side answer left
+    state['part_outcomes'] with the part's older outcome and NOW read no reason. Whether PART_DIR held a side answer."""
+    asks = state.get("side_asks") if isinstance(state.get("side_asks"), dict) else {}
+    ask = asks.get(part)
+    try:
+        with open(os.path.join(part_dir, "result.json")) as f:
+            result = json.load(f)
+    except (OSError, ValueError):
+        return False
+    if not (isinstance(ask, dict) and isinstance(result, dict) and result.get("sha") == ask.get("sha")
+            and not ask.get("answered_at")):
+        return False
+    ask.update({"answered_at": iso(t), "step_id": result.get("step_id"), "state": result.get("state")})
+    shim = {"kind": "tip", "sha": ask["sha"], "configs": {part: ask.get("config")} if ask.get("config") else {}}
+    tail = [str(line) for line in result.get("tail") or [] if str(line).strip()]
+
+    def outcome(state_, why=None, report=None):
+        entry = {"state": state_, "step_id": result.get("step_id"),
+                 "why": why or result.get("why") or (tail[-1] if tail else None)}
+        if result.get("timed_out"):
+            entry["timed_out"] = True
+        note_part_outcomes(state, shim, part, entry, report, result.get("worker"), t)
+    if result.get("state") != "done":
+        outcome(result.get("state"))
+        print(f"perf-cron report: side part {part} at {ask['sha'][:12]}: {result.get('state')}; asked again later")
+        return True
+    try:
+        with open(os.path.join(part_dir, "report.json")) as src:
+            report_value = json.load(src)
+    except (OSError, ValueError):
+        report_value = None
+    if not isinstance(report_value, dict):
+        ask["state"] = "failed"
+        outcome("failed", "no report artifact")
+        print(f"perf-cron report: side part {part} at {ask['sha'][:12]}: no report artifact")
+        return True
+    p = {**PART_BY_NAME[part], "worker": LINUX_FLEET_CLASS}
+    try:
+        mod, budgets = load_budgets()
+        n = store_part_rows(state, shim, part, p, report_value, mod, budgets, run_url, t)
+    except Exception as error:  # a row that does not parse never fails the tick (as the part-by-part store)
+        ask["state"] = "failed"
+        outcome("failed", f"rows not stored ({error!r})", report_value)
+        print(f"perf-cron report: side part {part}: rows not stored ({error!r})", file=sys.stderr)
+        return True
+    outcome("done", report=report_value)
+    print(f"perf-cron report: side part {part} at {ask['sha'][:12]}: {n} rows stored")
+    return True
+
+
+PART_OUTCOME_WHY = {"build_failed": "the app did not build at this tip", "yielded_out": "the fleet never ran it"}
+
+
+def note_part_outcomes(state, cur, part, entry, report, worker, t):
+    """Each part's newest outcome, whatever it was (state['part_outcomes'][part]: state, why, worker, sha, at), so a
+    part that stores no row still says why (pure but for state). Before it, a run that measured nothing (a crash, a
+    missing receipt, a build failure) left only the part's older rows, and NOW's row read blank with no reason: goal
+    hot-swap-fast's hot_swap_mac_*_p95_ms read unknown for 4 days (graceful-swap-cron.py's exit 1 on 2026-11-28 06:07Z,
+    step 99c6a45937a1f0d863f22461). Also the Mac parts a failed build ended (build_failed), which never ran."""
+    if entry.get("state") == "yielded":
+        return  # still to do: no outcome yet
+    outcomes = state.setdefault("part_outcomes", {})
+    done = entry.get("state") == "done"
+    incomplete = done and report_is_incomplete(PART_BY_NAME.get(part) or {}, report)
+    why = (incomplete_why(report) if incomplete else
+           None if done else entry.get("why") or entry.get("reason") or PART_OUTCOME_WHY.get(entry.get("state"))
+           or ("timed out" if entry.get("timed_out") else None))
+    outcomes[part] = {"state": "incomplete" if incomplete else entry.get("state"), "why": (why or "")[:200] or None,
+                      "worker": worker if isinstance(worker, str) else entry.get("worker"), "sha": cur.get("sha"),
+                      "at": iso(t), "step_id": entry.get("step_id")}
+    for other, p in (cur.get("parts") or {}).items():
+        if other != part and isinstance(p, dict) and p.get("state") == "build_failed" and \
+                (outcomes.get(other) or {}).get("sha") != cur.get("sha"):
+            outcomes[other] = {"state": "build_failed", "why": PART_OUTCOME_WHY["build_failed"], "worker": None,
+                               "sha": cur.get("sha"), "at": iso(t), "step_id": None}
+
+
 def stale_parts(state, now):
     """The parts whose newest stored rows (store_part_rows) are older than STALE_HOURS, oldest first; per part, not
     per measurement: a measurement that keeps failing one part leaves the others' rows fresh."""
@@ -5255,6 +5469,9 @@ def report(o, t=None):
     for spec in o.result:
         part, _, part_dir = spec.partition("=")
         path = os.path.join(part_dir, "result.json")
+        if part in PART_BY_NAME and not (cur and part in cur["parts_todo"]) and store_side(state, part, part_dir, o.run_url, t):
+            changed = True
+            continue
         if not (cur and part in PART_BY_NAME and part in cur["parts_todo"]):
             continue
         try:
@@ -5326,6 +5543,9 @@ def report(o, t=None):
                     store_part_rows(state, cur, part, entry, report_value, stored_mod, stored_budgets, o.run_url, t)
                 except Exception as error:  # a row that does not parse is the finish's to report; never fail the tick
                     print(f"perf-cron report: part {part}: rows not stored now ({error!r})", file=sys.stderr)
+        note_part_outcomes(state, cur, part, entry, report_value, result.get("worker"), t)
+    if cur and mark_launch_dead(cur, o.dir):
+        changed = True
     if cur and not cur["parts_todo"] and (changed or o.finish):
         changed = True
         mod, budgets = load_budgets()
@@ -5601,6 +5821,91 @@ def commit_has(sha, path):
     return bool(sha) and has_path(sha, path)
 
 
+# A goal's Linux part whose newest stored rows are older than this is asked of the controller at the newer tip while
+# the measurement in flight has only Mac parts left (side_linux_pick). From data: tip cdf458ee was picked 08:16Z on
+# 2026-11-28 and its Linux rows were stored at 10:25Z, about 2 h for a Linux pass; 4 h is twice that. A part fresher
+# than this waits for the next tip measurement as before.
+SIDE_STALE_HOURS = 4
+
+
+def side_goal(name):
+    """The NOW goal a part's rows feed (PARTS "goal", or "feeds_goal" where the part keeps its place in part_order), or
+    None (pure)."""
+    p = PART_BY_NAME.get(name, {})
+    return p.get("goal") or p.get("feeds_goal")
+
+
+def side_linux_pick(state, tip, t, controller, has_script, supported=None):
+    """The goal Linux part (side_goal, where linux) asked of the build controller at TIP beside the measurement in
+    flight, or "" (pure on state; plan records the ask with side_ask). Only while that measurement is a tip with only
+    Mac parts left (its Mac pass keeps its host and its state), TIP is newer than it, the controller route is on and
+    TIP has LINUX_SCRIPT; one side ask at a time (its answer window, linux_answer_minutes; the controller runs one Linux
+    step at once), at most LINUX_REQUESTS_MAX per part and tip; the part's newest stored rows are not at TIP and older
+    than SIDE_STALE_HOURS (oldest first, a part with none last, the shortest job on a tie).
+
+    2026-11-28: tip cdf458ee held the Mac with 19 Mac parts on cmux20-bench from 10:25Z, its Linux parts done; a Linux
+    part runs only for the measurement in flight, so no Linux part was planned for the rest of the day and the merged
+    fix cmux#62516 (73dd2afd, goal chats-flat-at-any-length) was unread for about 24 h."""
+    cur = state.get("current")
+    if not (controller and has_script and tip and isinstance(cur, dict) and cur.get("kind") == "tip"
+            and tip != cur.get("sha") and cur.get("parts_todo") and not cur.get("closed_at")):
+        return ""
+    if any(p not in PART_BY_NAME or is_linux_part(p) for p in cur["parts_todo"]):
+        return ""
+    asks = state.get("side_asks") if isinstance(state.get("side_asks"), dict) else {}
+    for part, ask in asks.items():
+        asked = parse_started((ask or {}).get("asked_at")) if isinstance(ask, dict) else None
+        if (asked and not ask.get("answered_at") and part in PART_BY_NAME
+                and (t - asked).total_seconds() < linux_answer_minutes(part) * 60):
+            return ""
+    stored = state.get("part_stored") if isinstance(state.get("part_stored"), dict) else {}
+    best = None
+    for p in PARTS:
+        name = p["name"]
+        if p.get("where") != "linux" or not side_goal(name) or name in LINUX_RUNNER_ONLY:
+            continue
+        if supported is not None and name not in supported:
+            continue
+        e = stored.get(name) if isinstance(stored.get(name), dict) else {}
+        if e.get("sha") == tip:
+            continue
+        at = parse_started(e.get("at"))
+        if at and hours_between(at, t) < SIDE_STALE_HOURS:
+            continue
+        ask = asks.get(name) if isinstance(asks.get(name), dict) else {}
+        if ask.get("sha") == tip and int(ask.get("tries") or 0) >= LINUX_REQUESTS_MAX:
+            continue
+        # Oldest rows first; a part that stored none (it may read no row at all) after those. On a tie the shortest
+        # job first (linux_job_minutes: its run_seconds, or the default cap): one Linux pass stores every part's rows
+        # at once, and in PARTS order web-ui-god's 145-minute job went ahead of the 40-55 minute goal parts.
+        key = (0, iso(at), linux_job_minutes(name)) if at else (1, "", linux_job_minutes(name))
+        if best is None or key < best[0]:
+            best = (key, name)
+    return best[1] if best else ""
+
+
+def side_ask(state, part, tip, t):
+    """Record the side ask of PART at TIP (side_linux_pick): its rows carry the part config of this file. Only goal
+    parts are kept, so the map stays bounded."""
+    asks = state.get("side_asks") if isinstance(state.get("side_asks"), dict) else {}
+    asks = {n: a for n, a in asks.items() if n in PART_BY_NAME and side_goal(n) and isinstance(a, dict)}
+    prev = asks.get(part) or {}
+    tries = int(prev.get("tries") or 0) + 1 if prev.get("sha") == tip else 1
+    asks[part] = {"sha": tip, "asked_at": iso(t), "tries": tries, "config": part_config(part)}
+    state["side_asks"] = asks
+
+
+def side_ask_of(state, value):
+    """The side ask (side_ask) a controller result answers, or None (pure): the same part and SHA, not the measurement
+    in flight's."""
+    asks = state.get("side_asks") if isinstance(state.get("side_asks"), dict) else {}
+    ask = asks.get(value.get("part")) if isinstance(value, dict) else None
+    cur = state.get("current") or {}
+    if not isinstance(ask, dict) or ask.get("sha") != value.get("sha") or value.get("sha") == cur.get("sha"):
+        return None
+    return ask
+
+
 def linux_step_files(artifact, result):
     """(report, result) of a Linux part's controller step from its LINUX_STEP_ARTIFACT (pure): run-linux-part's own
     report and result, the result's worker the fleet class. An artifact without both is a failed part, no report."""
@@ -5666,6 +5971,12 @@ def result_refusal(state, value):
     cur = state.get("current") or {}
     if value is None:
         return "the controller's perf_result is not a result"
+    side = side_ask_of(state, value)
+    if side is not None:
+        # A side ask's answer (side_linux_pick): the report stores its rows and leaves the measurement in flight alone.
+        if value.get("step_id") and value["step_id"] == side.get("step_id"):
+            return f"the controller's result of side step {value['step_id']} was stored already; dropped"
+        return None
     ended, started = controller_ended_at(value), parse_started(cur.get("started_at"))
     if ended and started and ended < started:
         return (f"the controller's {value['part']} result of step {value.get('step_id') or '?'} ended "
@@ -5773,6 +6084,7 @@ def write_result(value, out):
                     json.dump(report, f)
         except (OSError, ValueError, urllib.error.URLError) as error:
             result.update(state="failed", tail=result["tail"] + [f"artifact not read: {error!r}"])
+    result["sha"] = value["sha"]  # the commit it measured: a side ask's (store_side) is not the measurement in flight's
     with open(os.path.join(out, "result.json"), "w") as f:
         json.dump(result, f)
     print(f"perf-cron fetch-result: part {value['part']} at {value['sha'][:12]}: {result['state']}")
