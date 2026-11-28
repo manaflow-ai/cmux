@@ -1335,7 +1335,7 @@ class Workflows(unittest.TestCase):
         self.assertIn("'ubuntu-24.04'", expression)
         self.assertNotIn("32vcpu", expression)
         self.assertIsNone(re.search(r"vars\.LINUX_RUNNER(?![A-Z_])|RUNNER_POOLS\)\.linux", expression), expression)
-        self.assertTrue(expression.rstrip().endswith("|| 'cmux-linux' }}"), expression)
+        self.assertTrue(expression.rstrip().endswith("|| vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}"), expression)
 
     def test_the_push_and_the_kick_read_the_same_switch(self):
         env = route_step()["env"]

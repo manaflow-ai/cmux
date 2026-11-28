@@ -862,7 +862,7 @@ class TriggerRunnerTests(unittest.TestCase):
         self.assertNotIn("vars.LINUX_RUNNER", runs_on)
         # The one cmux-linux label (cmux#48644), never a pool variable.
         self.assertNotIn("fromJSON(vars.RUNNER_POOLS).linux)", runs_on)
-        self.assertTrue(runs_on.endswith("|| 'cmux-linux' }}"), runs_on)
+        self.assertTrue(runs_on.endswith("|| vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}"), runs_on)
 
     def test_a_persons_dispatch_is_not_replaced_by_the_next_push(self):
         """Run 44328490608: a person's dispatch waited behind a running decide and the next push replaced it."""

@@ -85,7 +85,7 @@ concurrency:
 jobs:
   cas_replay_build:
     name: Build cas-replay once
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -195,7 +195,7 @@ jobs:
   w1:
     name: cas/1 replay, row W1 (web update bytes per merge)
     needs: cas_replay_build
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # About 7 s per 54 MB bundle tree to hash and compress, plus a cold build of one small crate.
     timeout-minutes: 30
     permissions:
@@ -273,7 +273,7 @@ jobs:
   b1:
     name: cas/1 replay, row B1 (DerivedData seed restore bytes)
     needs: cas_replay_build
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # Two seeds of ~9.2 GiB (1.52 GB archives): about 10 min each to stream and unpack, then
     # about 8 min per tree to hash and compress (measured on a lane VM, 2026-11-26).
     timeout-minutes: 90
@@ -339,7 +339,7 @@ jobs:
     # newest NIGHTLY. A push replays only when that build has no replay yet (a cache marker keyed
     # by the build), so a web merge costs one appcast read, not 750 MB of DMGs. PRs and dispatch
     # always replay.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # Three ~250 MB DMGs to fetch and about 10 s each to unpack to a ~750 MB tree; cas-replay
     # compresses every distinct chunk at zstd 19 on one core (the trees, then the DMGs), which is
     # the long part. About 3.5 GB of disk in RUNNER_TEMP.
@@ -448,7 +448,7 @@ jobs:
     # Like U2, its input is what is published, not this repo's paths: a push replays only when the
     # feat-cmux-next channel names a build with no replay yet (a cache marker keyed by its tree key),
     # so a web merge costs one channel read.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # Keying ~1500 commits (16 at a time), 12 x 75 MB downloads, 23 zstd -19 runs and one cas-replay.
     timeout-minutes: 45
     permissions:
