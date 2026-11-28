@@ -1515,6 +1515,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_fixit_handoff.py
 
+      - name: Validate registered ci fixit lint
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fixit_lint.py
+
       - name: Validate registered ci fleet fast tier result
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_fleet_fast_tier_result.py
