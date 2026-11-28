@@ -626,12 +626,6 @@ class WriterInventoryTests(unittest.TestCase):
                            ".github/workflows/nightly.yml",
                            ".github/workflows/whats-new-gallery.yml", ".github/workflows/cmux-next-hot-verify.yml",
                            ".github/actions/pr-media-publish/action.yml"}
-    # Write only through the lane broker's `lane-gh call media`, which runs pr_media_privacy.check_upload on the broker
-    # host before its PUT (leo-workspace tools/pr_media_check.py); the file itself never PUTs, pushes or moves a ref.
-    THROUGH_BROKER = {"scripts/cmux-next/ui-preview-worker.py"}
-    BROKER_CALL = re.compile(r'"call", "media"')
-    # DIRECT without `.put(`: the worker's queue.put() calls are not uploads.
-    BROKER_DIRECT = re.compile(r"""\bPUT\b|(?i:-xput\b|--method[\s"',=]+put\b)|\bgit\b(?:[^\n]|\\\n){0,120}?\bpush\b|"push",|git/refs|createCommitOnBranch""")
     # Remove files or rewrite the retention index; they add no capture.
     REMOVES_ONLY = {"scripts/ci/pr_media_privacy.py", "scripts/ci/prune_pr_media.py"}
     # Name the branch or pr-media.py's file names for links; write nothing.
@@ -667,8 +661,7 @@ class WriterInventoryTests(unittest.TestCase):
         return found
 
     def test_every_writer_is_listed(self) -> None:
-        listed = (self.CHECKS_ITSELF | self.THROUGH_PR_MEDIA_PY | self.THROUGH_BROKER | self.REMOVES_ONLY
-                  | self.NOT_WRITERS)
+        listed = self.CHECKS_ITSELF | self.THROUGH_PR_MEDIA_PY | self.REMOVES_ONLY | self.NOT_WRITERS
         found = set(self.found)
         self.assertEqual(found - listed, set(), "a new pr-media writer: run pr_media_privacy.check_upload "
                                                 "before it pushes (or upload with scripts/pr-media.py), then list it here")
@@ -684,10 +677,6 @@ class WriterInventoryTests(unittest.TestCase):
             for part in self.media_parts(path, found[path]):
                 with self.subTest(path=path, part=part[:40]):
                     self.assertIsNone(self.DIRECT.search(part), f"{path} writes without scripts/pr-media.py")
-        for path in sorted(self.THROUGH_BROKER):
-            with self.subTest(path=path):
-                self.assertRegex(found[path], self.BROKER_CALL)
-                self.assertIsNone(self.BROKER_DIRECT.search(found[path]), f"{path} writes without the broker's check")
 
     def media_parts(self, path: str, text: str) -> list[str]:
         """A script whole; a workflow's jobs that name the branch or run a writer
@@ -1085,14 +1074,7 @@ class FeatWorkflowTests(unittest.TestCase):
                 with self.subTest(workflow=workflow, job=job_id):
                     steps = loaded["jobs"][job_id]["steps"]
                     checkouts = [step for step in steps if str(step.get("uses", "")).startswith("actions/checkout@")]
-                    # One checkout, or one plus its retry after a stalled clone (#57304): the retry runs only when the
-                    # first failed and checks out exactly what the first does.
-                    first, retries = checkouts[0], checkouts[1:]
-                    self.assertLessEqual(len(retries), 1)
-                    for retry in retries:
-                        self.assertEqual(retry.get("with"), first.get("with"))
-                        self.assertEqual(str(retry.get("if", "")).replace(" ", ""),
-                                         f"${{{{steps.{first.get('id')}.outcome=='failure'}}}}")
+                    self.assertEqual(len(checkouts), 1)
                     sparse = checkouts[0].get("with", {}).get("sparse-checkout", "")
                     for path in (*self.NEEDED, script):
                         self.assertTrue(self.covers(sparse, path), f"{workflow} {job_id} does not check out {path}")

@@ -256,10 +256,7 @@ fn detached_answer(answer: &Value, stopped: anyhow::Result<bool>) -> Value {
 pub(in crate::link) fn bring_back(socket: &Path, found: &Recorded, keep: bool) -> Back {
     match run(socket, found, keep) {
         Ok(back) => back,
-        Err(error) => Back::Failed {
-            code: super::sync_back::code_of(&error).unwrap_or("sync_failed").into(),
-            error: format!("{error:#}"),
-        },
+        Err(error) => Back::Failed { code: "sync_failed".into(), error: format!("{error:#}") },
     }
 }
 
@@ -339,7 +336,6 @@ fn run(socket: &Path, found: &Recorded, keep: bool) -> anyhow::Result<Back> {
     let started = Instant::now();
     let root = std::fs::canonicalize(&found.local)
         .with_context(|| format!("cannot open {}", found.local.display()))?;
-    super::sync_back::check(&root)?;
     let encoded = std::fs::read(records_dir()?.join(format!("{}.manifest", found.name)))
         .context("this Mac kept no manifest for the projection")?;
     let manifest = Manifest::decode(&encoded)?;

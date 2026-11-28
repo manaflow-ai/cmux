@@ -286,16 +286,12 @@ const WALKS_KEPT: usize = 256;
 static WALKS: Walks = Walks::new();
 
 /// The last walk per pid, and one walk at a time per pid: sends that arrive while it runs take
-/// its answer rather than starting their own. A fresh answer is read without waiting on
-/// anything, and a walk's end wakes every send waiting on it at once: a lock held per pid made
-/// 2000 sends of one round take it one at a time, each handed on only once the next was
-/// scheduled (0.75 ms a send on 8 CPUs, the round's fan-out p95 1.5 s, sessions-2000-attached).
+/// its answer rather than starting their own.
 pub(crate) struct Walks {
     slots: std::sync::Mutex<Option<std::collections::HashMap<u32, WalkSlot>>>,
 }
 
-/// One walk of a pid: set once, by the send that ran it; a stale one is replaced, not reset.
-type WalkSlot = std::sync::Arc<tokio::sync::OnceCell<(tokio::time::Instant, Option<Value>)>>;
+type WalkSlot = std::sync::Arc<tokio::sync::Mutex<Option<(tokio::time::Instant, Option<Value>)>>>;
 
 impl Walks {
     pub(crate) const fn new() -> Self {
@@ -315,22 +311,17 @@ impl Walks {
             if slots.len() >= WALKS_KEPT && !slots.contains_key(&pid) {
                 slots.retain(|_, slot| std::sync::Arc::strong_count(slot) > 1);
             }
-            let slot = slots.entry(pid).or_default();
-            if slot.get().is_some_and(|(at, _)| at.elapsed() >= WALK_FRESH) {
-                *slot = WalkSlot::default();
-            }
-            std::sync::Arc::clone(slot)
+            std::sync::Arc::clone(slots.entry(pid).or_default())
         };
-        if let Some((_, found)) = slot.get() {
+        let mut last = slot.lock().await;
+        if let Some((at, found)) = last.as_ref()
+            && at.elapsed() < WALK_FRESH
+        {
             return found.clone();
         }
-        let walked = slot
-            .get_or_init(|| async move {
-                let found = tokio::task::spawn_blocking(walk).await.ok().flatten();
-                (tokio::time::Instant::now(), found)
-            })
-            .await;
-        walked.1.clone()
+        let found = tokio::task::spawn_blocking(walk).await.ok().flatten();
+        *last = Some((tokio::time::Instant::now(), found.clone()));
+        found
     }
 }
 

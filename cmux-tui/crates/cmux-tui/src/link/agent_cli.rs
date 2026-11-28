@@ -118,15 +118,6 @@
 //! `agent-transfer-continues-v1` (its acpmux continues the turn where the
 //! chat lands); an older source refuses the move while the turn runs.
 //!
-//! `--tool-wait SECS` (or `CMUX_MOVE_TOOL_WAIT=SECS`; off by default) moves a
-//! running turn without cutting the tool call it runs (a build, a test): on a
-//! source that also lists `agent-transfer-tool-boundary-v1` the begin asks for
-//! `at_tool_boundary`, which acpmux refuses as `transfer.tool_in_flight` while a
-//! call runs, the chat left running and unfrozen meanwhile. This asks again
-//! every 500 ms, up to SECS (phase `tool_wait`), and the turn then moves at the
-//! boundary and continues on the target as if the call were a long one. Past
-//! SECS the begin is sent as without the flag (`--interrupt` stops the turn).
-//!
 //! Output: one JSON line on stdout, `{"ok":true,"session_id":...,
 //! "transfer_id":...,"bytes":N,"pages":N,"resolved":bool,"phases":{...},
 //! "frozen_ms"?:N,"total_ms":N}` (exit 0), or
@@ -175,7 +166,7 @@ use record::{Record, Records};
 const USAGE: &str = "usage: cmux link agent move --from-socket LOCAL_DAEMON_SOCKET \
 --surface SURFACE_ID --to-socket REMOTE_CONNECT_SOCKET --cwd REMOTE_FOLDER [--interrupt] \
 [--ask-first] [--vm-kind KIND [--to-pid PID]] [--login-stdin] [--state-dir DIR] \
-[--history-later TURNS] [--tool-wait SECS] \
+[--history-later TURNS] \
 [--sync push|pull|seed --sync-socket LINK_SOCKET --sync-local LOCAL --sync-remote REMOTE]... \
 [--sync relay --sync-from-socket SOURCE_LINK --sync-socket TARGET_LINK --sync-local SOURCE_FOLDER --sync-remote TARGET_FOLDER [--sync-seed-local LOCAL]]
   --to-socket: the local_socket of `cmux-tui remote connect --headless --json` for the \
@@ -205,8 +196,6 @@ struct Args {
     login_stdin: bool,
     /// `--history-later TURNS` ([`history_later`]); `ACPMUX_MOVE_HISTORY_LATER` when absent.
     history_later: Option<u64>,
-    /// `--tool-wait SECS` (module docs); `CMUX_MOVE_TOOL_WAIT` when absent.
-    tool_wait: Option<Duration>,
 }
 
 /// `--sync push|pull|seed --sync-socket --sync-local --sync-remote` (module docs), or
@@ -413,8 +402,6 @@ pub(super) fn run(args: &[String]) -> i32 {
     };
     let env = std::env::var("ACPMUX_MOVE_HISTORY_LATER").ok();
     args.history_later = history_later::turns(args.history_later, env.as_deref());
-    let env = std::env::var("CMUX_MOVE_TOOL_WAIT").ok();
-    args.tool_wait = tool_wait(args.tool_wait, env.as_deref());
     let mut clock = Clock::new();
     // Each daemon's `identify` is read once for the whole move (`machine_gate::Memo`).
     let _memo = super::machine_gate::Memo::open();
@@ -458,7 +445,7 @@ fn parse(args: &[String]) -> Option<Args> {
     // Each `--sync` group's flags, in any order: a flag its group has already starts the next group.
     let mut groups: Vec<SyncFlags> = Vec::new();
     let (mut interrupt, mut ask_first, mut login_stdin) = (false, false, false);
-    let (mut history_later, mut tool_wait) = (None, None);
+    let mut history_later = None;
     let mut rest = rest.iter();
     while let Some(arg) = rest.next() {
         match arg.as_str() {
@@ -470,9 +457,6 @@ fn parse(args: &[String]) -> Option<Args> {
             "--vm-kind" => vm_kind = Some(rest.next()?.clone()),
             "--to-pid" => to_pid = Some(rest.next()?.parse::<u32>().ok()?),
             "--history-later" => history_later = Some(rest.next()?.parse::<u64>().ok()?),
-            "--tool-wait" => {
-                tool_wait = Some(Duration::from_secs(rest.next()?.parse::<u64>().ok()?));
-            }
             "--interrupt" => interrupt = true,
             "--ask-first" => ask_first = true,
             LOGIN_FLAG => login_stdin = true,
@@ -528,56 +512,7 @@ fn parse(args: &[String]) -> Option<Args> {
         syncs,
         login_stdin,
         history_later,
-        tool_wait,
     })
-}
-
-/// `--tool-wait`, else `CMUX_MOVE_TOOL_WAIT` in seconds; 0 or a word is off.
-fn tool_wait(flag: Option<Duration>, env: Option<&str>) -> Option<Duration> {
-    flag.or_else(|| Some(Duration::from_secs(env?.trim().parse().ok()?)))
-        .filter(|wait| !wait.is_zero())
-}
-
-/// How often a tool-boundary begin asks again while a tool call runs (acpmux's `TOOL_POLL`).
-const TOOL_POLL: Duration = Duration::from_millis(500);
-
-/// Whether the source refused a tool-boundary begin only until the running turn reaches a point
-/// it can stop at: a tool call in flight, or a compaction (acpmux `waits_for_turn`).
-fn waits_for_turn(message: &str) -> bool {
-    message.contains("transfer.tool_in_flight")
-        || message.contains("transfer.busy: the chat is compacting")
-}
-
-/// `params` as a begin sends them: before `late`, cut only at a tool boundary.
-fn boundary_params(params: &Value, late: bool) -> Value {
-    let mut sent = params.clone();
-    if !late {
-        sent.set("interrupt", json!(false));
-        sent.set("at_tool_boundary", json!(true));
-    }
-    sent
-}
-
-/// `agent-transfer-begin`, asked again while a tool call runs until `until` ([`waits_for_turn`]);
-/// with no `until` (or past it) the begin is `params` as given. The chat runs unfrozen between
-/// asks, so the freeze starts at each ask and only the last one counts.
-fn begin_at_boundary(
-    source: &mut Daemon,
-    params: &Value,
-    until: Option<Instant>,
-    clock: &mut Clock,
-) -> Result<Value, CallError> {
-    loop {
-        let late = until.is_none_or(|until| Instant::now() >= until);
-        clock.freeze();
-        match source.call("agent-transfer-begin", boundary_params(params, late), BEGIN_TIMEOUT) {
-            Err(CallError::Refused { message, .. }) if !late && waits_for_turn(&message) => {
-                std::thread::sleep(TOOL_POLL);
-                clock.lap("tool_wait");
-            }
-            other => return other,
-        }
-    }
 }
 
 /// One `--sync` group's flags as `parse` reads them.
@@ -742,11 +677,9 @@ fn fresh(
     let source = Daemon::connect(&args.from).map_err(|e| Failed::call("source", &e));
     // A running turn stops for the move only where it goes on afterwards: an older source would
     // stop it for good, so there the move is refused while it runs, as before `--interrupt`.
-    let (continues, keeps_token, at_boundary) =
-        if source.is_ok() { source_serves(&args.from) } else { (false, false, false) };
+    let (continues, keeps_token) =
+        if source.is_ok() { source_serves(&args.from) } else { (false, false) };
     let interrupt = args.interrupt && continues;
-    // Asked for: a running tool call ends before the turn moves (module docs).
-    let tool_wait = args.tool_wait.filter(|_| continues && at_boundary);
     clock.lap("connect");
     let mut source = source?;
     // Recorded before the begin: a run whose begin answer is lost knows the move it began by
@@ -773,14 +706,14 @@ fn fresh(
     if let Some(staged) = &staged {
         staged_params.set("prepare_id", json!(staged.prepare_id));
     }
-    let until = tool_wait.map(|wait| Instant::now() + wait);
-    let mut begun = begin_at_boundary(&mut source, &staged_params, until, clock);
+    clock.freeze();
+    let mut begun = source.call("agent-transfer-begin", staged_params, BEGIN_TIMEOUT);
     // A prefix the source no longer holds as it was: the chat moves whole.
     if staged.is_some()
         && matches!(&begun, Err(CallError::Refused { message, .. })
             if message.contains("transfer.diverged"))
     {
-        begun = begin_at_boundary(&mut source, &params, until, clock);
+        begun = source.call("agent-transfer-begin", params.clone(), BEGIN_TIMEOUT);
     }
     clock.lap("begin");
     if let (Some(pinned), Err(CallError::Refused { details, .. })) = (&pinned, &begun)
@@ -801,7 +734,7 @@ fn fresh(
         give_back(args, records, &mut own)?;
         clock.lap("abort_own");
         let _ = records.save(pinned);
-        begun = begin_at_boundary(&mut source, &params, until, clock);
+        begun = source.call("agent-transfer-begin", params, BEGIN_TIMEOUT);
         clock.lap("begin");
     }
     let begun = match begun {
@@ -1113,20 +1046,17 @@ fn sync_frozen(sync: &Sync) -> Result<(), Failed> {
 }
 
 /// What the source daemon's `identify` lists that the move uses: whether its acpmux continues a
-/// turn the move stops, whether it keeps a begin token, and whether it cuts a turn at a tool
-/// boundary (`--tool-wait`). False for what it does not say, or
+/// turn the move stops, and whether it keeps a begin token. False for what it does not say, or
 /// when it does not answer.
-fn source_serves(socket: &std::path::Path) -> (bool, bool, bool) {
+fn source_serves(socket: &std::path::Path) -> (bool, bool) {
     use cmux_tui_core::server::agent_transfer::{
         AGENT_TRANSFER_BEGIN_TOKEN_CAPABILITY, AGENT_TRANSFER_CONTINUES_CAPABILITY,
-        AGENT_TRANSFER_TOOL_BOUNDARY_CAPABILITY,
     };
     let identity = super::machine_gate::reach(socket).ok();
     let served = identity.as_ref().and_then(super::machine_gate::served).unwrap_or_default();
     (
         served.contains(&AGENT_TRANSFER_CONTINUES_CAPABILITY),
         served.contains(&AGENT_TRANSFER_BEGIN_TOKEN_CAPABILITY),
-        served.contains(&AGENT_TRANSFER_TOOL_BOUNDARY_CAPABILITY),
     )
 }
 

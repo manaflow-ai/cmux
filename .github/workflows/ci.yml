@@ -139,8 +139,6 @@ jobs:
     # left it queued for hours (cmux#45735). Measured: 11 s of work, 5 min timeout.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
-    env:
-      GH_HTTP_DEADLINE_S: "240"  # head_tier.py reads through gh_http: give up inside timeout-minutes
     outputs:
       # true for a pull request on the cmux NEXT line, stacked ones included
       # (scripts/ci/next_line.sh); the legacy lanes below skip it.

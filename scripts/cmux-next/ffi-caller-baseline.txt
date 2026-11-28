@@ -34,6 +34,7 @@ cmux-tui/crates/cmux-action-catalog/include/cmux_action_catalog.h	cmux_deep_link
 cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_agent_pane_policy_abi_version
 cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_agent_pane_policy_check
 cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_agent_pane_policy_check_gesture
+cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_agent_pane_policy_filter_reply
 cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_agent_pane_policy_free
 cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_agent_pane_policy_new
 cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_agent_pane_policy_observe
@@ -41,8 +42,8 @@ cmux-tui/crates/cmux-app-ffi/include/cmux_background_ready.h	cmux_background_rea
 cmux-tui/crates/cmux-app-ffi/include/cmux_background_ready.h	cmux_background_ready_exits_for_update
 cmux-tui/crates/cmux-app-ffi/include/cmux_background_ready.h	cmux_background_ready_hidden_plan
 cmux-tui/crates/cmux-app-ffi/include/cmux_background_ready.h	cmux_background_ready_mode_parse
-cmux-tui/crates/cmux-app-ffi/include/cmux_background_ready.h	cmux_background_ready_offers_quit_completely
 cmux-tui/crates/cmux-app-ffi/include/cmux_background_ready.h	cmux_background_ready_on_quit
+cmux-tui/crates/cmux-app-ffi/include/cmux_background_ready.h	cmux_background_ready_offers_quit_completely
 cmux-tui/crates/cmux-app-ffi/include/cmux_background_ready.h	cmux_background_ready_registers_login_item
 cmux-tui/crates/cmux-app-ffi/include/cmux_background_ready.h	cmux_background_ready_registers_preread_agent
 cmux-tui/crates/cmux-app-ffi/include/cmux_background_ready.h	cmux_background_ready_starts_chromium_warmup

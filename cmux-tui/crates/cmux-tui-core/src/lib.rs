@@ -173,7 +173,6 @@ pub mod session_state_import;
 mod socket_path;
 #[cfg(any(target_vendor = "apple", target_os = "linux"))]
 mod starter;
-mod tree_wire;
 // The terminal host's wire is its own crate (cmux-remote and acpmux build without this one).
 pub use cmux_terminal_host_protocol::{net_keepalive, terminal_host, terminal_host_protocol};
 pub mod terminal_host_runtime;

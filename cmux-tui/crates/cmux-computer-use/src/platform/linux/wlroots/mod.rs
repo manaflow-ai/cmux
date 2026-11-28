@@ -10,10 +10,6 @@
 //!   run only with `Delivery::Foreground` (after focusing the window) or on
 //!   a headless session (`HEADLESS-*` outputs, `CMUX_CU_HEADLESS=1`), where
 //!   the window is focused first since no person's focus is taken.
-//!   Wayland has no window-addressed pointer event, so a foreground click
-//!   or drag moves the seat pointer; where the IPC reports the pointer
-//!   (Hyprland) it is put back after. Sway's IPC does not report it, so
-//!   there the pointer stays where the gesture ended.
 //! - Element positions: AT-SPI window coordinates plus the window's origin
 //!   (Wayland clients do not know where they are on screen).
 
@@ -159,16 +155,6 @@ impl WlrootsDesktop {
         } else {
             "wlr_virtual_input"
         })
-    }
-
-    /// Where the person's pointer is before a foreground gesture moves it,
-    /// to put it back after (`None` headless, or where the IPC cannot say).
-    fn person_pointer(&self, route: &str) -> Option<Point> {
-        if route != "wlr_virtual_input" {
-            return None;
-        }
-        let (x, y) = self.ipc.as_ref()?.cursor()?;
-        Some(Point { x, y })
     }
 
     /// After a focus change: waits (bounded, on compositor round trips) until
@@ -396,7 +382,6 @@ impl Desktop for WlrootsDesktop {
             self.wl().ensure_keymap(&syms)?;
         }
         let route = self.global_input(&w, spec.delivery)?;
-        let saved = self.person_pointer(route);
         let mut wl = self.wl();
         if !syms.is_empty() {
             let plan: Vec<(usize, bool)> = (0..syms.len()).map(|i| (i, true)).collect();
@@ -410,9 +395,6 @@ impl Desktop for WlrootsDesktop {
         if !syms.is_empty() {
             let plan: Vec<(usize, bool)> = (0..syms.len()).rev().map(|i| (i, false)).collect();
             wl.keys(&syms, &plan)?;
-        }
-        if let Some(s) = saved {
-            wl.motion(s)?;
         }
         wl.sync()?;
         Ok(ActionOutcome::delivered(route).at(p))
@@ -510,7 +492,6 @@ impl Desktop for WlrootsDesktop {
         Self::point_in(&w, to)?;
         let route = self.global_input(&w, delivery)?;
         let code = button_code(button);
-        let saved = self.person_pointer(route);
         let mut wl = self.wl();
         wl.motion(from)?;
         wl.button(code, true)?;
@@ -519,9 +500,6 @@ impl Desktop for WlrootsDesktop {
             wl.motion(Point { x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t })?;
         }
         wl.button(code, false)?;
-        if let Some(s) = saved {
-            wl.motion(s)?;
-        }
         wl.sync()?;
         Ok(ActionOutcome::delivered(route).at(to))
     }

@@ -9,13 +9,13 @@
 // a field-for-field mapping of them and nothing else in the pane changes.
 import {
   isLineRow,
+  onlyQuietThoughts,
   pathKey,
   SINCE_DIVIDER,
   TURN_RETRY,
   type AcpmuxActivity,
   type AcpmuxFileDiff,
   type AcpmuxRow,
-  onlyQuietThoughts,
   sentByPerson,
 } from "../model";
 import type { Folds } from "./viewFolds";
@@ -37,7 +37,7 @@ import { lastWrapUp, withoutWrapUp, execWrapUp, isWrapUp, wrapUpAsk } from "./wr
 import { lastWalkthrough } from "./walkthroughModel";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
-import { scriptNoun, commandLine, commandSaid } from "./commandActions";
+import { commandLine, commandSaid, scriptNoun } from "./commandActions";
 import { awaitsPermission, isDraftCall, isRunning, toolGroups, countsFailed } from "./toolGroups";
 import { toolRunPhrases } from "./toolRunSummary";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
@@ -58,7 +58,7 @@ import { startedTasks, startsTask, TASK_LINE } from "./taskLines";
 import { isWaitingMessage } from "./pendingMessages";
 import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
-import { turnCopyParts, turnCopySaid, turnCallParts } from "./turnCopy";
+import { turnCopyParts, turnCallParts, turnCopySaid } from "./turnCopy";
 import { turnEndActions } from "./turnEndActions.experiment";
 import { turnWork, wallSpan } from "./waterfallSpans";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
@@ -83,13 +83,7 @@ import {
   messageRunRowId,
   openMessageRuns,
 } from "./messageRuns";
-import {
-  backgroundRunFoldFor,
-  backgroundRunRowId,
-  foldBackgroundRuns,
-  harnessWork,
-  openBackgroundRuns,
-} from "./backgroundRuns";
+import { backgroundRunFoldFor, backgroundRunRowId, foldBackgroundRuns, openBackgroundRuns } from "./backgroundRuns";
 import { turnFoldStyle, type TurnFoldStyle, CLAUDE_IN_PLACE } from "./turnFoldStyle";
 import { resendsAttachments } from "../inlinePrompt";
 import { answerClaim, askKey, CLAIM_SLACK_MS } from "./waitingAskStore";
@@ -1481,14 +1475,7 @@ function shapedTurn(
   );
   // A turn the agent ran on its own after this one ended (no prompt starts it) draws in its tail:
   // a quiet one, or one still running, as its one line (backgroundTurns.ts).
-  // A burst the harness wrote after a stretch ended, that set no turn of its own going, is that
-  // stretch's work (`harnessIntoStretches`), where a "Worked for" holds the work: a family that draws
-  // its runs in place has no fold to put it in, and it draws where it came.
-  const intoStretches = !live && foldStyle.conclusion;
-  const answering = foldBackgroundTurns(
-    answeringPerson(user, intoStretches ? harnessIntoStretches(kept) : kept),
-    expanded,
-  );
+  const answering = foldBackgroundTurns(answeringPerson(user, kept), expanded);
   // Ended (its summary in, even before the session reads ready), a steer the agent was finishing
   // when it came draws over the answer (`lateSteersLast`); running, every row draws as it came.
   const turn = lateSteersLast(answering, live);
@@ -1544,17 +1531,15 @@ function shapedTurn(
     const shapedBody = stacked ? stackSteers(unstacked) : unstacked;
     // Where its runs fold, a run of them that carries messages between agents folds under one line
     // (messageRuns.ts; Leo, 2026-11-01: "this should be collapsible").
+    const messaged = foldMessageRuns(shapedBody, expanded, live);
     // A run of background-task notifications folds under one line (backgroundRuns.ts; Leo,
-    // 2026-11-02: "why do you still do these"), the rows the harness wrote into the turn with it
-    // ("5 task notifications"), before a message run could take those as received messages.
-    const grouped = foldBackgroundRuns(shapedBody, expanded, live);
-    const messaged = foldMessageRuns(grouped, expanded, live);
+    // 2026-11-02: "why do you still do these").
     // A stretch the person came in after ends there, with the end-of-turn footer (`supersededFooters`).
     // While the turn runs it comes with the prompt the person sent, in the frame the prompt is drawn
     // (over a steer still waiting, at the body's end), so the prompt never moves down under it when
     // the agent reads it (Leo, 2026-11-09: "i hate the way when i send off a message it seems to move
     // up and under your current running tool call or whatever").
-    const runs = messaged;
+    const runs = foldBackgroundRuns(messaged, expanded);
     // The person's steer still on its way draws in its place in the body (`sentHere`); its stretch's
     // footer comes in the frame it is drawn, as for one acpmux recorded.
     const body = sinceAboveWorked(supersededFooters(runs, turn, endedByPerson, user.at, live, stacked));
@@ -1757,6 +1742,7 @@ export const FLOOR_MS = 1_000;
 
 /// The rows a fold would hide: each tool call, and each row another agent wrote
 /// (the turn's own prompt among them). Thinking counts by its time, not as a row.
+const foldsAsWork = (row: AcpmuxRow) => isAgentPrompt(row);
 export function workRowCount(user: AcpmuxRow, body: readonly AcpmuxRow[]): number {
   let count = foldsAsWork(user) ? 1 : 0;
   for (const row of body) {
@@ -2228,60 +2214,6 @@ export const isAgentPrompt = (row: AcpmuxRow) =>
       !row.incoming.message.fromPerson &&
       row.incoming.message.notice?.severity !== "fire"));
 
-/// A row that starts a turn and folds into that turn's "Worked for" as its first entry: another
-/// agent's message (``isAgentPrompt``), or a row the harness wrote (backgroundRuns.ts
-/// `harnessWork`: a task notification, marked or legacy, a peer's message, an inbox relay, a
-/// subagent's "Report from" line).
-const foldsAsWork = (row: AcpmuxRow) => isAgentPrompt(row) || harnessWork(row) !== undefined;
-
-/// A row the harness wrote that is the work of the stretch it arrived in, as a call's end is: a row
-/// of ``harnessWork`` (a "Report from" line among them), a subagent's end and a background command's
-/// end. A failed one is none: it stays in sight, waiting on a Retry.
-const harnessEnd = (row: AcpmuxRow) =>
-  harnessWork(row) !== undefined ||
-  (row.kind === SUBAGENT_DONE && isEndState(row.subagents?.[0]?.state)) ||
-  (row.kind === "backgroundTask" &&
-    (row.backgroundTask?.state === "completed" || row.backgroundTask?.state === "stopped"));
-const isEndState = (state: string | undefined) =>
-  state === "completed" || state === "cancelled" || state === "disconnected";
-
-/// `turn` (an ended turn's rows) with each burst the harness wrote after one of its stretches ended
-/// moved into that stretch, before the summary that ended it, so it folds under that stretch's
-/// "Worked for" as a call after the answer does (Leo, 2026-11-24: "we can indeed treat them as tool
-/// calls, even though they're bursted at the end/start of turns. thereby we can have them be folded
-/// properly too."). A burst counts when nothing but such rows and replies that draw nothing came
-/// between that summary and the next (or the turn's end): a quiet turn they set going joins the
-/// stretch before it. A burst that set a turn going with something to show starts that turn's fold
-/// instead (`foldTailTurn`). The person's steer, a reply and a failure are never moved. Without such
-/// a burst, `turn` itself.
-function harnessIntoStretches(turn: AcpmuxRow[]): AcpmuxRow[] {
-  const stretches: AcpmuxRow[][] = [[]];
-  for (const row of turn) {
-    stretches.at(-1)!.push(row);
-    if (row.kind === "turnSummary") stretches.push([]);
-  }
-  if (stretches.length < 2) return turn;
-  let moved = false;
-  // The stretch a quiet burst joins: the nearest one before it that is not itself quiet.
-  let into = 0;
-  for (let at = 1; at < stretches.length; at += 1) {
-    const stretch = stretches[at]!;
-    const rows = stretch.filter((row) => row.kind !== "turnSummary");
-    const burst = rows.filter(harnessEnd);
-    const quiet = burst.length > 0 && rows.every((row) => harnessEnd(row) || isVisiblyEmptyMessage(row));
-    if (!quiet) {
-      into = at;
-      continue;
-    }
-    const target = stretches[into]!;
-    const end = target.at(-1)?.kind === "turnSummary" ? target.length - 1 : target.length;
-    target.splice(end, 0, ...burst);
-    stretches[at] = stretch.filter((row) => !harnessEnd(row));
-    moved = true;
-  }
-  return moved ? stretches.flat() : turn;
-}
-
 /// How many messages from other agents `rows` hold: each message received (an inbox notice counts
 /// the messages it brought, as messageRuns.ts does).
 function receivedAgentMessages(rows: readonly AcpmuxRow[]): number {
@@ -2289,8 +2221,6 @@ function receivedAgentMessages(rows: readonly AcpmuxRow[]): number {
   for (const row of rows)
     if (isReceivedLine(row) && row.kind === "user")
       received += row.incoming?.kind === "inbox" ? Math.max(1, inboxCounts(row.incoming.notice).messages) : 1;
-    // A subagent's "Report from" line a background turn's fold holds as its first entry counts as one.
-    else if (harnessWork(row) === "report") received += 1;
   return received;
 }
 
@@ -2444,11 +2374,7 @@ function shapeTurn(
   // Other agents' messages that started the turn fold into its "Worked for" once it ends, as its
   // first entries (Leo, 2026-11-07: "fold the receiving and sending messages into the worked for as
   // well? Like the nearest one?"); shapedTurn draws them there.
-  // A row the harness wrote that started the turn (a task notification, a peer's message, an inbox
-  // relay, a subagent's "Report from" line) is the turn's first call, folded the same way
-  // (`foldsAsWork`; Leo, 2026-11-24: "we can initiate the Worked for with these background tasks as
-  // actual tool calls").
-  const foldsPrompt = !live && style.conclusion && foldsAsWork(user);
+  const foldsPrompt = !live && style.conclusion && isAgentPrompt(user);
   // Notification turns can contain an empty assistant segment and a summary solely for
   // bookkeeping. With no visible prompt or work, omit the whole turn, including its footer.
   if (isVisiblyEmptyMessage(user) && body.length === 0 && summary.status === "completed") return [];
@@ -2577,9 +2503,7 @@ function shapeTurn(
       !style.conclusion ||
       foldOpen ||
       expanded.has(id) ||
-      // A fold over another agent's message alone stays open (`promptOnly`); one over a row the
-      // harness wrote closes as a call's would.
-      ((isStopped(summary) || (promptOnly && isAgentPrompt(user))) && !expanded.has(closedTurnFoldKey(id))) ||
+      ((isStopped(summary) || promptOnly) && !expanded.has(closedTurnFoldKey(id))) ||
       (inOrder &&
         [...before, ...after].some(
           (row) =>
@@ -3115,24 +3039,15 @@ function foldTailTurn(
   const lineAt = stretch.findIndex((row) => row.kind === BACKGROUND_TURN && row.background !== undefined);
   const line = lineAt >= 0 ? stretch[lineAt] : undefined;
   const background = line?.background?.id ?? stretch.find((row) => row.inBackground !== undefined)?.inBackground;
-  // Where a "Worked for" holds the work, rows the harness wrote that set a turn going are its first
-  // calls; a family that draws its runs in place draws them where they came.
-  const folds = turnFoldStyle(agentFamily).conclusion;
-  if (background === undefined || !endedBackground.has(background))
-    return folds
-      ? harnessStartedTail(stretch, expanded, endedBackground, clockOffset, agentFamily)
-      : endedTail(stretch);
+  if (background === undefined || !endedBackground.has(background)) return endedTail(stretch);
   // A late row of a turn that already folded above (a subagent it started, done after the next turn
   // began) draws as it came, as a late update before a line does: a second fold would draw that turn's
   // "Worked for" twice, under one id (replay-lane-session, d-shift: the first one jumped 334px).
   if (!line && folded.has(background)) return endedTail(stretch);
   folded.add(background);
-  // What came before its line (a late update of an earlier call) draws as it came; rows the harness
-  // wrote that set it going are its first calls (`harnessEnd`).
-  const ahead = line ? stretch.slice(0, lineAt) : [];
-  const leads = (row: AcpmuxRow) => folds && harnessEnd(row);
-  const before = ahead.filter((row) => !leads(row));
-  const drawn = [...ahead.filter(leads), ...(line ? stretch.slice(lineAt + 1) : stretch)];
+  // What came before its line (a late update of an earlier call) draws as it came.
+  const before = line ? stretch.slice(0, lineAt) : [];
+  const drawn = line ? stretch.slice(lineAt + 1) : stretch;
   if (drawn.length === 0) return endedTail(stretch);
   // One that ended on no row of its own still folds, under a summary that draws nothing.
   const provisional: AcpmuxRow | undefined =
@@ -3174,13 +3089,9 @@ function foldTailTurn(
   const footer = body.at(-1)!;
   // A quiet turn has nothing to tell (acpmux's word): its wrap-up folds with its work, no card.
   const quiet = line?.background?.quiet === true;
-  // A subagent's "Report from" line is the turn's first call (`foldsAsWork`): its "Worked for" holds
-  // it, under the line while open, out of sight while closed.
-  const worked = line && foldsAsWork(line) ? fold(shaped, line) : -1;
-  if (worked >= 0 && shaped[worked]!.foldOpen) shaped.splice(worked + 1, 0, line!);
   return [
     ...endedTail(before),
-    ...(line && worked < 0 ? [line] : []),
+    ...(line ? [line] : []),
     ...shaped.flatMap((row) =>
       (quiet && row.kind === NEXT_STEP) || row.id === provisional?.id
         ? []
@@ -3195,40 +3106,6 @@ function foldTailTurn(
           : [row],
     ),
   ];
-}
-
-/// A stretch of a turn's tail that a row the harness wrote set going, with no background turn of its
-/// own (Claude Code answering a task notification or a peer's message it steered into the chat),
-/// shaped as `shapeTurn` shapes a prompt's turn: the burst is its "Worked for"'s first calls, its
-/// reply and footer in sight. Any other stretch draws as before (`endedTail`).
-function harnessStartedTail(
-  stretch: AcpmuxRow[],
-  expanded: Folds,
-  endedBackground: ReadonlySet<string>,
-  clockOffset: number,
-  agentFamily: string | undefined,
-): AcpmuxRow[] {
-  const anchor = stretch[0];
-  if (!anchor || anchor.kind !== "user" || !harnessEnd(anchor) || stretch.length < 2) return endedTail(stretch);
-  if (stretch.at(-1)!.kind !== "turnSummary") return endedTail(stretch);
-  const shaped = shapeTurn(
-    anchor,
-    stretch.slice(1),
-    expanded,
-    false,
-    false,
-    false,
-    false,
-    false,
-    clockOffset,
-    agentFamily,
-    0,
-    endedBackground,
-  );
-  const worked = fold(shaped, anchor);
-  if (worked < 0) return [anchor, ...shaped];
-  if (shaped[worked]!.foldOpen) shaped.splice(worked + 1, 0, anchor);
-  return shaped;
 }
 
 /// An ended tail (the turns the agent ran on its own after the prompt's turn, with no turn running now)

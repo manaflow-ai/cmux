@@ -983,8 +983,7 @@ ffi_swift=cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFF
 ffi_how=""
 if [[ -n "$ffi_key" ]]; then
   ffi_rc=0
-  # With the inputs, a miss claims the key at the controller, or waits for the step that claimed it (one build per key).
-  "${ffi_cache[@]}" restore "$root" "$ffi_key" "$work/ffi-inputs.json" >>"$ffi_log" 2>&1 || ffi_rc=$?
+  "${ffi_cache[@]}" restore "$root" "$ffi_key" >>"$ffi_log" 2>&1 || ffi_rc=$?
   if [[ $ffi_rc -eq 0 && -f "$ffi_xcf/Info.plist" && -s "$ffi_swift" ]]; then
     ffi_how="cache hit ${ffi_key:0:12}"
   elif [[ $ffi_rc -eq 0 ]]; then

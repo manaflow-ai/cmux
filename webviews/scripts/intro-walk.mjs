@@ -14,7 +14,7 @@
 //   - Skip restores: after picks then Skip, the choices the page shows equal the ones it opened on. The mock answers
 //     as the host does (MakeItYoursStepModel.revert writes the opening choices back on Skip).
 //
-//   bun scripts/intro-walk.mjs [--out report.json] [--reuse-build] [--shots DIR]
+//   bun scripts/intro-walk.mjs [--out report.json] [--reuse-build]
 //
 // Builds dist/gallery from this checkout first: a dist/gallery left by another branch walks that branch's code
 // (a stale build once read Skip as fixed). `--reuse-build` walks an existing dist/gallery as is.
@@ -33,18 +33,9 @@ const args = process.argv.slice(2);
 const outIndex = args.indexOf("--out");
 const out = outIndex >= 0 ? path.resolve(args[outIndex + 1]) : null;
 const root = path.resolve(import.meta.dir, "..");
-const shotsIndex = args.indexOf("--shots");
-/** `--shots DIR`: one PNG per arm and width as it opens (ARM-WIDTH.png), the pictures a [taste] batch is read on. */
-const shots = shotsIndex >= 0 ? path.resolve(args[shotsIndex + 1]) : null;
 
-/** The arms walked: every look of the screen (walk_split.rs slot `screen`: preview, segmented, form, cards, rows),
- * opened fresh (the recommended answers) and on a person's own picks. `preview` is the look that ships. */
+/** The arms walked: each look of the screen, opened fresh (the recommended answers) and on a person's own picks. */
 const ARMS = [
-  { arm: "preview-fresh", variant: "make-it-yours-preview" },
-  { arm: "preview-picked", variant: "make-it-yours-preview-picked" },
-  { arm: "preview-terminal", variant: "make-it-yours-preview-terminal" },
-  { arm: "segmented-picked", variant: "make-it-yours-segmented" },
-  { arm: "form-picked", variant: "make-it-yours-form" },
   { arm: "cards-fresh", variant: "make-it-yours-cards" },
   { arm: "rows-fresh", variant: "make-it-yours-rows" },
   { arm: "cards-picked", variant: "make-it-yours-picked" },
@@ -172,18 +163,6 @@ async function walkArm(browser, baseUrl, { arm, variant }, width) {
     timeout: 90_000,
   });
   await frames(page);
-  if (shots) {
-    fs.mkdirSync(shots, { recursive: true });
-    await page.screenshot({ path: path.join(shots, `${arm}-${width}.png`) });
-  }
-  // Labels the screen cuts short as it opens (a text box narrower than its own text: "Clear Gl…"). Reported per walk
-  // and as the summary's `truncated_max`, not judged yet: the look that ships cuts some at the window's size.
-  const truncated = await page.evaluate(() =>
-    Array.from(document.querySelectorAll(".onb-make *"))
-      .filter((el) => el.children.length === 0 && el.textContent.trim() && el.scrollWidth > el.clientWidth + 1)
-      .filter((el) => getComputedStyle(el).overflowX !== "visible")
-      .map((el) => el.textContent.trim()),
-  );
   const opening = await page.evaluate(checkedValues);
   const radios = await page.evaluate(() =>
     Array.from(document.querySelectorAll('.onb-make input[type="radio"]')).map((input) => ({
@@ -266,7 +245,6 @@ async function walkArm(browser, baseUrl, { arm, variant }, width) {
     opening,
     afterSkip,
     footerCovered,
-    truncated,
     skipRestores: JSON.stringify(afterSkip) === JSON.stringify(opening),
     steps,
   };
@@ -363,7 +341,6 @@ async function main() {
     cls_max: clsMax,
     preview_cls_max: previewClsMax,
     publishes_per_pick_max: publishesMax,
-    truncated_max: Math.max(0, ...walks.map((walk) => (walk.truncated ?? []).length)),
     skip_restores: walks.length > 0 && walks.every((walk) => walk.skipRestores),
     failures,
     walks,

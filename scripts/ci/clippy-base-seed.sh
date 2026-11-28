@@ -3,8 +3,6 @@
 #
 #   clippy-base-seed.sh inputs              the 16-hex key of the toolchain and lockfiles (after the pinned cargo is on PATH)
 #   clippy-base-seed.sh restore TARGET      seed an empty TARGET from the base's build; any failure is a miss, exit 0
-#   clippy-base-seed.sh verdict DIR BASE    the newest recorded whole-workspace clippy verdict into DIR/verdict.json
-#                                           (BASE's own first); any failure is a miss, exit 0
 #
 # Leo, 2026-11-21: "whatever we need to cut, we cut. whatever we can reuse, we reuse."
 #
@@ -60,29 +58,8 @@ restore() {
   return 0
 }
 
-# The seed's clippy step also records which members the commit it lints fails to compile
-# (cmux-tui-clippy-changed.py CMUX_CLIPPY_VERDICT_OUT), under cmux-tui-clippy-verdict-v1-<sha>. clippy-changed then
-# leaves out a member the change does not touch that this verdict has red, when every input the red rests on is the
-# same at BASE (the verdict's commit need not be BASE: the seed runs at most every two hours).
-verdict() {
-  local dir="${1:-}" base="${2:-}"
-  [[ -n "$dir" ]] || { echo "usage: $0 verdict DIR BASE" >&2; return 2; }
-  if [[ "${CMUX_CLIPPY_BASE_VERDICT:-}" == off ]]; then echo "clippy base verdict: off"; return 0; fi
-  export CI_CACHE_R2_PUBLIC_URL="${CI_CACHE_R2_PUBLIC_URL:-https://ci-cache-next.cmux.com}"
-  export CI_CACHE_R2_NAMESPACE="${CI_CACHE_R2_NAMESPACE:-Linux-X64}"
-  bash "$here/r2-cache.sh" restore "$dir" "cmux-tui-clippy-verdict-v1-${base:-none}" "cmux-tui-clippy-verdict-v1-" \
-    || echo "clippy base verdict: not restored"
-  if [[ -s "$dir/verdict.json" ]]; then
-    echo "clippy base verdict: $(head -c 400 "$dir/verdict.json" | tr -d '\n' | cut -c1-200)"
-  else
-    echo "clippy base verdict: none recorded"
-  fi
-  return 0
-}
-
 case "$mode" in
   inputs) seed_inputs ;;
   restore) shift; restore "$@" ;;
-  verdict) shift; verdict "$@" ;;
-  *) echo "usage: $0 inputs | restore TARGET | verdict DIR BASE" >&2; exit 2 ;;
+  *) echo "usage: $0 inputs | restore TARGET" >&2; exit 2 ;;
 esac

@@ -9,8 +9,6 @@ import email.message
 import email.utils
 import importlib.util
 import json
-import os
-import sys
 from pathlib import Path
 import time
 import unittest
@@ -255,41 +253,6 @@ class WorkflowTests(unittest.TestCase):
         unbounded = [f"{job}: {step.get('name')}" for job, step in steps
                      if step.get("continue-on-error") and not step.get("timeout-minutes")]
         self.assertEqual(unbounded, [])
-
-
-    def test_every_dsyms_download_action_is_a_fallback_behind_the_waiting_script(self) -> None:
-        # Run 46137161280 (2026-11-28 10:53Z): sentry-dsyms-nightly's bare download-artifact died on
-        # "API rate limit exceeded for installation"; the action cannot wait through a reset.
-        import yaml
-        jobs = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())["jobs"]
-        bare = []
-        for job in ("sentry-dsyms-nightly", "keep-published-dsyms"):
-            steps = jobs[job]["steps"]
-            ids = {step.get("id") for step in steps if "download-run-artifact.py" in str(step.get("run", ""))}
-            for step in steps:
-                if "download-artifact@" in str(step.get("uses", "")) and not any(
-                        f"steps.{i}.outcome" in str(step.get("if", "")) for i in ids if i):
-                    bare.append(f"{job}: {step.get('name')}")
-        self.assertEqual(bare, [])
-
-
-class ArtifactIdListTests(unittest.TestCase):
-    def test_comma_separated_artifact_ids_each_download(self) -> None:
-        # dsyms-find-attempt.sh's `artifacts` output is every found id, comma-separated.
-        seen: list[str] = []
-
-        def by_id(repo, run_id, artifact_id, token):
-            seen.append(artifact_id)
-            return {"name": f"a{artifact_id}"}
-
-        argv = ["x", "--artifact-id", "11, 22,", "--run-id", "9", "--out", "/nonexistent/out"]
-        env = {"GITHUB_TOKEN": "t", "GITHUB_REPOSITORY": "o/r"}
-        with mock.patch.object(sys, "argv", argv), mock.patch.dict(os.environ, env), \
-                mock.patch.object(download, "find_artifact_by_id", by_id), \
-                mock.patch.object(download.os, "makedirs", side_effect=SystemExit("stop")):
-            with self.assertRaises(SystemExit):
-                download.main()
-        self.assertEqual(seen, ["11", "22"])
 
 
 if __name__ == "__main__":

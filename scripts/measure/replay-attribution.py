@@ -289,15 +289,6 @@ def script_owner(frames: list[str]) -> str:
                     phase = label
                     break
             comp = next((n for n in inner if n[:1].isupper() and n not in IDLE), None)
-            if comp is None and phase == "React render":
-                # No capitalized name: the function React called (the frame just inside renderWithHooks) is still the
-                # owner, even a lowercase one or a React Compiler closure (t1); with none, React's own diffing is.
-                # A bare "React render" row named nobody (12:30Z 2026-11-28 lane-1 pass: 6.7% of long-task time).
-                hooks = next((j for j, n in enumerate(inner) if n.startswith("renderWithHooks")), None)
-                if hooks:
-                    comp = inner[hooks - 1] or "(anon)"
-                else:
-                    return f"{phase} (React internals)"
             return f"{phase}: {comp}" if comp else phase
     entry = next((n for n in outer if n not in IDLE and n != "(anon)"), outer[0] if outer else "(anon)")
     return f"script: {entry}"

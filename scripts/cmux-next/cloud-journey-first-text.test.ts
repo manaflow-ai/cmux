@@ -152,19 +152,6 @@ time.sleep(10) # a turn whose end must never be awaited`);
     expect(result.stdout).not.toContain("héllo");
   });
 
-  test("follows a session that appears after the observer started (acp tail exits 4 until it exists)", () => {
-    const text = JSON.stringify(chunk("agent_message_chunk", "hi"));
-    const result = runTail(`n = os.path.join(os.path.dirname(sys.argv[0]), 'n')
-k = int(open(n).read()) if os.path.exists(n) else 0
-open(n, 'w').write(str(k + 1))
-if k < 2: sys.exit(4)
-print('{"kind":"turn_started"}', flush=True)
-print(${JSON.stringify(text)}, flush=True)
-time.sleep(10)`);
-    expect(result.status).toBe(0);
-    expect(result.stdout.trim()).toMatch(/^@@first-text \d+ -?\d+$/);
-  });
-
   test("accepts the live session/update shape", () => {
     const live = { method: "session/update", params: chunk().msg.params };
     expect(runTail(`print('{"kind":"turn_started"}', flush=True)\nprint(${JSON.stringify(JSON.stringify(live))}, flush=True)`).stdout.trim()).toMatch(/^@@first-text \d+ -?\d+$/);

@@ -3183,7 +3183,10 @@ fn start_punch(carrier: &Arc<HubCarrier>, port: u16) -> Option<tokio::task::Join
     tracing::info!("hub carrier direct: listening on port {port}");
     if punch::enabled() {
         carrier.set_punch_port(port);
-        punch::keep_public(carrier, port);
+        let mapping = Arc::downgrade(carrier);
+        direct::scope().spawn_named("hub carrier port map", async move {
+            punch::portmap::keep_mapped(mapping, port).await;
+        });
     }
     Some(carrier.serve_direct(listener))
 }

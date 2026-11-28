@@ -11778,7 +11778,7 @@ acpmux, or `transfer.incomplete`) also forgets the receive.
 
 ### agent-transfer-begin
 
-`{id, cmd:"agent-transfer-begin", surface, interrupt?, at_tool_boundary?, ask_first?, begin_token?}` freezes the chat of
+`{id, cmd:"agent-transfer-begin", surface, interrupt?, ask_first?, begin_token?}` freezes the chat of
 an agent tab of this store (the session comes from the tab's store record,
 as `agent-session-attach`; any other surface is `agent_transfer.unknown_tab`)
 and answers `{transfer_id, source_session, manifest}` (`source_session` as
@@ -11803,16 +11803,6 @@ mode of the table's list that the chat offers. A chat already in a move is
 not narrowed, so its begin is refused as without `ask_first`. The receiving
 daemon's guard is unchanged. A step acpmux refuses fails the begin with that
 refusal, and the chat stays, unmoved, keeping what was narrowed so far.
-
-`at_tool_boundary: true` (`agent-transfer-tool-boundary-v1`) asks acpmux to
-cut a running turn only between its tool calls (`atToolBoundary`): while a
-call runs (a build, a test) the begin is `agent_transfer.refused` with
-acpmux's `transfer.tool_in_flight`, the chat left running and unfrozen, and a
-pump asks again; at the boundary the chat freezes with every tool result in
-its transcript and the turn continues where it lands. `cmux link agent move
---tool-wait SECS` (or `CMUX_MOVE_TOOL_WAIT`) asks again every 500 ms up to
-SECS, then begins as without it. A daemon without the capability ignores the
-field.
 
 A begin of a chat that is already in a move is `agent_transfer.refused`
 (acpmux's `transfer.moving`) with `error_details: {transfer_id}`, the id of

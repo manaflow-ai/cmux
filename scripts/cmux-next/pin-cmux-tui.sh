@@ -499,8 +499,7 @@ else:
 #                        and build-darwin-fallback is rebuilding it, so the tree lands about
 #                        30 min later than a clean run's; await-tree-client.sh waits for it
 #   failed <job>: <url>  every active run has a failed preflight, build or publish job on its last
-#                        retry attempt, so none publishes the tree; "<job> (the last attempt): <url>"
-#                        when that run is on attempt MAX_ATTEMPTS, so no retry follows either
+#                        retry attempt, so none publishes the tree
 #   stalled <what>       every active run is stuck: a job (or the run itself, with no
 #                        jobs yet) has waited for a runner longer than
 #                        CMUX_TUI_TREE_RUNNER_STALL_SECONDS (default 900)
@@ -563,9 +562,7 @@ for run_id in sorted(os.listdir(os.path.join(jobs_dir, "jobs"))):
     bad = [j for j in jobs if j.get("conclusion") in ("failure", "timed_out", "cancelled")
            and REQUIRED.match(j.get("name", "")) and not DARWIN_PRIMARY.match(j.get("name", ""))]
     if bad and (run.get("status") == "completed" or int(run.get("run_attempt") or 1) >= MAX_ATTEMPTS):
-        # "the last attempt": no retry follows, so await-tree-client.sh ends at this check.
-        last = " (the last attempt)" if int(run.get("run_attempt") or 1) >= MAX_ATTEMPTS else ""
-        failed.append(f"{bad[0]['name']}{last}: {url}")
+        failed.append(f"{bad[0]['name']}: {url}")
         continue
     if run.get("status") == "completed":
         continue

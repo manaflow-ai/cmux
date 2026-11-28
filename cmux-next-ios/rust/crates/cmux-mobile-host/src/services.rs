@@ -172,7 +172,6 @@ pub async fn serve_with_upload_timeout(
         "upload" => upload(&config, &peer, &args, &sender, receiver, upload_timeout).await,
         "bundle" => crate::bundle::serve(&config, &peer, &args, &sender, receiver).await,
         "version" => version(&config, &sender).await,
-        "api" => api(&config, &args, &sender).await,
         crate::lan::SERVICE => crate::lan::enroll(&peer, &args, &sender).await,
         "machine" => {
             let grants = machine_grants.and_then(Result::ok).unwrap_or_default();
@@ -307,7 +306,7 @@ const UPLOAD_PART_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(
 /// `bundle-v1`: the `bundle` service (attachment `put` and file `get` as sealed
 /// content-defined chunks, `bundle.rs`).
 /// The names are declared once in `cmux_mobile_link::names`.
-pub const CAPABILITIES: [&str; 15] = [
+pub const CAPABILITIES: [&str; 14] = [
     names::REMOVAL,
     names::FILE_PREVIEW,
     names::LOCALHOST_FORWARD,
@@ -322,7 +321,6 @@ pub const CAPABILITIES: [&str; 15] = [
     names::MAILBOX_SEND,
     names::BUNDLE,
     names::ZSTD_STREAM,
-    names::API_DESCRIBE,
 ];
 /// Added to [`CAPABILITIES`] when this Mac can stream browser tabs (`browser`).
 pub const BROWSER_STREAM: &str = names::BROWSER_STREAM;
@@ -366,14 +364,6 @@ pub fn capabilities(config: &ServiceConfig) -> Vec<&'static str> {
         out.push(crate::try_pr::CAPABILITY);
     }
     out
-}
-
-/// `api`: this Mac's phone method list (api.rs).
-async fn api(config: &ServiceConfig, args: &Value, sender: &ChannelSender) -> Result<(), Refusal> {
-    let reply = crate::api::answer(args, &capabilities(config))
-        .map_err(|(code, reason)| Refusal::new(code, reason))?;
-    let _ = sender.send(Bytes::from(reply.to_string())).await;
-    Ok(())
 }
 
 async fn version(config: &ServiceConfig, sender: &ChannelSender) -> Result<(), Refusal> {
@@ -739,9 +729,7 @@ async fn daemon(
         &path,
         session,
         LinePolicy::Daemon(
-            DaemonPolicy::new(&peer.device_id)
-                .with_agent_tab_host(config.agent_tab_host.clone())
-                .with_strict(args.get("strict") == Some(&Value::Bool(true))),
+            DaemonPolicy::new(&peer.device_id).with_agent_tab_host(config.agent_tab_host.clone()),
         ),
         config.pairing.as_ref().map(|pairing| std::sync::Arc::clone(&pairing.spent_replies)),
         sender,
@@ -3537,8 +3525,7 @@ mod tests {
                 "phone-page-v1",
                 "mailbox-send-v1",
                 "bundle-v1",
-                "zstd-stream-v1",
-                "api-describe-v1"
+                "zstd-stream-v1"
             ]
         );
         let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {
@@ -3562,7 +3549,6 @@ mod tests {
                 "mailbox-send-v1",
                 "bundle-v1",
                 "zstd-stream-v1",
-                "api-describe-v1",
                 BROWSER_STREAM,
                 BROWSER_VIDEO_TRACK
             ]

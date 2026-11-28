@@ -347,8 +347,7 @@ def main() -> None:
     elif args.pattern:
         artifacts = find_artifacts(repo, run_id, args.pattern, token)
     else:
-        # One id, or several comma-separated (dsyms-find-attempt.sh's `artifacts` output).
-        artifacts = [find_artifact_by_id(repo, run_id, i.strip(), token) for i in args.artifact_id.split(",") if i.strip()]
+        artifacts = [find_artifact_by_id(repo, run_id, args.artifact_id, token)]
     os.makedirs(args.out, exist_ok=True)
     for artifact in artifacts:
         with tempfile.TemporaryDirectory() as tmp:

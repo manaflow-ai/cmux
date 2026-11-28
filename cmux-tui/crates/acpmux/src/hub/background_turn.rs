@@ -25,16 +25,6 @@
 //! `lastTurn` and the notifications cmux-tui-core posts from it do not move), and its words never
 //! become the chat's `preview` / `lastMessage` (the sidebar line and a later notice's body).
 //!
-//! One thing it does move: a turn of its own with an explicit successful result proves the
-//! chat works again, so a failed `lastTurn` before it gets
-//! `recoveredAt` ([`recover_last_turn`]) and the status dot stops reading `failed`
-//! (`views.rs` `status_indicator`). The turn's own outcome is unchanged. Its `ended` record says
-//! `"failed": false` on success and `true` on error. Only an explicit success recovers it;
-//! older records and Codex idle notifications with no outcome marker recover nothing. Before,
-//! after one failed turn a chat that went on working through task notifications and `/loop`
-//! ticks kept its red tab icon until the person prompted it again (Leo, 2026-11-27: "this isn't
-//! leaving the tab icon even after you're not erroring anymore").
-//!
 //! A turn of its own that ends on the account's rate limit (its `result` is the 429's error) is a
 //! strike of the chat and holds it as a prompted turn's 429 does (`rate_hold.rs`
 //! [`Hub::hold_at_failure`]): acpmux cannot stop Claude Code from starting it, but what acpmux
@@ -136,11 +126,7 @@ impl BackgroundTurns {
             m if m.starts_with("claude.result") => {
                 self.hint = None;
                 self.pending = None;
-                let failed = line.get("is_error") == Some(&Value::Bool(true));
-                out.extend(self.end("result").map(|mut ended| {
-                    ended.set("failed", json!(failed));
-                    ended
-                }));
+                out.extend(self.end("result"));
             }
             _ => {}
         }
@@ -240,28 +226,6 @@ impl BackgroundTurns {
     }
 }
 
-/// Whether a `background_turn` record is a turn of its own that ended cleanly: the chat works.
-pub(super) fn recovers(record: &Value) -> bool {
-    record.get("state").and_then(Value::as_str) == Some("ended")
-        && record.get("reason").and_then(Value::as_str) == Some("result")
-        // Old journals omitted this field for both success and failure. Only an explicit
-        // successful result proves recovery when replayed by a newer daemon.
-        && record.get("failed") == Some(&Value::Bool(false))
-}
-
-/// A later turn ended cleanly at `at` (a background turn, [`recovers`], or a trigger turn that
-/// completed): a `lastTurn` that did not complete is marked `recoveredAt`, so the status dot
-/// stops reading `failed` or `lost` (the module doc). Its status, error and the unread mark stay.
-pub(super) fn recover_last_turn(last: &mut Option<Value>, at: u64) -> bool {
-    let Some(last) = last.as_mut() else { return false };
-    let status = last.get("status").and_then(Value::as_str);
-    if status.is_some_and(|s| s != "completed") && last.get("recoveredAt").is_none() {
-        last.set("recoveredAt", json!(at));
-        return true;
-    }
-    false
-}
-
 /// The error of a Claude `result` line that failed on the account's usage or rate limit.
 fn rate_limit_result(method: &str, line: &Value) -> Option<String> {
     if !method.starts_with("claude.result") || line.get("is_error") != Some(&Value::Bool(true)) {
@@ -359,7 +323,7 @@ impl Hub {
         let records = state.on_line(method, line, acpmux_turn, seq);
         drop(state);
         for msg in records {
-            self.append_background_record(session, msg);
+            self.append(session, "mux", RECORD_KIND, msg);
         }
         if let Some((turn, error)) = limited {
             let _parked = self.hold_at_failure(session, &turn, &error, None);
@@ -375,22 +339,7 @@ impl Hub {
         let record = state.on_update(update, acpmux_turn, seq);
         drop(state);
         if let Some(msg) = record {
-            self.append_background_record(session, msg);
-        }
-    }
-
-    /// Logs a `background_turn` record; one that ends a turn cleanly first marks a failed
-    /// `lastTurn` recovered (the module doc), as the journal restore does (`count_restored`).
-    fn append_background_record(&self, session: &Session, msg: Value) {
-        let recovered = recovers(&msg)
-            && recover_last_turn(
-                &mut session.meta.lock().unwrap_or_else(|e| e.into_inner()).last_turn,
-                now_ms(),
-            );
-        self.append(session, "mux", RECORD_KIND, msg);
-        if recovered {
-            // Handoff drains queued metadata saves; it does not snapshot unsaved mutations.
-            self.save_meta(session);
+            self.append(session, "mux", RECORD_KIND, msg);
         }
     }
 

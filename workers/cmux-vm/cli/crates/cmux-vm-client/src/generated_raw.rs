@@ -15526,56 +15526,6 @@ pub mod types {
                 })
         }
     }
-    ///a string at most 20 character(s) long
-    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-    #[serde(transparent)]
-    pub struct VmsCreateVmXCmuxCreateDeadline(::std::string::String);
-    impl ::std::ops::Deref for VmsCreateVmXCmuxCreateDeadline {
-        type Target = ::std::string::String;
-        fn deref(&self) -> &::std::string::String {
-            &self.0
-        }
-    }
-    impl ::std::convert::From<VmsCreateVmXCmuxCreateDeadline> for ::std::string::String {
-        fn from(value: VmsCreateVmXCmuxCreateDeadline) -> Self {
-            value.0
-        }
-    }
-    impl ::std::str::FromStr for VmsCreateVmXCmuxCreateDeadline {
-        type Err = self::error::ConversionError;
-        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-            if value.chars().count() > 20usize {
-                return Err("longer than 20 characters".into());
-            }
-            Ok(Self(value.to_string()))
-        }
-    }
-    impl ::std::convert::TryFrom<&str> for VmsCreateVmXCmuxCreateDeadline {
-        type Error = self::error::ConversionError;
-        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-            value.parse()
-        }
-    }
-    impl ::std::convert::TryFrom<::std::string::String> for VmsCreateVmXCmuxCreateDeadline {
-        type Error = self::error::ConversionError;
-        fn try_from(
-            value: ::std::string::String,
-        ) -> ::std::result::Result<Self, self::error::ConversionError> {
-            value.parse()
-        }
-    }
-    impl<'de> ::serde::Deserialize<'de> for VmsCreateVmXCmuxCreateDeadline {
-        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
-        where
-            D: ::serde::Deserializer<'de>,
-        {
-            ::std::string::String::deserialize(deserializer)?
-                .parse()
-                .map_err(|e: self::error::ConversionError| {
-                    <D::Error as ::serde::de::Error>::custom(e.to_string())
-                })
-        }
-    }
     ///`VmsCreateVmXCmuxCreatePriority`
     #[derive(
         ::serde::Deserialize,
@@ -16371,53 +16321,6 @@ pub mod types {
                 })
         }
     }
-    ///`VmsPauseVmXCmuxCreatePriority`
-    #[derive(
-        ::serde::Deserialize,
-        ::serde::Serialize,
-        Clone,
-        Copy,
-        Debug,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-    )]
-    pub enum VmsPauseVmXCmuxCreatePriority {
-        #[serde(rename = "background")]
-        Background,
-    }
-    impl ::std::fmt::Display for VmsPauseVmXCmuxCreatePriority {
-        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-            match *self {
-                Self::Background => f.write_str("background"),
-            }
-        }
-    }
-    impl ::std::str::FromStr for VmsPauseVmXCmuxCreatePriority {
-        type Err = self::error::ConversionError;
-        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-            match value {
-                "background" => Ok(Self::Background),
-                _ => Err("invalid value".into()),
-            }
-        }
-    }
-    impl ::std::convert::TryFrom<&str> for VmsPauseVmXCmuxCreatePriority {
-        type Error = self::error::ConversionError;
-        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-            value.parse()
-        }
-    }
-    impl ::std::convert::TryFrom<::std::string::String> for VmsPauseVmXCmuxCreatePriority {
-        type Error = self::error::ConversionError;
-        fn try_from(
-            value: ::std::string::String,
-        ) -> ::std::result::Result<Self, self::error::ConversionError> {
-            value.parse()
-        }
-    }
     ///a string at most 128 character(s) long
     #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     #[serde(transparent)]
@@ -16683,53 +16586,6 @@ pub mod types {
                 })
         }
     }
-    ///`VmsResumeVmXCmuxCreatePriority`
-    #[derive(
-        ::serde::Deserialize,
-        ::serde::Serialize,
-        Clone,
-        Copy,
-        Debug,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-    )]
-    pub enum VmsResumeVmXCmuxCreatePriority {
-        #[serde(rename = "background")]
-        Background,
-    }
-    impl ::std::fmt::Display for VmsResumeVmXCmuxCreatePriority {
-        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-            match *self {
-                Self::Background => f.write_str("background"),
-            }
-        }
-    }
-    impl ::std::str::FromStr for VmsResumeVmXCmuxCreatePriority {
-        type Err = self::error::ConversionError;
-        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-            match value {
-                "background" => Ok(Self::Background),
-                _ => Err("invalid value".into()),
-            }
-        }
-    }
-    impl ::std::convert::TryFrom<&str> for VmsResumeVmXCmuxCreatePriority {
-        type Error = self::error::ConversionError;
-        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-            value.parse()
-        }
-    }
-    impl ::std::convert::TryFrom<::std::string::String> for VmsResumeVmXCmuxCreatePriority {
-        type Error = self::error::ConversionError;
-        fn try_from(
-            value: ::std::string::String,
-        ) -> ::std::result::Result<Self, self::error::ConversionError> {
-            value.parse()
-        }
-    }
     ///a string at most 128 character(s) long
     #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     #[serde(transparent)]
@@ -16889,53 +16745,6 @@ pub mod types {
                 })
         }
     }
-    ///`VmsStartVmXCmuxCreatePriority`
-    #[derive(
-        ::serde::Deserialize,
-        ::serde::Serialize,
-        Clone,
-        Copy,
-        Debug,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-    )]
-    pub enum VmsStartVmXCmuxCreatePriority {
-        #[serde(rename = "background")]
-        Background,
-    }
-    impl ::std::fmt::Display for VmsStartVmXCmuxCreatePriority {
-        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-            match *self {
-                Self::Background => f.write_str("background"),
-            }
-        }
-    }
-    impl ::std::str::FromStr for VmsStartVmXCmuxCreatePriority {
-        type Err = self::error::ConversionError;
-        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-            match value {
-                "background" => Ok(Self::Background),
-                _ => Err("invalid value".into()),
-            }
-        }
-    }
-    impl ::std::convert::TryFrom<&str> for VmsStartVmXCmuxCreatePriority {
-        type Error = self::error::ConversionError;
-        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-            value.parse()
-        }
-    }
-    impl ::std::convert::TryFrom<::std::string::String> for VmsStartVmXCmuxCreatePriority {
-        type Error = self::error::ConversionError;
-        fn try_from(
-            value: ::std::string::String,
-        ) -> ::std::result::Result<Self, self::error::ConversionError> {
-            value.parse()
-        }
-    }
     ///a string at most 128 character(s) long
     #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     #[serde(transparent)]
@@ -16987,53 +16796,6 @@ pub mod types {
                 .map_err(|e: self::error::ConversionError| {
                     <D::Error as ::serde::de::Error>::custom(e.to_string())
                 })
-        }
-    }
-    ///`VmsStopVmXCmuxCreatePriority`
-    #[derive(
-        ::serde::Deserialize,
-        ::serde::Serialize,
-        Clone,
-        Copy,
-        Debug,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-    )]
-    pub enum VmsStopVmXCmuxCreatePriority {
-        #[serde(rename = "background")]
-        Background,
-    }
-    impl ::std::fmt::Display for VmsStopVmXCmuxCreatePriority {
-        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-            match *self {
-                Self::Background => f.write_str("background"),
-            }
-        }
-    }
-    impl ::std::str::FromStr for VmsStopVmXCmuxCreatePriority {
-        type Err = self::error::ConversionError;
-        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-            match value {
-                "background" => Ok(Self::Background),
-                _ => Err("invalid value".into()),
-            }
-        }
-    }
-    impl ::std::convert::TryFrom<&str> for VmsStopVmXCmuxCreatePriority {
-        type Error = self::error::ConversionError;
-        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-            value.parse()
-        }
-    }
-    impl ::std::convert::TryFrom<::std::string::String> for VmsStopVmXCmuxCreatePriority {
-        type Error = self::error::ConversionError;
-        fn try_from(
-            value: ::std::string::String,
-        ) -> ::std::result::Result<Self, self::error::ConversionError> {
-            value.parse()
         }
     }
     ///a string at most 128 character(s) long
@@ -20018,7 +19780,6 @@ impl Client {
 
     Arguments:
     - `idempotency_key`: a string at most 255 character(s) long
-    - `x_cmux_create_deadline`: a string at most 20 character(s) long
     - `x_cmux_create_priority`
     - `x_cmux_team_id`: a string at most 128 character(s) long
     - `body`
@@ -20026,22 +19787,18 @@ impl Client {
     pub async fn vms_create_vm<'a>(
         &'a self,
         idempotency_key: Option<&'a types::VmsCreateVmIdempotencyKey>,
-        x_cmux_create_deadline: Option<&'a types::VmsCreateVmXCmuxCreateDeadline>,
         x_cmux_create_priority: Option<types::VmsCreateVmXCmuxCreatePriority>,
         x_cmux_team_id: Option<&'a types::VmsCreateVmXCmuxTeamId>,
         body: &'a types::CreateVmRequest,
     ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
         let url = format!("{}/v1/vms", self.baseurl,);
-        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(5usize);
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(4usize);
         header_map.append(
             ::reqwest::header::HeaderName::from_static("api-version"),
             ::reqwest::header::HeaderValue::from_static(Self::api_version()),
         );
         if let Some(value) = idempotency_key {
             header_map.append("idempotency-key", value.to_string().try_into()?);
-        }
-        if let Some(value) = x_cmux_create_deadline {
-            header_map.append("x-cmux-create-deadline", value.to_string().try_into()?);
         }
         if let Some(value) = x_cmux_create_priority {
             header_map.append("x-cmux-create-priority", value.to_string().try_into()?);
@@ -20937,13 +20694,11 @@ impl Client {
 
     Arguments:
     - `vm_id`
-    - `x_cmux_create_priority`
     - `x_cmux_team_id`: a string at most 128 character(s) long
     */
     pub async fn vms_pause_vm<'a>(
         &'a self,
         vm_id: &'a str,
-        x_cmux_create_priority: Option<types::VmsPauseVmXCmuxCreatePriority>,
         x_cmux_team_id: Option<&'a types::VmsPauseVmXCmuxTeamId>,
     ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
         let url = format!(
@@ -20951,14 +20706,11 @@ impl Client {
             self.baseurl,
             encode_path(&vm_id.to_string()),
         );
-        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(3usize);
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
         header_map.append(
             ::reqwest::header::HeaderName::from_static("api-version"),
             ::reqwest::header::HeaderValue::from_static(Self::api_version()),
         );
-        if let Some(value) = x_cmux_create_priority {
-            header_map.append("x-cmux-create-priority", value.to_string().try_into()?);
-        }
         if let Some(value) = x_cmux_team_id {
             header_map.append("x-cmux-team-id", value.to_string().try_into()?);
         }
@@ -21197,13 +20949,11 @@ impl Client {
 
     Arguments:
     - `vm_id`
-    - `x_cmux_create_priority`
     - `x_cmux_team_id`: a string at most 128 character(s) long
     */
     pub async fn vms_resume_vm<'a>(
         &'a self,
         vm_id: &'a str,
-        x_cmux_create_priority: Option<types::VmsResumeVmXCmuxCreatePriority>,
         x_cmux_team_id: Option<&'a types::VmsResumeVmXCmuxTeamId>,
     ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
         let url = format!(
@@ -21211,14 +20961,11 @@ impl Client {
             self.baseurl,
             encode_path(&vm_id.to_string()),
         );
-        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(3usize);
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
         header_map.append(
             ::reqwest::header::HeaderName::from_static("api-version"),
             ::reqwest::header::HeaderValue::from_static(Self::api_version()),
         );
-        if let Some(value) = x_cmux_create_priority {
-            header_map.append("x-cmux-create-priority", value.to_string().try_into()?);
-        }
         if let Some(value) = x_cmux_team_id {
             header_map.append("x-cmux-team-id", value.to_string().try_into()?);
         }
@@ -21361,13 +21108,11 @@ impl Client {
 
     Arguments:
     - `vm_id`
-    - `x_cmux_create_priority`
     - `x_cmux_team_id`: a string at most 128 character(s) long
     */
     pub async fn vms_start_vm<'a>(
         &'a self,
         vm_id: &'a str,
-        x_cmux_create_priority: Option<types::VmsStartVmXCmuxCreatePriority>,
         x_cmux_team_id: Option<&'a types::VmsStartVmXCmuxTeamId>,
     ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
         let url = format!(
@@ -21375,14 +21120,11 @@ impl Client {
             self.baseurl,
             encode_path(&vm_id.to_string()),
         );
-        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(3usize);
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
         header_map.append(
             ::reqwest::header::HeaderName::from_static("api-version"),
             ::reqwest::header::HeaderValue::from_static(Self::api_version()),
         );
-        if let Some(value) = x_cmux_create_priority {
-            header_map.append("x-cmux-create-priority", value.to_string().try_into()?);
-        }
         if let Some(value) = x_cmux_team_id {
             header_map.append("x-cmux-team-id", value.to_string().try_into()?);
         }
@@ -21415,13 +21157,11 @@ impl Client {
 
     Arguments:
     - `vm_id`
-    - `x_cmux_create_priority`
     - `x_cmux_team_id`: a string at most 128 character(s) long
     */
     pub async fn vms_stop_vm<'a>(
         &'a self,
         vm_id: &'a str,
-        x_cmux_create_priority: Option<types::VmsStopVmXCmuxCreatePriority>,
         x_cmux_team_id: Option<&'a types::VmsStopVmXCmuxTeamId>,
     ) -> Result<ResponseValue<ByteStream>, Error<ByteStream>> {
         let url = format!(
@@ -21429,14 +21169,11 @@ impl Client {
             self.baseurl,
             encode_path(&vm_id.to_string()),
         );
-        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(3usize);
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
         header_map.append(
             ::reqwest::header::HeaderName::from_static("api-version"),
             ::reqwest::header::HeaderValue::from_static(Self::api_version()),
         );
-        if let Some(value) = x_cmux_create_priority {
-            header_map.append("x-cmux-create-priority", value.to_string().try_into()?);
-        }
         if let Some(value) = x_cmux_team_id {
             header_map.append("x-cmux-team-id", value.to_string().try_into()?);
         }

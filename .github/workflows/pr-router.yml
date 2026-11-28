@@ -119,7 +119,6 @@ jobs:
             docs/benches/relevance-map.toml
             scripts/bench/benchlib/__init__.py
             scripts/bench/benchlib/relevance.py
-            scripts/bench/benchlib/baselines.py
             scripts/ci/docs_only_paths.py
             scripts/ci/workflow_paths_cover_inputs.py
             scripts/ci/gh_expressions.py
@@ -544,14 +543,6 @@ jobs:
       actions: read
       contents: read
       checks: read
-
-  first-run-setup-check:
-    name: first run setup check
-    needs: route
-    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'first-run-setup-check.yml') }}
-    uses: ./.github/workflows/first-run-setup-check.yml
-    permissions:
-      contents: read
 
   classic-api-guard:
     name: classic API guard

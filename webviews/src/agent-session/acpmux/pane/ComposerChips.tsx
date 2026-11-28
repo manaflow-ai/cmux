@@ -4,7 +4,6 @@ import { newTabChipSnapshot } from "../newtab/chipDefaults";
 import { useHarnessesPage } from "../harnesses/harnessesPage";
 import { holdCloudModePick } from "../cloudModePick";
 import { holdCloudAgentPick, useCloudAgentPick } from "../cloudAgentPick";
-import { useCloudLastPick } from "../cloudLastPick";
 import { useDraftActionsVersion } from "../composerDraft";
 import { useHarnessesListed } from "../catalog";
 import { usePickerCatalog } from "../modelCatalogHost";
@@ -73,12 +72,7 @@ function PickerChips({
   const harnessesListed = useHarnessesListed();
   // Cloud picked: the agent picked for the machine (cloudAgentPick.ts) is the one the chips show and the
   // Cloud send names; this Mac starts no chat for it (cmux#51731).
-  // With none held on this page, Cloud's own last pick (cloudLastPick.ts), never This Mac's: the two are
-  // separate buckets (Austin, 2026-11-27: "We should store a state for the local models and a different
-  // state for the cloud+autocloud").
-  const heldCloudPick = useCloudAgentPick();
-  const rememberedCloudPick = useCloudLastPick();
-  const cloudPick = heldCloudPick ?? rememberedCloudPick;
+  const cloudPick = useCloudAgentPick();
   const onCloud = snapshot.startsOnCloud === true && !snapshot.summary?.sessionId;
   const shown: AcpmuxSnapshot =
     onCloud && cloudPick

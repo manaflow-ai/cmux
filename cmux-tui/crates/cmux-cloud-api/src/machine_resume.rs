@@ -7,7 +7,7 @@
 use serde_json::{Value, json};
 
 use super::chat::is_path_id;
-use super::previews::{answered, platform_client};
+use super::previews::{answered, client};
 use super::{Failure, Request};
 
 /// A resume asks the provider to start the machine; it answers well under this.
@@ -18,7 +18,7 @@ pub async fn resume_machine(request: &Request, machine: &str) -> Result<Value, F
     if !is_path_id(machine) {
         return Err(Failure::Transport("not a machine id".into()));
     }
-    let client = platform_client(request)?;
+    let client = client(request)?;
     let on =
         machine.parse().map_err(|_| Failure::Transport(format!("not a path id: {machine}")))?;
     let sent = async { client.machines_resume(&on).await.map(|r| json!(r.into_inner())) };

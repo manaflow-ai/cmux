@@ -2361,41 +2361,6 @@ pub fn codex_session_flag_hook_settings(
     Ok([flag.setting, format!("hooks.state={state}")])
 }
 
-/// The `-c` values that run several commands as Codex session-flag hooks, trusted: one
-/// `hooks.<Event>=[...]` per event, each command its own group in the order given (group `i`,
-/// handler 0), and one `hooks.state` holding every trust entry. Two hooks on one event (the
-/// repository gate and the dedupe, both PreToolUse) need this: a second `hooks.PreToolUse=`
-/// would replace the first.
-pub fn codex_session_flag_hooks_settings(
-    hooks: &[(&str, &str, u64)],
-) -> anyhow::Result<Vec<String>> {
-    let mut events: Vec<(&str, Vec<String>)> = Vec::new();
-    let mut state = toml_edit::InlineTable::new();
-    for &(event, command, timeout) in hooks {
-        let label = codex_event_state_label(event)?;
-        if !events.iter().any(|(e, _)| *e == event) {
-            events.push((event, Vec::new()));
-        }
-        let Some((_, group)) = events.iter_mut().find(|(e, _)| *e == event) else {
-            anyhow::bail!("Codex hook event {event} was not recorded");
-        };
-        let mut entry = toml_edit::InlineTable::new();
-        entry.insert("trusted_hash", codex_trust_hash(label, command, timeout).into());
-        let key = format!("/<session-flags>/config.toml:{label}:{}:0", group.len());
-        state.insert(&key, entry.into());
-        group.push(format!(
-            "{{hooks=[{{type=\"command\",command={},timeout={timeout}}}]}}",
-            toml_edit::Value::from(command),
-        ));
-    }
-    let mut out: Vec<String> = events
-        .into_iter()
-        .map(|(event, groups)| format!("hooks.{event}=[{}]", groups.join(",")))
-        .collect();
-    out.push(format!("hooks.state={state}"));
-    Ok(out)
-}
-
 /// Returns persisted trust hashes for the current cmux-owned hook identities.
 /// Invalid or inaccessible config is ignored: the wrapper can still launch,
 /// and Codex will show its normal review prompt for entries it cannot prove.

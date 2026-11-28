@@ -325,7 +325,7 @@ pub(super) fn close_surface_delta(
     let workspace = &state.workspaces[wi];
     let screen = &workspace.screens[si];
     if pane.tabs.len() > 1 {
-        let entity = crate::tree_wire::tree_entity_json(
+        let entity = crate::server::tree_entity_json(
             state,
             notifications,
             TreeDeltaKind::TabClosed,
@@ -358,12 +358,8 @@ pub(super) fn close_pane_delta(
     let mut panes = Vec::new();
     screen.root.pane_ids(&mut panes);
     if panes.len() > 1 {
-        let entity = crate::tree_wire::tree_entity_json(
-            state,
-            notifications,
-            TreeDeltaKind::PaneClosed,
-            pane,
-        )?;
+        let entity =
+            crate::server::tree_entity_json(state, notifications, TreeDeltaKind::PaneClosed, pane)?;
         return Some(TreeDelta {
             kind: TreeDeltaKind::PaneClosed,
             workspace: workspace.id,
@@ -389,12 +385,8 @@ pub(super) fn close_screen_delta(
         workspace.screens.iter().position(|candidate| candidate.id == screen).map(|si| (wi, si))
     })?;
     let workspace = &state.workspaces[wi];
-    let entity = crate::tree_wire::tree_entity_json(
-        state,
-        notifications,
-        TreeDeltaKind::ScreenClosed,
-        screen,
-    )?;
+    let entity =
+        crate::server::tree_entity_json(state, notifications, TreeDeltaKind::ScreenClosed, screen)?;
     Some(TreeDelta {
         kind: TreeDeltaKind::ScreenClosed,
         workspace: workspace.id,
@@ -415,7 +407,7 @@ pub(super) fn close_workspace_delta(
     workspace: WorkspaceId,
 ) -> Option<TreeDelta> {
     let index = state.workspace_index(workspace)?;
-    let entity = crate::tree_wire::tree_entity_json(
+    let entity = crate::server::tree_entity_json(
         state,
         notifications,
         TreeDeltaKind::WorkspaceClosed,

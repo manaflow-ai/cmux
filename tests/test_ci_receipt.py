@@ -860,7 +860,7 @@ class LaneAskDeadlineTest(unittest.TestCase):
     def test_lookup_waits_as_long_as_a_record(self):
         seen = []
         original = ci_receipt.deadline_http.request
-        ci_receipt.deadline_http.request = lambda request, deadline, **_: (seen.append(deadline), (200, b"{}", {}))[1]
+        ci_receipt.deadline_http.request = lambda request, deadline: (seen.append(deadline), (200, b"{}", {}))[1]
         try:
             ci_receipt.lane_ask({"tree": "t"}, "token", "https://example.invalid/lane-receipt")
         finally:
@@ -876,7 +876,7 @@ class LaneAskDeadlineTest(unittest.TestCase):
             slept.append(seconds)
             now[0] += seconds
         original = ci_receipt.deadline_http.request
-        ci_receipt.deadline_http.request = lambda request, deadline, **_: answers.pop(0)
+        ci_receipt.deadline_http.request = lambda request, deadline: answers.pop(0)
         try:
             return ci_receipt.lane_ask({"tree": "t"}, "token", "https://example.invalid/lane-receipt",
                                        clock=lambda: now[0], sleep=sleep), slept

@@ -32,13 +32,9 @@ SOURCE_NAME = "SOURCE"
 #   vendored-edits: manaflow-ai/cmux-cua#81 (merged as 3b6166ff1f16), the two
 #     edits cmux had made to this copy by hand: GlideMotion.follow (the agent
 #     mouse's traced path) and AgentCursorPalette's force unwrap removed.
-#   kite-cursor: cmux#63085's edits to GlideMotion (and its test), which it
-#     made in this copy by hand; cmux-cua is no longer built or shipped, so the
-#     change lives here as a patch instead of a cmux-cua PR and pin bump.
 PATCHES = [
     "scripts/cmux-agent-cursor-linux.patch",
     "scripts/cmux-agent-cursor-vendored-edits.patch",
-    "scripts/cmux-agent-cursor-kite-cursor.patch",
 ]
 
 

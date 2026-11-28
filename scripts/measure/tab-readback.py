@@ -113,14 +113,8 @@ def members(doc: dict, parent: str | None) -> list[str]:
 # ---------------------------------------------------------------- AX
 
 
-# The raw cua-driver replies behind the last empty read, so a red can say whether the driver erred or the
-# tree came back in a shape the walk does not know (cmuxs/cmux9s 11-28: empty only after the 28-tab burst).
-AX_EMPTY_RAW: list = []
-
-
 def ax_elements(pid: int) -> list:
     found: list = []
-    raw: list = []
 
     def visit(node, window_id):
         if isinstance(node, dict):
@@ -132,17 +126,11 @@ def ax_elements(pid: int) -> list:
             for value in node:
                 visit(value, window_id)
 
-    windows = lkr.cua("list_windows", {"pid": pid})
-    raw.append({"list_windows": str(windows)[:1500]})
-    for window in windows.get("windows") or []:
+    for window in lkr.cua("list_windows", {"pid": pid}).get("windows") or []:
         if isinstance(window, dict) and window.get("window_id") is not None:
             state = lkr.cua("get_window_state", {"pid": pid, "window_id": window["window_id"],
                                                  "include_screenshot": False, "max_depth": 80, "max_elements": 8000})
-            raw.append({"window_id": window["window_id"], "keys": sorted(state) if isinstance(state, dict) else
-                        type(state).__name__, "head": str(state)[:1500]})
             visit(state, window["window_id"])
-    if not found:
-        AX_EMPTY_RAW[:] = raw
     return found
 
 
@@ -297,12 +285,9 @@ def pin_part(sock: str, daemon: str, pid: int, out: Path, scale: float) -> dict:
             else:
                 lkr.cua("press_key", {"pid": pid, "key": "escape"})
     else:
-        sample = [{k: e.get(k) for k in ("role", "label", "title", "frame")} for e in ax_elements(pid)[:60]]
         steps.append({"step": "find Mango row", "error": "no AX element named Mango with a frame",
-                      "sample": sample, "raw_if_empty": [] if sample else list(AX_EMPTY_RAW)})
-        if not sample:
-            # Nothing to judge the app by: the driver read no tree, so this is the rig, not a red.
-            steps[-1]["rig"] = True
+                      "sample": [{k: e.get(k) for k in ("role", "label", "title", "frame")} for e in
+                                 ax_elements(pid)[:60]]})
     steps.append({"step": "unpin", "via": via, "reply": reply})
     mark(f"pin: unpinned via {via}")
     time.sleep(1.5)
@@ -358,6 +343,10 @@ def main() -> int:
             return 3
         scale = float(lkr.cua("get_screen_size", {}).get("scale_factor") or 2.0)
         receipt["scale"] = scale
+        try:
+            receipt["parts"].append(tabs_part(sock, pid, out, args.tabs))
+        except Exception as error:
+            receipt["parts"].append({"part": "tabs", "ok": False, "error": f"{type(error).__name__}: {error}"})
         cli = (app / hot.BIN / "cmux").resolve()
         daemon = lkr.wait_for(lambda: hot.find_socket(app, cli), 120, step=1)
         receipt["daemon_socket"] = daemon
@@ -367,23 +356,10 @@ def main() -> int:
             receipt["parts"].append(pin_part(sock, daemon, pid, out, scale))
         except Exception as error:
             receipt["parts"].append({"part": "pin", "ok": False, "error": f"{type(error).__name__}: {error}"})
-        # Tabs after pin: once 28 tabs are open the driver's tree read came back empty (11-28), and the
-        # pin step needs that tree to hover the Mango row.
-        try:
-            receipt["parts"].append(tabs_part(sock, pid, out, args.tabs))
-        except Exception as error:
-            receipt["parts"].append({"part": "tabs", "ok": False, "error": f"{type(error).__name__}: {error}"})
     receipt["ok"] = len(receipt["parts"]) == 2 and all(p.get("ok") for p in receipt["parts"])
-    rig = [p["part"] for p in receipt["parts"] if any(st.get("rig") for st in p.get("steps") or [])]
-    reds = [p["part"] for p in receipt["parts"] if not p.get("ok") and p["part"] not in rig]
     (out / "result.json").write_text(json.dumps(receipt, indent=2))
     lkr.say("TAB_READBACK " + json.dumps(receipt)[:8000])
-    if receipt["ok"]:
-        return 0
-    if rig and not reds:
-        lkr.say("TRB FAIL rig: cua-driver read no accessibility tree mid-run in " + ", ".join(rig))
-        return 3
-    return 1
+    return 0 if receipt["ok"] else 1
 
 
 if __name__ == "__main__":

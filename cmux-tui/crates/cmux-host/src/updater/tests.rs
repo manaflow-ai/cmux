@@ -528,7 +528,6 @@ fn the_first_bind_steps_again_after_any_stop_since_the_last_step() {
         pauses,
         last_look_ns,
         pause_from_ns: i128::from(crate::agent::PAUSE_FROM_NONE),
-        waking_after_ns: 30_000_000_000,
     };
     let (offset, boot) = (50 * second, 100 * second);
     // Never stepped in this process (or the bake's snapshot never did): step.
@@ -715,8 +714,8 @@ fn a_pause_the_watch_found_starts_the_connect_hold() {
     let gate = gate::Gate::new(&paths);
     let watch = watch_at_b0();
     let handled = AtomicU64::new(watch.pause_seq());
-    // An ordinary minute, the watch looking every second: no hold.
-    watch.looked(at(64).0, false);
+    // An ordinary minute, the watch looking every 10 s: no hold.
+    watch.looked(at(60).0, false);
     assert!(!role::hold_if_paused(&paths, &watch, &handled, at(65)));
     assert_eq!(gate.held_left(at(65).1).unwrap(), None);
     // Paused 40 minutes in its pool, then claimed: the watch found it.
@@ -725,7 +724,6 @@ fn a_pause_the_watch_found_starts_the_connect_hold() {
     assert!(role::hold_if_paused(&paths, &watch, &handled, resumed));
     assert_eq!(gate.held_left(resumed.1).unwrap(), Some(role::CONNECT_HOLD));
     // Handled: the next look, with the watch fresh, holds no more.
-    watch.looked(at(65 + 2404).0, false);
     assert!(!role::hold_if_paused(&paths, &watch, &handled, at(65 + 2405)));
 }
 
@@ -781,8 +779,8 @@ fn a_pause_the_watch_has_not_woken_from_yet_holds() {
     let paths = Paths::new(dir.path());
     let watch = watch_at_b0();
     let handled = AtomicU64::new(watch.pause_seq());
-    // 2 s since its last look: within a tick and its slack.
-    assert!(!role::hold_if_paused(&paths, &watch, &handled, at(2)));
+    // 25 s since its last look: within a tick and its slack.
+    assert!(!role::hold_if_paused(&paths, &watch, &handled, at(25)));
     // 3 minutes since: the machine was stopped.
     assert!(role::hold_if_paused(&paths, &watch, &handled, at(180)));
     assert!(gate::Gate::new(&paths).held_left(at(180).1).unwrap().is_some());

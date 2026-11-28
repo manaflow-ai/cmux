@@ -31,35 +31,25 @@
 file = "Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/DiagnosticReport.swift"
 const = "currentHumanReadableFormatVersion"
 name = "DiagnosticReport#currentHumanReadableFormatVersion"
-policy = "rebuild"
-why = "not stored: the version of the plain-language text a person reads in a diagnostic export; nothing reads it back"
+policy = "unreviewed"
 
 [[format]]
 file = "Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/DiagnosticReport.swift"
 const = "currentSchemaVersion"
 name = "DiagnosticReport#currentSchemaVersion"
-policy = "migrate"
-fixtures = "diagnostic-report"
-test = "diagnosticReportFixturesLoad"
-floor = 1
+policy = "unreviewed"
 
 [[format]]
 file = "Packages/iOS/CmuxConversation/Sources/CmuxConversationCore/ConversationHistoryDatabase.swift"
 const = "schemaVersion"
 name = "ConversationHistoryDatabase#schemaVersion"
-policy = "migrate"
-fixtures = "conversation-history-database"
-test = "conversationHistoryFixturesLoad"
-floor = 1
+policy = "unreviewed"
 
 [[format]]
 file = "Packages/iOS/CmuxMobilePairedMac/Sources/CmuxMobilePairedMac/MobilePairedMacStore.swift"
 const = "currentSchemaVersion"
 name = "MobilePairedMacStore#currentSchemaVersion"
-policy = "migrate"
-fixtures = "mobile-paired-mac-store"
-test = "pairedMacStoreFixturesLoad"
-floor = 1
+policy = "unreviewed"
 
 [[format]]
 file = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/IconPicker/IconPickerPrefsStore.swift"
@@ -167,9 +157,6 @@ key = "cmux.acpmux.detail"
 
 [[storage_key]]
 key = "cmux.acpmux.cloud.signedIn"
-
-[[storage_key]]
-key = "cmux.acpmux.cloudLastPick"
 
 [[storage_key]]
 key = "cmux.acpmux.composer-draft."

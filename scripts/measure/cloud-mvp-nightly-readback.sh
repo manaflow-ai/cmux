@@ -8,7 +8,7 @@
 # then drives the copy the way a person does (through the accessibility tree CuaDriver reports): a Claude chat on a
 # small folder with Auto, one with Cloud, submit-to-first-reply timed, the place control's labels read as they go,
 # and a running chat moved with Only in Cloud (its Moved to Cloud line and Undo).
-#   cmux-ci run --class light --display --target-worker HOST --pin-strict --sign-in agent \
+#   cmux-ci run --class exclusive --display --target-worker HOST --pin-strict --sign-in agent \
 #     --script scripts/measure/cloud-mvp-nightly-readback.sh --ref <sha> \
 #     [--arg=build=VERSION | --arg=dmg=URL] \
 #     --artifact .build/cloud-mvp-nightly-readback/report.tgz --timeout 2400

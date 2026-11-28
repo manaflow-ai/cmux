@@ -13,11 +13,6 @@ built nothing and is passed over.
 --wait seconds; nothing when the run's build for a target ended without one (the push is then carried by
 the next point, which is forward-only: the same inputs would have failed this push's own build too).
 
-POINT_AT_UPLOAD: a push that builds runs `wait` on its own run too (`self-x86_64`), so point-x86_64 starts when
-the binary is uploaded instead of when the build job ends: the workspace delta pack and save after the upload
-took 266-356 s on 4 builds 09:00-10:18Z on 2026-11-28 (jobs 140947298764, 140939170962, 140932761510,
-140929057634), and the channel's next point waited for them.
-
 Every lookup that fails prints nothing, and the push builds as before.
 """
 
@@ -146,13 +141,6 @@ def wait(api: Api, run_id: int, targets: list[str], prefix: str, wait_s: float,
                 if want <= again:
                     return run_id
                 log(f"run {run_id}'s {t} build ended ({mine[0].get('conclusion')}) with no artifact")
-                return None
-            # A lane build superseded while pending ends before its build job is listed (run 46131463895: the
-            # x86_64 lane's "select binary targets" cancelled after 6 min pending): nothing will come.
-            lane = [j for j in jobs if j.get("name", "").startswith(f"build-machine-channel {t.split('-')[0]} ")]
-            if not mine and lane and all(j.get("status") == "completed" for j in lane) and any(
-                    j.get("conclusion") not in ("success", "skipped") for j in lane):
-                log(f"run {run_id}'s {t} build lane ended ({', '.join(sorted({str(j.get('conclusion')) for j in lane}))}) with no build")
                 return None
         if now() >= deadline:
             log(f"run {run_id} has no {', '.join(sorted(want - have))} in {wait_s:.0f} s")

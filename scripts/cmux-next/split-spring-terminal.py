@@ -96,11 +96,6 @@ if "--suite=chat-snappy" in sys.argv:
 if "--suite=graceful-swap" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "measure", "graceful-swap-cron.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=graceful-swap"])
-# `--suite=infinite-tabs`: 500 browser tabs, 200 workspaces and 100 chats hibernated, over the empty app (scripts/measure/
-# infinite-tabs-cron.py; the perf cron's infinite-tabs part, goal infinite-tabs-flat).
-if "--suite=infinite-tabs" in sys.argv:
-    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "measure", "infinite-tabs-cron.py")
-    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=infinite-tabs"])
 # `--suite=renderer-rest`: each Chromium renderer's footprint, pages and V8 heap every 5 s while the empty app rests,
 # then after a GC and a memory-pressure purge (scripts/cmux-next/renderer-rest.py, CMUX-571 ram-baseline).
 if "--suite=renderer-rest" in sys.argv:

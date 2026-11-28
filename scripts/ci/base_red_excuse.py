@@ -504,24 +504,8 @@ def settled_answer(route: str):
         return kept if completed_state(kept) == state else NOT_KEPT
     if (found := SETTLED_RUN_JOBS.fullmatch(route)) is not None:
         state = completed_state(run_now(found["repo"], int(found["run"])))
-        if state is None:
-            return NOT_KEPT
-        kept = settled_get(route, state)
-        if kept is NOT_KEPT and state[0] == 1:
-            kept = settled_get(sibling_jobs_route(route), state)
-        return kept
+        return settled_get(route, state) if state is not None else NOT_KEPT
     return NOT_KEPT
-
-
-# One attempt, one list (2026-11-28, forge-land-no-github-read): a completed run of one attempt has the same jobs
-# under filter=all (last_real_jobs) and filter=latest (base_run_jobs), yet each was kept under its own route, so a
-# judgement that read a base run both ways spent two job-list reads on one answer. Each now serves the other's kept
-# list for that attempt only: a run re-run since names attempt 2, and is read live as before. Detector:
-# tests/test_base_red_excuse.py SettledEvidence.test_a_one_attempt_run_serves_both_filters_from_one_kept_list.
-def sibling_jobs_route(route: str) -> str:
-    """ROUTE (a run's jobs list) under the other filter: filter=all for filter=latest, and the reverse."""
-    return (route.replace("filter=all&", "filter=latest&", 1) if "filter=all&" in route
-            else route.replace("filter=latest&", "filter=all&", 1))
 
 
 def settle(route: str, found) -> None:
@@ -2177,26 +2161,6 @@ def workflow_step_names(repo: str, job: dict, path, github, seen: dict, *, _dept
         unread += rendered
     else:
         named = rendered
-    # A job of a local called workflow ('rust-workspaces / plan (changed Cargo workspaces)', cmux-next-post-merge.yml's
-    # `uses: ./.github/workflows/rust-workspaces.yml`) is that workflow's job named by the rest: read there at the same
-    # sha. Unread, every base verdict of a job the post-merge batch calls was STEP_NAMES_UNKNOWN and its log unplaced,
-    # so cmux#63770's 'plan (changed Cargo workspaces)', red on the very same `##[error]` line as feat-cmux-next run
-    # 46106894410, was refused (cmux#64116; hq#35638 too). Only when that caller is the one job JOB can be, with no
-    # matrix (_check_matcher refuses one) and no other job whose steps could fit.
-    if (len(named) == 1 and isinstance(called := named[0].get("uses"), str) and not unread
-            and (local := re.fullmatch(r"\./(\.github/workflows/[\w.-]+\.ya?ml)", called))
-            and local[1] != path and seen.get(("called-depth", sha), 0) < 4):
-        caller = next((job_id for job_id, spec in jobs.items() if spec is named[0]), None)
-        prefixes = _check_matcher(str(caller), named[0], path)["prefixes"] if caller is not None else []
-        inner = next((str(job.get("name", ""))[len(start):] for start in prefixes
-                      if str(job.get("name", "")).startswith(start)), "")
-        if len(prefixes) != 1 or not inner:
-            return STEP_NAMES_UNKNOWN
-        seen[("called-depth", sha)] = seen.get(("called-depth", sha), 0) + 1
-        try:
-            return workflow_step_names(repo, dict(job, name=inner), local[1], github, seen)
-        finally:
-            seen[("called-depth", sha)] -= 1
     # A matrix leg is read like any job: its steps are the workflow's, in order, whatever the matrix values, and a
     # step name or script line that holds an expression is matched only up to it (_step_marks, _step_headers).
     # cmux#43014's 'Reviewer path (appstore, ipad)' (ios-review-gate.yml, matrix family) was refused because its
@@ -2749,76 +2713,6 @@ def step_only_verdict(name: str, why: str, head: UnplacedSignature, found: Unpla
                       f"{where}'s ({step_keys_text(found.steps)})")
     return (f"excused '{name}': {STEP_ONLY_WHY}: the same failed steps ({step_keys_text(head.steps)[:300]}), as "
             f"often each, as {where}, which names no failing test or error line either")
-
-
-# A placed head that names no failing test beside a red base verdict whose log is unplaced (BASE_UNPLACED_WHY): its error
-# lines were never compared with the whole base log, since a passing base step can print one (#40542's fourth Codex
-# BLOCK, F2). A runner `##[error]` annotation that a `Process completed with exit code N` line follows before the next
-# step's `##[group]Run` header is a failing step's own: a passing step prints no exit line. When every error line on
-# both sides is such an annotation, they are the same ones as often each, the failed steps are the same, and neither
-# side names a test, crash or unnamed failure, the head's red is the base's. Anything else still refuses. cmux#64116:
-# cmux#63770's 'plan (changed Cargo workspaces)' and hq#35638 were refused on this while their one `##[error]` line
-# (scripts/bench/phone-speed is a Cargo workspace with no entry in .github/rust-workspaces.toml) was the base's.
-STEP_HEADER = re.compile(r"^##\[group\]Run ")
-
-
-def failing_annotations(log: str) -> tuple[Counter, Counter]:
-    """(the `##[error]` annotations of LOG a runner exit line closes before the next step header, the ones it does
-    not), each normalise_error'd as unplaced_signature counts errors and counted; the generic exit lines left out."""
-    lines = test_reds.lines_of(log)
-    closed: Counter = Counter()
-    open_: Counter = Counter()
-    # One pass from the end: `exits` is whether an exit line follows before the next step header (linear in LOG).
-    exits = False
-    for line in reversed(lines):
-        if STEP_HEADER.match(line):
-            exits = False
-            continue
-        if EXIT_LINE.match(line):
-            exits = True
-            continue
-        if line.startswith("##[error]") and not GENERIC.search(line):
-            (closed if exits else open_)[normalise_error(line)] += 1
-    return closed, open_
-
-
-def annotation_verdict(name: str, base: str, placed: tuple, head: UnplacedSignature, found: UnplacedSignature,
-                       head_log: str, base_log: str, base_run: dict) -> str:
-    """The audit line for placed red NAME (PLACED: its signature) that names no failing test, beside a red base verdict
-    (BASE_RUN) whose log is not placed, when every error line of both whole logs (HEAD, FOUND: unplaced_signature) is
-    a failing step's own annotation (failing_annotations) and they are the same, as often each; else Refused."""
-    where = f"{base} run {base_run.get('id')}"
-    refused = (f"'{name}': {BASE_UNPLACED_WHY}, and this head's failed steps name no failing test, so its error lines "
-               "are compared with the whole base log only as failing steps' own `##[error]` annotations")
-    if head.tests or head.unnamed or head.crashes or found.tests or found.unnamed or found.crashes:
-        raise Refused(f"{refused}; a failing test, crash or unnamed failure is named on one side")
-    if not head.steps or head.steps != found.steps:
-        raise Refused(f"{refused}; its failed steps ({step_keys_text(head.steps)}) are not {where}'s "
-                      f"({step_keys_text(found.steps)})")
-    mine, mine_open = failing_annotations(head_log)
-    theirs, theirs_open = failing_annotations(base_log)
-    if not head.errors or set(head.errors) != set(placed[2]):
-        raise Refused(f"{refused}; its whole log's error lines are not its failed steps' own")
-    for side, errors, closed, unclosed in (("its", head.errors, mine, mine_open),
-                                           (f"{where}'s", found.errors, theirs, theirs_open)):
-        if errors != closed or unclosed:
-            raise Refused(f"{refused}; {side} error lines are not all annotations a failing step's exit line closes")
-    if head.errors != found.errors:
-        more = sorted((head.errors - found.errors).elements())
-        raise Refused(f"{refused}; its annotations are not {where}'s"
-                      + (f": more on this head: {'; '.join(more)[:500]}" if more else ""))
-    return (f"excused '{name}': its base verdict's log does not map onto its steps, so its failing steps' own "
-            f"`##[error]` annotations were compared with that whole log: the same failed steps "
-            f"({step_keys_text(head.steps)[:200]}) and annotations, as often each, as {where}: "
-            f"{'; '.join(sorted(head.errors))[:400]}")
-
-
-def annotation_evidence(name: str, base: str, placed: tuple, head: UnplacedSignature, found: UnplacedSignature,
-                        github, repo: str, job, vrepo: str, base_job, base_run: dict) -> str:
-    """The fetcher for annotation_verdict: both whole logs, from GITHUB (the head's JOB in REPO, the base's BASE_JOB in
-    VREPO), handed to it alone."""
-    return annotation_verdict(name, base, placed, head, found, github.log(repo, job), github.log(vrepo, base_job),
-                              base_run)
 
 
 def unplaced_verdict(repo: str, name: str, base: str, head: UnplacedSignature, found: UnplacedSignature,
@@ -6643,8 +6537,6 @@ PACKAGE_JOBS = {
                   "cmux-tui/crates/cmux-proxy/", "cmux-tui/crates/cmux-transport-rewrite/",
                   # cmux-next-ios/rust names cmux-json (its Cargo.toml path dependency)
                   "cmux-tui/crates/cmux-json/",
-                  # cmux-mobile-host depends on cmux-api-compat, the typed floating pane schema (#63394)
-                  "cmux-tui/crates/cmux-api-compat/",
                   # files those crates include_str! and paths the kit's Swift names as literals (same date)
                   "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/van-gogh-starry-night.avif",
                   "cmux-tui/crates/acpmux/src/share_approval_vectors.json", "design/icons/source/agent-composer.json",
@@ -8040,9 +7932,6 @@ def risk_evidence_quota(view: "FailedView | Unplaced", workflow_info: dict | Non
         r"Policy: docs/ci/risk-tiers\.md|"
         r"(?:::|##\[)warning(?:::|\])the glaeda-route App's read failed; grading on GITHUB_TOKEN|"
         r"(?:::|##\[)warning(?:::|\])risk evidence: ungraded, GitHub rate limit \(not a verdict on this pull request\)|"
-        # risk-tier.yml's own line when the reset is past RATE_LIMIT_WAIT_S (#64468 run 46145858015).
-        r"(?:::|##\[)warning(?:::|\])risk evidence: ungraded, the soonest budget reset \(\d{2}:\d{2}:\d{2}Z\) "
-        r"is past the \d+s wait; rerun after it|"
         r"gh api .* exited [1-9]\d* \(GitHub API quota: structured refusal; endpoint [^,]+, HTTP (?:403|429)\)|"
         r"gh api .*: GitHub rate limit; waiting \d+s for the budget|"
         r"##\[error\]Process completed with exit code 1\.?|Cleaning up orphan processes"
@@ -10977,12 +10866,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 # are the placed head's own failed steps' (HEAD), never a passing step's line in its whole log (review
                 # F1 on #46811 at 5d7cb257).
                 if not head[1]:
-                    # Unless every error line is a failing step's own annotation on both sides (failing_annotations),
-                    # the same ones as often each, which a passing step cannot print (cmux#64116).
-                    audit.append(annotation_evidence(name, base, head, mine, theirs, github, repo, job, vrepo,
-                                                     base_job, base_run)
-                                 + (f"; {aside}" if aside is not None else ""))
-                    continue
+                    raise Refused(f"'{name}': {BASE_UNPLACED_WHY}, and this head's failed steps name no failing test, "
+                                  "so its error lines are not compared with a whole base log")
                 audit.append(unplaced_verdict(vrepo, name, base, mine, theirs, base_run, why=BASE_UNPLACED_WHY)
                              + (f"; {aside}" if aside is not None else ""))
                 continue

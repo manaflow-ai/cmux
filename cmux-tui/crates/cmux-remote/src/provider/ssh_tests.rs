@@ -49,18 +49,8 @@ fn fake_ssh(directory: &std::path::Path, stderr: &str) -> (String, std::path::Pa
 
 #[cfg(unix)]
 async fn group_with(ssh_binary: String, extra_args: &[&str]) -> Arc<dyn LinkGroup> {
-    group_capturing(ssh_binary, extra_args, false).await
-}
-
-#[cfg(unix)]
-async fn group_capturing(
-    ssh_binary: String,
-    extra_args: &[&str],
-    capture_stderr: bool,
-) -> Arc<dyn LinkGroup> {
     let provider = SshProvider::new(SshProviderConfig {
         ssh_binary,
-        capture_stderr,
         extra_args: extra_args.iter().map(|argument| (*argument).to_owned()).collect(),
         ..SshProviderConfig::default()
     })
@@ -180,62 +170,4 @@ fn a_callers_shorter_connect_timeout_stays() {
     assert_eq!(caller_connect_timeout(&["-o".into(), "connecttimeout=7".into()]), Some(7));
     assert_eq!(caller_connect_timeout(&["-oBatchMode=yes".into()]), None);
     assert_eq!(caller_connect_timeout(&["--".into(), "-oConnectTimeout=2".into()]), None);
-}
-
-/// A fake `ssh` that says nothing and exits `code`.
-#[cfg(unix)]
-fn quiet_ssh(directory: &std::path::Path, code: u8) -> String {
-    use std::os::unix::fs::PermissionsExt as _;
-    let script = directory.join(format!("ssh-{code}"));
-    std::fs::write(&script, format!("#!/bin/sh\nexit {code}\n")).unwrap();
-    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-    script.to_str().unwrap().to_owned()
-}
-
-#[cfg(unix)]
-async fn first_receive(ssh: String, capture: bool) -> Result<Option<Bytes>, LinkError> {
-    let group = group_capturing(ssh, &[], capture).await;
-    let link = group
-        .open(LinkRequest { lane: cmux_remote_protocol::Lane::Interactive, generation: 0 })
-        .await
-        .unwrap();
-    let received = link.receive().await;
-    link.close().await.unwrap();
-    received
-}
-
-/// The Nightly's `ssh_link_closed`: a quiet ssh run that failed said
-/// nothing of why. Its exit now names it (255: ssh itself; else the
-/// remote command), and a clean exit 0 stays a plain end.
-#[cfg(unix)]
-#[tokio::test]
-async fn a_quiet_ssh_run_that_failed_names_its_exit() {
-    let directory = tempfile::tempdir().unwrap();
-    for (code, capture) in [(255_u8, true), (1, true), (255, false)] {
-        match first_receive(quiet_ssh(directory.path(), code), capture).await {
-            Err(LinkError::Transport(detail)) => {
-                assert_eq!(detail, format!("the ssh link ended (ssh exit {code})"));
-            }
-            other => panic!("exit {code}: {other:?}"),
-        }
-    }
-    assert!(matches!(first_receive(quiet_ssh(directory.path(), 0), true).await, Ok(None)));
-}
-
-/// ssh's stderr keeps its quoted field, now after the run's exit.
-#[cfg(unix)]
-#[tokio::test]
-async fn a_said_ssh_failure_carries_its_exit_before_its_stderr() {
-    let directory = tempfile::tempdir().unwrap();
-    let (ssh, _) = fake_ssh(directory.path(), "kex_exchange_identification: read: reset");
-    match first_receive(ssh, true).await {
-        Err(LinkError::Transport(detail)) => {
-            assert_eq!(
-                detail,
-                "the ssh link ended (ssh exit 255); ssh stderr: \"kex_exchange_identification: read: reset\""
-            );
-            assert_eq!(ssh_stderr_of(&detail), Some("kex_exchange_identification: read: reset"));
-        }
-        other => panic!("{other:?}"),
-    }
 }

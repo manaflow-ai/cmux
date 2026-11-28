@@ -1,9 +1,40 @@
 public import Foundation
 
-/// `ListTerminalCommandsResponse` is generated from the schema (swift_app/bindings.json, History family).
-extension ListTerminalCommandsResponse {
+/// The daemon's `list-terminal-commands` reply. The request is generated from
+/// `cmux-tui/spec/sdk-schema.json`.
+public struct ListTerminalCommandsResponse: Decodable, Sendable, Equatable {
+    public var commands: [TerminalCommandRow]
+    public var truncated: Bool
+    public var deletions: String
+    public var registryID: String
+    public var retentionDays: Int
+
     /// Changes whenever appending after the last id would be wrong.
     public var version: String { "\(registryID)/\(deletions)" }
+
+    public init(
+        commands: [TerminalCommandRow],
+        truncated: Bool,
+        deletions: String,
+        registryID: String,
+        retentionDays: Int
+    ) {
+        self.commands = commands
+        self.truncated = truncated
+        self.deletions = deletions
+        self.registryID = registryID
+        self.retentionDays = retentionDays
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case commands, truncated, deletions
+        case registryID = "registry_id"
+        case retentionDays = "retention_days"
+    }
+}
+
+extension ListTerminalCommandsRequest {
+    public typealias Response = ListTerminalCommandsResponse
 }
 
 /// `delete-terminal-commands`: exactly one of `ids`, `started_since_ms` or

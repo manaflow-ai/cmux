@@ -66,10 +66,10 @@ import Testing
         #expect(Metrics.paneSeparation == separation, "a radius alone keeps the window style's separation")
     }
 
-    /// The close button's hover is Helium's at any corner radius (Lawrence 2026-11-28: "size and icon size etc must
-    /// perfectly match helium"): its 4 pt rounded square, centered on the x and inside the pill.
+    /// Fills inside a pill (the close button's hover) are concentric with the pill: its radius less
+    /// the fill's inset from the pill's edge.
     @Test(arguments: [(10.0, 2.0), (14.0, 2.0), (6.0, 2.0)])
-    func theCloseButtonKeepsHeliumsHoverAtAnyRadius(radius: Double, padding: Double) throws {
+    func theCloseButtonIsConcentricWithItsTab(radius: Double, padding: Double) throws {
         defer { reset() }
         load(radius: radius, padding: padding, style: .floating)
         let scene = TabConcentricCornerTests.scene()
@@ -77,10 +77,12 @@ import Testing
         let cell = try #require(scene.strip.cells[TabID("tab0")])
         cell.isHovered = true // lays the cell out (`stateChanged`)
         let close = try #require(cell.closeBackgroundLayer, "the selected, hovered tab shows its x")
-        let glyph = try #require(cell.closeGlyphLayer)
         let pill = cell.backgroundLayer.frame
-        #expect(close.cornerRadius == 4, "the x's fill is rounded \(close.cornerRadius) pt in a \(cell.backgroundLayer.cornerRadius) pt tab")
-        #expect(abs(close.frame.midX - glyph.frame.midX) <= 0.5 && abs(close.frame.midY - glyph.frame.midY) <= 0.5)
-        #expect(pill.insetBy(dx: -0.5, dy: -0.5).contains(close.frame), "the fill \(close.frame) stays inside the pill \(pill)")
+        let inset = min(close.frame.minY - pill.minY, pill.maxY - close.frame.maxY)
+        // Lawrence msg 48706: the x's plate is concentric with the tab, as Helium's Spacious plate is in its tab.
+        let trailing = pill.maxX - close.frame.maxX
+        #expect(abs(trailing - inset) <= 0.5, "the plate is \(trailing) pt from the tab's end, \(inset) pt from its top")
+        let expected = max(0, min(cell.backgroundLayer.cornerRadius, pill.height / 2) - inset)
+        #expect(abs(close.cornerRadius - expected) <= 0.01, "the x's fill is \(close.cornerRadius) pt \(inset) pt inside a \(cell.backgroundLayer.cornerRadius) pt tab")
     }
 }

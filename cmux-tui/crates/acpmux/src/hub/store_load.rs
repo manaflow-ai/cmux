@@ -5,17 +5,11 @@ use super::*;
 pub(super) struct StoreLoad {
     pub ready: tokio::sync::watch::Sender<bool>,
     pub total: std::sync::atomic::AtomicUsize,
-    /// Startup host evidence, shared with residency reads after loading completes.
-    pub residency_hosts: StdMutex<residency::HostSnapshot>,
 }
 
 impl StoreLoad {
     pub fn new(loading: bool) -> Self {
-        Self {
-            ready: tokio::sync::watch::channel(!loading).0,
-            total: Default::default(),
-            residency_hosts: Default::default(),
-        }
+        Self { ready: tokio::sync::watch::channel(!loading).0, total: Default::default() }
     }
 }
 
@@ -45,12 +39,6 @@ impl Hub {
         // push waits for adoption then too (`full_access_turned_off`).
         let unknown = read.is_none();
         let hosted = read.unwrap_or_default();
-        // Rows reuse startup's host evidence before adoption attaches their child links.
-        self.store_load
-            .residency_hosts
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .seed(hosted.clone());
         let waiting =
             metas.iter().filter(|m| m.status == SessionStatus::Waiting).map(|m| m.id.clone());
         if deferred && (!hosted.is_empty() || unknown) {

@@ -25,7 +25,7 @@ public import Observation
 @MainActor @Observable
 public final class CloudEnvironmentsSettings {
     /// What `cmux.settings.environments.state` answers.
-    public nonisolated struct State: Encodable, Equatable, Sendable {
+    public struct State: Encodable, Equatable, Sendable {
         /// False on the classic Cloud path or while signed out: the card explains instead.
         public var available = false
         /// The Cloud app server does not serve environments in this version.
@@ -37,7 +37,7 @@ public final class CloudEnvironmentsSettings {
     }
 
     /// A run's answer: nil error on success and on a declined confirmation.
-    public nonisolated struct Result: Encodable, Equatable, Sendable {
+    public struct Result: Encodable, Equatable, Sendable {
         public var error: String?
     }
 

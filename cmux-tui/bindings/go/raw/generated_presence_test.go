@@ -5835,13 +5835,13 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 			t.Fatal("non-nullable field floating accepted null")
 		}
 		var presentValue Screen
-		if err := json.Unmarshal([]byte("{\"active\":true,\"active_pane\":1,\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"name\":null,\"panes\":[],\"zoomed_pane\":null,\"floating\":[]}"), &presentValue); err != nil {
+		if err := json.Unmarshal([]byte("{\"active\":true,\"active_pane\":1,\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"name\":null,\"panes\":[],\"zoomed_pane\":null,\"floating\":{\"value\":true}}"), &presentValue); err != nil {
 			t.Fatal(err)
 		}
 		if presentValue.Floating == nil {
 			t.Fatal("Floating lost its value")
 		}
-		assertGeneratedFieldJSON(t, presentValue, "floating", true, "[]")
+		assertGeneratedFieldJSON(t, presentValue, "floating", true, "{\"value\":true}")
 	})
 	t.Run("Screen.Group", func(t *testing.T) {
 		var missing Screen
@@ -49846,36 +49846,6 @@ func TestGeneratedRequiredFieldsRejectOmission(t *testing.T) {
 			t.Fatal("missing required field surfaces decoded successfully")
 		}
 	})
-	t.Run("FloatingPane.H", func(t *testing.T) {
-		var decoded FloatingPane
-		if err := json.Unmarshal([]byte("{\"pane\":1,\"w\":1.5,\"x\":1.5,\"y\":1.5}"), &decoded); err == nil {
-			t.Fatal("missing required field h decoded successfully")
-		}
-	})
-	t.Run("FloatingPane.Pane", func(t *testing.T) {
-		var decoded FloatingPane
-		if err := json.Unmarshal([]byte("{\"h\":1.5,\"w\":1.5,\"x\":1.5,\"y\":1.5}"), &decoded); err == nil {
-			t.Fatal("missing required field pane decoded successfully")
-		}
-	})
-	t.Run("FloatingPane.W", func(t *testing.T) {
-		var decoded FloatingPane
-		if err := json.Unmarshal([]byte("{\"h\":1.5,\"pane\":1,\"x\":1.5,\"y\":1.5}"), &decoded); err == nil {
-			t.Fatal("missing required field w decoded successfully")
-		}
-	})
-	t.Run("FloatingPane.X", func(t *testing.T) {
-		var decoded FloatingPane
-		if err := json.Unmarshal([]byte("{\"h\":1.5,\"pane\":1,\"w\":1.5,\"y\":1.5}"), &decoded); err == nil {
-			t.Fatal("missing required field x decoded successfully")
-		}
-	})
-	t.Run("FloatingPane.Y", func(t *testing.T) {
-		var decoded FloatingPane
-		if err := json.Unmarshal([]byte("{\"h\":1.5,\"pane\":1,\"w\":1.5,\"x\":1.5}"), &decoded); err == nil {
-			t.Fatal("missing required field y decoded successfully")
-		}
-	})
 	t.Run("FocusDirectionResult.Pane", func(t *testing.T) {
 		var decoded FocusDirectionResult
 		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
@@ -59741,36 +59711,6 @@ func TestGeneratedRequiredNonnullableFieldsRejectNull(t *testing.T) {
 		var decoded ExportedPane
 		if err := json.Unmarshal([]byte("{\"pane\":1,\"surfaces\":null}"), &decoded); err == nil {
 			t.Fatal("required non-nullable field surfaces accepted null")
-		}
-	})
-	t.Run("FloatingPane.H", func(t *testing.T) {
-		var decoded FloatingPane
-		if err := json.Unmarshal([]byte("{\"h\":null,\"pane\":1,\"w\":1.5,\"x\":1.5,\"y\":1.5}"), &decoded); err == nil {
-			t.Fatal("required non-nullable field h accepted null")
-		}
-	})
-	t.Run("FloatingPane.Pane", func(t *testing.T) {
-		var decoded FloatingPane
-		if err := json.Unmarshal([]byte("{\"h\":1.5,\"pane\":null,\"w\":1.5,\"x\":1.5,\"y\":1.5}"), &decoded); err == nil {
-			t.Fatal("required non-nullable field pane accepted null")
-		}
-	})
-	t.Run("FloatingPane.W", func(t *testing.T) {
-		var decoded FloatingPane
-		if err := json.Unmarshal([]byte("{\"h\":1.5,\"pane\":1,\"w\":null,\"x\":1.5,\"y\":1.5}"), &decoded); err == nil {
-			t.Fatal("required non-nullable field w accepted null")
-		}
-	})
-	t.Run("FloatingPane.X", func(t *testing.T) {
-		var decoded FloatingPane
-		if err := json.Unmarshal([]byte("{\"h\":1.5,\"pane\":1,\"w\":1.5,\"x\":null,\"y\":1.5}"), &decoded); err == nil {
-			t.Fatal("required non-nullable field x accepted null")
-		}
-	})
-	t.Run("FloatingPane.Y", func(t *testing.T) {
-		var decoded FloatingPane
-		if err := json.Unmarshal([]byte("{\"h\":1.5,\"pane\":1,\"w\":1.5,\"x\":1.5,\"y\":null}"), &decoded); err == nil {
-			t.Fatal("required non-nullable field y accepted null")
 		}
 	})
 	t.Run("FocusDirectionResult.Pane", func(t *testing.T) {
@@ -70086,8 +70026,8 @@ const (
 	generatedOptionalNullableFieldCount    = 1365
 	generatedRequiredNullableFieldCount    = 178
 	generatedOptionalNonnullableFieldCount = 429
-	generatedRequiredFieldCount            = 1667
-	generatedRequiredNonnullableFieldCount = 1489
+	generatedRequiredFieldCount            = 1662
+	generatedRequiredNonnullableFieldCount = 1484
 	generatedConstrainedFieldCount         = 139
 	generatedEncodedConstrainedFieldCount  = 139
 )

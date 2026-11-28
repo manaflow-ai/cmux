@@ -143,7 +143,6 @@ impl ResourceOperation {
                 | Self::CloudOwnerGithubList
                 | Self::CloudMachineChatAccess
                 | Self::CloudOwnerTurns
-                | Self::CloudArtifactsRead
                 | Self::RoomList
                 | Self::SavedTabGroupList
                 | Self::ScreenGroupGet

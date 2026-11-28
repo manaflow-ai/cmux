@@ -88,9 +88,6 @@ EDITS = {
                  "<SearchField query={query} onQuery={setQuery} onSubmit={submit} />",
                  "<SearchField query={query} onQuery={setQuery} onSubmit={submit} /><span>GSW</span>"),
 }
-# Where each edit's marker draws (its "GSW" span), read in the chat pages' DOM when warm run 0 drew nothing: the
-# marker absent means the save never re-rendered the component; present means it drew out of the watched region.
-MARKERS = {"composer": ".acpmux-composer-foot"}
 DRAFTS = {"a": "half-typed in the focused chat, caret at the end",
           "b": "a draft for the unfocused chat, kept across the swap: line one\nand a second line",
           "c": "a draft in the hidden tab, behind chat-b"}
@@ -643,38 +640,11 @@ class Scenario:
             cause = "the pages are on the dev server but the save reached none of them (no in-page hot-swap timing row)"
         else:
             cause = f"the pages took the hot update ({rows} in-page timing rows) but drew nothing in the watched region"
-        marker = self.marker_dom(kind)
-        if rows > 0 and marker:
-            shown = [k for k, m in marker.items() if m.get("marker")]
-            if not any(m.get("count") for m in marker.values()):
-                cause += f": no chat page has a {MARKERS[kind]} element, so the edit's component is not on the page"
-            elif not shown:
-                cause += (f": no chat's {MARKERS[kind]} holds the edit's GSW marker, so the module ran but the component "
-                          "did not re-render (React Refresh kept the old one)")
-            else:
-                cause += (f": {MARKERS[kind]} holds the GSW marker in chat-{','.join(shown)}, so it re-rendered and drew "
-                          "out of the watched rect, or under something that covers it")
-        self.results["latency"][f"{kind}-cause"] = {"cause": cause, "pages": pages, "status": status, "marker": marker,
+        self.results["latency"][f"{kind}-cause"] = {"cause": cause, "pages": pages, "status": status,
                                                     "timing_rows": rows, "dev_server_log_tail": self.dev_log_tail()}
-        log(f"GSW-FLEET {kind}: warm run 0 showed no change: {cause}\n  pages: {pages}\n  marker: {marker}\n"
-            f"  status: {status}\n  dev-server.log tail:\n{self.dev_log_tail()}")
+        log(f"GSW-FLEET {kind}: warm run 0 showed no change: {cause}\n  pages: {pages}\n  status: {status}\n"
+            f"  dev-server.log tail:\n{self.dev_log_tail()}")
         return cause
-
-    def marker_dom(self, kind) -> dict:
-        """{chat key: {count, marker, text}}: the edit's element in each chat page (MARKERS) and whether its drawn text
-        holds the save's GSW span, read while warm run 0's edit is still on. Empty for an edit with no MARKERS entry."""
-        selector = MARKERS.get(kind)
-        out = {}
-        for k in ("a", "b") if selector else ():
-            if k not in self.chats:
-                continue
-            got = self.rpc("debug.agent_pane", {"action": "query", "pane": self.chats[k]["pane"], "selector": selector},
-                           30) or {}
-            elements = [e for e in got.get("elements") or [] if isinstance(e, dict)]
-            texts = [str(e.get("text") or "") for e in elements]
-            out[k] = {"count": len(elements), "marker": any("GSW" in t for t in texts), "text": texts[:2],
-                      **({"error": got["error"]} if "error" in got else {})}
-        return out
 
     def summary(self, series, surface, watch, others, runs, sample="first_change_ms"):
         rows = [r.get("regions", {}) for r in runs]
@@ -776,13 +746,7 @@ class Scenario:
             self.inpage("composer", "composer", since)
             self.summary("composer", "focused", "focused", ["sidebar", "settings"], runs)
             self.summary("composer", "unfocused", "unfocused", ["sidebar", "settings"], runs)
-        if "hidden" in wanted and "composer-cause" in self.results["latency"]:
-            # The hidden series saves the same edit: when it drew nothing in sight it cannot draw behind a tab either,
-            # and filming its runs only spends the display worker (step 61294ed3, 2026-11-28: 20 of 20 missed).
-            log("GSW-FLEET hidden: skipped, the composer edit drew nothing in sight: "
-                f"{self.results['latency']['composer-cause']['cause']}")
-            self.results["latency"]["hidden-cause"] = {"cause": "skipped: " + self.results["latency"]["composer-cause"]["cause"]}
-        elif "hidden" in wanted:
+        if "hidden" in wanted:
             def hide_and_save(on):
                 self.show_tab("b")  # raises when chat-b does not come back: that run counts as missed
                 self.edit("composer", on)

@@ -733,19 +733,6 @@ class GitHubApiTests(CapturedOutput):
         self.assertIn(f"inputs[base]={B}", post)
         self.assertIn(f"dispatched cmux-next-ios INTERNAL {A} (base {B})", self.out.getvalue())
 
-    def test_submittable_dispatch_asks_the_builder_for_an_app_review_build(self):
-        clock = FakeClock()
-        gh = RoutedGh((0, "", ""), clock=clock)
-        self.assertEqual(ib.cmd_dispatch(A, "", runner=gh, sleep=clock.sleep, clock=clock, submittable=True), 0)
-        self.assertIn("inputs[submittable]=true", gh.argvs[-1])
-        self.assertIn(f"dispatched cmux-next-ios INTERNAL {A} (base none) (submittable)", self.out.getvalue())
-
-    def test_a_nightly_dispatch_never_sends_submittable(self):
-        clock = FakeClock()
-        gh = RoutedGh((0, "", ""), clock=clock)
-        self.assertEqual(ib.cmd_dispatch(A, B, runner=gh, sleep=clock.sleep, clock=clock), 0)
-        self.assertFalse(any("submittable" in a for a in gh.argvs[-1]))
-
     def test_dispatch_that_never_gets_through_is_red(self):
         clock = FakeClock()
         code = ib.cmd_dispatch(A, "", runner=RoutedGh(RATE_LIMITED, clock=clock), sleep=clock.sleep, clock=clock)

@@ -12,7 +12,6 @@
 # acpmux
 cmux-tui/crates/acpmux-tui/src/dialog.rs draw walks=6 clones=0 :: a dialog's own rows, header and buttons; a picker's rows reach it from draw_picker (that fn's row)
 cmux-tui/crates/acpmux-tui/src/dialog.rs footer_buttons walks=1 clones=0 :: a dialog's footer buttons, a handful
-cmux-tui/crates/acpmux-tui/src/dialog.rs text_field walks=1 clones=0 :: one single-line field's characters, scrolled to keep the cursor in view
 cmux-tui/crates/acpmux-tui/src/markdown.rs render walks=1 clones=0 :: the events of one message's markdown; called from the transcript cache when the message changes, not per frame
 cmux-tui/crates/acpmux-tui/src/menu.rs draw walks=1 clones=0 :: a context menu's items, a handful
 cmux-tui/crates/acpmux-tui/src/render/composer.rs draw_composer walks=1 clones=0 :: the prompt's attached images
@@ -26,10 +25,9 @@ cmux-tui/crates/acpmux-tui/src/render/dialogs.rs draw_picker walks=0 clones=2 ::
 cmux-tui/crates/acpmux-tui/src/render/mod.rs draw walks=2 clones=2 :: a pending permission's options, the host chips, and a hit test over the drawn sidebar rows (viewport-sized); the frame_work count of the pending-permission scan (cfg(test) only)
 cmux-tui/crates/acpmux-tui/src/render/sidebar.rs draw_sidebar walks=7 clones=1 :: REAL: clones every session's JSON, groups and orders all sessions each frame (80 ms ticks while a turn runs); fix in lane visible-only-ios-rust-lists
 cmux-tui/crates/acpmux-tui/src/render/status.rs draw_status walks=2 clones=0 :: the connected hosts, a handful
-cmux-tui/crates/acpmux-tui/src/render/question.rs draw_question_card walks=1 clones=0 :: one question's prompt, wrapped and cut at the card's last row
 cmux-tui/crates/acpmux-tui/src/render/transcript.rs draw_find_bar walks=1 clones=0 :: the find bar's few pieces, reversed once
-cmux-tui/crates/acpmux-tui/src/render/transcript.rs draw_transcript walks=5 clones=0 :: header pieces and a draft's errors; the transcript body is kept between frames by TranscriptCache. REAL: the "N new messages" line maps every transcript row each frame while it shows
-cmux-tui/crates/acpmux-tui/src/terminal.rs draw walks=3 clones=0 :: the cells ratatui hands the backend this frame and their link groups (viewport-sized)
+cmux-tui/crates/acpmux-tui/src/render/transcript.rs draw_transcript walks=4 clones=0 :: header pieces and a draft's errors; the transcript body is kept between frames by TranscriptCache
+cmux-tui/crates/acpmux-tui/src/terminal.rs draw walks=1 clones=0 :: the cells ratatui hands the backend this frame (viewport-sized)
 cmux-tui/crates/acpmux-tui/src/terminal.rs prepare walks=3 clones=0 :: the link cells drawn this frame (viewport-sized)
 
 # cmux-tui

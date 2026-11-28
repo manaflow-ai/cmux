@@ -19,12 +19,11 @@ kinds, 1.2x to 1.4x apart on web benches; a bisect across both blames commits th
     perf_bisect.py replay --repo DIR --good SHA --bad SHA --row NAME --measure 'CMD {sha} {row}' [--floor F]
                           [--regression 0.10] [--runs 3] [--max-runs 5] [--cache FILE] [--json]
 
-CMD prints `VALUE <number>` for one run at {sha} (higher is worse) and exits 0; a nonzero exit, a NaN or Infinity, or
-no VALUE line is a run that did not measure. --good must be on --bad's first-parent line, else "invalid range" (exit 2). A
+CMD prints `VALUE <number>` for one run at {sha} (higher is worse), anything else when it could not measure. A
 culprit's JSON carries `nominee`, what culprit_revert.py takes (perf-cron.py culprit_nominee).
 Tests: scripts/cmux-next/tests/test_perf_bisect.py.
 """
-import argparse, importlib.util, json, math, os, platform, re, statistics, subprocess, sys
+import argparse, importlib.util, json, os, platform, re, statistics, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 _spec = importlib.util.spec_from_file_location("perf_cron", os.path.join(HERE, "perf-cron.py"))
@@ -60,22 +59,10 @@ def sample(sha, measure, ref, thr, runs, max_runs):
         values.append(x)
 
 
-def finite(x):
-    """x as a float when it is a real, finite number, else None (not measured). NaN votes as good in sample()
-    (nan - ref > thr is false), so a NaN or Infinity run would read as within noise; more runs cannot repair it
-    (hq docs/findings/2026-11-22-bisect-invalid-measurements.md)."""
-    if isinstance(x, bool) or not isinstance(x, (int, float)):
-        return None
-    return float(x) if math.isfinite(x) else None
-
-
 def replay(commits, measure, floor, regression=REGRESSION, runs=cron.BISECT_RUNS, max_runs=cron.BISECT_MAX_RUNS,
            log=lambda s: None):
     """commits: first-parent, oldest first; commits[0] the good end, commits[-1] the bad end. measure(sha) -> float or
-    None; a nonfinite value counts as None. Returns {'verdict': 'culprit' | 'within noise' | 'unresolved' |
-    'unmeasured', ...}."""
-    raw = measure
-    measure = lambda sha: finite(raw(sha))
+    None. Returns {'verdict': 'culprit' | 'within noise' | 'unresolved' | 'unmeasured', ...}."""
     good, bad = commits[0], commits[-1]
     good_values, attempts, fails = [], 0, 0
     while len(good_values) < runs:
@@ -133,25 +120,14 @@ def shell_measure(template, row):
     def measure(sha):
         p = subprocess.run(template.replace("{sha}", sha).replace("{row}", row), shell=True, text=True,
                            capture_output=True)
-        # A command that failed did not measure, whatever it printed first (a bench that prints a partial VALUE and
-        # then exits 7); a NaN or Infinity is no reading either.
-        why = f"exit {p.returncode}"
-        for line in reversed(p.stdout.splitlines() if p.returncode == 0 else []):
+        for line in reversed(p.stdout.splitlines()):
             m = re.match(r"^VALUE\s+(\S+)\s*$", line.strip())
             if m:
                 try:
-                    x = finite(float(m.group(1)))
+                    return float(m.group(1))
                 except ValueError:
-                    x = None
-                if x is not None:
-                    return x
-                why = f"VALUE {m.group(1)} is not a finite number"
-                break
-        else:
-            if p.returncode == 0:
-                why = "no VALUE line"
-        print(f"perf-bisect: {sha[:12]} did not measure ({why}): {(p.stdout + p.stderr).strip()[-300:]}",
-              file=sys.stderr)
+                    break
+        print(f"perf-bisect: {sha[:12]} did not measure: {(p.stdout + p.stderr).strip()[-300:]}", file=sys.stderr)
         return None
     return measure
 
@@ -196,7 +172,7 @@ def cached(measure, path, identity=None):
         kept_identity, kept = data.get("identity") or {}, data["runs"]
     else:
         kept_identity, kept = {}, data
-    kept = {sha: [finite(x) for x in xs if finite(x) is not None] for sha, xs in kept.items() if isinstance(xs, list)}
+    kept = {sha: [x for x in xs if isinstance(x, (int, float))] for sha, xs in kept.items() if isinstance(xs, list)}
     if kept and kept_identity != identity:
         raise CacheMismatch(f"{path} keeps runs of {json.dumps(kept_identity, sort_keys=True)}, not "
                             f"{json.dumps(identity, sort_keys=True)}: give this measurement its own --cache file")
@@ -220,35 +196,12 @@ def cached(measure, path, identity=None):
     return run
 
 
-def first_parent_range_error(git, commits, good_name, bad_name):
-    """Why commits ([good, *first-parent good..bad, oldest first]) is not one first-parent line from good to bad, or
-    None. It is one exactly when the oldest listed commit's first parent is good."""
-    if len(commits) < 2:
-        return f"{bad_name} has no first-parent commit past {good_name}"
-    try:
-        parent = git("rev-parse", "--verify", "-q", f"{commits[1]}^1")
-    except subprocess.CalledProcessError:
-        parent = ""  # a root commit: good is not in its history at all
-    if parent != commits[0]:
-        return (f"{good_name} ({commits[0][:12]}) is not on {bad_name}'s first-parent line: the oldest commit of the "
-                f"range, {commits[1][:12]}, has first parent {parent[:12] or 'none (a root commit)'}")
-    return None
-
-
 def cmd_replay(o):
     def git(*a):
         return subprocess.run(["git", "-C", o.repo, *a], check=True, text=True, capture_output=True).stdout.strip()
     good = git("rev-parse", f"{o.good}^{{commit}}")
     commits = [good, *git("rev-list", "--first-parent", "--reverse", f"{good}..{o.bad}").split()]
     log = lambda s: print(f"perf-bisect: {s}", file=sys.stderr, flush=True)
-    why = first_parent_range_error(git, commits, o.good, o.bad)
-    if why:
-        # good..bad is set subtraction: a sibling good end, or one on a merge's second-parent side, still lists
-        # commits, and the walk would name a culprit whose nominee parent is not its parent
-        # (hq docs/findings/2026-11-22-bisect-range-ancestry.md).
-        out = {"verdict": "invalid range", "why": why, "good": good, "row": o.row}
-        print(json.dumps(out, indent=1) if o.json else f"invalid range: {why}")
-        return 2
     log(f"{o.row}: {len(commits) - 2} first-parent commits between {good[:12]} and {commits[-1][:12]}")
     measure = shell_measure(o.measure, o.row)
     identity = {"row": o.row, "measure": o.measure, "host": host_kind()}

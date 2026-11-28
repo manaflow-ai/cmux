@@ -40,7 +40,7 @@ import {
   DEVBOX_WORK_USER,
 } from "../services/vms/images/workUser";
 import {
-  startAnsweringVm,
+  retryFreestyleOverload,
   CMUX_TUI_STATE_IMAGE_PATH,
   CMUX_TUI_STATE_MOUNT_HELPER_PATH,
   CMUX_TUI_STATE_RESERVATION_MARKER_PATH,
@@ -470,25 +470,12 @@ if (provider === "freestyle") {
       output: `${r.stdout ?? ""}${r.stderr ?? ""}`,
     };
   };
-  type Started = Awaited<ReturnType<typeof fs.vms.create>>;
-  const deleteStarted = async (started: Started) => {
-    await started.vm.delete();
-    console.log(`deleted ${started.vmId}`);
-  };
-  // A machine whose guest stops answering before its daemon does is
-  // Freestyle's fault: it is deleted and a fresh one started.
   const t0 = Date.now();
-  const first = await startAnsweringVm(
-    "vm start",
-    () => fs.vms.create({ snapshotId: image, displayName: verifyName, firewall }),
-    (started) => waitForBakedDaemon("freestyle", execFor(started.vm)),
-    deleteStarted,
-  );
-  const { vm, vmId } = first.vm;
-  console.log(`provisioned ${vmId} (${((Date.now() - t0) / 1000).toFixed(1)}s with its daemon's first answer)`);
+  const { vm, vmId } = await retryFreestyleOverload("vm start", () => fs.vms.create({ snapshotId: image, displayName: verifyName, firewall }));
+  console.log(`provisioned ${vmId} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   try {
     const exec = execFor(vm);
-    const daemonMs = first.ready;
+    const daemonMs = await waitForBakedDaemon("freestyle", exec);
     console.log(`baked daemon answered ${daemonMs} ms after the first probe (${Date.now() - t0} ms after create)`);
     const settled = await exec(devboxWaitForDaemonCommand(), 200_000);
     if (settled.exitCode !== 0) throw new Error(`baked daemon never reached its listener: ${settled.output.slice(-500)}`);
@@ -528,14 +515,10 @@ if (provider === "freestyle") {
     let cloneIdentityOk = true;
     // A second machine from the same memory snapshot must mint its own
     // identity; a shared one would let every machine impersonate every other.
-    const { vm: second } = await startAnsweringVm(
-      "second vm start",
-      () => fs.vms.create({ snapshotId: image, displayName: `${verifyName}-2`, firewall }),
-      (started) => waitForBakedDaemon("freestyle", execFor(started.vm)),
-      deleteStarted,
-    );
+    const second = await retryFreestyleOverload("vm start", () => fs.vms.create({ snapshotId: image, displayName: `${verifyName}-2`, firewall }));
     try {
       const exec2 = execFor(second.vm);
+      await waitForBakedDaemon("freestyle", exec2);
       const settled2 = await exec2(devboxWaitForDaemonCommand(), 200_000);
       if (settled2.exitCode !== 0) throw new Error(`second machine's daemon never reached its listener: ${settled2.output.slice(-500)}`);
       const digest = `cat ${REMOTE_IDENTITY} ${MACHINE_SECRETS} | sha256sum | cut -c1-64`;
@@ -577,7 +560,8 @@ if (provider === "freestyle") {
       console.log(`machine-id ${machineIdShared ? "SHARED or unreadable" : "differs"} across machines (${machineA.slice(0, 8)}… vs ${machineB.slice(0, 8)}…); boot_id ${bootShared ? "shared" : "differs"}`);
       if (strictCloneIdentity && machineIdShared) cloneIdentityOk = false;
     } finally {
-      await deleteStarted(second);
+      await second.vm.delete();
+      console.log(`deleted ${second.vmId}`);
     }
     // The image stamp says which layers were baked; a desktop image must
     // pass the desktop contract, a base image must not carry a desktop.

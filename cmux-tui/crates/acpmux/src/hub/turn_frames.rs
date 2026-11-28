@@ -16,11 +16,7 @@
 //! agent-driven http(s) tab of the chat's workspace, through the app's own browser host); in a turn
 //! that drives the iOS Simulator ([`drives_simulator`]), the booted simulator's screen (`xcrun simctl
 //! io booted screenshot`, no screen-recording grant needed); in a turn that customizes the app
-//! ([`customizes_app`]), the app's window. In a turn that runs a Mac app it built or opened
-//! ([`turn_frames_native::runs_mac_app`]), that app's front window, through the resident Computer Use
-//! worker (`turn_frames_native.rs`); a launch asks for frames a few seconds on
-//! ([`LAUNCH_FRAMES`]), as `open` returns before the window shows and `swift run` holds its call
-//! while the app runs. None: no frame, never a wait.
+//! ([`customizes_app`]), the app's window. None: no frame, never a wait.
 //!
 //! A frame within [`SAME`] bits (64-bit dHash) of the turn's last kept frame is dropped, so a turn
 //! that changed nothing on screen keeps one frame. At most [`MAX_FRAMES`] a turn (the turn's end
@@ -29,7 +25,6 @@
 //! turns per chat and [`KEEP_CHATS`] chats, as turn shots; a deleted chat's go with it.
 
 use super::Session;
-use super::turn_frames_native;
 use super::turn_shots::{CapturedPage, capture_page, prune, segment};
 use base64::Engine as _;
 use serde_json::{Value, json};
@@ -57,11 +52,7 @@ const INDEX: &str = "frames.json";
 /// One app-window or simulator capture, run to answer.
 const WINDOW_LIMIT: Duration = Duration::from_secs(20);
 /// The largest capture read back (a 6.9" simulator's PNG is about 3 MB).
-pub(super) const MAX_CAPTURE_BYTES: u64 = 8 << 20;
-/// After a call that launches a Mac app, frames this long after it (its window takes a moment, and
-/// `swift run` builds first).
-pub(crate) const LAUNCH_FRAMES: [Duration; 3] =
-    [Duration::from_secs(4), Duration::from_secs(12), Duration::from_secs(30)];
+const MAX_CAPTURE_BYTES: u64 = 8 << 20;
 
 /// Every frame's place in the daemon's order: the preview window asks for what is newer than the
 /// last it drew.
@@ -105,9 +96,6 @@ struct Turn {
     /// The turn drives the iOS Simulator ([`drives_simulator`]): with no agent-driven page, frames
     /// are of the booted simulator's screen.
     simulator: bool,
-    /// The Mac app the turn last ran ([`turn_frames_native::runs_mac_app`]): with no agent-driven
-    /// page or simulator, frames are of its front window.
-    mac_app: Option<String>,
 }
 
 static TURNS: LazyLock<Mutex<HashMap<String, Turn>>> = LazyLock::new(Default::default);
@@ -367,7 +355,6 @@ pub(super) fn turn_began(session: &Session, turn: &str) {
             kinds: HashMap::new(),
             chrome: false,
             simulator: false,
-            mac_app: None,
         },
     );
     ask(&session.id, "turn-start");
@@ -398,35 +385,13 @@ pub(super) fn record(session: &str, kind: &str, msg: &Value) {
         if drives_simulator(update) {
             turn.simulator = true;
         }
-        let ran = turn_frames_native::runs_mac_app(update);
-        let launched = ran.is_some() && ran != turn.mac_app;
-        if launched {
-            turn.mac_app = ran;
-        }
-        let trigger = trigger_of(tool, update);
-        if trigger.is_some() {
-            turn.debounce += 1;
-        }
-        (turn.id.clone(), turn.debounce, trigger, launched)
+        let Some(trigger) = trigger_of(tool, update) else { return };
+        turn.debounce += 1;
+        (turn.id.clone(), turn.debounce, trigger)
     };
     let Ok(runtime) = tokio::runtime::Handle::try_current() else { return };
     let session = session.to_owned();
-    let (turn_id, debounce, trigger, launched) = generation;
-    if launched {
-        let (session, turn_id) = (session.clone(), turn_id.clone());
-        runtime.spawn(async move {
-            let mut waited = Duration::ZERO;
-            for at in LAUNCH_FRAMES {
-                tokio::time::sleep(at.saturating_sub(waited)).await;
-                waited = at;
-                if !turns().get(&session).is_some_and(|t| t.id == turn_id && t.live) {
-                    return;
-                }
-                ask(&session, "build");
-            }
-        });
-    }
-    let Some(trigger) = trigger else { return };
+    let (turn_id, debounce, trigger) = generation;
     runtime.spawn(async move {
         tokio::time::sleep(DEBOUNCE).await;
         let settled = turns()
@@ -549,14 +514,13 @@ fn take(session: &str, trigger: &'static str, repl: &str) -> Option<Frame> {
 }
 
 /// A picture of `session`'s page now: the agent-driven page of its workspace, else, in a turn that
-/// drives the iOS Simulator, its screen, else, in a turn that ran a Mac app, its front window, else,
-/// in a turn that customizes the app, the app's window. The turn, captured tab metadata (`simulator`,
-/// `app` or `window` when no page), the turn's folder and the picture. Blocking.
+/// customizes the app, the app's window. The turn, captured tab metadata (or `window`), the turn's
+/// folder and the picture. Blocking.
 fn shoot(session: &str, repl: &str) -> Option<(String, CapturedPage, PathBuf, Rgb)> {
-    let (turn_id, workspace, chrome, simulator, mac_app) = {
+    let (turn_id, workspace, chrome, simulator) = {
         let all = turns();
         let turn = all.get(session)?;
-        (turn.id.clone(), turn.workspace.clone(), turn.chrome, turn.simulator, turn.mac_app.clone())
+        (turn.id.clone(), turn.workspace.clone(), turn.chrome, turn.simulator)
     };
     let base = root();
     let dir = turn_dir(&base, session, &turn_id)?;
@@ -565,12 +529,6 @@ fn shoot(session: &str, repl: &str) -> Option<(String, CapturedPage, PathBuf, Rg
     let mut shown = capture_page(&base, &workspace, &raw, repl, "Turn frames");
     if shown.is_none() && simulator && simulator_shot(&raw) {
         shown = Some(CapturedPage { id: "simulator".to_owned(), url: None });
-    }
-    if shown.is_none()
-        && let Some(app) = mac_app
-        && turn_frames_native::native_shot(session, &app, &raw)
-    {
-        shown = Some(CapturedPage { id: "app".to_owned(), url: None });
     }
     if shown.is_none() && chrome && window_shot(&raw) {
         shown = Some(CapturedPage { id: "window".to_owned(), url: None });
@@ -796,7 +754,7 @@ fn look_now(session: &str) -> Value {
         turn.simulator = true;
     }
     let Some((turn_id, page, dir, picture)) = shoot(session, LOOK_REPL_SESSION) else {
-        return json!({"error": "no agent-driven page is showing in this chat's workspace, no iOS Simulator is booted, no Mac app this turn ran has a window Computer Use may look at without asking, and the app's window could not be captured: open a page with the browser or `open` tools, then look again"});
+        return json!({"error": "no agent-driven page is showing in this chat's workspace, no iOS Simulator is booted and the app's window could not be captured: open a page with the browser or `open` tools, then look again"});
     };
     let kept = keep(session, &turn_id, &dir, &picture, "look", page.url.clone());
     let hash = dhash(&picture);

@@ -451,8 +451,7 @@ def crash_class_inputs_changed(repo: Path, base: str, merge: str) -> bool:
 
 
 # The gates a pull request's own run leaves to the push tier (the same gates run there as cmux-next-web-lint.yml,
-# cmux-next-crash-class.yml and ci-web.yml; a red there is fixed forward). A cheap-tier landing head skips ci-web, so
-# the webviews checks run there as ci/steps.toml's webviews-checks, a land_gate step of pr-pipeline.yml (cmux#57668). `--tier full` (a dispatch, the `full-ci`
+# cmux-next-crash-class.yml and ci-web.yml; a red there is fixed forward). `--tier full` (a dispatch, the `full-ci`
 # label, or vars.CI_FAST_GATES_PR_TIER=full) runs them on the pull request again. Slowest gate first on 2026-11-24:
 # crash-class rules 70.7 s, against 23.6 s for the prepush gate and 16.7 s for the crash ratchet.
 PR_TIER_DEFERRED = ("web lint", "crash-class rules", "webviews checks")
@@ -464,7 +463,8 @@ TIER_SKIPPED = "the pull request tier leaves it to the push tier (cmux-next-web-
 SKIPPED = {"web lint": "no web path changed",
            "crash-class rules": "no change under Packages, scripts/cmux-next, its own scripts or its workflow",
            "crash ratchet": "no change under Packages, cmux-tui/crates, scripts/cmux-next or its compare script",
-           "webviews checks": "no change under webviews/, to a string catalog or to the protocol spec"}
+           "webviews checks": "a pull_request event with no catalog or protocol spec change: ci-web runs them "
+                              "for a webviews/ change on this merge"}
 
 
 def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,

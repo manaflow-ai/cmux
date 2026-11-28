@@ -14,7 +14,7 @@ bash scripts/ci/tests/package-test-lane-unverified-build.test.sh
 bash scripts/ci/tests/run-webviews-tests-retry.test.sh
 bash scripts/ci/tests/swiftpm-resolve-github-refusal.test.sh
 bash scripts/ci/tests/swiftpm-resolve-seeds-artifacts.test.sh
-bash scripts/cmux-next/check-state-roots.sh "$GITHUB_WORKSPACE" --strict-rows
+bash scripts/cmux-next/check-state-roots.sh "$GITHUB_WORKSPACE"
 bash scripts/cmux-next/tests/app-capability-references.test.sh
 bash scripts/cmux-next/tests/app-ffi-release-paths.test.sh
 bash scripts/cmux-next/tests/base-autofix-action-exports.test.sh

@@ -94,7 +94,6 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "chunkDeltas",
     "class",
     "cliHost",
-    "cloudRegistryId",
     "compression",
     "context",
     "createKey",

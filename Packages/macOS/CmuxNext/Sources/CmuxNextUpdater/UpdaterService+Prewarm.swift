@@ -9,8 +9,6 @@ struct StagedPrewarmRun {
     let urgency: StagedUpdatePrewarm.Urgency
     /// The pre-warm's log line once it ended; nil while it runs.
     var line: String?
-    /// The pre-warm's task: cancelling it stops every process it started (``UpdaterService/stopPrewarmForInstall()``).
-    var task: Task<Void, Never>?
 }
 
 /// An install click that waits for the pre-warm (``UpdaterService/installAfterPrewarm(_:)``).
@@ -58,7 +56,7 @@ extension UpdaterService {
         // Best effort until an install click waits for it (``installAfterPrewarm(_:)`` raises `urgency`); its folder
         // scan runs on a files lane slot of its own
         // (``StagedUpdatePrewarm/perform(work:processes:timeout:total:clock:marker:urgency:progress:)``), its processes through AsyncProcess.
-        prewarmRun?.task = Task.detached(priority: WorkPriority.bestEffort.taskPriority) { [weak self] in
+        Task.detached(priority: WorkPriority.bestEffort.taskPriority) { [weak self] in
             let line: String
             if let runner { line = await runner(prewarm) } else { line = await prewarm.perform(work: work, marker: marker, urgency: urgency, progress: { log.append($0) }) }
             log.append(line)
@@ -97,20 +95,6 @@ extension UpdaterService {
         UpdateHarness.mark("prewarm_wait_start")
         #endif
         prewarmWaitTimer.schedule(after: left) { @MainActor [weak self] in self?.settlePrewarmWait(done: false) }
-    }
-
-    /// Stops the staged build's pre-warm if it still runs, before the installer moves the staged copy (cmux#63767).
-    ///
-    /// Sparkle swaps the staged bundle into place and removes its staging folder; a pre-warm process still starting
-    /// from there loads half a bundle and dies in dyld ("Library not loaded: @rpath/Sparkle.framework", SIGABRT), a
-    /// crash report for a process nobody started. Cancelling the pre-warm's task stops each of its processes at once
-    /// (their whole process group, ``AsyncProcess``) and starts no further run. A pre-warm that already ended is left
-    /// as it was. Every install reaches this: ``updaterWillInstallUpdate(build:)`` and
-    /// ``updaterWillRelaunchApplication()``.
-    func stopPrewarmForInstall() {
-        guard let run = prewarmRun, run.line == nil, let task = run.task, !task.isCancelled else { return }
-        task.cancel()
-        log.append("launch pre-warm of \(run.build): stopped for the install")
     }
 
     /// The pre-warm `run` (its ``StagedPrewarmRun/urgency``) ended with `line`; an install waiting for it goes on.

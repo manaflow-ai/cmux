@@ -187,33 +187,3 @@ fn a_target_refusing_a_bundle_file_reads_as_an_outdated_machine() {
         "rpc_error"
     );
 }
-
-#[test]
-fn tool_wait_is_off_unless_asked() {
-    assert!(parsed(&[]).is_some_and(|a| a.tool_wait.is_none()));
-    let asked = parsed(&["--tool-wait", "900"]).and_then(|a| a.tool_wait);
-    assert_eq!(asked, Some(Duration::from_secs(900)));
-    assert!(parsed(&["--tool-wait", "long"]).is_none(), "a word is bad usage");
-    assert!(parsed(&["--tool-wait"]).is_none(), "the flag takes seconds");
-    assert_eq!(tool_wait(None, None), None);
-    assert_eq!(tool_wait(None, Some(" 60\n")), Some(Duration::from_secs(60)));
-    assert_eq!(tool_wait(None, Some("0")), None, "0 is off");
-    assert_eq!(tool_wait(None, Some("yes")), None);
-    assert_eq!(tool_wait(Some(Duration::from_secs(5)), Some("9")), Some(Duration::from_secs(5)));
-    assert_eq!(tool_wait(Some(Duration::ZERO), Some("9")), None);
-}
-
-#[test]
-fn a_tool_boundary_begin_waits_only_for_a_running_tool_or_compaction() {
-    assert!(waits_for_turn("acpmux: transfer.tool_in_flight: the turn runs a tool call"));
-    assert!(waits_for_turn("transfer.busy: the chat is compacting"));
-    assert!(!waits_for_turn("transfer.busy: the chat's turn is running"));
-    assert!(!waits_for_turn("transfer.diverged"));
-    let params = json!({"surface": 7, "interrupt": true, "checks_shares": true});
-    assert_eq!(
-        boundary_params(&params, false),
-        json!({"surface": 7, "interrupt": false, "at_tool_boundary": true, "checks_shares": true})
-    );
-    // Past the wait the begin is the one asked for (`--interrupt` stops the turn).
-    assert_eq!(boundary_params(&params, true), params);
-}

@@ -101,7 +101,6 @@ import {
 } from "../services/vms/drivers/cmuxTuiDaemon";
 import {
   retryFreestyleOverload,
-  devboxBakeStepBudgetMs,
   devboxDaemonUnit,
   CMUX_TUI_STATE_IMAGE_PATH,
   CMUX_TUI_STATE_MOUNT_HELPER_PATH,
@@ -204,9 +203,7 @@ console.log(
   `cmux-tui ${cmuxTuiSource.commit.slice(0, 12)}: signed release verified (cmux-tui ${cmuxTuiSource.size} bytes); acpmux sha256 ${cmuxTuiSource.acpmuxSha256!.slice(0, 12)}…${cmuxTuiSource.acpmuxSize ? "" : " (from manifest.json until the release file lists acpmux)"}`,
 );
 
-// A step that hangs past its budget fails the bake. Steps run detached
-// (short polls), so the exec API's 300 s cap does not bound them; a
-// downloading step gets longer (devboxBakeStepBudgetMs).
+// The exec API caps timeoutMs at 300000 (5 minutes per step).
 const STEP_TIMEOUT_MS = 300_000;
 
 // Per-exec env (the API replays it into every step). The base's login PATH
@@ -251,14 +248,13 @@ const HOME_PREFIX = 'export HOME="${HOME:-$(getent passwd $(id -u) | cut -d: -f6
 let stepIndex = 0;
 async function step(label: string, command: string): Promise<void> {
   const t0 = Date.now();
-  const budgetMs = Math.max(STEP_TIMEOUT_MS, devboxBakeStepBudgetMs(command));
   // Detached, with short polls (detached-exec.ts): one exec held open for a
   // long step is what run 45920283687 lost in media-apt, with no step named.
   let r: Awaited<ReturnType<typeof detachedExec>>;
   try {
     r = await detachedExec(vm, command, {
       dir: `/var/tmp/cmux-bake-steps/${String(++stepIndex).padStart(3, "0")}-${label}`,
-      budgetMs,
+      budgetMs: STEP_TIMEOUT_MS,
       env: BUILD_ENV,
       prefix: HOME_PREFIX,
       // The 0.2 API's default guest user is uid 1000 (the work user). Every
@@ -272,7 +268,7 @@ async function step(label: string, command: string): Promise<void> {
   }
   const secs = ((Date.now() - t0) / 1000).toFixed(1);
   if (r.code !== 0) {
-    const why = r.code === 124 || r.code === 137 ? ` (its ${budgetMs / 1000} s budget ran out)` : "";
+    const why = r.code === 124 || r.code === 137 ? ` (its ${STEP_TIMEOUT_MS / 1000} s budget ran out)` : "";
     console.error(`STEP FAILED [${label}] status=${r.code}${why} (${secs}s)`);
     console.error("stdout:", r.stdout.slice(-3000));
     console.error("stderr:", r.stderr.slice(-3000));

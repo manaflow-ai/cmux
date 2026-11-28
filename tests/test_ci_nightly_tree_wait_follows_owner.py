@@ -103,19 +103,6 @@ def test_the_signer_bundle_step_bounds_an_unreadable_runs_list() -> None:
     assert "unreadable_checks >= unreadable_limit" in wait, "the wait must count unreadable checks in a row"
 
 
-def test_the_signer_bundle_step_does_not_wait_out_a_macos_rebuild() -> None:
-    # A publisher rebuilding its failed primary macOS leg lands the tree about 30 min late; with a
-    # fallback tree in hand the signer step must not hold the one signing Mac for it (2026-11-28,
-    # NIGHTLY 46123570780 held it 1869 s, then bundled the fallback tree anyway).
-    bundle = (ROOT / "scripts/ci/nightly-steps/app-bundle-cmux-tui-client.sh").read_text()
-    fallback = bundle.split('tree_used=fallback', 1)[0].rsplit("CMUX_TUI_TREE_CLIENT_FALLBACK", 1)[1]
-    assert 'CMUX_TUI_TREE_CLIENT_REBUILD_ENDS="$rebuild_ends"' in fallback, (
-        "the fallback-capable wait must end on a rebuilding publisher")
-    assert re.search(r'CMUX_TUI_TREE_CLIENT_REBUILD_ENDS:-1\}', bundle), "the signer step must default it on"
-    wait = AWAIT.read_text()
-    assert '"$rebuilding" == true && "$rebuild_ends" == 1' in wait, "the wait must end on a rebuild when asked"
-
-
 def test_the_wait_cases_pass_against_fake_runs() -> None:
     missing = [tool for tool in ("bash", "git", "sha256sum") if shutil.which(tool) is None]
     if missing:

@@ -189,11 +189,9 @@ fn a_record_of_another_session_plans_the_plain_shell_at_the_default_frame() {
     let registry = support.0.join("cmux-next/launch-snapshot-registry.cmux-app");
     std::fs::write(&registry, "reg-new").unwrap();
     let (_, p) = plan_in(&support);
-    // #62017: stage 0 never opens a window for the plain shell (no opaque
-    // cover); the reason and default frame still say why.
     assert_eq!(
         (p.reason, p.shows_window, p.uses_default_frame, p.shows_bare),
-        (11, false, true, false)
+        (11, true, true, false)
     );
     assert_eq!(text(&p.image_path), "");
     std::fs::write(&registry, "reg-old\n").unwrap();

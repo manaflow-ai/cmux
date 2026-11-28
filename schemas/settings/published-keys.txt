@@ -37,7 +37,6 @@ agentPane.display.minimap
 agentPane.display.modelChipIcon
 agentPane.display.modelPickerOrder
 agentPane.display.modelPickerStyle
-agentPane.display.ownHarnessUpdatesOnly
 agentPane.display.pinnedPlan
 agentPane.display.presentation
 agentPane.display.promptCoach
@@ -97,7 +96,6 @@ agentPane.showDictation
 agentPane.showMachineLoadWarnings
 agentPane.spellChecking
 agentPane.zoom
-agents.additionalDirectories
 agents.appControl
 agents.autoRetry.attempts
 agents.autoRetry.capacityFallbackAfter
@@ -131,12 +129,6 @@ agents.coldWake.compactAboveTokens
 agents.coldWake.enabled
 agents.commitAttribution
 agents.defaultPermissionMode
-agents.defaults.claude.effort
-agents.defaults.claude.model
-agents.defaults.codex.effort
-agents.defaults.codex.model
-agents.env
-agents.envExclude
 agents.guidance.claude
 agents.guidance.codex
 agents.guidance.otherAgents
@@ -147,22 +139,11 @@ agents.mcpServers.enabled
 agents.modelRouter.model
 agents.promptCache
 agents.promptSuggestions
-agents.providers.claude.args
-agents.providers.claude.env
-agents.providers.claude.home
-agents.providers.claude.path
-agents.providers.codex.args
-agents.providers.codex.env
-agents.providers.codex.home
-agents.providers.codex.path
-agents.sandbox.mode
-agents.sandbox.network
 agents.subsessions.answerQuestions
 agents.subsessions.enabled
 agents.subsessions.maxChildren
 agents.subsessions.maxDepth
 agents.subsessions.maxRunning
-agents.titles.model
 agents.trust.autoTrust
 agents.trust.ownOrgs
 agents.trust.projectRoots
@@ -606,7 +587,6 @@ imessage.enabled
 labs.agentCustomization
 labs.appStore
 labs.bundledCodexAppServer
-labs.chatMultiplayer
 labs.classicHome
 labs.commentThreads
 labs.connectionsUpcoming
@@ -809,7 +789,6 @@ sidebar.priorityView.showIdle
 sidebar.priorityView.shown
 sidebar.priorityView.statusWords
 sidebar.profileMenu.style
-sidebar.relativeTimestamps
 sidebar.sectionLook
 sidebar.sections.hidden
 sidebar.sections.order
@@ -1022,7 +1001,6 @@ updates.quietHours
 updates.showFeatureTips
 updates.showWhatsNew
 updates.web
-updates.webCas
 updates.whatsNewInstall
 window.settingsPresentation
 window.titlebar

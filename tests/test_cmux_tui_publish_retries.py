@@ -273,21 +273,6 @@ class DispatchesHaveASpareToken(unittest.TestCase):
         self.assertEqual(bare - BARE_DISPATCH_OK, set(),
                          "mint the cmux-bot App token and pass GH_TOKEN_SPARE, as request-image-roll does")
 
-class ReusedTreeAsksForTheImageRoll(unittest.TestCase):
-    """2026-11-28 10:21-11:20Z: every feat-cmux-next window run reused a tree its PR run had published, so
-    publish (and with it both roll asks) skipped and production's Cloud image fell 39 commits behind."""
-
-    def test_a_push_whose_tree_is_already_published_asks_for_the_roll(self) -> None:
-        job = load()["jobs"]["request-image-roll"]
-        self.assertIn("adopt-commit-manifest", job["needs"])
-        cond = job["if"]
-        self.assertIn("needs.publish.result == 'skipped'", cond)
-        self.assertIn("needs.adopt-commit-manifest.result == 'success'", cond)
-        self.assertIn('["present","adopted"]', cond)
-        # publish's own ask still has its fallback.
-        self.assertIn("needs.verify-publish.result == 'success' && needs.publish.outputs.image_roll_requested != 'true'", cond)
-
-
 if __name__ == "__main__":
     result = unittest.main(exit=False, verbosity=2).result
     sys.exit(0 if result.wasSuccessful() else 1)

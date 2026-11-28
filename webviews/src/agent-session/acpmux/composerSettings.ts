@@ -10,14 +10,6 @@
 // composer's right-click). "both" (text and row, which showed each attachment twice) reads as "strip".
 // It is only a look: a draft's text, its attachment marks and their order are the same in every
 // view, so switching never changes what is sent. Anything else reads as "strip".
-// One value, three writers, no precedence: Settings' Attachment View, the composer's right-click
-// (composer/attachmentViewMenu.ts) and a sent prompt's right-click (Swift AgentPaneContextMenu
-// `attachmentViewRows`, `chat.menu.attachmentView`) each write `agentPane.attachmentView`, so the
-// last pick wins and every composer, New Tab and every sent message follow it at once. No view
-// keeps one per message. Each view puts an attachment in one place (Leo, 2026-11-27: inline was
-// showing "inline + top bar"): "inline", in the text where it was placed, and one with no recorded
-// place at the end of its message, never in a row over it; "strip", in the row over the text and
-// never in it. A message of attachments alone draws them alone in either.
 // `agentPane.composerVimKeys` (`composerVimKeys`) is off by default: on, the chat's prompt takes the minimal
 // modal vim of composer/vimKeys.ts (Esc for normal mode); off, the composer never reads those keys.
 // `agentPane.scrollToBottomOnSend` is on by default and preserves the existing send-to-latest

@@ -301,12 +301,6 @@
       "title" : "Model Picker Style",
       "type" : "string"
     },
-    "agentPane.display.ownHarnessUpdatesOnly" : {
-      "default" : false,
-      "description" : "The model menu offers an update for this chat's agent only, not for every agent on this Mac.",
-      "title" : "Only This Chat's Agent Updates",
-      "type" : "boolean"
-    },
     "agentPane.display.presentation" : {
       "default" : "transcript",
       "description" : "Chat Presentation",
@@ -790,17 +784,6 @@
       "title" : "Agent Chat Zoom",
       "type" : "number"
     },
-    "agents.additionalDirectories" : {
-      "default" : [
-
-      ],
-      "description" : "Added to every new chat's Sources. Use full or ~/ paths.",
-      "items" : {
-        "type" : "string"
-      },
-      "title" : "Folders Every Chat Sees",
-      "type" : "array"
-    },
     "agents.appControl" : {
       "default" : "change",
       "description" : "Read Only: agents in cmux’s terminals and agent chats can read cmux but not change it: no new workspaces, tabs or panes, no typing into other terminals, no settings changes.",
@@ -1060,68 +1043,6 @@
       "title" : "Permission Mode for New Chats",
       "type" : "string"
     },
-    "agents.defaults.claude.effort" : {
-      "default" : "auto",
-      "description" : "How hard a new chat thinks. Last Used keeps the last effort you picked.",
-      "enum" : [
-        "auto",
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-        "max"
-      ],
-      "title" : "Claude Code Effort for New Chats",
-      "type" : "string"
-    },
-    "agents.defaults.claude.model" : {
-      "default" : "",
-      "description" : "A model id such as claude-opus-5-5. Empty starts on the last model you picked.",
-      "title" : "Claude Code Model for New Chats",
-      "type" : "string"
-    },
-    "agents.defaults.codex.effort" : {
-      "default" : "auto",
-      "description" : "How hard a new chat thinks. Last Used keeps the last effort you picked.",
-      "enum" : [
-        "auto",
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-        "max"
-      ],
-      "title" : "Codex Effort for New Chats",
-      "type" : "string"
-    },
-    "agents.defaults.codex.model" : {
-      "default" : "",
-      "description" : "A model id such as gpt-6.2-sol. Empty starts on the last model you picked.",
-      "title" : "Codex Model for New Chats",
-      "type" : "string"
-    },
-    "agents.env" : {
-      "default" : {
-
-      },
-      "description" : "Variables every new chat's agent and its tools get. A value an agent profile already sets wins.",
-      "properties" : {
-
-      },
-      "title" : "Agent Environment",
-      "type" : "object"
-    },
-    "agents.envExclude" : {
-      "default" : [
-
-      ],
-      "description" : "Variable names agents never get, such as AWS_SECRET_ACCESS_KEY or AWS_*.",
-      "items" : {
-        "type" : "string"
-      },
-      "title" : "Hidden from Agents",
-      "type" : "array"
-    },
     "agents.guidance.claude" : {
       "default" : true,
       "description" : "Tells new Claude Code chats how cmux shows plans, side sessions and recaps.",
@@ -1168,94 +1089,6 @@
       "title" : "Suggest Next Prompt",
       "type" : "boolean"
     },
-    "agents.providers.claude.args" : {
-      "default" : [
-
-      ],
-      "description" : "Arguments added when cmux starts Claude Code, one per entry.",
-      "items" : {
-        "type" : "string"
-      },
-      "title" : "Claude Code Launch Arguments",
-      "type" : "array"
-    },
-    "agents.providers.claude.env" : {
-      "default" : {
-
-      },
-      "description" : "Variables Claude Code starts with. Keep keys and tokens out: use cmux harness secret.",
-      "properties" : {
-
-      },
-      "title" : "Claude Code Environment",
-      "type" : "object"
-    },
-    "agents.providers.claude.home" : {
-      "default" : "",
-      "description" : "Where Claude Code keeps its settings and sign-in (CLAUDE_CONFIG_DIR). Empty uses ~/.claude.",
-      "title" : "Claude Code Home Folder",
-      "type" : "string"
-    },
-    "agents.providers.claude.path" : {
-      "default" : "",
-      "description" : "The Claude Code program new chats run. Empty uses the one on your PATH.",
-      "title" : "Claude Code Program",
-      "type" : "string"
-    },
-    "agents.providers.codex.args" : {
-      "default" : [
-
-      ],
-      "description" : "Arguments added when cmux starts Codex, one per entry.",
-      "items" : {
-        "type" : "string"
-      },
-      "title" : "Codex Launch Arguments",
-      "type" : "array"
-    },
-    "agents.providers.codex.env" : {
-      "default" : {
-
-      },
-      "description" : "Variables Codex starts with. Keep keys and tokens out: use cmux harness secret.",
-      "properties" : {
-
-      },
-      "title" : "Codex Environment",
-      "type" : "object"
-    },
-    "agents.providers.codex.home" : {
-      "default" : "",
-      "description" : "Where Codex keeps its settings and sign-in (CODEX_HOME). Empty uses ~/.codex.",
-      "title" : "Codex Home Folder",
-      "type" : "string"
-    },
-    "agents.providers.codex.path" : {
-      "default" : "",
-      "description" : "The Codex program new chats run. Empty uses the one on your PATH.",
-      "title" : "Codex Program",
-      "type" : "string"
-    },
-    "agents.sandbox.mode" : {
-      "default" : "permissionMode",
-      "description" : "Workspace Only keeps agents' writes inside their workspace and turns full-access modes off.",
-      "enum" : [
-        "permissionMode",
-        "workspaceWrite"
-      ],
-      "title" : "Agent Sandbox",
-      "type" : "string"
-    },
-    "agents.sandbox.network" : {
-      "default" : "harness",
-      "description" : "Allow lets Codex's workspace sandbox reach the network.",
-      "enum" : [
-        "harness",
-        "allow"
-      ],
-      "title" : "Sandbox Network",
-      "type" : "string"
-    },
     "agents.subsessions.answerQuestions" : {
       "default" : false,
       "description" : "When an agent in a sub-session asks a question, the session that started it can answer, and the answer shows who gave it. Permission requests always wait for you. Off: only you answer.",
@@ -1291,17 +1124,6 @@
       "minimum" : 1,
       "title" : "Running Sub-sessions per Session",
       "type" : "number"
-    },
-    "agents.titles.model" : {
-      "default" : "haiku",
-      "description" : "The Claude model that writes chat titles and summaries.",
-      "enum" : [
-        "haiku",
-        "sonnet",
-        "opus"
-      ],
-      "title" : "Text Generation Model",
-      "type" : "string"
     },
     "agents.trust.autoTrust" : {
       "default" : false,
@@ -7117,12 +6939,6 @@
       "title" : "Profile Menu",
       "type" : "string"
     },
-    "sidebar.relativeTimestamps" : {
-      "default" : false,
-      "description" : "With Show Timestamps on, a change today reads as its age, such as 5m or 2h, not its time.",
-      "title" : "Relative Timestamps",
-      "type" : "boolean"
-    },
     "sidebar.sectionLook" : {
       "default" : "quiet",
       "description" : "How the sections above and below the workspace list draw.",
@@ -7876,7 +7692,7 @@
     },
     "sidebar.workspacesAsTabs" : {
       "default" : false,
-      "description" : "Each workspace is one line, and Cmd-Shift-[ and ] switch workspaces.",
+      "description" : "Each workspace is one line in the sidebar, which stays a list (not a tab strip), and Cmd-Shift-[ and ] switch workspaces as they switch tabs.",
       "title" : "Workspaces as Tabs",
       "type" : "boolean"
     },
@@ -8523,27 +8339,11 @@
       "title" : "Web UI Updates",
       "type" : "string"
     },
-    "updates.webCas" : {
-      "default" : false,
-      "description" : "Web UI updates download only what changed, or the whole update when that fails.",
-      "title" : "Fetch Web UI Updates by Chunks",
-      "type" : "boolean"
-    },
     "updates.whatsNewInstall" : {
       "default" : false,
       "description" : "An Install button for each version listed in What's New.",
       "title" : "Install Versions from What's New",
       "type" : "boolean"
-    },
-    "window.settingsPresentation" : {
-      "default" : "tab",
-      "description" : "Tab opens Settings as a tab in the focused pane. Full Window opens it over the whole window, with its sections on the left.",
-      "enum" : [
-        "tab",
-        "page"
-      ],
-      "title" : "Open Settings In",
-      "type" : "string"
     },
     "window.titlebar" : {
       "default" : "minimal",

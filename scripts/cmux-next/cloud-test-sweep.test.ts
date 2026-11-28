@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { deleteMachine, readWithRetry, stalePicks, statusCounts, summaryMarkdown, sweepPicks } from "./cloud-test-sweep.ts";
+import { stalePicks, statusCounts, summaryMarkdown, sweepPicks } from "./cloud-test-sweep.ts";
 import { FAILED_JOURNEY_MS, SHORT_JOURNEY_MS } from "./cloud-journey.ts";
 
 const H = 3_600_000;
@@ -70,69 +70,4 @@ test("statusCounts and the summary table list every pick", () => {
   const md = summaryMarkdown({ backend: "staging", dry_run: false, min_age_hours: 24, scopes: [{ scope: "personal", before: statusCounts(rows), picks: [{ ...stalePicks(rows, NOW, DAY)[0], ok: true, error: null }] }] });
   expect(md).toContain("| personal | a | cloud preclaim a | paused |");
   expect(md).toContain("deleted");
-});
-
-describe("readWithRetry", () => {
-  const timedOut = { status: 0, body: { ok: false, error: { code: "transport", message: "The operation timed out.", retryable: true } } };
-  const answers = (...list: Array<{ status: number; body: any }>) => {
-    let i = 0;
-    const send = async () => list[Math.min(i++, list.length - 1)];
-    return { send, sent: () => i };
-  };
-  const noWait = async () => {};
-
-  test("a read that timed out once is sent again and its value returned (run 46130928568)", async () => {
-    const a = answers(timedOut, { status: 200, body: { ok: true, value: { machines: [] } } });
-    expect(await readWithRetry(a.send, "cloud.machine.list", 3, 0, noWait)).toEqual({ machines: [] });
-    expect(a.sent()).toBe(2);
-  });
-
-  test("a 503 is retried; a non-retryable refusal throws at once", async () => {
-    const busy = answers({ status: 503, body: { ok: false, error: { code: "overloaded" } } }, { status: 200, body: { ok: true, value: 1 } });
-    expect(await readWithRetry(busy.send, "x", 3, 0, noWait)).toBe(1);
-    const denied = answers({ status: 403, body: { ok: false, error: { code: "forbidden" } } });
-    await expect(readWithRetry(denied.send, "x", 3, 0, noWait)).rejects.toThrow("x: HTTP 403");
-    expect(denied.sent()).toBe(1);
-  });
-
-  test("still failing after every try throws, naming the tries", async () => {
-    const a = answers(timedOut);
-    await expect(readWithRetry(a.send, "cloud.machine.list", 3, 0, noWait)).rejects.toThrow(/HTTP 0 .*transport.*after 3 tries/);
-    expect(a.sent()).toBe(3);
-  });
-});
-
-describe("deleteMachine", () => {
-  const indeterminate = { status: 502, body: { ok: false, error: { code: "mutation.indeterminate" } } };
-  const ok = { status: 200, body: { ok: true, value: { deleted: true } } };
-  const answers = (...list: Array<{ status: number; body: any }>) => {
-    let i = 0;
-    return { send: async () => list[Math.min(i++, list.length - 1)], sent: () => i };
-  };
-  const noWait = async () => {};
-
-  test("an indeterminate delete whose machine now reads as deleting or gone counts as deleted (run 46140030779)", async () => {
-    for (const after of ["deleting", "deleted", null]) {
-      const a = answers(indeterminate);
-      const r = await deleteMachine(a.send, async () => after, 3, noWait);
-      expect(r).toEqual({ ok: true, error: null });
-      expect(a.sent()).toBe(3);
-    }
-  });
-
-  test("an indeterminate delete whose machine still reads as failed is refused, naming what it read", async () => {
-    const a = answers(indeterminate);
-    expect(await deleteMachine(a.send, async () => "failed", 3, noWait)).toEqual({ ok: false, error: "mutation.indeterminate (still failed)" });
-  });
-
-  test("a delete that lands on a retry, a 404, or a final 4xx is settled without a re-read", async () => {
-    let reads = 0;
-    const recheck = async () => { reads++; return "failed"; };
-    expect(await deleteMachine(answers(indeterminate, ok).send, recheck, 3, noWait)).toEqual({ ok: true, error: null });
-    expect(await deleteMachine(answers({ status: 404, body: { ok: false } }).send, recheck, 3, noWait)).toEqual({ ok: true, error: null });
-    const denied = answers({ status: 403, body: { ok: false, error: { code: "auth.forbidden" } } });
-    expect(await deleteMachine(denied.send, recheck, 3, noWait)).toEqual({ ok: false, error: "auth.forbidden" });
-    expect(denied.sent()).toBe(1);
-    expect(reads).toBe(0);
-  });
 });

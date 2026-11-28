@@ -35,13 +35,13 @@ import Testing
         let nudge = preset == .spacious ? DensityPreset.spaciousGapNudge : 0
         let rowGap: Double = preset.scaleFactor >= 1 ? half(DensityPreset.defaultStripPadding * preset.scaleFactor) + nudge : half(3 * preset.scaleFactor)
         #expect(derived(.rowGap) == rowGap)
-        // Helium's x in its own points (Lawrence 2026-11-28: "size and icon size etc must perfectly match helium"): the
-        // 14 pt square and icon, 7.83 pt of ink, a 4 pt corner, 6 pt from the end below a 32 pt row and 8 pt from it.
-        let row = preset.tokens.tokens["browserRowHeight"] ?? 0
-        #expect(derived(.closeSize) == 14)
-        #expect(derived(.closeCorner) == 4)
-        #expect(abs((derived(.closeInk) ?? 0) - 14 * 13.42 / 24) < 0.0001)
-        #expect(derived(.closeTrailing) == (row >= 32 ? 8 : 6), "\(preset): row \(row)")
+        #expect(derived(.closeSize) == half(15 * preset.scaleFactor))
+        // The x's plate nests in the density's tab corner (Lawrence msg 48706), its slot's center half a row from the end.
+        let row = CGFloat(preset.tokens.tokens["browserRowHeight"] ?? 0), slot = CGFloat(half(15 * preset.scaleFactor))
+        let radius = CGFloat(preset.tokens.tokens["tabCornerRadius"] ?? 0)
+        #expect(derived(.closeCorner) == Double(BrowserChromeTuning.closePlate(pillHeight: row, pillRadius: radius, slot: slot, maximumSide: row).corner))
+        #expect(derived(.closeInk) == half(8.5 * preset.scaleFactor))
+        #expect(derived(.closeTrailing) == half(Double(row - slot) / 2))
         let o = preset.omnibarScaleFactor // Default's omnibar is Compact's
         #expect(derived(.chipLeading) == half(2 * o))
         let bar = preset == .cozy ? 34 : half(28 / 0.9 * o) // Default: Chrome's 34 pt bar

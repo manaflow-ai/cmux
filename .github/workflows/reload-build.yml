@@ -299,44 +299,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          # tree_rev: the commit whose cmux-tui and Ghostty sources the client carries.
-          # HEAD's, unless HEAD's client inputs are not published (resolver exit 4, a
-          # real 404; exit 1 is a failed lookup and stops here). Then the client is the
-          # one the nightly bundles for HEAD: the newest published tree with HEAD's
-          # daemon-capabilities.json (older-tree-for-tip.sh). Run 45957833267 (A/B of
-          # Lawrence's NIGHTLY c6ff124 + #60927) failed here: c6ff124's tree was never
-          # published (its artifacts run coalesced), and that NIGHTLY shipped tree
-          # 4071600040b4 of f7b548a59a63 instead.
-          rc=0
-          client_commit="$(scripts/ci/resolve-cmux-tui-client-commit.sh)" || rc=$?
-          tree_rev=HEAD
-          if (( rc == 4 )); then
-            older_rc=0
-            older="$(bash scripts/cmux-next/older-tree-for-tip.sh)" || older_rc=$?
-            case "$older_rc" in
-              0)
-                client_commit="$(sed -n 's/^commit=//p' <<<"$older")"
-                tree_rev="$(sed -n 's/^tree_from=//p' <<<"$older" | cut -d' ' -f1)"
-                echo "::warning title=cmux-tui client fallback::HEAD's cmux-tui client inputs are not published; bundling the client of tree $(sed -n 's/^key=//p' <<<"$older") from ${tree_rev:0:12} (published by ${client_commit:0:12}, same daemon-capabilities.json), as the nightly does"
-                ;;
-              3)
-                # HEAD's tree is published under its tree key, by a commit the
-                # commit-addressed walk does not reach.
-                key="$(python3 scripts/ci/cmux_tui_tree_key.py --version v2 HEAD)"
-                client_commit="$(bash scripts/cmux-next/pin-cmux-tui.sh verify-key "$key" | sed -n 's/^commit=//p')"
-                ;;
-              *)
-                echo "::error title=cmux-tui client::HEAD's cmux-tui client inputs are not published, and no published tree within 24 h with HEAD's daemon-capabilities.json was found (older-tree-for-tip.sh exit $older_rc)"
-                exit 1
-                ;;
-            esac
-            [[ "$client_commit" =~ ^[0-9a-f]{40}$ && "$tree_rev" =~ ^(HEAD|[0-9a-f]{40})$ ]] \
-              || { echo "::error title=cmux-tui client::the tree fallback printed no publishing commit"; exit 1; }
-          elif (( rc != 0 )); then
-            exit "$rc"
-          else
-            git diff --exit-code "$client_commit" HEAD -- cmux-tui ghostty ghostty-next
-          fi
+          client_commit="$(scripts/ci/resolve-cmux-tui-client-commit.sh)"
+          git diff --exit-code "$client_commit" HEAD -- cmux-tui ghostty ghostty-next
           client_bundle="$RUNNER_TEMP/cmux-tui-prebuilt"
           mkdir -p "$client_bundle/Contents"
           env -u CMUX_TUI_CLIENT_LOCAL scripts/install-cmux-tui-client.sh "$client_bundle" --arch native \
@@ -350,10 +314,10 @@ jobs:
           # Packaged clients stamp the libghostty-vt source: ghostty-next where
           # the tree has it, else ghostty (older trees).
           ghostty_source=ghostty
-          if git rev-parse --verify -q "$tree_rev:ghostty-next" >/dev/null; then
+          if git rev-parse --verify -q HEAD:ghostty-next >/dev/null; then
             ghostty_source=ghostty-next
           fi
-          ghostty_sha="$(git rev-parse "$tree_rev:$ghostty_source")"
+          ghostty_sha="$(git rev-parse "HEAD:$ghostty_source")"
           # The commit path is an alias of a tree-addressed build: the client under
           # cmux-tui/<client_commit>/ may have been built at another commit with the
           # same cmux-tui and Ghostty trees, and it reports that commit (run
@@ -364,7 +328,7 @@ jobs:
           if [[ "$identity" != "$client_commit" && "$identity" =~ ^[0-9a-f]{40}$ ]]; then
             git cat-file -e "$identity^{commit}" 2>/dev/null || git fetch -q --depth=1 origin "$identity" || true
             if git cat-file -e "$identity^{commit}" 2>/dev/null \
-              && git diff --quiet "$identity" "$tree_rev" -- cmux-tui ghostty ghostty-next; then
+              && git diff --quiet "$identity" HEAD -- cmux-tui ghostty ghostty-next; then
               echo "The cmux-tui client published for $client_commit was built at $identity, with the same cmux-tui and Ghostty trees."
               expected_identity="$identity"
             fi

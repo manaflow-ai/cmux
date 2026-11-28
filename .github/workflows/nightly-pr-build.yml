@@ -102,7 +102,7 @@ jobs:
     if: ${{ !cancelled() && needs.route.result == 'success' && needs.route.outputs.swift == 'true' }}
     # Use the gateway when configured, then the overflow pool, then the owned
     # Linux pool. The job remains a thin cmux-ci client on every route.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_EVAL_STEP_GATEWAY || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # The client waits up to QUEUE_WAIT_S (20 min) queued plus 3600 s running, with slack.
     timeout-minutes: 90
     # checks: read lets the job see the fleet verdict already posted on its head (the step below).

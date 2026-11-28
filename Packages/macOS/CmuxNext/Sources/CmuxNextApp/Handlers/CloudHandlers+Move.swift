@@ -276,7 +276,9 @@ extension AppServices: CloudPlaceHost {
                 })
     }
 
-    func placeOnTurnEnded(_ handler: @escaping @MainActor (String) -> Void) { AgentTurnStateStore.shared.turnEndedObservers.append { session, _ in handler(session) } }
+    func placeOnTurnEnded(_ handler: @escaping @MainActor (String) -> Void) {
+        AgentTurnStateStore.shared.turnEndedObservers.append { session, _ in handler(session) }
+    }
 
     /// The account, team and Cloud a new machine is made under now (as an Always grant is scoped, ``CloudMoveAsks``).
     func placeIdentity() -> CloudPlaceIdentity? {
@@ -286,6 +288,4 @@ extension AppServices: CloudPlaceHost {
     }
 
     func placeIdentityChangedReason() -> String { CloudMoveStrings.identityChanged }
-    func placeVerdict() async -> Data? { await QuitAgents.environment(self)?.hostPressure(deadline: .seconds(5)) }
-    func placeShadow(_ line: String) { QuitAgents.environment(self).map { CloudPlaceShadowLog.appendDetached(line, home: $0.home) } }
 }

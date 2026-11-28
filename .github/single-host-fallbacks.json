@@ -236,6 +236,10 @@
       "fallback": "unset or empty, fromJSON(vars.RUNNER_POOLS).linux_arm64, the declared Blacksmith arm64 Linux pool; cmux-browser-host-release.yml's aarch64 build leg reads it through matrix.runs_on",
       "after_minutes": 5
     },
+    "LINUX_RUNNER_DARWIN_CROSS": {
+      "fallback": "the route-defined owned-pool or Blacksmith fallback",
+      "after_minutes": 5
+    },
     "MACOS_RUNNER_15": {
       "fallback": "the route-defined owned-pool or Blacksmith fallback",
       "after_minutes": 5

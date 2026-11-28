@@ -2,19 +2,14 @@ import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
-/// The relay's `_acpmux/status` filter (Rust's `reply_shapes`, ``AcpmuxPaneMethods/filteredReply(method:reply:pageID:)``): the page's environment
+/// The relay's `_acpmux/status` filter (``AcpmuxPaneMethods/replyShapes``): the page's environment
 /// picker sorts peers into SSH and Cloud by transport and marks each one connected or not, so each
 /// peer keeps its name, the scheme of its URL and its `connected` flag, never the URL itself
 /// (which can carry a user or a token).
 struct AgentPaneStatusReplyShapeTests {
     static func reply(_ result: [String: Any]) throws -> [String: Any] {
-        try filtered("_acpmux/status", ["result": result], pageID: "7")
-    }
-
-    /// The relay's reply for `method` (through Rust's filter) as an object.
-    static func filtered(_ method: String, _ reply: [String: Any], pageID: String) throws -> [String: Any] {
-        let raw = String(decoding: try JSONSerialization.data(withJSONObject: reply), as: UTF8.self)
-        let text = try #require(AcpmuxPaneMethods.filteredReply(method: method, reply: raw, pageID: pageID))
+        let shape = try #require(AcpmuxPaneMethods.replyShapes["_acpmux/status"])
+        let text = AcpmuxPaneMethods.filteredReply(["result": result], shape: shape, pageID: "7")
         return try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
     }
 
@@ -104,10 +99,12 @@ struct AgentPaneStatusReplyShapeTests {
 
 
     @Test func reconnectKeepsDoctorStateButDropsPeerEndpointsAndMetadata() throws {
-        let reply = try Self.filtered("_acpmux/peer_reconnect", ["result": ["peers": [
+        let shape = try #require(AcpmuxPaneMethods.replyShapes["_acpmux/peer_reconnect"])
+        let text = AcpmuxPaneMethods.filteredReply(["result": ["peers": [
             ["name": "cloud-1", "url": "wss://cloud-1.cmux.dev/?token=secret", "connected": false,
              "state": "offline", "error": "doctor refused", "health": ["host": "hidden"]],
-        ]]], pageID: "8")
+        ]]], shape: shape, pageID: "8")
+        let reply = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
         let result = try #require(reply["result"] as? [String: Any])
         let peers = try #require(result["peers"] as? [[String: Any]])
         let peer = try #require(peers.first)

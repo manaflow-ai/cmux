@@ -49,8 +49,6 @@
 #   side-instance.sh socket NAME    the copy's control socket (CMUX_NEXT_SOCKET_PATH in its LSEnvironment), for
 #                                   `cmux --app-socket` and hot-verify.py: NAME/control.sock, or
 #                                   cmux-side-<hash>.sock in the per-user TMPDIR when that is too long for a Unix socket
-#   side-instance.sh logs NAME      the files launch sends the copy's stdout and stderr to (one per line):
-#                                   hot-verify.py reads their ends when the copy's socket never answers
 #   side-instance.sh list           the side instances and whether each runs
 #   side-instance.sh remove NAME [--keep-sign-in]
 #                                   stop it, then delete the folder make wrote and the state the copy
@@ -477,11 +475,7 @@ PY
     rm -f "$dir/pid"
     park_stop
     # -n: a new process even when Launch Services still maps the id elsewhere; -g: behind the front app.
-    # --stdout/--stderr: the copy's own output, which `open` otherwise drops, so a copy that dies or hangs before
-    # its socket answers says why (hot-verify.py launch_failure; a look on 2026-11-28 said only "nothing within
-    # 120 s").
-    rm -f "$dir/app.stdout.log" "$dir/app.stderr.log"
-    open_args=(-n --stdout "$dir/app.stdout.log" --stderr "$dir/app.stderr.log")
+    open_args=(-n)
     [[ "$placement" == front ]] || open_args+=(-g)
     if [[ "$placement" == parked ]]; then
       # The app never activates and no window of it becomes key; every window opens on the park display's screen
@@ -565,10 +559,6 @@ PY
     ;;
   path)
     app_of
-    ;;
-  logs)
-    app_of >/dev/null
-    printf '%s\n%s\n' "$dir/app.stdout.log" "$dir/app.stderr.log"
     ;;
   list)
     [[ -d "$root" ]] || exit 0

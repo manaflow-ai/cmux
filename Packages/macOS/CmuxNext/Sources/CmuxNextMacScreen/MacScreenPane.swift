@@ -131,8 +131,6 @@ public final class MacScreenPane {
     private var retryFailure: MacScreenRetryCover?
     /// The current transport's clipboard sync (cap `clipboard.text`); nil until a session offers it.
     private var clipboardBridge: RemoteClipboardBridge?
-    /// The recording a replay pane plays (``init(replay:name:preferences:)``); nil for a device's screen.
-    private var replaySource: RemoteMovieReplaySource?
 
     /// One of the user's devices from the device hub. Each stream is one
     /// approved session: `viewer` asks for it and hands its ticket's
@@ -168,20 +166,6 @@ public final class MacScreenPane {
         retry.setInSight(false)
         retry.setAttempt { [weak self] in self?.retryNow() }
         observeRetry()
-    }
-
-    /// A recorded screen share played through this pane's decoder and presenter with no peer
-    /// (`mac_screen.replay`, goal screen-share-viewer-present): `mac_screen.state` reads its
-    /// Decode and Present as it would a live stream's. No hub, no input, nothing reconnects.
-    init(replay source: RemoteMovieReplaySource, name: String, preferences: ScreenPreferences) {
-        let session = MacScreenSession(title: name, preferences: preferences, signaling: { nil })
-        model = MacScreenPaneModel(session: session, name: name, gate: .open)
-        inputSink = nil
-        replaySource = source
-        view = MacScreenPaneView(model: model)
-        wire(session)
-        session.beginReplay(width: source.width, height: source.height)
-        startDecoding(source) { [weak session] in session?.endReplay() }
     }
 
     /// A tab restored on an old pairing-link record: link pairing is no
@@ -275,19 +259,6 @@ public final class MacScreenPane {
             bridge.start()
             clipboardBridge = bridge
         }
-        startDecoding(transport)
-        cursorTask?.cancel()
-        view.cursor.setRemoteCursor(nil)
-        let cursors = transport.cursorUpdates()
-        // task-owner: this transport's cursor feed; ends with its stream or the next session's
-        cursorTask = Task { [weak self] in
-            for await cursor in cursors { self?.view.cursor.setRemoteCursor(cursor) }
-        }
-    }
-
-    /// `source`'s video through the remote view decoder into the presenter, its frames counted on the session.
-    /// `ended` runs on the main actor once the source finishes (a replay's file played out).
-    private func startDecoding(_ source: any RemoteViewStreamSource, ended: (@MainActor () -> Void)? = nil) {
         let presenter = view.presenter
         let counter = MacScreenFrameCounter()
         session?.frameCounter = counter
@@ -298,11 +269,15 @@ public final class MacScreenPane {
                                      decodedAtNanos: frame.decodedAtNanos) else { return }
             Task { @MainActor [weak self] in self?.framesShown(counter) }
         }
-        let pipeline = RemoteDecodePipeline(source: source, deliver: deliver, presented: { counter.shown($0) })
-        // task-owner: this source's decoder; ends with its stream or the next session's
-        decodeTask = Task.detached(priority: .userInitiated) {
-            await pipeline.run()
-            if let ended, !Task.isCancelled { await ended() }
+        let pipeline = RemoteDecodePipeline(source: transport, deliver: deliver, presented: { counter.shown($0) })
+        // task-owner: this transport's decoder; ends with its stream or the next session's
+        decodeTask = Task.detached(priority: .userInitiated) { await pipeline.run() }
+        cursorTask?.cancel()
+        view.cursor.setRemoteCursor(nil)
+        let cursors = transport.cursorUpdates()
+        // task-owner: this transport's cursor feed; ends with its stream or the next session's
+        cursorTask = Task { [weak self] in
+            for await cursor in cursors { self?.view.cursor.setRemoteCursor(cursor) }
         }
     }
 
@@ -398,7 +373,6 @@ public final class MacScreenPane {
         retry.setInSight(false)
         model.recording.stop()
         decodeTask?.cancel()
-        replaySource?.stop()
         retryWatch?.cancel()
         cursorTask?.cancel()
         visible = false

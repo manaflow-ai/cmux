@@ -94,15 +94,6 @@ impl Ipc {
         }
     }
 
-    /// Where the seat's pointer is, in layout coordinates, where the IPC
-    /// says: Hyprland does (`cursorpos`); Sway's IPC does not.
-    pub fn cursor(&self) -> Option<(f64, f64)> {
-        match self {
-            Ipc::Sway(_) => None,
-            Ipc::Hyprland(p) => hypr_cursor(&hypr_json(p, "j/cursorpos").ok()?),
-        }
-    }
-
     /// Output names, to tell a headless session (`HEADLESS-1`).
     pub fn outputs(&self) -> Vec<String> {
         let v = match self {
@@ -207,11 +198,6 @@ fn hypr_raw(path: &PathBuf, cmd: &str) -> Result<String, String> {
     let mut out = String::new();
     s.read_to_string(&mut out).map_err(|e| e.to_string())?;
     Ok(out)
-}
-
-/// Hyprland's `j/cursorpos` reply, `{"x": 1, "y": 2}`.
-pub fn hypr_cursor(v: &Value) -> Option<(f64, f64)> {
-    Some((v.get("x")?.as_f64()?, v.get("y")?.as_f64()?))
 }
 
 fn hypr_json(path: &PathBuf, cmd: &str) -> Result<Value, String> {

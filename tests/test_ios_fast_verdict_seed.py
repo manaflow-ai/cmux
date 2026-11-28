@@ -44,28 +44,10 @@ class IosFastVerdictSeed(unittest.TestCase):
         self.assertNotIn("pull_request", on)
         job = self.seed["jobs"]["seed"]
         self.assertFalse(job["concurrency"]["cancel-in-progress"])
-        self.assertIn("'blacksmith-6vcpu-macos-26'", job["runs-on"])  # the pool the verdict overflows to
+        self.assertEqual(job["runs-on"], "blacksmith-6vcpu-macos-26")
         save = by_name(self.seed_steps, "Save the seed")
         self.assertIn("refs/heads/feat-cmux-next", save["if"])
         self.assertEqual(save["with"]["backend"], "r2")
-
-    def test_the_seed_restores_the_ffi_as_the_verdict_does(self):
-        # A Blacksmith Mac's actions/cache misses the GitHub-store FFI entry, so a seed that required it failed every
-        # run (21 of 21 on 2026-11-28, run 46139239654) and every hosted verdict built cold. The seed falls back to R2
-        # like the verdict, and fails only when both miss.
-        fleet = by_name(self.seed_steps, "Restore the fleet-built CmuxMobileLinkFFI.xcframework")
-        self.assertTrue(fleet.get("continue-on-error"))
-        self.assertNotIn("fail-on-cache-miss", fleet["with"])
-        r2 = by_name(self.seed_steps, "Restore the fleet-built CmuxMobileLinkFFI.xcframework from R2")
-        self.assertEqual(r2["with"]["backend"], "r2")
-        self.assertEqual(r2["with"]["key"], fleet["with"]["key"])
-        reader_r2 = by_name(self.fast, "Restore the fleet-built CmuxMobileLinkFFI.xcframework from R2")
-        self.assertEqual(r2["uses"], reader_r2["uses"])
-        self.assertEqual(r2["with"]["path"], reader_r2["with"]["path"])
-        need = by_name(self.seed_steps, "Require the verdict's CmuxMobileLinkFFI.xcframework")
-        self.assertIn("exit 1", need["run"])
-        names = [s.get("name") for s in self.seed_steps]
-        self.assertLess(names.index(need["name"]), names.index("Build the kit and the app as the verdict does"))
 
     def test_seed_and_reader_share_the_key_the_path_and_the_build(self):
         seed_key = by_name(self.seed_steps, "Key")["run"]

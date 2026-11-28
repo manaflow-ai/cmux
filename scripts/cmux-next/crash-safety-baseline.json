@@ -97,7 +97,7 @@
  "waived": {
   "rust": {
    "exit": {
-    "acpmux": 10,
+    "acpmux": 9,
     "cmux-browser-host": 4,
     "cmux-rd-host": 1,
     "cmux-tui": 1,
@@ -127,7 +127,7 @@
   "swift": {
    "dynamic_dispatch": {
     "CmuxNextAgentPane": 2,
-    "CmuxNextBrowser": 23,
+    "CmuxNextBrowser": 20,
     "CmuxNextBrowserAutomation": 5,
     "CmuxNextDesign": 6,
     "CmuxNextPages": 6,

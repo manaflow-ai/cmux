@@ -23,7 +23,6 @@ whole-table scan, kept as the oracle the property test compares against.
 """
 from __future__ import annotations
 
-import posixpath
 import random
 import re
 import statistics
@@ -180,10 +179,6 @@ class Index:
         self.rules = rules
         self.buckets: dict[str, list[tuple[Rule, str, int]]] = {}
         self._compiled: dict[str, list[tuple[Rule, re.Pattern[str], int]]] = {}
-        # Counted work, for the flat-at-10x test (a count, not a clock, so a loaded host cannot fail it):
-        # `probes` is glob patterns tried by match(); `compiles` is globs compiled into a bucket.
-        self.probes = 0
-        self.compiles = 0
         self.situation_by_name: dict[str, list[Rule]] = {}
         # Every rule of one (kind, name): plan() merges an area filed twice into one entry (_area_entry), read here
         # once per index rather than by a scan of every rule per matched area (the Bench tooling bench, 0.096 s).
@@ -202,7 +197,6 @@ class Index:
         if got is None:
             got = [(r, re.compile(pattern_of(g)), spec) for r, g, spec in self.buckets.get(key, ())]
             self._compiled[key] = got
-            self.compiles += len(got)
         return got
 
     def candidates(self, path: str):
@@ -221,7 +215,6 @@ class Index:
         situations: dict[str, Rule] = {}
         steps: dict[str, Rule] = {}
         for rule, pattern, spec in self.candidates(path):
-            self.probes += 1
             if not pattern.match(path):
                 continue
             if rule.kind == "situation":
@@ -551,59 +544,19 @@ def _crate_deps(root: Path, crate_dir: str) -> set[str]:
 
 
 def reverse_dependents(root: Path, crate_dirs: list[str]) -> dict[str, list[str]]:
-    """crate name -> the crates that depend on it directly (a change to it can break them), across workspaces.
+    """crate name -> the crates of its own workspace that depend on it directly (a change to it can break them).
 
     Direct only: a crate's own tests plus its direct dependents' tests catch the API and format breaks the
     folder layout misses (cmux-history's Visit field broke cmux-tui-core; a new cmux-action-catalog action
-    broke cmux-palette-eval and cmux-layout-reducer), and the widest crate (cmux-process) adds 32, not 200.
-    Across workspaces: cmux-app-ffi is its own workspace and path-depends on cmux-tui's crates."""
-    crates = {_crate_name(root, d): _crate_deps(root, d) for d in crate_dirs}
-    return {name: sorted(c for c, deps in crates.items() if name in deps and c != name) for name in crates}
-
-
-def _toml(path: Path) -> dict:
-    try:
-        return tomllib.loads(path.read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError):
-        return {}
-
-
-def cargo_workspace(root: Path, crate_dir: str) -> str:
-    """The folder whose Cargo.toml is the crate's workspace root, the way cargo finds it: the crate's own
-    [workspace]; else its package.workspace key; else the nearest ancestor with a [workspace] that lists it as a
-    member (and does not exclude it); else the crate alone. cmux-app-ffi and the crates it lists
-    (cmux-launch-shell, ...) are their own workspace inside cmux-tui/, so `--manifest-path cmux-tui/Cargo.toml
-    -p cmux-app-ffi` names no package."""
-    crate_dir = posixpath.normpath(crate_dir)
-    doc = _toml(root / crate_dir / "Cargo.toml")
-    if "workspace" in doc:
-        return crate_dir
-    key = (doc.get("package") or {}).get("workspace")
-    if isinstance(key, str):
-        return posixpath.normpath(posixpath.join(crate_dir, key))
-    parts = crate_dir.split("/")
-    for depth in range(len(parts) - 1, 0, -1):
-        ws = "/".join(parts[:depth])
-        ws_doc = (_toml(root / ws / "Cargo.toml") or {}).get("workspace")
-        if ws_doc is None:
-            continue
-        rel_dir = "/".join(parts[depth:])
-        excluded = any(rel_dir == posixpath.normpath(e) or rel_dir.startswith(posixpath.normpath(e) + "/")
-                       for e in ws_doc.get("exclude", []))
-        members = {posixpath.normpath(m.rstrip("/")) for pat in ws_doc.get("members", [])
-                   for m in ([pat] if not any(ch in pat for ch in "*?[")
-                             else [str(x.relative_to(root / ws)) for x in (root / ws).glob(pat)])}
-        return ws if rel_dir in members and not excluded else crate_dir
-    return crate_dir
-
-
-def cargo_test_commands(root: Path, crate_dirs: list[str]) -> list[str]:
-    """One `cargo test --manifest-path WS/Cargo.toml -p A -p B` per workspace the crates belong to."""
-    by_ws: dict[str, list[str]] = {}
+    broke cmux-palette-eval and cmux-layout-reducer), and the widest crate (cmux-process) adds 32, not 200."""
+    by_ws: dict[str, dict[str, set[str]]] = {}
     for d in crate_dirs:
-        by_ws.setdefault(cargo_workspace(root, d), []).append(_crate_name(root, d))
-    return [f"cargo test --manifest-path {ws}/Cargo.toml " + " ".join(f"-p {c}" for c in names)
-            for ws, names in by_ws.items()]
+        by_ws.setdefault(d.rsplit("/crates/", 1)[0], {})[_crate_name(root, d)] = _crate_deps(root, d)
+    out: dict[str, list[str]] = {}
+    for crates in by_ws.values():
+        for name in crates:
+            out[name] = sorted(c for c, deps in crates.items() if name in deps and c != name)
+    return out
 
 
 def generate_units(root: Path = ROOT, files: list[str] | None = None) -> list[dict]:
@@ -621,7 +574,6 @@ def generate_units(root: Path = ROOT, files: list[str] | None = None) -> list[di
     crate_dirs = [d for d in sorted(dirs) if len(d.split("/")) >= 2 and d.split("/")[-2] == "crates"
                   and (root / d / "Cargo.toml").is_file()]
     rdeps = reverse_dependents(root, crate_dirs)
-    crate_dir_of = {_crate_name(root, d): d for d in crate_dirs}
 
     def add(name: str, path: str, tests: list[str] | None = None, dependents: list[str] | None = None):
         units.append({"name": name, "paths": [path + "/**"], "tests": tests or [], "dependents": dependents or []})
@@ -634,9 +586,12 @@ def generate_units(root: Path = ROOT, files: list[str] | None = None) -> list[di
         parts = d.split("/")
         # Rust crates: cmux-tui/crates/X, cmux-next-ios/rust/crates/X, any */crates/X with a Cargo.toml.
         if len(parts) >= 2 and parts[-2] == "crates" and (root / d / "Cargo.toml").is_file():
+            workspace = "/".join(parts[:-2])
             crate = _crate_name(root, d)
             deps = rdeps.get(crate, [])
-            tests = cargo_test_commands(root, [d]) + cargo_test_commands(root, [crate_dir_of[c] for c in deps])
+            tests = [f"cargo test --manifest-path {workspace}/Cargo.toml -p {crate}"]
+            if deps:
+                tests.append(f"cargo test --manifest-path {workspace}/Cargo.toml " + " ".join(f"-p {c}" for c in deps))
             add(f"rust:{crate}", d, tests, deps)
         # Swift packages: <pkg>/Sources/<Module> and <pkg>/Tests/<Target> with a Package.swift beside them.
         elif len(parts) >= 3 and parts[-2] in ("Sources", "Tests") and (root / "/".join(parts[:-2]) / "Package.swift").is_file():

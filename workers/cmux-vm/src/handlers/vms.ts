@@ -643,24 +643,14 @@ const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined
  * Runs a start or resume and logs its vm_start line once the provider's start was called (success or failure): the
  * state before when the route read it (resume does; start does not, and a read only for the log would cost a provider
  * round trip), the start call's time, and the handler's total including its caller gate, ownership read and audit.
- * ownMs is entry to proven ownership (scope, rate limit, ownership read); gateMs is a budgeted key's running and spend
- * check (it reads the VM and the key's live VMs only when the key sets a cap), so totalMs - startMs names its step.
  */
-/** Records ownMs: the time from the handler's entry to proven ownership, once the route is inside withOwnedVm. */
-const ownedAt = (phases: TimedPhases) =>
-  Effect.flatMap(Clock.currentTimeMillis, (at) => Effect.sync(() => {
-    if (typeof phases["enteredAt"] === "number") phases["ownMs"] = at - phases["enteredAt"];
-  }));
-
 const timedStart = <A, E, R>(route: "start" | "resume", run: (phases: TimedPhases) => Effect.Effect<A, E, R>) =>
   Effect.flatMap(Clock.currentTimeMillis, (entered) => {
-    const phases: TimedPhases = { enteredAt: entered };
+    const phases: TimedPhases = {};
     return run(phases).pipe(Effect.onExit((exit) => "startMs" in phases
       ? Effect.flatMap(Clock.currentTimeMillis, (at) => logTimedEvent("vm_start", {
           vmId: phases["vmId"] ?? null, route, ok: Exit.isSuccess(exit), stateBefore: phases["stateBefore"] ?? null, stateAfter: phases["stateAfter"] ?? null,
-          ...("readMs" in phases ? { readMs: phases["readMs"] } : {}),
-          ...("ownMs" in phases ? { ownMs: phases["ownMs"] } : {}), ...("gateMs" in phases ? { gateMs: phases["gateMs"] } : {}),
-          startMs: phases["startMs"], totalMs: at - entered,
+          ...("readMs" in phases ? { readMs: phases["readMs"] } : {}), startMs: phases["startMs"], totalMs: at - entered,
         }))
       : Effect.void));
   });
@@ -972,10 +962,9 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
         withOwnedVm(path.vmId, "vm:write", "write", (caller, vm, proofs) =>
           Effect.gen(function* () {
             const upstream = yield* UpstreamClient;
-            yield* ownedAt(phases);
             phases["vmId"] = vm.value;
             // A team key's running and spend caps (RFD 0016): read the VM only when the key sets one.
-            yield* timedPhase(phases, "gateMs", agentStartAllows(caller, proofs.scope, upstream.getVmForWrite(vm, proofs).pipe(Effect.mapError(onRead))));
+            yield* agentStartAllows(caller, proofs.scope, upstream.getVmForWrite(vm, proofs).pipe(Effect.mapError(onRead)));
             const started = yield* timedPhase(phases, "startMs", upstream.startVm(vm, proofs, {
               tenant: caller.value.tenantId,
               background: headers["x-cmux-create-priority"] === "background" || caller.value.agent !== undefined || caller.value.maxRunSeconds !== undefined,
@@ -994,14 +983,13 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
         withOwnedVm(path.vmId, "vm:write", "write", (caller, vm, proofs) =>
           Effect.gen(function* () {
             const upstream = yield* UpstreamClient;
-            yield* ownedAt(phases);
             const current = yield* timedPhase(phases, "readMs", upstream.getVmForWrite(vm, proofs)).pipe(Effect.mapError(onRead));
             if (current.state !== "paused") {
               return yield* Effect.fail(conflict("Only a paused VM can be resumed; use start to boot a stopped VM"));
             }
             phases["vmId"] = vm.value;
             phases["stateBefore"] = current.state;
-            yield* timedPhase(phases, "gateMs", agentStartAllows(caller, proofs.scope, Effect.succeed(current)));
+            yield* agentStartAllows(caller, proofs.scope, Effect.succeed(current));
             const resumed = yield* timedPhase(phases, "startMs", upstream.startVm(vm, proofs, {
               tenant: caller.value.tenantId,
               background: headers["x-cmux-create-priority"] === "background" || caller.value.agent !== undefined || caller.value.maxRunSeconds !== undefined,

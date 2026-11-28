@@ -190,33 +190,3 @@ async fn a_burst_from_one_pid_walks_once() {
     assert_eq!(found, Some(json!({"name": "renamed"})), "a stale walk is redone");
     assert_eq!(ran.load(Ordering::SeqCst), 3);
 }
-
-/// sessions-2000-attached: sends waiting on one pid's walk all take its answer when it ends,
-/// none behind another. A per-pid lock handed the answer on one send at a time, so the last of a
-/// round's 2000 waited for every other to be scheduled first (fan-out p95 1.5 s on 8 CPUs).
-#[tokio::test(start_paused = true)]
-async fn a_walks_end_answers_every_waiting_send_at_once() {
-    use futures::FutureExt;
-    let walks = Walks::new();
-    let (release, released) = std::sync::mpsc::channel::<()>();
-    let mut first = Box::pin(walks.get(42, move || {
-        released.recv().ok();
-        Some(json!({"name": "fanin"}))
-    }));
-    assert!(futures::poll!(first.as_mut()).is_pending(), "the walk is running");
-    let mut waiting: Vec<_> = (0..32)
-        .map(|_| Box::pin(walks.get(42, || panic!("a send waiting on a walk walks again"))))
-        .collect();
-    for send in &mut waiting {
-        assert!(futures::poll!(send.as_mut()).is_pending());
-    }
-    release.send(()).unwrap();
-    assert_eq!(first.await, Some(json!({"name": "fanin"})));
-    // The last to wait first: each answers on its own next poll, none waiting on another's.
-    for send in waiting.iter_mut().rev() {
-        assert_eq!(send.as_mut().now_or_never(), Some(Some(json!({"name": "fanin"}))));
-    }
-    // A fresh answer is read with no wait at all.
-    let fresh = walks.get(42, || panic!("a fresh walk is walked again")).now_or_never();
-    assert_eq!(fresh, Some(Some(json!({"name": "fanin"}))));
-}

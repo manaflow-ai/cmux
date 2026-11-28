@@ -1155,18 +1155,6 @@ class DeeperReachTest(unittest.TestCase):
         self.assertEqual(pmb.stuck_reds("6" * 40, self.verdicts, runs, jobs_of, self.suites),
                          [(self.job, "cmux-tui-sdks", "2" * 40, "3" * 40)])
 
-    def test_a_skipped_red_says_why(self) -> None:
-        """Run 45987000605 said only "a known red, no bisect" for 23 of its 25 known reds."""
-        jobs_of = lambda rid: self.jobs[rid]
-        skipped: dict = {}
-        self.assertEqual(pmb.stuck_reds("6" * 40, self.verdicts, self.reach, jobs_of, self.suites, skipped=skipped), [])
-        self.assertEqual(list(skipped), [self.job])
-        self.assertIn("no green batch run in reach (2 read)", skipped[self.job])
-        note = f"`{self.job}` was already red on `44444444444` (run 40): a known red, no bisect."
-        self.assertEqual(pmb.with_skip_reason(note, skipped), note[:-1] + ": " + skipped[self.job] + ".")
-        self.assertEqual(pmb.with_skip_reason("`other / job` was already red: a known red, no bisect.", skipped),
-                         "`other / job` was already red: a known red, no bisect.")
-
     def test_no_deeper_read_when_every_red_has_a_green_in_reach(self) -> None:
         self.jobs[40] = ({self.job: ("cmux-tui-sdks", "success")}, True)
         with mock.patch.object(pmb, "list_runs", side_effect=AssertionError("read deeper")):

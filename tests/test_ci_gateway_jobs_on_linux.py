@@ -47,11 +47,7 @@ GATEWAY_MAC = frozenset({
     "cmux-next-sidebar-bench.yml#bench-fleet",
     "cmux-next-split-table.yml#measure-fleet",
     "cmux-next-tip-test-compile.yml#compile-fleet",
-    "nightly-interaction-latency.yml#benches-fleet",
-    # Already on the gateway by vars.CI_EVAL_STEP_GATEWAY; linux-pickers-gone (host pins) froze them to the label.
-    "cmux-next-ios-gestures.yml#gestures",
-    "cmux-next-ios-try-ahead.yml#build-ahead",
-    "ios-review-gate.yml#gate-products-fleet",
+    "nightly-interaction-latency.yml#benches",
 })
 
 MOVED = {
@@ -71,42 +67,6 @@ GATEWAY_VAR = re.compile(r"vars\.\w*GATEWAY\b")
 # Known: ci-macos.yml (called from ci.yml) takes vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY on pull requests when
 # that opt-in variable is set (hq#794); its id has about 70 references, so its rename is its own change.
 REUSABLE_GATEWAY_KNOWN = frozenset({"ci-macos.yml#swift-package-tests"})
-
-
-# The gateway runner's job-started hook (glaeda-cmux-runner-hook) names the jobs it takes, as "FILE JOB", and takes
-# any job id ending in -fleet; it refuses every other job at "Set up runner". This is its list as of its refusal of
-# nightly-interaction-latency.yml benches (run 46133631477, 2026-11-28 10:25Z), which #64245 had moved here.
-HOOK_NAMED = frozenset({
-    "chief-evals.yml#fleet-ab",
-    "cmux-next-ios-energy-nightly.yml#bench",
-    "cmux-next-ios-gestures.yml#gestures",
-    "cmux-next-ios-keyboard-motion.yml#bench",
-    "cmux-next-ios-try-ahead.yml#build-ahead",
-    "cmux-next-iphone-clips.yml#record",
-    "cmux-next-perf-bench.yml#bench",
-    "cmux-next-stress-bench.yml#measure",
-    "cmux-next-tab-switch.yml#frames",
-    "cmux-next-tip-test-compile.yml#compile",
-    "cmux-next.yml#app-compile-fleet",
-    "cu-driver-eval.yml#eval",
-    "fleet-compile-check.yml#compile-check",
-    "fleet-rd-host-macos.yml#check",
-    "fleet-test-compile.yml#compile",
-    "native-sidebar-gallery.yml#capture",
-    "screen-stream-eval.yml#eval",
-})
-# Gateway jobs the hook's list does not name and whose id does not end in -fleet, from before this check. Each still
-# runs or is skipped by its own condition; renaming one to -fleet takes it off this list.
-HOOK_UNNAMED_KNOWN = frozenset({
-    "cmux-next-head-compile.yml#compile",
-    "cmux-next-perf-budgets.yml#measure",
-    "cmux-next-web-perf.yml#stress-measure",
-    "ios-base-bisect.yml#bisect",
-})
-
-
-def gateway_jobs_the_hook_refuses() -> list[str]:
-    return sorted(key for key, job in jobs() if on_gateway(job) and not key.endswith("-fleet") and key not in HOOK_NAMED)
 
 
 def reusable(document: dict) -> bool:
@@ -147,12 +107,6 @@ class GatewayJobsOnLinuxTests(unittest.TestCase):
                          "a new job on a glaeda-gateway label: a job that only runs the fleet client runs on cmux-linux "
                          "with .github/actions/fleet-client")
         self.assertEqual(sorted(GATEWAY_MAC - gateway), [], "left the gateway label: drop it from GATEWAY_MAC")
-
-    def test_a_new_gateway_job_is_one_the_hook_takes(self) -> None:
-        refused = set(gateway_jobs_the_hook_refuses())
-        self.assertEqual(sorted(refused - HOOK_UNNAMED_KNOWN), [],
-                         "the gateway runner's hook refuses these at Set up runner: end the job id in -fleet")
-        self.assertEqual(sorted(HOOK_UNNAMED_KNOWN - refused), [], "renamed or moved: drop it from HOOK_UNNAMED_KNOWN")
 
     def test_a_gateway_job_in_a_reusable_workflow_ends_in_fleet(self) -> None:
         refused = set(reusable_gateway_jobs_the_hook_refuses())

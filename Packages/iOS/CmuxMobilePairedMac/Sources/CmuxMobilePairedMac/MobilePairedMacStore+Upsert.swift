@@ -307,7 +307,10 @@ extension MobilePairedMacStore {
                     binding: [.text(macDeviceID), .text(selectedUnclaimed.ownerKey)]
                 )
             }
-            try deleteReadableRoutes(macDeviceID: macDeviceID, ownerKey: ownerKey)
+            try exec(
+                "DELETE FROM mac_routes WHERE mac_device_id = ? AND owner_key = ?;",
+                binding: [.text(macDeviceID), .text(ownerKey)]
+            )
             for route in routesToPersist {
                 guard let persistedRoute = route.disclosed(
                     for: .authenticated,

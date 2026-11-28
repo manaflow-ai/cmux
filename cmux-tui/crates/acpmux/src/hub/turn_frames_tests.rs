@@ -143,7 +143,6 @@ fn live_turn(id: &str) -> Turn {
         kinds: HashMap::new(),
         chrome: false,
         simulator: false,
-        mac_app: None,
     }
 }
 

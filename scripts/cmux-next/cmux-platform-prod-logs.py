@@ -485,9 +485,8 @@ PUBLIC_FIELDS = {"team": ID, "teamId": ID, "machine": ID, "machineId": ID, "vm":
                  "state_bytes": INT, "effects_bytes": INT, "commits": INT, "drain_ms": INT, "wake_ms": INT,
                  "waited_ms": INT,
                  # cloud.rows.scan_large (cmux-platform#2511, AllRows.ts eachRow): the table a scan walked, rows it
-                 # read and kept; its `at` frames are kept only as function names (scan_callers). cmux-platform#2546
-                 # adds the call site (the shared `site` above) and the pages it read.
-                 "table": TOKEN, "rows": INT, "yielded": INT, "pages": INT}
+                 # read and kept; its `at` frames are kept only as function names (scan_callers).
+                 "table": TOKEN, "rows": INT, "yielded": INT}
 # Booleans a kept line may keep, only as true or false (cloud.spare.gateway_read, cmux-platform#1629: what a spare
 # claim's gateway check read: the shared route, a gateway host here, and whether the team's creates lack a rule;
 # cloud.machine.start_overdue and power_overdue: whether the machine's create or call was still running).
@@ -989,18 +988,10 @@ def work_machine(j):
 # met (admitWaitMs, admitQueueMs, admitInFlight, admitQueued), and on a refusal its fixed reason and estimated wait;
 # vm_create_admission_unavailable is the line of a create sent without the queue because the queue could not be
 # reached. Without them a staging burst after the deploy could not say whether the queue held creates back at all.
-#
-# vm_start (handlers/vms.ts timedStart) is a start's or resume's line: startMs, the provider's start call, and totalMs,
-# the handler's whole time with its caller gate, ownership read and audit. totalMs - startMs is cmux-vm's own share of a
-# start; the platform's power call_ms minus totalMs is the hop. wake-echo run 46000366770: call_ms minus provider_ms
-# was 1-2 s a start, and without this line no read could say which side held it.
-VM_EVENTS = frozenset({"vm_create", "vm_create_admission_unavailable", "vm_start"})
+VM_EVENTS = frozenset({"vm_create", "vm_create_admission_unavailable"})
 VM_EVENT_MS = ("preMs", "recoverMs", "verifyImageMs", "createMs", "recoverAfterMs", "resizeMs", "recordMs", "memberMs",
                "providerTotalMs", "totalMs", "admitWaitMs", "admitQueueMs", "admitRetryAfterMs", "admitInFlight",
-               "admitQueued", "readMs", "startMs", "ownMs", "gateMs")
-# vm_start's fixed words: its route, and the VM's state before and after (workers/cmux-vm src/api.ts VmState).
-VM_START_ROUTES = ("start", "resume")
-VM_STATES = ("starting", "running", "pausing", "paused", "stopped", "unknown")
+               "admitQueued")
 VM_EVENT_BOOLS = ("ok", "recovered", "oversized", "meshAtCreate", "meshJoined")
 VM_ADMISSION_REASONS = ("queue_full", "wait_expired")
 
@@ -1020,11 +1011,6 @@ def vm_event(j):
         out["imageVariant"] = variant
     if j.get("admission") in VM_ADMISSION_REASONS:
         out["admission"] = j["admission"]
-    if j.get("route") in VM_START_ROUTES:
-        out["route"] = j["route"]
-    for k in ("stateBefore", "stateAfter"):
-        if j.get(k) in VM_STATES:
-            out[k] = j[k]
     timings = token_counts(j.get("providerTimingsMs"))
     if timings is not None:
         out["providerTimingsMs"] = timings
@@ -1077,47 +1063,12 @@ def scan_callers(at):
     return names or None
 
 
-# The hourly sweep's snapshot reaper (cmux-platform src/server/cloud/Sweep.ts reapSnapshots, on in development since
-# cmux-platform#2532) and its sweep's failure write `{"event": ...}` lines, no `msg`, so a read dropped them all as
-# unlisted: run 46141895410 (development, 11-28 09:30-11:40Z) scanned 2428 events and kept 0 while the probe team still
-# hit cloud.quota.exceeded. The census says what holds a team's snapshot budget: listed, outside our prefix (foreign),
-# named by a record, or unnamed and old enough to reap. Only its counts, flags and mode are kept; a reaped or failed
-# snapshot's line keeps only its event name and whether it had a machine, never its id, slug, time or error text.
-SNAPSHOT_EVENTS = frozenset({"cloud.snapshot.census", "cloud.snapshot.reaped", "cloud.snapshot.would_reap",
-                             "cloud.snapshot.reap_failed", "cloud.snapshot.reap_list_failed",
-                             "cloud.orphan.sweep_failed"})
-SNAPSHOT_COUNTS = ("listed", "foreign", "named", "unnamed", "unnamed_due", "oldest_unnamed_h", "age_h")
-REAP_MODES = ("off", "warn", "on")
-SWEEP_CODE = re.compile(r"^[a-z][a-z_]{0,31}(?:\.[a-z][a-z_]{0,31}){0,4}$")
-
-
-def snapshot_event(j):
-    """The kept fields of a SNAPSHOT_EVENTS line: its event, counts, flags and fixed words only."""
-    out = {"event": j["event"]}
-    for k in SNAPSHOT_COUNTS:
-        v = base.typed(INT, j.get(k))
-        if v is not None:
-            out[k] = v
-    if isinstance(j.get("complete"), bool):
-        out["complete"] = j["complete"]
-    if j.get("mode") in REAP_MODES:
-        out["mode"] = j["mode"]
-    if "machine" in j:
-        out["has_machine"] = j["machine"] is not None
-    code = j.get("code")
-    if isinstance(code, str) and SWEEP_CODE.match(code):
-        out["code"] = code
-    return out
-
-
 def public_log(j):
     """(fields, why): fields only for an allowlisted platform msg or cmux-vm event, else None and the drop reason."""
     if any(k in j for k in base.TENANT_KEYS):
         return None, "tenant"
     if "msg" not in j and j.get("event") in VM_EVENTS:
         return vm_event(j), None
-    if "msg" not in j and j.get("event") in SNAPSHOT_EVENTS:
-        return snapshot_event(j), None
     msg = j.get("msg")
     if not isinstance(msg, str) or msg not in PLATFORM_MSGS:
         return None, "unlisted"
@@ -1308,7 +1259,7 @@ def line(e, counts=None):
             rec["log"] = log
         else:
             counts[f"logs_dropped_{why}"] = counts.get(f"logs_dropped_{why}", 0) + 1
-            name = (j.get("msg") or j.get("event")) if j is not None and why == "unlisted" else None
+            name = j.get("msg") if j is not None and why == "unlisted" else None
             # A dropped msg that is a plain token (never an id, never free text) is named, so a platform msg this list
             # lacks shows in the read that needed it instead of only as a count.
             if isinstance(name, str) and base.typed(TOKEN, name) == name:
@@ -1414,8 +1365,7 @@ def window_needle(needles):
     """A window read asks the query for one msg's events when its only needle is an allowlisted platform msg literal:
     a busy production hour holds more events than PAGES pages, and cloud.idle.kept is a few of them (cmux#54889).
     The literal is our own constant, never a tenant's word; any other needle filters only the rows, as before."""
-    return needles[0] if len(needles) == 1 and (needles[0] in PLATFORM_MSGS or needles[0] in VM_EVENTS
-                                                    or needles[0] in SNAPSHOT_EVENTS) else None
+    return needles[0] if len(needles) == 1 and (needles[0] in PLATFORM_MSGS or needles[0] in VM_EVENTS) else None
 
 
 def query(token, service, frm, to, offset=None, needle=None):

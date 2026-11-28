@@ -151,6 +151,5 @@ fn move_pointer_is_an_acting_tool_with_click_targets() {
     assert_eq!(s["required"], json!([]));
     // Says what it does to the person's focus and pointer.
     assert!(tool.description.contains("nothing takes focus"));
-    assert!(tool.description.contains("the person's pointer still stays where it is"));
-    assert!(!tool.description.contains("moves the person's real pointer"));
+    assert!(tool.description.contains("moves the person's real pointer"));
 }

@@ -577,25 +577,6 @@ public final class MacScreenSession {
         if stats.framesDropped != dropped { stats.framesDropped = dropped }
     }
 
-    /// A recorded stream played into this session's pane (`mac_screen.replay`): connected with no
-    /// peer, so its frames count in `mac_screen.state` as a live stream's do (goal
-    /// screen-share-viewer-present). `endReplay()` when the file has played.
-    func beginReplay(width: Int, height: Int) {
-        stats = LiveStats()
-        frameSize = .zero
-        streamSize = CGSize(width: width, height: height)
-        frameCounter = nil
-        timings.connectStarted(at: Date(), .now)
-        streamPath = "Replay"
-        transportCarrier = "replay"
-        phase = .connected
-    }
-
-    func endReplay() {
-        transportCarrier = nil
-        if case .connected = phase { phase = .ended }
-    }
-
     public func setStreamFrameSize(_ size: CGSize) {
         if size.width >= 1, size != frameSize { frameSize = size }
     }

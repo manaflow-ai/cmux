@@ -306,10 +306,7 @@ impl Default for TunnelTiming {
             // one small signed POST.
             refresh_every: Duration::from_secs(5 * 60),
             retry_floor: Duration::from_secs(1),
-            // A busy mesh hub (503 `mesh.node.unavailable`) answers a fresh join for tens of
-            // seconds (cloud-carrier-ssh-failover rows 2026-11-27T22:40Z, 11-28T00:58Z, 02:29Z):
-            // a 60 s ceiling left the hub up to a minute behind the platform once it answered.
-            retry_ceiling: Duration::from_secs(15),
+            retry_ceiling: Duration::from_secs(60),
             max_failures: 8,
         }
     }

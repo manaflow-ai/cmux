@@ -64,22 +64,6 @@ pub fn classify(name: &str, for_person: bool) -> &'static str {
 /// The session tag that sets a session's priority by hand: `interactive` or `background`.
 pub const TAG: &str = "priority";
 
-/// The [`TAG`] a `session/new` asks for in `_meta.acpmux.tags` (`interactive` or `background`),
-/// which the hub keeps on the chat before its agent first spawns (`NewRequest::priority`).
-///
-/// The tags the create carries were applied only after `new_session_with_id` had spawned the
-/// agent, whose priority is fixed at spawn (`lifecycle_cold_start.rs`), so a create's own tag
-/// never reached its first process. On a Cloud machine every chat the person starts (the app,
-/// `cmux cloud start-chat`, the phone) arrives from the cmux daemon over the unix socket, which
-/// proves no person: it was created by a script, ran `background`, and the gateway refused it
-/// from the interactive reserve (cloud-chat-replies-production, 2026-11-28 02:49Z: "Request
-/// rejected (429) · background requests are held out of the interactive reserve"). The tag is
-/// already writable by any local client (`_acpmux/tag`), so taking it at create grants nothing new.
-pub fn asked_tag(acpmux_meta: Option<&serde_json::Value>) -> Option<String> {
-    let value = acpmux_meta?.get("tags")?.get(TAG)?.as_str()?.trim().to_ascii_lowercase();
-    matches!(value.as_str(), INTERACTIVE | BACKGROUND).then_some(value)
-}
-
 /// Whether a session's role makes it a coordinator, whatever its name.
 ///
 /// On 2026-11-24 at 21:1xZ the interim coordinator's `/compact` failed with "503 no

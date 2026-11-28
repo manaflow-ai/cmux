@@ -516,7 +516,6 @@ export async function inflateFrame(data: ArrayBuffer | ArrayBufferView | Blob): 
     bytes += value.byteLength;
     if (bytes > MAX_INFLATED_BYTES) {
       void reader.cancel();
-      // l10n-allow: an internal protocol error, not shown
       throw new Error("compressed frame too large");
     }
     text += decoder.decode(value, { stream: true });
@@ -5916,45 +5915,42 @@ export class AcpmuxDirectClient {
 
   /// Subagent `subagent`'s own records of the selected chat, oldest first (acpmux `_acpmux/events
   /// {subagent}`): what a subagent's pane draws when the chat's loaded page no longer holds that
-  /// subagent (subagents/subagentOwnLog.ts). Its newest page first: a subagent whose records fit one
-  /// page (most) is read in one ask, and a longer one hands that page to `onNewest` to draw while
-  /// at most `SUBAGENT_LOG_PAGES` pages from its start are read, so the pane holds its end and last
-  /// reply from its first frame and the fold never reads a finished subagent as running. It read
-  /// up to eight pages from its start before drawing anything (Leo, 2026-11-27: "these take way
-  /// too long to load i feel like.. regardless these needs to be faster").
-  async readSubagentLog(subagent: string, onNewest?: (records: EventRecord[]) => void): Promise<EventRecord[]> {
+  /// subagent (subagents/subagentOwnLog.ts). At most `SUBAGENT_LOG_PAGES` pages from its start; a
+  /// longer log adds its newest page, which holds its end and last reply, so the fold never reads a
+  /// finished subagent as running.
+  async readSubagentLog(subagent: string): Promise<EventRecord[]> {
     const sessionId = this.selectedSessionId;
     // l10n-allow: internal selection race; the subagent pane renders its own localized state.
     if (!sessionId) throw new Error("No chat");
-    const page = (from: { afterSeq: number } | { beforeSeq: number }) =>
-      this.typed("_acpmux/events", {
+    const found: EventRecord[] = [];
+    let after = 0;
+    for (let page = 0; page < SUBAGENT_LOG_PAGES; page += 1) {
+      const result = await this.typed("_acpmux/events", {
         sessionId,
         subagent,
-        ...from,
+        afterSeq: after,
         limit: KEPT_EVENTS,
         maxBytes: OLDER_PAGE_BYTES,
         kinds: ["transcript"],
       });
-    const newestResult = await page({ beforeSeq: Number.MAX_SAFE_INTEGER });
-    // l10n-allow: internal selection race; the subagent pane renders its own localized state.
-    if (sessionId !== this.selectedSessionId) throw new Error("Session changed");
-    const newest = records(newestResult?.events);
-    if (newestResult?.hasMore !== true || newest.length === 0) return newest;
-    onNewest?.(newest);
-    const newestStart = Math.min(...newest.map((event) => event.seq));
-    const found: EventRecord[] = [];
-    let after = 0;
-    for (let n = 0; n < SUBAGENT_LOG_PAGES; n += 1) {
-      const result = await page({ afterSeq: after });
       // l10n-allow: internal selection race; the subagent pane renders its own localized state.
       if (sessionId !== this.selectedSessionId) throw new Error("Session changed");
-      const events = records(result?.events).filter((event) => event.seq < newestStart);
+      const events = records(result?.events);
       found.push(...events);
-      if (result?.hasMore !== true || events.length === 0) break;
+      if (result?.hasMore !== true || events.length === 0) return found;
       after = Math.max(...events.map((event) => event.seq));
-      if (after >= newestStart - 1) break;
     }
-    return [...found, ...newest];
+    const newest = await this.typed("_acpmux/events", {
+      sessionId,
+      subagent,
+      beforeSeq: Number.MAX_SAFE_INTEGER,
+      limit: KEPT_EVENTS,
+      maxBytes: OLDER_PAGE_BYTES,
+      kinds: ["transcript"],
+    });
+    // l10n-allow: internal selection race; the subagent pane renders its own localized state.
+    if (sessionId !== this.selectedSessionId) throw new Error("Session changed");
+    return [...found, ...records(newest?.events).filter((event) => event.seq > after)];
   }
 
   /// Every running subagent of the selected chat and its latest ended ones, from acpmux's subagent
@@ -16930,7 +16926,6 @@ export class AcpmuxDirectClient {
     const sessionId = this.actingSessionId;
     // l10n-allow: a developer error; the caller shows notice.forkFailed.
     if (!this.canFork || !sessionId || this.capabilities?.has(SUBAGENT_FORK_CAPABILITY) !== true)
-      // l10n-allow: an internal protocol error, not shown
       throw new Error("acpmux cannot fork a subagent");
     // l10n-allow: as above.
     if (this.forking) throw new Error("a fork is already running");

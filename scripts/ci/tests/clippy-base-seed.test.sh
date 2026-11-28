@@ -38,14 +38,5 @@ check "CMUX_CLIPPY_BASE_SEED=off does nothing" '[[ ! -s "$log" ]]'
 : > "$log"; FAKE_R2_FAIL=1 run "$work/cold3" >/dev/null 2>&1; rc=$?
 check "a miss is not fatal" '[[ $rc == 0 ]]'
 
-verdict() { bash "$work/repo/scripts/ci/clippy-base-seed.sh" verdict "$@"; }
-: > "$log"; verdict "$work/v" abc123 >/dev/null 2>&1; rc=$?
-check "verdict restores the base's own key, then the newest by prefix, in the shared namespace" \
-  '[[ $rc == 0 ]] && grep -q "^r2 restore $work/v cmux-tui-clippy-verdict-v1-abc123 cmux-tui-clippy-verdict-v1-$" "$log"'
-: > "$log"; FAKE_R2_FAIL=1 verdict "$work/v2" abc123 >/dev/null 2>&1; rc=$?
-check "a verdict miss is not fatal" '[[ $rc == 0 ]]'
-: > "$log"; CMUX_CLIPPY_BASE_VERDICT=off verdict "$work/v3" abc123 >/dev/null 2>&1
-check "CMUX_CLIPPY_BASE_VERDICT=off reads nothing" '[[ ! -s "$log" ]]'
-
 check "usage error without a mode" '! bash "$work/repo/scripts/ci/clippy-base-seed.sh" >/dev/null 2>&1'
 exit $fail

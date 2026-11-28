@@ -23,7 +23,7 @@ bash scripts/cmux-next/tests/pin-cmux-tui-probe.test.sh
 [no-process-scan]
 python3 -I scripts/cmux-next/check-no-process-scan.py "$GITHUB_WORKSPACE"
 [state-roots]
-bash scripts/cmux-next/check-state-roots.sh "$GITHUB_WORKSPACE" --strict-rows
+bash scripts/cmux-next/check-state-roots.sh "$GITHUB_WORKSPACE"
 [concurrency]
 scripts/cmux-next/check-concurrency.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 # Why: note-506

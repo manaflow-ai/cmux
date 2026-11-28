@@ -1,5 +1,4 @@
-import { ProviderNetworkFullError } from "./drivers/types";
-import { isProviderStartCapacityRefusal } from "./fleetAdmission";
+import { ProviderNetworkFullError, providerConflictKind } from "./drivers/types";
 
 /**
  * Explicit wait state for a Cloud VM create that found no room.
@@ -60,9 +59,7 @@ export function createWaitStateForCause(cause: unknown): VmCreateWaitState | nul
     if (typeof current !== "object") break;
     current = (current as { cause?: unknown }).cause;
   }
-  // The 409 placement refusal, the 429 start-capacity throttle, and the fleet
-  // admission refusal (fleetAdmission.ts) all wait for capacity.
-  return isProviderStartCapacityRefusal(cause) ? "waiting_for_capacity" : null;
+  return providerConflictKind(cause) === "capacity" ? "waiting_for_capacity" : null;
 }
 
 /**

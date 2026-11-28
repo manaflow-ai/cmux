@@ -53,7 +53,7 @@
 # bytes=0,50,100,200 [filler=res,macho] (startup-matrix "Pre-main vs bundle size"): in place of the arms, does a NEW
 # copy's first exec to main (launch-tti's cold_install, 2.2 s, where a relaunch takes 24 to 51 ms) grow with the
 # bundle's bytes? Templates made once from the DMG's app: orig (untouched), orig-q (orig with com.apple.quarantine, as a
-# download has), adhoc-0 (re-signed ad hoc, entitlements and the hardened-runtime flag dropped; with the runtime kept, run 95147e14 saw every ad hoc copy miss main for 30 s, likely library validation), and per N MB of filler, from adhoc-0:
+# download has), adhoc-0 (re-signed ad hoc, entitlements dropped so AMFI allows it), and per N MB of filler, from adhoc-0:
 #   res-N    Contents/Resources/filler.bin, N MB of random bytes; the bundle re-signed ad hoc (its seal hashes it)
 #   macho-N  Contents/Frameworks/Filler.dylib with an N MB __DATA,__filler section of random bytes, signed ad hoc, then
 #            the bundle (nothing loads it: hashed bytes, not faulted pages)
@@ -308,7 +308,7 @@ bytes_study() {
   mkdir -p "$t/orig" "$t/orig-q" "$t/adhoc-0"
   ditto "$APP" "$t/orig/$name" && ditto "$APP" "$t/orig-q/$name" && ditto "$APP" "$t/adhoc-0/$name" || return 3
   xattr -r -w com.apple.quarantine "0081;$(printf '%x' "$(date +%s)");Safari;" "$t/orig-q/$name"
-  codesign --force --deep --sign - --preserve-metadata=identifier "$t/adhoc-0/$name" >>"$out/sign.log" 2>&1 \
+  codesign --force --deep --sign - --preserve-metadata=identifier,flags "$t/adhoc-0/$name" >>"$out/sign.log" 2>&1 \
     || { echo "LP-FAIL ad hoc re-sign (sign.log)"; tail -5 "$out/sign.log"; return 3; }
   for kind in "${kinds[@]}"; do
     for mb in "${mbs[@]}"; do
@@ -324,7 +324,7 @@ bytes_study() {
           && codesign --force --sign - "$t/$v/$name/Contents/Frameworks/Filler.dylib"; } >>"$out/sign.log" 2>&1 \
           || { echo "LP-FAIL filler dylib $v (sign.log)"; tail -5 "$out/sign.log"; return 3; }
       fi
-      codesign --force --sign - --preserve-metadata=identifier "$t/$v/$name" >>"$out/sign.log" 2>&1 \
+      codesign --force --sign - --preserve-metadata=identifier,flags "$t/$v/$name" >>"$out/sign.log" 2>&1 \
         || { echo "LP-FAIL re-sign $v (sign.log)"; tail -5 "$out/sign.log"; return 3; }
       variants+=("$v")
     done

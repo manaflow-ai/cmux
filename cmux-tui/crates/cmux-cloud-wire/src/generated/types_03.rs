@@ -608,15 +608,6 @@ wire_enum! {
         CloudSandboxes = "cloud.sandboxes",
         CloudConnectServices = "cloud.connectServices",
         CloudIdlePause = "cloud.idlePause",
-        CloudProviders = "cloud.providers",
-        CloudRegions = "cloud.regions",
-        CloudEgress = "cloud.egress",
-        AgentsHarnesses = "agents.harnesses",
-        AgentsModels = "agents.models",
-        ProjectionFolders = "projection.folders",
-        ProjectionReadOnly = "projection.readOnly",
-        ProjectionSyncBack = "projection.syncBack",
-        SandboxLocal = "sandbox.local",
         TelemetryLevel = "telemetry.level",
         UpdatesChannel = "updates.channel",
         UpdatesMinimumVersion = "updates.minimumVersion",
@@ -901,4 +892,10 @@ pub enum Step {
     Agent(StepAgent),
     /// A member this build does not know (a newer backend), kept verbatim.
     Unknown(Value),
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct StepSleep {
+    pub r#type: LitSleep,
+    pub seconds: i64,
 }

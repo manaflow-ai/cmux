@@ -32,9 +32,8 @@ import CmuxNextDesign
 /// (webviews composer/vimKeys.ts).
 /// `attachmentView`: how pictures and files show in every composer and in sent messages, `inline`
 /// (each in the text where it was added, as Messages does), `strip` (in a row; the default) or
-/// `both` (an older value; the page reads it as `strip`). The last write wins, from Settings, the
-/// composer's right-click or a sent message's (webviews composerSettings.ts). Only the look: a
-/// draft's text, its attachments and their order are the same in all.
+/// `both` (in the text and in the row, each removable from either; sent messages draw it as
+/// `inline`). Only the look: a draft's text, its attachments and their order are the same in all.
 /// `scrollToBottomOnSend`: when enabled, sending while reading up jumps to the newest row (the
 /// current behavior); when disabled, sending preserves the visible row and offset while new rows
 /// arrive below it. A reader at the bottom still follows streaming output.

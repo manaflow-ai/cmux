@@ -357,9 +357,7 @@ async fn create(client: &Client, args: &RunArgs, local: &Path) -> Result<Provisi
     let key_text = new_idempotency_key();
     let key = parse_key::<types::VmsCreateVmIdempotencyKey>(&key_text)?;
     let created =
-        match retrying(|| fetch_body(client.vms_create_vm(Some(&key), None, None, None, &body)))
-            .await
-        {
+        match retrying(|| fetch_body(client.vms_create_vm(Some(&key), None, None, &body))).await {
             Ok(created) => created,
             Err(error) if unconfirmed(&error) => {
                 return match recover_creation(client, &key_text).await {
@@ -917,7 +915,7 @@ async fn finish(client: &Client, vm: RunVm, keep: bool) -> Result<&'static str, 
 async fn pause_kept(client: &Client, vm: RunningVm) -> Result<&'static str, CliError> {
     let vm_id = vm.payload().clone();
     let pausing = vm.pause();
-    let body = retrying(|| fetch_body(client.vms_pause_vm(&vm_id, None, None))).await?;
+    let body = retrying(|| fetch_body(client.vms_pause_vm(&vm_id, None))).await?;
     match parse_vm_state(&body, &vm_id)? {
         Status::Paused => {
             let _paused = pausing.paused();

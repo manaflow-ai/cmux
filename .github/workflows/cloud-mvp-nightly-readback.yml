@@ -45,10 +45,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
     # The display queue waits hours when busy (run 46102219213: source bundling 24 min, then 87 measurements
     # ahead; p90 of the exclusive class 517-764 min over 24 h). A 25-min queue wait cancelled every readback
-    # before its turn, so the job waits up to 3 h for a display Mac, plus the step's 40 min. Run 46109116709 still
-    # waited the whole 3 h as exclusive (107 measurements ahead, "no drain for it"): the readback gives a pass or
-    # a fail, no number, so it needs no quiet host and asks class light on a display Mac (the controller's
-    # quietFreeMeasureClasses, measure_reviewed.go), which shares a console with at most one other display step.
+    # before its turn, so the job waits up to 3 h for a display Mac, plus the step's 40 min.
     timeout-minutes: 230
     steps:
       # Only the client action is checked out here. The display worker checks out this commit and runs the
@@ -93,7 +90,7 @@ jobs:
           args=()
           if [ -n "$BUILD" ]; then args+=("--arg=build=$BUILD"); fi
           status=0
-          "$client" run --class light --display --sign-in agent \
+          "$client" run --class exclusive --display --sign-in agent \
             --script scripts/measure/cloud-mvp-nightly-readback.sh --ref "$REF_SHA" --repo manaflow-ai/cmux \
             --key "cloud-mvp-readback-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" "${args[@]}" \
             --artifact .build/cloud-mvp-nightly-readback/report.tgz \
