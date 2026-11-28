@@ -2,6 +2,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextScreenshots
 import CmuxNextSettings
 import CmuxNextWakeups
 import ImageIO
@@ -11,7 +12,8 @@ import UniformTypeIdentifiers
 /// `--record-launch` (``watchLaunch``) for the launch, before the control socket is up:
 /// the window as the window server composited it (`compositedSnapshot`,
 /// as `debug.window_snapshot`, plus the app's panels over it that are not
-/// its children, such as the palette opened with no key window), once per display frame of its screen (a
+/// its children, such as the palette opened with no key window, and the windows the window server lists above
+/// it, as `debug.window_snapshot`'s floating pass), once per display frame of its screen (a
 /// FrameClient of the window's FrameScheduler, 120 Hz on ProMotion), as JPEG frames
 /// `DIR/frame-NNNNN.jpg` plus `DIR/frames.json` (index, host time in
 /// seconds since the first frame). Returns at once; the recording stops by
@@ -172,7 +174,13 @@ final class DebugWindowRecord {
             guard now - t0 <= seconds else { finish(); return false }
             // The window's first link frame can report the frame taken at start.
             if let last = times.last, now - t0 <= last { return true }
-            guard let image = window.compositedSnapshot(adding: overlayPanels()) else { return true }
+            // What a still shows over the window (debug.window_snapshot's floating pass): the app's
+            // windows the window server lists above it. The palette over an inactive app is one, and
+            // is neither a child nor an `overlayPanels` panel, so without this pass no frame has it.
+            // With floating windows the base takes only the children, so no panel is drawn twice.
+            let floating = window.floatingWindowsSnapshot()?.image
+            guard let base = window.compositedSnapshot(adding: floating == nil ? overlayPanels() : []) else { return true }
+            let windowSize = window.frame.size
             // A launch recording's time zero is its first captured frame (its 30 s limit above ends it if none comes).
             start0 = t0
             let index = times.count
@@ -188,7 +196,8 @@ final class DebugWindowRecord {
                 // recording other scenarios read for motion proof, so the
                 // display-link tick must not grow by a resample per frame. The
                 // queue is serial, so the two arrays stay in frame order and
-                // `finish`, queued last, sees all of them.
+                // `finish`, queued last, sees all of them. The floating layer's composite runs here too.
+                let image = floating.flatMap { WindowImageLayer.composite(base: base, windowSize: windowSize, layers: [.window($0)]) } ?? base
                 brightness.measure(image)
                 guard let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else { return }
                 CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
