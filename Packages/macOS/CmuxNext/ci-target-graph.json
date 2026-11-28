@@ -9,7 +9,6 @@
     "CmuxAuthRuntime": "Packages/Shared/CmuxAuthRuntime",
     "CmuxChiefList": "Packages/Shared/CmuxChiefList",
     "CmuxEgress": "Packages/Shared/CmuxEgress",
-    "CmuxFeedPushCore": "Packages/Shared/CmuxFeedPushCore",
     "CmuxGhosttyKit": "Packages/Shared/CmuxGhosttyKit",
     "CmuxHomeCore": "Packages/Shared/CmuxHomeCore",
     "CmuxHomeRender": "Packages/Shared/CmuxHomeRender",
@@ -399,6 +398,7 @@
         "CmuxNextKeys",
         "CmuxNextLaunchImages",
         "CmuxNextLayout",
+        "CmuxNextLinkOrder",
         "CmuxNextLiveCode",
         "CmuxNextMacScreen",
         "CmuxNextMallocZone",
@@ -451,7 +451,6 @@
         "CmuxAgentQuestion",
         "CmuxAppAttest",
         "CmuxEgress",
-        "CmuxFeedPushCore",
         "CmuxHomeCore",
         "CmuxHomeRender",
         "CmuxVisibleRows"
@@ -1412,6 +1411,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFeedClient",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextCloud",
         "CmuxNextCompat",
         "CmuxNextDaemon",
@@ -1843,6 +1843,12 @@
         "CmuxNextIcons",
         "CmuxNextWakeups"
       ],
+      "packages": []
+    },
+    "CmuxNextLinkOrder": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextLinkOrder",
+      "targets": [],
       "packages": []
     },
     "CmuxNextLiveCode": {
