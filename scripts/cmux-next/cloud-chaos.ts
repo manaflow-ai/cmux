@@ -951,6 +951,24 @@ export async function turnShown(read: () => Promise<TurnState>, budgetMs: number
   }
 }
 
+/**
+ * A guest command that is safe to run twice (it only writes files of its own), retried while the exec route refuses it
+ * (vm_unavailable, a 502/503/504 from the API) and within `budgetMs`. Run 46116359583: the platform answered the
+ * counting-files write for "session host restart" with 502 vm_unavailable (the provider's exec failed; its message says
+ * "retry") on a running machine whose carrier was fine, and the leg failed at 0 ms; the next leg's write went through.
+ * Any other answer, a good one or a command's own failure, comes back at once.
+ */
+export const EXEC_REFUSED = /\bvm_unavailable\b|\bvm_busy\b|\b50[234] [A-Za-z]/;
+export async function idempotentExec(exec: ChaosExec, command: string, timeoutMs: number, budgetMs: number, pauseMs = 2_000): Promise<{ code: number; stdout: string; stderr: string; tries: number }> {
+  let tries = 0;
+  for (const until = Date.now() + budgetMs; ;) {
+    tries++;
+    const r = await exec(command, timeoutMs).catch((e: Error) => ({ code: 1, stdout: e.message, stderr: "" }));
+    if (r.code === 0 || !EXEC_REFUSED.test(`${r.stdout}${r.stderr}`) || Date.now() + pauseMs >= until) return { ...r, tries };
+    await sleep(pauseMs);
+  }
+}
+
 export async function turnOutcome(ctx: ChaosContext, marker: string, session = ctx.session): Promise<{ ok: boolean; text: string; interrupted?: boolean }> {
   const until = Date.now() + TURN_DEADLINE_MS;
   let last = { started: 0, running: false, status: "", detail: "" };
@@ -1241,10 +1259,10 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
         out.push(failed(f.name, `the counting files have no folder: the chat's folder could not be read (${facts.text})`));
         continue;
       }
-      const wrote = await ctx.exec(`${ctx.guest}${countingFilesCommand(facts.cwd, tag)}`, 60_000).catch((e: Error) => ({ code: 1, stdout: e.message, stderr: "" }));
+      const wrote = await idempotentExec(ctx.exec, `${ctx.guest}${countingFilesCommand(facts.cwd, tag)}`, 60_000, 60_000);
       const dir = /@@dir (\S+)/.exec(wrote.stdout)?.[1];
       if (!dir) {
-        out.push(failed(f.name, `the counting files could not be written in ${facts.cwd}: ${(wrote.stdout + wrote.stderr).trim().slice(-200)}`));
+        out.push(failed(f.name, `the counting files could not be written in ${facts.cwd} (${wrote.tries} ${wrote.tries === 1 ? "try" : "tries"}): ${(wrote.stdout + wrote.stderr).trim().slice(-200)}`));
         continue;
       }
       const seq = new SeqTerminal(chat.dial, SEQ_LINES, `/tmp/cmux-chaos-seq-${tag}.txt`);
@@ -1479,8 +1497,10 @@ export function judgeLoss(input: { n: number; journal: SeqEvent[]; client: SeqEv
   if (!client.length) return { ok: false, text: "the client received no events for the turn" };
   if (reached === 0) return { ok: false, text: "the turn produced no counting steps" };
   const injection = input.injection;
+  let missedArm = "";
   if (injection && (!injection.running || injection.step < Math.ceil(input.n / 3) || injection.step >= input.n)) {
-    problems.push(`the fault was not armed during counting output (step ${injection.step} of ${input.n}, running=${injection.running})`);
+    // A fault that missed the turn is the probe's miss, not lost output: it is named apart so a red reads for what it is.
+    missedArm = `probe miss: the fault was not armed during counting output (step ${injection.step} of ${input.n}, running=${injection.running})`;
   }
   // The machine's journal.
   const bySeq = new Map<number, SeqEvent>();
@@ -1547,10 +1567,11 @@ export function judgeLoss(input: { n: number; journal: SeqEvent[]; client: SeqEv
   };
   steps(journal, "the journal");
   steps(client, "the client");
-  if (problems.length) return { ok: false, text: `lost or doubled output: ${problems.join("; ")}` };
+  const miss = missedArm ? `${missedArm}; ` : "";
+  if (problems.length) return { ok: false, text: `${miss}lost or doubled output: ${problems.join("; ")}` };
   const back = input.reconnects?.length ? `, ${input.reconnects.length} reconnect(s) each resumed at the next seq` : "";
   const covered = input.interrupted ? `steps 1..${n} of ${input.n} (the turn was cut short)` : `all ${n} steps`;
-  return { ok: true, text: `no lost output: seq ${client[0].seq}..${cLast} contiguous, ${covered} once on both sides${back}` };
+  return { ok: !missedArm, text: `${miss}no lost output: seq ${client[0].seq}..${cLast} contiguous, ${covered} once on both sides${back}` };
 }
 
 /** One `terminal.output_read` answer: the offset asked for and what came back. */
