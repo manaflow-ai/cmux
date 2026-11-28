@@ -1,0 +1,50 @@
+cmux-ci test: the fleet route does not need an open PR, so the PR was not read; origin's lane/phone-default-speed is at 19834f1bd501f32e380edd7109422ab3d7206b21 (a branch-tip read, no API quota); running on the fleet's Linux pool, no Actions dispatch
+cmux-ci test (fleet): the controller did not say whether this ran before
+cmux-ci test (fleet): request key lane-test-manaflow-ai-cmux-19834f1bd501-cbfcc3c6 (saved in /home/cmux/.cache/cmux-ci-fleet/request-keys/lane-test-manaflow-ai-cmux-19834f1bd501-ada9dc7b267035d4.key before the submit); if this run loses the controller's answer, cmux-ci status --request-key lane-test-manaflow-ai-cmux-19834f1bd501-cbfcc3c6 reads the job and a rerun reuses the key
+cmux-ci test (fleet): source 19834f1bd501f32e380edd7109422ab3d7206b21 (76 MiB in 1 part(s)) uploaded; submitting to the Linux pool
+cmux-ci test (fleet): client source prep 70.6 s (--paths ci,cmux-tui,scripts,workers/cmux-vm/cli), upload 11.8 s; the worker's phases (input_restore): cmux-ci status JOB
+cmux-ci test (fleet): job 31b28e964edd34f5a16dc5ae (route fleet-linux-pool); log: cmux-ci log 31b28e964edd34f5a16dc5ae
+   --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/itertools-0.13.0/src/adaptors/mod.rs:526:35
+    |
+526 | pub fn take_while_ref<I, F>(iter: &mut I, f: F) -> TakeWhileRef<I, F>
+    |                                   ^^^^^^           ^^^^^^^^^^^^^^^^^^ the same lifetime is hidden here
+    |                                   |
+    |                                   the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+    |
+526 | pub fn take_while_ref<I, F>(iter: &mut I, f: F) -> TakeWhileRef<'_, I, F>
+    |                                                                 +++
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> /home/cmux/.cache/fast-checks/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/itertools-0.13.0/src/peeking_take_while.rs:129:39
+    |
+129 | pub fn peeking_take_while<I, F>(iter: &mut I, f: F) -> PeekingTakeWhile<I, F>
+    |                                       ^^^^^^           ^^^^^^^^^^^^^^^^^^^^^^ the same lifetime is hidden here
+    |                                       |
+    |                                       the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+    |
+129 | pub fn peeking_take_while<I, F>(iter: &mut I, f: F) -> PeekingTakeWhile<'_, I, F>
+    |                                                                         +++
+warning: `itertools` (lib) generated 6 warnings
+Traceback (most recent call last):
+  File "/srv/cmux-ci/work/jobs/31b28e964edd34f5a16dc5ae/src/scripts/bench/phone-default-speed/measure.py", line 210, in <module>
+    main()
+  File "/srv/cmux-ci/work/jobs/31b28e964edd34f5a16dc5ae/src/scripts/bench/phone-default-speed/measure.py", line 169, in main
+    first = run("cold-build" if args.study else "setup-build", cargo_command, output, env, timeout=1800 if args.study else 900)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/srv/cmux-ci/work/jobs/31b28e964edd34f5a16dc5ae/src/scripts/bench/phone-default-speed/measure.py", line 121, in run
+    raise RuntimeError(f"{name}: unexpected exit {code}; {log}")
+RuntimeError: cold-build: unexpected exit 101; /srv/cmux-ci/work/jobs/31b28e964edd34f5a16dc5ae/fast-checks-out/cold-build.log
+::endgroup::
+::error title=Default-grid Ghostty instruction budgets::step phone-default-speed-icount exited 1; see its log group
+CMUX_CI_FLEET_RECEIPT={"source_sha": "19834f1bd501f32e380edd7109422ab3d7206b21", "head_after": "19834f1bd501f32e380edd7109422ab3d7206b21", "exit_code": 1, "timed_out": false, "command_sha256": "f67fa98f161763f62c2065029eafa3d15f8824a37a53c1fcaad16764596dcc99"}
+command failed: exit status 1
+job 31b28e964edd34f5a16dc5ae failed: exit status 1
+Full log: /home/cmux/.cache/cmux-ci-fleet/31b28e964edd34f5a16dc5ae.log (201 lines)
+cmux-ci: recover this job's files with cmux-ci test --resume /home/cmux/.local/state/cmux-ci/receipts/tmpyi605gry.json --artifact /tmp/phone-default-speed-receipt
+cmux-ci test (fleet): could not recover job 31b28e964edd34f5a16dc5ae's files into /tmp/phone-default-speed-receipt
+cmux-ci test: FAILURE route=fleet-linux-pool source=19834f1bd501f32e380edd7109422ab3d7206b21 job=31b28e964edd34f5a16dc5ae exit=1: the command exited 1

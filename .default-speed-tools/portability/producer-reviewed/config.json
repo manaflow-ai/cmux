@@ -1,0 +1,23 @@
+{
+  "sha": "19834f1bd501f32e380edd7109422ab3d7206b21",
+  "source_job": "31b28e964edd34f5a16dc5ae",
+  "workspace": "lane-test-manaflow-ai-cmux-19834f1bd501-cbfcc3c6",
+  "source_inputs": {
+    "src.000": "sha256:3f73ad437c30cedc1aca8a3a0eba2176797eda2c3fc69a6a2fed3feb9b7a1f4b"
+  },
+  "patterns": [
+    "/*",
+    "!/*/",
+    "/ghostty",
+    "/ghostty-next",
+    "/ci/",
+    "/cmux-tui/",
+    "/scripts/",
+    "/workers/cmux-vm/cli/"
+  ],
+  "root": "/tmp/cmux-cache-portability-19834f1b-phone-default-speed-01",
+  "mode": "producer",
+  "worker_sha256": "54cd6aca407854ded1f6635d5872af1f3b02348ea87e5ff61835e0efb98db4f0",
+  "stop_tree_measure_sha256": "41f947c6894c9b7514ae26ec7a0045e62782cc4d23ad4c632057a72638e8ac78",
+  "stop_tree_source_sha256": "61d9ba53e937ef4aebb2d93389af6c20dd9f9f09574e95d4383fa4932248a556"
+}

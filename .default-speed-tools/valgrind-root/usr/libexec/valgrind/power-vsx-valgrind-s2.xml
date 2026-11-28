@@ -1,0 +1,44 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2008-2016 Free Software Foundation, Inc.
+
+     Copying and distribution of this file, with or without modification,
+     are permitted in any medium without royalty provided the copyright
+     notice and this notice are preserved.  -->
+
+<!-- POWER7 VSX registers that do not overlap existing FP and VMX
+     registers.  -->
+<!DOCTYPE feature SYSTEM "gdb-target.dtd">
+<feature name="org.gnu.gdb.power.vsx">
+  <reg name="vs0hs2" bitsize="64" type="uint64"/>
+  <reg name="vs1hs2" bitsize="64" type="uint64"/>
+  <reg name="vs2hs2" bitsize="64" type="uint64"/>
+  <reg name="vs3hs2" bitsize="64" type="uint64"/>
+  <reg name="vs4hs2" bitsize="64" type="uint64"/>
+  <reg name="vs5hs2" bitsize="64" type="uint64"/>
+  <reg name="vs6hs2" bitsize="64" type="uint64"/>
+  <reg name="vs7hs2" bitsize="64" type="uint64"/>
+  <reg name="vs8hs2" bitsize="64" type="uint64"/>
+  <reg name="vs9hs2" bitsize="64" type="uint64"/>
+  <reg name="vs10hs2" bitsize="64" type="uint64"/>
+  <reg name="vs11hs2" bitsize="64" type="uint64"/>
+  <reg name="vs12hs2" bitsize="64" type="uint64"/>
+  <reg name="vs13hs2" bitsize="64" type="uint64"/>
+  <reg name="vs14hs2" bitsize="64" type="uint64"/>
+  <reg name="vs15hs2" bitsize="64" type="uint64"/>
+  <reg name="vs16hs2" bitsize="64" type="uint64"/>
+  <reg name="vs17hs2" bitsize="64" type="uint64"/>
+  <reg name="vs18hs2" bitsize="64" type="uint64"/>
+  <reg name="vs19hs2" bitsize="64" type="uint64"/>
+  <reg name="vs20hs2" bitsize="64" type="uint64"/>
+  <reg name="vs21hs2" bitsize="64" type="uint64"/>
+  <reg name="vs22hs2" bitsize="64" type="uint64"/>
+  <reg name="vs23hs2" bitsize="64" type="uint64"/>
+  <reg name="vs24hs2" bitsize="64" type="uint64"/>
+  <reg name="vs25hs2" bitsize="64" type="uint64"/>
+  <reg name="vs26hs2" bitsize="64" type="uint64"/>
+  <reg name="vs27hs2" bitsize="64" type="uint64"/>
+  <reg name="vs28hs2" bitsize="64" type="uint64"/>
+  <reg name="vs29hs2" bitsize="64" type="uint64"/>
+  <reg name="vs30hs2" bitsize="64" type="uint64"/>
+  <reg name="vs31hs2" bitsize="64" type="uint64"/>
+</feature>

@@ -1,0 +1,103 @@
+Release notes for Valgrind
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+If you are building a binary package of Valgrind for distribution,
+please read README_PACKAGERS.  It contains some important information.
+
+If you are developing Valgrind, please read README_DEVELOPERS.  It contains
+some useful information.
+
+For instructions on how to build/install, see the end of this file.
+
+If you have problems, consult the FAQ to see if there are workarounds.
+
+
+Executive Summary
+~~~~~~~~~~~~~~~~~
+Valgrind is a framework for building dynamic analysis tools. There are
+Valgrind tools that can automatically detect many memory management
+and threading bugs, and profile your programs in detail. You can also
+use Valgrind to build new tools.
+
+The Valgrind distribution currently includes seven production-quality
+tools: a memory error detector, two thread error detectors, a cache
+and branch-prediction profiler, a call-graph generating cache and
+branch-prediction profiler, and two heap profilers. It also includes
+one experimental tool: a SimPoint basic block vector generator.
+
+Valgrind is closely tied to details of the CPU, operating system and to
+a lesser extent, compiler and basic C libraries. This makes it difficult
+to make it portable.  Nonetheless, it is available for the following
+platforms: 
+
+- X86/Linux
+- AMD64/Linux
+- PPC32/Linux
+- PPC64/Linux
+- ARM/Linux
+- ARM64/Linux
+- x86/macOS
+- AMD64/macOS
+- S390X/Linux
+- MIPS32/Linux
+- MIPS64/Linux
+- nanoMIPS/Linux
+- X86/Solaris
+- AMD64/Solaris
+- X86/FreeBSD
+- AMD64/FreeBSD
+
+Note that AMD64 is just another name for x86_64, and Valgrind runs fine
+on Intel processors.  Also note that the core of macOS is called
+"Darwin" and this name is used sometimes.
+
+Valgrind is licensed under the GNU General Public License, version 2. 
+Read the file COPYING in the source distribution for details.
+
+However: if you contribute code, you need to make it available as GPL
+version 2 or later, and not 2-only.
+
+
+Documentation
+~~~~~~~~~~~~~
+A comprehensive user guide is supplied.  Point your browser at
+$PREFIX/share/doc/valgrind/manual.html, where $PREFIX is whatever you
+specified with --prefix= when building.
+
+
+Building and installing it
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+To install from the GIT repository:
+
+  0. Clone the code from GIT:
+     git clone https://sourceware.org/git/valgrind.git
+     There are further instructions at
+     http://www.valgrind.org/downloads/repository.html.
+
+  1. cd into the source directory.
+
+  2. Run ./autogen.sh to setup the environment (you need the standard
+     autoconf tools to do so).
+
+  3. Continue with the following instructions...
+
+To install from a tar.bz2 distribution:
+
+  4. Run ./configure, with some options if you wish.  The only interesting
+     one is the usual --prefix=/where/you/want/it/installed.
+
+  5. Run "make".
+
+  6. Run "make install", possibly as root if the destination permissions
+     require that.
+
+  7. See if it works.  Try "valgrind ls -l".  Either this works, or it
+     bombs out with some complaint.  In that case, please let us know
+     (see http://valgrind.org/support/bug_reports.html).
+
+Important!  Do not move the valgrind installation into a place
+different from that specified by --prefix at build time.  This will
+cause things to break in subtle ways, mostly when Valgrind handles
+fork/exec calls.
+
+
+The Valgrind Developers

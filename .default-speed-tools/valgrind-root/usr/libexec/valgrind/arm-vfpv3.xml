@@ -1,0 +1,44 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2009, 2010 Free Software Foundation, Inc.
+
+     Copying and distribution of this file, with or without modification,
+     are permitted in any medium without royalty provided the copyright
+     notice and this notice are preserved.  -->
+
+<!DOCTYPE feature SYSTEM "gdb-target.dtd">
+<feature name="org.gnu.gdb.arm.vfp">
+  <reg name="d0" bitsize="64" type="ieee_double"/>
+  <reg name="d1" bitsize="64" type="ieee_double"/>
+  <reg name="d2" bitsize="64" type="ieee_double"/>
+  <reg name="d3" bitsize="64" type="ieee_double"/>
+  <reg name="d4" bitsize="64" type="ieee_double"/>
+  <reg name="d5" bitsize="64" type="ieee_double"/>
+  <reg name="d6" bitsize="64" type="ieee_double"/>
+  <reg name="d7" bitsize="64" type="ieee_double"/>
+  <reg name="d8" bitsize="64" type="ieee_double"/>
+  <reg name="d9" bitsize="64" type="ieee_double"/>
+  <reg name="d10" bitsize="64" type="ieee_double"/>
+  <reg name="d11" bitsize="64" type="ieee_double"/>
+  <reg name="d12" bitsize="64" type="ieee_double"/>
+  <reg name="d13" bitsize="64" type="ieee_double"/>
+  <reg name="d14" bitsize="64" type="ieee_double"/>
+  <reg name="d15" bitsize="64" type="ieee_double"/>
+  <reg name="d16" bitsize="64" type="ieee_double"/>
+  <reg name="d17" bitsize="64" type="ieee_double"/>
+  <reg name="d18" bitsize="64" type="ieee_double"/>
+  <reg name="d19" bitsize="64" type="ieee_double"/>
+  <reg name="d20" bitsize="64" type="ieee_double"/>
+  <reg name="d21" bitsize="64" type="ieee_double"/>
+  <reg name="d22" bitsize="64" type="ieee_double"/>
+  <reg name="d23" bitsize="64" type="ieee_double"/>
+  <reg name="d24" bitsize="64" type="ieee_double"/>
+  <reg name="d25" bitsize="64" type="ieee_double"/>
+  <reg name="d26" bitsize="64" type="ieee_double"/>
+  <reg name="d27" bitsize="64" type="ieee_double"/>
+  <reg name="d28" bitsize="64" type="ieee_double"/>
+  <reg name="d29" bitsize="64" type="ieee_double"/>
+  <reg name="d30" bitsize="64" type="ieee_double"/>
+  <reg name="d31" bitsize="64" type="ieee_double"/>
+
+  <reg name="fpscr" bitsize="32" type="int" group="float"/>
+</feature>

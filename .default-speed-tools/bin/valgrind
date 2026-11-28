@@ -1,0 +1,2 @@
+#!/bin/sh
+VALGRIND_LIB=/mnt/lane-data/checkouts/cmux/lane--phone-default-speed/.default-speed-tools/valgrind-root/usr/libexec/valgrind exec /mnt/lane-data/checkouts/cmux/lane--phone-default-speed/.default-speed-tools/valgrind-root/usr/bin/valgrind "$@"

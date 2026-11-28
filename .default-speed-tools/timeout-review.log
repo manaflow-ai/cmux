@@ -1,0 +1,22 @@
+timeout: {"command": ["/opt/freestyle/python/bin/python3", "-c", "import os,subprocess,sys,time; from pathlib import Path; p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)'], start_new_session=True); Path('/tmp/acpmux-1001/t/8ca84dc7/01a21d90-08a3-7631-915c-b0ab9306e994/tmpg7zhek5z/child').write_text(str(p.pid)+' '+str(os.getpgrp())); time.sleep(30)"], "exit": 124, "cpu_complete": false, "cpu_scope": "waited child processes; external cache daemons excluded", "wall_seconds": 2.402130725007737, "user_seconds": 0.44545599999999996, "system_seconds": 0.11878799999999999}
+
+E
+======================================================================
+ERROR: test_timeout_stops_owned_descendant_and_inherits_outer_group (__main__.PhoneDefaultSpeedTest.test_timeout_stops_owned_descendant_and_inherits_outer_group)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/lane-data/checkouts/cmux/lane--phone-default-speed/scripts/bench/tests/test_phone_default_speed.py", line 38, in test_timeout_stops_owned_descendant_and_inherits_outer_group
+    child, group = map(int, child_file.read_text().split())
+                            ^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/pathlib.py", line 1029, in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/pathlib.py", line 1015, in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/acpmux-1001/t/8ca84dc7/01a21d90-08a3-7631-915c-b0ab9306e994/tmpg7zhek5z/child'
+
+----------------------------------------------------------------------
+Ran 1 test in 3.307s
+
+FAILED (errors=1)

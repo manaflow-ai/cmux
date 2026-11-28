@@ -1,0 +1,673 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>3. Callgrind Format Specification</title>
+<link rel="stylesheet" type="text/css" href="vg_basic.css">
+<meta name="generator" content="DocBook XSL Stylesheets Vsnapshot">
+<link rel="home" href="index.html" title="Valgrind Documentation">
+<link rel="up" href="tech-docs.html" title="Valgrind Technical Documentation">
+<link rel="prev" href="manual-writing-tools.html" title="2. Writing a New Valgrind Tool">
+<link rel="next" href="dist.html" title="Valgrind Distribution Documents">
+</head>
+<body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF">
+<div><table class="nav" width="100%" cellspacing="3" cellpadding="3" border="0" summary="Navigation header"><tr>
+<td width="22px" align="center" valign="middle"><a accesskey="p" href="manual-writing-tools.html"><img src="images/prev.png" width="18" height="21" border="0" alt="Prev"></a></td>
+<td width="25px" align="center" valign="middle"><a accesskey="u" href="tech-docs.html"><img src="images/up.png" width="21" height="18" border="0" alt="Up"></a></td>
+<td width="31px" align="center" valign="middle"><a accesskey="h" href="index.html"><img src="images/home.png" width="27" height="20" border="0" alt="Up"></a></td>
+<th align="center" valign="middle">Valgrind Technical Documentation</th>
+<td width="22px" align="center" valign="middle"><a accesskey="n" href="dist.html"><img src="images/next.png" width="18" height="21" border="0" alt="Next"></a></td>
+</tr></table></div>
+<div class="chapter">
+<div class="titlepage"><div><div><h1 class="title">
+<a name="cl-format"></a>3. Callgrind Format Specification</h1></div></div></div>
+<div class="toc">
+<p><b>Table of Contents</b></p>
+<dl class="toc">
+<dt><span class="sect1"><a href="cl-format.html#cl-format.overview">3.1. Overview</a></span></dt>
+<dd><dl>
+<dt><span class="sect2"><a href="cl-format.html#cl-format.overview.basics">3.1.1. Basic Structure</a></span></dt>
+<dt><span class="sect2"><a href="cl-format.html#cl-format.overview.example1">3.1.2. Simple Example</a></span></dt>
+<dt><span class="sect2"><a href="cl-format.html#cl-format.overview.associations">3.1.3. Associations</a></span></dt>
+<dt><span class="sect2"><a href="cl-format.html#cl-format.overview.example2">3.1.4. Extended Example</a></span></dt>
+<dt><span class="sect2"><a href="cl-format.html#cl-format.overview.compression1">3.1.5. Name Compression</a></span></dt>
+<dt><span class="sect2"><a href="cl-format.html#cl-format.overview.compression2">3.1.6. Subposition Compression</a></span></dt>
+<dt><span class="sect2"><a href="cl-format.html#cl-format.overview.misc">3.1.7. Miscellaneous</a></span></dt>
+</dl></dd>
+<dt><span class="sect1"><a href="cl-format.html#cl-format.reference">3.2. Reference</a></span></dt>
+<dd><dl>
+<dt><span class="sect2"><a href="cl-format.html#cl-format.reference.grammar">3.2.1. Grammar</a></span></dt>
+<dt><span class="sect2"><a href="cl-format.html#cl-format.reference.header">3.2.2. Description of Header Lines</a></span></dt>
+<dt><span class="sect2"><a href="cl-format.html#cl-format.reference.body">3.2.3. Description of Body Lines</a></span></dt>
+</dl></dd>
+</dl>
+</div>
+<p>This chapter describes the Callgrind Format, Version 1.</p>
+<p>The format description is meant for the user to be able to understand the
+file contents; but more important, it is given for authors of measurement or
+visualization tools to be able to write and read this format.</p>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="cl-format.overview"></a>3.1. Overview</h2></div></div></div>
+<p>The profile data format is ASCII based.
+It is written by Callgrind, and it is upwards compatible
+to the format used by Cachegrind (ie. Cachegrind uses a subset). It can
+be read by callgrind_annotate and KCachegrind.</p>
+<p>This chapter gives on overview of format features and examples.
+For detailed syntax, look at the format reference.</p>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="cl-format.overview.basics"></a>3.1.1. Basic Structure</h3></div></div></div>
+<p>To uniquely specify that a file is a callgrind profile, it
+should add "# callgrind format" as first line. This is optional but
+recommended for easy format detection.</p>
+<p>Each file has a header part of an arbitrary number of lines of the
+format "key: value". After the header, lines specifying profile costs
+follow. Everywhere, comments on own lines starting with '#' are allowed.
+The header lines with keys "positions" and "events" define
+the meaning of cost lines in the second part of the file: the value of
+"positions" is a list of subpositions, and the value of "events" is a list
+of event type names. Cost lines consist of subpositions followed by 64-bit
+counters for the events, in the order specified by the "positions" and "events"
+header line.</p>
+<p>The "events" header line is always required in contrast to the optional
+line for "positions", which defaults to "line", i.e. a line number of some
+source file. In addition, the second part of the file contains position
+specifications of the form "spec=name". "spec" can be e.g. "fn" for a
+function name or "fl" for a file name. Cost lines are always related to
+the function/file specifications given directly before.</p>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="cl-format.overview.example1"></a>3.1.2. Simple Example</h3></div></div></div>
+<p>The event names in the following example are quite arbitrary, and are not
+related to event names used by Callgrind. Especially, cycle counts matching
+real processors probably will never be generated by any Valgrind tools, as these
+are bound to simulations of simple machine models for acceptable slowdown.
+However, any profiling tool could use the format described in this chapter.</p>
+<p>
+</p>
+<pre class="screen"># callgrind format
+events: Cycles Instructions Flops
+fl=file.f
+fn=main
+15 90 14 2
+16 20 12</pre>
+<p>The above example gives profile information for event types "Cycles",
+"Instructions", and "Flops". Thus, cost lines give the number of CPU cycles
+passed by, number of executed instructions, and number of floating point
+operations executed while running code corresponding to some source
+position. As there is no line specifying the value of "positions", it defaults
+to "line", which means that the first number of a cost line is always a line
+number.</p>
+<p>Thus, the first cost line specifies that in line 15 of source file
+<code class="filename">file.f</code> there is code belonging to function
+<code class="function">main</code>. While running, 90 CPU cycles passed by, and 2 of
+the 14 instructions executed were floating point operations. Similarly, the
+next line specifies that there were 12 instructions executed in the context
+of function <code class="function">main</code> which can be related to line 16 in
+file <code class="filename">file.f</code>, taking 20 CPU cycles. If a cost line
+specifies less event counts than given in the "events" line, the rest is
+assumed to be zero.  I.e. there was no floating point instruction executed
+relating to line 16.</p>
+<p>Note that regular cost lines always give self (also called exclusive)
+cost of code at a given position. If you specify multiple cost lines for the
+same position, these will be summed up. On the other hand, in the example above
+there is no specification of how many times function
+<code class="function">main</code> actually was
+called: profile data only contains sums.</p>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="cl-format.overview.associations"></a>3.1.3. Associations</h3></div></div></div>
+<p>The most important extension to the original format of Cachegrind is the
+ability to specify call relationship among functions. More generally, you
+specify associations among positions. For this, the second part of the
+file also can contain association specifications. These look similar to
+position specifications, but consist of two lines. For calls, the format
+looks like
+</p>
+<pre class="screen">
+ calls=(Call Count) (Target position)
+ (Source position) (Inclusive cost of call)
+</pre>
+<p>The destination only specifies subpositions like line number. Therefore,
+to be able to specify a call to another function in another source file, you
+have to precede the above lines with a "cfn=" specification for the name of the
+called function, and optionally a "cfi=" specification if the function is in
+another source file ("cfl=" is an alternative specification for "cfi=" because
+of historical reasons, and both should be supported by format readers).
+The second line looks like a regular cost line with the difference
+that inclusive cost spent inside of the function call has to be specified.</p>
+<p>Other associations are for example (conditional) jumps. See the
+reference below for details.</p>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="cl-format.overview.example2"></a>3.1.4. Extended Example</h3></div></div></div>
+<p>The following example shows 3 functions, <code class="function">main</code>,
+<code class="function">func1</code>, and <code class="function">func2</code>. Function
+<code class="function">main</code> calls <code class="function">func1</code> once and
+<code class="function">func2</code> 3 times. <code class="function">func1</code> calls
+<code class="function">func2</code> 2 times.
+
+</p>
+<pre class="screen"># callgrind format
+events: Instructions
+
+fl=file1.c
+fn=main
+16 20
+cfn=func1
+calls=1 50
+16 400
+cfi=file2.c
+cfn=func2
+calls=3 20
+16 400
+
+fn=func1
+51 100
+cfi=file2.c
+cfn=func2
+calls=2 20
+51 300
+
+fl=file2.c
+fn=func2
+20 700</pre>
+<p>One can see that in <code class="function">main</code> only code from line 16
+is executed where also the other functions are called. Inclusive cost of
+<code class="function">main</code> is 820, which is the sum of self cost 20 and costs
+spent in the calls: 400 for the single call to <code class="function">func1</code>
+and 400 as sum for the three calls to <code class="function">func2</code>.</p>
+<p>Function <code class="function">func1</code> is located in
+<code class="filename">file1.c</code>, the same as <code class="function">main</code>.
+Therefore, a "cfi=" specification for the call to <code class="function">func1</code>
+is not needed. The function <code class="function">func1</code> only consists of code
+at line 51 of <code class="filename">file1.c</code>, where <code class="function">func2</code>
+is called.</p>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="cl-format.overview.compression1"></a>3.1.5. Name Compression</h3></div></div></div>
+<p>With the introduction of association specifications like calls it is
+needed to specify the same function or same file name multiple times. As
+absolute filenames or symbol names in C++ can be quite long, it is advantageous
+to be able to specify integer IDs for position specifications.
+Here, the term "position" corresponds to a file name (source or object file)
+or function name.</p>
+<p>To support name compression, a position specification can be not only of
+the format "spec=name", but also "spec=(ID) name" to specify a mapping of an
+integer ID to a name, and "spec=(ID)" to reference a previously defined ID
+mapping. There is a separate ID mapping for each position specification,
+i.e. you can use ID 1 for both a file name and a symbol name.</p>
+<p>With string compression, the example from above looks like this:
+</p>
+<pre class="screen"># callgrind format
+events: Instructions
+
+fl=(1) file1.c
+fn=(1) main
+16 20
+cfn=(2) func1
+calls=1 50
+16 400
+cfi=(2) file2.c
+cfn=(3) func2
+calls=3 20
+16 400
+
+fn=(2)
+51 100
+cfi=(2)
+cfn=(3)
+calls=2 20
+51 300
+
+fl=(2)
+fn=(3)
+20 700</pre>
+<p>As position specifications carry no information themselves, but only change
+the meaning of subsequent cost lines or associations, they can appear
+everywhere in the file without any negative consequence. Especially, you can
+define name compression mappings directly after the header, and before any cost
+lines. Thus, the above example can also be written as
+</p>
+<pre class="screen"># callgrind format
+events: Instructions
+
+# define file ID mapping
+fl=(1) file1.c
+fl=(2) file2.c
+# define function ID mapping
+fn=(1) main
+fn=(2) func1
+fn=(3) func2
+
+fl=(1)
+fn=(1)
+16 20
+...</pre>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="cl-format.overview.compression2"></a>3.1.6. Subposition Compression</h3></div></div></div>
+<p>If a Callgrind data file should hold costs for each assembler instruction
+of a program, you specify subposition "instr" in the "positions:" header line,
+and each cost line has to include the address of some instruction. Addresses
+are allowed to have a size of 64 bits to support 64-bit architectures. Thus,
+repeating similar, long addresses for almost every line in the data file can
+enlarge the file size quite significantly, and
+motivates for subposition compression: instead of every cost line starting with
+a 16 character long address, one is allowed to specify relative addresses.
+This relative specification is not only allowed for instruction addresses, but
+also for line numbers; both addresses and line numbers are called "subpositions".</p>
+<p>A relative subposition always is based on the corresponding subposition
+of the last cost line, and starts with a "+" to specify a positive difference,
+a "-" to specify a negative difference, or consists of "*" to specify the same
+subposition. Because absolute subpositions always are positive (ie. never
+prefixed by "-"), any relative specification is non-ambiguous; additionally,
+absolute and relative subposition specifications can be mixed freely.
+Assume the following example (subpositions can always be specified
+as hexadecimal numbers, beginning with "0x"):
+</p>
+<pre class="screen"># callgrind format
+positions: instr line
+events: ticks
+
+fn=func
+0x80001234 90 1
+0x80001237 90 5
+0x80001238 91 6</pre>
+<p>With subposition compression, this looks like
+</p>
+<pre class="screen"># callgrind format
+positions: instr line
+events: ticks
+
+fn=func
+0x80001234 90 1
++3 * 5
++1 +1 6</pre>
+<p>Remark: For assembler annotation to work, instruction addresses have to
+be corrected to correspond to addresses found in the original binary. I.e. for
+relocatable shared objects, often a load offset has to be subtracted.</p>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="cl-format.overview.misc"></a>3.1.7. Miscellaneous</h3></div></div></div>
+<div class="sect3">
+<div class="titlepage"><div><div><h4 class="title">
+<a name="cl-format.overview.misc.summary"></a>3.1.7.1. Cost Summary Information</h4></div></div></div>
+<p>For the visualization to be able to show cost percentage, a sum of the
+cost of the full run has to be known. Usually, it is assumed that this is the
+sum of all cost lines in a file. But sometimes, this is not correct. Thus, you
+can specify a "summary:" line in the header giving the full cost for the
+profile run. An import filter may use this to show a progress bar
+while loading a large data file.</p>
+</div>
+<div class="sect3">
+<div class="titlepage"><div><div><h4 class="title">
+<a name="cl-format.overview.misc.events"></a>3.1.7.2. Long Names for Event Types and inherited Types</h4></div></div></div>
+<p>Event types for cost lines are specified in the "events:" line with an
+abbreviated name. For visualization, it makes sense to be able to specify some
+longer, more descriptive name. For an event type "Ir" which means "Instruction
+Fetches", this can be specified the header line
+</p>
+<pre class="screen">event: Ir : Instruction Fetches
+events: Ir Dr</pre>
+<p>In this example, "Dr" itself has no long name associated. The order of
+"event:" lines and the "events:" line is of no importance. Additionally,
+inherited event types can be introduced for which no raw data is available, but
+which are calculated from given types. Suppose the last example, you could add
+</p>
+<pre class="screen">event: Sum = Ir + Dr</pre>
+<p>
+to specify an additional event type "Sum", which is calculated by adding costs
+for "Ir and "Dr".</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="cl-format.reference"></a>3.2. Reference</h2></div></div></div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="cl-format.reference.grammar"></a>3.2.1. Grammar</h3></div></div></div>
+<p>
+</p>
+<pre class="screen">ProfileDataFile := FormatSpec? FormatVersion? Creator? PartData*</pre>
+<p>
+</p>
+<pre class="screen">FormatSpec := "# callgrind format\n"</pre>
+<p>
+</p>
+<pre class="screen">FormatVersion := "version: 1\n"</pre>
+<p>
+</p>
+<pre class="screen">Creator := "creator:" NoNewLineChar* "\n"</pre>
+<p>
+</p>
+<pre class="screen">PartData := (HeaderLine "\n")+ (BodyLine "\n")+</pre>
+<p>
+</p>
+<pre class="screen">HeaderLine := (empty line)
+  | ('#' NoNewLineChar*)
+  | PartDetail
+  | Description
+  | EventSpecification
+  | CostLineDef</pre>
+<p>
+</p>
+<pre class="screen">PartDetail := TargetCommand | TargetID</pre>
+<p>
+</p>
+<pre class="screen">TargetCommand := "cmd:" Space* NoNewLineChar*</pre>
+<p>
+</p>
+<pre class="screen">TargetID := ("pid"|"thread"|"part") ":" Space* Number</pre>
+<p>
+</p>
+<pre class="screen">Description := "desc:" Space* Name Space* ":" NoNewLineChar*</pre>
+<p>
+</p>
+<pre class="screen">EventSpecification := "event:" Space* Name InheritedDef? LongNameDef?</pre>
+<p>
+</p>
+<pre class="screen">InheritedDef := "=" InheritedExpr</pre>
+<p>
+</p>
+<pre class="screen">InheritedExpr := Name
+  | Number Space* ("*" Space*)? Name
+  | InheritedExpr Space* "+" Space* InheritedExpr</pre>
+<p>
+</p>
+<pre class="screen">LongNameDef := ":" NoNewLineChar*</pre>
+<p>
+</p>
+<pre class="screen">CostLineDef := "events:" Space* Name (Space+ Name)*
+  | "positions:" "instr"? (Space+ "line")?</pre>
+<p>
+</p>
+<pre class="screen">BodyLine := (empty line)
+  | ('#' NoNewLineChar*)
+  | CostLine
+  | PositionSpec
+  | CallSpec
+  | UncondJumpSpec
+  | CondJumpSpec</pre>
+<p>
+</p>
+<pre class="screen">CostLine := SubPositionList Costs?</pre>
+<p>
+</p>
+<pre class="screen">SubPositionList := (SubPosition+ Space+)+</pre>
+<p>
+</p>
+<pre class="screen">SubPosition := Number | "+" Number | "-" Number | "*"</pre>
+<p>
+</p>
+<pre class="screen">Costs := (Number Space+)+</pre>
+<p>
+</p>
+<pre class="screen">PositionSpec := Position "=" Space* PositionName</pre>
+<p>
+</p>
+<pre class="screen">Position := CostPosition | CalledPosition</pre>
+<p>
+</p>
+<pre class="screen">CostPosition := "ob" | "fl" | "fi" | "fe" | "fn"</pre>
+<p>
+</p>
+<pre class="screen">CalledPosition := " "cob" | "cfi" | "cfl" | "cfn"</pre>
+<p>
+</p>
+<pre class="screen">PositionName := ( "(" Number ")" )? (Space* NoNewLineChar* )?</pre>
+<p>
+</p>
+<pre class="screen">CallSpec := CallLine "\n" CostLine</pre>
+<p>
+</p>
+<pre class="screen">CallLine := "calls=" Space* Number Space+ SubPositionList</pre>
+<p>
+</p>
+<pre class="screen">UncondJumpSpec := "jump=" Space* Number Space+ SubPositionList</pre>
+<p>
+</p>
+<pre class="screen">CondJumpSpec := "jcnd=" Space* Number Space+ Number Space+ SubPositionList</pre>
+<p>
+</p>
+<pre class="screen">Space := " " | "\t"</pre>
+<p>
+</p>
+<pre class="screen">Number := HexNumber | (Digit)+</pre>
+<p>
+</p>
+<pre class="screen">Digit := "0" | ... | "9"</pre>
+<p>
+</p>
+<pre class="screen">HexNumber := "0x" (Digit | HexChar)+</pre>
+<p>
+</p>
+<pre class="screen">HexChar := "a" | ... | "f" | "A" | ... | "F"</pre>
+<p>
+</p>
+<pre class="screen">Name = Alpha (Digit | Alpha)*</pre>
+<p>
+</p>
+<pre class="screen">Alpha = "a" | ... | "z" | "A" | ... | "Z"</pre>
+<p>
+</p>
+<pre class="screen">NoNewLineChar := all characters without "\n"</pre>
+<p>
+</p>
+<p>A profile data file ("ProfileDataFile") starts with basic information
+  such as a format marker, the version and creator information, and then has a list of parts, where
+  each part has its own header and body. Parts typically are different threads
+  and/or time spans/phases within a profiled application run.</p>
+<p>Note that callgrind_annotate currently only supports profile data files with
+  one part. Callgrind may produce multiple parts for one profile run, but defaults
+  to one output file for each part.</p>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="cl-format.reference.header"></a>3.2.2. Description of Header Lines</h3></div></div></div>
+<p>Basic information in the first lines of a profile data file:</p>
+<div class="itemizedlist"><ul class="itemizedlist" style="list-style-type: disc; ">
+<li class="listitem">
+<p><code class="computeroutput"># callgrind format</code> [Callgrind]</p>
+<p>This line specifies that the file is a callgrind profile,
+      and it has to be the first line. It was added late to the
+      format (with Valgrind 3.13) and is optional, as all readers also
+      should work with older callgrind profiles not including this line.
+      However, generation of this line is recommended to allow desktop
+      environments and file managers to uniquely detect the format.</p>
+</li>
+<li class="listitem">
+<p><code class="computeroutput">version: number</code> [Callgrind]</p>
+<p>This is used to distinguish future profile data formats.  A 
+    major version of 0 or 1 is supposed to be upwards compatible with 
+    Cachegrind's format.  It is optional; if not appearing, version 1 
+    is assumed.  Otherwise, it has to follow directly after the format
+    specification (i.e. be the first line if the optional format
+    specification is skipped).</p>
+</li>
+<li class="listitem">
+<p><code class="computeroutput">creator: string</code> [Callgrind]</p>
+<p>This is an arbitrary string to denote the creator of this file.
+      Optional.</p>
+</li>
+</ul></div>
+<p>The header for each part has an arbitrary number of lines of the format 
+"key: value". Possible <span class="emphasis"><em>key</em></span> values for the header are:</p>
+<div class="itemizedlist"><ul class="itemizedlist" style="list-style-type: disc; ">
+<li class="listitem">
+<p><code class="computeroutput">pid: process id</code> [Callgrind]</p>
+<p>Optional. This specifies the process ID of the supervised application 
+    for which this profile was generated.</p>
+</li>
+<li class="listitem">
+<p><code class="computeroutput">cmd: program name + args</code> [Cachegrind]</p>
+<p>Optional. This specifies the full command line of the supervised
+    application for which this profile was generated.</p>
+</li>
+<li class="listitem">
+<p><code class="computeroutput">part: number</code> [Callgrind]</p>
+<p>Optional. This specifies a sequentially incremented number for each dump 
+    generated, starting at 1.</p>
+</li>
+<li class="listitem">
+<p><code class="computeroutput">desc: type: value</code> [Cachegrind]</p>
+<p>This specifies various information for this dump.  For some 
+    types, the semantic is defined, but any description type is allowed. 
+    Unknown types should be ignored.</p>
+<p>There are the types "I1 cache", "D1 cache", "LL cache", which 
+    specify parameters used for the cache simulator.  These are the only
+    types originally used by Cachegrind.  Additionally, Callgrind uses 
+    the following types:  "Timerange" gives a rough range of the basic
+    block counter, for which the cost of this dump was collected. 
+    Type "Trigger" states the reason of why this trace was generated.
+    E.g. program termination or forced interactive dump.</p>
+</li>
+<li class="listitem">
+<p><code class="computeroutput">positions: [instr] [line]</code> [Callgrind]</p>
+<p>For cost lines, this defines the semantic of the first numbers. 
+    Any combination of "instr", "bb" and "line" is allowed, but has to be 
+    in this order which corresponds to position numbers at the start of 
+    the cost lines later in the file.</p>
+<p>If "instr" is specified, the position is the address of an 
+    instruction whose execution raised the events given later on the 
+    line.  This address is relative to the offset of the binary/shared 
+    library file to not have to specify relocation info.  For "line", 
+    the position is the line number of a source file, which is 
+    responsible for the events raised. Note that the mapping of "instr"
+    and "line" positions are given by the debugging line information
+    produced by the compiler.</p>
+<p>This header line is optional, defaulting to "positions:
+    line" if not specified.</p>
+</li>
+<li class="listitem">
+<p><code class="computeroutput">events: event type abbreviations</code> [Cachegrind]</p>
+<p>A list of short names of the event types logged in cost
+      lines in this part of the profile data file. Arbitrary short
+      names are allowed.  The order given specifies the required order
+      in cost lines. Thus, the first event type is the second or third
+      number in a cost line, depending on the value of "positions".
+      Required to appear for each header part exactly once.</p>
+</li>
+<li class="listitem">
+<p><code class="computeroutput">summary: costs</code> [Callgrind]</p>
+<p>Optional. This header line specifies a summary cost, which should be
+    equal or larger than a total over all self costs. It may be larger as
+    the cost lines may not represent all cost of the program run.</p>
+</li>
+<li class="listitem">
+<p><code class="computeroutput">totals: costs</code> [Cachegrind]</p>
+<p>Optional. Should appear at the end of the file (although
+    looking like a header line). Must give the total of all cost lines,
+    to allow for a consistency check.</p>
+</li>
+</ul></div>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="cl-format.reference.body"></a>3.2.3. Description of Body Lines</h3></div></div></div>
+<p>The regular body line is a cost line consisting of one or two
+position numbers (depending on "positions:" header line, see above)
+and an array of cost numbers. A position number either is a
+line numbers into a source file or an instruction address within binary
+code, with source/binary file names specified as position names (see
+below). The cost numbers get mapped to event types in the same order
+as specified in the "events:" header line. If less numbers than event
+types are given, the costs default to zero for the remaining event
+types.</p>
+<p>Further, there exist lines
+<code class="computeroutput">spec=position name</code>.  A position name
+is an arbitrary string. If it starts with "(" and a
+digit, it's a string in compressed format.  Otherwise it's the real
+position string.  This allows for file and symbol names as position
+strings, as these never start with "(" + <span class="emphasis"><em>digit</em></span>.
+The compressed format is either "(" <span class="emphasis"><em>number</em></span> ")"
+<span class="emphasis"><em>space</em></span> <span class="emphasis"><em>position</em></span> or only 
+"(" <span class="emphasis"><em>number</em></span> ")".  The first relates
+<span class="emphasis"><em>position</em></span> to <span class="emphasis"><em>number</em></span> in the
+context of the given format specification from this line to the end of
+the file; it makes the (<span class="emphasis"><em>number</em></span>) an alias for
+<span class="emphasis"><em>position</em></span>.  Compressed format is always
+optional.</p>
+<p>Position specifications allowed:</p>
+<div class="itemizedlist"><ul class="itemizedlist" style="list-style-type: disc; ">
+<li class="listitem">
+<p><code class="computeroutput">ob=</code> [Callgrind]</p>
+<p>The ELF object where the cost of next cost lines happens.</p>
+</li>
+<li class="listitem"><p><code class="computeroutput">fl=</code> [Cachegrind]</p></li>
+<li class="listitem"><p><code class="computeroutput">fi=</code> [Cachegrind]</p></li>
+<li class="listitem">
+<p><code class="computeroutput">fe=</code> [Cachegrind]</p>
+<p>The source file including the code which is responsible for
+    the cost of next cost lines. "fi="/"fe=" is used when the source
+    file changes inside of a function, i.e. for inlined code.</p>
+</li>
+<li class="listitem">
+<p><code class="computeroutput">fn=</code> [Cachegrind]</p>
+<p>The name of the function where the cost of next cost lines 
+    happens.</p>
+</li>
+<li class="listitem">
+<p><code class="computeroutput">cob=</code> [Callgrind]</p>
+<p>The ELF object of the target of the next call cost lines.</p>
+</li>
+<li class="listitem">
+<p><code class="computeroutput">cfi=</code> [Callgrind]</p>
+<p>The source file including the code of the target of the
+    next call cost lines.</p>
+</li>
+<li class="listitem">
+<p><code class="computeroutput">cfl=</code> [Callgrind]</p>
+<p>Alternative spelling for <code class="computeroutput">cfi=</code>
+    specification (because of historical reasons).</p>
+</li>
+<li class="listitem">
+<p><code class="computeroutput">cfn=</code> [Callgrind]</p>
+<p>The name of the target function of the next call cost 
+    lines.</p>
+</li>
+</ul></div>
+<p>The last type of body line provides specific costs not just
+related to one position as regular cost lines. It starts with specific
+strings similar to position name specifications.</p>
+<div class="itemizedlist"><ul class="itemizedlist" style="list-style-type: disc; ">
+<li class="listitem">
+<p><code class="computeroutput">calls=count target-position</code> [Callgrind]</p>
+<p>Call executed "count" times to "target-position".
+    After a "calls=" line there MUST be a cost line. This provides the source position
+    of the call and the cost spent in the called function in total.</p>
+</li>
+<li class="listitem">
+<p><code class="computeroutput">jump=count target-position</code> [Callgrind]</p>
+<p>Unconditional jump, executed "count" times, to "target-position".</p>
+</li>
+<li class="listitem">
+<p><code class="computeroutput">jcnd=exe-count jump-count target-position</code> [Callgrind]</p>
+<p>Conditional jump, executed "exe-count" times with "jump-count" jumps
+    happening (rest is fall-through) to "target-position".</p>
+</li>
+</ul></div>
+</div>
+</div>
+</div>
+<div>
+<br><table class="nav" width="100%" cellspacing="3" cellpadding="2" border="0" summary="Navigation footer">
+<tr>
+<td rowspan="2" width="40%" align="left">
+<a accesskey="p" href="manual-writing-tools.html">&lt;&lt; 2. Writing a New Valgrind Tool</a> </td>
+<td width="20%" align="center"><a accesskey="u" href="tech-docs.html">Up</a></td>
+<td rowspan="2" width="40%" align="right"> <a accesskey="n" href="dist.html">Valgrind Distribution Documents &gt;&gt;</a>
+</td>
+</tr>
+<tr><td width="20%" align="center"><a accesskey="h" href="index.html">Home</a></td></tr>
+</table>
+</div>
+</body>
+</html>

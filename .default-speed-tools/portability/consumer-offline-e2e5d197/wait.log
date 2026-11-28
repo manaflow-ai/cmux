@@ -1,0 +1,6 @@
+cmux-ci: waiting for job 8f2f064304a96045c90e8e10 up to 900 s (deadline 2026-11-28T03:54Z) at http://100.89.225.106:18765
+8f2f064304a96045c90e8e10 state=failed worker=cmux-linux-pool-1128-032612-3d554456 total_seconds=24.03 queue_and_setup_seconds=1.23 execution_seconds=22.80 free_gib=128.61->128.40
+error=exit status 101
+  phase=admission seconds=0.00 state=done cache_hit=unknown hits=unknown misses=unknown
+  phase=input_restore seconds=3.15 state=done cache_hit=unknown hits=unknown misses=unknown
+  phase=build seconds=19.53 state=failed cache_hit=unknown hits=unknown misses=unknown error="exit status 101"

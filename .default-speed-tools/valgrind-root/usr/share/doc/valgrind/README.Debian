@@ -1,0 +1,28 @@
+valgrind for Debian
+-------------------
+
+  Debian's valgrind package for the amd64 architecture is built to support i386
+  binaries as well (that is, valgrind:amd64 can instrument both amd64 and i386
+  executables). However, to make this work, the libc6-dbg:i386 package must be
+  installed as well.
+
+ -- Alessandro Ghedini <ghedo@debian.org>  Sun, 05 Nov 2014 00:00:00 +0100
+
+  Debian's valgrind package comes stripped of any debug symbols, which are
+  provided by the valgrind-dbg package. Note that it's recommended to install
+  such package because without those symbols valgrind may generate less
+  helpful error messages in certain situations, or not work at all.
+
+ -- Alessandro Ghedini <ghedo@debian.org>  Sun, 09 Mar 2014 00:00:00 +0100
+
+  Debian's valgrind package ships with a suppression file named "debian.supp"
+  along with upstream's "default.supp", under /usr/lib/valgrind. Note though
+  that by default, valgrind only loads "default.supp".
+
+  You may load "debian.supp" by passing
+
+    --suppressions=/usr/lib/valgrind/debian.supp
+
+  on the command-line (or appending it to ~/.valgrindrc).
+
+ -- Alessandro Ghedini <ghedo@debian.org>  Sun, 09 Mar 2014 00:00:00 +0100

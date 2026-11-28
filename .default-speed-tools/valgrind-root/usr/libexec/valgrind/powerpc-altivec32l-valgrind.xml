@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2008, 2009, 2010 Free Software Foundation, Inc.
+
+     Copying and distribution of this file, with or without modification,
+     are permitted in any medium without royalty provided the copyright
+     notice and this notice are preserved.  -->
+
+<!-- PowerPC UISA - a PPC processor as viewed by user-level code.  A UISA-only
+     view of the PowerPC.  Includes Linux-only special "registers" and AltiVec
+     vector registers.  -->
+
+<!DOCTYPE target SYSTEM "gdb-target.dtd">
+<target>
+  <architecture>powerpc:common</architecture>
+  <xi:include href="power-core.xml"/>
+  <xi:include href="power-fpu.xml"/>
+  <xi:include href="power-linux.xml"/>
+  <xi:include href="power-altivec.xml"/>
+  <xi:include href="power-core-valgrind-s1.xml"/>
+  <xi:include href="power-fpu-valgrind-s1.xml"/>
+  <xi:include href="power-linux-valgrind-s1.xml"/>
+  <xi:include href="power-altivec-valgrind-s1.xml"/>
+  <xi:include href="power-core-valgrind-s2.xml"/>
+  <xi:include href="power-fpu-valgrind-s2.xml"/>
+  <xi:include href="power-linux-valgrind-s2.xml"/>
+  <xi:include href="power-altivec-valgrind-s2.xml"/>
+</target>

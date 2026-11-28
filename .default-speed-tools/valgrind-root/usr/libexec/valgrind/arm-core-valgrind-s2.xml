@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2007, 2008, 2009, 2010 Free Software Foundation, Inc.
+
+     Copying and distribution of this file, with or without modification,
+     are permitted in any medium without royalty provided the copyright
+     notice and this notice are preserved.  -->
+
+<!DOCTYPE feature SYSTEM "gdb-target.dtd">
+<feature name="org.gnu.gdb.arm.core.valgrind.s2">
+  <reg name="r0s2" bitsize="32"/>
+  <reg name="r1s2" bitsize="32"/>
+  <reg name="r2s2" bitsize="32"/>
+  <reg name="r3s2" bitsize="32"/>
+  <reg name="r4s2" bitsize="32"/>
+  <reg name="r5s2" bitsize="32"/>
+  <reg name="r6s2" bitsize="32"/>
+  <reg name="r7s2" bitsize="32"/>
+  <reg name="r8s2" bitsize="32"/>
+  <reg name="r9s2" bitsize="32"/>
+  <reg name="r10s2" bitsize="32"/>
+  <reg name="r11s2" bitsize="32"/>
+  <reg name="r12s2" bitsize="32"/>
+  <reg name="sps2" bitsize="32" type="data_ptr"/>
+  <reg name="lrs2" bitsize="32"/>
+  <reg name="pcs2" bitsize="32" type="code_ptr"/>
+
+  <!-- The CPSR is register 25, rather than register 16, because
+       the FPA registers historically were placed between the PC
+       and the CPSR in the "g" packet.  -->
+  <reg name="cpsrs2" bitsize="32" regnum="25"/>
+</feature>

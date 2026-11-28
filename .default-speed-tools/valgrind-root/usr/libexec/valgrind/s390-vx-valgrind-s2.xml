@@ -1,0 +1,43 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2015-2018 Free Software Foundation, Inc.
+
+     Copying and distribution of this file, with or without modification,
+     are permitted in any medium without royalty provided the copyright
+     notice and this notice are preserved.  -->
+
+<!DOCTYPE feature SYSTEM "gdb-target.dtd">
+<feature name="org.gnu.gdb.s390.vx-valgrind-s2">
+  <reg name="v0ls2" bitsize="64" type="uint64"/>
+  <reg name="v1ls2" bitsize="64" type="uint64"/>
+  <reg name="v2ls2" bitsize="64" type="uint64"/>
+  <reg name="v3ls2" bitsize="64" type="uint64"/>
+  <reg name="v4ls2" bitsize="64" type="uint64"/>
+  <reg name="v5ls2" bitsize="64" type="uint64"/>
+  <reg name="v6ls2" bitsize="64" type="uint64"/>
+  <reg name="v7ls2" bitsize="64" type="uint64"/>
+  <reg name="v8ls2" bitsize="64" type="uint64"/>
+  <reg name="v9ls2" bitsize="64" type="uint64"/>
+  <reg name="v10ls2" bitsize="64" type="uint64"/>
+  <reg name="v11ls2" bitsize="64" type="uint64"/>
+  <reg name="v12ls2" bitsize="64" type="uint64"/>
+  <reg name="v13ls2" bitsize="64" type="uint64"/>
+  <reg name="v14ls2" bitsize="64" type="uint64"/>
+  <reg name="v15ls2" bitsize="64" type="uint64"/>
+
+  <reg name="v16s2" bitsize="128" type="uint128"/>
+  <reg name="v17s2" bitsize="128" type="uint128"/>
+  <reg name="v18s2" bitsize="128" type="uint128"/>
+  <reg name="v19s2" bitsize="128" type="uint128"/>
+  <reg name="v20s2" bitsize="128" type="uint128"/>
+  <reg name="v21s2" bitsize="128" type="uint128"/>
+  <reg name="v22s2" bitsize="128" type="uint128"/>
+  <reg name="v23s2" bitsize="128" type="uint128"/>
+  <reg name="v24s2" bitsize="128" type="uint128"/>
+  <reg name="v25s2" bitsize="128" type="uint128"/>
+  <reg name="v26s2" bitsize="128" type="uint128"/>
+  <reg name="v27s2" bitsize="128" type="uint128"/>
+  <reg name="v28s2" bitsize="128" type="uint128"/>
+  <reg name="v29s2" bitsize="128" type="uint128"/>
+  <reg name="v30s2" bitsize="128" type="uint128"/>
+  <reg name="v31s2" bitsize="128" type="uint128"/>
+</feature>

@@ -1,0 +1,9 @@
+{"head": "6802734c6c53f9993f4b0409259bdf6774383a20", "command": ["python3", "scripts/bench/tests/test_phone_default_speed.py", "PhoneDefaultSpeedTest.test_timeout_stops_owned_descendant_and_inherits_outer_group"]}
+timeout: {"command": ["/opt/freestyle/python/bin/python3", "-c", "import os,subprocess,sys,time; from pathlib import Path; p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)'], start_new_session=True); Path('/tmp/acpmux-1001/t/8ca84dc7/01a21d90-08a3-7631-915c-b0ab9306e994/tmpnfh63n07/child').write_text(str(p.pid)+' '+str(os.getpgrp())); os.write(4, b'1'); time.sleep(30)"], "exit": 124, "cpu_complete": false, "cpu_scope": "waited child processes; external cache daemons excluded", "wall_seconds": 2.9858905550063355, "user_seconds": 0.437625, "system_seconds": 0.22322299999999998}
+
+.
+----------------------------------------------------------------------
+Ran 1 test in 2.989s
+
+OK
+{"exit": 0, "wall_seconds": 5.502817587999743}

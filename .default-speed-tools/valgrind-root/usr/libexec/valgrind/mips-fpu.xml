@@ -1,0 +1,45 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2007, 2008, 2009, 2010 Free Software Foundation, Inc.
+
+     Copying and distribution of this file, with or without modification,
+     are permitted in any medium without royalty provided the copyright
+     notice and this notice are preserved.  -->
+
+<!DOCTYPE feature SYSTEM "gdb-target.dtd">
+<feature name="org.gnu.gdb.mips.fpu">
+  <reg name="f0" bitsize="32" type="ieee_single" regnum="38"/>
+  <reg name="f1" bitsize="32" type="ieee_single"/>
+  <reg name="f2" bitsize="32" type="ieee_single"/>
+  <reg name="f3" bitsize="32" type="ieee_single"/>
+  <reg name="f4" bitsize="32" type="ieee_single"/>
+  <reg name="f5" bitsize="32" type="ieee_single"/>
+  <reg name="f6" bitsize="32" type="ieee_single"/>
+  <reg name="f7" bitsize="32" type="ieee_single"/>
+  <reg name="f8" bitsize="32" type="ieee_single"/>
+  <reg name="f9" bitsize="32" type="ieee_single"/>
+  <reg name="f10" bitsize="32" type="ieee_single"/>
+  <reg name="f11" bitsize="32" type="ieee_single"/>
+  <reg name="f12" bitsize="32" type="ieee_single"/>
+  <reg name="f13" bitsize="32" type="ieee_single"/>
+  <reg name="f14" bitsize="32" type="ieee_single"/>
+  <reg name="f15" bitsize="32" type="ieee_single"/>
+  <reg name="f16" bitsize="32" type="ieee_single"/>
+  <reg name="f17" bitsize="32" type="ieee_single"/>
+  <reg name="f18" bitsize="32" type="ieee_single"/>
+  <reg name="f19" bitsize="32" type="ieee_single"/>
+  <reg name="f20" bitsize="32" type="ieee_single"/>
+  <reg name="f21" bitsize="32" type="ieee_single"/>
+  <reg name="f22" bitsize="32" type="ieee_single"/>
+  <reg name="f23" bitsize="32" type="ieee_single"/>
+  <reg name="f24" bitsize="32" type="ieee_single"/>
+  <reg name="f25" bitsize="32" type="ieee_single"/>
+  <reg name="f26" bitsize="32" type="ieee_single"/>
+  <reg name="f27" bitsize="32" type="ieee_single"/>
+  <reg name="f28" bitsize="32" type="ieee_single"/>
+  <reg name="f29" bitsize="32" type="ieee_single"/>
+  <reg name="f30" bitsize="32" type="ieee_single"/>
+  <reg name="f31" bitsize="32" type="ieee_single"/>
+
+  <reg name="fcsr" bitsize="32" group="float"/>
+  <reg name="fir" bitsize="32" group="float"/>
+</feature>

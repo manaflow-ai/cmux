@@ -1,0 +1,2 @@
+wt push: format: 2 changed Rust/web file(s)
+wt push: lane receipt: running the fast gates on 19834f1bd501 merged with feat-cmux-next here, before the push (up to 1800 s; log /home/cmux/.cache/wt-push/receipts/19834f1bd501f32e380edd7109422ab3d7206b21.log). Green records a receipt the PR's gates take instead of re-running; WT_PUSH_RECEIPT=0 skips it

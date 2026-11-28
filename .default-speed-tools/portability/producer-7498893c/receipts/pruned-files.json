@@ -1,0 +1,18 @@
+[
+  "debug/.cargo-lock",
+  "debug/.fingerprint/ghostty-vt-2831160f78f12568/dep-example-phone_default_speed",
+  "debug/.fingerprint/ghostty-vt-2831160f78f12568/example-phone_default_speed",
+  "debug/.fingerprint/ghostty-vt-2831160f78f12568/example-phone_default_speed.json",
+  "debug/.fingerprint/ghostty-vt-2831160f78f12568/invoked.timestamp",
+  "debug/.fingerprint/ghostty-vt-8385ab6fc63fe2d7/dep-lib-ghostty_vt",
+  "debug/.fingerprint/ghostty-vt-8385ab6fc63fe2d7/invoked.timestamp",
+  "debug/.fingerprint/ghostty-vt-8385ab6fc63fe2d7/lib-ghostty_vt",
+  "debug/.fingerprint/ghostty-vt-8385ab6fc63fe2d7/lib-ghostty_vt.json",
+  "debug/deps/ghostty_vt-8385ab6fc63fe2d7.d",
+  "debug/deps/libghostty_vt-8385ab6fc63fe2d7.rlib",
+  "debug/deps/libghostty_vt-8385ab6fc63fe2d7.rmeta",
+  "debug/examples/phone_default_speed",
+  "debug/examples/phone_default_speed-2831160f78f12568",
+  "debug/examples/phone_default_speed-2831160f78f12568.d",
+  "debug/examples/phone_default_speed.d"
+]

@@ -1,0 +1,128 @@
+
+/*--------------------------------------------------------------------*/
+/*--- DHAT: a Dynamic Heap Analysis Tool               dh_view.css ---*/
+/*--------------------------------------------------------------------*/
+
+/*
+   This file is part of DHAT, a Valgrind tool for profiling the
+   heap usage of programs.
+
+   Copyright (C) 2018 Mozilla Foundation
+
+   This program is free software; you can redistribute it and/or
+   modify it under the terms of the GNU General Public License as
+   published by the Free Software Foundation; either version 2 of the
+   License, or (at your option) any later version.
+
+   This program is distributed in the hope that it will be useful, but
+   WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+   General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with this program; if not, see <http://www.gnu.org/licenses/>.
+
+   The GNU General Public License is contained in the file COPYING.
+*/
+
+html {
+  background: #cfcfcf; /* pale grey */
+}
+
+.section {
+  border-radius: 10px;
+  background-color: white;
+  padding: 1em;
+  margin: 0.5em 0;
+}
+
+div.header {
+  font-weight: bold;
+  display: inline-block;
+  margin: 0 1.5em 0 0;
+  border-radius: 10px;
+  padding: 0.5em;
+  background-color: #cfcfcf; /* pale grey */
+  -moz-user-select: none;
+  -webkit-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+.hidden {
+  display: none;
+}
+
+.error {
+  color: red;
+}
+
+.invocation {
+  background-color: #bfd7d7; /* pale blue-grey */
+}
+
+.times {
+  background-color: #efdfbf; /* pale brown */
+}
+
+.arrow, .treeline {
+  background-color: white;
+}
+
+.internal {
+  cursor: pointer;
+}
+
+/* increasingly pale shades of green */
+.leaf.lt100 { background-color: #7fff7f; }
+.leaf.lt32  { background-color: #8fff8f; }
+.leaf.lt16  { background-color: #9fff9f; }
+.leaf.lt8   { background-color: #afffaf; }
+.leaf.lt4   { background-color: #bfffbf; }
+.leaf.lt2   { background-color: #cfffcf; }
+.leaf.lt1   { background-color: #dfffdf; }
+.leaf.insig { background-color: #efffef; }
+
+/* increasingly pale shades of yellow */
+.collapsed.lt100 { background-color: #ffff7f; }
+.collapsed.lt32  { background-color: #ffff8f; }
+.collapsed.lt16  { background-color: #ffff9f; }
+.collapsed.lt8   { background-color: #ffffaf; }
+.collapsed.lt4   { background-color: #ffffbf; }
+.collapsed.lt2   { background-color: #ffffcf; }
+.collapsed.lt1   { background-color: #ffffdf; }
+.collapsed.insig { background-color: #ffffef; }
+
+/* increasingly pale shades of blue */
+.expanded.lt100 { background-color: #7f7fff; }
+.expanded.lt32  { background-color: #8f8fff; }
+.expanded.lt16  { background-color: #9f9fff; }
+.expanded.lt8   { background-color: #afafff; }
+.expanded.lt4   { background-color: #bfbfff; }
+.expanded.lt2   { background-color: #cfcfff; }
+.expanded.lt1   { background-color: #dfdfff; }
+.expanded.insig { background-color: #efefff; }
+
+.bold {
+  font-weight: bold;
+}
+
+.threshold {
+  background-color: #dfdfdf; /* pale grey */
+}
+
+.noselect {
+  -moz-user-select: none;
+  -webkit-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+.legend, .timings {
+  font-size: 80%;
+  padding: 0 1em;
+}
+
+.debug {
+  font-size: 80%;
+}

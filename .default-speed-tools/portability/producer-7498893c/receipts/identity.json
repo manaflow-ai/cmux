@@ -1,0 +1,57 @@
+{
+  "sha": "7498893c03c60b057c33bc59c1ae79be69ad374d",
+  "ghostty": "5c01c7171dc2c00d486f231adda7fb5bf6e55c97",
+  "root": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01",
+  "source": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src",
+  "target": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/target",
+  "tools": {
+    "cargo": {
+      "path": "/home/cmux/.rustup/toolchains/1.95.0-x86_64-unknown-linux-gnu/bin/cargo",
+      "sha256": "841072d1d92f9e841d9ba5b0814182a0adf064acf4527cd120967b7bc49dcb66"
+    },
+    "rustc": {
+      "path": "/home/cmux/.rustup/toolchains/1.95.0-x86_64-unknown-linux-gnu/bin/rustc",
+      "sha256": "bff349e72704ff70bc08a234a3847338e797065bbedde5e556808bc87b7bf7c6"
+    },
+    "rustdoc": {
+      "path": "/home/cmux/.rustup/toolchains/1.95.0-x86_64-unknown-linux-gnu/bin/rustdoc",
+      "sha256": "e5144902aed6cf94280eae3ad7708da5bdd3819b5281728af432d0e70231439c"
+    },
+    "zig": {
+      "path": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/tools/zig-tree/zig",
+      "sha256": "7c61539af19fa4082c94848f1c2b57b89e76dc6cfd5bd4c57764c3caf8f82272"
+    },
+    "zig_lib": {
+      "files": 19501,
+      "sha256": "e721855ca45d7abcc90628422bfe2ba427d31cdc1fd9f0a96926a0f834c8e8af"
+    },
+    "cargo_config": {},
+    "cc": {
+      "path": "/usr/bin/x86_64-linux-gnu-gcc-13",
+      "sha256": "1b99826121ae6682a634e5efe09bd3e3df58ce58e0b28f849114ab5b89139c26"
+    },
+    "ld": {
+      "path": "/usr/bin/x86_64-linux-gnu-ld.bfd",
+      "sha256": "53573e462af34c7f18048f8f497cc1c8ce586ce398148f40e222d33b58459abb"
+    },
+    "platform": {
+      "machine": "x86_64",
+      "os_release": "PRETTY_NAME=\"Ubuntu 24.04.5 LTS\"\nNAME=\"Ubuntu\"\nVERSION_ID=\"24.04\"\nVERSION=\"24.04.5 LTS (Noble Numbat)\"\nVERSION_CODENAME=noble\nID=ubuntu\nID_LIKE=debian\nHOME_URL=\"https://www.ubuntu.com/\"\nSUPPORT_URL=\"https://help.ubuntu.com/\"\nBUG_REPORT_URL=\"https://bugs.launchpad.net/ubuntu/\"\nPRIVACY_POLICY_URL=\"https://www.ubuntu.com/legal/terms-and-policies/privacy-policy\"\nUBUNTU_CODENAME=noble\nLOGO=ubuntu-logo\n",
+      "libc": "ldd (Ubuntu GLIBC 2.39-0ubuntu8.12) 2.39"
+    }
+  },
+  "environment": {
+    "CARGO_HOME": "/home/cmux/.cache/fast-checks/cargo",
+    "RUSTUP_HOME": "/home/cmux/.rustup",
+    "PATH": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/tools:/home/cmux/.cargo/bin:/opt/zig-0.17.0:/usr/local/bin:/usr/bin:/bin",
+    "CARGO_TARGET_DIR": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui/target",
+    "CARGO_INCREMENTAL": "0",
+    "CMUX_GHOSTTY_VT_ZIG_CPU": "baseline",
+    "CMUX_GHOSTTY_SRC": "",
+    "CMUX_ZIG_MIRROR_ONLY": "1",
+    "ZIG": null,
+    "CMUX_ZIG": null,
+    "RUSTC": "/home/cmux/.rustup/toolchains/1.95.0-x86_64-unknown-linux-gnu/bin/rustc",
+    "RUSTDOC": "/home/cmux/.rustup/toolchains/1.95.0-x86_64-unknown-linux-gnu/bin/rustdoc"
+  }
+}

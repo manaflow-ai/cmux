@@ -1,0 +1,46 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2007-2013 Free Software Foundation, Inc.
+
+     Copying and distribution of this file, with or without modification,
+     are permitted in any medium without royalty provided the copyright
+     notice and this notice are preserved.  -->
+
+<!DOCTYPE feature SYSTEM "gdb-target.dtd">
+<feature name="org.gnu.gdb.mips.cpu">
+  <reg name="r0" bitsize="64" regnum="0"/>
+  <reg name="r1" bitsize="64"/>
+  <reg name="r2" bitsize="64"/>
+  <reg name="r3" bitsize="64"/>
+  <reg name="r4" bitsize="64"/>
+  <reg name="r5" bitsize="64"/>
+  <reg name="r6" bitsize="64"/>
+  <reg name="r7" bitsize="64"/>
+  <reg name="r8" bitsize="64"/>
+  <reg name="r9" bitsize="64"/>
+  <reg name="r10" bitsize="64"/>
+  <reg name="r11" bitsize="64"/>
+  <reg name="r12" bitsize="64"/>
+  <reg name="r13" bitsize="64"/>
+  <reg name="r14" bitsize="64"/>
+  <reg name="r15" bitsize="64"/>
+  <reg name="r16" bitsize="64"/>
+  <reg name="r17" bitsize="64"/>
+  <reg name="r18" bitsize="64"/>
+  <reg name="r19" bitsize="64"/>
+  <reg name="r20" bitsize="64"/>
+  <reg name="r21" bitsize="64"/>
+  <reg name="r22" bitsize="64"/>
+  <reg name="r23" bitsize="64"/>
+  <reg name="r24" bitsize="64"/>
+  <reg name="r25" bitsize="64"/>
+  <reg name="r26" bitsize="64"/>
+  <reg name="r27" bitsize="64"/>
+  <reg name="r28" bitsize="64"/>
+  <reg name="r29" bitsize="64"/>
+  <reg name="r30" bitsize="64"/>
+  <reg name="r31" bitsize="64"/>
+
+  <reg name="lo" bitsize="64" regnum="33"/>
+  <reg name="hi" bitsize="64" regnum="34"/>
+  <reg name="pc" bitsize="64" regnum="37"/>
+</feature>

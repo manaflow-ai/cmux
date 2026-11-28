@@ -1,0 +1,59 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2015-2018 Free Software Foundation, Inc.
+
+     Copying and distribution of this file, with or without modification,
+     are permitted in any medium without royalty provided the copyright
+     notice and this notice are preserved.  -->
+
+<!DOCTYPE feature SYSTEM "gdb-target.dtd">
+<feature name="org.gnu.gdb.s390.vx">
+  <vector id="v4f" type="ieee_single" count="4"/>
+  <vector id="v2d" type="ieee_double" count="2"/>
+  <vector id="v16i8" type="int8" count="16"/>
+  <vector id="v8i16" type="int16" count="8"/>
+  <vector id="v4i32" type="int32" count="4"/>
+  <vector id="v2i64" type="int64" count="2"/>
+  <union id="vec128">
+    <field name="v4_float" type="v4f"/>
+    <field name="v2_double" type="v2d"/>
+    <field name="v16_int8" type="v16i8"/>
+    <field name="v8_int16" type="v8i16"/>
+    <field name="v4_int32" type="v4i32"/>
+    <field name="v2_int64" type="v2i64"/>
+    <field name="uint128" type="uint128"/>
+  </union>
+
+  <reg name="v0l" bitsize="64" type="uint64"/>
+  <reg name="v1l" bitsize="64" type="uint64"/>
+  <reg name="v2l" bitsize="64" type="uint64"/>
+  <reg name="v3l" bitsize="64" type="uint64"/>
+  <reg name="v4l" bitsize="64" type="uint64"/>
+  <reg name="v5l" bitsize="64" type="uint64"/>
+  <reg name="v6l" bitsize="64" type="uint64"/>
+  <reg name="v7l" bitsize="64" type="uint64"/>
+  <reg name="v8l" bitsize="64" type="uint64"/>
+  <reg name="v9l" bitsize="64" type="uint64"/>
+  <reg name="v10l" bitsize="64" type="uint64"/>
+  <reg name="v11l" bitsize="64" type="uint64"/>
+  <reg name="v12l" bitsize="64" type="uint64"/>
+  <reg name="v13l" bitsize="64" type="uint64"/>
+  <reg name="v14l" bitsize="64" type="uint64"/>
+  <reg name="v15l" bitsize="64" type="uint64"/>
+
+  <reg name="v16" bitsize="128" type="vec128"/>
+  <reg name="v17" bitsize="128" type="vec128"/>
+  <reg name="v18" bitsize="128" type="vec128"/>
+  <reg name="v19" bitsize="128" type="vec128"/>
+  <reg name="v20" bitsize="128" type="vec128"/>
+  <reg name="v21" bitsize="128" type="vec128"/>
+  <reg name="v22" bitsize="128" type="vec128"/>
+  <reg name="v23" bitsize="128" type="vec128"/>
+  <reg name="v24" bitsize="128" type="vec128"/>
+  <reg name="v25" bitsize="128" type="vec128"/>
+  <reg name="v26" bitsize="128" type="vec128"/>
+  <reg name="v27" bitsize="128" type="vec128"/>
+  <reg name="v28" bitsize="128" type="vec128"/>
+  <reg name="v29" bitsize="128" type="vec128"/>
+  <reg name="v30" bitsize="128" type="vec128"/>
+  <reg name="v31" bitsize="128" type="vec128"/>
+</feature>

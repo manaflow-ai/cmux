@@ -1,0 +1,1546 @@
+# This is a generated file, composed of the following suppression rules:
+#  ./xfree-3.supp ./xfree-4.supp glibc-2.X-drd.supp glibc-2.X-helgrind.supp glibc-2.X.supp
+
+##----------------------------------------------------------------------##
+
+# Errors to suppress by default with XFree86 3.3.6)
+
+# Format of this file is:
+# {
+#     name_of_suppression
+#     tool_name:supp_kind
+#     (optional extra info for some suppression types)
+#     caller0 name, or /name/of/so/file.so
+#     caller1 name, or ditto
+#     (optionally: caller2 name)
+#     (optionally: caller3 name)
+#  }
+#
+# For Memcheck, the supp_kinds are:
+#
+#     Param Value1 Value2 Value4 Value8 Value16 Jump
+#     Free Addr1 Addr2 Addr4 Addr8 Addr16
+#     Cond (previously known as Value0)
+#
+# and the optional extra info is:
+#     if Param: name of system call param
+
+##----------------------------------------------------------------------##
+
+{
+   X11-Cond-0
+   Memcheck:Cond
+   obj:*libXt.so.6.0
+   obj:*libXt.so.6.0
+   obj:*libXt.so.6.0
+}
+{
+   X11-Cond-1
+   Memcheck:Cond
+   fun:__rawmemchr
+   obj:*libXt.so.6.0
+   obj:*libXt.so.6.0
+}
+
+
+# Suppressions for XFree86-3.3.X
+
+{
+   X11-Addr4-1
+   Memcheck:Addr4
+   obj:/usr/X11R6/lib/libX11.so.6.1
+   obj:/usr/X11R6/lib/libX11.so.6.1
+   obj:/usr/X11R6/lib/libX11.so.6.1
+}
+
+{
+   X11-Addr4-2
+   Memcheck:Addr4
+   obj:/usr/X11R6/lib/libX11.so.6.1
+   obj:/usr/X11R6/lib/libX11.so.6.1
+   obj:/usr/X11R6/lib/libXt.so.6.0
+}
+
+{
+   X11-Addr4-3
+   Memcheck:Addr4
+   obj:/usr/X11R6/lib/libXt.so.6.0
+   obj:/usr/X11R6/lib/libXt.so.6.0
+   obj:/usr/X11R6/lib/libXt.so.6.0
+}
+
+{
+   X11-Addr4-4
+   Memcheck:Addr4
+   obj:/usr/X11R6/lib/libX11.so.6.1
+   obj:/usr/X11R6/lib/libXt.so.6.0
+   obj:/usr/X11R6/lib/libXt.so.6.0
+}
+
+{
+   X11-Addr4-5
+   Memcheck:Addr4
+   fun:__rawmemchr
+   obj:/usr/X11R6/lib/libXt.so.6.0
+   obj:/usr/X11R6/lib/libXt.so.6.0
+}
+
+{
+   X11-Addr4-6
+   Memcheck:Addr4
+   obj:/usr/X11R6/lib/libXmu.so.6.0
+   obj:/usr/X11R6/lib/libXmu.so.6.0
+   obj:/usr/X11R6/lib/libXt.so.6.0
+}
+
+{
+   X11-Addr4-7
+   Memcheck:Addr4
+   obj:/usr/X11R6/lib/libXt.so.6.0
+   obj:/usr/X11R6/lib/libXt.so.6.0
+   obj:/usr/X11R6/lib/libXawXpm_posing_as_Xaw.so.6.1
+}
+
+{
+   X11-Param-1
+   Memcheck:Param
+   write(buf)
+   fun:__libc_write
+   obj:/usr/X11R6/lib/libX11.so.6.1
+   obj:/usr/X11R6/lib/libX11.so.6.1
+}
+
+{
+   X11-Addr4-8
+   Memcheck:Addr4
+   obj:/usr/X11R6/lib/libX11.so.6.1
+   obj:/usr/X11R6/lib/libXpm.so.4.11
+   obj:/usr/X11R6/lib/libXpm.so.4.11
+}
+
+{
+   X11-Addr4-8
+   Memcheck:Addr4
+   obj:/usr/X11R6/lib/libXt.so.6.0
+   obj:/usr/X11R6/lib/libXawXpm_posing_as_Xaw.so.6.1
+   obj:/usr/X11R6/lib/libXt.so.6.0
+}
+
+{
+   X11-Addr4-9
+   Memcheck:Addr4
+   obj:/usr/X11R6/lib/libXaw.so.6.1
+   obj:/usr/X11R6/lib/libXt.so.6.0
+   obj:/usr/X11R6/lib/libXt.so.6.0
+}
+
+{
+   X11-Addr4-10
+   Memcheck:Addr4
+   obj:/usr/X11R6/lib/libXaw.so.6.1
+   obj:/usr/X11R6/lib/libXaw.so.6.1
+   obj:/usr/X11R6/lib/libXt.so.6.0
+}
+
+{
+   X11-Addr4-11
+   Memcheck:Addr4
+   obj:/usr/X11R6/lib/libXt.so.6.0
+   obj:/usr/X11R6/lib/libXt.so.6.0
+   obj:/usr/X11R6/lib/libXaw.so.6.1
+}
+
+
+
+##----------------------------------------------------------------------##
+
+##----------------------------------------------------------------------##
+
+# Errors to suppress by default with XFree86 4.1.0)
+
+# *** And a bunch of other stuff which is completely unrelated
+# to X.  The default suppressions are a bit of a mess and could do
+# with a good tidying up.
+
+# Format of this file is:
+# {
+#     name_of_suppression
+#     tool_name:supp_kind
+#     (optional extra info for some suppression types)
+#     caller0 name, or /name/of/so/file.so
+#     caller1 name, or ditto
+#     (optionally: caller2 name)
+#     (optionally: caller3 name)
+#  }
+#
+# For Memcheck, the supp_kinds are:
+#
+#     Param Value1 Value2 Value4 Value8 Value16 Jump
+#     Free Addr1 Addr2 Addr4 Addr8 Addr16
+#     Cond (previously known as Value0)
+#
+# and the optional extra info is:
+#     if Param: name of system call param
+
+# Resulting from R H 8.0
+{
+   *libc_write/libX11.so.6.2/*X11TransWrite(Param)
+   Memcheck:Param
+   write(buf)
+   fun:*libc_write
+   obj:/usr/*lib*/libX11.so*
+   fun:*X11TransWrite
+}
+
+{
+   libX11.so.6.2/libX11.so.6.2/libX11.so.6.2(Cond)
+   Memcheck:Cond
+   obj:/usr/*lib*/libX11.so*
+   obj:/usr/*lib*/libX11.so*
+   obj:/usr/*lib*/libX11.so*
+}
+
+{
+   libXt.so.6.2/libXt.so.6.2/libXt.so.6.2(Cond)
+   Memcheck:Cond
+   obj:/usr/*lib*/libXt.so*
+   obj:/usr/*lib*/libXt.so*
+   obj:/usr/*lib*/libXt.so*
+}
+
+
+{
+   libXaw.so.7.0/libXaw.so.7.0/libXaw.so.7.0(Cond)
+   Memcheck:Cond
+   obj:/usr/*lib*/libXaw.so*
+   obj:/usr/*lib*/libXaw.so*
+   obj:/usr/*lib*/libXaw.so*
+}
+
+{
+   libXmu.so.6.2/libXmu.so.6.2/libXmu.so.6.2(Cond)
+   Memcheck:Cond
+   obj:/usr/*lib*/libXmu.so*
+   obj:/usr/*lib*/libXmu.so*
+   obj:/usr/*lib*/libXmu.so*
+}
+
+{
+   libXt.so.6.0/libXt.so.6.0/libXaw.so.7.0(Cond)
+   Memcheck:Cond
+   obj:/usr/*lib*/libXt.so*
+   obj:/usr/*lib*/libXt.so*
+   obj:/usr/*lib*/libXaw.so*
+}
+
+{
+   libXaw.so.7.0/libXaw.so.7.0/libXt.so.6.0(Value4)
+   Memcheck:Value4
+   obj:/usr/*lib*/libXaw.so*
+   obj:/usr/*lib*/libXaw.so*
+   obj:/usr/*lib*/libXt.so*
+}
+
+{
+   libXaw.so.7.0/libXaw.so.7.0/libXt.so.6.0(Cond)
+   Memcheck:Cond
+   obj:/usr/*lib*/libXaw.so*
+   obj:/usr/*lib*/libXaw.so*
+   obj:/usr/*lib*/libXt.so*
+}
+
+{
+   libX11.so.6.2/libX11.so.6.2/libXaw.so.7.0(Cond)
+   Memcheck:Cond
+   obj:/usr/*lib*/libX11.so*
+   obj:/usr/*lib*/libX11.so*
+   obj:/usr/*lib*/libXaw.so*
+}
+
+{
+   libX11.so.6.2/libX11.so.6.2/libXaw.so.7.0(Addr4)
+   Memcheck:Addr4
+   obj:/usr/*lib*/libX11.so*
+   obj:/usr/*lib*/libX11.so*
+   obj:/usr/*lib*/libXaw.so*
+}
+
+{
+   libX11.so.6.2/libXaw.so.7.0/libXaw.so.7.0(Cond)
+   Memcheck:Cond
+   obj:/usr/*lib*/libX11.so*
+   obj:/usr/*lib*/libXaw.so*
+   obj:/usr/*lib*/libXaw.so*
+}
+
+{
+   libXpm.so.4.11/libXpm.so.4.11/libXpm.so.4.11
+   Memcheck:Cond
+   obj:/usr/*lib*/libXpm.so.4.11
+   obj:/usr/*lib*/libXpm.so.4.11
+   obj:/usr/*lib*/libXpm.so.4.11
+}
+
+{
+   struct with uninitialized paddings
+   Memcheck:Param
+   writev(vector[...])
+   fun:*_writev
+   fun:_X11TransSocketWritev
+   fun:_X11TransWritev
+   fun:*
+}
+
+{
+   struct with uninitialized paddings - libxcb
+   Memcheck:Param
+   writev(vector[...])
+   obj:/lib*/*.so
+   obj:/usr/lib*/libxcb.so.1.0.0
+   obj:/usr/lib*/libxcb.so.1.0.0
+   fun:xcb_send_request
+   fun:_X*
+}
+
+{
+   struct with uninitialized paddings - libxcb
+   Memcheck:Param
+   writev(vector[...])
+   obj:/lib*/*.so
+   obj:/usr/lib*/libxcb.so.1.0.0
+   obj:/usr/lib*/libxcb.so.1.0.0
+   obj:/usr/lib*/libxcb.so.1.0.0
+   fun:xcb_*
+   fun:_X*
+}
+
+{
+   another struct with uninitialized paddings
+   Memcheck:Param
+   write(buf)
+   obj:*
+   fun:_IceTransSocketWrite
+   fun:_IceTransWrite
+   fun:_IceWrite
+}
+
+{
+   Xorg 6.8.1 uninit _write* padding
+   Memcheck:Param
+   write(buf)
+   fun:*
+   fun:_X11TransWrite
+   obj:/usr/*lib*/libX11.so*
+}
+
+{
+   Xorg 6.8.1 uninit write padding
+   Memcheck:Param
+   write(buf)
+   fun:write
+   fun:_X11TransWrite
+   obj:/usr/*lib*/libX11.so*
+}
+
+{
+   Xorg 6.8.1 ICE uninit __write* padding
+   Memcheck:Param
+   write(buf)
+   obj:*
+   fun:_IceTransWrite
+   fun:_IceWrite
+   fun:IceFlush
+}
+
+{
+   Xorg 6.8.1 writev uninit padding
+   Memcheck:Param
+   writev(vector[...])
+   fun:writev
+   obj:/usr/*lib*/libX11.so*
+   fun:_X11TransWritev
+   fun:_XSend
+}
+
+{
+   Xorg 6.9.0 writev uninit padding
+   Memcheck:Param
+   writev(vector[...])
+   fun:do_writev
+   fun:writev
+   obj:/usr/*lib*/libX11.so*
+   fun:_X11TransWritev
+   fun:_XSend
+}
+
+{
+   X on SUSE11 writev uninit padding
+   Memcheck:Param
+   writev(vector[...])
+   fun:writev
+   obj:/usr/lib*/libxcb.so*
+   obj:/usr/lib*/libxcb.so*
+}
+{
+   X on SUSE11 writev uninit padding 2
+   Memcheck:Param
+   writev(vector[...])
+   obj:/lib*/ld-2.*.so*
+   obj:/usr/lib*/libxcb.so*
+   obj:/usr/lib*/libxcb.so*
+}
+{
+   X on SUSE11 writev uninit padding 3
+   Memcheck:Param
+   writev(vector[...])
+   obj:/lib*/ld-2.*.so*
+   obj:/usr/lib*/libORBit*.so*
+   obj:/usr/lib*/libORBit*.so*
+}
+{
+   X on SUSE11 writev uninit padding 4
+   Memcheck:Param
+   writev(vector[...])
+   obj:/lib*/libc-2.*.so*
+   obj:/usr/lib*/libORBit*.so*
+   obj:/usr/lib*/libORBit*.so*
+}
+ 
+
+# There's something strange about a % 127 in XftFontOpenInfo
+# (hashing) which gcc turns into a multiply by 33818641 and
+# some other guff instead.  I don't understand it enough to
+# know if libXft is broken or if memcheck's value tracking is
+# inadequate here.  Anyway, for the moment, suppress it.
+#
+# Use of uninitialised value of size 8
+#   at 0x71A59F8: XftFontOpenInfo (in /usr/X11R6/lib64/libXft.so.2.1.2)
+#   by 0x71A5F0D: XftFontOpenPattern (in /usr/X11R6/lib64/libXft.so.2.1.2)
+#   by 0x65F166E: loadFontConfigFont(QFontPrivate const*, QFontDef const&, 
+#                 QFont::Script) (qfontdatabase_x11.cpp:1942)
+#   by 0x65F5DE4: QFontDatabase::findFont(QFont::Script, QFontPrivate const*,
+#                 QFontDef const&, int) (qfontdatabase.cpp:996)
+{
+   XftFontOpenInfo-umod-127-strangeness
+   Memcheck:Value8
+   obj:/usr/X11*/lib*/libXft.so*
+   obj:/usr/X11*/lib*/libXft.so*
+}
+{
+   XftFontOpenInfo-umod-127-strangeness-a-la-xorg
+   Memcheck:Value8
+   obj:/usr/lib*/libXft.so*
+   obj:/usr/lib*/libXft.so*
+}
+
+{
+   More X padding stuff
+   Memcheck:Param
+   writev(vector[...])
+   fun:*writev*
+   obj:/usr/X11*/lib*/libX11.so*
+   obj:/usr/X11*/lib*/libX11.so*
+}
+
+# Inlined strlen in libX11 on Ubuntu 9.10 amd64, unfortunately.
+# Invalid read of size 4
+#    at 0x9B5CCE6: ??? (in /usr/lib/libX11.so.6.2.0)
+#    by 0x9B5D011: XGetAtomName (in /usr/lib/libX11.so.6.2.0)
+#    by 0x86407C3: gdk_x11_xatom_to_atom_for_display
+#                  (in /usr/lib/libgdk-x11-2.0.so.0.1800.3)
+#    by 0x8636817: ??? (in /usr/lib/libgdk-x11-2.0.so.0.1800.3)
+#  Address 0x1a558e1c is 28 bytes inside a block of size 30 alloc'd
+#    at 0x4C2552D: malloc (vg_replace_malloc.c:236)
+#    by 0x9B642C0: _XUpdateAtomCache (in /usr/lib/libX11.so.6.2.0)
+#    by 0x9B647F1: ??? (in /usr/lib/libX11.so.6.2.0)
+#    by 0x9B81818: ??? (in /usr/lib/libX11.so.6.2.0)
+{
+   libX11.so.6.2.0/libX11.so.6.2.0(Addr4)
+   Memcheck:Addr4
+   obj:/usr/*lib*/libX11.so*
+   obj:/usr/*lib*/libX11.so*
+}
+
+##----------------------------------------------------------------------##
+# Completely inappropriate place, but ...
+
+{
+   ifort-9.X-on-i686-1
+   Memcheck:Addr4
+   fun:unaligned_bigint
+   fun:hash
+   fun:for__add_to_lf_table
+}
+{
+   ifort-9.X-on-amd64-1
+   Memcheck:Addr8
+   fun:unaligned_bigint
+   fun:hash
+   fun:for__add_to_lf_table
+}
+
+
+# zlib-1.2.x uses uninitialised memory in some tricky way which
+# apparently is harmless (it must amount to a vectorised while-loop,
+# nothing else makes sense).  Fools Memcheck though.  See the mentioned
+# URL for details.
+{
+   zlib-1.2.x trickyness (1a): See http://www.zlib.net/zlib_faq.html#faq36
+   Memcheck:Cond
+   obj:/*lib*/libz.so.1.2.*
+   ...
+   obj:/*lib*/libz.so.1.2.*
+   fun:deflate
+}
+{
+   zlib-1.2.x trickyness (1b): See http://www.zlib.net/zlib_faq.html#faq36
+   Memcheck:Cond
+   obj:/*lib*/libz.so.1.2.*
+   fun:deflate
+}
+
+{
+   zlib-1.2.x trickyness (2a): See http://www.zlib.net/zlib_faq.html#faq36
+   Memcheck:Value8
+   obj:/*lib*/libz.so.1.2.*
+   ...
+   obj:/*lib*/libz.so.1.2.*
+   fun:deflate
+}
+{
+   zlib-1.2.x trickyness (2b): See http://www.zlib.net/zlib_faq.html#faq36
+   Memcheck:Value8
+   obj:/*lib*/libz.so.1.2.*
+   fun:deflate
+}
+
+{
+   zlib-1.2.x trickyness (3a): See http://www.zlib.net/zlib_faq.html#faq36
+   Memcheck:Value4
+   obj:/*lib*/libz.so.1.2.*
+   ...
+   obj:/*lib*/libz.so.1.2.*
+   fun:deflate
+}
+{
+   zlib-1.2.x trickyness (3b): See http://www.zlib.net/zlib_faq.html#faq36
+   Memcheck:Value4
+   obj:/*lib*/libz.so.1.2.*
+   fun:deflate
+}
+
+
+##----------------------------------------------------------------------##
+
+## More general versions of some of the old X suppressions above
+{
+   Ubuntu804 libXaw.so.7.0/libXaw.so.7.0/libXaw.so.7.0(Cond)
+   Memcheck:Cond
+   obj:/usr/*lib*/libXaw*so*
+   obj:/usr/*lib*/libXaw*so*
+   obj:/usr/*lib*/libXaw*so*
+}
+{
+   Ubuntu804 libXaw.so.7.0/libXaw.so.7.0/libXt(Cond)
+   Memcheck:Cond
+   obj:/usr/*lib*/libXaw*so*
+   obj:/usr/*lib*/libXaw*so*
+   obj:/usr/*lib*/libXt*so*
+}
+
+{
+   Ubuntu804-hack-1
+   Memcheck:Overlap
+   fun:mempcpy
+   fun:_IO_default_xsputn
+   obj:/lib*/libc-2.*so*
+}
+# IMPORTANT: DO NOT EDIT glibc-2.X-drd.supp, as it is as a generated
+# file.  Instead edit glibc-2.X-drd.supp.in.
+#
+# Suppression patterns for ld, the dynamic loader.
+#
+
+# Suppress all data races triggered by ld.
+{
+   drd-ld
+   drd:ConflictingAccess
+   obj:*/lib*/ld*.so*
+}
+
+#
+# Suppression patterns for libc.
+#
+
+# Suppress all data races where the topmost frame is inside libc.so. Although
+# this could hide some real data races, unfortunately this is the only way to
+# not report any false positives on stdio functions. The glibc functions
+# manipulating FILE objects use locking primitives that cannot be intercepted
+# easily. See also the definitions of _IO_lock_lock() etc. in the file
+# nptl/sysdeps/pthread/bits/stdio-lock.h in the glibc source tree.
+{
+   drd-libc-stdio
+   drd:ConflictingAccess
+   obj:*/lib*/libc.so.6
+}
+{
+   drd-libc-thread-cancellation-test
+   drd:ConflictingAccess
+   fun:write
+}
+{
+   drd-libc-random
+   drd:ConflictingAccess
+   fun:random_r
+   fun:random
+}
+{
+   drd-glibc-io-xsputn-mempcpy
+   drd:ConflictingAccess
+   fun:__GI_mempcpy
+   fun:_IO_*xsputn*
+   obj:*/lib*/libc.so.6 
+}
+
+#
+# Suppression patterns for libstdc++, the implementation of the standard C++
+# library included with the gcc compiler.
+#
+# Note: several versions of the libstdc++ library (4.2.2, 4.3.2, 4.4.0, 4.5.0
+# and their predecessors) contain an implementation of the std::string class
+# that triggers conflicting memory accesses. See also
+# http://gcc.gnu.org/bugzilla/show_bug.cgi?id=40518
+#
+
+# {
+#    drd-libstdc++-std::string::string()
+#    drd:ConflictingAccess
+#    fun:_ZNSsC1ERKSs
+# }
+
+{
+   drd-libstdc++-cxa_guard_release
+   drd:CondErr
+   fun:pthread_cond_broadcast@*
+   fun:__cxa_guard_release
+}
+{
+   drd-libstdc++-std::__ostream_insert()
+   drd:ConflictingAccess
+   fun:_ZSt16__ostream_insertIcSt11char_traitsIcEERSt13basic_ostreamIT_T0_ES6_PKS3_l
+   fun:_ZStlsISt11char_traitsIcEERSt13basic_ostreamIcT_ES5_PKc
+}
+{
+   drd-libstdc++-std::ostream::_M_insert<long>()
+   drd:ConflictingAccess
+   ...
+   fun:_ZNSo9_M_insertIlEERSoT_
+}
+{
+   drd-libstdc++-std::~__shared_count()
+   drd:ConflictingAccess
+   fun:_ZNSt14__shared_countILN9__gnu_cxx12_Lock_policyE2EED1Ev
+}
+{
+   drd-libstdc++-std::thread::~_Impl_base()
+   drd:ConflictingAccess
+   fun:_ZNSt6thread10_Impl_baseD1Ev
+}
+{
+   drd-libstdc++-std::thread::~_Impl()
+   drd:ConflictingAccess
+   fun:_ZNSt6thread5_ImplISt12_Bind_simpleIFZ4mainEUlvE_vEEED1Ev
+}
+
+#
+# Suppression patterns for libpthread.
+#
+
+{
+   drd-libpthread-pthread_create
+   drd:ConflictingAccess
+   ...
+   fun:pthread_create*
+}
+{
+   drd-libpthread-pthread_join
+   drd:ConflictingAccess
+   fun:pthread_join
+   fun:pthread_join
+}
+{
+   drd-libpthread-__deallocate_stack
+   drd:ConflictingAccess
+   ...
+   fun:__deallocate_stack
+}
+{
+   drd-libpthread-__free_stacks
+   drd:ConflictingAccess
+   fun:__free_stacks
+}
+{
+   drd-libpthread-__free_tcb
+   drd:ConflictingAccess
+   ...
+   fun:__free_tcb
+}
+{
+   drd-libpthread-__nptl_deallocate_tsd
+   drd:ConflictingAccess
+   fun:__nptl_deallocate_tsd
+}
+{
+   drd-libpthread-pthread_detach
+   drd:ConflictingAccess
+   fun:pthread_detach
+   fun:pthread_detach
+}
+{
+   drd-libpthread-pthread_once
+   drd:ConflictingAccess
+   fun:pthread_once
+}
+{
+   drd-libpthread-pthread_cancel_init
+   drd:ConflictingAccess
+   fun:pthread_cancel_init
+}
+{
+   drd-libpthread-pthread_cancel
+   drd:ConflictingAccess
+   fun:pthread_cancel
+   fun:pthread_cancel_intercept
+}
+{
+   drd-libpthread-_Unwind_ForcedUnwind
+   drd:ConflictingAccess
+   ...
+   fun:_Unwind_ForcedUnwind
+}
+{
+   drd-libpthread-_Unwind_GetCFA
+   drd:ConflictingAccess
+   fun:_Unwind_GetCFA
+}
+{
+   drd-libpthread-_Unwind_Resume
+   drd:ConflictingAccess
+   ...
+   fun:_Unwind_Resume
+}
+{
+   drd-libpthread-?
+   drd:ConflictingAccess
+   obj:*/lib/libgcc_s.so.1
+}
+{
+   drd-libpthread-nanosleep
+   drd:ConflictingAccess
+   fun:nanosleep
+}
+
+#
+# Suppression patterns for libgomp.
+#
+
+# Unfortunately many statements in libgomp trigger conflicting accesses. It is
+# not clear to me which of these are safe and which ones not. See also
+# http://gcc.gnu.org/bugzilla/show_bug.cgi?id=40362
+{
+   drd-libgomp
+   drd:ConflictingAccess
+   obj:*/lib*/libgomp.so*
+}
+
+#
+# Suppression patterns for libX11.
+#
+
+{
+   drd-libX11-XCreateFontSet
+   drd:CondErr
+   fun:pthread_cond_init*
+   fun:_XReply
+   fun:XListFontsWithInfo
+   obj:/usr/lib*/libX11.so*
+   fun:XCreateOC
+   fun:XCreateFontSet
+}
+
+#
+# Suppression patterns for libxcb.
+#
+
+{
+   drd-libxcb-xcb_wait_for_reply
+   drd:CondErr
+   ...
+   fun:pthread_cond_destroy*
+   fun:xcb_wait_for_reply
+}
+
+#
+# Suppression patterns for libglib.
+#
+
+{
+   drd-libglib-access-g_threads_got_initialized
+   drd:ConflictingAccess
+   ...
+   fun:g_slice_alloc
+   fun:g_ptr_array_sized_new
+}
+{
+   drd-libglib-access-g_threads_got_initialized
+   drd:ConflictingAccess
+   ...
+   fun:_ZN27QEventDispatcherGlibPrivateC1EP13_GMainContext
+   fun:_ZN20QEventDispatcherGlibC1EP7QObject
+   obj:/usr/lib*/libQtCore.so.4.*
+   obj:/usr/lib*/libQtCore.so.4.*
+}
+{
+   drd-libglib-access-g_mem_initialized
+   drd:ConflictingAccess
+   fun:g_malloc0
+}
+{
+   drd-libglib-g_private_get_posix_impl
+   drd:ConflictingAccess
+   fun:g_private_get_posix_impl
+}
+{
+   drd-libglib-g_private_set_posix_impl
+   drd:ConflictingAccess
+   fun:g_private_set_posix_impl
+}
+{
+   drd-libglib-g_get_language_names
+   drd:ConflictingAccess
+   fun:g_slice_free_chain_with_offset
+}
+{
+   drd-libglib-g_main_context_new
+   drd:ConflictingAccess
+   fun:fcntl
+   obj:/usr/lib*/libglib-*.so*
+   fun:g_main_context_new
+}
+
+#
+# Suppression patterns for libQtCore.
+#
+
+{
+   drd-libQtCore-deref-that-calls-QThreadData-destructor
+   drd:ConflictingAccess
+   fun:_ZN11QThreadDataD1Ev
+   obj:/usr/lib*/libQtCore.so.4.*
+}
+{
+   drd-libQtCore-4.0/4.1-Q_GLOBAL_STATIC-connectionList
+   drd:ConflictingAccess
+   obj:/usr/lib*/libQtCore.so.4.*
+   fun:_ZN11QMetaObject8activateEP7QObjectiiPPv
+   fun:_ZN11QMetaObject8activateEP7QObjectPKS_iPPv
+}
+{
+   drd-libQtCore-QObjectPrivate::clearGuards(QObject*)
+   drd:ConflictingAccess
+   fun:_ZN14QReadWriteLock12lockForWriteEv
+   fun:_ZN14QObjectPrivate11clearGuardsEP7QObject
+   fun:_ZN7QObjectD2Ev
+}
+{
+   drd-libQtCore-QObjectPrivate::clearGuards(QObject*)
+   drd:ConflictingAccess
+   fun:_ZN14QReadWriteLock12lockForWriteEv
+   fun:_ZN12QWriteLocker6relockEv
+   fun:_ZN12QWriteLockerC1EP14QReadWriteLock
+   fun:_ZN14QObjectPrivate11clearGuardsEP7QObject
+   fun:_ZN7QObjectD2Ev
+   fun:_ZN24QAbstractEventDispatcherD2Ev
+   fun:_ZN20QEventDispatcherGlibD0Ev
+}
+{
+   drd-libQtCore-QMutexPool::get(void const*)
+   drd:ConflictingAccess
+   fun:_ZN10QMutexPool3getEPKv
+}
+{
+   drd-libQtCore-qt_gettime_is_monotonic()
+   drd:ConflictingAccess
+   fun:_Z23qt_gettime_is_monotonicv
+}
+
+#
+# Suppression patterns for libboost.
+#
+
+# Suppress the races on boost::once_flag::epoch and on
+# boost::detail::this_thread_epoch. See also the source file
+# boost/thread/pthread/once.hpp in the Boost source tree
+# (https://svn.boost.org/trac/boost/browser/trunk/boost/thread/pthread/once.hpp).
+{
+   drd-libboost-boost::call_once<void (*)()>(boost::once_flag&, void (*)())
+   drd:ConflictingAccess
+   ...
+   fun:_ZN5boost9call_onceIPFvvEEEvRNS_9once_flagET_
+}
+{
+   drd-libboost-boost::detail::get_once_per_thread_epoch()
+   drd:ConflictingAccess
+   fun:_ZN5boost6detail25get_once_per_thread_epochEv
+}
+# Suppress the race reports on boost::detail::current_thread_tls_key. See also
+# https://svn.boost.org/trac/boost/ticket/3526 for more information about why
+# the access pattern of current_thread_tls_key is safe.
+{
+   drd-libboost-boost::detail::get_current_thread_data()
+   drd:ConflictingAccess
+   ...
+   fun:_ZN5boost6detail23get_current_thread_dataEv
+}
+{
+   drd-libboost-boost::detail::set_current_thread_data(boost::detail::thread_data_base*)
+   drd:ConflictingAccess
+   ...
+   fun:_ZN5boost6detail23set_current_thread_dataEPNS0_16thread_data_baseE
+}
+
+#
+# Suppression patterrns for posix functions
+{
+   drd-libc-getaddrinfo
+   drd:ConflictingAccess
+   ...
+   fun:getaddrinfo
+}
+
+# s390 libdl
+{
+   drd-libdl-_dl_exception_create_format
+   drd:ConflictingAccess
+   fun:memcpy
+   fun:_dl_exception_create_format
+}
+
+# IMPORTANT: DO NOT EDIT glibc-2.X-helgrind.supp, as it is as a generated
+# file.  Instead edit glibc-2.X-helgrind.supp.in.
+
+# FIXME 22 Jan 09: helgrind-glibc2X-005 overlaps with a lot of
+# other stuff.  They should be removed.
+
+##----------------------------------------------------------------------##
+# Suppressions for the Helgrind tool when using 
+# a glibc-2.{3,4,5,6,7,8,9} system
+
+####################################################
+# glibc-2.X specific
+# These are generic cover-alls which catch a lot of stuff
+# in various combinations of ld, libc and libpthread
+#
+# Note this is heavyhanded and not very clever:
+#
+# - suppress anything that has its top frame in ld.so
+#   That's fine, since it's mostly dynamic linking stuff,
+#   which has various deliberate (harmless) races
+#
+# - suppress anything that has its top frame in libc.so.
+#   This really isn't clever, since it could hide some 
+#   legitimate races.  But the problem is, if we don't do
+#   this, then loads of errors to do with stdio are reported, because
+#   H fails to see glibc's internal locking/unlocking of FILE*s
+#   as required by POSIX.  A better solution is needed.
+#
+# - some of the stdio functions in newer glibc manipulate stdio
+#   FILE*s state through mempcpy, which we intercept, so we also need
+#   to suppress such manipulations.
+
+#{
+#   helgrind-glibc2X-001
+#   Helgrind:Race
+#   obj:*/lib*/ld-2.*so*
+#}
+
+# helgrind-glibc2X-002 was merged into helgrind-glibc2X-001
+
+# helgrind-glibc2X-003 was merged into helgrind-glibc2X-001
+
+{
+   helgrind-glibc2X-004
+   Helgrind:Race
+   obj:*/lib*/libc.so.6
+}
+
+{
+   helgrind-glibc-io-xsputn-mempcpy
+   Helgrind:Race
+   fun:*mem*cpy
+   ...
+   fun:_IO_*xsputn*
+   obj:*/lib*/libc.so.6
+}
+
+{
+   helgrind-glibc-__printf_buffer_write
+   Helgrind:Race
+   fun:memcpy
+   fun:__printf_buffer_write
+}
+
+{
+   helgrind-glibc2X-005
+   Helgrind:Race
+   obj:*/lib*/libc.so.6
+}
+
+# helgrind-glibc2X-006 was merged into helgrind-glibc2X-005
+
+# helgrind-glibc2X-007 was merged into helgrind-glibc2X-001
+
+# helgrind-glibc2X-008 was merged into helgrind-glibc2X-004
+
+# helgrind-glibc2X-009 was merged into helgrind-glibc2X-004
+
+# helgrind-glibc2X-010 was merged into helgrind-glibc2X-001
+
+# helgrind-glibc2X-011 was merged into helgrind-glibc2X-004
+
+# helgrind-glibc2X-012 was merged into helgrind-glibc2X-001
+
+# helgrind-glibc2X-013 was merged into helgrind-glibc2X-001
+
+# helgrind-glibc2X-014 was merged into helgrind-glibc2X-001
+
+# helgrind-glibc2X-015 was merged into helgrind-glibc2X-004
+
+# helgrind-glibc2X-016 was merged into helgrind-glibc2X-004
+
+# These are very ugly.  They are needed to suppress errors inside (eg)
+# NPTL's pthread_cond_signal.  Why only one stack frame -- at least we
+# should see the wrapper calling the real functions, right?
+# Unfortunately, no: the real functions are handwritten assembly (in
+# the glibc-2.5 sources) and does not create a proper stack frame.
+# Therefore it's only one level of unwinding before we're back out in
+# user code rather than the 2 levels you'd expect.
+{
+   helgrind-glibc2X-101
+   Helgrind:Race
+   obj:*/lib*/libc.so.6
+   fun:pthread_*
+}
+{
+   helgrind-glibc2X-102
+   Helgrind:Race
+   fun:mythread_wrapper
+   obj:*/lib*/libc.so.6
+}
+{
+   helgrind-glibc2X-103
+   Helgrind:Race
+   fun:pthread_cond_*@@GLIBC_2.*
+}
+{
+   helgrind-glibc2X-104
+   Helgrind:Race
+   fun:__lll_mutex_*
+}
+{
+   helgrind-glibc2X-105
+   Helgrind:Race
+   fun:pthread_rwlock_*lock*
+}
+{
+   helgrind-glibc2X-106
+   Helgrind:Race
+   fun:__lll_lock_wait
+}
+{
+   helgrind-glibc2X-107
+   Helgrind:Race
+   obj:*/lib*/libc.so.6
+   fun:sem_*
+}
+{
+   helgrind-glibc2X-108
+   Helgrind:Race
+   fun:clone
+}
+{
+   helgrind-glibc2X-109
+   Helgrind:Race
+   fun:start_thread
+}
+{
+   helgrind-glibc2X-110
+   Helgrind:Race
+   obj:*/lib*/libc.so.6
+   fun:pthread_*
+}
+{
+   helgrind-glibc2X-111
+   Helgrind:Race
+   fun:__lll_*lock_*
+}
+{
+   helgrind-glibc2X-113
+   Helgrind:Race
+   fun:pthread_barrier_wait*
+}
+
+
+####################################################
+# qt4 specific (GNU mangling)
+#
+{
+   helgrind-qt4---QMutex::lock()-QMutex::lock()
+   Helgrind:Race
+   ...
+   fun:_ZN6QMutex4lockEv
+   fun:_ZN6QMutex4lockEv
+}
+
+{                                                               
+   helgrind-qt4---QMutex::unlock()-QMutex::unlock()
+   Helgrind:Race                                                
+   ...
+   fun:_ZN6QMutex6unlockEv                                      
+   fun:_ZN6QMutex6unlockEv
+}
+
+{
+   helgrind-qt4---pthread_setspecific-QThreadPrivate::start(void*)
+   Helgrind:Race
+   fun:pthread_setspecific
+   fun:_ZN14QThreadPrivate5startEPv
+}
+
+
+####################################################
+# Other stuff.
+#
+# pthread_exit apparently calls some kind of unwind
+# mechanism - maybe to remove some number of frames
+# from the thread's stack, so as to get back to the 
+# outermost frame for the thread?  Anyway..
+
+{
+   helgrind---*Unwind*-...-pthread_exit
+   Helgrind:Race
+   fun:*Unwind*
+   ...
+   fun:pthread_exit
+}
+
+{
+   helgrind---...-*Unwind*-*pthread_unwind*
+   Helgrind:Race
+   ...
+   fun:*Unwind*
+   fun:*pthread_unwind*
+}
+
+{
+   helgrind---...-*Unwind*-*pthread_unwind*
+   Helgrind:Race
+   ...
+   fun:_Unwind*
+   ...
+   fun:_Unwind_Backtrace
+}
+
+
+
+
+####################################################
+# To do with thread stack allocation and deallocation?
+#
+{
+   helgrind---free_stacks-__deallocate_stack
+   Helgrind:Race
+   fun:free_stacks
+   fun:__deallocate_stack
+}
+
+{
+   helgrind---__deallocate_stack-start_thread-clone
+   Helgrind:Race
+   fun:__deallocate_stack
+   fun:start_thread
+   fun:clone
+}
+
+
+####################################################
+# To do with pthread_{set,get}specific
+#
+{
+   helgrind---pthread_setspecific
+   Helgrind:Race
+   fun:pthread_setspecific
+}
+
+{
+   helgrind---pthread_getspecific
+   Helgrind:Race
+   fun:pthread_getspecific
+}
+
+
+####################################################
+# To do with dynamic linking
+#
+# helgrind---ld.so-...-dlsym was merged into helgrind-glibc2X-001
+
+{
+   helgrind---_dl_allocate_tls 
+   Helgrind:Race
+   fun:mempcpy
+   fun:_dl_allocate_tls_init
+   ...
+   fun:pthread_create@@GLIBC_2.2*
+   fun:pthread_create_WRK
+   fun:pthread_create@*
+}
+
+{
+   helgrind---_dl_allocate_tls2
+   Helgrind:Race
+   fun:memcpy
+   fun:__mempcpy_inline
+   fun:_dl_allocate_tls_init
+   ...
+   fun:pthread_create@@GLIBC_2.2*
+   fun:pthread_create_WRK
+   fun:pthread_create@*
+}
+
+{
+   helgrind---_dl_lookup_symbol_x
+   Helgrind:Race
+   ...
+   fun:_dl_lookup_symbol_x
+}
+
+####################################################
+# To do with GNU libgomp
+#
+{
+   helgrind---libgomp43-1
+   Helgrind:Race
+   fun:gomp_ordered_sync
+}
+
+{
+   helgrind---libgomp43-1
+   Helgrind:Race
+   fun:gomp_ordered_next
+}
+
+{
+   helgrind---libgomp43-1
+   Helgrind:Race
+   fun:gomp_ordered_last
+}
+
+####################################################
+# posix functions that are thread safe
+{
+   helgrind---getaddrinfo
+   Helgrind:Race
+   ...
+   fun:getaddrinfo
+}
+
+# * here for dns and files variants etc.
+{
+   helgrind---_nss_*_gethostbyname4_r
+   Helgrind:Race
+   fun:_nss_*_gethostbyname4_r
+}
+
+##----------------------------------------------------------------------##
+
+# Errors to suppress by default with glibc 2.39.x
+
+# IMPORTANT: DO NOT EDIT glibc-2.X.supp, as it is as a generated
+# file.  Instead edit glibc-2.X.supp.in.
+
+# Format of this file is:
+# {
+#     name_of_suppression
+#     tool_name:supp_kind
+#     (optional extra info for some suppression types)
+#     caller0 name, or /name/of/so/file.so
+#     caller1 name, or ditto
+#     (optionally: caller2 name)
+#     (optionally: caller3 name)
+#  }
+#
+# For Memcheck, the supp_kinds are:
+#
+#     Param Value1 Value2 Value4 Value8 Value16 Jump
+#     Free Addr1 Addr2 Addr4 Addr8 Addr16
+#     Cond (previously known as Value0)
+#
+# and the optional extra info is:
+#     if Param: name of system call param
+
+##----------------------------------------------------------------------##
+##--- generic suppressions                                           ---##
+##----------------------------------------------------------------------##
+
+{
+   dl-hack3-cond-0
+   Memcheck:Cond
+   fun:_dl_start
+   fun:_start
+}
+{
+   dl-hack3-cond-1
+   Memcheck:Cond
+   obj:*/lib*/ld-2.39*.so*
+   obj:*/lib*/ld-2.39*.so*
+   obj:*/lib*/ld-2.39*.so*
+}
+{
+   dl-hack3-cond-2
+   Memcheck:Cond
+   obj:*/lib*/ld-2.39*.so*
+   obj:*/lib*/ld-2.39*.so*
+   obj:*/lib*/libc-2.39*.so*
+}
+{
+   dl-hack3-cond-3
+   Memcheck:Cond
+   obj:*/lib*/ld-2.39*.so*
+   obj:*/lib*/libc-2.39*.so*
+   obj:*/lib*/libc-2.39*.so*
+}
+{
+   dl-hack3-cond-4
+   Memcheck:Cond
+   obj:*/lib*/ld-2.39*.so*
+   obj:*/lib*/ld-2.39*.so*
+   obj:*/lib*/libdl-2.39*.so*
+}
+
+{
+   dl-hack4-64bit-addr-1
+   Memcheck:Addr8
+   obj:*/lib*/ld-2.39*.so*
+   obj:*/lib*/ld-2.39*.so*
+   obj:*/lib*/ld-2.39*.so*
+}
+{
+   dl-hack4-64bit-addr-2
+   Memcheck:Addr8
+   obj:*/lib*/ld-2.39*.so*
+   obj:*/lib*/ld-2.39*.so*
+   obj:*/lib*/libc-2.39*.so*
+}
+{
+   dl-hack4-64bit-addr-3
+   Memcheck:Addr8
+   obj:*/lib*/ld-2.39*.so*
+   obj:*/lib*/ld-2.39*.so*
+   obj:*/lib*/libdl-2.39*.so*
+}
+
+{
+   dl-hack5-32bit-addr-1
+   Memcheck:Addr4
+   obj:*/lib*/ld-2.39*.so
+   obj:*/lib*/ld-2.39*.so
+   obj:*/lib*/ld-2.39*.so
+}
+{
+   dl-hack5-32bit-addr-3
+   Memcheck:Addr4
+   obj:*/lib*/ld-2.39*.so
+   obj:*/lib*/ld-2.39*.so
+   obj:*/lib*/libdl-2.39*.so*
+}
+{
+   dl-hack5-32bit-addr-4
+   Memcheck:Addr4
+   obj:*/lib*/ld-2.39*.so
+   obj:*/lib*/libdl-2.39*.so*
+   obj:*/lib*/ld-2.39*.so
+}
+
+
+##----------------------------------------------------------------------##
+##--- Misc ad-hoc hacks                                              ---##
+##----------------------------------------------------------------------##
+{
+   glibc-2.5.x-on-SUSE-10.2-(PPC)-1
+   Memcheck:Cond
+   fun:_dl_start_final
+   fun:_dl_start
+   fun:_start
+}
+{
+   glibc-2.5.x-on-SUSE-10.2-(PPC)-2a
+   Memcheck:Cond
+   fun:index
+   obj:*ld-2.39.*.so
+}
+{
+   glibc-2.5.x-on-SuSE-10.2-(PPC)-2b
+   Memcheck:Addr4
+   fun:index
+   fun:expand_dynamic_string_token
+}
+{
+   glibc-2.5.5-on-SuSE-10.2-(PPC)-2c
+   Memcheck:Addr4
+   fun:index
+   obj:*ld-2.39.*.so
+}
+{
+   glibc-2.3.5-on-SuSE-10.1-(PPC)-3
+   Memcheck:Addr4
+   fun:*wordcopy_fwd_dest_aligned*
+   fun:mem*cpy
+   obj:*lib*2.39.*.so
+}
+
+{
+   glibc-2.39-on-SUSE-10.3-(x86)
+   Memcheck:Addr4
+   obj:*/lib/ld-2.39*.so
+   obj:*/lib/ld-2.39*.so
+   obj:*/lib/ld-2.39*.so
+}
+
+{
+   glibc24-64bit-padding-1a
+   Memcheck:Param
+   socketcall.sendto(msg)
+   fun:send
+   fun:get_mapping
+   fun:__nscd_get_map_ref
+   fun:nscd*
+}
+{
+   glibc24-64bit-padding-1b
+   Memcheck:Param
+   socketcall.sendto(msg)
+   fun:__sendto_nocancel
+   obj:/*libc-2.39*.so
+   obj:/*libc-2.39*.so
+   obj:/*libc-2.39*.so
+}
+{
+   glibc24-64bit-padding-1c
+   Memcheck:Param
+   socketcall.send(msg)
+   fun:send
+   fun:__nscd_get_map_ref
+   fun:nscd_get*_r
+   fun:*nscd*
+   obj:/*libc-2.39*.so
+}
+
+
+{
+   X11-64bit-padding-3a
+   Memcheck:Param
+   write(buf)
+   obj:/*libpthread-2.4.so*
+   obj:/usr/lib*/libX11.so*
+   obj:/usr/lib*/libX11.so*
+   obj:/usr/lib*/libX11.so*
+}
+
+{
+   X11-64bit-padding-4a
+   Memcheck:Param
+   socketcall.sendto(msg)
+   fun:send
+   obj:/*libc-2.39*.so
+   obj:/*libc-2.39*.so
+   obj:/*libc-2.39*.so
+}
+{
+   X11-64bit-padding-4b
+   Memcheck:Param
+   socketcall.send(msg)
+   fun:send
+   obj:/*libc-2.39*.so
+   obj:/*libc-2.39*.so
+   obj:/*libc-2.39*.so
+}
+
+##----------------------------------------------------------------------##
+# MontaVista Linux 4.0.1 on ppc32
+{
+    MVL-401-linuxthreads-pthread_create
+    Memcheck:Param
+    write(buf)
+    fun:pthread_create
+}
+{
+   MVL-401-linuxthreads-pthread_create
+   Memcheck:Param
+   write(buf)
+   obj:*/lib/libpthread-0.10.so
+   fun:pthread_create
+}
+
+##----------------------------------------------------------------------##
+# Ubuntu 10.04 on ARM (Thumb).  Not sure why this is necessary.
+{
+   U1004-ARM-_dl_relocate_object
+   Memcheck:Cond
+   fun:_dl_relocate_object
+}
+
+# glibc ld.so has an optimization when resolving a symbol that checks
+# whether or not the upper 128 bits of the ymm registers are zero. If
+# so it uses "cheaper" instructions to save/restore them using the xmm
+# registers. If those upper 128 bits contain undefined values memcheck
+# will issue an Conditional jump or move depends on uninitialised value(s)
+# warning whenever trying to resolve a symbol.
+{
+   dl-trampoline-sse-avx
+   Memcheck:Cond
+   fun:_dl_runtime_resolve_avx_slow
+}
+
+# The main thread dynamic thread vector, DTV, which contains pointers
+# to thread local variables, isn't freed.  There are a couple of call
+# patterns that can cause it to be extended.
+{
+  dtv-addr-tail
+  Memcheck:Leak
+  match-leak-kinds: possible,reachable
+  fun:malloc
+  fun:tls_get_addr_tail*
+  fun:__tls_get_addr
+}
+
+{
+  dtv-addr-resize
+  Memcheck:Leak
+  match-leak-kinds: possible,reachable
+  fun:malloc
+  fun:_dl_resize_dtv
+  fun:_dl_update_slotinfo
+  fun:update_get_addr
+  fun:__tls_get_addr
+}
+
+{
+  dtv-addr-init
+  Memcheck:Leak
+  match-leak-kinds: possible,reachable
+  fun:malloc
+  fun:allocate_dtv_entry
+  fun:allocate_and_init
+  fun:tls_get_addr_tail*
+  fun:__tls_get_addr
+}

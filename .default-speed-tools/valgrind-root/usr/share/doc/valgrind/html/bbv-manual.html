@@ -1,0 +1,366 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>13. BBV: an experimental basic block vector generation tool</title>
+<link rel="stylesheet" type="text/css" href="vg_basic.css">
+<meta name="generator" content="DocBook XSL Stylesheets Vsnapshot">
+<link rel="home" href="index.html" title="Valgrind Documentation">
+<link rel="up" href="manual.html" title="Valgrind User Manual">
+<link rel="prev" href="nl-manual.html" title="12. Nulgrind: the minimal Valgrind tool">
+<link rel="next" href="FAQ.html" title="Valgrind FAQ">
+</head>
+<body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF">
+<div><table class="nav" width="100%" cellspacing="3" cellpadding="3" border="0" summary="Navigation header"><tr>
+<td width="22px" align="center" valign="middle"><a accesskey="p" href="nl-manual.html"><img src="images/prev.png" width="18" height="21" border="0" alt="Prev"></a></td>
+<td width="25px" align="center" valign="middle"><a accesskey="u" href="manual.html"><img src="images/up.png" width="21" height="18" border="0" alt="Up"></a></td>
+<td width="31px" align="center" valign="middle"><a accesskey="h" href="index.html"><img src="images/home.png" width="27" height="20" border="0" alt="Up"></a></td>
+<th align="center" valign="middle">Valgrind User Manual</th>
+<td width="22px" align="center" valign="middle"><a accesskey="n" href="FAQ.html"><img src="images/next.png" width="18" height="21" border="0" alt="Next"></a></td>
+</tr></table></div>
+<div class="chapter">
+<div class="titlepage"><div><div><h1 class="title">
+<a name="bbv-manual"></a>13. BBV: an experimental basic block vector generation tool</h1></div></div></div>
+<div class="toc">
+<p><b>Table of Contents</b></p>
+<dl class="toc">
+<dt><span class="sect1"><a href="bbv-manual.html#bbv-manual.overview">13.1. Overview</a></span></dt>
+<dt><span class="sect1"><a href="bbv-manual.html#bbv-manual.quickstart">13.2. Using Basic Block Vectors to create SimPoints</a></span></dt>
+<dt><span class="sect1"><a href="bbv-manual.html#bbv-manual.usage">13.3. BBV Command-line Options</a></span></dt>
+<dt><span class="sect1"><a href="bbv-manual.html#bbv-manual.fileformat">13.4. Basic Block Vector File Format</a></span></dt>
+<dt><span class="sect1"><a href="bbv-manual.html#bbv-manual.implementation">13.5. Implementation</a></span></dt>
+<dt><span class="sect1"><a href="bbv-manual.html#bbv-manual.threadsupport">13.6. Threaded Executable Support</a></span></dt>
+<dt><span class="sect1"><a href="bbv-manual.html#bbv-manual.validation">13.7. Validation</a></span></dt>
+<dt><span class="sect1"><a href="bbv-manual.html#bbv-manual.performance">13.8. Performance</a></span></dt>
+</dl>
+</div>
+<p>To use this tool, you must specify
+<code class="option">--tool=exp-bbv</code> on the Valgrind
+command line.</p>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="bbv-manual.overview"></a>13.1. Overview</h2></div></div></div>
+<p>
+   A basic block is a linear section of code with one entry point and one exit
+   point.  A <span class="emphasis"><em>basic block vector</em></span> (BBV) is a list of all
+   basic blocks entered during program execution, and a count of how many
+   times each basic block was run.
+</p>
+<p>
+   BBV is a tool that generates basic block vectors for use with the 
+   <a class="ulink" href="http://www.cse.ucsd.edu/~calder/simpoint/" target="_top">SimPoint</a>
+   analysis tool. 
+   The SimPoint methodology enables speeding up architectural 
+   simulations by only running a small portion of a program
+   and then extrapolating total behavior from this
+   small portion.  Most programs exhibit phase-based behavior, which
+   means that at various times during execution a program will encounter 
+   intervals of time where the code behaves similarly to a previous
+   interval.  If you can detect these intervals and group them together, 
+   an approximation of the total program behavior can be obtained
+   by only simulating a bare minimum number of intervals, and then scaling 
+   the results.
+</p>
+<p>
+  In computer architecture research, running a 
+  benchmark on a cycle-accurate simulator can cause slowdowns on the order
+  of 1000 times, making it take days, weeks, or even longer to run full
+  benchmarks.  By utilizing SimPoint this can be reduced significantly,
+  usually by 90-95%, while still retaining reasonable accuracy.
+</p>
+<p>
+   A more complete introduction to how SimPoint works can be 
+   found in the paper "Automatically Characterizing Large Scale 
+   Program Behavior" by T. Sherwood, E. Perelman, G. Hamerly, and 
+   B. Calder.  
+</p>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="bbv-manual.quickstart"></a>13.2. Using Basic Block Vectors to create SimPoints</h2></div></div></div>
+<p>
+   To quickly create a basic block vector file, you will call Valgrind
+   like this:
+
+   </p>
+<pre class="programlisting">valgrind --tool=exp-bbv /bin/ls</pre>
+<p>
+
+   In this case we are running on <code class="filename">/bin/ls</code>,
+   but this can be any program.  By default a file called
+   <code class="computeroutput">bb.out.PID</code> will be created,
+   where PID is replaced by the process ID of the running process.
+   This file contains the basic block vector.  For long-running programs
+   this file can be quite large, so it might be wise to compress
+   it with gzip or some other compression program.
+</p>
+<p>
+   To create actual SimPoint results, you will need the SimPoint utility,
+   available from the 
+   <a class="ulink" href="http://www.cse.ucsd.edu/~calder/simpoint/" target="_top">SimPoint webpage</a>.
+   Assuming you have downloaded SimPoint 3.2 and compiled it,
+   create SimPoint results with a command like the following:
+      
+   </p>
+<pre class="programlisting">
+./SimPoint.3.2/bin/simpoint -inputVectorsGzipped \
+    -loadFVFile bb.out.1234.gz \
+    -k 5 -saveSimpoints results.simpts \
+    -saveSimpointWeights results.weights</pre>
+<p>
+
+   where bb.out.1234.gz is your compressed basic block vector file
+   generated by BBV.
+</p>
+<p>   
+   The SimPoint utility does random linear projection using 15-dimensions,
+   then does k-mean clustering to calculate which intervals are 
+   of interest.  In this example we specify 5 intervals with the 
+   -k 5 option.   
+</p>
+<p>   
+   The outputs from the SimPoint run are the 
+   <code class="computeroutput">results.simpts</code>
+   and <code class="computeroutput">results.weights</code> files.
+   The first holds the 5 most relevant intervals of the program.
+   The seconds holds the weight to scale each interval by when
+   extrapolating full-program behavior.  The intervals and the weights
+   can be used in conjunction with a simulator that supports
+   fast-forwarding; you fast-forward to the interval of interest,
+   collect stats for the desired interval length, then use
+   statistics gathered in conjunction with the weights to 
+   calculate your results.
+</p>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="bbv-manual.usage"></a>13.3. BBV Command-line Options</h2></div></div></div>
+<p> BBV-specific command-line options are:</p>
+<div class="variablelist">
+<a name="bbv.opts.list"></a><dl class="variablelist">
+<dt>
+<a name="opt.bb-out-file"></a><span class="term">
+        <code class="option">--bb-out-file=&lt;name&gt; [default: bb.out.%p] </code>
+     </span>
+</dt>
+<dd><p>
+           This option selects the name of the basic block vector file.  The
+           <code class="option">%p</code> and <code class="option">%q</code> format specifiers can be
+           used to embed the process ID and/or the contents of an environment
+           variable in the name, as is the case for the core option
+           <code class="option"><a class="link" href="manual-core.html#opt.log-file">--log-file</a></code>.
+        </p></dd>
+<dt>
+<a name="opt.pc-out-file"></a><span class="term">
+        <code class="option">--pc-out-file=&lt;name&gt; [default: pc.out.%p] </code>
+     </span>
+</dt>
+<dd><p>
+           This option selects the name of the PC file.  
+           This file holds program counter addresses
+           and function name info for the various basic blocks.
+           This can be used in conjunction
+           with the basic block vector file to fast-forward via function names
+           instead of just instruction counts.  The 
+           <code class="option">%p</code> and <code class="option">%q</code> format specifiers can be
+           used to embed the process ID and/or the contents of an environment
+           variable in the name, as is the case for the core option
+           <code class="option"><a class="link" href="manual-core.html#opt.log-file">--log-file</a></code>.
+        </p></dd>
+<dt>
+<a name="opt.interval-size"></a><span class="term">
+        <code class="option">--interval-size=&lt;number&gt; [default: 100000000] </code>
+      </span>
+</dt>
+<dd><p>
+         This option selects the size of the interval to use.  
+         The default is 100 
+         million instructions, which is a commonly used value.  
+         Other sizes can be used; smaller intervals can help programs
+         with finer-grained phases.  However smaller interval size
+         can lead to accuracy issues due to warm-up effects 
+         (When fast-forwarding the various architectural features
+         will be un-initialized, and it will take some number
+         of instructions before they "warm up" to the state a 
+         full simulation would be at without the fast-forwarding.
+         Large interval sizes tend to mitigate this.)
+      </p></dd>
+<dt>
+<a name="opt.instr-count-only"></a><span class="term">
+        <code class="option">--instr-count-only [default: no] </code>
+     </span>
+</dt>
+<dd><p>
+           This option tells the tool to only display instruction count
+           totals, and to not generate the actual basic block vector file.
+           This is useful for debugging, and for gathering instruction count
+           info without generating the large basic block vector files.
+        </p></dd>
+</dl>
+</div>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="bbv-manual.fileformat"></a>13.4. Basic Block Vector File Format</h2></div></div></div>
+<p>  
+  The Basic Block Vector is dumped at fixed intervals.  This
+  is commonly done every 100 million instructions; the 
+  <code class="option">--interval-size</code> option can be 
+  used to change this.
+</p>
+<p>
+  The output file looks like this:
+</p>
+<pre class="programlisting">
+T:45:1024 :189:99343
+T:11:78573 :15:1353  :56:1
+T:18:45 :12:135353 :56:78 314:4324263</pre>
+<p>
+  Each new interval starts with a T.   This is followed on the same line
+  by a series of basic block and frequency pairs, one for each
+  basic block that was entered during the interval.  The format for
+  each block/frequency pair is a colon, followed by a number that
+  uniquely identifies the basic block, another colon, and then
+  the frequency (which is the number of times the block was entered,
+  multiplied by the number of instructions in the block).  The
+  pairs are separated from each other by a space.
+</p>
+<p>
+  The frequency count is multiplied by the number of instructions that are 
+  in the basic block, in order to weigh the count so that instructions in 
+  small basic blocks aren't counted as more important than instructions 
+  in large basic blocks.
+</p>
+<p>
+  The SimPoint program only processes lines that start with a "T".  All
+  other lines are ignored.  Traditionally comments are indicated by
+  starting a line with a "#" character.  Some other BBV generation tools,
+  such as PinPoints, generate lines beginning with letters other than "T"
+  to indicate more information about the program being run.  We do
+  not generate these, as the SimPoint utility ignores them.
+</p>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="bbv-manual.implementation"></a>13.5. Implementation</h2></div></div></div>
+<p>
+   Valgrind provides all of the information necessary to create
+   BBV files.  In the current implementation, all instructions
+   are instrumented.  This is slower (by approximately a factor
+   of two) than a method that instruments at the basic block level, 
+   but there are some complications (especially with rep prefix
+   detection) that make that method more difficult.
+</p>
+<p>
+   Valgrind actually provides instrumentation at a superblock level.
+   A superblock has one entry point but unlike basic blocks can
+   have multiple exit points.  Once a branch occurs into the middle
+   of a block, it is split into a new basic block.  Because
+   Valgrind cannot produce "true" basic blocks, the generated
+   BBV vectors will be different than those generated by other tools.
+   In practice this does not seem to affect the accuracy of the
+   SimPoint results.  We do internally force the
+   <code class="option">--vex-guest-chase=no</code>
+   option to Valgrind which forces a more basic-block-like
+   behavior.
+</p>
+<p>
+   When a superblock is run for the first time, it is instrumented
+   with our BBV routine.  A block info (bbInfo) structure is allocated
+   which holds the various information and statistics for the block.
+   A unique block ID is assigned to the block, and then the
+   structure is placed into an ordered set.
+   Then each native instruction in the block is instrumented to
+   call an instruction counting routine with a pointer to the block
+   info structure as an argument.
+</p>
+<p>
+   At run-time, our instruction counting routines are called once
+   per native instruction.  The relevant block info structure is accessed
+   and the block count and total instruction count is updated.   
+   If the total instruction count overflows the interval size 
+   then we walk the ordered set, writing out the statistics for
+   any block that was accessed in the interval, then resetting the
+   block counters to zero.
+</p>
+<p>
+   On the x86 and amd64 architectures the counting code has extra
+   code to handle rep-prefixed string instructions.  This is because 
+   actual hardware counts a rep-prefixed instruction 
+   as one instruction, while a naive Valgrind implementation
+   would count it as many (possibly hundreds, thousands or even millions)
+   of instructions.  We handle rep-prefixed instructions specially,
+   in order to make the results match those obtained with hardware performance
+   counters.
+</p>
+<p>
+   BBV also counts the fldcw instruction.  This instruction is used on 
+   x86 machines in various ways; it is most commonly found when converting 
+   floating point values into integers.
+   On Pentium 4 systems the retired instruction performance
+   counter counts this instruction as two instructions (all other 
+   known processors only count it as one).
+   This can affect results when using SimPoint on Pentium 4 systems.
+   We provide the fldcw count so that users can evaluate whether it
+   will impact their results enough to avoid using Pentium 4 machines
+   for their experiments.  It would be possible to add an option to 
+   this tool that mimics the double-counting so that the generated BBV
+   files would be usable for experiments using hardware performance
+   counters on Pentium 4 systems.
+</p>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="bbv-manual.threadsupport"></a>13.6. Threaded Executable Support</h2></div></div></div>
+<p>
+   BBV supports threaded programs.  When a program has multiple threads,
+   an additional basic block vector file is created for each thread (each
+   additional file is the specified filename with the thread number
+   appended at the end).
+</p>
+<p>
+   There is no official method of using SimPoint with
+   threaded workloads.  The most common method is to run
+   SimPoint on each thread's results independently, and use 
+   some method of deterministic execution to try to match the
+   original workload.  This should be possible with the current
+   BBV.
+</p>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="bbv-manual.validation"></a>13.7. Validation</h2></div></div></div>
+<p>
+   BBV has been tested on x86, amd64, and ppc32 platforms.
+   An earlier version of BBV was tested in detail using
+   hardware performance counters, this work is described in a paper 
+   from the HiPEAC'08 conference, "Using Dynamic Binary Instrumentation 
+   to Generate Multi-Platform SimPoints: Methodology and Accuracy" by
+   V.M. Weaver and S.A. McKee.
+</p>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="bbv-manual.performance"></a>13.8. Performance</h2></div></div></div>
+<p>
+  Using this program slows down execution by roughly a factor of 40
+  over native execution.  This varies depending on the machine
+  used and the benchmark being run.
+  On the SPEC CPU 2000 benchmarks running on a 3.4GHz Pentium D 
+  processor, the slowdown ranges from 24x (mcf) to 340x (vortex.2).
+</p>
+</div>
+</div>
+<div>
+<br><table class="nav" width="100%" cellspacing="3" cellpadding="2" border="0" summary="Navigation footer">
+<tr>
+<td rowspan="2" width="40%" align="left">
+<a accesskey="p" href="nl-manual.html">&lt;&lt; 12. Nulgrind: the minimal Valgrind tool</a> </td>
+<td width="20%" align="center"><a accesskey="u" href="manual.html">Up</a></td>
+<td rowspan="2" width="40%" align="right"> <a accesskey="n" href="FAQ.html">Valgrind FAQ &gt;&gt;</a>
+</td>
+</tr>
+<tr><td width="20%" align="center"><a accesskey="h" href="index.html">Home</a></td></tr>
+</table>
+</div>
+</body>
+</html>

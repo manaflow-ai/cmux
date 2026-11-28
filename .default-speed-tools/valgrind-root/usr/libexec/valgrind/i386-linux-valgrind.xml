@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2010 Free Software Foundation, Inc.
+
+     Copying and distribution of this file, with or without modification,
+     are permitted in any medium without royalty provided the copyright
+     notice and this notice are preserved.  -->
+
+<!-- I386 with SSE - Includes Linux-only special "register".  -->
+
+<!DOCTYPE target SYSTEM "gdb-target.dtd">
+<target>
+  <architecture>i386</architecture>
+  <osabi>GNU/Linux</osabi>
+  <xi:include href="32bit-core.xml"/>
+  <xi:include href="32bit-sse.xml"/>
+  <xi:include href="32bit-linux.xml"/>
+  <xi:include href="32bit-core-valgrind-s1.xml"/>
+  <xi:include href="32bit-sse-valgrind-s1.xml"/>
+  <xi:include href="32bit-linux-valgrind-s1.xml"/>
+  <xi:include href="32bit-core-valgrind-s2.xml"/>
+  <xi:include href="32bit-sse-valgrind-s2.xml"/>
+  <xi:include href="32bit-linux-valgrind-s2.xml"/>
+</target>

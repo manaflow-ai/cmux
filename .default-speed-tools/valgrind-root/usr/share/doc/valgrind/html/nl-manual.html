@@ -1,0 +1,56 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>12. Nulgrind: the minimal Valgrind tool</title>
+<link rel="stylesheet" type="text/css" href="vg_basic.css">
+<meta name="generator" content="DocBook XSL Stylesheets Vsnapshot">
+<link rel="home" href="index.html" title="Valgrind Documentation">
+<link rel="up" href="manual.html" title="Valgrind User Manual">
+<link rel="prev" href="lk-manual.html" title="11. Lackey: an example tool">
+<link rel="next" href="bbv-manual.html" title="13. BBV: an experimental basic block vector generation tool">
+</head>
+<body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF">
+<div><table class="nav" width="100%" cellspacing="3" cellpadding="3" border="0" summary="Navigation header"><tr>
+<td width="22px" align="center" valign="middle"><a accesskey="p" href="lk-manual.html"><img src="images/prev.png" width="18" height="21" border="0" alt="Prev"></a></td>
+<td width="25px" align="center" valign="middle"><a accesskey="u" href="manual.html"><img src="images/up.png" width="21" height="18" border="0" alt="Up"></a></td>
+<td width="31px" align="center" valign="middle"><a accesskey="h" href="index.html"><img src="images/home.png" width="27" height="20" border="0" alt="Up"></a></td>
+<th align="center" valign="middle">Valgrind User Manual</th>
+<td width="22px" align="center" valign="middle"><a accesskey="n" href="bbv-manual.html"><img src="images/next.png" width="18" height="21" border="0" alt="Next"></a></td>
+</tr></table></div>
+<div class="chapter">
+<div class="titlepage"><div><div><h1 class="title">
+<a name="nl-manual"></a>12. Nulgrind: the minimal Valgrind tool</h1></div></div></div>
+<div class="toc">
+<p><b>Table of Contents</b></p>
+<dl class="toc"><dt><span class="sect1"><a href="nl-manual.html#nl-manual.overview">12.1. Overview</a></span></dt></dl>
+</div>
+<p>To use this tool, you must specify
+<code class="option">--tool=none</code> on the Valgrind
+command line.</p>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="nl-manual.overview"></a>12.1. Overview</h2></div></div></div>
+<p>Nulgrind is the simplest possible Valgrind tool.  It performs no
+instrumentation or analysis of a program, just runs it normally.  It is
+mainly of use for Valgrind's developers for debugging and regression
+testing.</p>
+<p>Nonetheless you can run programs with Nulgrind.  They will run
+roughly 5 times more slowly than normal, for no useful effect.  Note
+that you need to use the option <code class="option">--tool=none</code> to run
+Nulgrind (ie. not <code class="option">--tool=nulgrind</code>).</p>
+</div>
+</div>
+<div>
+<br><table class="nav" width="100%" cellspacing="3" cellpadding="2" border="0" summary="Navigation footer">
+<tr>
+<td rowspan="2" width="40%" align="left">
+<a accesskey="p" href="lk-manual.html">&lt;&lt; 11. Lackey: an example tool</a> </td>
+<td width="20%" align="center"><a accesskey="u" href="manual.html">Up</a></td>
+<td rowspan="2" width="40%" align="right"> <a accesskey="n" href="bbv-manual.html">13. BBV: an experimental basic block vector generation tool &gt;&gt;</a>
+</td>
+</tr>
+<tr><td width="20%" align="center"><a accesskey="h" href="index.html">Home</a></td></tr>
+</table>
+</div>
+</body>
+</html>

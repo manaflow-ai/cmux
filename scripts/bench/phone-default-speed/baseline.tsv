@@ -1,0 +1,5 @@
+# Callgrind Ir, 10 operations per case. See README.md for provenance.
+alternate-100	8232992
+alternate-10000	8232992
+primary-100	46312806
+primary-10000	46317283

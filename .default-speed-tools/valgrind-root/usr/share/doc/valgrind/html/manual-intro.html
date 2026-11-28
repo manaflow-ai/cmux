@@ -1,0 +1,125 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>1. Introduction</title>
+<link rel="stylesheet" type="text/css" href="vg_basic.css">
+<meta name="generator" content="DocBook XSL Stylesheets Vsnapshot">
+<link rel="home" href="index.html" title="Valgrind Documentation">
+<link rel="up" href="manual.html" title="Valgrind User Manual">
+<link rel="prev" href="manual.html" title="Valgrind User Manual">
+<link rel="next" href="manual-core.html" title="2. Using and understanding the Valgrind core">
+</head>
+<body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF">
+<div><table class="nav" width="100%" cellspacing="3" cellpadding="3" border="0" summary="Navigation header"><tr>
+<td width="22px" align="center" valign="middle"><a accesskey="p" href="manual.html"><img src="images/prev.png" width="18" height="21" border="0" alt="Prev"></a></td>
+<td width="25px" align="center" valign="middle"><a accesskey="u" href="manual.html"><img src="images/up.png" width="21" height="18" border="0" alt="Up"></a></td>
+<td width="31px" align="center" valign="middle"><a accesskey="h" href="index.html"><img src="images/home.png" width="27" height="20" border="0" alt="Up"></a></td>
+<th align="center" valign="middle">Valgrind User Manual</th>
+<td width="22px" align="center" valign="middle"><a accesskey="n" href="manual-core.html"><img src="images/next.png" width="18" height="21" border="0" alt="Next"></a></td>
+</tr></table></div>
+<div class="chapter">
+<div class="titlepage"><div><div><h1 class="title">
+<a name="manual-intro"></a>1. Introduction</h1></div></div></div>
+<div class="toc">
+<p><b>Table of Contents</b></p>
+<dl class="toc">
+<dt><span class="sect1"><a href="manual-intro.html#manual-intro.overview">1.1. An Overview of Valgrind</a></span></dt>
+<dt><span class="sect1"><a href="manual-intro.html#manual-intro.navigation">1.2. How to navigate this manual</a></span></dt>
+</dl>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="manual-intro.overview"></a>1.1. An Overview of Valgrind</h2></div></div></div>
+<p>Valgrind is an instrumentation framework for building dynamic analysis
+tools.  It comes with a set of tools each of which performs some kind of
+debugging, profiling, or similar task that helps you improve your programs.
+Valgrind's architecture is modular, so new tools can be created easily
+and without disturbing the existing structure.</p>
+<p>A number of useful tools are supplied as standard.</p>
+<div class="orderedlist"><ol class="orderedlist" type="1">
+<li class="listitem"><p><span class="command"><strong>Memcheck</strong></span> is a memory error detector.  It helps
+    you make your programs, particularly those written in C and C++, more
+    correct.</p></li>
+<li class="listitem"><p><span class="command"><strong>Cachegrind</strong></span> is a cache and branch-prediction
+    profiler.  It helps you make your programs run faster.</p></li>
+<li class="listitem"><p><span class="command"><strong>Callgrind</strong></span> is a call-graph generating cache
+    profiler.  It has some overlap with Cachegrind, but also gathers some
+    information that Cachegrind does not.</p></li>
+<li class="listitem"><p><span class="command"><strong>Helgrind</strong></span> is a thread error detector.
+    It helps you make your multi-threaded programs more correct.
+    </p></li>
+<li class="listitem"><p><span class="command"><strong>DRD</strong></span> is also a thread error detector.  It is
+    similar to Helgrind but uses different analysis techniques and so may
+    find different problems.</p></li>
+<li class="listitem"><p><span class="command"><strong>Massif</strong></span> is a heap profiler.  It helps you
+    make your programs use less memory.</p></li>
+<li class="listitem"><p><span class="command"><strong>DHAT</strong></span> is a different kind of heap
+    profiler.  It helps you understand issues of block lifetimes,
+    block utilisation, and layout inefficiencies.</p></li>
+<li class="listitem"><p><span class="command"><strong>BBV</strong></span> is an experimental SimPoint basic block
+    vector generator.  It is useful to people doing computer architecture
+    research and development.</p></li>
+</ol></div>
+<p>There are also a couple of minor tools that aren't useful to
+most users:  <span class="command"><strong>Lackey</strong></span> is an example tool that illustrates
+some instrumentation basics; and <span class="command"><strong>Nulgrind</strong></span> is the minimal
+Valgrind tool that does no analysis or instrumentation, and is only useful
+for testing purposes.</p>
+<p>Valgrind is closely tied to details of the CPU and operating
+system, and to a lesser extent, the compiler and basic C libraries.
+Nonetheless, it supports a number of widely-used platforms, listed in full
+at <a class="ulink" href="http://www.valgrind.org/" target="_top">http://www.valgrind.org/</a>.</p>
+<p>Valgrind is built via the standard Unix
+<code class="computeroutput">./configure</code>,
+<code class="computeroutput">make</code>, <code class="computeroutput">make
+install</code> process;  full details are given in the
+README file in the distribution.</p>
+<p>Valgrind is licensed under the <a class="xref" href="license.gpl.html" title="1. The GNU General Public License"> The GNU General Public License</a>,
+version 2.  The <code class="computeroutput">valgrind/*.h</code> headers
+that you may wish to include in your code (eg.
+<code class="filename">valgrind.h</code>, <code class="filename">memcheck.h</code>,
+<code class="filename">helgrind.h</code>, etc.) are
+distributed under a BSD-style license, so you may include them in your
+code without worrying about license conflicts.  Some of the PThreads
+test cases, <code class="filename">pth_*.c</code>, are taken from "Pthreads
+Programming" by Bradford Nichols, Dick Buttlar &amp; Jacqueline Proulx
+Farrell, ISBN 1-56592-115-1, published by O'Reilly &amp; Associates,
+Inc.</p>
+<p>If you contribute code to Valgrind, please ensure your
+contributions are licensed as "GPLv2, or (at your option) any later
+version."  This is so as to allow the possibility of easily upgrading
+the license to GPLv3 in future.  If you want to modify code in the VEX
+subdirectory, please also see the file VEX/HACKING.README in the
+distribution.</p>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="manual-intro.navigation"></a>1.2. How to navigate this manual</h2></div></div></div>
+<p>This manual's structure reflects the structure of Valgrind itself.
+First, we describe the Valgrind core, how to use it, and the options
+it supports.  Then, each tool has its own chapter in this manual.  You
+only need to read the documentation for the core and for the tool(s) you
+actually use, although you may find it helpful to be at least a little
+bit familiar with what all tools do.  If you're new to all this, you probably
+want to run the Memcheck tool and you might find the <a class="xref" href="quick-start.html" title="The Valgrind Quick Start Guide">The Valgrind Quick Start Guide</a> useful.</p>
+<p>Be aware that the core understands some command line options, and
+the tools have their own options which they know about.  This means
+there is no central place describing all the options that are
+accepted -- you have to read the options documentation both for
+<a class="xref" href="manual-core.html" title="2. Using and understanding the Valgrind core">Valgrind's core</a> and for the tool you want to use.</p>
+</div>
+</div>
+<div>
+<br><table class="nav" width="100%" cellspacing="3" cellpadding="2" border="0" summary="Navigation footer">
+<tr>
+<td rowspan="2" width="40%" align="left">
+<a accesskey="p" href="manual.html">&lt;&lt; Valgrind User Manual</a> </td>
+<td width="20%" align="center"><a accesskey="u" href="manual.html">Up</a></td>
+<td rowspan="2" width="40%" align="right"> <a accesskey="n" href="manual-core.html">2. Using and understanding the Valgrind core &gt;&gt;</a>
+</td>
+</tr>
+<tr><td width="20%" align="center"><a accesskey="h" href="index.html">Home</a></td></tr>
+</table>
+</div>
+</body>
+</html>

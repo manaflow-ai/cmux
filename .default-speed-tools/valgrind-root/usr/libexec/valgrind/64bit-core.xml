@@ -1,0 +1,73 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2010 Free Software Foundation, Inc.
+
+     Copying and distribution of this file, with or without modification,
+     are permitted in any medium without royalty provided the copyright
+     notice and this notice are preserved.  -->
+
+<!DOCTYPE feature SYSTEM "gdb-target.dtd">
+<feature name="org.gnu.gdb.i386.core">
+  <flags id="i386_eflags" size="4">
+    <field name="CF" start="0" end="0"/>
+    <field name="" start="1" end="1"/>
+    <field name="PF" start="2" end="2"/>
+    <field name="AF" start="4" end="4"/>
+    <field name="ZF" start="6" end="6"/>
+    <field name="SF" start="7" end="7"/>
+    <field name="TF" start="8" end="8"/>
+    <field name="IF" start="9" end="9"/>
+    <field name="DF" start="10" end="10"/>
+    <field name="OF" start="11" end="11"/>
+    <field name="NT" start="14" end="14"/>
+    <field name="RF" start="16" end="16"/>
+    <field name="VM" start="17" end="17"/>
+    <field name="AC" start="18" end="18"/>
+    <field name="VIF" start="19" end="19"/>
+    <field name="VIP" start="20" end="20"/>
+    <field name="ID" start="21" end="21"/>
+  </flags>
+
+  <reg name="rax" bitsize="64" type="int64"/>
+  <reg name="rbx" bitsize="64" type="int64"/>
+  <reg name="rcx" bitsize="64" type="int64"/>
+  <reg name="rdx" bitsize="64" type="int64"/>
+  <reg name="rsi" bitsize="64" type="int64"/>
+  <reg name="rdi" bitsize="64" type="int64"/>
+  <reg name="rbp" bitsize="64" type="data_ptr"/>
+  <reg name="rsp" bitsize="64" type="data_ptr"/>
+  <reg name="r8" bitsize="64" type="int64"/>
+  <reg name="r9" bitsize="64" type="int64"/>
+  <reg name="r10" bitsize="64" type="int64"/>
+  <reg name="r11" bitsize="64" type="int64"/>
+  <reg name="r12" bitsize="64" type="int64"/>
+  <reg name="r13" bitsize="64" type="int64"/>
+  <reg name="r14" bitsize="64" type="int64"/>
+  <reg name="r15" bitsize="64" type="int64"/>
+
+  <reg name="rip" bitsize="64" type="code_ptr"/>
+  <reg name="eflags" bitsize="32" type="i386_eflags"/>
+  <reg name="cs" bitsize="32" type="int32"/>
+  <reg name="ss" bitsize="32" type="int32"/>
+  <reg name="ds" bitsize="32" type="int32"/>
+  <reg name="es" bitsize="32" type="int32"/>
+  <reg name="fs" bitsize="32" type="int32"/>
+  <reg name="gs" bitsize="32" type="int32"/>
+
+  <reg name="st0" bitsize="80" type="i387_ext"/>
+  <reg name="st1" bitsize="80" type="i387_ext"/>
+  <reg name="st2" bitsize="80" type="i387_ext"/>
+  <reg name="st3" bitsize="80" type="i387_ext"/>
+  <reg name="st4" bitsize="80" type="i387_ext"/>
+  <reg name="st5" bitsize="80" type="i387_ext"/>
+  <reg name="st6" bitsize="80" type="i387_ext"/>
+  <reg name="st7" bitsize="80" type="i387_ext"/>
+
+  <reg name="fctrl" bitsize="32" type="int" group="float"/>
+  <reg name="fstat" bitsize="32" type="int" group="float"/>
+  <reg name="ftag" bitsize="32" type="int" group="float"/>
+  <reg name="fiseg" bitsize="32" type="int" group="float"/>
+  <reg name="fioff" bitsize="32" type="int" group="float"/>
+  <reg name="foseg" bitsize="32" type="int" group="float"/>
+  <reg name="fooff" bitsize="32" type="int" group="float"/>
+  <reg name="fop" bitsize="32" type="int" group="float"/>
+</feature>

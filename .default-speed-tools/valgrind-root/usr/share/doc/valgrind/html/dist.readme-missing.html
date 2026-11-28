@@ -1,0 +1,279 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>5. README_MISSING_SYSCALL_OR_IOCTL</title>
+<link rel="stylesheet" type="text/css" href="vg_basic.css">
+<meta name="generator" content="DocBook XSL Stylesheets Vsnapshot">
+<link rel="home" href="index.html" title="Valgrind Documentation">
+<link rel="up" href="dist.html" title="Valgrind Distribution Documents">
+<link rel="prev" href="dist.readme.html" title="4. README">
+<link rel="next" href="dist.readme-developers.html" title="6. README_DEVELOPERS">
+</head>
+<body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF">
+<div><table class="nav" width="100%" cellspacing="3" cellpadding="3" border="0" summary="Navigation header"><tr>
+<td width="22px" align="center" valign="middle"><a accesskey="p" href="dist.readme.html"><img src="images/prev.png" width="18" height="21" border="0" alt="Prev"></a></td>
+<td width="25px" align="center" valign="middle"><a accesskey="u" href="dist.html"><img src="images/up.png" width="21" height="18" border="0" alt="Up"></a></td>
+<td width="31px" align="center" valign="middle"><a accesskey="h" href="index.html"><img src="images/home.png" width="27" height="20" border="0" alt="Up"></a></td>
+<th align="center" valign="middle">Valgrind Distribution Documents</th>
+<td width="22px" align="center" valign="middle"><a accesskey="n" href="dist.readme-developers.html"><img src="images/next.png" width="18" height="21" border="0" alt="Next"></a></td>
+</tr></table></div>
+<div class="chapter">
+<div class="titlepage"><div><div><h1 class="title">
+<a name="dist.readme-missing"></a>5. README_MISSING_SYSCALL_OR_IOCTL</h1></div></div></div>
+<div class="literallayout"><p><br>
+      <br>
+Dealing with missing system call or ioctl wrappers in Valgrind<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+You're probably reading this because Valgrind bombed out whilst<br>
+running your program, and advised you to read this file.  The good<br>
+news is that, in general, it's easy to write the missing syscall or<br>
+ioctl wrappers you need, so that you can continue your debugging.  If<br>
+you send the resulting patches to me, then you'll be doing a favour to<br>
+all future Valgrind users too.<br>
+<br>
+Note that an "ioctl" is just a special kind of system call, really; so<br>
+there's not a lot of need to distinguish them (at least conceptually)<br>
+in the discussion that follows.<br>
+<br>
+All this machinery is in coregrind/m_syswrap.<br>
+<br>
+<br>
+What are syscall/ioctl wrappers?  What do they do?<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+Valgrind does what it does, in part, by keeping track of everything your<br>
+program does.  When a system call happens, for example a request to read<br>
+part of a file, control passes to the Linux kernel, which fulfils the<br>
+request, and returns control to your program.  The problem is that the<br>
+kernel will often change the status of some part of your program's memory<br>
+as a result, and tools (instrumentation plug-ins) may need to know about<br>
+this.<br>
+<br>
+Syscall and ioctl wrappers have two jobs: <br>
+<br>
+1. Tell a tool what's about to happen, before the syscall takes place.  A<br>
+   tool could perform checks beforehand, eg. if memory about to be written<br>
+   is actually writable.  This part is useful, but not strictly<br>
+   essential.<br>
+<br>
+2. Tell a tool what just happened, after a syscall takes place.  This is<br>
+   so it can update its view of the program's state, eg. that memory has<br>
+   just been written to.  This step is essential.<br>
+<br>
+The "happenings" mostly involve reading/writing of memory.<br>
+<br>
+So, let's look at an example of a wrapper for a system call which<br>
+should be familiar to many Unix programmers.<br>
+<br>
+<br>
+The syscall wrapper for time()<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+The wrapper for the time system call looks like this:<br>
+<br>
+  PRE(sys_time)<br>
+  {<br>
+     /* time_t time(time_t *t); */<br>
+     PRINT("sys_time ( %p )",ARG1);<br>
+     PRE_REG_READ1(long, "time", int *, t);<br>
+     if (ARG1 != 0) {<br>
+        PRE_MEM_WRITE( "time(t)", ARG1, sizeof(vki_time_t) );<br>
+     }<br>
+  }<br>
+<br>
+  POST(sys_time)<br>
+  {  <br>
+     if (ARG1 != 0) {<br>
+        POST_MEM_WRITE( ARG1, sizeof(vki_time_t) );<br>
+     }<br>
+  }<br>
+<br>
+The first thing we do happens before the syscall occurs, in the PRE() function.<br>
+The PRE() function typically starts with invoking to the PRINT() macro. This<br>
+PRINT() macro implements support for the --trace-syscalls command line option.<br>
+Next, the tool is told the return type of the syscall, that the syscall has<br>
+one argument, the type of the syscall argument and that the argument is being<br>
+read from a register:<br>
+<br>
+     PRE_REG_READ1(long, "time", int *, t);<br>
+<br>
+Next, if a non-NULL buffer is passed in as the argument, tell the tool that the<br>
+buffer is about to be written to:<br>
+<br>
+     if (ARG1 != 0) {<br>
+        PRE_MEM_WRITE( "time", ARG1, sizeof(vki_time_t) );<br>
+     }<br>
+<br>
+Finally, the really important bit, after the syscall occurs, in the POST()<br>
+function:  if, and only if, the system call was successful, tell the tool that<br>
+the memory was written:<br>
+<br>
+     if (ARG1 != 0) {<br>
+        POST_MEM_WRITE( ARG1, sizeof(vki_time_t) );<br>
+     }<br>
+<br>
+The POST() function won't be called if the syscall failed, so you<br>
+don't need to worry about checking that in the POST() function.<br>
+(Note: this is sometimes a bug; some syscalls do return results when<br>
+they "fail" - for example, nanosleep returns the amount of unslept<br>
+time if interrupted. TODO: add another per-syscall flag for this<br>
+case.)<br>
+<br>
+Note that we use the type 'vki_time_t'.  This is a copy of the kernel<br>
+type, with 'vki_' prefixed.  Our copies of such types are kept in the<br>
+appropriate vki*.h file(s).  We don't include kernel headers or glibc headers<br>
+directly.<br>
+<br>
+<br>
+Writing your own syscall wrappers (see below for ioctl wrappers)<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+If Valgrind tells you that system call NNN is unimplemented, do the <br>
+following:<br>
+<br>
+1.  Find out the name of the system call:<br>
+<br>
+       grep NNN /usr/include/asm/unistd*.h<br>
+<br>
+    This should tell you something like  __NR_mysyscallname.<br>
+    Copy this entry to include/vki/vki-scnums-$(VG_PLATFORM).h.<br>
+<br>
+    If you can't find the system call in /usr/include, try looking in the<br>
+    strace source code (https://github.com/strace/strace). Some syscalls/ioctls<br>
+    are not defined explicitly, but strace may have already figured it out.<br>
+<br>
+<br>
+2.  Do 'man 2 mysyscallname' to get some idea of what the syscall<br>
+    does.  Note that the actual kernel interface can differ from this,<br>
+    so you might also want to check a version of the Linux kernel<br>
+    source.<br>
+<br>
+    NOTE: any syscall which has something to do with signals or<br>
+    threads is probably "special", and needs more careful handling.<br>
+    Post something to valgrind-developers if you aren't sure.<br>
+<br>
+<br>
+3.  Add a case to the already-huge collection of wrappers in <br>
+    the coregrind/m_syswrap/syswrap-*.c files. <br>
+    For each in-memory parameter which is read or written by<br>
+    the syscall, do one of<br>
+    <br>
+      PRE_MEM_READ( ... )<br>
+      PRE_MEM_RASCIIZ( ... ) <br>
+      PRE_MEM_WRITE( ... ) <br>
+      <br>
+    for  that parameter.  Then do the syscall.  Then, if the syscall<br>
+    succeeds, issue suitable POST_MEM_WRITE( ... ) calls.<br>
+    (There's no need for POST_MEM_READ calls.)<br>
+<br>
+    Also, add it to the syscall_table[] array; use one of GENX_, GENXY<br>
+    LINX_, LINXY, PLAX_, PLAXY.<br>
+    GEN* for generic syscalls (in syswrap-generic.c), LIN* for linux<br>
+    specific ones (in syswrap-linux.c) and PLA* for the platform<br>
+    dependent ones (in syswrap-$(PLATFORM)-linux.c).<br>
+    The *XY variant if it requires a PRE() and POST() function, and<br>
+    the *X_ variant if it only requires a PRE()<br>
+    function.  <br>
+    <br>
+    If you find this difficult, read the wrappers for other syscalls<br>
+    for ideas.  A good tip is to look for the wrapper for a syscall<br>
+    which has a similar behaviour to yours, and use it as a <br>
+    starting point.<br>
+<br>
+    If you need structure definitions and/or constants for your syscall,<br>
+    copy them from the kernel headers into include/vki.h and co., with<br>
+    the appropriate vki_*/VKI_* name mangling.  Don't #include any<br>
+    kernel headers.  And certainly don't #include any glibc headers.<br>
+<br>
+    Test it.<br>
+<br>
+    Note that a common error is to call POST_MEM_WRITE( ... )<br>
+    with 0 (NULL) as the first (address) argument.  This usually means<br>
+    your logic is slightly inadequate.  It's a sufficiently common bug<br>
+    that there's a built-in check for it, and you'll get a "probably<br>
+    sanity check failure" for the syscall wrapper you just made, if this<br>
+    is the case.<br>
+<br>
+<br>
+4.  Once happy, send us the patch.  Pretty please.<br>
+<br>
+<br>
+<br>
+<br>
+Writing your own ioctl wrappers<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+<br>
+Is pretty much the same as writing syscall wrappers, except that all<br>
+the action happens within PRE(ioctl) and POST(ioctl).<br>
+<br>
+There's a default case, sometimes it isn't correct and you have to write a<br>
+more specific case to get the right behaviour.<br>
+<br>
+As above, please create a bug report and attach the patch as described<br>
+on http://www.valgrind.org.<br>
+<br>
+<br>
+Writing your own door call wrappers (Solaris only)<br>
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~<br>
+<br>
+Unlike syscalls or ioctls, door calls transfer data between two userspace<br>
+programs, albeit through a kernel interface. Programs may use completely<br>
+proprietary semantics in the data buffers passed between them.<br>
+Therefore it may not be possible to capture these semantics within<br>
+a Valgrind door call or door return wrapper.<br>
+<br>
+Nevertheless, for system or well-known door services it would be beneficial<br>
+to have a door call and a door return wrapper. Writing such wrapper is pretty<br>
+much the same as writing ioctl wrappers. Please take a few moments to study<br>
+the following picture depicting how a door client and a door server interact<br>
+through the kernel interface in a typical scenario:<br>
+<br>
+<br>
+door client thread          kernel       door server thread<br>
+invokes door_call()                     invokes door_return()<br>
+-------------------------------------------------------------------<br>
+                               &lt;----  PRE(sys_door, DOOR_RETURN)<br>
+PRE(sys_door, DOOR_CALL)  ---&gt;<br>
+                               ----&gt;  POST(sys_door, DOOR_RETURN)<br>
+                                           ----&gt; server_procedure()<br>
+                                           &lt;----<br>
+                               &lt;----  PRE(sys_door, DOOR_RETURN)<br>
+POST(sys_door, DOOR_CALL) &lt;---<br>
+<br>
+The first PRE(sys_door, DOOR_RETURN) is invoked with data_ptr=NULL<br>
+and data_size=0. That's because it has not received any data from<br>
+a door call, yet.<br>
+<br>
+Semantics are described by the following functions<br>
+in coregring/m_syswrap/syswrap-solaris.c module:<br>
+o For a door call wrapper the following attributes of 'params' argument:<br>
+  - data_ptr (and associated data_size) as input buffer (request);<br>
+      described in door_call_pre_mem_params_data()<br>
+  - rbuf (and associated rsize) as output buffer (response);<br>
+      described in door_call_post_mem_params_rbuf()<br>
+o For a door return wrapper the following parameters:<br>
+  - data_ptr (and associated data_size) as input buffer (request);<br>
+      described in door_return_post_mem_data()<br>
+  - data_ptr (and associated data_size) as output buffer (response);<br>
+      described in door_return_pre_mem_data()<br>
+<br>
+There's a default case which may not be correct and you have to write a<br>
+more specific case to get the right behaviour. Unless Valgrind's option<br>
+'--sim-hints=lax-doors' is specified, the default case also spits a warning.<br>
+<br>
+As above, please create a bug report and attach the patch as described<br>
+on http://www.valgrind.org.<br>
+<br>
+    </p></div>
+</div>
+<div>
+<br><table class="nav" width="100%" cellspacing="3" cellpadding="2" border="0" summary="Navigation footer">
+<tr>
+<td rowspan="2" width="40%" align="left">
+<a accesskey="p" href="dist.readme.html">&lt;&lt; 4. README</a> </td>
+<td width="20%" align="center"><a accesskey="u" href="dist.html">Up</a></td>
+<td rowspan="2" width="40%" align="right"> <a accesskey="n" href="dist.readme-developers.html">6. README_DEVELOPERS &gt;&gt;</a>
+</td>
+</tr>
+<tr><td width="20%" align="center"><a accesskey="h" href="index.html">Home</a></td></tr>
+</table>
+</div>
+</body>
+</html>

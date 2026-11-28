@@ -1,0 +1,16 @@
+cmux-ci test: the fleet route does not need an open PR, so the PR was not read; origin's lane/phone-default-speed is at 7498893c03c60b057c33bc59c1ae79be69ad374d (a branch-tip read, no API quota); running on the fleet's Linux pool, no Actions dispatch
+cmux-ci test (fleet): the controller did not say whether this ran before
+cmux-ci test (fleet): request key lane-test-manaflow-ai-cmux-7498893c03c6-c2a6529a (saved in /home/cmux/.cache/cmux-ci-fleet/request-keys/lane-test-manaflow-ai-cmux-7498893c03c6-a45dae8cb3bff86e.key before the submit); if this run loses the controller's answer, cmux-ci status --request-key lane-test-manaflow-ai-cmux-7498893c03c6-c2a6529a reads the job and a rerun reuses the key
+cmux-ci test (fleet): source 7498893c03c60b057c33bc59c1ae79be69ad374d (76 MiB in 1 part(s)) uploaded; submitting to the Linux pool
+cmux-ci test (fleet): client source prep 32.0 s (--paths ci,cmux-tui,scripts,workers/cmux-vm/cli), upload 9.7 s; the worker's phases (input_restore): cmux-ci status JOB
+cmux-ci test (fleet): job c1a4002745a0689180c4d62c (route fleet-linux-pool); log: cmux-ci log c1a4002745a0689180c4d62c
+cmux-ci test on the fleet Linux pool: source=7498893c03c60b057c33bc59c1ae79be69ad374d
+...timeout: {"command": ["/usr/bin/python3", "-c", "import os,subprocess,sys,time; from pathlib import Path; p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)'], start_new_session=True); Path('/tmp/cbw-a8cd3a620b5c/tmprvaod8hc/child').write_text(str(p.pid)+' '+str(os.getpgrp())); os.write(4, b'1'); time.sleep(30)"], "exit": 124, "cpu_complete": false, "cpu_scope": "waited child processes; external cache daemons excluded", "wall_seconds": 2.017129455000031, "user_seconds": 0.014146, "system_seconds": 0.0010099999999999998}
+.
+----------------------------------------------------------------------
+Ran 4 tests in 2.025s
+OK
+CMUX_CI_FLEET_RECEIPT={"source_sha": "7498893c03c60b057c33bc59c1ae79be69ad374d", "head_after": "7498893c03c60b057c33bc59c1ae79be69ad374d", "exit_code": 0, "timed_out": false, "command_sha256": "321cfee7c7dd87698f52b08dab6eee8b585e8df02fa0d780421277273309487a"}
+job c1a4002745a0689180c4d62c done
+Full log: /home/cmux/.cache/cmux-ci-fleet/c1a4002745a0689180c4d62c.log (10 lines)
+cmux-ci test: SUCCESS route=fleet-linux-pool source=7498893c03c60b057c33bc59c1ae79be69ad374d job=c1a4002745a0689180c4d62c exit=0: the command exited 0

@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2007-2013 Free Software Foundation, Inc.
+
+     Copying and distribution of this file, with or without modification,
+     are permitted in any medium without royalty provided the copyright
+     notice and this notice are preserved.  -->
+
+<!DOCTYPE target SYSTEM "gdb-target.dtd">
+<target>
+  <architecture>mips</architecture>
+  <xi:include href="mips64-cpu.xml"/>
+  <xi:include href="mips64-cp0.xml"/>
+  <xi:include href="mips64-fpu.xml"/>
+  <xi:include href="mips64-cpu-valgrind-s1.xml"/>
+  <xi:include href="mips64-cp0-valgrind-s1.xml"/>
+  <xi:include href="mips64-fpu-valgrind-s1.xml"/>
+  <xi:include href="mips64-cpu-valgrind-s2.xml"/>
+  <xi:include href="mips64-cp0-valgrind-s2.xml"/>
+  <xi:include href="mips64-fpu-valgrind-s2.xml"/>
+
+  <feature name="org.gnu.gdb.mips.linux">
+    <reg name="restart" bitsize="64" group="system"/>
+  </feature>
+</target>

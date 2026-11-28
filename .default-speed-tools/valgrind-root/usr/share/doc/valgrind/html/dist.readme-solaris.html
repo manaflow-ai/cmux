@@ -1,0 +1,258 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>12. README.solaris</title>
+<link rel="stylesheet" type="text/css" href="vg_basic.css">
+<meta name="generator" content="DocBook XSL Stylesheets Vsnapshot">
+<link rel="home" href="index.html" title="Valgrind Documentation">
+<link rel="up" href="dist.html" title="Valgrind Distribution Documents">
+<link rel="prev" href="dist.readme-mips.html" title="11. README.mips">
+<link rel="next" href="dist.readme-freebsd.html" title="13. README.freebsd">
+</head>
+<body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF">
+<div><table class="nav" width="100%" cellspacing="3" cellpadding="3" border="0" summary="Navigation header"><tr>
+<td width="22px" align="center" valign="middle"><a accesskey="p" href="dist.readme-mips.html"><img src="images/prev.png" width="18" height="21" border="0" alt="Prev"></a></td>
+<td width="25px" align="center" valign="middle"><a accesskey="u" href="dist.html"><img src="images/up.png" width="21" height="18" border="0" alt="Up"></a></td>
+<td width="31px" align="center" valign="middle"><a accesskey="h" href="index.html"><img src="images/home.png" width="27" height="20" border="0" alt="Up"></a></td>
+<th align="center" valign="middle">Valgrind Distribution Documents</th>
+<td width="22px" align="center" valign="middle"><a accesskey="n" href="dist.readme-freebsd.html"><img src="images/next.png" width="18" height="21" border="0" alt="Next"></a></td>
+</tr></table></div>
+<div class="chapter">
+<div class="titlepage"><div><div><h1 class="title">
+<a name="dist.readme-solaris"></a>12. README.solaris</h1></div></div></div>
+<div class="literallayout"><p><br>
+      Requirements<br>
+------------<br>
+- You need a recent Solaris-like OS to compile this port. Solaris 11 or<br>
+  any illumos-based distribution should work, Solaris 10 is not supported.<br>
+  Running `uname -r` has to print '5.11'.<br>
+- Recent GCC tools are required, GCC 3 will probably not work. GCC version<br>
+  4.5 (or higher) is recommended.<br>
+- Solaris ld has to be the first linker in the PATH. GNU ld cannot be used.<br>
+  There is currently no linker check in the configure script but the linking<br>
+  phase fails if GNU ld is used. Recent Solaris/illumos distributions are ok.<br>
+- A working combination of autotools is required: aclocal, autoheader,<br>
+  automake and autoconf have to be found in the PATH. You should be able to<br>
+  install pkg:/developer/build/automake and pkg:/developer/build/autoconf<br>
+  packages to fulfil this requirement.<br>
+- System header files are required. On Solaris, these can be installed with:<br>
+    # pkg install system/header<br>
+- GNU make is also required. On Solaris, this can be quickly achieved with:<br>
+    $ PATH=/usr/gnu/bin:$PATH; export PATH<br>
+- For remote debugging support, working GDB is required (see below).<br>
+- For running regression tests, GNU sed, grep, awk, diff are required.<br>
+  This can be quickly achieved on Solaris by prepending /usr/gnu/bin to PATH.<br>
+<br>
+<br>
+Compilation<br>
+-----------<br>
+Please follow the generic instructions in the README file,<br>
+in the section 'Building and installing it'.<br>
+<br>
+The configure script detects a canonical host to determine which version of<br>
+Valgrind should be built. If the system compiler by default produces 32-bit<br>
+binaries then only a 32-bit version of Valgrind will be built. To enable<br>
+compilation of both 64-bit and 32-bit versions on such a system, issue the<br>
+configure script as follows:<br>
+./configure CC='gcc -m64' CXX='g++ -m64'<br>
+<br>
+<br>
+Oracle Solaris and illumos support<br>
+----------------------------------<br>
+One of the main goal of this port is to support both Oracle Solaris and<br>
+illumos kernels. This is a very hard task because Solaris kernel traditionally<br>
+does not provide a stable syscall interface and because Valgrind contains<br>
+several parts that are closely tied to the underlying kernel. For these<br>
+reasons, the port needs to detect which syscall interfaces are present. This<br>
+detection cannot be done easily at run time and is currently implemented as<br>
+a set of configure tests. This means that a binary version of this port can be<br>
+executed only on a kernel that is compatible with a kernel that was used<br>
+during the configure and compilation time.<br>
+<br>
+Main currently-known incompatibilities:<br>
+- Solaris 11 (released in November 2011) removed a large set of syscalls where<br>
+  *at variant of the syscall was also present, for example, open() versus<br>
+  openat(AT_FDCWD) [1]<br>
+- syscall number for unlinkat() is 76 on Solaris 11, but 65 on illumos [2]<br>
+- illumos (in April 2013) changed interface of the accept() and pipe()<br>
+  syscalls [3]<br>
+- posix_spawn() functionality is backed up by true spawn() syscall on Solaris 11.4<br>
+  whereas illumos and Solaris 11.3 leverage vfork()<br>
+- illumos and older Solaris use utimesys() syscall whereas newer Solaris<br>
+  uses utimensat()<br>
+<br>
+[1] http://docs.oracle.com/cd/E26502_01/html/E28556/gkzlf.html#gkzip<br>
+[2] https://www.illumos.org/issues/521<br>
+[3] https://github.com/illumos/illumos-gate/commit/5dbfd19ad5fcc2b779f40f80fa05c1bd28fd0b4e<br>
+<br>
+<br>
+Limitations<br>
+-----------<br>
+- The port is Work-In-Progress, many things may not work or they can be subtly<br>
+  broken.<br>
+- Coredumps produced by Valgrind do not contain all information available,<br>
+  especially microstate accounting and processor bindings.<br>
+- Accessing contents of /proc/self/psinfo is not thread-safe.  That is because<br>
+  Valgrind emulates this file on behalf of the client programs.  Entire<br>
+  open() - read() - close() sequence on this file needs to be performed<br>
+  atomically.<br>
+- Fork limitations: vfork() is translated to fork(), forkall() is not<br>
+  supported.<br>
+- Valgrind does not track definedness of some eflags (OF, SF, ZF, AF, CF, PF)<br>
+  individually for each flag. After a syscall is finished, when a carry flag<br>
+  is set and defined, all other mentioned flags will be also defined even<br>
+  though they might be undefined before making the syscall.<br>
+- System call "execve" with a file descriptor which points to a hardlink<br>
+  is currently not supported. That is because from the opened file descriptor<br>
+  itself it is not possible to reverse map the intended pathname.<br>
+  Examples are fexecve(3C) and isaexec(3C).<br>
+- Program headers PT_SUNW_SYSSTAT and PT_SUNW_SYSSTAT_ZONE are not supported.<br>
+  That is, programs linked with mapfile directive RESERVE_SEGMENT and attribute<br>
+  TYPE equal to SYSSTAT or SYSSTAT_ZONE will cause Valgrind exit. It is not<br>
+  possible for Valgrind to arrange mapping of a kernel shared page at the<br>
+  address specified in the mapfile for the guest application. There is currently<br>
+  no such mechanism in Solaris. Hacky workarounds are possible, though.<br>
+- When a thread has no stack then all system calls will result in Valgrind<br>
+  crash, even though such system calls use just parameters passed in registers.<br>
+  This should happen only in pathological situations when a thread is created<br>
+  with custom mmap'ed stack and this stack is then unmap'ed during thread<br>
+  execution.<br>
+<br>
+<br>
+Remote debugging support<br>
+------------------------<br>
+Solaris port of GDB has a major flaw which prevents remote debugging from<br>
+working correctly. Fortunately this flaw has an easy fix [4]. Unfortunately<br>
+it is not present in the current GDB 7.6.2. This boils down to several<br>
+options:<br>
+- Use GDB shipped with Solaris 11.2 which has this flaw fixed.<br>
+- Wait until GDB 7.7 becomes available (there won't be other 7.6.x releases).<br>
+- Build GDB 7.6.2 with the fix by yourself using the following steps:<br>
+    # pkg install developer/gnu-binutils<br>
+    $ wget http://ftp.gnu.org/gnu/gdb/gdb-7.6.2.tar.gz<br>
+    $ gzip -dc gdb-7.6.2.tar.gz | tar xf -<br>
+    $ cd gdb-7.6.2<br>
+    $ patch -p1 -i /path/to/valgrind-solaris/solaris/gdb-sol-thread.patch<br>
+    $ export LIBS="-lncurses"<br>
+    $ export CC="gcc -m64"<br>
+    $ ./configure --with-x=no --with-curses --with-libexpat-prefix=/usr/lib<br>
+    $ gmake &amp;&amp; gmake install<br>
+<br>
+[4] https://sourceware.org/ml/gdb-patches/2013-12/msg00573.html<br>
+<br>
+<br>
+TODO list<br>
+---------<br>
+- Fix few remaining failing tests.<br>
+- Add more Solaris-specific tests (especially for the door and spawn<br>
+  syscalls).<br>
+- Provide better error reporting for various subsyscalls.<br>
+- Implement storing of extra register state in signal frame.<br>
+- Performance comparison against other platforms.<br>
+- Prevent SIGPIPE when writing to a socket (coregrind/m_libcfile.c).<br>
+- Implement ticket locking for fair scheduling (--fair-sched=yes).<br>
+- Implement support in DRD and Helgrind tools for thr_join() with thread == 0.<br>
+- Add support for accessing thread-local variables via gdb (auxprogs/getoff.c).<br>
+  Requires research on internal libc TLS representation.<br>
+- VEX supports AVX, BMI and AVX2. Investigate if they can be enabled on<br>
+  Solaris/illumos.<br>
+- Investigate support for more flags in AT_SUN_AUXFLAGS.<br>
+- Fix Valgrind crash when a thread has no stack and syswrap-main.c accesses<br>
+  all possible syscall parameters. Enable helgrind/tests/stackteardown.c<br>
+  to see this in effect. Would require awareness of syscall parameter semantics.<br>
+- Correctly print arguments of DW_CFA_ORCL_arg_loc in show_CF_instruction() when<br>
+  it is implemented in libdwarf.<br>
+- Handle a situation when guest program sets SC_CANCEL_FLG in schedctl and<br>
+  Valgrind needs to invoke a syscall on its own.<br>
+<br>
+<br>
+Summary of Solaris 11 Kernel Interfaces Used<br>
+--------------------------------------------<br>
+Valgrind uses directly the following kernel interfaces (not exhaustive list).<br>
+Then, of course, it has very intimate knowledge of all syscalls, many ioctls<br>
+and some door calls because it has wrappers around them.<br>
+- Syscalls:<br>
+  . clock_gettime<br>
+  . close<br>
+  . connect<br>
+  . execve<br>
+  . exit<br>
+  . faccessat<br>
+  . fcntl<br>
+  . forksys<br>
+  . fstatat<br>
+  . getcwd<br>
+  . getdents<br>
+  . geteuid<br>
+  . getgid<br>
+  . getgroups<br>
+  . getpeername<br>
+  . getpid<br>
+  . getrlimit<br>
+  . getsockname<br>
+  . getsockopt<br>
+  . gettimeofday<br>
+  . kill<br>
+  . lseek<br>
+  . lwp_create<br>
+  . lwp_exit<br>
+  . lwp_self<br>
+  . lwp_sigqueue<br>
+  . mknodat<br>
+  . mmap<br>
+  . mprotect<br>
+  . munmap<br>
+  . openat<br>
+  . pipe<br>
+  . pollsys<br>
+  . pread<br>
+  . prgpsys<br>
+  . pwrite<br>
+  . read<br>
+  . readlinkat<br>
+  . renameat<br>
+  . rt_sigprocmask<br>
+  . send<br>
+  . setrlimit<br>
+  . setsockopt<br>
+  . sigaction<br>
+  . sigreturn<br>
+  . sigtimedwait<br>
+  . so_socket<br>
+  . spawn<br>
+  . uname<br>
+  . unlinkat<br>
+  . waitsys<br>
+  . write<br>
+- Signal frames. Valgrind decomposes and synthetizes signal frames.<br>
+- Flag sc_sigblock flag in the schedctl structure by replacing<br>
+  function block_all_signals() from libc. The replacement emulates lwp_sigmask<br>
+  syscall. More details in coregrind/vg_preloaded.c.<br>
+- Initial stack layout for the main thread is synthetized.<br>
+- procfs agent thread and other procfs commands for manipulating the process.<br>
+- mmapobj syscall is emulated because it gets in the way of the address space<br>
+  manager's control.<br>
+<br>
+<br>
+Contacts<br>
+--------<br>
+Please send bug reports and any questions about the port to:<br>
+Ivo Raisr &lt;ivosh@ivosh.net&gt;<br>
+Petr Pavlu &lt;setup@dagobah.cz&gt;<br>
+<br>
+    </p></div>
+</div>
+<div>
+<br><table class="nav" width="100%" cellspacing="3" cellpadding="2" border="0" summary="Navigation footer">
+<tr>
+<td rowspan="2" width="40%" align="left">
+<a accesskey="p" href="dist.readme-mips.html">&lt;&lt; 11. README.mips</a> </td>
+<td width="20%" align="center"><a accesskey="u" href="dist.html">Up</a></td>
+<td rowspan="2" width="40%" align="right"> <a accesskey="n" href="dist.readme-freebsd.html">13. README.freebsd &gt;&gt;</a>
+</td>
+</tr>
+<tr><td width="20%" align="center"><a accesskey="h" href="index.html">Home</a></td></tr>
+</table>
+</div>
+</body>
+</html>

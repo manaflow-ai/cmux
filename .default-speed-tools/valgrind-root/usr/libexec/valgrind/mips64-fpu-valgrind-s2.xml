@@ -1,0 +1,45 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2007, 2008, 2009, 2010 Free Software Foundation, Inc.
+
+     Copying and distribution of this file, with or without modification,
+     are permitted in any medium without royalty provided the copyright
+     notice and this notice are preserved.  -->
+
+<!DOCTYPE feature SYSTEM "gdb-target.dtd">
+<feature name="org.gnu.gdb.mips.fpu.valgrind.s2">
+  <reg name="f0s2" bitsize="64" type="ieee_double" regnum="38"/>
+  <reg name="f1s2" bitsize="64" type="ieee_double"/>
+  <reg name="f2s2" bitsize="64" type="ieee_double"/>
+  <reg name="f3s2" bitsize="64" type="ieee_double"/>
+  <reg name="f4s2" bitsize="64" type="ieee_double"/>
+  <reg name="f5s2" bitsize="64" type="ieee_double"/>
+  <reg name="f6s2" bitsize="64" type="ieee_double"/>
+  <reg name="f7s2" bitsize="64" type="ieee_double"/>
+  <reg name="f8s2" bitsize="64" type="ieee_double"/>
+  <reg name="f9s2" bitsize="64" type="ieee_double"/>
+  <reg name="f10s2" bitsize="64" type="ieee_double"/>
+  <reg name="f11s2" bitsize="64" type="ieee_double"/>
+  <reg name="f12s2" bitsize="64" type="ieee_double"/>
+  <reg name="f13s2" bitsize="64" type="ieee_double"/>
+  <reg name="f14s2" bitsize="64" type="ieee_double"/>
+  <reg name="f15s2" bitsize="64" type="ieee_double"/>
+  <reg name="f16s2" bitsize="64" type="ieee_double"/>
+  <reg name="f17s2" bitsize="64" type="ieee_double"/>
+  <reg name="f18s2" bitsize="64" type="ieee_double"/>
+  <reg name="f19s2" bitsize="64" type="ieee_double"/>
+  <reg name="f20s2" bitsize="64" type="ieee_double"/>
+  <reg name="f21s2" bitsize="64" type="ieee_double"/>
+  <reg name="f22s2" bitsize="64" type="ieee_double"/>
+  <reg name="f23s2" bitsize="64" type="ieee_double"/>
+  <reg name="f24s2" bitsize="64" type="ieee_double"/>
+  <reg name="f25s2" bitsize="64" type="ieee_double"/>
+  <reg name="f26s2" bitsize="64" type="ieee_double"/>
+  <reg name="f27s2" bitsize="64" type="ieee_double"/>
+  <reg name="f28s2" bitsize="64" type="ieee_double"/>
+  <reg name="f29s2" bitsize="64" type="ieee_double"/>
+  <reg name="f30s2" bitsize="64" type="ieee_double"/>
+  <reg name="f31s2" bitsize="64" type="ieee_double"/>
+
+  <reg name="fcsrs2" bitsize="64" group="float"/>
+  <reg name="firs2" bitsize="64" group="float"/>
+</feature>

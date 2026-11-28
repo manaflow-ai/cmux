@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2010-2012 Free Software Foundation, Inc.
+
+     Copying and distribution of this file, with or without modification,
+     are permitted in any medium without royalty provided the copyright
+     notice and this notice are preserved.  -->
+
+<!DOCTYPE feature SYSTEM "gdb-target.dtd">
+<feature name="org.gnu.gdb.s390.core-valgrind-s1">
+  <reg name="pswms1" bitsize="64" type="uint64" group="psw"/>
+  <reg name="pswas1" bitsize="64" type="uint64" group="psw"/>
+  <reg name="r0s1" bitsize="64" type="uint64" group="general"/>
+  <reg name="r1s1" bitsize="64" type="uint64" group="general"/>
+  <reg name="r2s1" bitsize="64" type="uint64" group="general"/>
+  <reg name="r3s1" bitsize="64" type="uint64" group="general"/>
+  <reg name="r4s1" bitsize="64" type="uint64" group="general"/>
+  <reg name="r5s1" bitsize="64" type="uint64" group="general"/>
+  <reg name="r6s1" bitsize="64" type="uint64" group="general"/>
+  <reg name="r7s1" bitsize="64" type="uint64" group="general"/>
+  <reg name="r8s1" bitsize="64" type="uint64" group="general"/>
+  <reg name="r9s1" bitsize="64" type="uint64" group="general"/>
+  <reg name="r10s1" bitsize="64" type="uint64" group="general"/>
+  <reg name="r11s1" bitsize="64" type="uint64" group="general"/>
+  <reg name="r12s1" bitsize="64" type="uint64" group="general"/>
+  <reg name="r13s1" bitsize="64" type="uint64" group="general"/>
+  <reg name="r14s1" bitsize="64" type="uint64" group="general"/>
+  <reg name="r15s1" bitsize="64" type="uint64" group="general"/>
+</feature>

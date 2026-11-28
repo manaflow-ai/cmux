@@ -1,0 +1,46 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2007, 2008, 2009, 2010 Free Software Foundation, Inc.
+
+     Copying and distribution of this file, with or without modification,
+     are permitted in any medium without royalty provided the copyright
+     notice and this notice are preserved.  -->
+
+<!DOCTYPE feature SYSTEM "gdb-target.dtd">
+<feature name="org.gnu.gdb.mips.cpu.valgrind.s2">
+  <reg name="r0s2" bitsize="32" regnum="0"/>
+  <reg name="r1s2" bitsize="32"/>
+  <reg name="r2s2" bitsize="32"/>
+  <reg name="r3s2" bitsize="32"/>
+  <reg name="r4s2" bitsize="32"/>
+  <reg name="r5s2" bitsize="32"/>
+  <reg name="r6s2" bitsize="32"/>
+  <reg name="r7s2" bitsize="32"/>
+  <reg name="r8s2" bitsize="32"/>
+  <reg name="r9s2" bitsize="32"/>
+  <reg name="r10s2" bitsize="32"/>
+  <reg name="r11s2" bitsize="32"/>
+  <reg name="r12s2" bitsize="32"/>
+  <reg name="r13s2" bitsize="32"/>
+  <reg name="r14s2" bitsize="32"/>
+  <reg name="r15s2" bitsize="32"/>
+  <reg name="r16s2" bitsize="32"/>
+  <reg name="r17s2" bitsize="32"/>
+  <reg name="r18s2" bitsize="32"/>
+  <reg name="r19s2" bitsize="32"/>
+  <reg name="r20s2" bitsize="32"/>
+  <reg name="r21s2" bitsize="32"/>
+  <reg name="r22s2" bitsize="32"/>
+  <reg name="r23s2" bitsize="32"/>
+  <reg name="r24s2" bitsize="32"/>
+  <reg name="r25s2" bitsize="32"/>
+  <reg name="r26s2" bitsize="32"/>
+  <reg name="r27s2" bitsize="32"/>
+  <reg name="r28s2" bitsize="32"/>
+  <reg name="r29s2" bitsize="32"/>
+  <reg name="r30s2" bitsize="32"/>
+  <reg name="r31s2" bitsize="32"/>
+
+  <reg name="los2" bitsize="32" regnum="33"/>
+  <reg name="his2" bitsize="32" regnum="34"/>
+  <reg name="pcs2" bitsize="32" regnum="37"/>
+</feature>

@@ -1,0 +1,9 @@
+Cloning into '/mnt/lane-data/checkouts/cmux/lane--phone-default-speed/ghostty-next'...
+error: RPC failed; curl 28 Operation too slow. Less than 1 bytes/sec transferred the last 30 seconds
+fatal: expected 'acknowledgments'
+Unable to fetch in submodule path 'ghostty-next'; trying to directly fetch 5c01c7171dc2c00d486f231adda7fb5bf6e55c97:
+remote: cmux git cache: served by cache, 2.1 s (CMUX_GIT_CACHE=0 skips it)        
+From http://127.0.0.1:47380/github.com/manaflow-ai/ghostty-next
+ * branch            5c01c7171dc2c00d486f231adda7fb5bf6e55c97 -> FETCH_HEAD
+Submodule path 'ghostty-next': checked out '5c01c7171dc2c00d486f231adda7fb5bf6e55c97'
+init-submodule: ghostty-next at 5c01c7171dc2 in 96 s (attempt 1)

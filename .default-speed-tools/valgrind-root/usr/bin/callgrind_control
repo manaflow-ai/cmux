@@ -1,0 +1,527 @@
+#! /usr/bin/perl
+##--------------------------------------------------------------------##
+##--- Control supervision of applications run with callgrind       ---##
+##---                                            callgrind_control ---##
+##--------------------------------------------------------------------##
+
+#  This file is part of Callgrind, a cache-simulator and call graph
+#  tracer built on Valgrind.
+#
+#  Copyright (C) 2003-2017 Josef Weidendorfer <Josef.Weidendorfer@gmx.de>
+#
+#  This program is free software; you can redistribute it and/or
+#  modify it under the terms of the GNU General Public License as
+#  published by the Free Software Foundation; either version 2 of the
+#  License, or (at your option) any later version.
+#
+#  This program is distributed in the hope that it will be useful, but
+#  WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+#  General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program; if not, see <http://www.gnu.org/licenses/>.
+
+use strict;
+use warnings;
+
+use File::Basename;
+
+# vgdb_exe will be set to a vgdb found 'near' the callgrind_control file
+my $vgdb_exe = "";
+my $vgdbPrefixOption = "";
+my $cmd = "";
+my %cmd;
+my %cmdline;
+my $pid = -1;
+my @pids = ();
+
+sub getCallgrindPids {
+
+  @pids = ();
+  open LIST, $vgdb_exe . " $vgdbPrefixOption -l|";
+  while(<LIST>) {
+      if (/^use --pid=(\d+) for \S*?valgrind\.bin\s+(.*?)\s*$/) {
+	  $pid = $1;
+	  $cmd = $2;
+	  if (!($cmd =~ /--tool=callgrind/)) { next; }
+	  while($cmd =~ s/^-+\S+\s+//) {}
+	  $cmdline{$pid} = $cmd;
+	  $cmd =~ s/^(\S*).*/$1/;
+	  $cmd{$pid} = $cmd;
+	  #print "Found PID $pid, cmd '$cmd{$pid}', cmdline '$cmdline{$pid}'.\n";
+	  push(@pids, $pid);
+      }
+  }
+  close LIST;
+}
+
+my $headerPrinted = 0;
+
+sub printHeader {
+  if ($headerPrinted) { return; }
+  $headerPrinted = 1;
+
+  print "Observe the status and control currently active callgrind runs.\n";
+  print "(C) 2003-2011, Josef Weidendorfer (Josef.Weidendorfer\@gmx.de)\n\n";
+}
+
+sub printVersion {
+  print "callgrind_control-3.22.0\n";
+  exit;
+}
+
+sub shortHelp {
+  print "See '$0 -h' for help.\n";
+  exit;
+}
+
+sub printHelp {
+  printHeader;
+
+  print "Usage: callgrind_control [options] [pid|program-name...]\n\n";
+  print "If no pids/names are given, an action is applied to all currently\n";
+  print "active Callgrind runs. Default action is printing short information.\n\n";
+  print "Options:\n";
+  print "  -h --help         Show this help text\n";
+  print "  --version         Show version\n";
+  print "  -s --stat         Show statistics\n";
+  print "  -b --back         Show stack/back trace\n";
+  print "  -e [<A>,...]      Show event counters for <A>,... (default: all)\n";
+  print "  --dump[=<s>]      Request a dump optionally using <s> as description\n";
+  print "  -z --zero         Zero all event counters\n";
+  print "  -k --kill         Kill\n";
+  print "  -i --instr=on|off Switch instrumentation state on/off\n";
+  print "Uncommon options:\n";
+  print "  --vgdb-prefix=<prefix> Only provide this if the same was given to Valgrind\n";
+  print "\n";
+  exit;
+}
+
+
+#
+# Parts more or less copied from cg_annotate (author: Nicholas Nethercote)
+#
+
+my $event = "";
+my $events = "";
+my %events = ();
+my @events = ();
+my @show_events = ();
+my @show_order = ();
+
+sub prepareEvents {
+
+  @events = split(/\s+/, $events);
+  my $n = 0;
+  foreach $event (@events) {
+    $events{$event} = $n;
+    $n++;
+  }
+  if (@show_events) {
+    foreach my $show_event (@show_events) {
+      (defined $events{$show_event}) or
+	print "Warning: Event `$show_event' is not being collected\n";
+    }
+  } else {
+    @show_events = @events;
+  }
+  @show_order = ();
+  foreach my $show_event (@show_events) {
+    push(@show_order, $events{$show_event});
+  }
+}
+
+sub max ($$) 
+{
+    my ($x, $y) = @_;
+    return ($x > $y ? $x : $y);
+}
+
+sub line_to_CC ($)
+{
+    my @CC = (split /\s+/, $_[0]);
+    (@CC <= @events) or die("Line $.: too many event counts\n");
+    return \@CC;
+}
+
+sub commify ($) {
+    my ($val) = @_;
+    1 while ($val =~ s/^(\d+)(\d{3})/$1,$2/);
+    return $val;
+}
+
+sub compute_CC_col_widths (@) 
+{
+    my @CCs = @_;
+    my $CC_col_widths = [];
+
+    # Initialise with minimum widths (from event names)
+    foreach my $event (@events) {
+        push(@$CC_col_widths, length($event));
+    }
+    
+    # Find maximum width count for each column.  @CC_col_width positions
+    # correspond to @CC positions.
+    foreach my $CC (@CCs) {
+        foreach my $i (0 .. scalar(@$CC)-1) {
+            if (defined $CC->[$i]) {
+                # Find length, accounting for commas that will be added
+                my $length = length $CC->[$i];
+                my $clength = $length + int(($length - 1) / 3);
+                $CC_col_widths->[$i] = max($CC_col_widths->[$i], $clength); 
+            }
+        }
+    }
+    return $CC_col_widths;
+}
+
+# Print the CC with each column's size dictated by $CC_col_widths.
+sub print_CC ($$) 
+{
+    my ($CC, $CC_col_widths) = @_;
+
+    foreach my $i (@show_order) {
+        my $count = (defined $CC->[$i] ? commify($CC->[$i]) : ".");
+        my $space = ' ' x ($CC_col_widths->[$i] - length($count));
+        print("$space$count ");
+    }
+}
+
+sub print_events ($)
+{
+    my ($CC_col_widths) = @_;
+
+    foreach my $i (@show_order) {
+        my $event       = $events[$i];
+        my $event_width = length($event);
+        my $col_width   = $CC_col_widths->[$i];
+        my $space       = ' ' x ($col_width - $event_width);
+        print("$space$event ");
+    }
+}
+
+
+
+#
+# Main
+#
+
+# Search the appropriate vgdb executable
+my $controldir = dirname(__FILE__);
+if (-x $controldir . "/vgdb") {
+    # classical case: callgrind_control and vgdb from the install bin dir
+    $vgdb_exe = $controldir . "/vgdb";
+} elsif (-x $controldir . "/../coregrind/vgdb") {
+    # callgrind_control called from the callgrind tool source/build dir
+    $vgdb_exe = $controldir . "/../coregrind/vgdb";
+} else {
+    # no idea. Use whatever vgdb found in PATH
+    $vgdb_exe = "vgdb"
+}
+# print "will use vgdb at [" . $vgdb_exe . "]\n";
+
+# To find the list of active pids, we need to have
+# the --vgdb-prefix option if given.
+my $arg = "";
+foreach $arg (@ARGV) {
+    if ($arg =~ /^--vgdb-prefix=.*$/) {
+        $vgdbPrefixOption=$arg;
+    }
+    next;
+}
+
+getCallgrindPids;
+
+my $requestEvents = 0;
+my $requestDump = 0;
+my $switchInstr = 0;
+my $dumpHint = "";
+my $printBacktrace = 0;
+my $printStatus = 0;
+my $switchInstrMode = "";
+my $requestKill = "";
+my $requestZero = "";
+
+my $verbose = 0;
+
+my %spids = ();
+foreach $arg (@ARGV) {
+  if ($arg =~ /^-/) {
+    if ($requestDump == 1) { $requestDump = 2; }
+    if ($requestEvents == 1) { $requestEvents = 2; }
+
+    if ($arg =~ /^(-h|--help)$/) {
+	printHelp;
+    }
+    elsif ($arg =~ /^--version$/) {
+	printVersion;
+    }
+    elsif ($arg =~ /^--vgdb-prefix=.*$/) {
+        # handled during the initial parsing.
+        next;
+    }
+    elsif ($arg =~ /^-v$/) {
+	$verbose++;
+	next;
+    }
+    elsif ($arg =~ /^(-s|--stat)$/) {
+	$printStatus = 1;
+	next;
+    }
+    elsif ($arg =~ /^(-b|--back)$/) {
+	$printBacktrace = 1;
+	next;
+    }
+    elsif ($arg =~ /^-e$/) {
+	$requestEvents = 1;
+	next;
+    }
+    elsif ($arg =~ /^(-d|--dump)(|=.*)$/) {
+	if ($2 ne "") {
+	    $requestDump = 2;
+	    $dumpHint = substr($2,1);
+	}
+	else {
+	    # take next argument as dump hint
+	    $requestDump = 1;
+	}
+	next;
+    }
+    elsif ($arg =~ /^(-z|--zero)$/) {
+	$requestZero = 1;
+	next;
+    }
+    elsif ($arg =~ /^(-k|--kill)$/) {
+	$requestKill = 1;
+	next;
+    }
+    elsif ($arg =~ /^(-i|--instr)(|=on|=off)$/) {
+	$switchInstr = 2;
+	if ($2 eq "=on") {
+	    $switchInstrMode = "on";
+	}
+	elsif ($2 eq "=off") {
+	    $switchInstrMode = "off";
+	}
+	else {
+	    # check next argument for "on" or "off"
+	    $switchInstr = 1;
+	}
+	next;
+    }
+    else {
+	print "Error: unknown command line option '$arg'.\n";
+	shortHelp;
+    }
+  }
+
+  if ($arg =~ /^[A-Za-z_]/) {
+    # arguments of -d/-e/-i are non-numeric
+    if ($requestDump == 1) {
+      $requestDump = 2;
+      $dumpHint = $arg;
+      next;
+    }
+
+    if ($requestEvents == 1) {
+      $requestEvents = 2;
+      @show_events = split(/,/, $arg);
+      next;
+    }
+
+    if ($switchInstr == 1) {
+      $switchInstr = 2;
+      if ($arg eq "on") {
+	  $switchInstrMode = "on";
+      }
+      elsif ($arg eq "off") {
+	  $switchInstrMode = "off";
+      }
+      else {
+	  print "Error: need to specify 'on' or 'off' after '-i'.\n";
+	  shortHelp;
+      }
+      next;
+    }
+  }
+
+  if (defined $cmd{$arg}) { $spids{$arg} = 1; next; }
+  my $nameFound = 0;
+  foreach my $p (@pids) {
+    if ($cmd{$p} =~ /$arg$/) {
+      $nameFound = 1;
+      $spids{$p} = 1;
+    }
+  }
+  if ($nameFound) { next; }
+
+  print "Error: Callgrind task with PID/name '$arg' not detected.\n";
+  shortHelp;
+}
+
+
+if ($switchInstr == 1) {
+  print "Error: need to specify 'on' or 'off' after '-i'.\n";
+  shortHelp;
+}
+
+if (scalar @pids == 0) {
+  print "No active callgrind runs detected.\n";
+  exit;
+}
+
+my @spids = keys %spids;
+if (scalar @spids >0) { @pids = @spids; }
+
+my $vgdbCommand = "";
+my $waitForAnswer = 0;
+if ($requestDump) {
+  $vgdbCommand = "dump";
+  if ($dumpHint ne "") { $vgdbCommand .= " ".$dumpHint; }
+}
+if ($requestZero) { $vgdbCommand = "zero"; }
+if ($requestKill) { $vgdbCommand = "v.kill"; }
+if ($switchInstr) { $vgdbCommand = "instrumentation ".$switchInstrMode; }
+if ($printStatus || $printBacktrace || $requestEvents) {
+  $vgdbCommand = "status internal";
+  $waitForAnswer = 1;
+}
+
+foreach $pid (@pids) {
+  my $pidstr = "PID $pid: ";
+  if ($pid >0) { print $pidstr.$cmdline{$pid}; }
+
+  if ($vgdbCommand eq "") {
+      print "\n";
+      next;
+  }
+  if ($verbose>0) {
+      print " [requesting '$vgdbCommand']\n";
+  } else {
+      print "\n";
+  }
+  open RESULT, $vgdb_exe . " $vgdbPrefixOption --pid=$pid $vgdbCommand|";
+
+  my @tids = ();
+  my $tid;
+  my $ctid = 0;
+  my %fcount = ();
+  my %func = ();
+  my %calls = ();
+  my @threads = ();
+  my %totals = ();
+  my $totals_width = [];
+
+  my $exec_bbs = 0;
+  my $dist_bbs = 0;
+  my $exec_calls = 0;
+  my $dist_calls = 0;
+  my $dist_ctxs = 0;
+  my $dist_funcs = 0;
+  my $threads = "";
+  my $instrumentation = "";
+
+  while(<RESULT>) {
+    if (/function-(\d+)-(\d+): (.+)$/) {
+      if ($ctid != $1) {
+	$ctid = $1;
+	push(@tids, $ctid);
+	$fcount{$ctid} = 0;
+      }
+      $fcount{$ctid}++;
+      $func{$ctid,$fcount{$ctid}} = $3;
+    }
+    elsif (/calls-(\d+)-(\d+): (.+)$/) {
+      if ($ctid != $1) { next; }
+      $calls{$ctid,$fcount{$ctid}} = $3;
+    }
+    elsif (/events-(\d+)-(\d+): (.+)$/) {
+      if ($ctid != $1) { next; }
+      $events{$ctid,$fcount{$ctid}} = line_to_CC($3);
+    }
+    elsif (/events-(\d+): (.+)$/) {
+      if (scalar @events == 0) { next; }
+      $totals{$1} = line_to_CC($2);
+    }
+    elsif (/executed-bbs: (\d+)/) { $exec_bbs = $1; }
+    elsif (/distinct-bbs: (\d+)/) { $dist_bbs = $1; }
+    elsif (/executed-calls: (\d+)/) { $exec_calls = $1; }
+    elsif (/distinct-calls: (\d+)/) { $dist_calls = $1; }
+    elsif (/distinct-functions: (\d+)/) { $dist_funcs = $1; }
+    elsif (/distinct-contexts: (\d+)/) { $dist_ctxs = $1; }
+    elsif (/events: (.+)$/) { $events = $1; prepareEvents; }
+    elsif (/threads: (.+)$/) { $threads = $1; @threads = split " ", $threads; }
+    elsif (/instrumentation: (\w+)$/) { $instrumentation = $1; }
+  }
+
+  #if ($? ne "0") { print " Got Error $?\n"; }
+  if (!$waitForAnswer) { print "  OK.\n"; next; }
+
+  if ($instrumentation eq "off") {
+    print "  No information available as instrumentation is switched off.\n\n";
+    exit;
+  }
+
+  if ($printStatus) {
+    if ($requestEvents <1) {
+      print "  Number of running threads: " .($#threads+1). ", thread IDs: $threads\n";
+      print "  Events collected: $events\n";
+    }
+
+    print "  Functions: ".commify($dist_funcs);
+    print " (executed ".commify($exec_calls);
+    print ", contexts ".commify($dist_ctxs).")\n";
+
+    print "  Basic blocks: ".commify($dist_bbs);
+    print " (executed ".commify($exec_bbs);
+    print ", call sites ".commify($dist_calls).")\n";
+  }
+
+  if ($requestEvents >0) {
+    $totals_width = compute_CC_col_widths(values %totals);
+    print "\n  Totals:";
+    print_events($totals_width);
+    print("\n");
+    foreach $tid (@tids) {
+      print "   Th".substr("  ".$tid,-2)."  ";
+      print_CC($totals{$tid}, $totals_width);
+      print("\n");
+    }
+  }
+
+  if ($printBacktrace) {
+
+    if ($requestEvents >0) {
+      $totals_width = compute_CC_col_widths(values %events);
+    }
+
+    foreach $tid (@tids) {
+      print "\n  Frame: ";
+      if ($requestEvents >0) {
+	print_events($totals_width);
+      }
+      print "Backtrace for Thread $tid\n";
+
+      my $i = $fcount{$tid};
+      my $c = 0;
+      while($i>0 && $c<100) {
+	my $fc = substr(" $c",-2);
+	print "   [$fc]  ";
+	if ($requestEvents >0) {
+	  print_CC($events{$tid,$i-1}, $totals_width);
+	}
+	print $func{$tid,$i};
+	if ($i > 1) {
+	  print " (".$calls{$tid,$i-1}." x)";
+	}
+	print "\n";
+	$i--;
+	$c++;
+      }
+      print "\n";
+    }
+  }
+  print "\n";
+}
+	

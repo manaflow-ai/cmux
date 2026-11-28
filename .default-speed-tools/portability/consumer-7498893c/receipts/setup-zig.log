@@ -1,0 +1,11 @@
+Installing verified zig 0.17.0
+Zig download budget: 480s
+zig-tarball-r2: no cache URL; nothing to fetch
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0 54.6M    0 36689    0     0  37667      0  0:25:22 --:--:--  0:25:22 37668 12 54.6M   12 7004k    0     0  3476k      0  0:00:16  0:00:02  0:00:14 3477k 49 54.6M   49 27.1M    0     0  9373k      0  0:00:05  0:00:02  0:00:03 9372k 88 54.6M   88 48.1M    0     0  12.0M      0  0:00:04  0:00:04 --:--:-- 12.0M100 54.6M  100 54.6M    0     0  12.9M      0  0:00:04  0:00:04 --:--:-- 12.9M
+/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/zig-setup/cmux-zig-install-0.17.0.hGjty3/zig-x86_64-linux-0.17.0.tar.xz: OK
+minisign not found; verified Zig tarball with SHA-256 from https://ziglang.org/download/index.json
+patched /tmp/cmux-cache-portability-7498893c-phone-default-speed-01/zig-setup/cmux-zig-install-0.17.0.hGjty3/zig-x86_64-linux-0.17.0/lib/std/Io/Threaded.zig (Zig 0bfd34342b: no spawnDarwin where spawning is unsupported)
+ZIG_FORCE_LOCAL_INSTALL=1; installing zig under /tmp/cmux-cache-portability-7498893c-phone-default-speed-01/tools/zig-installed/zig-x86_64-linux-0.17.0
+0.17.0

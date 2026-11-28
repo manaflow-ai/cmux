@@ -1,0 +1,890 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>9. Massif: a heap profiler</title>
+<link rel="stylesheet" type="text/css" href="vg_basic.css">
+<meta name="generator" content="DocBook XSL Stylesheets Vsnapshot">
+<link rel="home" href="index.html" title="Valgrind Documentation">
+<link rel="up" href="manual.html" title="Valgrind User Manual">
+<link rel="prev" href="drd-manual.html" title="8. DRD: a thread error detector">
+<link rel="next" href="dh-manual.html" title="10. DHAT: a dynamic heap analysis tool">
+</head>
+<body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF">
+<div><table class="nav" width="100%" cellspacing="3" cellpadding="3" border="0" summary="Navigation header"><tr>
+<td width="22px" align="center" valign="middle"><a accesskey="p" href="drd-manual.html"><img src="images/prev.png" width="18" height="21" border="0" alt="Prev"></a></td>
+<td width="25px" align="center" valign="middle"><a accesskey="u" href="manual.html"><img src="images/up.png" width="21" height="18" border="0" alt="Up"></a></td>
+<td width="31px" align="center" valign="middle"><a accesskey="h" href="index.html"><img src="images/home.png" width="27" height="20" border="0" alt="Up"></a></td>
+<th align="center" valign="middle">Valgrind User Manual</th>
+<td width="22px" align="center" valign="middle"><a accesskey="n" href="dh-manual.html"><img src="images/next.png" width="18" height="21" border="0" alt="Next"></a></td>
+</tr></table></div>
+<div class="chapter">
+<div class="titlepage"><div><div><h1 class="title">
+<a name="ms-manual"></a>9. Massif: a heap profiler</h1></div></div></div>
+<div class="toc">
+<p><b>Table of Contents</b></p>
+<dl class="toc">
+<dt><span class="sect1"><a href="ms-manual.html#ms-manual.overview">9.1. Overview</a></span></dt>
+<dt><span class="sect1"><a href="ms-manual.html#ms-manual.using-print">9.2. Using Massif and ms_print</a></span></dt>
+<dd><dl>
+<dt><span class="sect2"><a href="ms-manual.html#ms-manual.anexample">9.2.1. An Example Program</a></span></dt>
+<dt><span class="sect2"><a href="ms-manual.html#ms-manual.running-massif">9.2.2. Running Massif</a></span></dt>
+<dt><span class="sect2"><a href="ms-manual.html#ms-manual.running-ms_print">9.2.3. Running ms_print</a></span></dt>
+<dt><span class="sect2"><a href="ms-manual.html#ms-manual.theoutputpreamble">9.2.4. The Output Preamble</a></span></dt>
+<dt><span class="sect2"><a href="ms-manual.html#ms-manual.theoutputgraph">9.2.5. The Output Graph</a></span></dt>
+<dt><span class="sect2"><a href="ms-manual.html#ms-manual.thesnapshotdetails">9.2.6. The Snapshot Details</a></span></dt>
+<dt><span class="sect2"><a href="ms-manual.html#ms-manual.forkingprograms">9.2.7. Forking Programs</a></span></dt>
+<dt><span class="sect2"><a href="ms-manual.html#ms-manual.not-measured">9.2.8. Measuring All Memory in a Process</a></span></dt>
+<dt><span class="sect2"><a href="ms-manual.html#ms-manual.acting">9.2.9. Acting on Massif's Information</a></span></dt>
+</dl></dd>
+<dt><span class="sect1"><a href="ms-manual.html#ms-manual.using-visualizer">9.3. Using massif-visualizer</a></span></dt>
+<dt><span class="sect1"><a href="ms-manual.html#ms-manual.options">9.4. Massif Command-line Options</a></span></dt>
+<dt><span class="sect1"><a href="ms-manual.html#ms-manual.monitor-commands">9.5. Massif Monitor Commands</a></span></dt>
+<dt><span class="sect1"><a href="ms-manual.html#ms-manual.clientreqs">9.6. Massif Client Requests</a></span></dt>
+<dt><span class="sect1"><a href="ms-manual.html#ms-manual.ms_print-options">9.7. ms_print Command-line Options</a></span></dt>
+<dt><span class="sect1"><a href="ms-manual.html#ms-manual.fileformat">9.8. Massif's Output File Format</a></span></dt>
+</dl>
+</div>
+<p>To use this tool, you must specify
+<code class="option">--tool=massif</code> on the Valgrind
+command line.</p>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="ms-manual.overview"></a>9.1. Overview</h2></div></div></div>
+<p>Massif is a heap profiler.  It measures how much heap memory your
+program uses.  This includes both the useful space, and the extra bytes
+allocated for book-keeping and alignment purposes.  It can also
+measure the size of your program's stack(s), although it does not do so by
+default.</p>
+<p>Heap profiling can help you reduce the amount of memory your program
+uses.  On modern machines with virtual memory, this provides the following
+benefits:</p>
+<div class="itemizedlist"><ul class="itemizedlist" style="list-style-type: disc; ">
+<li class="listitem"><p>It can speed up your program -- a smaller
+    program will interact better with your machine's caches and
+    avoid paging.</p></li>
+<li class="listitem"><p>If your program uses lots of memory, it will
+    reduce the chance that it exhausts your machine's swap
+    space.</p></li>
+</ul></div>
+<p>Also, there are certain space leaks that aren't detected by
+traditional leak-checkers, such as Memcheck's.  That's because
+the memory isn't ever actually lost -- a pointer remains to it --
+but it's not in use.  Programs that have leaks like this can
+unnecessarily increase the amount of memory they are using over
+time.  Massif can help identify these leaks.</p>
+<p>Importantly, Massif tells you not only how much heap memory your
+program is using, it also gives very detailed information that indicates
+which parts of your program are responsible for allocating the heap memory.
+</p>
+<p>Massif also provides <a class="xref" href="manual-core.html#manual-core.xtree" title="2.10. Execution Trees">Execution Trees</a> memory
+  profiling using the command line
+  option <code class="computeroutput">--xtree-memory</code> and the monitor command
+   <code class="computeroutput">xtmemory</code>.</p>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="ms-manual.using-print"></a>9.2. Using Massif and ms_print</h2></div></div></div>
+<p>First off, as for the other Valgrind tools, you should compile with
+debugging info (the <code class="option">-g</code> option).  It shouldn't
+matter much what optimisation level you compile your program with, as this
+is unlikely to affect the heap memory usage.</p>
+<p>Then, you need to run Massif itself to gather the profiling
+information, and then run ms_print to present it in a readable way.</p>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="ms-manual.anexample"></a>9.2.1. An Example Program</h3></div></div></div>
+<p>An example will make things clear.  Consider the following C program
+(annotated with line numbers) which allocates a number of different blocks
+on the heap.</p>
+<pre class="screen">
+ 1      #include &lt;stdlib.h&gt;
+ 2
+ 3      void g(void)
+ 4      {
+ 5         malloc(4000);
+ 6      }
+ 7
+ 8      void f(void)
+ 9      {
+10         malloc(2000);
+11         g();
+12      }
+13
+14      int main(void)
+15      {
+16         int i;
+17         int* a[10];
+18
+19         for (i = 0; i &lt; 10; i++) {
+20            a[i] = malloc(1000);
+21         }
+22
+23         f();
+24
+25         g();
+26
+27         for (i = 0; i &lt; 10; i++) {
+28            free(a[i]);
+29         }
+30
+31         return 0;
+32      }
+</pre>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="ms-manual.running-massif"></a>9.2.2. Running Massif</h3></div></div></div>
+<p>To gather heap profiling information about the program
+<code class="computeroutput">prog</code>, type:</p>
+<pre class="screen">
+valgrind --tool=massif prog
+</pre>
+<p>The program will execute (slowly).  Upon completion, no summary
+statistics are printed to Valgrind's commentary;  all of Massif's profiling
+data is written to a file.  By default, this file is called
+<code class="filename">massif.out.&lt;pid&gt;</code>, where
+<code class="filename">&lt;pid&gt;</code> is the process ID, although this filename
+can be changed with the <code class="option">--massif-out-file</code> option.</p>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="ms-manual.running-ms_print"></a>9.2.3. Running ms_print</h3></div></div></div>
+<p>To see the information gathered by Massif in an easy-to-read form, use
+ms_print.  If the output file's name is
+<code class="filename">massif.out.12345</code>, type:</p>
+<pre class="screen">
+ms_print massif.out.12345</pre>
+<p>ms_print will produce (a) a graph showing the memory consumption over
+the program's execution, and (b) detailed information about the responsible
+allocation sites at various points in the program, including the point of
+peak memory allocation.  The use of a separate script for presenting the
+results is deliberate:  it separates the data gathering from its
+presentation, and means that new methods of presenting the data can be added in
+the future.</p>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="ms-manual.theoutputpreamble"></a>9.2.4. The Output Preamble</h3></div></div></div>
+<p>After running this program under Massif, the first part of ms_print's
+output contains a preamble which just states how the program, Massif and
+ms_print were each invoked:</p>
+<pre class="screen">
+--------------------------------------------------------------------------------
+Command:            example
+Massif arguments:   (none)
+ms_print arguments: massif.out.12797
+--------------------------------------------------------------------------------
+</pre>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="ms-manual.theoutputgraph"></a>9.2.5. The Output Graph</h3></div></div></div>
+<p>The next part is the graph that shows how memory consumption occurred
+as the program executed:</p>
+<pre class="screen">
+    KB
+19.63^                                                                       #
+     |                                                                       #
+     |                                                                       #
+     |                                                                       #
+     |                                                                       #
+     |                                                                       #
+     |                                                                       #
+     |                                                                       #
+     |                                                                       #
+     |                                                                       #
+     |                                                                       #
+     |                                                                       #
+     |                                                                       #
+     |                                                                       #
+     |                                                                       #
+     |                                                                       #
+     |                                                                       #
+     |                                                                      :#
+     |                                                                      :#
+     |                                                                      :#
+   0 +-----------------------------------------------------------------------&gt;ki     0                                                                   113.4
+
+
+Number of snapshots: 25
+ Detailed snapshots: [9, 14 (peak), 24]
+</pre>
+<p>Why is most of the graph empty, with only a couple of bars at the very
+end?  By default, Massif uses "instructions executed" as the unit of time.
+For very short-run programs such as the example, most of the executed
+instructions involve the loading and dynamic linking of the program.  The
+execution of <code class="computeroutput">main</code> (and thus the heap
+allocations) only occur at the very end.  For a short-running program like
+this, we can use the <code class="option">--time-unit=B</code> option
+to specify that we want the time unit to instead be the number of bytes
+allocated/deallocated on the heap and stack(s).</p>
+<p>If we re-run the program under Massif with this option, and then
+re-run ms_print, we get this more useful graph:</p>
+<pre class="screen">
+19.63^                                               ###                      
+     |                                               #                        
+     |                                               #  ::                    
+     |                                               #  : :::                 
+     |                                      :::::::::#  : :  ::               
+     |                                      :        #  : :  : ::             
+     |                                      :        #  : :  : : :::          
+     |                                      :        #  : :  : : :  ::        
+     |                            :::::::::::        #  : :  : : :  : :::     
+     |                            :         :        #  : :  : : :  : :  ::   
+     |                        :::::         :        #  : :  : : :  : :  : :: 
+     |                     @@@:   :         :        #  : :  : : :  : :  : : @
+     |                   ::@  :   :         :        #  : :  : : :  : :  : : @
+     |                :::: @  :   :         :        #  : :  : : :  : :  : : @
+     |              :::  : @  :   :         :        #  : :  : : :  : :  : : @
+     |            ::: :  : @  :   :         :        #  : :  : : :  : :  : : @
+     |         :::: : :  : @  :   :         :        #  : :  : : :  : :  : : @
+     |       :::  : : :  : @  :   :         :        #  : :  : : :  : :  : : @
+     |    :::: :  : : :  : @  :   :         :        #  : :  : : :  : :  : : @
+     |  :::  : :  : : :  : @  :   :         :        #  : :  : : :  : :  : : @
+   0 +-----------------------------------------------------------------------&gt;KB     0                                                                   29.48
+
+Number of snapshots: 25
+ Detailed snapshots: [9, 14 (peak), 24]
+</pre>
+<p>The size of the graph can be changed with ms_print's
+<code class="option">--x</code> and <code class="option">--y</code> options.  Each vertical bar
+represents a snapshot, i.e. a measurement of the memory usage at a certain
+point in time.  If the next snapshot is more than one column away, a
+horizontal line of characters is drawn from the top of the snapshot to just
+before the next snapshot column.  The text at the bottom show that 25
+snapshots were taken for this program, which is one per heap
+allocation/deallocation, plus a couple of extras.  Massif starts by taking
+snapshots for every heap allocation/deallocation, but as a program runs for
+longer, it takes snapshots less frequently.  It also discards older
+snapshots as the program goes on;  when it reaches the maximum number of
+snapshots (100 by default, although changeable with the
+<code class="option">--max-snapshots</code> option) half of them are
+deleted.  This means that a reasonable number of snapshots are always
+maintained.</p>
+<p>Most snapshots are <span class="emphasis"><em>normal</em></span>, and only basic
+information is recorded for them.  Normal snapshots are represented in the
+graph by bars consisting of ':' characters.</p>
+<p>Some snapshots are <span class="emphasis"><em>detailed</em></span>.  Information about
+where allocations happened are recorded for these snapshots, as we will see
+shortly.  Detailed snapshots are represented in the graph by bars consisting
+of '@' characters.  The text at the bottom show that 3 detailed
+snapshots were taken for this program (snapshots 9, 14 and 24).  By default,
+every 10th snapshot is detailed, although this can be changed via the
+<code class="option">--detailed-freq</code> option.</p>
+<p>Finally, there is at most one <span class="emphasis"><em>peak</em></span> snapshot.  The
+peak snapshot is a detailed snapshot, and records the point where memory
+consumption was greatest.  The peak snapshot is represented in the graph by
+a bar consisting of '#' characters.  The text at the bottom shows
+that snapshot 14 was the peak.</p>
+<p>Massif's determination of when the peak occurred can be wrong, for
+two reasons.</p>
+<div class="itemizedlist"><ul class="itemizedlist" style="list-style-type: disc; ">
+<li class="listitem"><p>Peak snapshots are only ever taken after a deallocation
+  happens.  This avoids lots of unnecessary peak snapshot recordings
+  (imagine what happens if your program allocates a lot of heap blocks in
+  succession, hitting a new peak every time).  But it means that if your
+  program never deallocates any blocks, no peak will be recorded.  It also
+  means that if your program does deallocate blocks but later allocates to a
+  higher peak without subsequently deallocating, the reported peak will be
+  too low.
+  </p></li>
+<li class="listitem"><p>Even with this behaviour, recording the peak accurately
+  is slow.  So by default Massif records a peak whose size is within 1% of
+  the size of the true peak.  This inaccuracy in the peak measurement can be
+  changed with the <code class="option">--peak-inaccuracy</code> option.</p></li>
+</ul></div>
+<p>The following graph is from an execution of Konqueror, the KDE web
+browser.  It shows what graphs for larger programs look like.</p>
+<pre class="screen">
+    MB
+3.952^                                                                    # 
+     |                                                                   @#:
+     |                                                                 :@@#:
+     |                                                            @@::::@@#: 
+     |                                                            @ :: :@@#::
+     |                                                          @@@ :: :@@#::
+     |                                                       @@:@@@ :: :@@#::
+     |                                                    :::@ :@@@ :: :@@#::
+     |                                                    : :@ :@@@ :: :@@#::
+     |                                                  :@: :@ :@@@ :: :@@#:: 
+     |                                                @@:@: :@ :@@@ :: :@@#:::
+     |                           :       ::         ::@@:@: :@ :@@@ :: :@@#:::
+     |                        :@@:    ::::: ::::@@@:::@@:@: :@ :@@@ :: :@@#:::
+     |                     ::::@@:  ::: ::::::: @  :::@@:@: :@ :@@@ :: :@@#:::
+     |                    @: ::@@:  ::: ::::::: @  :::@@:@: :@ :@@@ :: :@@#:::
+     |                    @: ::@@:  ::: ::::::: @  :::@@:@: :@ :@@@ :: :@@#:::
+     |                    @: ::@@:::::: ::::::: @  :::@@:@: :@ :@@@ :: :@@#:::
+     |                ::@@@: ::@@:: ::: ::::::: @  :::@@:@: :@ :@@@ :: :@@#:::
+     |             :::::@ @: ::@@:: ::: ::::::: @  :::@@:@: :@ :@@@ :: :@@#:::
+     |           @@:::::@ @: ::@@:: ::: ::::::: @  :::@@:@: :@ :@@@ :: :@@#:::
+   0 +-----------------------------------------------------------------------&gt;Mi
+     0                                                                   626.4
+
+Number of snapshots: 63
+ Detailed snapshots: [3, 4, 10, 11, 15, 16, 29, 33, 34, 36, 39, 41,
+                      42, 43, 44, 49, 50, 51, 53, 55, 56, 57 (peak)]
+</pre>
+<p>Note that the larger size units are KB, MB, GB, etc.  As is typical
+for memory measurements, these are based on a multiplier of 1024, rather
+than the standard SI multiplier of 1000.  Strictly speaking, they should be
+written KiB, MiB, GiB, etc.</p>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="ms-manual.thesnapshotdetails"></a>9.2.6. The Snapshot Details</h3></div></div></div>
+<p>Returning to our example, the graph is followed by the detailed
+information for each snapshot.  The first nine snapshots are normal, so only
+a small amount of information is recorded for each one:</p>
+<pre class="screen">
+--------------------------------------------------------------------------------
+  n        time(B)         total(B)   useful-heap(B) extra-heap(B)    stacks(B)
+--------------------------------------------------------------------------------
+  0              0                0                0             0            0
+  1          1,008            1,008            1,000             8            0
+  2          2,016            2,016            2,000            16            0
+  3          3,024            3,024            3,000            24            0
+  4          4,032            4,032            4,000            32            0
+  5          5,040            5,040            5,000            40            0
+  6          6,048            6,048            6,000            48            0
+  7          7,056            7,056            7,000            56            0
+  8          8,064            8,064            8,000            64            0
+</pre>
+<p>Each normal snapshot records several things.</p>
+<div class="itemizedlist"><ul class="itemizedlist" style="list-style-type: disc; ">
+<li class="listitem"><p>Its number.</p></li>
+<li class="listitem"><p>The time it was taken. In this case, the time unit is
+  bytes, due to the use of
+  <code class="option">--time-unit=B</code>.</p></li>
+<li class="listitem"><p>The total memory consumption at that point.</p></li>
+<li class="listitem"><p>The number of useful heap bytes allocated at that point.
+  This reflects the number of bytes asked for by the
+  program.</p></li>
+<li class="listitem">
+<p>The number of extra heap bytes allocated at that point.
+  This reflects the number of bytes allocated in excess of what the program
+  asked for.  There are two sources of extra heap bytes.</p>
+<p>First, every heap block has administrative bytes associated with it.
+  The exact number of administrative bytes depends on the details of the
+  allocator.  By default Massif assumes 8 bytes per block, as can be seen
+  from the example, but this number can be changed via the
+  <code class="option">--heap-admin</code> option.</p>
+<p>Second, allocators often round up the number of bytes asked for to a
+  larger number, usually 8 or 16.  This is required to ensure that elements
+  within the block are suitably aligned.  If N bytes are asked for, Massif
+  rounds N up to the nearest multiple of the value specified by the
+  <code class="option"><a class="link" href="manual-core.html#opt.alignment">--alignment</a></code> option.
+  </p>
+</li>
+<li class="listitem"><p>The size of the stack(s).  By default, stack profiling is
+  off as it slows Massif down greatly.  Therefore, the stack column is zero
+  in the example.  Stack profiling can be turned on with the
+  <code class="option">--stacks=yes</code> option.  
+  
+  </p></li>
+</ul></div>
+<p>The next snapshot is detailed.  As well as the basic counts, it gives
+an allocation tree which indicates exactly which pieces of code were
+responsible for allocating heap memory:</p>
+<pre class="screen">
+  9          9,072            9,072            9,000            72            0
+99.21% (9,000B) (heap allocation functions) malloc/new/new[], --alloc-fns, etc.
+-&gt;99.21% (9,000B) 0x804841A: main (example.c:20)
+</pre>
+<p>The allocation tree can be read from the top down.  The first line
+indicates all heap allocation functions such as <code class="function">malloc</code>
+and C++ <code class="function">new</code>.  All heap allocations go through these
+functions, and so all 9,000 useful bytes (which is 99.21% of all allocated
+bytes) go through them.  But how were <code class="function">malloc</code> and new
+called?  At this point, every allocation so far has been due to line 20
+inside <code class="function">main</code>, hence the second line in the tree.  The
+<code class="option">-&gt;</code> indicates that main (line 20) called
+<code class="function">malloc</code>.</p>
+<p>Let's see what the subsequent output shows happened next:</p>
+<pre class="screen">
+--------------------------------------------------------------------------------
+  n        time(B)         total(B)   useful-heap(B) extra-heap(B)    stacks(B)
+--------------------------------------------------------------------------------
+ 10         10,080           10,080           10,000            80            0
+ 11         12,088           12,088           12,000            88            0
+ 12         16,096           16,096           16,000            96            0
+ 13         20,104           20,104           20,000           104            0
+ 14         20,104           20,104           20,000           104            0
+99.48% (20,000B) (heap allocation functions) malloc/new/new[], --alloc-fns, etc.
+-&gt;49.74% (10,000B) 0x804841A: main (example.c:20)
+| 
+-&gt;39.79% (8,000B) 0x80483C2: g (example.c:5)
+| -&gt;19.90% (4,000B) 0x80483E2: f (example.c:11)
+| | -&gt;19.90% (4,000B) 0x8048431: main (example.c:23)
+| |   
+| -&gt;19.90% (4,000B) 0x8048436: main (example.c:25)
+|   
+-&gt;09.95% (2,000B) 0x80483DA: f (example.c:10)
+  -&gt;09.95% (2,000B) 0x8048431: main (example.c:23)
+</pre>
+<p>The first four snapshots are similar to the previous ones.  But then
+the global allocation peak is reached, and a detailed snapshot (number 14)
+is taken.  Its allocation tree shows that 20,000B of useful heap memory has
+been allocated, and the lines and arrows indicate that this is from three
+different code locations: line 20, which is responsible for 10,000B
+(49.74%);  line 5, which is responsible for 8,000B (39.79%); and line 10,
+which is responsible for 2,000B (9.95%).</p>
+<p>We can then drill down further in the allocation tree.  For example,
+of the 8,000B asked for by line 5, half of it was due to a call from line
+11, and half was due to a call from line 25.</p>
+<p>In short, Massif collates the stack trace of every single allocation
+point in the program into a single tree, which gives a complete picture at
+a particular point in time of how and why all heap memory was
+allocated.</p>
+<p>Note that the tree entries correspond not to functions, but to
+individual code locations.  For example, if function <code class="function">A</code>
+calls <code class="function">malloc</code>, and function <code class="function">B</code> calls
+<code class="function">A</code> twice, once on line 10 and once on line 11, then
+the two calls will result in two distinct stack traces in the tree.  In
+contrast, if <code class="function">B</code> calls <code class="function">A</code> repeatedly
+from line 15 (e.g. due to a loop), then each of those calls will be
+represented by the same stack trace in the tree.</p>
+<p>Note also that each tree entry with children in the example satisfies an
+invariant: the entry's size is equal to the sum of its children's sizes.
+For example, the first entry has size 20,000B, and its children have sizes
+10,000B, 8,000B, and 2,000B.  In general, this invariant almost always
+holds.  However, in rare circumstances stack traces can be malformed, in
+which case a stack trace can be a sub-trace of another stack trace.  This
+means that some entries in the tree may not satisfy the invariant -- the
+entry's size will be greater than the sum of its children's sizes.  This is
+not a big problem, but could make the results confusing.  Massif can
+sometimes detect when this happens;  if it does, it issues a warning:</p>
+<pre class="screen">
+Warning: Malformed stack trace detected.  In Massif's output,
+         the size of an entry's child entries may not sum up
+         to the entry's size as they normally do.
+</pre>
+<p>However, Massif does not detect and warn about every such occurrence.
+Fortunately, malformed stack traces are rare in practice.</p>
+<p>Returning now to ms_print's output, the final part is similar:</p>
+<pre class="screen">
+--------------------------------------------------------------------------------
+  n        time(B)         total(B)   useful-heap(B) extra-heap(B)    stacks(B)
+--------------------------------------------------------------------------------
+ 15         21,112           19,096           19,000            96            0
+ 16         22,120           18,088           18,000            88            0
+ 17         23,128           17,080           17,000            80            0
+ 18         24,136           16,072           16,000            72            0
+ 19         25,144           15,064           15,000            64            0
+ 20         26,152           14,056           14,000            56            0
+ 21         27,160           13,048           13,000            48            0
+ 22         28,168           12,040           12,000            40            0
+ 23         29,176           11,032           11,000            32            0
+ 24         30,184           10,024           10,000            24            0
+99.76% (10,000B) (heap allocation functions) malloc/new/new[], --alloc-fns, etc.
+-&gt;79.81% (8,000B) 0x80483C2: g (example.c:5)
+| -&gt;39.90% (4,000B) 0x80483E2: f (example.c:11)
+| | -&gt;39.90% (4,000B) 0x8048431: main (example.c:23)
+| |   
+| -&gt;39.90% (4,000B) 0x8048436: main (example.c:25)
+|   
+-&gt;19.95% (2,000B) 0x80483DA: f (example.c:10)
+| -&gt;19.95% (2,000B) 0x8048431: main (example.c:23)
+|   
+-&gt;00.00% (0B) in 1+ places, all below ms_print's threshold (01.00%)
+</pre>
+<p>The final detailed snapshot shows how the heap looked at termination.
+The 00.00% entry represents the code locations for which memory was
+allocated and then freed (line 20 in this case, the memory for which was
+freed on line 28).  However, no code location details are given for this
+entry;  by default, Massif only records the details for code locations
+responsible for more than 1% of useful memory bytes, and ms_print likewise
+only prints the details for code locations responsible for more than 1%.
+The entries that do not meet this threshold are aggregated.  This avoids
+filling up the output with large numbers of unimportant entries.  The
+thresholds can be changed with the
+<code class="option">--threshold</code> option that both Massif and
+ms_print support.</p>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="ms-manual.forkingprograms"></a>9.2.7. Forking Programs</h3></div></div></div>
+<p>If your program forks, the child will inherit all the profiling data that
+has been gathered for the parent.</p>
+<p>If the output file format string (controlled by
+<code class="option">--massif-out-file</code>) does not contain <code class="option">%p</code>, then
+the outputs from the parent and child will be intermingled in a single output
+file, which will almost certainly make it unreadable by ms_print.</p>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="ms-manual.not-measured"></a>9.2.8. Measuring All Memory in a Process</h3></div></div></div>
+<p>
+It is worth emphasising that by default Massif measures only heap memory, i.e.
+memory allocated with
+<code class="function">malloc</code>,
+<code class="function">calloc</code>,
+<code class="function">realloc</code>,
+<code class="function">memalign</code>,
+<code class="function">new</code>,
+<code class="function">new[]</code>,
+and a few other, similar functions.  (And it can optionally measure stack
+memory, of course.)  This means it does <span class="emphasis"><em>not</em></span> directly
+measure memory allocated with lower-level system calls such as
+<code class="function">mmap</code>,
+<code class="function">mremap</code>, and
+<code class="function">brk</code>.  
+</p>
+<p>
+Heap allocation functions such as <code class="function">malloc</code> are built on
+top of these system calls.  For example, when needed, an allocator will
+typically call <code class="function">mmap</code> to allocate a large chunk of
+memory, and then hand over pieces of that memory chunk to the client program
+in response to calls to <code class="function">malloc</code> et al.  Massif directly
+measures only these higher-level <code class="function">malloc</code> et al calls,
+not the lower-level system calls.
+</p>
+<p>
+Furthermore, a client program may use these lower-level system calls
+directly to allocate memory.  By default, Massif does not measure these.  Nor
+does it measure the size of code, data and BSS segments.  Therefore, the
+numbers reported by Massif may be significantly smaller than those reported by
+tools such as <code class="filename">top</code> that measure a program's total size in
+memory.
+</p>
+<p>
+However, if you wish to measure <span class="emphasis"><em>all</em></span> the memory used by
+your program, you can use the <code class="option">--pages-as-heap=yes</code>.  When this
+option is enabled, Massif's normal heap block profiling is replaced by
+lower-level page profiling.  Every page allocated via
+<code class="function">mmap</code> and similar system calls is treated as a distinct
+block.  This means that code, data and BSS segments are all measured, as they
+are just memory pages.  Even the stack is measured, since it is ultimately
+allocated (and extended when necessary) via <code class="function">mmap</code>;  for
+this reason <code class="option">--stacks=yes</code> is not allowed in conjunction with
+<code class="option">--pages-as-heap=yes</code>.
+</p>
+<p>
+After <code class="option">--pages-as-heap=yes</code> is used, ms_print's output is
+mostly unchanged.  One difference is that the start of each detailed snapshot
+says:
+</p>
+<pre class="screen">
+(page allocation syscalls) mmap/mremap/brk, --alloc-fns, etc.
+</pre>
+<p>instead of the usual:</p>
+<pre class="screen">
+(heap allocation functions) malloc/new/new[], --alloc-fns, etc.
+</pre>
+<p>
+The stack traces in the output may be more difficult to read, and interpreting
+them may require some detailed understanding of the lower levels of a program
+like the memory allocators.  But for some programs having the full information
+about memory usage can be very useful.
+</p>
+</div>
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="ms-manual.acting"></a>9.2.9. Acting on Massif's Information</h3></div></div></div>
+<p>Massif's information is generally fairly easy to act upon.  The
+obvious place to start looking is the peak snapshot.</p>
+<p>It can also be useful to look at the overall shape of the graph, to
+see if memory usage climbs and falls as you expect;  spikes in the graph
+might be worth investigating.</p>
+<p>The detailed snapshots can get quite large.  It is worth viewing them
+in a very wide window.   It's also a good idea to view them with a text
+editor.  That makes it easy to scroll up and down while keeping the cursor
+in a particular column, which makes following the allocation chains easier.
+</p>
+</div>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="ms-manual.using-visualizer"></a>9.3. Using massif-visualizer</h2></div></div></div>
+<p>
+<a class="ulink" href="https://github.com/KDE/massif-visualizer" target="_top">massif-visualizer</a>
+is a graphical viewer for Massif data that is often easier to use than
+ms_print. massif-visualizer is not shipped within Valgrind, but is available in
+various places online.
+</p>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="ms-manual.options"></a>9.4. Massif Command-line Options</h2></div></div></div>
+<p>Massif-specific command-line options are:</p>
+<div class="variablelist">
+<a name="ms.opts.list"></a><dl class="variablelist">
+<dt>
+<a name="opt.heap"></a><span class="term">
+      <code class="option">--heap=&lt;yes|no&gt; [default: yes] </code>
+    </span>
+</dt>
+<dd><p>Specifies whether heap profiling should be done.</p></dd>
+<dt>
+<a name="opt.heap-admin"></a><span class="term">
+      <code class="option">--heap-admin=&lt;size&gt; [default: 8] </code>
+    </span>
+</dt>
+<dd><p>If heap profiling is enabled, gives the number of administrative
+      bytes per block to use.  This should be an estimate of the average,
+      since it may vary.  For example, the allocator used by
+      glibc on Linux requires somewhere between 4 to
+      15 bytes per block, depending on various factors.  That allocator also
+      requires admin space for freed blocks, but Massif cannot
+      account for this.</p></dd>
+<dt>
+<a name="opt.stacks"></a><span class="term">
+      <code class="option">--stacks=&lt;yes|no&gt; [default: no] </code>
+    </span>
+</dt>
+<dd><p>Specifies whether stack profiling should be done.  This option
+      slows Massif down greatly, and so is off by default.  Note that Massif
+      assumes that the main stack has size zero at start-up.  This is not
+      true, but doing otherwise accurately is difficult.  Furthermore,
+      starting at zero better indicates the size of the part of the main
+      stack that a user program actually has control over.</p></dd>
+<dt>
+<a name="opt.pages-as-heap"></a><span class="term">
+      <code class="option">--pages-as-heap=&lt;yes|no&gt; [default: no] </code>
+    </span>
+</dt>
+<dd><p>Tells Massif to profile memory at the page level rather
+        than at the malloc'd block level.  See above for details.
+      </p></dd>
+<dt>
+<a name="opt.depth"></a><span class="term">
+      <code class="option">--depth=&lt;number&gt; [default: 30] </code>
+    </span>
+</dt>
+<dd><p>Maximum depth of the allocation trees recorded for detailed
+      snapshots.  Increasing it will make Massif run somewhat more slowly,
+      use more memory, and produce bigger output files.</p></dd>
+<dt>
+<a name="opt.alloc-fn"></a><span class="term">
+      <code class="option">--alloc-fn=&lt;name&gt; </code>
+    </span>
+</dt>
+<dd>
+<p>Functions specified with this option will be treated as though
+      they were a heap allocation function such as
+      <code class="function">malloc</code>.  This is useful for functions that are
+      wrappers to <code class="function">malloc</code> or <code class="function">new</code>,
+      which can fill up the allocation trees with uninteresting information.
+      This option can be specified multiple times on the command line, to
+      name multiple functions.</p>
+<p>Note that the named function will only be treated this way if it is
+      the top entry in a stack trace, or just below another function treated
+      this way.  For example, if you have a function
+      <code class="function">malloc1</code> that wraps <code class="function">malloc</code>,
+      and <code class="function">malloc2</code> that wraps
+      <code class="function">malloc1</code>, just specifying
+      <code class="option">--alloc-fn=malloc2</code> will have no effect.  You need to
+      specify <code class="option">--alloc-fn=malloc1</code> as well.  This is a little
+      inconvenient, but the reason is that checking for allocation functions
+      is slow, and it saves a lot of time if Massif can stop looking through
+      the stack trace entries as soon as it finds one that doesn't match
+      rather than having to continue through all the entries.</p>
+<p>Note that C++ names are demangled.  Note also that overloaded
+      C++ names must be written in full.  Single quotes may be necessary to
+      prevent the shell from breaking them up.  For example:
+</p>
+<pre class="screen">
+--alloc-fn='operator new(unsigned, std::nothrow_t const&amp;)'
+</pre>
+<p>
+      Arguments of type <code class="computeroutput">size_t</code> need to be replaced
+      with <code class="computeroutput">unsigned long</code> on 64bit platforms and <code class="computeroutput">unsigned</code>
+      on 32bit platforms.
+      </p>
+<p><code class="option">--alloc-fn</code> will work with inline functions.
+      Inline function names are not mangled, which means that you only need
+      to provide the function name and not the argument list.
+      </p>
+<p><code class="option">--alloc-fn</code> does not support wildcards.
+      </p>
+</dd>
+<dt>
+<a name="opt.ignore-fn"></a><span class="term">
+      <code class="option">--ignore-fn=&lt;name&gt; </code>
+    </span>
+</dt>
+<dd>
+<p>Any direct heap allocation (i.e. a call to
+      <code class="function">malloc</code>, <code class="function">new</code>, etc, or a call
+      to a function named by an <code class="option">--alloc-fn</code>
+      option) that occurs in a function specified by this option will be
+      ignored.  This is mostly useful for testing purposes.  This option can
+      be specified multiple times on the command line, to name multiple
+      functions.
+      </p>
+<p>Any <code class="function">realloc</code> of an ignored block will
+      also be ignored, even if the <code class="function">realloc</code> call does
+      not occur in an ignored function.  This avoids the possibility of
+      negative heap sizes if ignored blocks are shrunk with
+      <code class="function">realloc</code>.
+      </p>
+<p>The rules for writing C++ function names are the same as
+      for <code class="option">--alloc-fn</code> above.
+      </p>
+</dd>
+<dt>
+<a name="opt.threshold"></a><span class="term">
+      <code class="option">--threshold=&lt;m.n&gt; [default: 1.0] </code>
+    </span>
+</dt>
+<dd><p>The significance threshold for heap allocations, as a
+      percentage of total memory size.  Allocation tree entries that account
+      for less than this will be aggregated.  Note that this should be
+      specified in tandem with ms_print's option of the same name.</p></dd>
+<dt>
+<a name="opt.peak-inaccuracy"></a><span class="term">
+      <code class="option">--peak-inaccuracy=&lt;m.n&gt; [default: 1.0] </code>
+    </span>
+</dt>
+<dd><p>Massif does not necessarily record the actual global memory
+      allocation peak;  by default it records a peak only when the global
+      memory allocation size exceeds the previous peak by at least 1.0%.
+      This is because there can be many local allocation peaks along the way,
+      and doing a detailed snapshot for every one would be expensive and
+      wasteful, as all but one of them will be later discarded.  This
+      inaccuracy can be changed (even to 0.0%) via this option, but Massif
+      will run drastically slower as the number approaches zero.</p></dd>
+<dt>
+<a name="opt.time-unit"></a><span class="term">
+      <code class="option">--time-unit=&lt;i|ms|B&gt; [default: i] </code>
+    </span>
+</dt>
+<dd><p>The time unit used for the profiling.  There are three
+      possibilities: instructions executed (i), which is good for most
+      cases; real (wallclock) time (ms, i.e. milliseconds), which is
+      sometimes useful; and bytes allocated/deallocated on the heap and/or
+      stack (B), which is useful for very short-run programs, and for
+      testing purposes, because it is the most reproducible across different
+      machines.</p></dd>
+<dt>
+<a name="opt.detailed-freq"></a><span class="term">
+      <code class="option">--detailed-freq=&lt;n&gt; [default: 10] </code>
+    </span>
+</dt>
+<dd><p>Frequency of detailed snapshots.  With
+      <code class="option">--detailed-freq=1</code>, every snapshot is
+      detailed.</p></dd>
+<dt>
+<a name="opt.max-snapshots"></a><span class="term">
+      <code class="option">--max-snapshots=&lt;n&gt; [default: 100] </code>
+    </span>
+</dt>
+<dd><p>The maximum number of snapshots recorded.  If set to N, for all
+      programs except very short-running ones, the final number of snapshots
+      will be between N/2 and N.</p></dd>
+<dt>
+<a name="opt.massif-out-file"></a><span class="term">
+      <code class="option">--massif-out-file=&lt;file&gt; [default: massif.out.%p] </code>
+    </span>
+</dt>
+<dd><p>Write the profile data to <code class="computeroutput">file</code>
+      rather than to the default output file,
+      <code class="computeroutput">massif.out.&lt;pid&gt;</code>.  The
+      <code class="option">%p</code> and <code class="option">%q</code> format specifiers can be
+      used to embed the process ID and/or the contents of an environment
+      variable in the name, as is the case for the core option
+      <code class="option"><a class="link" href="manual-core.html#opt.log-file">--log-file</a></code>.
+      </p></dd>
+</dl>
+</div>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="ms-manual.monitor-commands"></a>9.5. Massif Monitor Commands</h2></div></div></div>
+<p>The Massif tool provides monitor commands handled by the Valgrind
+gdbserver (see <a class="xref" href="manual-core-adv.html#manual-core-adv.gdbserver-commandhandling" title="3.2.5. Monitor command handling by the Valgrind gdbserver">Monitor command handling by the Valgrind gdbserver</a>).
+Valgrind python code provides GDB front end commands giving an easier usage of
+the massif monitor commands (see
+<a class="xref" href="manual-core-adv.html#manual-core-adv.gdbserver-gdbmonitorfrontend" title="3.2.6. GDB front end commands for Valgrind gdbserver monitor commands">GDB front end commands for Valgrind gdbserver monitor commands</a>).  To launch a
+massif monitor command via its GDB front end command, instead of prefixing
+the command with "monitor", you must use the GDB <code class="varname">massif</code>
+command (or the shorter aliases <code class="varname">ms</code>).  Using the massif GDB
+front end command provide a more flexible usage, such as auto-completion of the
+command by GDB. In GDB, you can use <code class="varname">help massif</code> to get
+help about the massif front end monitor commands and you can
+use <code class="varname">apropos massif</code> to get all the commands mentionning the
+word "massif" in their name or on-line help.
+</p>
+<div class="itemizedlist"><ul class="itemizedlist" style="list-style-type: disc; ">
+<li class="listitem"><p><code class="varname">snapshot [&lt;filename&gt;]</code> requests
+    to take a snapshot and save it in the given &lt;filename&gt;
+    (default massif.vgdb.out).
+    </p></li>
+<li class="listitem"><p><code class="varname">detailed_snapshot [&lt;filename&gt;]</code>
+    requests to take a detailed snapshot and save it in the given
+    &lt;filename&gt; (default massif.vgdb.out).
+    </p></li>
+<li class="listitem"><p><code class="varname">all_snapshots [&lt;filename&gt;]</code>
+    requests to take all captured snapshots so far and save them in the given
+    &lt;filename&gt; (default massif.vgdb.out).
+    </p></li>
+<li class="listitem"><p><code class="varname">xtmemory [&lt;filename&gt; default xtmemory.kcg.%p.%n]</code>
+      requests Massif tool to produce an xtree heap memory report.
+      See <a class="xref" href="manual-core.html#manual-core.xtree" title="2.10. Execution Trees">Execution Trees</a> for
+      a detailed explanation about execution trees. </p></li>
+</ul></div>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="ms-manual.clientreqs"></a>9.6. Massif Client Requests</h2></div></div></div>
+<p>Massif does not have a <code class="filename">massif.h</code> file, but it does
+implement two of the core client requests:
+<code class="function">VALGRIND_MALLOCLIKE_BLOCK</code> and
+<code class="function">VALGRIND_FREELIKE_BLOCK</code>;  they are described in 
+<a class="xref" href="manual-core-adv.html#manual-core-adv.clientreq" title="3.1. The Client Request mechanism">The Client Request mechanism</a>.
+</p>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="ms-manual.ms_print-options"></a>9.7. ms_print Command-line Options</h2></div></div></div>
+<p>ms_print's options are:</p>
+<div class="variablelist">
+<a name="ms_print.opts.list"></a><dl class="variablelist">
+<dt><span class="term">
+      <code class="option">-h --help </code>
+    </span></dt>
+<dd><p>Show the help message.</p></dd>
+<dt><span class="term">
+      <code class="option">--version </code>
+    </span></dt>
+<dd><p>Show the version number.</p></dd>
+<dt><span class="term">
+      <code class="option">--threshold=&lt;m.n&gt; [default: 1.0] </code>
+    </span></dt>
+<dd><p>Same as Massif's <code class="option">--threshold</code> option, but
+      applied after profiling rather than during.</p></dd>
+<dt><span class="term">
+      <code class="option">--x=&lt;4..1000&gt; [default: 72]</code>
+    </span></dt>
+<dd><p>Width of the graph, in columns.</p></dd>
+<dt><span class="term">
+      <code class="option">--y=&lt;4..1000&gt; [default: 20] </code>
+    </span></dt>
+<dd><p>Height of the graph, in rows.</p></dd>
+</dl>
+</div>
+</div>
+<div class="sect1">
+<div class="titlepage"><div><div><h2 class="title" style="clear: both">
+<a name="ms-manual.fileformat"></a>9.8. Massif's Output File Format</h2></div></div></div>
+<p>Massif's file format is plain text (i.e. not binary) and deliberately
+easy to read for both humans and machines.  Nonetheless, the exact format
+is not described here.  This is because the format is currently very
+Massif-specific.  In the future we hope to make the format more general, and
+thus suitable for possible use with other tools.  Once this has been done,
+the format will be documented here.</p>
+</div>
+</div>
+<div>
+<br><table class="nav" width="100%" cellspacing="3" cellpadding="2" border="0" summary="Navigation footer">
+<tr>
+<td rowspan="2" width="40%" align="left">
+<a accesskey="p" href="drd-manual.html">&lt;&lt; 8. DRD: a thread error detector</a> </td>
+<td width="20%" align="center"><a accesskey="u" href="manual.html">Up</a></td>
+<td rowspan="2" width="40%" align="right"> <a accesskey="n" href="dh-manual.html">10. DHAT: a dynamic heap analysis tool &gt;&gt;</a>
+</td>
+</tr>
+<tr><td width="20%" align="center"><a accesskey="h" href="index.html">Home</a></td></tr>
+</table>
+</div>
+</body>
+</html>

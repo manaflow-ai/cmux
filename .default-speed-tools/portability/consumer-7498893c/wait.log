@@ -1,0 +1,12 @@
+cmux-ci: waiting for job cdb7df4c2d52289bf3200a41 up to 900 s (deadline 2026-11-28T04:32Z) at http://100.89.225.106:18765
+cdb7df4c2d52289bf3200a41 state=running worker=cmux-linux-pool-1128-040856-e8c6200f total_seconds=33.72 queue_and_setup_seconds=unknown execution_seconds=unknown free_gib=unknown->unknown
+cmux-ci: job cdb7df4c2d52289bf3200a41 running on cmux-linux-pool-1128-040856-e8c6200f after 1m00s; still waiting (deadline 2026-11-28T04:32Z)
+cdb7df4c2d52289bf3200a41 state=queued worker=unassigned total_seconds=134.71 queue_and_setup_seconds=unknown execution_seconds=unknown free_gib=unknown->unknown
+cdb7df4c2d52289bf3200a41 state=leased worker=cmux-linux-pool-1128-040745-e815e211 total_seconds=135.11 queue_and_setup_seconds=unknown execution_seconds=unknown free_gib=unknown->unknown
+cdb7df4c2d52289bf3200a41 state=running worker=cmux-linux-pool-1128-040745-e815e211 total_seconds=136.31 queue_and_setup_seconds=unknown execution_seconds=unknown free_gib=unknown->unknown
+cmux-ci: job cdb7df4c2d52289bf3200a41 running on cmux-linux-pool-1128-040745-e815e211 after 2m00s; still waiting (deadline 2026-11-28T04:32Z)
+cdb7df4c2d52289bf3200a41 state=done worker=cmux-linux-pool-1128-040745-e815e211 total_seconds=166.79 queue_and_setup_seconds=136.56 execution_seconds=30.23 free_gib=126.85->123.04
+  phase=admission seconds=0.00 state=done cache_hit=unknown hits=unknown misses=unknown
+  phase=input_restore seconds=6.08 state=done cache_hit=unknown hits=unknown misses=unknown
+  phase=build seconds=22.85 state=done cache_hit=unknown hits=unknown misses=unknown
+  phase=artifact_upload seconds=0.86 state=done cache_hit=unknown hits=unknown misses=unknown

@@ -1,0 +1,44 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2007, 2008, 2009, 2010 Free Software Foundation, Inc.
+
+     Copying and distribution of this file, with or without modification,
+     are permitted in any medium without royalty provided the copyright
+     notice and this notice are preserved.  -->
+
+<!DOCTYPE feature SYSTEM "gdb-target.dtd">
+<feature name="org.gnu.gdb.power.fpu-valgrind-s1">
+  <reg name="f0s1" bitsize="64" type="uint64"/>
+  <reg name="f1s1" bitsize="64" type="uint64"/>
+  <reg name="f2s1" bitsize="64" type="uint64"/>
+  <reg name="f3s1" bitsize="64" type="uint64"/>
+  <reg name="f4s1" bitsize="64" type="uint64"/>
+  <reg name="f5s1" bitsize="64" type="uint64"/>
+  <reg name="f6s1" bitsize="64" type="uint64"/>
+  <reg name="f7s1" bitsize="64" type="uint64"/>
+  <reg name="f8s1" bitsize="64" type="uint64"/>
+  <reg name="f9s1" bitsize="64" type="uint64"/>
+  <reg name="f10s1" bitsize="64" type="uint64"/>
+  <reg name="f11s1" bitsize="64" type="uint64"/>
+  <reg name="f12s1" bitsize="64" type="uint64"/>
+  <reg name="f13s1" bitsize="64" type="uint64"/>
+  <reg name="f14s1" bitsize="64" type="uint64"/>
+  <reg name="f15s1" bitsize="64" type="uint64"/>
+  <reg name="f16s1" bitsize="64" type="uint64"/>
+  <reg name="f17s1" bitsize="64" type="uint64"/>
+  <reg name="f18s1" bitsize="64" type="uint64"/>
+  <reg name="f19s1" bitsize="64" type="uint64"/>
+  <reg name="f20s1" bitsize="64" type="uint64"/>
+  <reg name="f21s1" bitsize="64" type="uint64"/>
+  <reg name="f22s1" bitsize="64" type="uint64"/>
+  <reg name="f23s1" bitsize="64" type="uint64"/>
+  <reg name="f24s1" bitsize="64" type="uint64"/>
+  <reg name="f25s1" bitsize="64" type="uint64"/>
+  <reg name="f26s1" bitsize="64" type="uint64"/>
+  <reg name="f27s1" bitsize="64" type="uint64"/>
+  <reg name="f28s1" bitsize="64" type="uint64"/>
+  <reg name="f29s1" bitsize="64" type="uint64"/>
+  <reg name="f30s1" bitsize="64" type="uint64"/>
+  <reg name="f31s1" bitsize="64" type="uint64"/>
+
+  <reg name="fpscrs1" bitsize="32" group="float"/>
+</feature>

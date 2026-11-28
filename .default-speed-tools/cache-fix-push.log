@@ -1,0 +1,18 @@
+wt push: format: 1 changed Rust/web file(s)
+wt push: lane receipt: running the fast gates on 7498893c03c6 merged with feat-cmux-next here, before the push (up to 1800 s; log /home/cmux/.cache/wt-push/receipts/7498893c03c60b057c33bc59c1ae79be69ad374d.log). Green records a receipt the PR's gates take instead of re-running; WT_PUSH_RECEIPT=0 skips it
+wt push: lane receipt: fast gates green here in 576 s. ci-receipt: passed and recorded: lane receipt for head tree 9389f0ff1cf84f26834a4272db66e2d999968058 on base a6f87e4b3222 by lane:fs-agent-lane-28. Push this tree (any commit with it): the PR's fast gates take the receipt instead of re-running.
+pre-push: scope growth: lane/phone-default-speed is 4.3 h past its first commit and 1 new commit(s) touch files outside its PR (scripts/bench/tests/fixtures/phone-default-speed/check.log). goal pr-in-an-hour counts this PR late until it merges; Leo: "post-hour scope: new PR". Move them to a follow-up PR:
+  tools/wt new cmux lane/phone-default-speed-next --topic 'follow-up of lane/phone-default-speed' --files scripts/bench/tests/fixtures/phone-default-speed/check.log
+  git -C <that checkout> cherry-pick 7b420e548b6c
+then push lane/phone-default-speed without them (they are still only local if this push is stopped). The push goes through; PR_SCOPE_GROWTH=0 silences this.
+{"started_at": "2026-11-28T03:51:38.976297+00:00", "checks": [{"name": "tier", "status": "deferred", "detail": "4s budget exhausted or no result"}], "head": "7498893c03c60b057c33bc59c1ae79be69ad374d", "elapsed_ms": 4103.56, "status": "deferred"}
+pre-push: linting 7498893c03c over ee957206f4e, less what e2e5d197852 adds over a49ff296a1a: 3 own commit(s), a merge: what HEAD adds over the upstream it merged, less what the other side already had; origin/feat-cmux-next could not be fetched (an earlier check of this push was stopped mid-fetch), so what a base merge brought in past this clone's copy counts as the push's own: run `git fetch origin feat-cmux-next` and push again
+pre-push: 27.3 GiB free (floor 16): running the type check and Oxlint here.
+prepush-gate: judging 7498893c03c over ee957206f4e, less what e2e5d197852 adds over a49ff296a1a: 3 own commit(s), a merge: what HEAD adds over the upstream it merged, less what the other side already had; origin/feat-cmux-next could not be fetched (an earlier check of this push was stopped mid-fetch), so what a base merge brought in past this clone's copy counts as the push's own: run `git fetch origin feat-cmux-next` and push again
+pre-push: cmux-next gate ran past its 180s limit (CMUX_PREPUSH_GATE_TIMEOUT_SECONDS); stopped it and every process it started. The push goes on; CI's `cmux-next checks` job checks it.
+pre-push: hook times: queue 0s, setup 1s, extras 0s, checks-refresh 1s, fast-tier 6s, web-lint 29s, cmux-next-gate 180s, base-merge-warning 11s; total 228s
+pre-push: passed. git now packs and uploads: a failure after this line is git or GitHub, not a check. Retry it as AGENTS.md says ("Retry a failed push": git push -q, at most 3 retries, 30, 60, then 120 s apart).
+To https://github.com/manaflow-ai/cmux.git (through lane-gh push)
+   7498893c03c6  HEAD -> lane/phone-default-speed
+note: lane/phone-default-speed's first commit was 362 min ago, past pr-in-an-hour's hour, and this push adds 2 code commits. New scope goes in a new PR (wt new cmux lane/NAME); a fix for this PR's own red is fine here (PR_HOUR_SCOPE_NOTE=0 hides this)
+wt push: pushed: origin/lane/phone-default-speed is now 7498893c03c6 (manaflow-ai/cmux)

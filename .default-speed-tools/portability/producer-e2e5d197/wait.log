@@ -1,0 +1,9 @@
+cmux-ci: waiting for job 17651d5f7d1192210a9e8f61 up to 3900 s (deadline 2026-11-28T04:24Z) at http://100.89.225.106:18765
+17651d5f7d1192210a9e8f61 state=running worker=cmux-linux-pool-1128-031734-7f5c4808 total_seconds=36.81 queue_and_setup_seconds=unknown execution_seconds=unknown free_gib=unknown->unknown
+cmux-ci: job 17651d5f7d1192210a9e8f61 running on cmux-linux-pool-1128-031734-7f5c4808 after 1m00s; still waiting (deadline 2026-11-28T04:24Z)
+cmux-ci: job 17651d5f7d1192210a9e8f61 running on cmux-linux-pool-1128-031734-7f5c4808 after 2m00s; still waiting (deadline 2026-11-28T04:24Z)
+17651d5f7d1192210a9e8f61 state=done worker=cmux-linux-pool-1128-031734-7f5c4808 total_seconds=208.85 queue_and_setup_seconds=1.75 execution_seconds=207.09 free_gib=131.49->128.68
+  phase=admission seconds=0.00 state=done cache_hit=unknown hits=unknown misses=unknown
+  phase=input_restore seconds=2.67 state=done cache_hit=unknown hits=unknown misses=unknown
+  phase=build seconds=199.62 state=done cache_hit=unknown hits=unknown misses=unknown
+  phase=artifact_upload seconds=3.62 state=done cache_hit=unknown hits=unknown misses=unknown

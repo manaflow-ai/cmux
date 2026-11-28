@@ -1,0 +1,25 @@
+{
+  "prerequisite": "Cargo Git and registry sources populated before offline build; target-only archive does not provide them",
+  "cold_registry_support": false,
+  "step": {
+    "name": "prepare-consumer-sources",
+    "argv": [
+      "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/tools/cargo",
+      "fetch",
+      "--locked",
+      "--target",
+      "x86_64-unknown-linux-gnu"
+    ],
+    "exit_code": 0,
+    "process_exit_code": 0,
+    "cwd": "/tmp/cmux-cache-portability-7498893c-phone-default-speed-01/src/cmux-tui",
+    "timeout_seconds": 300,
+    "timeout": false,
+    "cancelled_signal": null,
+    "cleanup_error": null,
+    "wall_seconds": 3.7218875230000776,
+    "user_seconds": 1.6190369999999996,
+    "system_seconds": 0.7949550000000001,
+    "cpu_complete": true
+  }
+}

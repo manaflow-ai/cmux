@@ -1,0 +1,18 @@
+cmux-ci: waiting for job 93aa307772bd630b08cbe116 up to 2400 s (deadline 2026-11-28T04:42Z) at http://100.89.225.106:18765
+93aa307772bd630b08cbe116 state=running worker=cmux-linux-pool-1128-034716-c4a4fa5b total_seconds=25.68 queue_and_setup_seconds=unknown execution_seconds=unknown free_gib=unknown->unknown
+cmux-ci: job 93aa307772bd630b08cbe116 running on cmux-linux-pool-1128-034716-c4a4fa5b after 1m00s; still waiting (deadline 2026-11-28T04:42Z)
+cmux-ci: job 93aa307772bd630b08cbe116 running on cmux-linux-pool-1128-034716-c4a4fa5b after 2m00s; still waiting (deadline 2026-11-28T04:42Z)
+cmux-ci: job 93aa307772bd630b08cbe116 running on cmux-linux-pool-1128-034716-c4a4fa5b after 3m01s; still waiting (deadline 2026-11-28T04:42Z)
+cmux-ci: job 93aa307772bd630b08cbe116 running on cmux-linux-pool-1128-034716-c4a4fa5b after 4m02s; still waiting (deadline 2026-11-28T04:42Z)
+93aa307772bd630b08cbe116 state=queued worker=unassigned total_seconds=308.08 queue_and_setup_seconds=unknown execution_seconds=unknown free_gib=unknown->unknown
+93aa307772bd630b08cbe116 state=leased worker=cmux-linux-pool-1128-040626-63a4f4a2 total_seconds=308.97 queue_and_setup_seconds=unknown execution_seconds=unknown free_gib=unknown->unknown
+93aa307772bd630b08cbe116 state=running worker=cmux-linux-pool-1128-040626-63a4f4a2 total_seconds=318.77 queue_and_setup_seconds=unknown execution_seconds=unknown free_gib=unknown->unknown
+cmux-ci: job 93aa307772bd630b08cbe116 running on cmux-linux-pool-1128-040626-63a4f4a2 after 5m03s; still waiting (deadline 2026-11-28T04:42Z)
+cmux-ci: job 93aa307772bd630b08cbe116 running on cmux-linux-pool-1128-040626-63a4f4a2 after 6m07s; still waiting (deadline 2026-11-28T04:42Z)
+cmux-ci: job 93aa307772bd630b08cbe116 running on cmux-linux-pool-1128-040626-63a4f4a2 after 7m08s; still waiting (deadline 2026-11-28T04:42Z)
+cmux-ci: job 93aa307772bd630b08cbe116 running on cmux-linux-pool-1128-040626-63a4f4a2 after 8m09s; still waiting (deadline 2026-11-28T04:42Z)
+93aa307772bd630b08cbe116 state=done worker=cmux-linux-pool-1128-040626-63a4f4a2 total_seconds=532.66 queue_and_setup_seconds=314.41 execution_seconds=218.25 free_gib=131.49->128.94
+  phase=admission seconds=0.00 state=done cache_hit=unknown hits=unknown misses=unknown
+  phase=input_restore seconds=2.66 state=done cache_hit=unknown hits=unknown misses=unknown
+  phase=build seconds=211.59 state=done cache_hit=unknown hits=unknown misses=unknown
+  phase=artifact_upload seconds=3.48 state=done cache_hit=unknown hits=unknown misses=unknown
