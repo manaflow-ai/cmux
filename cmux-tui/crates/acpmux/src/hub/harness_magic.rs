@@ -36,7 +36,9 @@ pub(crate) struct Feature {
 /// list stamps `enabled: []` and reads no settings.
 pub(crate) const FEATURES: &[Feature] = &[
     Feature { name: super::turn_rules::FEATURE, on: || enabled(super::turn_rules::FEATURE) },
+    Feature { name: super::fresh_review::FEATURE, on: super::fresh_review::enabled },
     Feature { name: super::cache_alarm::FEATURE, on: || enabled(super::cache_alarm::FEATURE) },
+    Feature { name: crate::spec_exec::FEATURE, on: crate::spec_exec::enabled },
     Feature {
         name: crate::claude_stdio::PATH_RULES_FEATURE,
         on: crate::claude_stdio::path_rules_enabled,
@@ -53,8 +55,10 @@ pub(crate) const FEATURES: &[Feature] = &[
     Feature { name: super::turn_checkpoint::FEATURE, on: super::turn_checkpoint::enabled },
     Feature { name: "sharedCache", on: crate::ci_log_cache::enabled },
     Feature { name: "outputCaps", on: crate::harness_limits::output_caps },
+    Feature { name: super::approval_review::FEATURE, on: super::approval_review::enabled },
     Feature { name: super::turn_artifacts::FEATURE, on: super::turn_artifacts::enabled },
     Feature { name: "consensus", on: super::surge_triage::consensus_enabled },
+    Feature { name: "continue", on: super::stop_condition::continue_enabled },
 ];
 
 /// The features the shared gate reads off unless their setting is `true` (opinionated nudges).
