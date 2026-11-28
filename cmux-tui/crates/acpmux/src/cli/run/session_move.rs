@@ -1071,7 +1071,11 @@ async fn move_steps(
             return Err(e);
         }
     };
-    let there = record.get("cwd").and_then(Value::as_str).map(str::to_owned);
+    let (record, same_folder) = record;
+    let there = record
+        .get("cwd")
+        .and_then(Value::as_str)
+        .map(|cwd| super::transfer::There { cwd: cwd.to_owned(), same_folder });
     let finished = waiting(
         &name,
         "copying the chat to the target",
@@ -1124,7 +1128,7 @@ async fn move_steps(
 
 /// The frozen chat's folder made on the target: the checkout read again (it may have changed
 /// before the freeze), its branch pushed, the folder made there. Returns the move's record
-/// (`movedTo`). The client of the target's daemon is `target_ask::open`'s, from before the freeze.
+/// (`movedTo`) and whether the folder there is the chat's own (`plan::same_folder`). The client of the target's daemon is `target_ask::open`'s, from before the freeze.
 async fn prepare(
     cwd: &Path,
     home: &Path,
@@ -1133,7 +1137,7 @@ async fn prepare(
     args: &MoveArgs,
     source: &Source,
     o: &mut Outcome,
-) -> Result<Value> {
+) -> Result<(Value, bool)> {
     let checkout = checkout_unless_named(cwd, args, source).await?;
     let folder = plan::plan_folder(
         cwd,
@@ -1149,6 +1153,8 @@ async fn prepare(
     let mut at = None;
     let mut bundle = None;
     let mut packed: Option<Vec<u8>> = None;
+    // The folder's files went (`packed` is moved into the unpack below).
+    let mut packed_files = false;
     // The commit the target's folder is made at, whether the folder has uncommitted work, and
     // its checkout's top folder on the source.
     let mut base: Option<(String, bool, PathBuf)> = None;
@@ -1177,6 +1183,7 @@ async fn prepare(
             match read {
                 files::Packed::Files(bytes) => {
                     record.set("filesCopied", json!(bytes.len()));
+                    packed_files = true;
                     packed = Some(bytes);
                 }
                 files::Packed::TooBig(n) => bail!(
@@ -1280,7 +1287,8 @@ async fn prepare(
     }
     o.cwd = Some(there.clone());
     record.set("cwd", json!(there));
-    Ok(record)
+    let same = plan::same_folder(&folder, args.cwd.is_some(), packed_files, args.carry_changes);
+    Ok((record, same))
 }
 
 /// The checkout `cwd` is in, unless `--cwd` names the folder there (no checkout is carried).
