@@ -2447,6 +2447,27 @@
           },
           "response": "ConversationCreated"
         },
+        "conversation-history": {
+          "name": "ConversationHistoryRequest",
+          "doc": [
+            "`conversation-history`: up to `limit` (1...500) messages before `beforeSeq`, ascending."
+          ],
+          "order": [
+            "conversation",
+            "before_seq",
+            "limit"
+          ],
+          "fields": {
+            "limit": {
+              "type": "Int",
+              "clamp": {
+                "minimum": 1,
+                "maximum": 500
+              }
+            }
+          },
+          "response": "ConversationHistory"
+        },
         "conversation-link-resolve": {
           "name": "ConversationLinkResolveRequest",
           "doc": [
@@ -2487,6 +2508,55 @@
               "type": "Int"
             }
           }
+        },
+        "conversation-snapshot": {
+          "name": "ConversationSnapshotRequest",
+          "doc": [
+            "`conversation-snapshot`: the head and the newest `tail` messages (1...500)."
+          ],
+          "order": [
+            "conversation",
+            "tail"
+          ],
+          "fields": {
+            "tail": {
+              "type": "Int",
+              "clamp": {
+                "minimum": 1,
+                "maximum": 500
+              }
+            }
+          },
+          "response": "ConversationSnapshot"
+        },
+        "conversation-thread": {
+          "name": "ConversationThreadRequest",
+          "doc": [
+            "`conversation-thread`: the root and up to `limit` (1...500) replies after `afterSeq`."
+          ],
+          "order": [
+            "conversation",
+            "root",
+            "after_seq",
+            "limit"
+          ],
+          "fields": {
+            "after_seq": {
+              "optional": false,
+              "encode": "always"
+            },
+            "limit": {
+              "type": "Int",
+              "optional": false,
+              "encode": "always",
+              "clamp": {
+                "minimum": 1,
+                "maximum": 500,
+                "constant": "maxLimit"
+              }
+            }
+          },
+          "response": "ConversationThread"
         },
         "conversation-typing": {
           "name": "ConversationTypingRequest",
