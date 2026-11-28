@@ -80,6 +80,53 @@ class GuardStepsReachedTest(unittest.TestCase):
                     self.assertNotIn(".github/workflows/**", step.inputs)
 
 
+class RegistryRowGuardsTest(unittest.TestCase):
+    """A change that adds a registry row's source without its row runs the row's guard on its landing head
+    (registry-row-missing class, land_gate). 11-21 to 11-28: four selector-table reds (culprit e06d1661da88, a
+    Sources-only change; cmux-next-crash-class's `**` Sources input drops under --pr-scope) and four settings-export
+    reds (#51725, #54442; settings-published-keys was push tier and named no Swift settings source)."""
+
+    CULPRITS = {
+        "objc-selector-table": {
+            "e06d1661da88": [
+                "Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkEditView.swift",
+                "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogActionButton.swift",
+                "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogButtonLook.swift",
+                "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogButtonView.swift",
+            ],
+        },
+        "settings-published-keys": {
+            "#51725": ["Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings",
+                       "Packages/macOS/CmuxNext/Sources/CmuxNextAgentIntegrations/SettingsAgentTools.swift",
+                       "schemas/settings/source/agent-defaults.json"],
+            "#54442": ["Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings"],
+            "#52837": ["schemas/settings/published-keys.txt"],
+        },
+    }
+
+    def test_each_culprit_routes_its_row_guard_on_its_landing_head(self) -> None:
+        t = ci_steps.load()
+        for step, culprits in self.CULPRITS.items():
+            self.assertTrue(t.steps[step].land_gate, step)
+            self.assertTrue(t.steps[step].blocks, step)
+            for culprit, paths in culprits.items():
+                with self.subTest(step=step, culprit=culprit):
+                    self.assertIn(step, ci_steps.nightly_gate_steps(t, paths, ["linux"]))
+
+    def test_a_product_change_does_not_route_them(self) -> None:
+        t = ci_steps.load()
+        routed = ci_steps.nightly_gate_steps(t, ["webviews/src/app.ts", "cmux-tui/crates/x/src/lib.rs"], ["linux"])
+        for step in self.CULPRITS:
+            self.assertNotIn(step, routed)
+
+    def test_each_wraps_its_check_in_new_red_only(self) -> None:
+        t = ci_steps.load()
+        for step in self.CULPRITS:
+            with self.subTest(step=step):
+                self.assertIn("scripts/ci/new_red_only.sh", t.steps[step].run)
+                self.assertIn("scripts/ci/new_red_only.sh", t.steps[step].inputs)
+
+
 class SwiftTestCompileGateTest(unittest.TestCase):
     """A Swift change's test targets compile on its landing head (swift-test-compile, land_gate). Since 2026-11-21 no
     pull request into feat-cmux-next compiled a test target (fleet-test-compile.yml cut, then retired by #61890; swift
@@ -2048,7 +2095,7 @@ class PipelineTest(unittest.TestCase):
             wf["jobs"]["linux"]["runs-on"],
             "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && "
             "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || "
-            "vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}")
+            "'cmux-linux' }}")
 
     def test_the_shim_step_runs_every_cpp_script(self) -> None:
         run = ci_steps.load().steps["shim-cpp"].run

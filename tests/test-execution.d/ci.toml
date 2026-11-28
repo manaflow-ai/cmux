@@ -1096,6 +1096,10 @@ path = "tests/test_ci_rust_workspaces_disk.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_rust_workspaces_jobs.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_rust_workspaces_land_head.py"
 lane = "linux-guard"
 
@@ -1425,6 +1429,10 @@ reason = "Unit tests of scripts/ci/workflow_start_lint.py, the lint cmux-next-gu
 
 [[test]]
 path = "tests/test_ci_workflow_step_id_grep_guarded.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_tailnet_oidc_identity_scope.py"
 lane = "linux-guard"
 
 [[test]]
