@@ -32,6 +32,7 @@ CURRENT = (
 
 def load_linter():
     spec = importlib.util.spec_from_file_location("lint_feature_flags", LINTER)
+    assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -63,12 +64,12 @@ class ReviewDateScopeTests(unittest.TestCase):
         git(self.root, "commit", "-q", "-m", "base")
         return git(self.root, "rev-parse", "HEAD")
 
-    def run_lint(self, *argv):
+    def run_lint(self, *argv, registries=("Example.swift",)):
         self.linter.errors.clear()
         out = io.StringIO()
         with mock.patch.object(self.linter, "REPO", self.root), \
              mock.patch.object(self.linter, "WEB_REGISTRY", self.root / "missing.ts"), \
-             mock.patch.object(self.linter, "swift_registry_files", return_value=["Example.swift"]), \
+             mock.patch.object(self.linter, "swift_registry_files", return_value=list(registries)), \
              mock.patch.object(self.linter, "grep_key_files", return_value=set()), \
              contextlib.redirect_stdout(out):
             status = self.linter.main(list(argv))
@@ -127,6 +128,19 @@ class ReviewDateScopeTests(unittest.TestCase):
         base = self.commit_base(EXPIRED.replace("reviewBy: 2020-01-01, ", ""))
         status, output = self.run_lint("--base", base)
         self.assertEqual(status, 1, output)
+
+    def test_expired_flag_in_an_untracked_registry_file_fails(self):
+        """An untracked registry file is discovered, so its diff must count as touched too."""
+        base = self.commit_base(CURRENT)
+        self.registry.write_text(CURRENT)
+        untracked = self.root / "NewFlag.swift"
+        untracked.write_text(EXPIRED)
+        status, output = self.run_lint("--base", base, registries=("Example.swift", "NewFlag.swift"))
+        self.assertEqual(status, 1, output)
+        self.assertTrue(
+            any("expired-thing-release" in error for error in self.linter.errors),
+            self.linter.errors,
+        )
 
     def test_unresolvable_base_only_warns(self):
         self.commit_base(EXPIRED)

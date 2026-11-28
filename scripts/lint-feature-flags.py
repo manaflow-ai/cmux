@@ -188,6 +188,18 @@ def changed_lines(base: str, paths: list[str]) -> dict[str, list[tuple[int, int]
     if out.returncode != 0:
         return None
     ranges: dict[str, list[tuple[int, int]]] = {}
+    # git diff never reports an untracked file, yet discovery reads it: every line is new.
+    # shortcut: untracked registry files count as wholly changed, upgrade if a base-side diff is ever needed
+    try:
+        untracked = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard", "--", *paths],
+            cwd=REPO, capture_output=True, text=True, timeout=30,
+        ).stdout.splitlines()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    for untracked_path in untracked:
+        line_count = (REPO / untracked_path).read_text(errors="replace").count("\n") + 1
+        ranges.setdefault(untracked_path, []).append((1, line_count))
     path = None
     for line in out.stdout.splitlines():
         if line.startswith("+++ "):
