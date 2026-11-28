@@ -591,7 +591,9 @@ jobs:
       name: ci-routing-agent
       deployment: false
     permissions:
-      actions: write
+      # actions: read, not write: pr-router.yml calls this workflow with read (a callee may not ask for more). The
+      # dispatch runs on the cmux-bot App's token (permission-actions: write), minted below.
+      actions: read
       contents: read
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -623,7 +625,7 @@ jobs:
       - name: Dispatch the image roll
         continue-on-error: true
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}
           GH_BUDGET_WAIT_MAX_SECONDS: 180
         run: bash scripts/ci/gh_budget_wait.sh workflow run cloud-vm-image-roll.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next -f commit="$GITHUB_SHA"
