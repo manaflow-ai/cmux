@@ -41,6 +41,9 @@ SHALLOW_CHECK = re.compile(r"is-shallow-repository|is_shallow|isShallow|shallow_
 # Scripts whose depth-limited fetches target a repository the script created
 # itself (git init into a temp or cache directory), never the caller's clone.
 OWN_REPOSITORY = {
+    "scripts/build-cmux-cua.sh":
+        "fetches only into its managed cmux-cua source cache: a temp directory it just ran `git init` in, "
+        "then the cache it owns (validate_managed_source_cache), never the caller's checkout",
     "web/services/runs/legacy/sourceVerification.ts": "builds a command that fetches into a fresh `git init` workspace",
     "scripts/ci/swiftpm_prefetch_binary_artifacts.py": "reads a dependency's manifests at one pinned revision "
     "with a one-commit fetch into a fresh `git init` temp directory",

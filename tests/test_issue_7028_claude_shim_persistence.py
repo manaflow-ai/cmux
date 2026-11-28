@@ -33,7 +33,8 @@ def test_claude_shim_root_survives_tmpdir_reaping() -> None:
                 tmpdir = root / "tmp"
                 bundle_bin = root / "bin"
                 user_bin = root / "user-bin"
-                for directory in (home, tmpdir, bundle_bin, user_bin):
+                home.mkdir(mode=0o700)
+                for directory in (tmpdir, bundle_bin, user_bin):
                     directory.mkdir()
                 wrapper = bundle_bin / "cmux-claude-wrapper"
                 wrapper.write_text(

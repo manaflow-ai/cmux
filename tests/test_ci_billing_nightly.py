@@ -94,7 +94,7 @@ class Workflow(unittest.TestCase):
                 # Each later step runs only when the configuration is present.
                 steps = block.split("      - name: ")[1:]
                 for step in steps:
-                    if step.startswith(("Checkout", "Check configuration")):
+                    if step.startswith(("Checkout", "Mint spare tokens", "Check configuration")):
                         continue
                     self.assertRegex(step, r"if: (\$\{\{ \()?steps\.config\.outputs\.ready == 'true'", step.splitlines()[0])
 
@@ -117,6 +117,15 @@ class Workflow(unittest.TestCase):
             with self.subTest(job=job):
                 runs_on = re.search(r"^    runs-on: (.*)$", self.jobs[job], re.MULTILINE).group(1)
                 self.assertNotIn("vars.", runs_on)
+
+    def test_github_calls_have_spare_tokens(self) -> None:
+        # Run 45794727111: the config step's environment read died on the job token's rate limit.
+        for job in SECRET_JOBS:
+            with self.subTest(job=job):
+                block = self.jobs[job]
+                self.assertIn("uses: ./.github/actions/spare-issue-tokens", block)
+                self.assertLess(block.index("id: spare"), block.index("python3 scripts/ci/billing_nightly.py"))
+                self.assertIn("GH_SPARE_TOKENS: ${{ steps.spare.outputs.cmux-bot }} ${{ steps.spare.outputs.glaeda-route }}", block)
 
     def test_storekit_dispatches_feat_cmux_next(self) -> None:
         block = self.jobs["storekit"]
@@ -183,6 +192,35 @@ class Script(unittest.TestCase):
         with mock.patch.object(nightly.subprocess, "run", side_effect=run), mock.patch.object(nightly.time, "sleep"):
             self.assertEqual(nightly._gh("api", "x"), "ok")
         self.assertEqual(len(calls), 2)
+
+    def test_gh_sends_a_rate_limited_call_on_a_spare_token(self) -> None:
+        import subprocess
+        tokens = []
+        def run(argv, **kwargs):
+            token = (kwargs.get("env") or {}).get("GH_TOKEN", "job")
+            tokens.append(token)
+            if token in ("job", "spare-1"):
+                raise subprocess.CalledProcessError(1, argv, output="", stderr="HTTP 403: API rate limit exceeded for installation")
+            return subprocess.CompletedProcess(argv, 0, stdout="{}\n", stderr="")
+        with mock.patch.dict(os.environ, {"GH_SPARE_TOKENS": "spare-1 spare-2"}), \
+                mock.patch.object(nightly.subprocess, "run", side_effect=run), \
+                mock.patch.object(nightly.time, "sleep") as sleep, contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(nightly._gh("api", "x"), "{}")
+        self.assertEqual(tokens, ["job", "spare-1", "spare-2"])
+        sleep.assert_not_called()
+
+    def test_gh_keeps_spares_for_rate_limits(self) -> None:
+        import subprocess
+        tokens = []
+        def run(argv, **kwargs):
+            tokens.append((kwargs.get("env") or {}).get("GH_TOKEN", "job"))
+            raise subprocess.CalledProcessError(1, argv, output="", stderr="HTTP 404: Not Found")
+        with mock.patch.dict(os.environ, {"GH_SPARE_TOKENS": "spare-1"}), \
+                mock.patch.object(nightly.subprocess, "run", side_effect=run), \
+                mock.patch.object(nightly.time, "sleep"), contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(subprocess.CalledProcessError):
+                nightly._gh("api", "x", tries=1)
+        self.assertEqual(tokens, ["job"])
 
     def test_gh_failure_names_gh_stderr(self) -> None:
         import subprocess

@@ -381,9 +381,9 @@ OWNED_EPHEMERAL_LINUX = ("glaeda-linux-arm64",)
 # exist".
 OWNED_GCP_LINUX = ("cmux-fleet-linux-x64",)
 # The Freestyle Linux rung's own label: same-repository x64 work on Freestyle VMs (hq's freestyle-runners.yml makes
-# an 8 vCPU VM per queued job; it never serves a fork's run). It may follow the owned GCP lead in an x64 RUNNER_POOLS
-# pool whose jobs need no fresh machine and fit 8 vCPU (runner_pools.owned_freestyle(), spec_problems()), so a full
-# GCP pool overflows to Freestyle before Blacksmith; the janitor counts its queue and starts like the labels above.
+# an 8 vCPU VM per queued job; it never serves a fork's run). It follows the owned GCP label in (or may lead) an x64
+# RUNNER_POOLS pool whose jobs need no fresh machine and fit 8 vCPU (runner_pools.owned_freestyle(), spec_problems()):
+# a full GCP pool overflows to Freestyle, then Blacksmith; the janitor counts its queue and starts like the labels above.
 # Leo, 2026-11-19: "We still keep Blacksmith sometimes, but stop fucking relying on it. [...] We could use Freestyle."
 OWNED_FREESTYLE_LINUX = ("cmux-freestyle-linux-x64",)
 # Every owned Linux label a RUNNER_POOLS pool may lead with, and the janitor counts per label.

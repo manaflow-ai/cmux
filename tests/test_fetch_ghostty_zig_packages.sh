@@ -178,8 +178,23 @@ default_limit="$(sed -n 's/^attempt_timeout="${CMUX_ZIG_FETCH_ATTEMPT_TIMEOUT:-\
 
 # Workflows fetch through the action, which skips the download when the
 # packages are on the machine or in the cache store, and runs this script.
-direct="$(grep -ln 'fetch-ghostty-zig-packages\.sh' "$ROOT"/.github/workflows/*.yml || true)"
-[ -z "$direct" ] || { echo "FAIL: these workflows run the fetch script directly instead of .github/actions/ghostty-zig-packages: $direct" >&2; exit 1; }
+python3 - "$ROOT/.github/workflows" <<'PYTHON'
+from pathlib import Path
+import sys
+
+import yaml
+
+script = "fetch-ghostty-zig-packages.sh"
+for path in sorted(Path(sys.argv[1]).glob("*.y*ml")):
+    source = path.read_text()
+    if script not in source:
+        continue
+    # A path filter can legitimately watch the implementation of the action.
+    # Keep checking job inputs, shell commands, and workflow-wide environment.
+    workflow = yaml.load(source, Loader=yaml.BaseLoader)
+    if any(script in str(workflow.get(key, {})) for key in ("env", "jobs")):
+        sys.exit(f"FAIL: {path} uses {script} directly instead of .github/actions/ghostty-zig-packages")
+PYTHON
 grep -q 'scripts/ci/fetch-ghostty-zig-packages.sh' "$ROOT/.github/actions/ghostty-zig-packages/action.yml" \
   || { echo "FAIL: the ghostty-zig-packages action no longer runs the deadlined fetch" >&2; exit 1; }
 # Only a push writes the package cache: a pull request or pull_request_target

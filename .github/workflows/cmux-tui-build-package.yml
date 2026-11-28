@@ -91,7 +91,7 @@ env:
 jobs:
   plan-build:
     name: select binary targets
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && inputs.linux_runner || 'cmux-linux') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && inputs.linux_runner || vars.CI_OVERFLOW_LINUX || 'cmux-linux') }}
     timeout-minutes: 15
     outputs:
       matrix: ${{ steps.targets.outputs.matrix }}
@@ -198,7 +198,7 @@ jobs:
       matrix: ${{ fromJSON(needs.plan-build.outputs.matrix) }}
     steps:
       - name: Checkout caller or requested ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -397,9 +397,12 @@ jobs:
         if: matrix.target == 'x86_64-unknown-linux-musl'
         working-directory: cmux-tui
         shell: bash
+        # --lib: the test lives in src/session.rs. Without it cargo builds every cmux-remote
+        # integration test with fat LTO; on 2026-11-25 (run 45615836920) that filled the pool
+        # runner's disk at tests/interactive_latency_e2e.rs and main published no cmux-tui.
         run: >-
           ../scripts/ci/cargo-test-deadline.sh --release --locked --target ${{ matrix.target }}
-          -p cmux-remote queue_admission_failure_rolls_back_sequence_and_replay
+          -p cmux-remote --lib queue_admission_failure_rolls_back_sequence_and_replay
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -445,7 +448,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout caller or requested ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -594,7 +597,7 @@ jobs:
         needs.build.result == 'success' &&
         (!inputs.include_windows || needs.build-windows.result == 'success')
       }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && inputs.linux_runner || 'cmux-linux') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && inputs.linux_runner || vars.CI_OVERFLOW_LINUX || 'cmux-linux') }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -603,7 +606,7 @@ jobs:
       PYPI_VERSION: ${{ inputs.pypi_version != '' && inputs.pypi_version || inputs.version }}
     steps:
       - name: Checkout caller or requested ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -842,7 +845,7 @@ jobs:
       PYPI_VERSION: ${{ inputs.pypi_version != '' && inputs.pypi_version || inputs.version }}
     steps:
       - name: Checkout caller or requested ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -911,7 +914,7 @@ jobs:
       attestations: write
     steps:
       - name: Checkout caller or requested ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false

@@ -592,7 +592,8 @@ class HostedQueueRescueCalls(StepHarness):
 
     def test_reads_use_the_read_token_and_the_rerun_the_workflow_token(self) -> None:
         self.assertEqual(self.STEP["env"]["READ_TOKEN"],
-                         "${{ steps.cmux-bot-token.outputs.token || steps.glaeda-token.outputs.token }}")
+                         # The spread mint's token first: it is whichever App has more left.
+                         "${{ steps.glaeda-token.outputs.token || steps.cmux-bot-token.outputs.token }}")
         with tempfile.TemporaryDirectory() as tmp:
             tokens = Path(tmp) / "tokens"
             self.run_step(self.STEP["run"], {**self.ENV, "READ_TOKEN": "app", "FAKE_GH_TOKEN_LOG": str(tokens)},
@@ -752,7 +753,8 @@ class RiskTierCalls(unittest.TestCase):
         for name in ("Grade the pull request", "Set the risk label"):
             with self.subTest(step=name):
                 _, step = workflow_step("risk-tier.yml", "evidence", name)
-                self.assertEqual(step["env"]["READ_TOKEN"], "${{ steps.glaeda-token.outputs.token }}")
+                self.assertEqual(step["env"]["READ_TOKEN"],
+                                 "${{ (steps.glaeda-token-bot.outputs.token || steps.glaeda-token.outputs.token) }}")
                 self.assertEqual(step["env"]["GH_TOKEN"], "${{ github.token }}")
         _, mint = workflow_step("risk-tier.yml", "evidence", "Mint the glaeda-route token")
         self.assertTrue(mint["continue-on-error"])

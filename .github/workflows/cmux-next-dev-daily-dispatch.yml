@@ -31,7 +31,7 @@ jobs:
     # environment cmux-next.yml mints the same App's token under
     # (test_supplychain_security.py).
     environment: ci-routing-agent
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     permissions:
       actions: write
       contents: read
@@ -44,7 +44,7 @@ jobs:
       # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
       # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
       - name: Checkout the GitHub API wait
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -144,7 +144,7 @@ jobs:
               repo,
               ref: `heads/${source}`,
             }));
-            const sha = ref.object.sha;
+            let sha = ref.object.sha;
             // No snapshot ref: creating one at a feat-cmux-next commit needs
             // the workflows permission, which GITHUB_TOKEN cannot have (HTTP
             // 403). The run goes on feat-cmux-next with the SHA it must build;
@@ -266,6 +266,23 @@ jobs:
             if (recent) {
               core.notice(`DEV source run ${recent.id} started under five minutes ago; the next push or tick asks for ${sha}`);
               return;
+            }
+            // The reads above take about 20 s (tick 45958399125: 07:26:06 to
+            // 07:26:27Z on 2026-11-27), and GitHub fixes the run's commit at
+            // dispatch: a merge in that window made the run superseded
+            // (dev_daily_sha != github.sha), so it built nothing. About half of
+            // the DEV runs on 2026-11-27 were. Read the tip once more just
+            // before dispatching and ask for that one: a newer tip than the one
+            // checked above has no DEV run yet, and the spacing above holds for
+            // any SHA.
+            const { data: fresh } = await call((client) => client.rest.git.getRef({
+              owner,
+              repo,
+              ref: `heads/${source}`,
+            }));
+            if (fresh.object.sha !== sha) {
+              core.notice(`feat-cmux-next moved from ${sha} to ${fresh.object.sha} during this tick; asking for ${fresh.object.sha}`);
+              sha = fresh.object.sha;
             }
             await github.rest.actions.createWorkflowDispatch({
               owner,

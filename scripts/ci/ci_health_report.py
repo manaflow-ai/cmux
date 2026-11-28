@@ -1310,6 +1310,8 @@ class GitHub:
     def __init__(self, token: str, repo: str) -> None:
         self.repo = repo
         self.calls = 0
+        # Set once a call is refused on a spent rate limit; later run listings skip.
+        self.spent = False
         # Jobs whose log was longer than job_log's cap and was read cut short.
         self.truncated_logs: set[int] = set()
         self.headers = {
@@ -1341,6 +1343,7 @@ class GitHub:
             remaining = error.headers.get("x-ratelimit-remaining") if error.headers else None
             if error.code in (403, 429) and (remaining == "0" or error.headers is None
                                              or error.headers.get("retry-after")):
+                self.spent = True
                 raise RateLimited(f"rate limited on {endpoint} ({error.code})") from error
             raise RuntimeError(f"{method} {endpoint} failed ({error.code})") from error
         except urllib.error.URLError as error:
@@ -1384,6 +1387,11 @@ class GitHub:
         partial: list[str] = []
         merged: dict[int, dict[str, Any]] = {}
         for piece in slice_windows(window, slices):
+            if getattr(self, "spent", False):
+                # The budget is spent: every further slice is one more refused call.
+                results.append(SliceResult(window=piece, runs=[], capped=True))
+                partial.append(f"run listing for {piece.label()} skipped: the token's rate limit is spent")
+                continue
             result, reasons = self.runs_in_slice(piece, max_pages)
             results.append(result)
             partial.extend(reasons)
@@ -1681,7 +1689,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 2
 
-    github = GitHub(token, args.repo)
+    # Reads go on the App token the workflow minted (its own budget); the issue
+    # comment, a write, stays on GH_TOKEN so its author does not change.
+    read_token = os.environ.get("CI_HEALTH_READ_TOKEN", "").strip()
+    github = GitHub(read_token or token, args.repo)
+    publisher = GitHub(token, args.repo) if read_token else github
+    read_app = os.environ.get("CI_HEALTH_READ_APP", "").strip() or "an App"
+    print(
+        f"ci-health-report: reads on {read_app + ' token' if read_token else 'GH_TOKEN'}",
+        file=sys.stderr,
+    )
     now = dt.datetime.now(UTC)
     current_window, previous_window = windows(now, window_hours)
     linux_only = linux_only_workflow_paths(args.workflows_dir)
@@ -1723,7 +1740,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"ci-health-report: tracking issue {issue_raw!r} is not a number", file=sys.stderr)
         return 2
     try:
-        print(f"ci-health-report: {publish_to_issue(github, issue_number, report)}", file=sys.stderr)
+        print(f"ci-health-report: {publish_to_issue(publisher, issue_number, report)}", file=sys.stderr)
     except RateLimited as error:
         print(f"ci-health-report: {error}; step summary still has the report", file=sys.stderr)
         return 0
