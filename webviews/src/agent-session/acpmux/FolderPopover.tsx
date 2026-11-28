@@ -12,6 +12,7 @@ import { folderUsedAt, mergeByRecentUse, readAddedRepos, rememberAddedRepo, type
 import { githubFolder, githubFolderRepo, type GitHubStatus } from "./githubRepos";
 import { useT } from "./i18n";
 import { FOLDER_MENU_LIST_CAP, folderMenuShortest, useLocationOpener, useLocationPopover } from "./locationPopover";
+import { ProjectBadge } from "./ProjectBadge";
 import { projectSuffixes } from "./projectSuffix";
 import {
   folderRepo,
@@ -56,6 +57,7 @@ export function FolderPopover({
   cloningRepository,
   pendingRepository,
   macPaths = false,
+  remote = false,
 }: {
   label: string;
   /// The name automation opens it by (`openPicker`).
@@ -63,6 +65,9 @@ export function FolderPopover({
   /// The strip control's face (icon, name, chevron).
   face: React.ReactNode;
   folders: FolderChoice[];
+  /// The folders are another machine's (an SSH environment, a remote chat's machine): their rows never
+  /// ask this Mac for a project icon (ProjectBadge reads this Mac's disk).
+  remote?: boolean;
   current?: string;
   currentPeer?: string;
   onPick(cwd: string): void;
@@ -504,7 +509,13 @@ export function FolderPopover({
         data-current={leadCurrent ? "" : undefined}
         data-expanded={disclosure ? String(disclosure.open) : undefined}
       >
-        <LocationIcon location={folder.id} />
+        {/* The project's own icon, as the chip draws it (ProjectBadge): a GitHub mark only for a repository
+            from the GitHub connection, which is no folder here, and a plain folder for another machine's. */}
+        {remote || isGitHubLocation(folder.id) ? (
+          <LocationIcon location={folder.id} />
+        ) : (
+          <ProjectBadge project={{ cwd: folder.id, label: folder.label, ...(repo ? { repo } : {}) }} />
+        )}
         <span className="acpmux-menu-text acpmux-location-name">
           <span className="acpmux-menu-label">{group.name}</span>
           {suffix && (
