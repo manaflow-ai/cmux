@@ -1,0 +1,25 @@
+#!/bin/bash
+# A/B: VideoToolbox encode time back to back vs with key-press gaps, power hint unset/0/1.
+set -uo pipefail
+cd cmux-tui
+cargo build --release -p cmux-rd-host --bin cmux-rd 2>&1 | tail -3
+bin=target/release/cmux-rd
+sysctl -n machdep.cpu.brand_string
+out=${FAST_CHECKS_OUT:-/tmp}/ab.jsonl
+for size in 1920x1080 3024x1964; do
+  w=${size%x*}; h=${size#*x}
+  for gap in 0 150; do
+    for pw in unset 0 1; do
+      for wl in type text; do
+        n=120; [ "$gap" -gt 0 ] && n=60
+        if [ "$pw" = unset ]; then env -u CMUX_RD_VT_POWER_EFFICIENT "$bin" encode-selftest --width "$w" --height "$h" --frames "$n" --gap-ms "$gap" --workload "$wl" 2>&1 | tail -1
+        else CMUX_RD_VT_POWER_EFFICIENT=$pw "$bin" encode-selftest --width "$w" --height "$h" --frames "$n" --gap-ms "$gap" --workload "$wl" 2>&1 | tail -1; fi
+      done
+    done
+  done
+done | tee "$out" | python3 -c '
+import sys,json
+for l in sys.stdin:
+    try: d=json.loads(l)
+    except Exception: print(l.strip()); continue
+    e=d["encode_ms"]; print(d["size"],"gap",d["gap_ms"],"pw",d["power_efficient"],d["workload"],"enc p50 %.2f p95 %.2f max %.2f"%(e["p50"],e["p95"],e["max"]),"conv",d["convert_ms"]["p50"])'
