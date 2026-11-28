@@ -246,12 +246,29 @@ def missing(path: Path, what: str) -> str | None:
     return None if path.exists() else f"{what} is not in this tree ({path.relative_to(ROOT)})"
 
 
+# `cmux-tui/Cargo.toml` pins `codegen-units = 1` per package (`[profile.release.package.acpmux]`,
+# cmux-tui-core, cmux-tui), and a package override beats `CARGO_PROFILE_RELEASE_CODEGEN_UNITS`:
+# with the environment's 16 set, rustc still built the acpmux test library as one unit and the
+# slot's MemoryMax killed it 8 min in (signal 9, chat-x0.02-idle, run 46174754908). A `--config`
+# on the command line beats the manifest's package overrides, so these split those crates too.
+SPLIT_PACKAGES = ("acpmux", "cmux-tui-core", "cmux-tui")
+
+
+def split_units() -> list[str]:
+    """`--config` arguments giving each of [`SPLIT_PACKAGES`] the lab build's 16 codegen units."""
+    out = []
+    for package in SPLIT_PACKAGES:
+        out += ["--config", f'profile.release.package."{package}".codegen-units=16']
+    return out
+
+
 def cargo_test(args, part: str) -> list[str]:
     """The `cargo test` a cargo part runs, up to its harness arguments."""
+    cargo = ["cargo", *split_units(), "test", "-p", "acpmux", "--release"]
     if part == "daemon":
         features = ["--features", "dhat-heap"] if args.heap else []
-        return ["cargo", "test", "-p", "acpmux", "--release", *features, "--test", "god_daemon"]
-    return ["cargo", "test", "-p", "acpmux", "--release", "--lib", "stress::god_chat"]
+        return [*cargo, *features, "--test", "god_daemon"]
+    return [*cargo, "--lib", "stress::god_chat"]
 
 
 def prebuild(args, part: str, out_root: Path) -> dict | None:
