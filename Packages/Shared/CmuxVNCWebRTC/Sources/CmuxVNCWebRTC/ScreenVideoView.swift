@@ -9,10 +9,12 @@ public final class ScreenVideoView: UIView, @preconcurrency RTCVideoViewDelegate
     /// Called on the main queue with each rendered frame's arrival time (perf).
     public var onFrame: (() -> Void)?
     private let metal = RTCMTLVideoView(frame: .zero)
+    private let stamper: MetalStamper
     private let tap = FrameTap()
     private var track: VideoTrackBox?
 
     public override init(frame: CGRect) {
+        stamper = MetalStamper(metal: metal)
         super.init(frame: frame)
         metal.videoContentMode = .scaleToFill
         metal.delegate = self
@@ -26,10 +28,10 @@ public final class ScreenVideoView: UIView, @preconcurrency RTCVideoViewDelegate
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     public func attach(_ box: VideoTrackBox) {
-        track?.track.remove(metal)
+        track?.track.remove(stamper)
         track?.track.remove(tap)
         track = box
-        box.track.add(metal)
+        box.track.add(stamper)
         box.track.add(tap)
     }
 
@@ -38,8 +40,34 @@ public final class ScreenVideoView: UIView, @preconcurrency RTCVideoViewDelegate
     }
 
     deinit {
-        track?.track.remove(metal)
+        track?.track.remove(stamper)
         track?.track.remove(tap)
+    }
+}
+
+/// The stamp `RTCMTLVideoView` compares to skip a frame it already drew. libwebrtc stamps a
+/// received frame with its render time, and with playout delay 0 (``WebRTCFieldTrials``) the render
+/// time is 0 for every frame (`VCMTiming::RenderTime` returns zero under low-latency rendering), so
+/// every frame matched the view's initial `lastFrameTimeNs` of 0 and none was ever drawn. A frame
+/// stamped 0 gets its RTP timestamp plus one instead: distinct for each frame, never 0.
+func metalDrawStamp(_ frame: RTCVideoFrame) -> Int64 {
+    frame.timeStampNs != 0 ? frame.timeStampNs : Int64(UInt32(bitPattern: frame.timeStamp)) + 1
+}
+
+/// Hands each frame to the Metal view with ``metalDrawStamp(_:)`` as its `timeStampNs` (the same
+/// buffer, no copy), so the view draws each new frame once.
+// crash-allow: `metal` is set once in init and RTCMTLVideoView's renderFrame/setSize are safe off the main thread.
+private final class MetalStamper: NSObject, RTCVideoRenderer, @unchecked Sendable {
+    private let metal: RTCMTLVideoView
+    init(metal: RTCMTLVideoView) { self.metal = metal }
+    func setSize(_ size: CGSize) { metal.setSize(size) }
+    func renderFrame(_ frame: RTCVideoFrame?) {
+        guard let frame else { return }
+        let stamp = metalDrawStamp(frame)
+        guard stamp != frame.timeStampNs else { metal.renderFrame(frame); return }
+        let stamped = RTCVideoFrame(buffer: frame.buffer, rotation: frame.rotation, timeStampNs: stamp)
+        stamped.timeStamp = frame.timeStamp
+        metal.renderFrame(stamped)
     }
 }
 

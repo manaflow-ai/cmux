@@ -204,11 +204,13 @@ public final class ScreenPresentProbe: NSObject, RTCVideoRenderer, @unchecked Se
         lock.withLock {
             size = CGSize(width: Int(frame.width), height: Int(frame.height))
             current = value
-            if valueByTimestamp[frame.timeStampNs] == nil {
-                timestamps.append(frame.timeStampNs)
+            // Keyed by the stamp the Metal view draws by (`lastFrameTimeNs`), not libwebrtc's own.
+            let stamp = metalDrawStamp(frame)
+            if valueByTimestamp[stamp] == nil {
+                timestamps.append(stamp)
                 if timestamps.count > 128 { valueByTimestamp[timestamps.removeFirst()] = nil }
             }
-            valueByTimestamp[frame.timeStampNs] = value
+            valueByTimestamp[stamp] = value
             if decodedAt[value] == nil { decodedAt[value] = now }
             if renderer == .sampleBuffer {
                 // The layer's sink enqueued this frame before this callback began.
