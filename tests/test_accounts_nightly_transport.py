@@ -5,6 +5,8 @@ from __future__ import annotations
 import importlib.util
 import json
 import plistlib
+import shutil
+import subprocess
 import os
 from pathlib import Path
 import sys
@@ -135,6 +137,50 @@ class TransportTests(unittest.TestCase):
                 with mock.patch.object(PROBE.Probe, "run", return_value=None), mock.patch("builtins.print"):
                     self.assertEqual(PROBE.main(command[2:]), 0)
                 self.assertEqual("--cu-host" in command, host is not None)
+
+    def test_shell_launcher_preserves_optional_host_arguments(self):
+        # Run the real shell launcher in a disposable tree, replacing only its
+        # external app/download commands. CMUX_TEST_BASH selects macOS Bash 3.2.
+        shell = os.environ.get("CMUX_TEST_BASH") or shutil.which("bash")
+        for option in (None, "cu_host=nightly"):
+            with self.subTest(option=option), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                measure = root / "scripts/measure"
+                measure.mkdir(parents=True)
+                script = measure / "ext-rows-nightly.sh"
+                shutil.copyfile(ROOT / "scripts/measure/ext-rows-nightly.sh", script)
+                bin_dir = root / "bin"
+                bin_dir.mkdir()
+                log = root / "probe-argv.json"
+                for name in ("curl", "hdiutil", "ditto", "sw_vers", "python3"):
+                    stub = bin_dir / name
+                    stub.write_text(f"#!{sys.executable}\n" +
+                        "import json, os, sys\nfrom pathlib import Path\n" +
+                        "if Path(sys.argv[0]).name == 'python3':\n" +
+                        f" Path({str(log)!r}).write_text(json.dumps(sys.argv[1:]))\n")
+                    stub.chmod(0o700)
+                side = root / "scripts/cmux-next/side-instance.sh"
+                side.parent.mkdir()
+                side.write_text(f"#!{sys.executable}\n" +
+                    "import os, sys\nfrom pathlib import Path\n" +
+                    "root = Path(os.environ['CMUX_SIDE_ROOT']) / 'extrows'\n" +
+                    "if sys.argv[1] == 'make': (root / 'config').mkdir(parents=True)\n" +
+                    "if sys.argv[1] == 'path': print(root / 'app with spaces.app')\n" +
+                    "if sys.argv[1] == 'socket': print(root / 'control.sock')\n")
+                side.chmod(0o700)
+                env = {**os.environ, "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
+                       "TMPDIR": str(root)}
+                command = [shell, str(script), "dmg=https://example.invalid/nightly.dmg", "rows=agent_prompts"]
+                if option:
+                    command.append(option)
+                result = subprocess.run(command, env=env, text=True, capture_output=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                args = json.loads(log.read_text())
+                self.assertEqual(args[-2:], ["--rows", "agent_prompts"])
+                self.assertEqual(args.count("--cu-host"), int(option is not None))
+                if option:
+                    self.assertEqual(args[args.index("--cu-host") + 1], "nightly")
+                self.assertTrue(args[args.index("--app") + 1].endswith("app with spaces.app"))
 
     def test_startup_failure_names_executable_exit_and_redacts_secret(self):
         path = self.fake_cmux(
