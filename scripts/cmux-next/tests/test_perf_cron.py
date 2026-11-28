@@ -1453,6 +1453,8 @@ class WebUiTests(unittest.TestCase):
         live, _, _ = runs["all-live"]
         self.assertIn("--lazy-start=off", live)  # the all-live arm, beside the product (lazy start on) suite
         self.assertIn("--row-arm=all_live", live)
+        self.assertIn("--evict-idle-secs=0", live)  # every chat resident: the bench evicts at 5 s by default
+        self.assertNotIn("--evict-idle-secs=0", runs["suite"][0])  # the product arm keeps eviction on
         self.assertIn("counts=1000", live)
         self.assertEqual(cron.part_for_row("webui.infinite_items.all_live.n1000.memory_vs_empty@linux"), "infinite-items")
         self.assertEqual(runs["build"][0], ["bash", "/r/scripts/measure/infinite-items-linux.sh", "build-only"])
