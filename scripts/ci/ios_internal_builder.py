@@ -48,8 +48,12 @@ FAILURE_BACKOFF_MAX = dt.timedelta(hours=6)
 # iPhone builds still so slow and unverified?" The goal is merge to INTERNAL within about 1 h, so the gap is under
 # one build (dispatch to upload about 40 to 65 min): a head merged during a build is dispatched once the build is
 # MIN_UPLOAD_GAP old and waits in the concurrency group, starting the moment the build ends. A person's dispatch
-# (force) skips the gap.
-MIN_UPLOAD_GAP = dt.timedelta(minutes=30)
+# (force) skips the gap. Leo, 2026-11-27: "and then idk what im supposed to be able to do to test and verify on my
+# end either like faster dev loops and testflight or anything"; the promise is merge to TestFlight in about 30 min.
+# Measured with the 30 min gap (29 iOS commits, 00:54Z to 03:18Z): merge to upload p50 38 min, max 64. A build
+# takes 17 to 22 min (dispatch to upload), so a gap under one build adds no wait: a head merged during a build
+# still starts the moment it ends, and a head merged 15 to 30 min after an idle build's dispatch no longer waits.
+MIN_UPLOAD_GAP = dt.timedelta(minutes=15)
 # iPhone YOLO builds (scripts/ci/ios_internal_yolo.py): feat-cmux-next plus a named list of PRs, stacked on a branch
 # under this prefix and built by the same builder. The plan tells them from nightlies by that branch's tip.
 YOLO_PREFIX = "ios-yolo/"

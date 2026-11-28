@@ -8,9 +8,11 @@
 //! 3 package, anything else other. A handle is used by one thread at a time. No function unwinds
 //! across the boundary.
 
-use crate::detect::{Detector, Environment, looks_like_folder_key, sources_json};
+use crate::detect::{Detector, Environment, Origin, looks_like_folder_key, sources_json};
 use crate::gate::Gate;
 use crate::listing::{Item, Listing};
+use crate::open::{self, Note, Opened};
+use crate::pane::{ChangePlan, EntryAction, Pane, PaneSource};
 use crate::reader::{self, Entry, EntryKind};
 use crate::rule::{MediaKind, ScanRule};
 use crate::{names, page};
@@ -19,7 +21,7 @@ use std::ffi::{CString, c_char, c_void};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// Bumped on any change to a type or a function.
-pub const CMUX_SCREENSHOTS_ABI_VERSION: u32 = 1;
+pub const CMUX_SCREENSHOTS_ABI_VERSION: u32 = 5;
 
 /// A scan rule (a source's `rule` from `cmux_screenshots_detect`).
 pub struct CmuxScreenshotsRule {
@@ -29,6 +31,11 @@ pub struct CmuxScreenshotsRule {
 /// A newest-first listing.
 pub struct CmuxScreenshotsListing {
     inner: Listing,
+}
+
+/// The Screenshots pane's sources: what to read, watch, drop and look at.
+pub struct CmuxScreenshotsPane {
+    inner: Pane,
 }
 
 /// The panes unlocked this launch.
@@ -104,6 +111,17 @@ pub struct CmuxScreenshotsEnvironment {
         Option<unsafe extern "C" fn(*mut c_void, *const u8, usize, *mut CmuxScreenshotsReply)>,
 }
 
+/// What `cmux_screenshots_open` tells a `screenshots.open` run.
+#[repr(C)]
+pub struct CmuxScreenshotsOpen {
+    /// 0 nothing to tell (the person's own run), 1 a new tab opened behind, 2 the tab was there.
+    pub opened: u32,
+    /// Whether the tab lists its screenshots.
+    pub listing: bool,
+    /// 0 none, 1 opened in the background, 2 open but waiting for the person's click.
+    pub note: u32,
+}
+
 fn guard<T>(fallback: T, body: impl FnOnce() -> T) -> T {
     catch_unwind(AssertUnwindSafe(body)).unwrap_or(fallback)
 }
@@ -160,6 +178,49 @@ pub unsafe extern "C" fn cmux_screenshots_looks_like_folder_key(
     guard(false, || looks_like_folder_key(&key))
 }
 
+/// Whether a source whose origin case is `origin` (`system`, `systemPreview`, `tool`,
+/// `toolHistory`, `custom`) takes dropped files; false for any other name.
+///
+/// # Safety
+/// `origin` is null or `origin_len` readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_screenshots_origin_accepts_drops(
+    origin: *const u8,
+    origin_len: usize,
+) -> bool {
+    // SAFETY: caller contract.
+    let origin = unsafe { text(origin, origin_len) };
+    guard(false, || Origin::named_accepts_drops(&origin))
+}
+
+/// What a `screenshots.open` run is told once the tab is open (`existing`: it was already there;
+/// `listing`: it lists). A run's note before the tab opens is its answer for a new tab.
+#[unsafe(no_mangle)]
+pub extern "C" fn cmux_screenshots_open(
+    persons_run: bool,
+    existing: bool,
+    listing: bool,
+) -> CmuxScreenshotsOpen {
+    let none = CmuxScreenshotsOpen { opened: 0, listing: false, note: 0 };
+    guard(none, || {
+        open::answer(persons_run, existing, listing).map_or(
+            CmuxScreenshotsOpen { opened: 0, listing: false, note: 0 },
+            |answer| CmuxScreenshotsOpen {
+                opened: match answer.opened {
+                    Opened::Background => 1,
+                    Opened::Existing => 2,
+                },
+                listing: answer.listing,
+                note: match answer.note {
+                    None => 0,
+                    Some(Note::OpenedInBackground) => 1,
+                    Some(Note::ExistingNeedsClick) => 2,
+                },
+            },
+        )
+    })
+}
+
 /// The name of an image dropped as data, from the local time it was saved.
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_screenshots_dropped_name(
@@ -193,13 +254,18 @@ pub unsafe extern "C" fn cmux_screenshots_rename_target(
 
 fn rule_from_json(json: &str) -> Option<ScanRule> {
     let value: serde_json::Value = serde_json::from_str(json).ok()?;
+    Some(rule_from_value(&value))
+}
+
+/// A rule from its JSON object; a missing field takes the default.
+fn rule_from_value(value: &serde_json::Value) -> ScanRule {
     let strings = |key: &str| -> Vec<String> {
         value[key]
             .as_array()
             .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
             .unwrap_or_default()
     };
-    Some(ScanRule {
+    ScanRule {
         kinds: value["kinds"]
             .as_u64()
             .and_then(|k| u32::try_from(k).ok())
@@ -211,7 +277,7 @@ fn rule_from_json(json: &str) -> Option<ScanRule> {
         name_prefixes: strings("namePrefixes"),
         depth: value["depth"].as_u64().and_then(|d| usize::try_from(d).ok()).unwrap_or(0),
         folder_prefix: value["folderPrefix"].as_str().map(str::to_owned),
-    })
+    }
 }
 
 /// A rule from its JSON (`{kinds, extraImageExtensions, namePrefixes, depth, folderPrefix}`, a
@@ -272,35 +338,6 @@ pub unsafe extern "C" fn cmux_screenshots_rule_item_kind(
             modified: 0.0,
         };
         reader::item_kind(&entry, &rule.inner).map_or(0, MediaKind::raw)
-    })
-}
-
-/// Whether the scan reads a directory entry as a subfolder, `depth` levels below the source folder.
-///
-/// # Safety
-/// `rule` is null or a live rule; `name` is null or `name_len` readable bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn cmux_screenshots_rule_enters(
-    rule: *const CmuxScreenshotsRule,
-    entry_kind: u32,
-    hidden: bool,
-    name: *const u8,
-    name_len: usize,
-    depth: usize,
-) -> bool {
-    // SAFETY: caller contract.
-    let Some(rule) = (unsafe { rule.as_ref() }) else { return false };
-    // SAFETY: caller contract.
-    let name = unsafe { text(name, name_len) };
-    guard(false, || {
-        let entry = Entry {
-            kind: EntryKind::from_raw(entry_kind),
-            hidden,
-            name: &name,
-            system_kind: MediaKind::Other,
-            modified: 0.0,
-        };
-        reader::enters(&entry, depth, &rule.inner)
     })
 }
 
@@ -516,6 +553,22 @@ pub unsafe extern "C" fn cmux_screenshots_listing_filter(
         }
     }
     found.len()
+}
+
+/// How many files each source lists, as a JSON object of source id to count; null for a null
+/// listing.
+///
+/// # Safety
+/// `listing` is null or a live listing.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_screenshots_listing_counts(
+    listing: *const CmuxScreenshotsListing,
+) -> *mut c_char {
+    // SAFETY: caller contract.
+    let Some(listing) = (unsafe { listing.as_ref() }) else { return std::ptr::null_mut() };
+    guard(std::ptr::null_mut(), || {
+        out(serde_json::to_string(&listing.inner.counts_by_source()).ok())
+    })
 }
 
 /// No pane unlocked. Free it with `cmux_screenshots_gate_free`.
@@ -738,6 +791,378 @@ pub unsafe extern "C" fn cmux_screenshots_system_folder(
     })
 }
 
+/// A pane with no sources; `listing` reads and watches as soon as sources are set. Free it with
+/// `cmux_screenshots_pane_free`.
+#[unsafe(no_mangle)]
+pub extern "C" fn cmux_screenshots_pane_new(listing: bool) -> *mut CmuxScreenshotsPane {
+    Box::into_raw(Box::new(CmuxScreenshotsPane { inner: Pane::new(listing) }))
+}
+
+/// Frees a pane; null does nothing.
+///
+/// # Safety
+/// `pane` is null or from `cmux_screenshots_pane_new`, freed once.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_screenshots_pane_free(pane: *mut CmuxScreenshotsPane) {
+    if !pane.is_null() {
+        // SAFETY: from `Box::into_raw` in `cmux_screenshots_pane_new`, freed once.
+        drop(unsafe { Box::from_raw(pane) });
+    }
+}
+
+/// Starts reading and watching; false when it already was. On true the app reads every source
+/// and watches the state's `watched` folders.
+///
+/// # Safety
+/// `pane` is null or a live pane.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_screenshots_pane_start(pane: *mut CmuxScreenshotsPane) -> bool {
+    // SAFETY: caller contract.
+    let Some(pane) = (unsafe { pane.as_mut() }) else { return false };
+    guard(false, || pane.inner.start())
+}
+
+/// Stops reading and watching (access was taken back): forgets failed reads and entered
+/// subfolders.
+///
+/// # Safety
+/// `pane` is null or a live pane.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_screenshots_pane_pause(pane: *mut CmuxScreenshotsPane) {
+    // SAFETY: caller contract.
+    let Some(pane) = (unsafe { pane.as_mut() }) else { return };
+    guard((), || pane.inner.pause());
+}
+
+fn pane_sources(json: &str) -> Vec<PaneSource> {
+    let value: serde_json::Value = serde_json::from_str(json).unwrap_or_default();
+    let Some(list) = value.as_array() else { return Vec::new() };
+    list.iter()
+        .filter_map(|s| {
+            Some(PaneSource {
+                id: s["id"].as_str()?.to_owned(),
+                label: s["label"].as_str().unwrap_or_default().to_owned(),
+                folder: s["folder"].as_str()?.to_owned(),
+                accepts_drops: s["acceptsDrops"].as_bool().unwrap_or(false),
+                rule: rule_from_value(&s["rule"]),
+            })
+        })
+        .collect()
+}
+
+fn json_strings(json: &str) -> Vec<String> {
+    let value: serde_json::Value = serde_json::from_str(json).unwrap_or_default();
+    value
+        .as_array()
+        .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
+        .unwrap_or_default()
+}
+
+/// Shows these sources: `json` is an array, in menu order, of `{id, label, folder, acceptsDrops,
+/// rule: {kinds, extraImageExtensions, namePrefixes, depth, folderPrefix}}` (an entry without an
+/// id or a folder is skipped). Returns `{changed, removed: [id], read: [id]}`: when changed, the
+/// app drops the removed sources' reads and files and reads the `read` ones (when listing).
+///
+/// # Safety
+/// `pane` is null or a live pane; `json` is null or `json_len` readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_screenshots_pane_set_sources(
+    pane: *mut CmuxScreenshotsPane,
+    json: *const u8,
+    json_len: usize,
+) -> *mut c_char {
+    // SAFETY: caller contract.
+    let Some(pane) = (unsafe { pane.as_mut() }) else { return std::ptr::null_mut() };
+    // SAFETY: caller contract.
+    let json = unsafe { text(json, json_len) };
+    guard(std::ptr::null_mut(), || {
+        let plan = pane.inner.set_sources(pane_sources(&json));
+        out(Some(
+            serde_json::json!({"changed": plan.changed, "removed": plan.removed, "read": plan.read})
+                .to_string(),
+        ))
+    })
+}
+
+/// Takes a finished read of source `id`: `folders_json` is the JSON array of the folders it
+/// covered (read when `readable`). False when `id` is no longer a source (the app drops the read).
+///
+/// # Safety
+/// `pane` is null or a live pane; `id` and `folders_json` are null or their lengths' bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_screenshots_pane_read_done(
+    pane: *mut CmuxScreenshotsPane,
+    id: *const u8,
+    id_len: usize,
+    readable: bool,
+    folders_json: *const u8,
+    folders_json_len: usize,
+) -> bool {
+    // SAFETY: caller contract.
+    let Some(pane) = (unsafe { pane.as_mut() }) else { return false };
+    // SAFETY: caller contract.
+    let (id, folders) = unsafe { (text(id, id_len), text(folders_json, folders_json_len)) };
+    guard(false, || pane.inner.read_done(&id, readable, json_strings(&folders)))
+}
+
+/// The pane's state: `{listing, accessMissing, unreadable: [id], watched: [path] or null}`
+/// (`watched` null when not listing: the app keeps its watches as they are).
+///
+/// # Safety
+/// `pane` is null or a live pane.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_screenshots_pane_state(
+    pane: *const CmuxScreenshotsPane,
+) -> *mut c_char {
+    // SAFETY: caller contract.
+    let Some(pane) = (unsafe { pane.as_ref() }) else { return std::ptr::null_mut() };
+    guard(std::ptr::null_mut(), || {
+        let pane = &pane.inner;
+        out(Some(
+            serde_json::json!({
+                "listing": pane.is_listing(),
+                "accessMissing": pane.access_missing(),
+                "unreadable": pane.unreadable(),
+                "watched": pane.watched(),
+            })
+            .to_string(),
+        ))
+    })
+}
+
+/// The id of the source a drop is saved into: `selected` (null or empty for none) when it takes
+/// drops, else the first that does; null when none does.
+///
+/// # Safety
+/// `pane` is null or a live pane; `selected` is null or `selected_len` readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_screenshots_pane_drop_source(
+    pane: *const CmuxScreenshotsPane,
+    selected: *const u8,
+    selected_len: usize,
+) -> *mut c_char {
+    // SAFETY: caller contract.
+    let Some(pane) = (unsafe { pane.as_ref() }) else { return std::ptr::null_mut() };
+    // SAFETY: caller contract.
+    let selected = unsafe { text(selected, selected_len) };
+    guard(std::ptr::null_mut(), || {
+        let selected = (!selected.is_empty()).then_some(selected.as_ref());
+        out(pane.inner.drop_source(selected).map(|s| s.id.clone()))
+    })
+}
+
+/// The id of the source whose folder holds `path` (the deepest), or null.
+///
+/// # Safety
+/// `pane` is null or a live pane; `path` is null or `path_len` readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_screenshots_pane_source_containing(
+    pane: *const CmuxScreenshotsPane,
+    path: *const u8,
+    path_len: usize,
+) -> *mut c_char {
+    // SAFETY: caller contract.
+    let Some(pane) = (unsafe { pane.as_ref() }) else { return std::ptr::null_mut() };
+    // SAFETY: caller contract.
+    let path = unsafe { text(path, path_len) };
+    guard(std::ptr::null_mut(), || out(pane.inner.source_containing(&path).map(|s| s.id.clone())))
+}
+
+/// What a watch event of `folder` asks: `names_json` is the JSON array of the changed entries'
+/// names, null for an event that is not a list of names. Returns null for nothing,
+/// `{"rescan": id}` to read the source again, or `{"source": id, "relist": bool, "paths": [path]}`
+/// to look at each path alone (`cmux_screenshots_pane_entry_action`) and then read the source
+/// again when `relist`.
+///
+/// # Safety
+/// `pane` is null or a live pane; `folder` and `names_json` are null or their lengths' bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_screenshots_pane_change(
+    pane: *const CmuxScreenshotsPane,
+    folder: *const u8,
+    folder_len: usize,
+    names_json: *const u8,
+    names_json_len: usize,
+) -> *mut c_char {
+    // SAFETY: caller contract.
+    let Some(pane) = (unsafe { pane.as_ref() }) else { return std::ptr::null_mut() };
+    // SAFETY: caller contract.
+    let folder = unsafe { text(folder, folder_len) };
+    let names = (!names_json.is_null())
+        // SAFETY: caller contract.
+        .then(|| json_strings(&unsafe { text(names_json, names_json_len) }));
+    guard(std::ptr::null_mut(), || match pane.inner.change(&folder, names.as_deref()) {
+        ChangePlan::Ignore => std::ptr::null_mut(),
+        ChangePlan::Rescan(id) => out(Some(serde_json::json!({ "rescan": id }).to_string())),
+        ChangePlan::Look { source, relist, paths } => out(Some(
+            serde_json::json!({"source": source, "relist": relist, "paths": paths}).to_string(),
+        )),
+    })
+}
+
+/// What a looked-at `path` of a watch event of `folder` in source `id` does to the listing:
+/// 0 remove it, 1 read the source again (a subfolder the rule enters), 2 list it. `entry` is
+/// what the disk says is at `path` now (its name, kind, hidden flag and system kind), null when
+/// it is gone.
+///
+/// # Safety
+/// `pane` is null or a live pane; `id`, `folder` and `path` are null or their lengths' bytes;
+/// `entry` is null or one readable entry whose name is readable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_screenshots_pane_entry_action(
+    pane: *const CmuxScreenshotsPane,
+    id: *const u8,
+    id_len: usize,
+    folder: *const u8,
+    folder_len: usize,
+    path: *const u8,
+    path_len: usize,
+    entry: *const CmuxScreenshotsEntry,
+) -> u32 {
+    // SAFETY: caller contract.
+    let Some(pane) = (unsafe { pane.as_ref() }) else { return 0 };
+    // SAFETY: caller contract.
+    let (id, folder, path) =
+        unsafe { (text(id, id_len), text(folder, folder_len), text(path, path_len)) };
+    // SAFETY: caller contract.
+    let raw = unsafe { entry.as_ref() };
+    // SAFETY: caller contract (the name readable).
+    let name = raw.map(|e| unsafe { text(e.name, e.name_len) });
+    guard(0, || {
+        let entry = raw.zip(name.as_deref()).map(|(e, name)| Entry {
+            kind: EntryKind::from_raw(e.kind),
+            hidden: e.hidden,
+            name,
+            system_kind: kind_or_other(e.system_kind),
+            modified: e.modified,
+        });
+        match pane.inner.entry_action(&id, &folder, &path, entry.as_ref()) {
+            EntryAction::Remove => 0,
+            EntryAction::Relist => 1,
+            EntryAction::Upsert => 2,
+        }
+    })
+}
+
+/// A read of one source in progress (`cmux_screenshots_walk_new`).
+pub struct CmuxScreenshotsWalk {
+    inner: reader::Walk,
+}
+
+/// A read of the folder at `root` under `rule` (the rule is copied). Free it with
+/// `cmux_screenshots_walk_free`; null when `rule` is null.
+///
+/// # Safety
+/// `rule` is null or a live rule; `root` is null or `root_len` readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_screenshots_walk_new(
+    rule: *const CmuxScreenshotsRule,
+    root: *const u8,
+    root_len: usize,
+) -> *mut CmuxScreenshotsWalk {
+    // SAFETY: caller contract.
+    let Some(rule) = (unsafe { rule.as_ref() }) else { return std::ptr::null_mut() };
+    // SAFETY: caller contract.
+    let root = unsafe { text(root, root_len) };
+    guard(std::ptr::null_mut(), || {
+        let inner = reader::Walk::new(&root, rule.inner.clone());
+        Box::into_raw(Box::new(CmuxScreenshotsWalk { inner }))
+    })
+}
+
+/// Frees a walk; null does nothing.
+///
+/// # Safety
+/// `walk` is null or from `cmux_screenshots_walk_new`, freed once.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_screenshots_walk_free(walk: *mut CmuxScreenshotsWalk) {
+    if !walk.is_null() {
+        // SAFETY: from `Box::into_raw` in `cmux_screenshots_walk_new`, freed once.
+        drop(unsafe { Box::from_raw(walk) });
+    }
+}
+
+/// The next folder to list (the caller frees it), or null when the read is done. Hand its
+/// listing to `cmux_screenshots_walk_listed` before asking again.
+///
+/// # Safety
+/// `walk` is null or a live walk.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_screenshots_walk_next(walk: *mut CmuxScreenshotsWalk) -> *mut c_char {
+    // SAFETY: caller contract.
+    let Some(walk) = (unsafe { walk.as_mut() }) else { return std::ptr::null_mut() };
+    guard(std::ptr::null_mut(), || out(walk.inner.next_folder().map(str::to_owned)))
+}
+
+/// Takes the listing of the folder `cmux_screenshots_walk_next` named (`readable` false: it could
+/// not be read) and writes into `kinds` the kind each entry is listed as (1 image, 2 video,
+/// 3 other; 0: not listed, or a subfolder the walk reads next).
+///
+/// # Safety
+/// `walk` is null or a live walk; `entries` is null or `count` readable entries whose names are
+/// readable; `kinds` is null or `count` writable values.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_screenshots_walk_listed(
+    walk: *mut CmuxScreenshotsWalk,
+    readable: bool,
+    entries: *const CmuxScreenshotsEntry,
+    count: usize,
+    kinds: *mut u32,
+) {
+    // SAFETY: caller contract.
+    let Some(walk) = (unsafe { walk.as_mut() }) else { return };
+    let raw = if entries.is_null() || count == 0 {
+        &[][..]
+    } else {
+        // SAFETY: caller contract.
+        unsafe { std::slice::from_raw_parts(entries, count) }
+    };
+    // SAFETY: caller contract (each name readable).
+    let names: Vec<_> = raw.iter().map(|e| unsafe { text(e.name, e.name_len) }).collect();
+    let found = guard(Vec::new(), || {
+        let list: Vec<Entry<'_>> = raw
+            .iter()
+            .zip(&names)
+            .map(|(e, name)| Entry {
+                kind: EntryKind::from_raw(e.kind),
+                hidden: e.hidden,
+                name,
+                system_kind: MediaKind::from_raw(e.system_kind).unwrap_or(MediaKind::Other),
+                modified: e.modified,
+            })
+            .collect();
+        walk.inner.listed(readable.then_some(list.as_slice()))
+    });
+    if kinds.is_null() || raw.is_empty() {
+        return;
+    }
+    // SAFETY: caller contract (`count` writable values).
+    let kinds = unsafe { std::slice::from_raw_parts_mut(kinds, raw.len()) };
+    for (slot, kind) in kinds.iter_mut().zip(found.iter().chain(std::iter::repeat(&None))) {
+        *slot = kind.map_or(0, MediaKind::raw);
+    }
+}
+
+/// What the read found, as JSON `{"folders": [...], "readable": bool}` (the caller frees it):
+/// every folder listed (the source's and each subfolder entered), and false when the source's
+/// own folder could not be read. Null when `walk` is null.
+///
+/// # Safety
+/// `walk` is null or a live walk.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_screenshots_walk_result(
+    walk: *const CmuxScreenshotsWalk,
+) -> *mut c_char {
+    // SAFETY: caller contract.
+    let Some(walk) = (unsafe { walk.as_ref() }) else { return std::ptr::null_mut() };
+    guard(std::ptr::null_mut(), || {
+        out(Some(
+            serde_json::json!({"folders": walk.inner.folders(), "readable": walk.inner.readable()})
+                .to_string(),
+        ))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -779,6 +1204,35 @@ mod tests {
     }
 
     #[test]
+    fn origins_that_take_drops_and_what_an_open_run_hears() {
+        for (origin, drops) in [
+            ("system", true),
+            ("custom", true),
+            ("tool", true),
+            ("systemPreview", false),
+            ("toolHistory", false),
+            ("nope", false),
+        ] {
+            // SAFETY: valid bytes.
+            assert_eq!(
+                unsafe { cmux_screenshots_origin_accepts_drops(origin.as_ptr(), origin.len()) },
+                drops,
+                "{origin}"
+            );
+        }
+        // SAFETY: null is allowed.
+        assert!(!unsafe { cmux_screenshots_origin_accepts_drops(std::ptr::null(), 0) });
+        let told = |persons_run, existing, listing| {
+            let answer = cmux_screenshots_open(persons_run, existing, listing);
+            (answer.opened, answer.listing, answer.note)
+        };
+        assert_eq!(told(true, true, true), (0, false, 0));
+        assert_eq!(told(false, false, true), (1, false, 1));
+        assert_eq!(told(false, true, true), (2, true, 0));
+        assert_eq!(told(false, true, false), (2, false, 2));
+    }
+
+    #[test]
     fn rule_handle_reads_detect_json() {
         let json = r#"{"kinds":2,"namePrefixes":["Screen Recording"],"extraImageExtensions":["SNAGX"],"depth":1,"folderPrefix":"m_"}"#;
         // SAFETY: valid bytes.
@@ -799,15 +1253,6 @@ mod tests {
             },
             0
         );
-        let folder = "m_1";
-        // SAFETY: as above.
-        assert!(unsafe {
-            cmux_screenshots_rule_enters(rule, 2, false, folder.as_ptr(), folder.len(), 0)
-        });
-        // SAFETY: as above.
-        assert!(!unsafe {
-            cmux_screenshots_rule_enters(rule, 2, false, folder.as_ptr(), folder.len(), 1)
-        });
         // SAFETY: freed once.
         unsafe { cmux_screenshots_rule_free(rule) };
         let bad = "[]";
@@ -872,6 +1317,14 @@ mod tests {
             })
             .collect();
         assert_eq!(order, ["/s/b/Café.png", "/s/a/Shot 2.png", "/s/a/Shot 10.png"]);
+        // SAFETY: live listing.
+        let counts: serde_json::Value = serde_json::from_str(
+            &take(unsafe { cmux_screenshots_listing_counts(listing) }).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(counts, serde_json::json!({"a": 2, "b": 1}));
+        // SAFETY: null is allowed.
+        assert!(unsafe { cmux_screenshots_listing_counts(std::ptr::null()) }.is_null());
         // SAFETY: live listing; past the end gives null.
         assert!(
             unsafe { cmux_screenshots_listing_path_at(listing, 3, std::ptr::null_mut()) }.is_null()
@@ -1037,5 +1490,189 @@ mod tests {
             }
             .is_null()
         );
+    }
+
+    #[test]
+    fn pane_round_trip() {
+        let pane = cmux_screenshots_pane_new(true);
+        let sources = r#"[{"id":"d","label":"Desktop","folder":"/u/Desktop","acceptsDrops":false,"rule":{"namePrefixes":["Screenshot"]}},
+            {"id":"s","label":"Shots","folder":"/u/Shots","acceptsDrops":true,"rule":{"depth":1}},
+            {"label":"no id","folder":"/x"}]"#;
+        // SAFETY: live pane, valid bytes.
+        let plan = take(unsafe {
+            cmux_screenshots_pane_set_sources(pane, sources.as_ptr(), sources.len())
+        });
+        assert_eq!(plan.as_deref(), Some(r#"{"changed":true,"read":["d","s"],"removed":[]}"#));
+        // SAFETY: live pane, valid bytes.
+        let again = take(unsafe {
+            cmux_screenshots_pane_set_sources(pane, sources.as_ptr(), sources.len())
+        });
+        assert_eq!(again.as_deref(), Some(r#"{"changed":false,"read":[],"removed":[]}"#));
+        // SAFETY: live pane.
+        assert!(!unsafe { cmux_screenshots_pane_start(pane) });
+        let folders = r#"["/u/Shots","/u/Shots/a"]"#;
+        // SAFETY: live pane, valid bytes.
+        assert!(unsafe {
+            cmux_screenshots_pane_read_done(
+                pane,
+                b"s".as_ptr(),
+                1,
+                true,
+                folders.as_ptr(),
+                folders.len(),
+            )
+        });
+        // SAFETY: live pane, valid bytes.
+        assert!(unsafe {
+            cmux_screenshots_pane_read_done(pane, b"d".as_ptr(), 1, false, b"[]".as_ptr(), 2)
+        });
+        // SAFETY: live pane, valid bytes.
+        assert!(!unsafe {
+            cmux_screenshots_pane_read_done(pane, b"gone".as_ptr(), 4, true, std::ptr::null(), 0)
+        });
+        // SAFETY: live pane.
+        let state = take(unsafe { cmux_screenshots_pane_state(pane) });
+        assert_eq!(
+            state.as_deref(),
+            Some(
+                r#"{"accessMissing":false,"listing":true,"unreadable":["d"],"watched":["/u/Desktop","/u/Shots","/u/Shots/a"]}"#
+            )
+        );
+        // SAFETY: live pane, valid bytes.
+        assert_eq!(
+            take(unsafe { cmux_screenshots_pane_drop_source(pane, b"d".as_ptr(), 1) }).as_deref(),
+            Some("s")
+        );
+        // SAFETY: live pane, null selection.
+        assert_eq!(
+            take(unsafe { cmux_screenshots_pane_drop_source(pane, std::ptr::null(), 0) })
+                .as_deref(),
+            Some("s")
+        );
+        let path = "/u/Shots/a/x.png";
+        // SAFETY: live pane, valid bytes.
+        assert_eq!(
+            take(unsafe {
+                cmux_screenshots_pane_source_containing(pane, path.as_ptr(), path.len())
+            })
+            .as_deref(),
+            Some("s")
+        );
+        // SAFETY: live pane, valid bytes.
+        assert!(
+            unsafe { cmux_screenshots_pane_source_containing(pane, b"/elsewhere".as_ptr(), 10) }
+                .is_null()
+        );
+        let folder = "/u/Shots";
+        let names = r#"["a","x.png","x.png"]"#;
+        // SAFETY: live pane, valid bytes.
+        let look = take(unsafe {
+            cmux_screenshots_pane_change(
+                pane,
+                folder.as_ptr(),
+                folder.len(),
+                names.as_ptr(),
+                names.len(),
+            )
+        });
+        assert_eq!(
+            look.as_deref(),
+            Some(r#"{"paths":["/u/Shots/x.png"],"relist":true,"source":"s"}"#)
+        );
+        // SAFETY: live pane, valid bytes, null names.
+        let rescan = take(unsafe {
+            cmux_screenshots_pane_change(pane, folder.as_ptr(), folder.len(), std::ptr::null(), 0)
+        });
+        assert_eq!(rescan.as_deref(), Some(r#"{"rescan":"s"}"#));
+        let file = "/u/Shots/x.png";
+        let png = CmuxScreenshotsEntry {
+            kind: 1,
+            hidden: false,
+            name: b"x.png".as_ptr(),
+            name_len: 5,
+            system_kind: 1,
+            modified: 1.0,
+        };
+        let action = |entry: *const CmuxScreenshotsEntry| {
+            // SAFETY: live pane, valid bytes, entry null or live.
+            unsafe {
+                cmux_screenshots_pane_entry_action(
+                    pane,
+                    b"s".as_ptr(),
+                    1,
+                    folder.as_ptr(),
+                    folder.len(),
+                    file.as_ptr(),
+                    file.len(),
+                    entry,
+                )
+            }
+        };
+        assert_eq!(action(&raw const png), 2);
+        assert_eq!(action(std::ptr::null()), 0);
+        let sub = CmuxScreenshotsEntry { kind: 2, name: b"b".as_ptr(), name_len: 1, ..png };
+        assert_eq!(action(&raw const sub), 1);
+        // SAFETY: live pane.
+        unsafe { cmux_screenshots_pane_pause(pane) };
+        // SAFETY: live pane.
+        let paused = take(unsafe { cmux_screenshots_pane_state(pane) });
+        assert_eq!(
+            paused.as_deref(),
+            Some(r#"{"accessMissing":false,"listing":false,"unreadable":[],"watched":null}"#)
+        );
+        // SAFETY: live pane, freed once; null does nothing.
+        unsafe {
+            cmux_screenshots_pane_free(pane);
+            cmux_screenshots_pane_free(std::ptr::null_mut());
+        }
+    }
+
+    #[test]
+    fn walk_round_trip() {
+        let json = r#"{"depth":1,"folderPrefix":"NSIRD_"}"#;
+        // SAFETY: valid bytes.
+        let rule = unsafe { cmux_screenshots_rule_new(json.as_ptr(), json.len()) };
+        // SAFETY: live rule, valid bytes.
+        let walk = unsafe { cmux_screenshots_walk_new(rule, b"/s".as_ptr(), 2) };
+        // SAFETY: freed once; the walk holds its own copy.
+        unsafe { cmux_screenshots_rule_free(rule) };
+        let raw = |name: &'static [u8], kind: u32, system_kind: u32| CmuxScreenshotsEntry {
+            kind,
+            hidden: false,
+            name: name.as_ptr(),
+            name_len: name.len(),
+            system_kind,
+            modified: 0.0,
+        };
+        // SAFETY: live walk.
+        assert_eq!(take(unsafe { cmux_screenshots_walk_next(walk) }).as_deref(), Some("/s"));
+        let top = [raw(b"NSIRD_a", 2, 3), raw(b"top.png", 1, 1), raw(b"notes.txt", 1, 3)];
+        let mut kinds = [9u32; 3];
+        // SAFETY: live walk, 3 entries, 3 slots.
+        unsafe {
+            cmux_screenshots_walk_listed(walk, true, top.as_ptr(), top.len(), kinds.as_mut_ptr())
+        };
+        assert_eq!(kinds, [0, 1, 0]);
+        // SAFETY: live walk.
+        assert_eq!(
+            take(unsafe { cmux_screenshots_walk_next(walk) }).as_deref(),
+            Some("/s/NSIRD_a")
+        );
+        // SAFETY: live walk; an unreadable subfolder has no entries.
+        unsafe {
+            cmux_screenshots_walk_listed(walk, false, std::ptr::null(), 0, std::ptr::null_mut())
+        };
+        // SAFETY: live walk.
+        assert!(unsafe { cmux_screenshots_walk_next(walk) }.is_null());
+        // SAFETY: live walk.
+        assert_eq!(
+            take(unsafe { cmux_screenshots_walk_result(walk) }).as_deref(),
+            Some(r#"{"folders":["/s"],"readable":true}"#)
+        );
+        // SAFETY: live walk, freed once; null does nothing.
+        unsafe {
+            cmux_screenshots_walk_free(walk);
+            cmux_screenshots_walk_free(std::ptr::null_mut());
+        }
     }
 }

@@ -52,6 +52,7 @@ import { CREDENTIAL_FILES_CHECK, devTreeCredentialCheckCommand, devTreeUserPaths
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { DNS_SMOKE_COMMAND, dnsCheckProblems } from "./dns";
 import { ipv6RouteProblems, ipv6RouteSmokeCommand } from "./ipv6-route";
+import { netBaselineProblems, netBaselineSmokeCommand } from "./net-baseline";
 import { machineHealthSmokeCommand, machineHealthSmokeProblems } from "./machine-health";
 import { argValue, createVm, type CreateTlsRule, deleteVm, firstExec, freestyleClient, Ledger, run, sleep, type Vm } from "./guest";
 import { bakedPrograms, CURRENT_BIN, DEFAULT_LOCK_PATH, type InputsLock, percentile, readInputsLock, ROLES_MANIFEST_PATH, sq } from "./lock";
@@ -59,6 +60,7 @@ import { AGENT_TOOLS_BIN } from "./agent-tools";
 import { browserRoleProbe } from "./browser-probe";
 import { GH_SHIM } from "./github-auth";
 import { API_ORIGINS, HOST_CLI, HOST_JOURNAL, SELF_UPDATE_OFF } from "./host-agent";
+import { oversizedBoot } from "./boot-size";
 import { agentBindProbe, resizeProbe } from "./probes";
 import { type CheckNote, type CheckResult, checkRegressionGate, LIVE_FAILING_FILE, liveBootImage, liveFailingLines } from "./harness-gate";
 import { daemonHoldCommand, daemonUptimeDetail, daemonUptimeProblems, forcedRebindCommand, HOLD_SECONDS } from "./daemon-uptime";
@@ -602,6 +604,14 @@ async function ipv6RouteChecks(vm: Vm, report: Report): Promise<void> {
   check(report, "ipv6-public-routed", problems.length === 0, problems.join("\n") || out.stdout.trim().split("\n").filter((l) => !l.startsWith("==")).join(" ; "));
 }
 
+/** The fleet's network baseline is live on a clone: first SYN resent after 200 ms, BBR where baked, IPv6 first (net-baseline.ts). */
+async function netBaselineChecks(vm: Vm, report: Report): Promise<void> {
+  const out = await run(vm, netBaselineSmokeCommand(), 60_000);
+  const problems = netBaselineProblems(out.stdout);
+  report.netBaseline = out.stdout.trim().split("\n");
+  check(report, "net-baseline", problems.length === 0, problems.join("\n") || out.stdout.trim().split("\n").join(" ; "));
+}
+
 /**
  * The session host stays up HOLD_SECONDS after boot and again after one forced rebind (daemon-uptime.ts).
  * Last on its clone: the rebind restarts the session host and rewrites the bound id.
@@ -727,6 +737,7 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
       await machineHealthChecks(kept[1].vm, report);
       await resolverChecks(kept[1].vm, report);
       await ipv6RouteChecks(kept[1].vm, report);
+      await netBaselineChecks(kept[1].vm, report);
       if (options.agentProbe) {
         const probe = await agentBindProbe(kept[1].vm);
         check(report, "vm-agent-bind-probe", probe.ok, probe.detail);
@@ -755,6 +766,10 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
     if (options.agentProbe && options.edgeBaseline === "live") await edgeRuleLiveControl(fs, ledger, options.tag, options.snapshotId, options.outDir, report);
     if (options.resizeProbe) {
       report.resize = await resizeProbe(kept[0].vm);
+      // The clone booted from the snapshot before the probe grew it: an image whose snapshot carries a grown builder's
+      // size would boot every default create larger than asked (people are billed by size), so it is refused here.
+      const before = JSON.parse(String((report.resize as Record<string, unknown>).before)) as { cpu: number; memoryMb: number; rootMb: number };
+      check(report, "boots-at-base-size", oversizedBoot(before) === null, oversizedBoot(before) ?? JSON.stringify(before));
       const after = JSON.parse(String((report.resize as Record<string, unknown>).after)) as { cpu: number; memoryMb: number; rootMb: number };
       check(report, "resize-sm-to-md", after.cpu >= 4 && after.memoryMb >= 7000 && after.rootMb >= 32768 * 0.85, JSON.stringify(report.resize));
     }

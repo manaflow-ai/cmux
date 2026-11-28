@@ -189,7 +189,8 @@ export function setupDuration(
 ): string | undefined {
   if (startedMs === undefined) return undefined;
   const ms = Math.max(0, (finishedMs ?? now) - startedMs);
-  if (ms < 1000) return "<1s";
+  // Under a second reads "0s", never "<1s", like the turn's Working for (#60596).
+  if (ms < 1000) return "0s";
   if (ms < 60_000) return `${Math.round(ms / 100) / 10}s`;
   const seconds = Math.round(ms / 1000);
   return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
