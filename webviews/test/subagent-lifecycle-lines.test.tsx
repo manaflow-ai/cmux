@@ -71,7 +71,12 @@ for (const harness of ["claude-opus-5-5", "codex"])
     record.feed("subagent_state_update", [{ id: "review-b", state: "completed" }]);
     const raw = [prompt, call, ...record.groups.values(), answer, summary];
     const completed = withSubagentLines(raw, cache);
-    expect(completed.find((entry) => entry.kind === SUBAGENT_STARTED)).toBe(started);
+    // The start line keeps its id and place; it is a new row once every subagent ended, so its line
+    // can say they finished beside the closed fold.
+    expect(started.startedAllEnded).toBeUndefined();
+    const ended = completed.find((entry) => entry.kind === SUBAGENT_STARTED)!;
+    expect(ended.id).toBe(started.id);
+    expect(ended.startedAllEnded).toBe(true);
     expect(completed.filter((entry) => entry.kind === SUBAGENT_DONE)).toHaveLength(2);
     expect(raw.some((entry) => entry.kind === SUBAGENTS)).toBe(true);
     const closed = turnView(completed, new Set(), { agentFamily: harness, now: 10_000 });
@@ -79,6 +84,10 @@ for (const harness of ["claude-opus-5-5", "codex"])
     for (const view of [closed, opened]) {
       expect(view.filter((entry) => entry.kind === SUBAGENT_STARTED)).toHaveLength(1);
     }
+    // Closed, the done lines fold: the start line in sight says they finished (Leo, 2026-11-25:
+    // "dot on left weird"). Opened, the done lines say it, and the start line still says it started.
+    expect(closed.find((entry) => entry.kind === SUBAGENT_STARTED)!.startedEndedLine).toBe(true);
+    expect(opened.find((entry) => entry.kind === SUBAGENT_STARTED)!.startedEndedLine).toBeUndefined();
     // A finished subagent's end is the turn's work, like a tool call's end: it folds with the turn and
     // opens with it (steeredHarnessEvents.test.tsx).
     expect(closed.filter((entry) => entry.kind === SUBAGENT_DONE)).toHaveLength(0);
@@ -126,7 +135,11 @@ test("an actual same-ID resume keeps the original start and replaces its current
   const started = first.find((entry) => entry.kind === SUBAGENT_STARTED);
   record.feed("subagent_state_update", [{ id: "review-a", state: "running" }]);
   const running = withSubagentLines([prompt, ...record.groups.values()], cache);
-  expect(running.find((entry) => entry.kind === SUBAGENT_STARTED)).toBe(started);
+  // One start line, the same one: it no longer says all of them ended.
+  expect(started?.startedAllEnded).toBe(true);
+  const resumedStart = running.find((entry) => entry.kind === SUBAGENT_STARTED);
+  expect(resumedStart?.id).toBe(started?.id);
+  expect(resumedStart?.startedAllEnded).toBeUndefined();
   expect(running.filter((entry) => entry.kind === SUBAGENT_DONE).map((entry) => entry.subagents?.[0]?.id)).toEqual([
     "review-b",
   ]);
@@ -150,6 +163,19 @@ test("the batched start names both agents with their own marks and no disclosure
   expect(html).toContain("started working");
   expect(html.match(/data-agent-tone=/g)).toHaveLength(2);
   expect(html).not.toContain("cv-agent-activity__chevron");
+});
+
+test("a start line beside a closed fold whose subagents all ended says they finished", () => {
+  const record = recorded("claude-opus-5-5");
+  const started = withSubagentLines([...record.groups.values()])[0]!;
+  const html = renderToStaticMarkup(
+    <SubagentHarnessContext.Provider value="claude">
+      <SubagentStartedLine row={{ ...started, startedEndedLine: true }} />
+    </SubagentHarnessContext.Provider>,
+  );
+  expect(html).toContain("Dummy task one");
+  expect(html).toContain("finished");
+  expect(html).not.toContain("started working");
 });
 
 test("late kind and prompt metadata update a cached start label", () => {
