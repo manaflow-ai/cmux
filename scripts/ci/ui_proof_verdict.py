@@ -508,7 +508,8 @@ def stale_pending(prs: list[dict], now: dt.datetime, hours: float = STALE_HOURS)
 
 SWEEP_QUERY = """query($owner: String!, $name: String!, $after: String) {
   repository(owner: $owner, name: $name) {
-    pullRequests(states: OPEN, baseRefName: "feat-cmux-next", first: 100, after: $after) {
+    pullRequests(states: OPEN, baseRefName: "feat-cmux-next", first: 100, after: $after,
+                 orderBy: {field: UPDATED_AT, direction: DESC}) {
       pageInfo { hasNextPage endCursor }
       nodes { number headRefOid
         commits(last: 1) { nodes { commit { status { context(name: "cmux/ui-proof") {
@@ -518,10 +519,18 @@ SWEEP_QUERY = """query($owner: String!, $name: String!, $after: String) {
 }"""
 
 
-def open_prs(repo: str, token: str) -> list[dict]:
+# Every open PR, newest first. The read stopped at 10 pages (1,000 PRs, oldest first) while feat-cmux-next held 4,888
+# open PRs (2026-11-28), so the sweep never saw a PR opened in the last weeks: cmux#61143 sat pending 8.7 h at
+# 155bfd0253d6 with "0 pending past 6 h" from every pass, and glaeda land stopped it as checks_stuck. A page is
+# 1 GraphQL point and ~2 s, so the whole list fits the job's deadline; the cap only bounds a runaway cursor, and
+# reaching it is an error, never a silent partial sweep.
+SWEEP_MAX_PAGES = 200
+
+
+def open_prs(repo: str, token: str, max_pages: int = SWEEP_MAX_PAGES) -> list[dict]:
     owner, name = repo.split("/", 1)
     nodes, after = [], None
-    for _ in range(10):
+    for _ in range(max_pages):
         got = api("graphql", token, "POST", {"query": SWEEP_QUERY,
                                              "variables": {"owner": owner, "name": name, "after": after}})
         if got.get("errors"):
@@ -529,9 +538,9 @@ def open_prs(repo: str, token: str) -> list[dict]:
         page = got["data"]["repository"]["pullRequests"]
         nodes += page["nodes"]
         if not page["pageInfo"]["hasNextPage"]:
-            break
+            return nodes
         after = page["pageInfo"]["endCursor"]
-    return nodes
+    raise RuntimeError(f"sweep read {len(nodes)} open PRs in {max_pages} pages and more remain: raise SWEEP_MAX_PAGES")
 
 
 def sweep(repo: str, tokens: list[str], hours: float, now: dt.datetime | None = None, post=None) -> list[dict]:

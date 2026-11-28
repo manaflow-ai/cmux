@@ -464,6 +464,24 @@ class LookFailedTest(unittest.TestCase):
         self.assertTrue(desc.startswith(u.LOOK_FAILED + ": no look result within 6 h"))
         self.assertTrue(stale[0]["posted"])
 
+    def test_open_prs_reads_every_page_not_the_oldest_thousand(self) -> None:
+        # cmux#61143: 4,888 open PRs, the read stopped at page 10 and the sweep never saw a new PR's pending.
+        pages, seen = 49, []
+
+        def api(path, token, method="GET", body=None):
+            i = int(body["variables"]["after"] or 0)
+            seen.append(body["query"])
+            return {"data": {"repository": {"pullRequests": {
+                "pageInfo": {"hasNextPage": i + 1 < pages, "endCursor": str(i + 1)},
+                "nodes": [self.node(i * 100 + k, None, None) for k in range(100)]}}}}
+
+        with mock.patch.object(u, "api", side_effect=api):
+            prs = u.open_prs("manaflow-ai/cmux", "t")
+        self.assertEqual(len(prs), pages * 100)
+        self.assertIn("UPDATED_AT, direction: DESC", seen[0])
+        with mock.patch.object(u, "api", side_effect=api), self.assertRaises(RuntimeError):
+            u.open_prs("manaflow-ai/cmux", "t", max_pages=10)
+
     def test_post_status_falls_through_a_refused_token_and_says_why(self) -> None:
         calls = []
 
