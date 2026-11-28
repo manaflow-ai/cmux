@@ -2334,5 +2334,44 @@ echo {shlex.quote(out)} >&2; exit {rc}
                 self.assertEqual((t / 'out').read_text(), f'outcome={outcome}\n' if outcome else '')
                 self.assertEqual('Built ahead' in (t / 'summary').read_text(), outcome == 'built')
 
+    def test_the_fleet_job_detaches_and_the_controller_posts_the_verdict(self):
+        # 2026-11-27: the waiting job billed ~26k runner-min/day (1662 min, 38 jobs in 1.5 h), a gateway runner
+        # waiting at the lowest class. With --detach the controller posts "cmux Dev try build (ahead)" itself.
+        flow = (ROOT / '.github/workflows/cmux-next-ios-try-ahead.yml').read_text()
+        self.assertIn("DETACH: ${{ vars.CI_IOS_TRY_AHEAD_DETACH || '1' }}", flow)
+        self.assertIn('REPORT_CHECK: cmux Dev try build (ahead)', flow)
+        start = flow.index('        run: |\n', flow.index('id: fleet')) + len('        run: |\n')
+        body = textwrap.dedent(flow[start:flow.index('\n\n  verdict:')])
+        step = '0123456789abcdef01234567'
+        for detach, outcome in (('1', 'detached'), ('0', 'built')):
+            with self.subTest(detach=detach), tempfile.TemporaryDirectory() as temp:
+                t = Path(temp)
+                client = t / 'cmux-ci'
+                client.write_text(f"""#!/bin/bash
+if [ "$1" = run ] && [ "$2" = --help ]; then echo 'usage: run [--report-check NAME] [--detach]'; exit 0; fi
+if [ "$1" = status ]; then echo '{{"state": "done", "exit_code": 0}}'; exit 0; fi
+echo "$@" > "{t}/args"
+case " $* " in *" --detach "*) echo "cmux-ci: step {step} (simulator, key k) detached; check run 'cmux Dev try build (ahead)'";;
+  *) echo 'cmux-ci: step {step} queued';; esac
+""")
+                client.chmod(0o755)
+                (t / 'out').write_text('')
+                env = dict(os.environ, CMUX_CI_CLIENT=str(client), HEAD_SHA='a0a4b2d1fcdb7450ec0bc2078a3e27fb0d70434c',
+                           PR='51721', RUNNER_TEMP=temp, RUNNER_NAME='r', GITHUB_OUTPUT=str(t / 'out'),
+                           GITHUB_STEP_SUMMARY=str(t / 'summary'), DETACH=detach, REPORT_CHECK='cmux Dev try build (ahead)')
+                r = subprocess.run(['bash', '-e', '-c', body], env=env, capture_output=True, text=True, timeout=30)
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+                self.assertEqual((t / 'out').read_text(), f'outcome={outcome}\n')
+                args = (t / 'args').read_text()
+                self.assertEqual('--report-check cmux Dev try build (ahead) --detach' in args, detach == '1')
+        # The verdict job runs only on the waiting path; detached, the controller's check run is the verdict.
+        verdict = flow[flow.index('  verdict:'):]
+        self.assertNotIn("'detached'", verdict)
+
+    def test_a_try_setup_failure_is_no_verdict(self):
+        # The controller posts exit 3 as failure; in try mode the script exits 69 (neutral) for a setup failure.
+        sim = (ROOT / 'scripts/ci/cmux-next-ios-sim.sh').read_text()
+        self.assertIn('if [[ "$mode" == try && "$result" == 3 ]]; then result=69; fi', sim)
+
 if __name__ == '__main__':
     unittest.main()

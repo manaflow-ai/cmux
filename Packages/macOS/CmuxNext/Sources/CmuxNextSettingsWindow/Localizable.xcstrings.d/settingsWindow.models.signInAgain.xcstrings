@@ -8,7 +8,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sign In Again"
+            "value" : "Sign in again"
           }
         },
         "ar" : {
@@ -20,7 +20,7 @@
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ponovo se prijavi"
+            "value" : "Prijavite se ponovo"
           }
         },
         "da" : {
@@ -62,7 +62,7 @@
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ចូលម្ដងទៀត"
+            "value" : "ចូលម្តងទៀត"
           }
         },
         "ko" : {
@@ -98,13 +98,13 @@
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ลงชื่อเข้าอีกครั้ง"
+            "value" : "ลงชื่อเข้าใช้อีกครั้ง"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Yeniden Giriş Yap"
+            "value" : "Tekrar oturum aç"
           }
         },
         "uk" : {
