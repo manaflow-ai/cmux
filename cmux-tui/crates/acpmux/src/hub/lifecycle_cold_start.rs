@@ -401,7 +401,13 @@ impl Hub {
 
         // A sandboxed Claude Code that writes nothing is stopped, not left hanging.
         if meta.remote_origin && is_claude {
-            self.watch_remote_start(session, &child, session.taps.load(Ordering::SeqCst));
+            let tap = session.taps.load(Ordering::SeqCst);
+            self.watch_remote_start(
+                session,
+                &child,
+                tap,
+                super::remote_start_bound::REMOTE_START_BOUND,
+            );
         }
         // Start the inbound loop for this session once.
         self.spawn_inbound_loop(session).await;

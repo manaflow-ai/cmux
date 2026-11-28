@@ -32,29 +32,15 @@ fn start_bound_text(ms: u64) -> String {
 }
 
 impl Hub {
-    /// The bound in effect (tests shorten it).
-    fn remote_start_bound(&self) -> std::time::Duration {
-        match self.remote_start_bound_ms.load(Ordering::Relaxed) {
-            0 => REMOTE_START_BOUND,
-            ms => std::time::Duration::from_millis(ms),
-        }
-    }
-
-    /// Tests: a shorter bound than [`REMOTE_START_BOUND`].
-    #[cfg(test)]
-    pub(super) fn set_remote_start_bound(&self, bound: std::time::Duration) {
-        self.remote_start_bound_ms.store(bound.as_millis().max(1) as u64, Ordering::Relaxed);
-    }
-
     /// Watches `child`, just spawned for `session` behind tap number `tap`: no line from it on
-    /// stdout within the bound stops it and fails its turn ([`Hub::remote_start_bound_error`]).
+    /// stdout within `bound` ([`REMOTE_START_BOUND`]; tests shorten it) stops it and fails its turn ([`Hub::remote_start_bound_error`]).
     pub(super) fn watch_remote_start(
         self: &Arc<Self>,
         session: &Arc<Session>,
         child: &Arc<ChildAgent>,
         tap: u64,
+        bound: std::time::Duration,
     ) {
-        let bound = self.remote_start_bound();
         let hub = Arc::downgrade(self);
         let session = session.clone();
         let child = Arc::downgrade(child);
