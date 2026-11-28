@@ -893,10 +893,15 @@ export async function feltAfterSend(chat: ChatClient, text: string, deadlineMs: 
 }
 
 /** How many turns of the session started with this marker, and whether the last one ended. */
-async function turnState(ctx: ChaosContext, marker: string, session = ctx.session): Promise<{ started: number; running: boolean; status: string; detail: string }> {
+async function turnState(ctx: ChaosContext, marker: string, session = ctx.session): Promise<TurnState> {
   const r = await ctx.exec(`${ctx.guest}"$c" acp --json history ${shq(session)} --limit 20 2>&1`, 45_000);
-  let turns: any[] = [];
-  try { turns = JSON.parse(r.stdout.slice(r.stdout.indexOf("{"))).turns ?? []; } catch { /* unreadable: counted as 0 */ }
+  let turns: any[];
+  try {
+    turns = JSON.parse(r.stdout.slice(r.stdout.indexOf("{"))).turns ?? [];
+  } catch {
+    // Unreadable is not "no turn": a caller that counts it as 0 calls a running turn lost (run 46048495695).
+    throw new Error(`acp history unreadable (exit ${r.code}): ${r.stdout.trim().slice(-200)}`);
+  }
   const mine = turns.filter((t: any) => typeof t?.prompt === "string" && t.prompt.startsWith(marker));
   // `acp history` rows carry `status`: "running" while the turn is open (acpmux cli/orchestrate.rs).
   const running = mine.some((t: any) => t.status === "running");
@@ -908,6 +913,32 @@ async function turnState(ctx: ChaosContext, marker: string, session = ctx.sessio
     // reason only in `error`'s text.
     detail: mine.map((t: any) => String(t.detail ?? (typeof t.error === "string" ? t.error : t.error?.message ?? ""))).join(","),
   };
+}
+
+/** How long the fault waits for the sent turn to show in `acp history` before calling it lost. */
+export const HISTORY_SHOWN_MS = 60_000;
+
+type TurnState = { started: number; running: boolean; status: string; detail: string };
+
+/**
+ * Reads history until the sent turn shows or `budgetMs` passes. One remote read is not an answer: in run 46048495695
+ * (drop 60 s) a single read failed while the client was already streaming the turn (step 99), and the catch counted
+ * that as 0 turns, "never showed in the chat's history". `error` is the last failed read when no read showed it.
+ */
+export async function turnShown(read: () => Promise<TurnState>, budgetMs: number, pauseMs = 2_000): Promise<{ state: TurnState; error: string }> {
+  let state: TurnState = { started: 0, running: false, status: "", detail: "" };
+  let error = "";
+  for (const until = Date.now() + budgetMs; ;) {
+    try {
+      state = await read();
+      error = "";
+      if (state.started > 0) return { state, error };
+    } catch (e) {
+      error = (e as Error)?.message ?? String(e);
+    }
+    if (Date.now() + pauseMs >= until) return { state, error };
+    await sleep(pauseMs);
+  }
 }
 
 export async function turnOutcome(ctx: ChaosContext, marker: string, session = ctx.session): Promise<{ ok: boolean; text: string; interrupted?: boolean }> {
@@ -1222,11 +1253,14 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
         reached = chat.reached(tag, from);
         if (reached >= third) break;
       }
-      const state = await turnState(ctx, marker, chat.session).catch(() => ({ started: 0, running: false, status: "", detail: "" }));
+      const shown = await turnShown(() => turnState(ctx, marker, chat.session), HISTORY_SHOWN_MS);
+      const state = shown.state;
       // History is a remote read: output may have finished while it was in flight.
       reached = chat.reached(tag, from);
       if (state.started === 0) {
-        out.push(failed(f.name, `the turn was sent but never showed in the chat's history (the client saw step ${reached})`));
+        out.push(failed(f.name, shown.error
+          ? `the chat's history could not be read within ${HISTORY_SHOWN_MS / 1000} s, so the fault was not injected (the client saw step ${reached}; last read: ${shown.error})`
+          : `the turn was sent but never showed in the chat's history (the client saw step ${reached})`));
         continue;
       }
       const when = !state.running || reached >= COUNT_STEPS ? `after the counting output (${state.status}, step ${reached} of ${COUNT_STEPS})`

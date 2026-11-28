@@ -32,11 +32,6 @@ function normalize(code: unknown): string | null {
 let override: string | null = normalize(globalThis.__cmuxAppLanguage);
 let generation = 0;
 
-/** The language the setting picked, or null when it is System. */
-export function appLanguageOverride(): string | null {
-  return override;
-}
-
 /** The app's preferred localizations as WebKit reports them (fixed at launch): what System means,
  *  and the language the app's native menus use. */
 export function navigatorLanguages(): readonly string[] {
