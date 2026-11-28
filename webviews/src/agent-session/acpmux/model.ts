@@ -1592,6 +1592,10 @@ export type AcpmuxSnapshot = {
   /// page's first-paint report: a chat read cold fades in over the loading state, this one shows
   /// in one frame (AgentPaneView+Loading.swift).
   drewKeptTail?: true;
+  /// This snapshot draws a window from the v2 chat row store.
+  chatRowsV2?: true;
+  /// The live v2 subscription whose host accepts width-specific row heights.
+  chatRowsHeightSid?: string;
   /// The kept tail drawn while the open connects ends inside a turn (the chat was kept while it ran,
   /// as on a revive after an update), and neither acpmux's list nor its attach has said yet whether
   /// that turn still runs. The transcript draws the turn's rows as running (its live line at the
@@ -3021,7 +3025,7 @@ export const isContinuationFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined
     next.kind === THINKING);
 /// What the row after a row changes about its height (`beforeFooter`, and the room a reply keeps,
 /// `keepsReplyRoom`), as one key.
-const rowEdge = (row: AcpmuxRow, next: AcpmuxRow | undefined, prev: AcpmuxRow | undefined) => {
+export const rowEdge = (row: AcpmuxRow, next: AcpmuxRow | undefined, prev: AcpmuxRow | undefined) => {
   const status = statusEdge(row, next, prev);
   if (isLiveStep(row, prev)) return LIVE_STEP_EDGE;
   const edge = status ? `${footerEdge(row, next) ?? ""}${STATUS_EDGE}${status}` : footerEdge(row, next);

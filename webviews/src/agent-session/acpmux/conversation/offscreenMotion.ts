@@ -16,7 +16,7 @@
 //
 // Cost: per commit that adds nodes or changes a class, nothing for a row an intersection observer last
 // saw wholly in the view (the streaming reply, the live line); else one box read for the view and one per
-// changed row and element. None at rest, none for a text-only change. Read in the mutation's microtask, a
+// changed row and element carrying CSS motion. None at rest, none for a text-only change. Read in the mutation's microtask, a
 // box is a forced layout after React's writes: each streamed token of a reply in view paid one (0.65 to
 // 1.3 ms a token, bench/transcript-replay.bench.ts PROFILE=1, `observer` and `started` here).
 
@@ -97,13 +97,11 @@ export function endOffscreenMotion(scroller: HTMLElement | null | undefined): ()
   const View = scroller.ownerDocument.defaultView;
   /// The rows' own CSS animations only: a WAAPI motion (a fold's clip, a glide) is its owner's to gate.
   const cssOf = (element: Element) =>
-    element
-      .getAnimations({ subtree: true })
-      .filter(
-        (animation) =>
-          (View?.CSSAnimation && animation instanceof View.CSSAnimation) ||
-          (View?.CSSTransition && animation instanceof View.CSSTransition),
-      );
+    (element.getAnimations?.({ subtree: true }) ?? []).filter(
+      (animation) =>
+        (View?.CSSAnimation && animation instanceof View.CSSAnimation) ||
+        (View?.CSSTransition && animation instanceof View.CSSTransition),
+    );
   // The rows wholly in the view as the browser last laid them out (an intersection observer, told in
   // the frame's own layout, never a forced one): every element of such a row is in the view too, so a
   // mutation or a motion's start in it needs no box read. A row it has not reported yet, or that the
@@ -159,13 +157,23 @@ export function endOffscreenMotion(scroller: HTMLElement | null | undefined): ()
           }
         }
         if (rows.size === 0) return;
-        const view = scroller.getBoundingClientRect();
-        for (const row of rows) if (misses(row.getBoundingClientRect(), view)) finishAll(cssOf(row));
-        for (const element of changed)
-          if (element.isConnected && misses(element.getBoundingClientRect(), view)) finishAll(cssOf(element));
+        let view: Box | undefined;
+        const finishIfOffscreen = (element: Element) => {
+          const animations = cssOf(element);
+          if (!animations.length) return;
+          view ??= scroller.getBoundingClientRect();
+          if (misses(element.getBoundingClientRect(), view)) finishAll(animations);
+        };
+        for (const row of rows) finishIfOffscreen(row);
+        for (const element of changed) if (element.isConnected) finishIfOffscreen(element);
       })
     : undefined;
-  observer?.observe(scroller, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
+  observer?.observe(scroller, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["class"],
+  });
   // What no mutation of a class started: a transition from an inherited value, and the motions a
   // `data-*` flip starts (the send entrance, a card's reveal). Judged exactly as the observer judges
   // them, by the row's box as well as the element's own: a line that has mounted with no box yet

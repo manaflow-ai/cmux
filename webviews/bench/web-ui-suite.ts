@@ -86,6 +86,14 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 240_000,
     builds: ["page:/test/browser/transcript-fling.html"],
   },
+  // Production transcript, with the same 100k messages served as records or shaped rows.
+  {
+    name: "transcript-fling-rows",
+    file: "transcript-fling-rows.bench.ts",
+    args: [],
+    timeoutMs: 900_000,
+    ownPart: true,
+  },
   // The RFD 0040 transcript replacement's named fling benchmark. It reports both the current web transcript and
   // a plain-text floor with one schema so a future native arm can join without changing the driver.
   {

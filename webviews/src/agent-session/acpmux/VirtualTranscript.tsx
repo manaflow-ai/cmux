@@ -30,11 +30,11 @@ import { endOffscreenMotion } from "./conversation/offscreenMotion";
 import { shelfLine } from "./conversation/shelvedRows";
 import {
   layoutConversation,
+  layoutGeometry,
   type PlacedLayout,
   type ConversationLayout,
   LayoutBuffers,
   type RowHeights,
-  layoutGeometry,
   placedFromEstimate,
   placedWithOrigin,
   placeRowsIndexed,
@@ -80,7 +80,7 @@ import { writeScrollBy, writeScrollTop } from "./conversation/scrollController";
 import { AnchoredTranscript, anchoredListEnabled } from "./conversation/AnchoredTranscript";
 import { createFollowGlide, followRoom } from "./conversation/followGlide";
 import { createTailGlide, type PlacedRows, type TailGlide } from "./conversation/tailGlide";
-import { finishCarry, notePinPass, pinLiveLine, refreshPinned, pinnedLiveRow } from "./conversation/pinnedLiveLine";
+import { finishCarry, notePinPass, pinLiveLine, pinnedLiveRow, refreshPinned } from "./conversation/pinnedLiveLine";
 import {
   createFollowChase,
   type FollowChase,
@@ -237,6 +237,14 @@ import { hasPromptTops, keepPromptTops, knownPromptTop } from "./conversation/tr
 import { holdWebSwap } from "../../pages/shared/webSwap";
 import { playChatSwitch, type ChatSwitchPlay } from "./chatSwitch";
 import { chatSwitchMotion } from "./chatSwitch.experiment";
+import {
+  heightKey,
+  layoutIdentity,
+  type MeasuredRow,
+  type RowHeightKey,
+  readHeights,
+  writeHeights,
+} from "./rows/heights";
 import { callNative } from "./callNative";
 import { StreamReveal } from "./streamReveal";
 import { type NativeRegistry, type OpenDiff } from "./rows/rowProps";
@@ -784,6 +792,8 @@ const keptLayouts = new KeptLayouts<DrawnHeights, AcpmuxRow>();
 
 function TranscriptView({
   rows: paneRows,
+  chatRowsV2 = false,
+  heightSid,
   streams = false,
   earlier,
   promptCount,
@@ -846,6 +856,8 @@ function TranscriptView({
   corner,
 }: {
   rows: readonly AcpmuxRow[];
+  chatRowsV2?: boolean;
+  heightSid?: string;
   /// The pane's live transcript: it draws the streaming reply's row ahead of the pane's snapshot
   /// (streamingRow.ts), so a streamed chunk re-renders this transcript and that row, not the pane.
   streams?: boolean;
@@ -2624,8 +2636,15 @@ function TranscriptView({
     },
     [sessionId],
   );
+  // The observer supplies v2 row sizes after the browser lays out all siblings in one pass.
+  const observeRowSize =
+    chatRowsV2 &&
+    typeof ResizeObserver !== "undefined" &&
+    typeof ResizeObserverEntry !== "undefined" &&
+    "borderBoxSize" in ResizeObserverEntry.prototype;
   const queueDrawn = useCallback<QueueDrawn>(
     (node, id, version, actions, status, versionOnly, row) => {
+      if (observeRowSize) return noQueue;
       // A streamed token: no height read in the commit (a forced layout after React's writes, the top
       // one per token in a long chat). A row it resized is reported by the row's observer, in the
       // browser's own layout pass, before the frame paints (`observer` below); one it left at its
@@ -2669,7 +2688,7 @@ function TranscriptView({
         if (pendingMeasures.current.get(node) === measure) pendingMeasures.current.delete(node);
       };
     },
-    [reportDrawn, sessionId, tokenRows],
+    [observeRowSize, reportDrawn, sessionId, tokenRows],
   );
   // All of a commit's reports land in one update, before the frame paints.
   /// Rows whose drawn height changed since the last placement, which places again from the first.
@@ -2840,15 +2859,76 @@ function TranscriptView({
     // The rows' first frame in flow keeps the held row where it showed.
     holdFlow();
   }, [anchorFlow, holdFlow]);
+  const heightLayout = heightSid
+    ? [layoutIdentity(chatLook), layoutIdentity(registry), attachmentView, chatScale, gridScale()].join("/")
+    : "";
+  // A window or width change can bring previously drawn rows back into range. A token in the
+  // same window asks nothing. Native answers never delay a draw or replace a newer measurement.
+  const firstHeightRow = rows[0]?.id;
+  const lastHeightRow = rows.at(-1)?.id;
+  useEffect(() => {
+    if (!heightSid || flowing) return;
+    const shown = rowsRef.current;
+    const positions = new Map<number, number>();
+    const keys: RowHeightKey[] = [];
+    for (let index = 0; index < shown.length; index += 1) {
+      const key = heightKey(shown, index, sessionId, heightLayout, scaledRowWidth);
+      if (key) {
+        positions.set(key.id, index);
+        keys.push(key);
+      }
+    }
+    let active = true;
+    void readHeights(heightSid, keys).then((entries) => {
+      if (!active || sessionIdRef.current !== sessionId || rowWidthRef.current !== scaledRowWidth) return;
+      for (const entry of entries) {
+        const index = positions.get(entry.id);
+        if (index === undefined) continue;
+        const current = rowsRef.current;
+        const row = current[index];
+        if (!row || row !== shown[index]) continue;
+        const key = heightKey(current, index, sessionId, heightLayout, scaledRowWidth);
+        if (!key || key.rev !== entry.rev || key.width !== entry.width || key.signature !== entry.signature) continue;
+        const known = pendingDrawn.current.get(row.id) ?? drawnRef.current.get(row.id);
+        if (known?.sessionId === sessionId && known?.width === scaledRowWidth && known.version === row.version)
+          continue;
+        const next = nextDrawnRow(current, index);
+        reportDrawn(
+          row.id,
+          row.version,
+          entry.height,
+          keepsReplyRoom(row, next),
+          statusEdge(row, next, prevDrawnRow(current, index)),
+          false,
+          row,
+        );
+      }
+      flushDrawn();
+    });
+    return () => {
+      active = false;
+    };
+  }, [
+    heightSid,
+    sessionId,
+    heightLayout,
+    scaledRowWidth,
+    firstHeightRow,
+    lastHeightRow,
+    flowing,
+    reportDrawn,
+    flushDrawn,
+  ]);
+
   /// Reports the height `target` (a drawn row) lays out at now.
   const reportRow = useCallback(
-    (target: HTMLElement) => {
+    (target: HTMLElement, observedHeight?: number) => {
       const shown = rowsRef.current;
       const index = Number(target.getAttribute("aria-posinset")) - 1;
       const row = shown[index];
       // With the frame's own flag: a height reported without it is taken for a stale one.
       if (row && row.id === target.dataset.rowId) {
-        const measured = drawnHeightOf(target);
+        const measured = drawnHeightOf(target, observedHeight);
         reportDrawn(
           row.id,
           row.version,
@@ -3032,7 +3112,35 @@ function TranscriptView({
             const measure = () => {
               for (const target of targets) reportRow(target);
             };
-            measure();
+            if (observeRowSize) {
+              // An undisplayed row has no inline size. A laid-out, empty row may be zero high.
+              const measured: MeasuredRow[] = [];
+              for (const entry of entries ?? []) {
+                const box = entry.borderBoxSize?.[0];
+                if (!box || !box.inlineSize) continue;
+                const target = entry.target as HTMLElement;
+                const height = drawnHeightOf(target, box.blockSize);
+                if (height === undefined) continue;
+                reportRow(target, height);
+                if (!heightSid) continue;
+                const id = target.dataset.rowId;
+                if (!id) continue;
+                const pending = pendingDrawn.current.get(id);
+                if (
+                  !pending ||
+                  pending.collapsing ||
+                  sameDrawn(drawnRef.current.get(id), pending) ||
+                  heightFoldInFlight(target)
+                )
+                  continue;
+                const index = Number(target.getAttribute("aria-posinset")) - 1;
+                const shown = rowsRef.current;
+                if (shown[index]?.id !== id) continue;
+                const key = heightKey(shown, index, sessionId, heightLayout, rowWidthRef.current);
+                if (key) measured.push({ ...key, height });
+              }
+              if (heightSid && measured.length) writeHeights(heightSid, measured);
+            } else measure();
             discardEstimatedReports();
             // A late size change (a font loading) must not paint a frame of overlap first. Sizes
             // that did not change render nothing: a synchronous render here for nothing was the
@@ -3060,7 +3168,12 @@ function TranscriptView({
             // before paint, as a followed view's is.
             // Not while a key or pointer event waits: a synchronous render here holds the typed
             // character behind it, so the frame's own commit places the rows instead.
-            else if (
+            else if (observeRowSize) {
+              // The delivered border boxes already include this frame's layout. The next
+              // observer delivery places any rows resized by this commit.
+              if (inputPending()) flushDrawn();
+              else flushSync(flushDrawn);
+            } else if (
               !inputPending() &&
               (followingRef.current ||
                 targets.some(heightFoldInFlight) ||
@@ -3099,7 +3212,7 @@ function TranscriptView({
               }
             } else flushDrawn();
           }),
-    [reportRow, discardEstimatedReports, flushDrawn, catchUpLive],
+    [observeRowSize, heightSid, heightLayout, sessionId, reportRow, discardEstimatedReports, flushDrawn, catchUpLive],
   );
   useEffect(() => () => observer?.disconnect(), [observer]);
   // A CSS motion that starts out of the view draws at its end (cmuxterm-hq
@@ -7890,6 +8003,7 @@ function TranscriptView({
     rowWidth: scaledRowWidth,
     expanded,
     observer,
+    observeBorderBox: observeRowSize,
     queueDrawn,
     sentPromptIds: sentPromptIdsForRender,
     // A session switch is a load, not a live arrival. The reset effect runs after this render, so

@@ -83,7 +83,7 @@ final class AgentPaneChatRows: PageProvider {
             }
             let host = try openHost()
             let opened = try await Self.value(host.open(sid: sid, request: request))
-            return .object(["sid": .string(opened)])
+            return .object(["sid": .string(opened), "heights": .bool(true)])
         case "close":
             guard let host else { throw Self.refusal(.name) }
             try await Self.value(host.close(sid: sid))
@@ -97,6 +97,14 @@ final class AgentPaneChatRows: PageProvider {
             guard let host else { throw Self.refusal(.name) }
             let asked = try await Self.value(host.blob(sid: sid, id: id, request: request))
             return .object(["id": .string(asked)])
+        case "heights.read":
+            guard let host else { throw Self.refusal(.name) }
+            let response = try await Self.value(host.rowHeightsRead(sid: sid, request: request))
+            return try JSONValue.parse(response)
+        case "heights.write":
+            guard let host else { throw Self.refusal(.name) }
+            let response = try await Self.value(host.rowHeightsWrite(sid: sid, request: request))
+            return try JSONValue.parse(response)
         default:
             throw PageError.unknownOp(op)
         }

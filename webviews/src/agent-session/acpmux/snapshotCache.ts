@@ -194,6 +194,8 @@ export function cachedSnapshot(view: string | null = null): AcpmuxSnapshot {
         earlierPrompts: undefined,
         connection: "connecting",
         drewKeptTail: undefined,
+        chatRowsV2: undefined,
+        chatRowsHeightSid: undefined,
         chatRead: undefined,
         turnsEnded: undefined,
       };
