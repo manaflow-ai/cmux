@@ -74,14 +74,13 @@ extension CloudHandlers {
             let cancels = id == AppServices.placeCancel || id == AppServices.placeEvacuateCancel
             // A cancel is never refused.
             let allowed: @MainActor () -> String? = { nil }, gated: @MainActor () -> String? = { reason() ?? CloudMoveStrings.placeOff(services.settings?.snapshot.experimentSwitches) }
-            let perChat = id == AppServices.placeSet || id == AppServices.placeRetry, modes = { services.settings?.snapshot.placeModes ?? [] } // AutoCloud alone offers a chat's pick, Retry
-            bind(id, registry, reason: cancels ? allowed : perChat ? { reason() ?? (modes().isEmpty ? CloudMoveStrings.placeExperimentOff : nil) } : gated) { invocation in
+            let modes = { services.settings?.snapshot.placeModes ?? [] }, perChat: @MainActor () -> String? = { reason() ?? (modes().isEmpty ? CloudMoveStrings.placeExperimentOff : nil) } // AutoCloud alone: a chat's pick, Retry
+            bind(id, registry, reason: cancels ? allowed : [AppServices.placeSet, AppServices.placeRetry].contains(id) ? perChat : gated) { invocation in
                 guard !CloudMoveAsks.isAgent(invocation), !invocation.viaControlSocket else { throw ActionFailure(message: CloudMoveStrings.placeIsPersons) }
                 let tab = context.daemonTab(invocation)?.0.id, named = CloudPlaceDriver.named(invocation["sessions"]?.stringValue), row = CloudPlaceDriver.row(named)
                 switch id {
                 case AppServices.placeSet:
-                    guard let mode = invocation["mode"]?.stringValue, ["local", "cloud", "auto"].contains(mode) else { throw ActionFailure(message: "mode must be local, cloud or auto") }
-                    guard modes().contains(mode) else { throw ActionFailure(message: CloudMoveStrings.placeExperimentOff) } // Cloud is Cloud Toggle's
+                    guard let mode = invocation["mode"]?.stringValue, modes().contains(mode) else { throw ActionFailure(message: CloudMoveStrings.placeModeRefused(invocation["mode"]?.stringValue)) }
                     // A move refused at once fails in the chat's flow (with Retry) and answers the page with why.
                     if let refusal = place.setMode(mode, tab: tab, session: row, claims: CloudPlaceClaims(invocation)) { throw ActionFailure(message: refusal.message) }
                 case AppServices.prioritySet: if let refusal = place.setPriority(invocation["priority"]?.stringValue, tab: tab, session: row) { throw ActionFailure(message: refusal.message) }
