@@ -6,7 +6,7 @@ set -uo pipefail
 cd "$(dirname "$0")/../../../.." || exit 2
 out="${FAST_CHECKS_OUT:-$PWD/climb-out}"; mkdir -p "$out"
 (cd cmux-tui && cargo build -q --release -p cmux-projection --example slice_bench) || exit 1
-tree="$(mktemp -d)"
+tree="$(mktemp -d)"; trap 'rm -rf "$tree"' EXIT
 git archive HEAD cmux-tui/crates | tar -x -C "$tree"
 (cd "$tree" && git init -q && git add -A && git -c user.email=climb@local -c user.name=climb commit -qm tree)
 command -v rg >/dev/null || echo "climb: rg missing on this runner" >&2
