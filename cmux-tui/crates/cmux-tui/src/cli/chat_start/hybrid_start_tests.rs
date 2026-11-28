@@ -9,8 +9,9 @@ use super::super::super::GlobalArgs;
 use super::super::super::cloud_start_chat::Machine;
 use super::super::{Parsed, cloud_words, here_words, parse};
 use super::{
-    Drive, account, boot_tags, cached_plan, drive, drive_args, drive_words, end_stage, here_of,
-    local_harness, move_outcome, move_words, pause_words, plan_of, takes, tool_event,
+    Drive, TURN_END_FLAG, account, boot_tags, cached_plan, drive, drive_args, drive_words,
+    end_stage, here_of, local_harness, move_outcome, move_words, pause_words, plan_of, takes,
+    tool_event, turn_end_of,
 };
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -27,9 +28,9 @@ fn start(list: &[&str]) -> super::Start {
 #[test]
 fn a_plain_cloud_start_is_the_hybrid_ones_and_every_cloud_only_option_is_not() {
     let plain = start(&["--on", "vm:new", "--prompt", "hi"]);
-    assert_eq!(takes(&plain, &Machine::New).as_deref(), Some("new"));
-    assert_eq!(takes(&plain, &Machine::Target("m1".into())).as_deref(), Some("m1"));
-    assert_eq!(takes(&plain, &Machine::Named("dev".into())), None);
+    assert_eq!(takes(&plain, &Machine::New, false).as_deref(), Some("new"));
+    assert_eq!(takes(&plain, &Machine::Target("m1".into()), false).as_deref(), Some("m1"));
+    assert_eq!(takes(&plain, &Machine::Named("dev".into()), false), None);
     for extra in [
         &["--cwd", "/w"][..],
         &["--from-folder", "."],
@@ -43,15 +44,15 @@ fn a_plain_cloud_start_is_the_hybrid_ones_and_every_cloud_only_option_is_not() {
         let mut list = vec!["--on", "vm:new"];
         list.extend_from_slice(extra);
         list.extend(["--prompt", "hi"]);
-        assert_eq!(takes(&start(&list), &Machine::New), None, "{extra:?}");
+        assert_eq!(takes(&start(&list), &Machine::New, false), None, "{extra:?}");
     }
-    assert_eq!(takes(&start(&["--on", "vm:new"]), &Machine::New), None);
+    assert_eq!(takes(&start(&["--on", "vm:new"]), &Machine::New, false), None);
 }
 
 #[test]
 fn a_named_cloud_start_is_hybrid_and_its_chat_here_carries_the_name() {
     let named = start(&["--on", "vm:new", "--name", "triage", "--prompt", "hi"]);
-    assert_eq!(takes(&named, &Machine::New).as_deref(), Some("new"));
+    assert_eq!(takes(&named, &Machine::New, false).as_deref(), Some("new"));
     // Off, the Cloud start still refuses the name, as it did.
     assert!(cloud_words(&named, &Machine::New).is_err());
     // On, the chat here is started with it.
@@ -93,7 +94,7 @@ fn off_the_cloud_start_has_todays_words_and_on_the_chat_here_has_the_starts_sett
 fn the_driver_is_spawned_with_its_session_and_machine_and_moves_without_interrupt() {
     let global = GlobalArgs { socket: Some("/s".into()), ..GlobalArgs::default() };
     assert_eq!(
-        drive_words(&global, "chat-1", "new", 12),
+        drive_words(&global, "chat-1", "new", 12, false),
         words(&["--socket", "/s", "cloud", "hybrid-drive", "chat-1", "new", "--gate-ms", "12"])
     );
     let moved = move_words("chat-1", "m1");
@@ -115,7 +116,8 @@ fn the_spawned_driver_reads_back_its_own_words_past_the_global_parser() {
         ..GlobalArgs::default()
     };
     for target in ["new", "vm_091afb1dad8bb63bc43a"] {
-        let spawned = drive_words(&global, "01a20aaf-df27-72bc-93c9-2263cfd30106", target, 12);
+        let spawned =
+            drive_words(&global, "01a20aaf-df27-72bc-93c9-2263cfd30106", target, 12, false);
         let Ok((read, command)) = super::super::super::parse_globals(&spawned) else {
             panic!("the driver's words do not parse: {spawned:?}");
         };
@@ -132,6 +134,51 @@ fn the_spawned_driver_reads_back_its_own_words_past_the_global_parser() {
     }
     assert_eq!(drive_args(&words(&["--session", "c", "--machine", "new"])), None);
     assert_eq!(drive_args(&words(&["c"])), None);
+}
+
+/// `--attach` on a hybrid start: off by default (the Cloud start refuses the files, as before);
+/// on, the start is the hybrid one, its chat here carries the files, and its driver moves it only
+/// at the first turn's end.
+#[test]
+fn an_attached_cloud_start_is_hybrid_only_when_its_flag_is_on_and_moves_at_the_turn_end() {
+    let attached = start(&["--on", "vm:new", "--attach", "f.txt", "--prompt", "hi"]);
+    assert_eq!(takes(&attached, &Machine::New, false), None);
+    assert_eq!(takes(&attached, &Machine::New, true).as_deref(), Some("new"));
+    assert_eq!(takes(&attached, &Machine::Named("dev".into()), true), None);
+    // The flag lets only --attach in: every other Cloud-only option still keeps the Cloud start.
+    let waited = start(&["--on", "vm:new", "--attach", "f.txt", "--wait", "--prompt", "hi"]);
+    assert_eq!(takes(&waited, &Machine::New, true), None);
+    // The chat here is started with the files.
+    let here = here_words(&[], &here_of(&attached, "/fresh")).unwrap();
+    assert!(here.iter().any(|word| word == "--attach=f.txt"), "{here:?}");
+    // Its driver is a turn-end one, and reads that back past the global parser.
+    let global = GlobalArgs { socket: Some("/s".into()), ..GlobalArgs::default() };
+    let spawned = drive_words(&global, "chat-1", "new", 12, true);
+    assert_eq!(spawned.last().map(String::as_str), Some(TURN_END_FLAG));
+    let (_, command) = super::super::super::parse_globals(&spawned).unwrap();
+    assert!(turn_end_of(&command[2..]));
+    assert_eq!(drive_args(&command[2..]), Some(("chat-1".into(), "new".into(), "12".into())));
+    let plain = drive_words(&global, "chat-1", "new", 12, false);
+    let (_, command) = super::super::super::parse_globals(&plain).unwrap();
+    assert!(!turn_end_of(&command[2..]));
+    // A chat or machine named like the flag is not the flag.
+    assert!(!turn_end_of(&words(&["--turn-end", "new"])));
+}
+
+#[test]
+fn the_attach_flag_is_off_unless_its_env_says_on_and_a_policy_can_still_turn_it_off() {
+    use crate::feature_flags::{HYBRID_ATTACH, HYBRID_ATTACH_ENV, hybrid_attach_enabled};
+    let env = |value: Option<&'static str>| {
+        move |name: &str| (name == HYBRID_ATTACH_ENV).then_some(value).flatten().map(str::to_owned)
+    };
+    let none = |_: &str| false;
+    assert!(!hybrid_attach_enabled(&env(None), &none));
+    assert!(!hybrid_attach_enabled(&env(Some("0")), &none));
+    assert!(!hybrid_attach_enabled(&env(Some("maybe")), &none));
+    for on in ["1", "true", "on", "yes", " 1 "] {
+        assert!(hybrid_attach_enabled(&env(Some(on)), &none), "{on}");
+    }
+    assert!(!hybrid_attach_enabled(&env(Some("1")), &|feature| feature == HYBRID_ATTACH));
 }
 
 #[test]

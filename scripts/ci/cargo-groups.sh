@@ -105,7 +105,25 @@ if [[ -z "${CARGO_BUILD_JOBS:-}" ]]; then
   if [[ -n "$avail_gib" ]] && { [[ -z "$budget" ]] || ((avail_gib < budget)); }; then
     budget=$avail_gib source="MemAvailable"
   fi
-  capped="" max_par=0
+  capped="" max_par=0 giants_tight=""
+  # GIANT_RESERVE: one fat-LTO acpmux or cmux-tui-core rustc holds about CARGO_GROUPS_GIANT_GIB (16) GiB by itself,
+  # so a budget that holds fewer than two keeps one giant's share aside and sizes every other token from the rest,
+  # and the giants compile one at a time (GIANTS_ONE_AT_A_TIME below), capped by memory.max or not. Sized by cores
+  # alone on an uncapped 31 GiB nightly VM (8 cores: 8 + 9 x 2 = 26 tokens, both acpmux builds and cmux-tui-core
+  # at once), the darwin cross leg took the runner down (cmux-tui-artifacts run 46173391786 attempt 2, job
+  # 141099663884, 2026-11-28 20:20Z: "The runner has received a shutdown signal"), so no cmux-tui tree published.
+  giant_gib=${CARGO_GROUPS_GIANT_GIB:-16}
+  # Only where the budget is the host's MemAvailable (no memory.max below it): there running out takes the whole
+  # runner down, where under a memory.max the kernel kills one rustc and OOM_RERUN_ALONE rebuilds it. Only a budget
+  # that holds one giant (budget >= giant_gib): below that it cannot fit whatever the rest does. Fat-LTO musl legs
+  # (CARGO_GROUPS_HEAVY) keep HEAVY_GROUPS_ONE_AT_A_TIME, which already passes there.
+  if [[ "$source" == MemAvailable && -z "${CARGO_GROUPS_HEAVY:-}" && -z "${CARGO_GROUPS_NO_GIANT_LOCK:-}" ]] &&
+    ((budget >= giant_gib && budget < 2 * giant_gib)); then
+    giants_tight=1
+    rest=$((budget - giant_gib)); ((rest >= 2)) || rest=2
+    echo "cargo groups: $source ${budget} GiB holds fewer than two giants at ${giant_gib} GiB: ${rest} GiB for everything else"
+    budget=$rest
+  fi
   if [[ -n "$budget" ]]; then
     per=${CARGO_GROUPS_GIB_PER_CORE:-3}
     fit=$((budget / per)); ((fit >= 1)) || fit=1
@@ -151,6 +169,21 @@ if [[ -z "${CARGO_BUILD_JOBS:-}" ]]; then
   if ((heavy_n > 1)) && [[ -n "$budget" ]] && ((budget < heavy_n * heavy_gib)); then
     heavy_serial=1
     echo "cargo groups: $source ${budget} GiB holds fewer than ${heavy_n} heavy groups (${CARGO_GROUPS_HEAVY}) at ${heavy_gib} GiB each: one at a time"
+  fi
+  # GIANTS_ONE_AT_A_TIME: capped by memory, the acpmux and cmux-tui-core rustc (936k and 674k lines, neither
+  # depending on the other) never compile at once. Together at group 1's 3 tokens they outgrew memory.max 14 GiB
+  # on every thin Cloud machine channel leg: run 46168566003 (job 141051914805, 2026-11-28) lost acpmux to the
+  # kernel 12.2 min in (17:13:21 -> 17:25:35), and OOM_RERUN_ALONE rebuilt it alone at one job in 499 s, so the
+  # artifact was ready 27.5 min after the job started against about 15.5 without the lost attempt, and the channel
+  # lag passed 60 min. A rustc wrapper (scripts/ci/cargo-giant-lock.sh) holds an flock around each giant's rustc;
+  # every other crate keeps the group's tokens. Fat-LTO legs keep HEAVY_GROUPS_ONE_AT_A_TIME alone.
+  if [[ -n "$capped$giants_tight" && -z "${CARGO_GROUPS_HEAVY:-}" && -z "${CARGO_GROUPS_NO_GIANT_LOCK:-}" ]] && command -v flock >/dev/null; then
+    export CARGO_GROUPS_GIANTS="${CARGO_GROUPS_GIANTS:-acpmux cmux_tui_core}"
+    export CARGO_GROUPS_GIANT_LOCK="$logs/giant.lock"
+    export CARGO_GROUPS_INNER_WRAPPER="${RUSTC_WRAPPER:-}"
+    RUSTC_WRAPPER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cargo-giant-lock.sh"
+    export RUSTC_WRAPPER
+    echo "cargo groups: $source ${budget} GiB: giants ($CARGO_GROUPS_GIANTS) compile one at a time"
   fi
   export CARGO_BUILD_JOBS=$jobs
   echo "cargo groups: ${#commands[@]}, CARGO_BUILD_JOBS=$lead_jobs for group 1, $CARGO_BUILD_JOBS each for the others"

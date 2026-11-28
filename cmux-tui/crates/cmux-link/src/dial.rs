@@ -45,6 +45,11 @@ pub enum Service {
     /// ([`RekeyRequest`]), over its old key's session, when it adopts this
     /// machine's node key. A local caller cannot dial it.
     Rekey,
+    /// A phone's ACP chat on this machine, the Mac off (RFD 0135 gate 4):
+    /// only the server's owner (`owner_session`), and the link serves it as
+    /// a mobile client of the daemon's local socket, so the daemon holds it
+    /// to the phone floor (`cmux_cloud_phone_acp`).
+    PhoneChat,
 }
 
 /// The one line a link writes after a [`Service::Rekey`] hello: its new
