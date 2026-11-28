@@ -39,7 +39,7 @@ fn enforced(mux: &Arc<Mux>) -> Option<cmux_config::ManagedSource> {
 fn a_fetched_team_policy_is_enforced_and_saved() {
     let (mux, dir) = owner("on");
     assert_eq!(enforced(&mux), None);
-    assert!(super::super::cloud_api::learn_team_policy(&mux, &read_args(), &managed(1)));
+    assert!(learn_team_policy(&mux, &read_args(), &managed(1)));
     assert_eq!(enforced(&mux), Some(cmux_config::ManagedSource::Team("Acme".into())));
     let root = mux.with_settings(|s| s.effective().root.clone());
     assert_eq!(root.pointer("/browser/searchEngine"), Some(&json!("duckduckgo")));
@@ -63,25 +63,21 @@ fn a_fetched_team_policy_is_enforced_and_saved() {
 #[test]
 fn an_unmanaged_answer_lifts_the_policy_and_other_calls_do_not() {
     let (mux, _dir) = owner("off");
-    assert!(super::super::cloud_api::learn_team_policy(&mux, &read_args(), &managed(1)));
+    assert!(learn_team_policy(&mux, &read_args(), &managed(1)));
     let feed = json!({"route": "read", "body": {"op": "feed.list", "params": {}}});
     let unmanaged = json!({"status": 200, "reply": {"ok": true, "value": {"managed": false}}});
-    assert!(!super::super::cloud_api::learn_team_policy(
-        &mux,
-        feed.as_object().unwrap(),
-        &unmanaged
-    ));
+    assert!(!learn_team_policy(&mux, feed.as_object().unwrap(), &unmanaged));
     let refused = json!({"status": 401, "reply": null});
-    assert!(!super::super::cloud_api::learn_team_policy(&mux, &read_args(), &refused));
+    assert!(!learn_team_policy(&mux, &read_args(), &refused));
     assert!(enforced(&mux).is_some());
-    assert!(super::super::cloud_api::learn_team_policy(&mux, &read_args(), &unmanaged));
+    assert!(learn_team_policy(&mux, &read_args(), &unmanaged));
     assert_eq!(enforced(&mux), None);
 }
 
 #[test]
 fn the_daemon_reads_the_policy_again_only_every_fifteen_minutes() {
     use super::super::cloud_api::{TEAM_POLICY_EVERY_SECS, team_policy_due};
-    let clock = std::sync::atomic::AtomicU64::new(0);
+    let clock = AtomicU64::new(0);
     assert!(team_policy_due(&clock, 1_000));
     assert!(!team_policy_due(&clock, 1_001));
     assert!(!team_policy_due(&clock, 1_000 + TEAM_POLICY_EVERY_SECS - 1));
@@ -105,6 +101,6 @@ fn only_an_install_token_reads_the_policy() {
     let args = team_policy_read_args(Some(&json!("0.9.1 (123)")));
     assert_eq!(args.get("client_version"), Some(&json!("0.9.1 (123)")));
     let (mux, _dir) = owner("read");
-    assert!(super::super::cloud_api::learn_team_policy(&mux, &args, &managed(2)));
+    assert!(learn_team_policy(&mux, &args, &managed(2)));
     assert_eq!(enforced(&mux), Some(cmux_config::ManagedSource::Team("Acme".into())));
 }
