@@ -82,8 +82,9 @@ jobs:
       # The `cmux/ui-proof` commit status the route posted (pr_router.py ui_status); `pending` hands it to
       # ui-proof-status below, which reads the proof record at the head.
       ui_status: ${{ steps.route.outputs.ui_status }}
-      # `false` when every changed path is one no web bundle reads (pr_router.py preflight_web, pr_router.json's
-      # compile preflight `paths-ignore`); the compile preflight's job then skips with no runner.
+      # `false` when no changed path is a web bundle input (pr_router.py preflight_web: the callee's own web-touched
+      # answer, compile_preflight.py router_web, which checks webviews/ out of this sparse checkout to read its
+      # imports); the compile preflight's web job then skips with no runner. Anything unread answers `true`.
       preflight_web: ${{ steps.route.outputs.preflight_web }}
       # The machine channel's plan for this head (scripts/ci/cmux-machine-channel-pr-plan.sh), when the route
       # starts it; empty when it does not or the step failed, and cmux-machine-channel.yml's plan job answers then.
@@ -120,6 +121,8 @@ jobs:
             scripts/ci/gh_http.py
             scripts/ci/cmux_tui_tree_key.py
             scripts/ci/timeout.sh
+            scripts/ci/compile_preflight.py
+            scripts/cmux-next/web-bundle-key.py
             scripts/ci/ios_fast_verdict.py
             scripts/ci/ui_proof_verdict.py
             scripts/ci/proof_record.py
@@ -141,6 +144,10 @@ jobs:
         # A draft head starts only callees marked `draft` (scripts/ci/head_tier.py); 0 turns that off.
         env:
           CI_DRAFT_CHEAP_TIER: ${{ vars.CI_DRAFT_CHEAP_TIER || '1' }}
+          # The compile preflight's web job runs only when a changed file is a web bundle input, answered here by the
+          # job's own check (pr_router.py preflight_web, compile_preflight.py router_web); 0 runs it on every head
+          # the preflight starts and leaves the answer to the job's first step.
+          CI_ROUTER_WEB_EXACT: ${{ vars.CI_ROUTER_WEB_EXACT || '1' }}
           # A landing head of the affected tier runs the step table's nightly-mirroring steps its change routes
           # (pr_router.py NIGHTLY_GATE_JOBS); 0 turns that off.
           CI_NIGHTLY_GATE_ON_LAND: ${{ vars.CI_NIGHTLY_GATE_ON_LAND || '1' }}

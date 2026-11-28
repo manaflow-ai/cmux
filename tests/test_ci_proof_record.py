@@ -319,6 +319,37 @@ class TokenFallbackTest(unittest.TestCase):
         self.assertEqual(pr.with_tokens(read, ["run", "pool1", "pool2"]), "read with pool1")
         self.assertEqual(seen, ["run", "pool1"])
 
+    def test_a_rate_limited_token_moves_on_without_waiting_it_out(self) -> None:
+        # Before -> after on cmux job 140783003633 (2026-11-27 23:21Z): the run token's comments read got a
+        # rate-limit 403, gh_http slept 900 s in a 5-min job, and the job was cancelled unposted. After: the
+        # pool token reads it at once; only the last token may wait, and no longer than RATE_WAIT_LAST_S.
+        import functools
+        http = pr.gh_http.deadline_http
+        limited = (403, b'{"message":"API rate limit exceeded for installation"}',
+                   http.Headers({"x-ratelimit-remaining": "0", "x-ratelimit-reset": "1900"}))
+        ok = (200, json.dumps([comment("x")]).encode(), http.Headers({}))
+        seen, slept = [], []
+
+        def fake(req, seconds, **kwargs):
+            token = req.get_header("Authorization").split()[-1]
+            seen.append(token)
+            return limited if token == "run" else ok
+
+        retrying = functools.partial(pr.gh_http.request, sleep=slept.append, now=lambda: 1000.0,
+                                     log=lambda line: None)
+        with mock.patch.object(http, "request", side_effect=fake), mock.patch.object(pr.gh_http, "request", retrying):
+            got = pr.with_tokens(lambda token: pr.pr_comments("o/r", 7, token), ["run", "pool1"])
+        self.assertEqual([c["body"] for c in got], ["x"])
+        self.assertEqual(seen, ["run", "pool1"])
+        self.assertEqual(slept, [])
+        # The last token: a limit ending past the bound is not slept on either.
+        seen.clear()
+        with mock.patch.object(http, "request", side_effect=fake), mock.patch.object(pr.gh_http, "request", retrying):
+            with self.assertRaises(pr.urllib.error.HTTPError):
+                pr.with_tokens(lambda token: pr.pr_comments("o/r", 7, token), ["run"])
+        self.assertEqual(slept, [])
+        self.assertEqual(pr._rate_wait_s.get(), pr.RATE_WAIT_LAST_S)
+
     def test_the_last_refusal_and_other_errors_raise(self) -> None:
         import urllib.error
 

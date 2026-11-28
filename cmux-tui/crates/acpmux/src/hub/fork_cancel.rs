@@ -46,6 +46,8 @@ impl Hub {
             crate::close_why::CloseWhy::by("app", "fork cancelled before use"),
         )
         .await?;
+        // Release the parent input if the fork never started.
+        fork.release_agent_fork_hold();
         // Its agent may have reported its own session id while it started (Claude's
         // `--fork-session`): read after the kill, which ended that start.
         let Some(copy) = fork.meta().agent_session_id else { return Ok(()) };
