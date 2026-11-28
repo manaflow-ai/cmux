@@ -256,8 +256,29 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     };
     // A machine with no exec in flight pauses on its own (run 45679791255: 503 vm_unavailable at fs/write piece 10,
     // 286 s into the copy). One long exec keeps it running for the rest of the run; the delete ends it.
-    void exec("sleep 1500", 1_500_000).catch(() => {});
+    const keepalive = () => void exec("sleep 1500", 1_500_000).catch(() => {});
+    keepalive();
     await sleep(3000);
+    const revive = async (at: string) => {
+      await fresh();
+      const m0 = await api.read("cloud.machine.get", { machine }).catch(() => null);
+      const s0 = String(m0?.status ?? "unknown");
+      if (s0 === "running") return;
+      if (s0 === "failed" || s0 === "deleted" || s0 === "deleting") throw new Error(`machine ${machine} is ${s0} at ${at}`);
+      if (s0 === "paused" || s0 === "stopped") await api.op("cloud.machine.start", { machine }, `${tag}-start-${Date.now()}`).catch((e: Error) => say(`start at ${at}: ${e?.message ?? e}`));
+      const t0 = Date.now();
+      for (;;) {
+        await sleep(3000);
+        await fresh();
+        const m = await api.read("cloud.machine.get", { machine }).catch(() => null);
+        if (m?.status === "running" && m?.host) break;
+        if (m?.status === "paused" || m?.status === "stopped") await api.op("cloud.machine.start", { machine }, `${tag}-start-${Date.now()}`).catch(() => {});
+        if (Date.now() - t0 > 300_000) throw new Error(`machine ${machine} still ${m?.status} 300 s after it left running at ${at}`);
+      }
+      say(`machine was ${s0} at ${at}; running again after ${Math.round((Date.now() - t0) / 1000)} s`);
+      keepalive();
+      await sleep(3000);
+    };
     await J.step("run cmux-host from the PR's cmux on the machine", async () => {
       const data = gzipSync(readFileSync(cmux), { level: 9 });
       const n = Math.ceil(data.length / PIECE);
@@ -278,6 +299,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           if (tries >= 8 || (w.status !== 0 && w.status < 500 && w.status !== 409)) throw new Error(`fs/write piece ${i + 1}/${n}: HTTP ${w.status} ${String(w.body?.error?.code ?? "")} (try ${tries})`);
           retried++;
           await sleep(Math.min(5000 * tries, 30_000));
+          // Run 46157288658: after a 120 s write timeout on piece 13 the machine left running (409 machine.not_running
+          // on the next three tries, then 503s) and the keepalive exec died with it. Pieces already written stay on its
+          // disk: start it again, wait for running, re-arm the keepalive, then send the piece again.
+          await revive(`piece ${i + 1}/${n}`);
         }
       }
       say(`copied ${n} piece(s), ${retried} retried; swapping cmux-host`);
