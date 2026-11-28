@@ -54,7 +54,7 @@ pub fn recipe_for(name: &str, profile: &HarnessProfile) -> Result<Recipe, Comple
     }
     match crate::config::derive_family(name, profile).as_str() {
         "codex" => Ok(Recipe::Codex),
-        "opencode" => Ok(Recipe::OpenCode),
+        "opencode" | "github-copilot" => Ok(Recipe::OpenCode),
         "pi" => Ok(Recipe::Pi),
         "omp" => Ok(Recipe::Omp),
         "grok" => Ok(Recipe::Grok),

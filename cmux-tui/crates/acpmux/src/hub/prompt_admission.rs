@@ -11,8 +11,13 @@
 //! Now every bound is here, and there is no other way in:
 //! - [`admit`] waits at most [`ADMISSION_BOUND`] for the lock. Past that the prompt goes on
 //!   without it: the order yields, the prompt is never stranded.
-//! - A holder keeps the lock at most [`ADMISSION_BOUND`] (its lease): a timer lets it go and logs
-//!   the step it was in, so the daemon log names the await that held it.
+//! - A holder keeps the lock at most [`ADMISSION_BOUND`] of the runtime's time (its lease): a
+//!   timer lets it go and logs the step it was in, so the daemon log names the await that held
+//!   it. The lease is charged in [`LEASE_TICK`]s, and a tick that wakes late is charged only its
+//!   own length: time the runtime gave no task is starvation, and starved is slow, never dead
+//!   (RFD 0124). A wall-clock lease let 346 of 388 holders go in the setup step on Leo's Mac at
+//!   load 187 on 15 cores (2026-11-27), each still alive, so the order it keeps broke exactly when
+//!   the chat was busiest. [`LEASE_WALL_CAP`] bounds a holder on a host starved for good.
 //! - A prompt someone waits on that has no answer [`ANSWER_BOUND`] after it came (`Hub::
 //!   run_prompt_joined`) is put in the queue durably (its `queued` record) and accepted as
 //!   queued; it then runs from the queue as a restored prompt does (`queue.rs`
@@ -35,10 +40,19 @@ use crate::rpc::RpcError;
 
 /// How long a prompt waits for admission, and how long it may hold it.
 pub(crate) const ADMISSION_BOUND: Duration = Duration::from_secs(3);
+/// The lease's step: each one charges at most its own length (plus [`LEASE_TICK_SLACK`]) whatever
+/// the wall clock moved while the runtime ran nothing.
+pub(crate) const LEASE_TICK: Duration = Duration::from_millis(250);
+/// A timer's ordinary lateness, charged with its tick.
+const LEASE_TICK_SLACK: Duration = Duration::from_millis(50);
+/// However starved the runtime, a holder keeps the lock no longer than this wall time.
+pub(crate) const LEASE_WALL_CAP: Duration = Duration::from_secs(30);
 /// How long after it came a prompt someone waits on goes without an answer before it is queued.
+// timeout: past it the prompt is queued and answered, not dropped.
 pub(crate) const ANSWER_BOUND: Duration = Duration::from_secs(5);
 /// How long a prompt someone waits on waits in `queue_slot` for a turn lock held with no turn
 /// shown (or a restore) before it joins the queue, which answers it (#55502's bound).
+// timeout: past it the prompt joins the queue, which answers it (#55502).
 pub(crate) const TURN_LOCK_WAIT: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Copy, Debug)]
@@ -118,16 +132,11 @@ impl Admission {
         };
         *self.guard.lock().unwrap_or_else(|e| e.into_inner()) = Some(guard);
         self.enter("setup");
-        let lease = Arc::downgrade(self);
-        scope.spawn_named("prompt-admission-lease", async move {
-            tokio::time::sleep(ADMISSION_BOUND).await;
-            let Some(admission) = lease.upgrade() else { return };
-            let lapsed = admission.guard.lock().unwrap_or_else(|e| e.into_inner()).take();
-            if lapsed.is_some() {
-                let stage = admission.stage_now().name();
-                tracing::warn!(session = %admission.session, stage, "prompt admission lease lapsed: let go");
-            }
-        });
+        scope.spawn_named("prompt-admission-lease", lease(Arc::downgrade(self), Instant::now()));
+    }
+
+    fn held(&self) -> bool {
+        self.guard.lock().unwrap_or_else(|e| e.into_inner()).is_some()
     }
 
     /// Lets the lock go: the prompt was accepted, or it left.
@@ -173,6 +182,34 @@ impl Admission {
     /// The due time `queue_slot` keeps to for the turn lock: None when no one waits on it.
     pub(super) fn queue_due(&self) -> Option<Instant> {
         self.listened.load(Ordering::SeqCst).then(|| self.answer_due())
+    }
+}
+
+/// A holder's lease: lets its lock go once it held it [`ADMISSION_BOUND`] of the runtime's time
+/// (or [`LEASE_WALL_CAP`] of the wall's). Ends at once when the holder let go or left.
+async fn lease(lease: std::sync::Weak<Admission>, start: Instant) {
+    let (mut last, mut charged) = (start, Duration::ZERO);
+    loop {
+        tokio::time::sleep(LEASE_TICK).await;
+        let now = Instant::now();
+        charged += (now - last).min(LEASE_TICK + LEASE_TICK_SLACK);
+        last = now;
+        let Some(admission) = lease.upgrade() else { return };
+        if !admission.held() {
+            return;
+        }
+        let wall = now - start;
+        if charged < ADMISSION_BOUND && wall < LEASE_WALL_CAP {
+            continue;
+        }
+        let lapsed = admission.guard.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if lapsed.is_some() {
+            let stage = admission.stage_now().name();
+            let (held_ms, wall_ms) = (charged.as_millis() as u64, wall.as_millis() as u64);
+            let starved_ms = wall_ms.saturating_sub(held_ms);
+            tracing::warn!(session = %admission.session, stage, held_ms, wall_ms, starved_ms, "prompt admission lease lapsed: let go");
+        }
+        return;
     }
 }
 
@@ -383,3 +420,7 @@ impl Hub {
         Ok(outcome)
     }
 }
+
+#[cfg(test)]
+#[path = "prompt_admission_tests.rs"]
+mod tests;

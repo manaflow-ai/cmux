@@ -4,6 +4,9 @@
 use super::super::*;
 use super::*;
 
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
+
 #[test]
 fn a_peer_gets_the_binary_for_its_os_and_architecture() {
     assert_eq!(uname_target("Linux x86_64"), Some("x86_64-unknown-linux-musl"));
@@ -556,6 +559,47 @@ impl FakePeer {
             "{calls:?}"
         );
     }
+}
+
+#[test]
+#[cfg(unix)]
+fn an_identical_push_leaves_the_installed_binary_and_previous_build_untouched() {
+    let peer = FakePeer::new("identical-push");
+    let previous = fake_acpmux("previous", Some("previous"));
+    peer.exe(".local/bin/acpmux.prev", &previous);
+    let installed = peer.home.join(".local/bin/acpmux");
+    let prev = peer.home.join(".local/bin/acpmux.prev");
+    let installed_before = std::fs::metadata(&installed).unwrap();
+    let prev_before = std::fs::metadata(&prev).unwrap();
+    let binary = peer.home.join(format!("binaries/acpmux-{TARGET}"));
+    peer.exe(&format!("binaries/acpmux-{TARGET}"), &fake_acpmux(OLD, Some(OLD)));
+
+    let version = push_update(&peer, &binary, Some(OLD), false, false).unwrap();
+
+    assert_eq!(version, format!("acpmux 1.0.0 ({OLD})"));
+    assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(OLD, Some(OLD)));
+    assert_eq!(peer.read(".local/bin/acpmux.prev"), previous);
+    assert_eq!(std::fs::metadata(&installed).unwrap().ino(), installed_before.ino());
+    assert_eq!(std::fs::metadata(&prev).unwrap().ino(), prev_before.ino());
+    assert!(!peer.exists(".local/bin/.acpmux-new"));
+}
+
+#[test]
+#[cfg(unix)]
+fn an_identical_push_repairs_a_nonexecutable_install() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let peer = FakePeer::new("identical-push-mode");
+    let installed = peer.home.join(".local/bin/acpmux");
+    std::fs::set_permissions(&installed, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let rel = format!("binaries/acpmux-{TARGET}");
+    peer.exe(&rel, &fake_acpmux(OLD, Some(OLD)));
+
+    push_update(&peer, &peer.home.join(rel), Some(OLD), false, false).unwrap();
+
+    let out = peer.exec(".local/bin/acpmux --version", None).unwrap();
+    assert!(out.ok, "{}", out.stderr);
+    assert_eq!(out.stdout.trim(), format!("acpmux 1.0.0 ({OLD})"));
 }
 
 #[test]
