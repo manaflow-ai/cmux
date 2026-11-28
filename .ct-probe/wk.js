@@ -11,6 +11,20 @@
     }
     return "?";
   };
+  let curKey = null;
+  let skipped = 0;
+  const SKIP = window.__skipAnim || "";
+  const animate = Element.prototype.animate;
+  Element.prototype.animate = function (frames, opts) {
+    const first = Array.isArray(frames) ? frames[0] : frames;
+    const isRows = first && "translate" in first && opts && opts.composite === "add";
+    const isField = first && "height" in first && this.classList?.contains("acpmux-md-field");
+    if ((SKIP === "rows" && isRows) || (SKIP === "field" && isField)) {
+      skipped += 1;
+      return animate.call(this, frames, { ...opts, duration: 0 });
+    }
+    return animate.call(this, frames, opts);
+  };
   const js = new Map();
   const layout = new Map();
   let depth = 0;
@@ -37,6 +51,7 @@
         jsInFrame += ms;
         jsTotal += ms;
         add(js, `${kind} ${label}`, ms);
+        if (ms > 2 && curKey) curKey.big.push(`${kind} ${label.split(" ")[0]} ${ms.toFixed(0)}`);
       }
     };
   };
@@ -81,7 +96,7 @@
       const t = now();
       const r = orig.apply(this, args);
       const ms = now() - t;
-      if (ms > 0.3) add(layout, `${name} ${site(2)}`, ms);
+      if (ms > 0.3) { const where = site(2); add(layout, `${name} ${where}`, ms); if (ms > 2 && curKey) curKey.big.push(`L:${name} ${where.split(" ")[0]} ${ms.toFixed(0)}`); }
       else add(layout, `${name} (fast)`, ms);
       return r;
     };
@@ -105,10 +120,11 @@
   // Per key: keydown time, the next rAF after it, the JS run in between, the input's height and scroller height.
   const keys = [];
   addEv.call(window, "keydown", (e) => {
-    const k = { i: keys.length, t: now(), key: e.key, js0: jsTotal };
-    keys.push(k);
+    const k = { i: keys.length, t: now(), key: e.key, js0: jsTotal, big: [], grew: false };
+    keys.push(k); curKey = k;
     raf(() => { k.raf = now() - k.t; k.js = jsTotal - k.js0; setTimeout(() => { k.late = now() - k.t; }, 0); });
   }, true);
+  addEv.call(document, "acpmux-field-growth", () => { if (curKey) curKey.grew = true; }, true);
   const started = now();
   g.__probe = () => {
     const top = (map, k) =>
@@ -130,7 +146,9 @@
       slow_frames: slow.length,
       slow_gap_ms: Math.round(slowGap),
       slow_js_ms: Math.round(slowJs),
-      slow_keys: keys.filter((k) => k.raf > 30).map((k) => `#${k.i} ${k.key} t${Math.round(k.t - started)} raf${k.raf.toFixed(0)} js${k.js.toFixed(1)}`),
+      slow_keys: keys.filter((k) => k.raf > 30).map((k) => `#${k.i} ${k.key} t${Math.round(k.t - started)} raf${k.raf.toFixed(0)} js${k.js.toFixed(1)}${k.grew ? " GREW" : ""} ${k.big.slice(0, 8).join("; ")}`),
+      grew_keys: keys.filter((k) => k.grew).map((k) => `#${k.i} raf${k.raf?.toFixed(0)} next[${keys.slice(k.i + 1, k.i + 6).map((n) => n.raf?.toFixed(0)).join(",")}]`),
+      skipped: skipped,
       slow_gaps: gaps.map((x, i) => [i, x[0], x[1]]).filter((x) => x[1] > 33).slice(0, 60).map((x) => `f${x[0]} ${x[1].toFixed(0)} js${x[2].toFixed(1)}`),
       js: top(js, 25),
       layout: top(layout, 25),
