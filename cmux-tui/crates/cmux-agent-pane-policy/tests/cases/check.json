@@ -31,6 +31,7 @@
     "page_id": "1",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
@@ -73,6 +74,7 @@
     "page_id": "1",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
@@ -159,6 +161,7 @@
     "page_id": "1",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
@@ -215,7 +218,7 @@
   }
  },
  {
-  "name": "first initialize with a _meta key beside acpmux goes without that key (P0 strip, cmux#49717)",
+  "name": "first initialize with a _meta key beside acpmux goes without it (P0 strip, cmux#49717)",
   "text": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":1,\"_meta\":{\"acpmux\":{\"peerRowBatches\":true},\"other\":true}}}",
   "state": {
    "first": true,
@@ -245,20 +248,21 @@
     "is_first": true,
     "method": "initialize",
     "page_id": "1",
-    "attach_session": null,
-    "foreign_source": false,
-    "free": true,
-    "handoff_id": null,
-    "harness_enable": false,
-    "needs_click": false,
-    "needs_gesture": false,
-    "needs_path_check": false,
+    "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
+    "needs_gesture": false,
+    "needs_click": false,
+    "needs_path_check": false,
     "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
     "starts_local_session": false,
-    "ticket": null
+    "free": true
    }
   }
  },
@@ -306,6 +310,7 @@
     "page_id": "2",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
@@ -341,7 +346,7 @@
   }
  },
  {
-  "name": "P0 drops a forward mark (unknown _meta.acpmux key), cmux#49717",
+  "name": "P0 drops a forward mark (cmux#49717): the daemon never sees it",
   "text": "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"session/prompt\",\"params\":{\"sessionId\":\"s1\",\"prompt\":[],\"_meta\":{\"acpmux\":{\"via\":\"app\"}}}}",
   "state": {
    "first": false,
@@ -353,6 +358,18 @@
    "denies": []
   },
   "expect": {
+   "frame": {
+    "id": 4,
+    "jsonrpc": "2.0",
+    "method": "session/prompt",
+    "params": {
+     "_meta": {
+      "acpmux": {}
+     },
+     "prompt": [],
+     "sessionId": "s1"
+    }
+   },
    "facts": {
     "attach_session": null,
     "foreign_source": false,
@@ -365,24 +382,13 @@
     "needs_gesture": false,
     "needs_path_check": false,
     "other_meta": false,
+    "other_meta_keys": [],
     "page_id": "4",
     "pick": null,
     "session_id": null,
     "setting": null,
     "starts_local_session": false,
     "ticket": null
-   },
-   "frame": {
-    "id": 4,
-    "jsonrpc": "2.0",
-    "method": "session/prompt",
-    "params": {
-     "_meta": {
-      "acpmux": {}
-     },
-     "prompt": [],
-     "sessionId": "s1"
-    }
    }
   }
  },
@@ -443,6 +449,7 @@
     "page_id": "6",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
@@ -486,6 +493,7 @@
     "page_id": "7",
     "ticket": "t2",
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": {
      "method": "session/set_mode",
      "params": {
@@ -542,6 +550,7 @@
     "page_id": "8",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": true,
@@ -595,6 +604,7 @@
     "page_id": "9",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
@@ -637,6 +647,7 @@
     "page_id": "10",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
@@ -680,6 +691,7 @@
     "page_id": "11",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
@@ -725,6 +737,7 @@
     "page_id": "12",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": true,
@@ -770,6 +783,7 @@
     "page_id": "12",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": true,
@@ -813,6 +827,7 @@
     "page_id": "13",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
@@ -855,6 +870,7 @@
     "page_id": "12",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
@@ -898,6 +914,7 @@
     "page_id": "12",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
@@ -940,6 +957,7 @@
     "page_id": "12",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
@@ -983,6 +1001,7 @@
     "page_id": "13",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
@@ -1025,6 +1044,7 @@
     "page_id": "14",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
@@ -1068,6 +1088,7 @@
     "page_id": "14",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
@@ -1109,6 +1130,7 @@
     "page_id": "2",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
@@ -1152,6 +1174,7 @@
     "page_id": "15",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
@@ -1195,6 +1218,7 @@
     "page_id": "16",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
@@ -1238,6 +1262,7 @@
     "page_id": "16",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": true,
@@ -1281,6 +1306,7 @@
     "page_id": "17",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
@@ -1330,6 +1356,7 @@
     "page_id": "18",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
@@ -1380,6 +1407,7 @@
     "page_id": "19",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": true,
@@ -1421,6 +1449,7 @@
     "page_id": null,
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
@@ -1488,6 +1517,7 @@
     "page_id": "21",
     "ticket": "t4",
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": {
      "method": "session/prompt",
      "params": {
@@ -1536,6 +1566,7 @@
     "page_id": "22",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": true,
@@ -1606,6 +1637,7 @@
     "page_id": "30",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": true,
@@ -1723,6 +1755,7 @@
     "page_id": "31",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": true,
@@ -1778,6 +1811,7 @@
     "page_id": "32",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
@@ -1943,6 +1977,7 @@
     "page_id": "44",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": true,
@@ -2020,6 +2055,7 @@
     "page_id": "43",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": true,
@@ -2151,6 +2187,7 @@
     "page_id": "50",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": true,
@@ -2237,6 +2274,7 @@
     "page_id": "52",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": true,
@@ -2306,6 +2344,7 @@
     "page_id": "44",
     "ticket": "t5",
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": {
      "method": "_acpmux/permission_respond",
      "params": {
@@ -2364,6 +2403,7 @@
     "page_id": "45",
     "ticket": "t6",
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": {
      "method": "_acpmux/permission_respond",
      "params": {
@@ -2429,6 +2469,7 @@
     "page_id": "45",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": true,
@@ -2538,6 +2579,7 @@
     "page_id": "60",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
@@ -2585,6 +2627,7 @@
     "page_id": "61",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": false,
@@ -2639,7 +2682,7 @@
   }
  },
  {
-  "name": "session/auth goes without a command param (P0 strip, cmux#49717)",
+  "name": "session/auth goes without a command param (P0, cmux#49717)",
   "text": "{\"jsonrpc\":\"2.0\",\"id\":64,\"method\":\"_acpmux/session/auth\",\"params\":{\"sessionId\":\"s1\",\"command\":\"sh -c id\"}}",
   "state": {
    "first": false,
@@ -2651,6 +2694,14 @@
    "denies": []
   },
   "expect": {
+   "frame": {
+    "id": 64,
+    "jsonrpc": "2.0",
+    "method": "_acpmux/session/auth",
+    "params": {
+     "sessionId": "s1"
+    }
+   },
    "facts": {
     "attach_session": null,
     "foreign_source": false,
@@ -2663,25 +2714,18 @@
     "needs_gesture": false,
     "needs_path_check": false,
     "other_meta": false,
+    "other_meta_keys": [],
     "page_id": "64",
     "pick": null,
     "session_id": null,
     "setting": null,
     "starts_local_session": false,
     "ticket": null
-   },
-   "frame": {
-    "id": 64,
-    "jsonrpc": "2.0",
-    "method": "_acpmux/session/auth",
-    "params": {
-     "sessionId": "s1"
-    }
    }
   }
  },
  {
-  "name": "session/auth with a target goes without a command param (P0 strip, cmux#49717)",
+  "name": "session/auth with a target goes without a command param (P0, cmux#49717)",
   "text": "{\"jsonrpc\":\"2.0\",\"id\":65,\"method\":\"_acpmux/session/auth\",\"params\":{\"target\":{\"harness\":\"claude\"},\"initial_command\":\"sh -c id\"}}",
   "state": {
    "first": false,
@@ -2693,6 +2737,16 @@
    "denies": []
   },
   "expect": {
+   "frame": {
+    "id": 65,
+    "jsonrpc": "2.0",
+    "method": "_acpmux/session/auth",
+    "params": {
+     "target": {
+      "harness": "claude"
+     }
+    }
+   },
    "facts": {
     "attach_session": null,
     "foreign_source": false,
@@ -2705,27 +2759,18 @@
     "needs_gesture": false,
     "needs_path_check": false,
     "other_meta": false,
+    "other_meta_keys": [],
     "page_id": "65",
     "pick": null,
     "session_id": null,
     "setting": null,
     "starts_local_session": false,
     "ticket": null
-   },
-   "frame": {
-    "id": 65,
-    "jsonrpc": "2.0",
-    "method": "_acpmux/session/auth",
-    "params": {
-     "target": {
-      "harness": "claude"
-     }
-    }
    }
   }
  },
  {
-  "name": "session/auth goes without _meta (P0 strip, cmux#49717)",
+  "name": "session/auth goes without _meta (P0, cmux#49717)",
   "text": "{\"jsonrpc\":\"2.0\",\"id\":66,\"method\":\"_acpmux/session/auth\",\"params\":{\"sessionId\":\"s1\",\"_meta\":{\"acpmux\":{\"via\":\"app\"}}}}",
   "state": {
    "first": false,
@@ -2737,6 +2782,14 @@
    "denies": []
   },
   "expect": {
+   "frame": {
+    "id": 66,
+    "jsonrpc": "2.0",
+    "method": "_acpmux/session/auth",
+    "params": {
+     "sessionId": "s1"
+    }
+   },
    "facts": {
     "attach_session": null,
     "foreign_source": false,
@@ -2749,20 +2802,13 @@
     "needs_gesture": false,
     "needs_path_check": false,
     "other_meta": false,
+    "other_meta_keys": [],
     "page_id": "66",
     "pick": null,
     "session_id": null,
     "setting": null,
     "starts_local_session": false,
     "ticket": null
-   },
-   "frame": {
-    "id": 66,
-    "jsonrpc": "2.0",
-    "method": "_acpmux/session/auth",
-    "params": {
-     "sessionId": "s1"
-    }
    }
   }
  },
@@ -2944,6 +2990,7 @@
     "page_id": "73",
     "ticket": null,
     "other_meta": false,
+    "other_meta_keys": [],
     "pick": null,
     "session_id": null,
     "needs_gesture": true,

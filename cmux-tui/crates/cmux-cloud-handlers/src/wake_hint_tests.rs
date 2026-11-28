@@ -156,3 +156,40 @@ fn answers_serialize_as_the_app_reads_them() {
         json!({"do": "wait", "checkAfterMs": 5})
     );
 }
+
+/// RFD 0144: "Opening a chat, scrolling it, browsing its files and checking on it from the phone
+/// leave the list." With the chat served from the daemon's copy, opening it wakes nothing; a
+/// terminal and the composer's first key still do.
+#[test]
+fn a_chat_read_without_the_machine_is_no_wake() {
+    let opens = |reads: bool| {
+        let mut hints = WakeHints::default();
+        let mut wakes = 0;
+        // Ten opens of ten paused chats, a minute apart (no debounce, no cap in play).
+        for i in 0..10u64 {
+            let mut h = focus(&format!("m{i}"));
+            h.reads_without_wake = reads;
+            if hints.hint(&h, i * 60_000) == HintDecision::Resume {
+                wakes += 1;
+            }
+        }
+        wakes
+    };
+    assert_eq!(opens(false), 10, "today: every open of a paused chat wakes its machine");
+    assert_eq!(opens(true), 0, "read from the copy: no open wakes one");
+
+    let mut hints = WakeHints::default();
+    for (signal, want) in [
+        ("focus", HintDecision::Skip("readsWithoutWake")),
+        ("unlock", HintDecision::Skip("readsWithoutWake")),
+        ("terminal", HintDecision::Resume),
+    ] {
+        let h = hint(json!({"v": 1, "machine": signal, "signal": signal, "enabled": true,
+            "allowed": true, "loaded": true, "status": "paused", "readsWithoutWake": true}));
+        assert_eq!(hints.hint(&h, 0), want, "{signal}");
+    }
+    // An older shell sends no such fact: its focus wakes as before.
+    let old = hint(json!({"v": 1, "machine": "old", "signal": "focus", "enabled": true,
+        "allowed": true, "loaded": true, "status": "paused"}));
+    assert_eq!(hints.hint(&old, 0), HintDecision::Resume);
+}
