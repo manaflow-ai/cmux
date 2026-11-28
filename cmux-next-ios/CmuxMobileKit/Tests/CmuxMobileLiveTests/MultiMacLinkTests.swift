@@ -452,6 +452,55 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         #expect(dialer.dialCount("m1") == dials, "cleared by the data, not by a redial")
     }
 
+    /// Leo, 2026-11-27: "Hidden-error changes keep Retry tested." and "When connection text is hidden, a test
+    /// still checks that a long outage shows Retry or Reconnect." A redial says nothing (no "Reconnecting", the
+    /// header line stays empty, past the quiet bound too: #53778, #57933), so a link that stays down must still
+    /// reach a state with Retry: the Mac's view says "Not responding" and offers Retry, and its terminals
+    /// say offline. A change that hides more text and drops that step fails here. (What Retry then does:
+    /// ``bannerRetryRedialsTheFocusedMacAndKeepsErrorsInDiagnostics``.)
+    @Test func aLongOutageWithNoConnectionTextStillOffersRetry() async throws {
+        let key = "cmuxMobile.live.mac.t-multimac"
+        UserDefaults.standard.removeObject(forKey: key)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+        let store = emptyStore()
+        let dialer = PerMacDialer()
+        let live = coordinator(store: store, dialer: dialer)
+        defer { live.stop() }
+        await settle { store.macConnection["m1"] == .connected }
+        let session = try #require(live.sessions["m1"])
+        session.outdated = false
+        let mac = MacDevice(id: "m1", name: "Aziz's MacBook Pro", isOnline: true)
+        #expect(!store.macReachability(mac).offersRetry, "connected: nothing to retry")
+
+        // The link drops and every redial times out. No await below: the test, not the link's
+        // tasks, moves the phase and the outage's clock.
+        dialer.setUnreachable("m1", true)
+        let link = session.link
+        link.send(.linkDropped(generation: link.dialGeneration, reason: "dropped"))
+        guard case .connecting = link.phase else {
+            Issue.record("expected a redial, got \(link.phase)")
+            return
+        }
+        live.phaseChanged(session)
+        #expect(store.macLinkStatus["m1"] == nil, "a redial says nothing")
+        #expect(store.macConnection["m1"] == .connecting)
+        #expect(!store.macReachability(mac).offersRetry, "a blip offers no Retry")
+        #expect(!session.terminalsOffline)
+
+        // A minute later, still redialing: far past every bound (the quiet bound, the stall's twice that).
+        session.outage.foregrounded(at: ContinuousClock.now - .seconds(60))
+        live.phaseChanged(session)
+        #expect(store.macLinkStatus["m1"] == nil, "the connection text stays hidden")
+        #expect(store.macConnection["m1"] == .failed(LiveCoordinator.stalledLine))
+        #expect(store.macFailure["m1"] == .hostUnreachable)
+        let reach = store.macReachability(mac)
+        #expect(reach == .noAnswer(listedOnline: true, lastSeenAt: nil))
+        #expect(reach.offersRetry, "a long outage offers Retry")
+        #expect(reach.shortStatus == "Not responding")
+        #expect(session.terminalsOffline, "its terminals say offline (their Reconnect)")
+        dialer.setUnreachable("m1", false)
+    }
+
     /// Leo, 2026-11-27: "Stale errors clear on fresh data." The chats surface: a bind that timed out leaves
     /// "Chats: ..." in Diagnostics; the chat list arriving clears it, and that bind's late failure stays dropped.
     @Test func chatListArrivingClearsAChatsTimeoutError() async throws {
