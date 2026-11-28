@@ -100,8 +100,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         self.state = state
         self.services = services
         let sidebar = SidebarBridge(services: services, state: state)
-        self.sidebar = sidebar
-        SidebarProfileControl(services: services, state: state).install(model: sidebar.model, sidebar: sidebar.container.sidebarView)
+        self.sidebar = sidebar; DebugTimings.markLaunch("window.sidebar_bridge_made") // startup-tti: window.make_start to window.sidebar_made split
+        SidebarProfileControl(services: services, state: state).install(model: sidebar.model, sidebar: sidebar.container.sidebarView); DebugTimings.markLaunch("window.profile_control_made")
         // The footer's Search button opens the Command Palette (Lawrence 2026-11-23: "we need some mechanism to
         // educate user about cmd shift p"): the press runs the same action as the shortcut, and the tooltip
         // shows its bound key (plans/cmux-next/sidebar-search.md).
@@ -507,6 +507,21 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
     override func zoom(_ sender: Any?) { if !zoomState.zoom(self) { super.zoom(sender) } }
     override var isZoomed: Bool { zoomState.isZoomingIn ?? super.isZoomed }
     func windowZoomFinished(_ generation: Int) { zoomState.end(generation) }
+
+    /// Setting the window's minimum also sets the full-screen tile sizes AppKit asks for, so it never measures for them.
+    /// Unset, AppKit derives both (one cache) from the content's Auto Layout constraints after each change of the
+    /// window's views (`_doUpdateTilingConstraintsImmediately`, a run loop observer in the background or full screen),
+    /// walking every view in the window: about 3 ms of the main thread after each new tab, workspace or pane in a fleet
+    /// sample (CMUX NEXT Stable perf gate, 2026-11-27). Answering only the minimum moves that walk to the maximum's getter.
+    /// The tile minimum is the window's own (`minSize`); the content's constraints ask less at shipping settings (the
+    /// widest sidebar, 360 pt at 125%, is about 470 pt). The maximum is AppKit's own answer, read once here: set at init,
+    /// before the content, that is its unconstrained maximum.
+    override var minSize: NSSize {
+        didSet {
+            minFullScreenContentSize = contentRect(forFrameRect: NSRect(origin: .zero, size: minSize)).size
+            maxFullScreenContentSize = super.maxFullScreenContentSize
+        }
+    }
 
     /// Every frame stays on the test screen in an agent screenshot launch, whichever path sets it
     /// (`WindowPlacement.containedOnTestScreen`), and is kept as given with no display (`constrainsToScreen`).

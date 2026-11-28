@@ -104,6 +104,10 @@ pub(super) fn finish(home: &Path, exit_status: i32) {
         super::stop_causes::EXIT_TASK_PANIC => {
             StopCause::SelfStop("a supervised task could not go on (70)".into())
         }
+        #[cfg(unix)]
+        super::stop_causes::EXIT_HANDOFF_FAILED => {
+            StopCause::SelfStop("a restart's exec in place failed (71)".into())
+        }
         _ => named.unwrap_or_else(|| StopCause::Intentional("stopped".into())),
     };
     if let Err(e) = ends::mark(&files(home), owner.epoch, cause, &write) {
