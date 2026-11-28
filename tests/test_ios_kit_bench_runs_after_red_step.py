@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
-"""The kit job's Instant list bench still runs when an earlier step of the job is red, except on a pull request.
+"""The kit job's Instant list bench stays on push/dispatch lanes, never pull requests.
 
-The bench steps of .github/workflows/cmux-next-ios-kit.yml are advisory and run with
-`!cancelled()`, so a red test step never hides their numbers. The steps they build
-on (Xcode, Rust, the cargo cache, CmuxMobileLinkFFI.xcframework) had no condition,
-though, so a red lint step before them skipped all four and the bench then had
-nothing to build with: it printed no INSTANTPERF line. From 2026-11-22 the
-`Connection notices` step was red on feat-cmux-next for over a day (run
-45149422676, three findings in files no iPhone bench reads), and every kit run in
-that time read "no measurement" for the iPhone speed checks.
+The benches are advisory measurements and add 3-10 minutes to a pull request without
+changing its verdict. They remain on feat-cmux-next pushes and dispatch/nightly runs,
+where the trend is recorded without charging every PR. The setup steps still survive
+an earlier red step on those measurement lanes, so their numbers are not lost when a
+required check fails first.
 
   python3 tests/test_ios_kit_bench_runs_after_red_step.py
 """
@@ -68,13 +65,15 @@ class BenchRunsAfterARedStep(unittest.TestCase):
                 "has nothing to build with and prints no INSTANTPERF line",
             )
 
-    def test_a_red_pull_request_does_not_wait_for_the_advisory_bench(self) -> None:
-        # On a pull request the red step is already the verdict; the advisory bench (3-10 min on a Mac) is skipped so
-        # the red check reports at once (goal ios-ci-under-5min). Base pushes and dispatches still bench after a red.
+    def test_pull_requests_skip_the_advisory_bench(self) -> None:
+        # The bench adds 3-10 minutes to a PR without changing its verdict. Push and dispatch/nightly runs retain the
+        # measurement, and !cancelled() keeps it available after a required step fails on those lanes.
         by_id = {step.get("id"): step for step in steps()}
         for bench in BENCH_IDS:
             condition = str(by_id[bench].get("if", ""))
-            self.assertIn("github.event_name != 'pull_request' || success()", condition, f"{bench}: {condition}")
+            self.assertIn("!cancelled()", condition, f"{bench}: {condition}")
+            self.assertIn("github.event_name != 'pull_request'", condition, f"{bench}: {condition}")
+            self.assertNotIn("success()", condition, f"{bench}: {condition}")
 
     def test_a_red_lint_still_fails_the_job(self) -> None:
         # The lint keeps its teeth: it is not advisory, only no longer in the bench's way.

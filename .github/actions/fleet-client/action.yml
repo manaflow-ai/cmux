@@ -26,8 +26,16 @@ runs:
         client_dir="$RUNNER_TEMP/fleet-client"
         mkdir -p "$client_dir"
         ok=0
+        # rc 7 (refused) or 28 (no connection within --connect-timeout) on every try is a runner with no route
+        # to the controller, which answers on the tailnet only: the cmux-runner-pool-* VMs are not members
+        # (cmuxterm-hq docs/handbook/fleet-waiter-job-holds-its-mini.md, "The cmux-linux pool is off the
+        # tailnet"; runs 46106977634, 46107673810, 46109407911 timed out 3 x 30 s on four zones' VMs).
+        no_route=0
         for try in 1 2 3; do
-          if curl -fsS -m 30 "$CONTROLLER/v1/client/manifest" -o "$client_dir/manifest.json" &&
+          rc=0
+          curl -fsS --connect-timeout 10 -m 30 "$CONTROLLER/v1/client/manifest" -o "$client_dir/manifest.json" || rc=$?
+          if [[ "$rc" == 7 || "$rc" == 28 ]]; then no_route=$((no_route + 1)); fi
+          if [[ "$rc" == 0 ]] &&
             python3 -I - "$client_dir" "$CONTROLLER" <<'PY'
         import hashlib, json, sys, urllib.request
         from pathlib import Path
@@ -43,11 +51,19 @@ runs:
           then ok=1; break; fi
           sleep $((try * 5))
         done
+        if [[ "$ok" != 1 && "$no_route" == 3 ]]; then
+          echo "::error title=fleet client::runner ${RUNNER_NAME:-?} has no route to the controller (3 connects failed): it is not on the tailnet. The cmux-linux pool's VMs are not tailnet members; see cmuxterm-hq docs/handbook/fleet-waiter-job-holds-its-mini.md#the-cmux-linux-pool-is-off-the-tailnet-2026-11-28"
+          exit 1
+        fi
         if [[ "$ok" != 1 || ! -f "$client_dir/ci-client.py" ]]; then
           echo "::error title=fleet client::the controller's client could not be fetched after 3 tries"
           exit 1
         fi
-        printf '#!/bin/sh\nexec python3 -I %q "$@"\n' "$client_dir/ci-client.py" > "$client_dir/cmux-ci"
+        # Isolated mode (-I) keeps the job's folder and environment off the import path; it also leaves out the
+        # client's own folder, and ci-client.py imports its sibling files (fleet_client.py), so the wrapper adds
+        # that one folder back. Run 46086119436: "ModuleNotFoundError: No module named 'fleet_client'".
+        launch='import runpy, sys; d = sys.argv.pop(1); sys.path.insert(0, d); sys.argv[0] = d + "/ci-client.py"; runpy.run_path(sys.argv[0], run_name="__main__")'
+        printf '#!/bin/sh\nexec python3 -I -c %q %q "$@"\n' "$launch" "$client_dir" > "$client_dir/cmux-ci"
         chmod +x "$client_dir/cmux-ci"
         env_name="CMUX_CI_"CLIENT
         printf '%s=%s\n' "$env_name" "$client_dir/cmux-ci" >> "$GITHUB_ENV"
@@ -57,8 +73,19 @@ runs:
           echo "::error title=fleet client::installed client is not executable: $client"
           exit 1
         fi
-        "$client" --help >/dev/null 2>&1 || {
-          echo "::error title=fleet client::installed client could not start: $client"
-          exit 1
-        }
+        # Why a client did not start goes to the log (run 46078464708 on a gateway Mac failed here after 106 s
+        # with nothing to read). URLs are cut from it: the controller's address is not for a public log.
+        if ! "$client" --help >"$client_dir/help.out" 2>&1; then
+          echo "fetched client did not start (python3: $(command -v python3), $(python3 -V 2>&1)); its last lines:"
+          tail -n 20 "$client_dir/help.out" | sed -E 's#[a-z]+://[^[:space:]"]+#<url>#g; s#[0-9]+(\.[0-9]+){3}(:[0-9]+)?#<addr>#g; s#[A-Za-z0-9.-]+\.ts\.net(:[0-9]+)?#<addr>#g'
+          # A gateway Mac carries its own installed client; use it when the fetched one cannot start there.
+          installed="$HOME/.local/bin/cmux-ci"
+          if [[ -x "$installed" ]] && "$installed" --help >/dev/null 2>&1; then
+            echo "fleet client: the fetched client could not start; using this runner's installed client ($installed)"
+            printf '%s=%s\n' "$env_name" "$installed" >> "$GITHUB_ENV"
+          else
+            echo "::error title=fleet client::installed client could not start: $client"
+            exit 1
+          fi
+        fi
         printf '%s=%s\n' "CMUX_CI_"CONTROLLER "$CONTROLLER" >> "$GITHUB_ENV"
