@@ -21,6 +21,11 @@ the client through the gate instead), and a site that left the code fails until 
 `--write`), so the count (`--json`) is exact. The scan scope is the host guard's (SCAN), with
 comments, tests, mocks and Rust #[cfg(test)] modules left out the same way.
 
+On a pull request (CMUX_GUARDS_BASE_SHA set) it reads only the files the change touched, at the base and at the
+head (tests/guard_delta.py), plus every file whose entry in egress_ungated.json the change edited, and reports the
+problems those files have at the head that they did not have at the base. A site is counted in its own file, so
+nothing else can change. A change to RULES scans everything, as does a branch's own run.
+
 Run it: python3 tests/test_egress_gate.py. Rewrite the list after moving sites to the gate: --write.
 Print the count: --json.
 """
@@ -35,6 +40,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import guard_delta  # noqa: E402
 from test_classic_cloud_routes import clean, in_scope  # noqa: E402
 from test_outbound_hosts import DOC, SCAN  # noqa: E402
 
@@ -43,6 +49,8 @@ import privacy_hosts_from_gate as gate_doc  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 UNGATED = ROOT / "tests" / "egress_ungated.json"
+# A change to one of these scans everything: this guard and the scope it borrows (guard_delta.py adds itself).
+RULES = ["tests/test_egress_gate.py", "tests/test_classic_cloud_routes.py", "tests/test_outbound_hosts.py"]
 # The gate's own sources: the only place a raw client may be made (Rust: cmux-egress; Swift: CmuxEgress).
 GATES: tuple[str, ...] = ("cmux-tui/crates/cmux-egress/", "Packages/Shared/CmuxEgress/Sources/")
 # The allowlist: the `connects` hosts the Rust gate lets through, each with what the app sends there. The source
@@ -87,22 +95,58 @@ def sites_in(text: str, rel: str) -> dict[str, int]:
     return out
 
 
+def scanned(rel: str) -> bool:
+    """Whether the scan reads this file: a Rust or Swift source in SCAN, not the gate's own."""
+    return Path(rel).suffix in COMPILED and in_scope(rel, SCAN) and not rel.startswith(GATES or ("\0",))
+
+
+def found_in(texts: dict[str, str]) -> dict[str, dict[str, int]]:
+    found: dict[str, dict[str, int]] = {}
+    for rel in sorted(texts):
+        got = sites_in(texts[rel], rel)
+        if got:
+            found[rel] = dict(sorted(got.items()))
+    return found
+
+
 def scan(root: Path = ROOT) -> dict[str, dict[str, int]]:
     """{file: {form: count}} for every ungated outbound site in NEXT's source."""
     p = subprocess.run(["git", "-C", str(root), "ls-files", "-z", "--", *SCAN["include"]], capture_output=True)
     if p.returncode != 0:
         raise RuntimeError(p.stderr.decode(errors="replace"))
-    found: dict[str, dict[str, int]] = {}
-    for rel in sorted(r for r in p.stdout.decode().split("\0") if r):
-        if Path(rel).suffix not in COMPILED or not in_scope(rel, SCAN) or rel.startswith(GATES or ("\0",)):
-            continue
-        path = root / rel
-        if path.is_symlink() or not path.is_file():
-            continue
-        got = sites_in(path.read_text(encoding="utf-8", errors="replace"), rel)
-        if got:
-            found[rel] = dict(sorted(got.items()))
-    return found
+    rels = [r for r in p.stdout.decode().split("\0") if r and scanned(r)]
+    return found_in(guard_delta.text_at_head(rels, root, errors="replace"))
+
+
+def change_problems(base: str, paths: list[str], listed: dict[str, dict[str, int]],
+                    root: Path = ROOT) -> list[str] | None:
+    """The problems the change since `base` added: the touched files and the files whose list entry it edited,
+    read at the base and at the head. None when the base's list cannot be read (scan everything)."""
+    rel_list = UNGATED.relative_to(ROOT).as_posix()
+    base_text = guard_delta.blobs_at(base, [rel_list], root).get(rel_list)
+    if base_text is None:
+        return None
+    base_listed = json.loads(base_text)["files"]
+    edited = {r for r in set(listed) | set(base_listed) if listed.get(r) != base_listed.get(r)}
+    rels = sorted({p for p in paths if scanned(p)} | edited)
+    head = problems(found_in(guard_delta.text_at_head(rels, root, errors="replace")),
+                    {r: listed[r] for r in rels if r in listed})
+    was = set(problems(found_in(guard_delta.blobs_at(base, rels, root, errors="replace")),
+                       {r: base_listed[r] for r in rels if r in base_listed}))
+    return [p for p in head if p not in was]
+
+
+def check(root: Path = ROOT, listed: dict[str, dict[str, int]] | None = None) -> list[str]:
+    """The ungated-site problems: on a pull request the change's own, else the whole tree's."""
+    listed = load(root / UNGATED.relative_to(ROOT)) if listed is None else listed
+    base = guard_delta.base_commit(root)
+    paths = guard_delta.changed(RULES, root, base) if base else None
+    if base and paths is not None:
+        got = change_problems(base, paths, listed, root)
+        if got is not None:
+            guard_delta.note("egress gate", base, paths)
+            return got
+    return problems(scan(root), listed)
 
 
 def load(path: Path = UNGATED) -> dict[str, dict[str, int]]:
@@ -127,7 +171,7 @@ def problems(found: dict[str, dict[str, int]], listed: dict[str, dict[str, int]]
 
 def gate_hosts() -> list[str]:
     """The allowlist's hosts, in file order."""
-    return [h for h, _ in gate_doc.read_hosts(GATE_HOSTS.read_text())]
+    return [row.host for row in gate_doc.read_hosts(GATE_HOSTS.read_text())]
 
 
 def swift_gate_hosts() -> list[str]:
@@ -159,12 +203,20 @@ def write(found: dict[str, dict[str, int]]) -> None:
 
 class EgressGate(unittest.TestCase):
     def test_no_new_ungated_site(self):
-        bad = problems(scan(), load())
+        bad = check()
         self.assertFalse(bad, "\n" + "\n".join(bad))
 
     def test_the_allowlist_is_sorted_and_described(self):
         hosts = gate_hosts()  # raises on a host with no description or listed twice
         self.assertEqual(hosts, sorted(hosts), "cmux-egress/hosts.txt: keep the hosts sorted")
+
+    def test_a_row_missing_sends_when_or_off_fails(self):
+        whole = "# the API\n# sends: a\n# when: b\n# off: c\napi.cmux.dev\n"
+        self.assertEqual(gate_doc.read_hosts(whole)[0].off, "c")
+        for key in gate_doc.FIELDS:
+            short = "".join(line + "\n" for line in whole.splitlines() if not line.startswith(f"# {key}:"))
+            with self.assertRaisesRegex(ValueError, f"no `# {key}:`"):
+                gate_doc.read_hosts(short)
 
     def test_the_doc_is_generated_from_the_allowlist(self):
         doc = DOC.read_text()
