@@ -278,6 +278,23 @@ async fn a_lane_vms_reads_go_through_the_broker() {
         "gh api gave no HTTP answer: To get started with GitHub CLI, please run:  gh auth login"
     ));
     assert!(!no_login("gh api gave no HTTP answer: HTTP 502"));
+    // A lane VM's `gh` is the broker's client: it refuses `--include` before sending anything.
+    assert!(no_login(
+        "gh api gave no HTTP answer: gh: not sent: nothing left this VM for this call\ngh: gh api \
+         takes one path here. this VM publishes through the broker (host-gh): git push and gh pr"
+    ));
+    // The real refusal runs past 4 KB with the broker named in its first lines: judged on all of
+    // it, shown as its tail (a 400-char tail alone never matched: gh-read failed on every lane VM).
+    let refusal = format!(
+        "gh: not sent: nothing left this VM for this call\ngh: gh api -H 'If-None-Match: \"x\"': \
+         the broker's read sends its own headers. this VM publishes through the broker (host-gh): \
+         Works here: {}",
+        "gh pr view [N], ".repeat(300)
+    );
+    let (broker, said) = no_answer(&refusal);
+    assert!(broker, "a long broker refusal goes to the broker");
+    assert!(said.len() < 500 && !said.contains("publishes through"), "only its tail is shown");
+    assert!(!no_answer(&"HTTP 502 ".repeat(100)).0);
     let (repo, rest, query) =
         broker_path("repos/o/r/commits/abc/check-runs?per_page=100&page=2").unwrap();
     assert_eq!((repo.as_str(), rest.as_str()), ("o/r", "commits/abc/check-runs"));
