@@ -6,7 +6,4 @@ public nonisolated enum NotificationSoundTiming: String, Hashable, Sendable, Cas
     case whenInactive
     /// Every time, even for the pane in front of the person.
     case always
-
-}
-    }
 }
