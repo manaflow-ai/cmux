@@ -9,9 +9,9 @@
 //! subagent's `failed` end (`error`, `agentId`), and reports a SendMessage resume as that
 //! subagent `running` again (`claude_stdio/inbound.rs`).
 //!
-//! - A top-level subagent that ended `failed` with an agent id and a transient error
-//!   ([`super::turn_errors::transient_cause`]: capacity or transport) waits `autoResumeDelaysMs`
-//!   (the turn retry's waits, staggered alike), then the parent chat gets one prompt, in the same
+//! - A top-level subagent that ended `failed` with an agent id and a recoverable error
+//!   ([`retry_cause`]: capacity, rate limit or transport) waits `autoResumeDelaysMs`
+//!   (at least Retry-After, staggered per helper), then the parent chat gets one prompt, in the same
 //!   session, that tells its agent to resume that subagent with SendMessage to its agent id, and
 //!   to start a new one only when the resume fails. Its `user_message` carries
 //!   `_meta.provenance = {kind: "subagent_retry", subagentId, agentId, attempt}`.
@@ -30,7 +30,7 @@
 //!   to answer (it says to do nothing when the subagent already runs).
 //! - Once its prompt's turn ends with the subagent still failed (the agent did not resume it),
 //!   or it fails again, the next attempt waits; after the configured attempts it is given up
-//!   (`exhausted`). An outage (capacity, a refused connection) is waited out instead, as a cut
+//!   (`exhausted`). An outage (capacity, a rate hold, a refused connection) is waited out instead, as a cut
 //!   turn's is: capped, jittered waits until `outage::OUTAGE_HORIZON_MS` after the failure
 //!   (`subagent_retry_outage.rs`). A person's retry (`_acpmux/retry {sessionId, subagentId}`) fires a waiting
 //!   attempt now, or sends one more (`subagent_retry/manual.rs`).
@@ -42,6 +42,10 @@
 //!   when the retry fires (`retry: null`), is skipped or is given up, and each step logs `subagent_retry {subagentId, agentId, attempt,
 //!   of, reason, outcome, nextAt?, promptId?, skipped?}`, `outcome` one of `scheduled`, `fired`,
 //!   `skipped` or `exhausted`.
+//! - A capacity or rate hold additionally carries `capacityWait: {reason, resumesAt, since,
+//!   error}` while scheduled or in flight, and null after it ends. `resumesAt` is the scheduled
+//!   Unix-ms deadline, or null once the resume is in flight. Views group these as paused helpers;
+//!   the raw `failed` state and error remain diagnostic facts about the interrupted attempt.
 //! - From an attempt's fire (automatic or a person's) until the subagent runs again or the
 //!   attempt is over, its entry carries `retryInFlight: {attempt, of, reason, firedAt, promptId,
 //!   manual}` (`firedAt` in Unix ms; capability `subagent-retry-v2`), and `null` on every other
@@ -87,6 +91,13 @@ const MAX_FAILED: usize = 32;
 #[path = "subagent_retry_outage.rs"]
 mod outage;
 use outage::{attempt_delay, waits_out};
+
+/// A helper can resume after the same capacity/rate hold as its parent. Context overflow,
+/// dead processes and disk recovery need the parent's distinct recovery paths.
+fn retry_cause(error: &str) -> Option<&'static str> {
+    super::turn_errors::resume_cause(error, error)
+        .filter(|cause| matches!(*cause, "capacity" | "rate_limit" | "transport"))
+}
 
 /// The retries, and `steps`: held through each change that logs a record together with that
 /// record (a failure observed, a Stop or close, a wait planned, given up, fired or skipped), so
@@ -347,7 +358,7 @@ impl Hub {
                             skipped.push((id.to_owned(), f, "superseded", "failed", false));
                         }
                         let error = text("error").unwrap_or_default();
-                        let reason = super::turn_errors::transient_cause(error);
+                        let reason = retry_cause(error);
                         if let (Some(agent_id), Some(reason)) = (text("agentId"), reason) {
                             sub.failed = Some(Failure {
                                 agent_id: agent_id.to_owned(),
@@ -435,8 +446,7 @@ impl Hub {
                     _ => "cancelled",
                 };
                 let error = text("summary").unwrap_or_default();
-                let transient =
-                    state == "failed" && super::turn_errors::transient_cause(error).is_some();
+                let transient = state == "failed" && retry_cause(error).is_some();
                 let none = Failure {
                     agent_id: task.to_owned(),
                     error: String::new(),
@@ -591,7 +601,7 @@ impl Hub {
             // did keeps its line, now with no retry to wait for (cmux#52916: two "Subagent Failed
             // 0s" lines, nameless and reasonless, under a reply after a restart).
             let mut entry = json!({"id": id, "parent": null, "state": state,
-                "agentId": sub.agent_id, "retry": null, "retryInFlight": null,
+                "agentId": sub.agent_id, "retry": null, "retryInFlight": null, "capacityWait": null,
                 "retryable": false, "recovered": true});
             if let Some(fields) = entry.as_object_mut() {
                 if !sub.task.is_null() {
@@ -681,7 +691,7 @@ impl Hub {
             } else {
                 delays.len()
             };
-            let delay = match attempt_delay(failure, attempts, delays, &session.id, now) {
+            let delay = match attempt_delay(failure, attempts, delays, id, now) {
                 Some(delay) => delay,
                 None => {
                     failure.idle = true;
@@ -993,6 +1003,14 @@ impl Hub {
         let mut entry = json!({"id": id, "parent": null, "state": state,
             "agentId": failure.agent_id, "retry": retry, "retryInFlight": in_flight,
             "retryable": retryable});
+        // One daemon-owned reading for every surface. Preserve the diagnostic error, but a
+        // helper the daemon will resume is held, not an unrecoverable red failure.
+        entry["capacityWait"] = if open && matches!(failure.reason, "capacity" | "rate_limit") {
+            json!({"reason": failure.reason, "resumesAt": entry["retry"]["nextAt"],
+                "since": failure.at, "error": clip_error(&failure.error)})
+        } else {
+            Value::Null
+        };
         // What names it and why it failed, on every entry: a pane whose history starts after its
         // spawn names its line from this one (cmux#52916).
         let name = {

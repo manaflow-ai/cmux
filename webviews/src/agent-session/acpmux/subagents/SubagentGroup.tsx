@@ -36,6 +36,7 @@ import {
 } from "./subagentGroupModel";
 import { Clock } from "../../../ui/Typography";
 import { intl } from "../../../ui/intl";
+import { capacityEta } from "../capacityWait";
 
 /// A subagent's avatar: the subagent mark in the agent's tone (another family's harness mark,
 /// AgentIdentity.tsx `foreignHarness`), and its place in the running wave
@@ -63,12 +64,30 @@ export function Avatar({ agent, wave }: { agent: Subagent; wave?: number }) {
 /// state and the mark already says it, so it is never worded (Leo, 2026-11-23: "it's running or it's
 /// failed or it's done").
 /// Each count takes the pane language's plural form.
-function groupLabel(t: Translate, language: PaneLanguage, agents: readonly Subagent[]): string {
+function groupLabel(t: Translate, language: PaneLanguage, agents: readonly Subagent[], now: number): string {
   const n = agents.length;
   const count = (state: string) => agents.filter((agent) => agent.state === state).length;
   const [runningCount, failed, done] = [count("running"), count("failed"), count("completed")];
   // Stopped by the person (cancelled) or lost by acpmux (disconnected): ended, not failed.
   const stopped = count("cancelled") + count("disconnected");
+  const paused = agents.filter((agent) => agent.state === "failed" && agent.capacityWait);
+  if (paused.length > 0) {
+    const wait = paused
+      .map((agent) => agent.capacityWait)
+      .filter((value): value is NonNullable<typeof value> => value !== undefined)
+      .sort((a, b) => (a.resumesAt ?? Number.POSITIVE_INFINITY) - (b.resumesAt ?? Number.POSITIVE_INFINITY))[0];
+    const eta = wait ? capacityEta(t, wait, now) : t("capacity.wait.soon");
+    const pausedLabel = t("subagents.capacityPaused" as Parameters<Translate>[0], { n: paused.length, wait: eta });
+    const rest = agents.length - paused.length;
+    if (rest === 0) return pausedLabel;
+    const states = orderedCountWords({ failed: Math.max(0, failed - paused.length), stopped, done: runningCount === 0 ? done : 0 }, t);
+    return states.length === 0
+      ? pausedLabel
+      : t("subagents.countAndStates", {
+          count: pausedLabel,
+          states: intl.ListFormat(language, { type: "unit", style: "short" }).format(states),
+        });
+  }
   if (n > 0 && done === n) return t("subagents.allDone", { n });
   if (n > 0 && failed === n) return t("subagents.allFailed", { n });
   // Running is the default the mark carries; only the states that differ are worded, in the shared order.
@@ -91,7 +110,7 @@ export function SubagentGroupHeader({
   const t = useT();
   const language = usePaneLanguage();
   const agents = row.subagents ?? [];
-  const now = useNow(agents.some(ticking));
+  const now = useNow(agents.some((agent) => ticking(agent) || agent.capacityWait));
   const controls = expanded ? agents.map((agent) => `${row.id}:${agent.id}`).join(" ") : undefined;
   return (
     <button type="button" className="cv-subagents" aria-expanded={expanded} aria-controls={controls} onClick={onToggle}>
@@ -102,7 +121,7 @@ export function SubagentGroupHeader({
         {agents.length > STACK && <span className="cv-subagents__more">+{agents.length - STACK}</span>}
       </span>
       <span className="cv-subagents__text">
-        <span className="cv-subagents__title">{groupLabel(t, language, agents)}</span>
+        <span className="cv-subagents__title">{groupLabel(t, language, agents, now)}</span>
       </span>
       <Clock className="cv-subagents__time" text={formatDuration(groupElapsed(agents, now))} />
       <Icon name={expanded ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />

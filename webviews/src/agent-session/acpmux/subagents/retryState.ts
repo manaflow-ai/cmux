@@ -12,6 +12,7 @@
 // The daemon's field names live in ``readRetry`` and ``RETRY_METHOD`` alone.
 import type { ConnectionQuietKeys } from "../../../ui/lasting";
 import { AutoRetryLoop, type AutoRetryOptions } from "../autoRetry";
+import { readCapacityWait } from "../capacityWait";
 import type { StringKey, Translate } from "../i18n";
 import type { RetrySummary } from "../protocol/generated/types";
 import type { Subagent } from "./subagent";
@@ -48,11 +49,16 @@ export function readRetry(raw: unknown): RetryState | null | undefined {
 /// went away while the subagent still failed is one acpmux gave up on: its line says how many
 /// tries it had.
 export function applyRetry(
-  agent: Pick<Subagent, "retry" | "retryable" | "retriedOut" | "state" | "error">,
-  change: { retry?: unknown; retryable?: unknown; error?: unknown },
+  agent: Pick<Subagent, "retry" | "retryable" | "retriedOut" | "state" | "error" | "capacityWait">,
+  change: { retry?: unknown; retryable?: unknown; error?: unknown; capacityWait?: unknown },
 ): void {
   if (typeof change.retryable === "boolean") agent.retryable = change.retryable;
   if (typeof change.error === "string" && change.error.trim()) agent.error = change.error.replace(/\s+/g, " ").trim();
+  if (Object.prototype.hasOwnProperty.call(change, "capacityWait")) {
+    const wait = readCapacityWait(change.capacityWait);
+    if (wait) agent.capacityWait = wait;
+    else delete agent.capacityWait;
+  }
   const retry = readRetry(change.retry);
   if (retry === undefined) return;
   // A wait that clears may have fired or been used up: only acpmux's `subagent_retry` record says
@@ -146,9 +152,12 @@ export const retrying = (agent: Parameters<typeof subagentRetry>[0], child?: Ses
 
 /// The fields a subagent's retry is read from, as one cache-key part (runningTray.ts, App.tsx): a
 /// change to any of them redraws its rows.
-export function retryKey(agent: Pick<Subagent, "retry" | "retriedOut" | "retryable" | "error">): string {
+export function retryKey(
+  agent: Pick<Subagent, "retry" | "retriedOut" | "retryable" | "error" | "capacityWait">,
+): string {
   const part = (r?: RetryState) => (r ? `${r.attempt}/${r.of}/${r.reason ?? ""}` : "");
-  return [part(agent.retry), part(agent.retriedOut), agent.retryable ?? "", agent.error ?? ""].join("\u0001");
+  const wait = agent.capacityWait;
+  return [part(agent.retry), part(agent.retriedOut), agent.retryable ?? "", agent.error ?? "", wait?.reason ?? "", wait?.resumesAt ?? ""].join("\u0001");
 }
 
 const REASON: Record<string, StringKey> = {

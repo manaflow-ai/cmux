@@ -158,7 +158,7 @@ function drawnGroup(row: AcpmuxRow, expanded: Folds): readonly AcpmuxRow[] {
   if (kept?.open === open) return kept.drawn;
   const drawn: AcpmuxRow[] = [{ ...row, version: row.version * 2 + (open ? 1 : 0) }];
   if (open) {
-    const agents = row.subagents ?? [];
+    const agents = (row.subagents ?? []).filter((agent) => !(agent.state === "failed" && agent.capacityWait));
     agents.forEach((agent, index) => {
       const edge =
         agents.length === 1 ? "only" : index === 0 ? "first" : index === agents.length - 1 ? "last" : "middle";

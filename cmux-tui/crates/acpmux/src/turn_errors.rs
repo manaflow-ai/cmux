@@ -30,6 +30,12 @@ pub fn is_limit_error(message: &str) -> bool {
 
 /// A usage window or rate limit can recover without changing the person's sign-in.
 pub(crate) fn is_usage_limit_error(message: &str) -> bool {
+    // The pool also answers 429 when every account is exhausted. Its explicit capacity
+    // cause takes precedence over the HTTP code: switching or holding one account cannot
+    // restore the pool, and helpers must enter the same capacity recovery as their parent.
+    if is_capacity_error(message) {
+        return false;
+    }
     let m = message.to_lowercase();
     (m.contains("reached your") && m.contains("limit"))
         // Claude Code: "You've hit your limit · resets 3pm" (2026-10-20).
