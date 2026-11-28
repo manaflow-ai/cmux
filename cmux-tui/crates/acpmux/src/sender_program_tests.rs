@@ -200,7 +200,9 @@ async fn a_walks_end_answers_every_waiting_send_at_once() {
     let walks = Walks::new();
     let (release, released) = std::sync::mpsc::channel::<()>();
     let mut first = Box::pin(walks.get(42, move || {
-        released.recv().ok();
+        released
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .expect("the test released the walk");
         Some(json!({"name": "fanin"}))
     }));
     assert!(futures::poll!(first.as_mut()).is_pending(), "the walk is running");
