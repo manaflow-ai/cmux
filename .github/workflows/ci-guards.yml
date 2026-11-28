@@ -346,6 +346,8 @@ jobs:
 
       # Every connectivity host NEXT's code names (ICE servers, relays, signaling, backend, update hosts) is in
       # config/network/allowlist.json, the list firewall admins allow; docs/network-requirements.md is rendered from it.
+      # On a pull request the coverage check reads only the changed files (tests/guard_delta.py); a branch's own run
+      # reads them all.
       - name: Validate NEXT's connectivity hosts are in the network allowlist
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_network_allowlist.py

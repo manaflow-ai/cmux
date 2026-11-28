@@ -555,6 +555,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/transfer_finish", Request),
         untyped("_acpmux/transfer_forget", Request),
         untyped("_acpmux/transfer_preflight", Request),
+        untyped("_acpmux/transfer_interrupts", Request),
         untyped("_acpmux/transfer_history", Request),
         untyped("_acpmux/transfer_history_export", Request),
         untyped("_acpmux/transfer_history_have", Request),

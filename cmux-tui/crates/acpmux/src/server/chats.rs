@@ -254,7 +254,10 @@ pub(super) async fn route(
     // Moving a chat to another daemon (`hub/transfer_out.rs`): a bundle holds the whole chat and
     // runs its queue with the rules it was sent under, so only the local socket moves one.
     if m.starts_with("_acpmux/transfer_") {
-        if conn.origin != Origin::Local {
+        // What a move would interrupt is read-only: the app's own pane asks it too, to say so
+        // before its Cloud / Auto / Evacuate (RFD 0063 item 6).
+        let read_only = m == "_acpmux/transfer_interrupts" && conn.origin == Origin::LocalApp;
+        if conn.origin != Origin::Local && !read_only {
             return Err(RpcError::method_not_found(&format!("{m} (local socket only)")));
         }
         // A move's finish may carry the owner's login for the chat's agent (`transfer_in.rs`),
