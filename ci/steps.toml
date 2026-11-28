@@ -155,7 +155,9 @@ done
 if [ "${GITHUB_ACTIONS:-}" = true ] && [ -z "${RUSTC_WRAPPER:-}" ] && [ -n "${SCCACHE_DIR:-}" ] \
   && [ -d "$SCCACHE_DIR" ] && [ -w "$SCCACHE_DIR" ] && command -v sccache >/dev/null 2>&1; then
   rm -f "$CI_TOOLS/bin/cargo"
-  printf '#!/bin/sh\nRUSTC_WRAPPER="%s" exec "%s" "$@"\n' "$(command -v sccache)" "$cargo_bin/cargo" > "$CI_TOOLS/bin/cargo"
+  # A caller's own wrapper (cargo-groups.sh and cmux-next-member-tests.sh set scripts/ci/cargo-giant-lock.sh) is kept,
+  # with sccache inside it as CARGO_GROUPS_INNER_WRAPPER; overwriting it silently dropped the giant lock.
+  printf '#!/bin/sh\ns="%s"\nif [ -n "${RUSTC_WRAPPER:-}" ] && [ "$RUSTC_WRAPPER" != "$s" ]; then export CARGO_GROUPS_INNER_WRAPPER="${CARGO_GROUPS_INNER_WRAPPER:-$s}"; else RUSTC_WRAPPER="$s"; export RUSTC_WRAPPER; fi\nexec "%s" "$@"\n' "$(command -v sccache)" "$cargo_bin/cargo" > "$CI_TOOLS/bin/cargo"
   chmod +x "$CI_TOOLS/bin/cargo"
   echo "cargo compiles through $(command -v sccache) into $SCCACHE_DIR"
 fi
@@ -2105,16 +2107,18 @@ inputs = [
 run = "python3 -I tests/test_bench_relevance_map.py && python3 -I tests/test_bench_baselines.py"
 
 # What a pull request's paths need: the areas, benches, targeted tests and check templates the relevance map names
-# for them, in the advisory log, and the Linux benches those areas name (`run`), each against its area's budget_s.
-# Fail open: an unmapped path is a warning, a base with no for-paths, a broken map or a missing or failing bench is
-# a notice; only a measured result over budget_s turns this (non-blocking) check red.
+# for them (Leo, 2026-11-27: "targetted tests per type of situation that things touch based off relevance. like we
+# can have fast retrieval of bench reference per product area"), in the advisory log and the job summary. Plan
+# only: this job runs the base's checkout, so the benches themselves run in bench-relevance-pr.yml on the merge
+# commit against the areas' nightly baselines. Fail open: a base with no for-paths, no paths list or a broken map
+# is a notice and the step passes; it never turns the check red.
 [step.bench-relevance]
 job = "advisory"
 blocks = false
 class = "idle"
-timeout = 300
+timeout = 120
 title = "Benches and tests for these paths"
-about = "cmux-bench for-paths --run on the pull request's paths: areas, benches, targeted tests, check templates, and the areas' Linux benches against budget_s; unmapped paths warn"
+about = "cmux-bench for-paths on the pull request's paths: areas, benches, targeted tests, check templates; plan only (bench-relevance-pr.yml measures); unmapped paths warn; fails open"
 run = '''
 if ! grep -q "for-paths" scripts/bench/cmux-bench 2>/dev/null; then
   echo "::notice::The base branch has no cmux-bench for-paths yet; nothing to report."
@@ -2125,29 +2129,16 @@ if [ ! -s "$paths" ]; then
   echo "::notice::No changed-paths list; for-paths has nothing to read."
   exit 0
 fi
-if ! grep -q -- "--run" scripts/bench/cmux-bench 2>/dev/null; then
-  python3 -I scripts/bench/cmux-bench for-paths --stdin --markdown < "$paths" || echo "::notice::for-paths failed; fail open"
-  exit 0
+out="$RUNNER_TEMP/bench-relevance.md"
+if timeout 60 python3 -I scripts/bench/cmux-bench for-paths --stdin --markdown < "$paths" > "$out"; then
+  cat "$out"
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    cat "$out" >> "$GITHUB_STEP_SUMMARY" || true
+  fi
+else
+  echo "::notice::for-paths failed; fail open"
 fi
-# --run also runs the benches the matched areas name (`run`) and exits 1 only on a measured result over the
-# area's budget_s. A missing or failing bench, a timeout with no budget, or a broken map warns and passes.
-# --baselines (Leo, 2026-11-27: "A PR fetches only the baselines for its own areas"): each bench runs 3 times
-# against its areas' nightly baseline on this runner class (bench-baselines-nightly.yml, R2); it is red only when
-# all 3 repeats are more than 15% over. A missing baseline or an unreachable store warns and passes.
-extra=""
-if grep -q -- "--baselines" scripts/bench/cmux-bench 2>/dev/null; then
-  extra="--repeats 3 --baselines"
-fi
-set +e
-python3 -I scripts/bench/cmux-bench for-paths --stdin --markdown --run --timeout 120 $extra < "$paths"
-code=$?
-set -e
-if [ "$code" -eq 1 ]; then
-  echo "::error::A bench for these paths is over its budget_s, or 3 of 3 repeats are >15% over its area's nightly baseline (docs/benches/relevance-map.toml); see the Bench runs above."
-  exit 1
-elif [ "$code" -ne 0 ]; then
-  echo "::notice::for-paths --run exited $code; fail open"
-fi
+exit 0
 '''
 
 # A missing table is an ::error annotation on the run and never a red check. A perf label event re-runs
@@ -2843,7 +2834,7 @@ job = "linux"
 tier = "push"
 timeout = 360
 title = "Webviews typecheck (whole tree)"
-about = "the pre-push web lint hook's tests pass, webviews' locked dependencies install and the whole tree typechecks (vp check --no-fmt --no-lint)"
+about = "webviews' locked dependencies install and the whole tree typechecks (vp check --no-fmt --no-lint)"
 needs = ["bun", "node"]
 nightly = ["nightly.yml:check-nightly-webviews:Webview checks on the build commit"]
 inputs = [
@@ -2853,13 +2844,32 @@ inputs = [
   ".github/workflows/cmux-next-web-lint.yml",
 ]
 run = '''
-rc=0
-python3 tests/test_web_lint_prepush.py || rc=1
 cd webviews
 BUN_CONFIG_HTTP_IDLE_TIMEOUT=30 BUN_CONFIG_HTTP_RETRY_COUNT=5 flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile || exit 1
-bun run typecheck || rc=1
-exit "$rc"
+bun run typecheck
 '''
+
+# Run 46141015841: the hook tests took 303 s before typechecking even started, consuming the shared
+# 360 s budget. They use temporary repos, so run independently with the same route and landing gate.
+[step.web-lint-hook-tests]
+job = "linux"
+tier = "push"
+# The shared routed pool exhausted its 360 s (run 46167738798). In one-CPU contention,
+# shared fixtures timed out at 180 s; isolated fixtures passed in 110 s (run 46172262835).
+# Finish the other steps before starting its own budget.
+alone = true
+timeout = 360
+title = "Web lint hook tests"
+about = "the pre-push web lint hook's integration tests pass independently of whole-tree typechecking"
+needs = ["bun", "node"]
+nightly = ["nightly.yml:check-nightly-webviews:Webview checks on the build commit"]
+inputs = [
+  "webviews/**",
+  "scripts/web_lint_prepush.py",
+  "tests/test_web_lint_prepush.py",
+  ".github/workflows/cmux-next-web-lint.yml",
+]
+run = "python3 tests/test_web_lint_prepush.py"
 
 # The webviews check:* ratchets (scripts/ci/fast_gate_webviews_checks.py: surface-bypass, catalog-unused,
 # fixed-waits, design-tokens, ...) on a landing head of the affected tier. Before this they ran only in ci-web's
@@ -3117,6 +3127,7 @@ inputs = [
   "cmux-tui/Cargo.lock",
   "cmux-tui/rust-toolchain.toml",
   "scripts/ci/cmux-next-member-tests.sh",
+  "scripts/ci/cargo-giant-lock.sh",
   "scripts/ci/cmux-next-daemon-test-packages.sh",
   "scripts/ci/cmux-tui-test-target.sh",
   "tests/test_ci_daemon_pr_member_steps.py",
@@ -3193,6 +3204,7 @@ inputs = [
   "cmux-tui/crates/acpmux/src/hub/auto_resume/*",
   "cmux-tui/crates/acpmux/src/hub/book_tee/*",
   "cmux-tui/crates/acpmux/src/hub/file_uploads/*",
+  "cmux-tui/crates/acpmux/src/hub/fleet/*",
   "cmux-tui/crates/acpmux/src/hub/handoff/*",
   "cmux-tui/crates/acpmux/src/hub/hosts/*",
   "cmux-tui/crates/acpmux/src/hub/journal_restore/*",
@@ -3231,6 +3243,7 @@ inputs = [
   "cmux-tui/crates/acpmux/src/server/account_sign_in/*",
   "cmux-tui/crates/acpmux/src/server/accounts/*",
   "cmux-tui/crates/acpmux/src/server/chats/*",
+  "cmux-tui/crates/acpmux/src/server/mesh_relay/*",
   "cmux-tui/crates/acpmux/src/server/outbound_queue_tests/*",
   "cmux-tui/crates/acpmux/src/server/peer_forward/*",
   "cmux-tui/crates/acpmux/src/server/pull_request_actions/*",
@@ -3308,6 +3321,7 @@ inputs = [
   "cmux-tui/Cargo.lock",
   "cmux-tui/rust-toolchain.toml",
   "scripts/ci/cmux-next-member-tests.sh",
+  "scripts/ci/cargo-giant-lock.sh",
   "scripts/ci/cmux-next-daemon-test-packages.sh",
   "scripts/ci/cmux-tui-test-target.sh",
   "tests/test_ci_daemon_pr_member_steps.py",
@@ -3464,6 +3478,7 @@ inputs = [
   "cmux-tui/Cargo.lock",
   "cmux-tui/rust-toolchain.toml",
   "scripts/ci/cmux-next-member-tests.sh",
+  "scripts/ci/cargo-giant-lock.sh",
   "scripts/ci/cmux-next-daemon-test-packages.sh",
   "scripts/ci/cmux-tui-test-target.sh",
   "tests/test_ci_daemon_pr_member_steps.py",
@@ -3669,20 +3684,21 @@ python3 -I tests/test_ci_daemon_pr_member_steps.py
 scripts/ci/cmux-next-member-tests.sh crates/cmux-tui
 '''
 
-# The idle daemon tests of the post-merge gate (cmux-tui tests/idle_wakeups.rs, `idle_wakeups::cmux_next_*`), on the
-# pull request and on its landing head. cmux#47027 (2026-11-26) added a git HEAD watch in cmux-tui-core whose inotify
+# The idle daemon tests of the post-merge gate (cmux-tui tests/idle_wakeups.rs, `idle_wakeups::cmux_next_*`), on a
+# pull request's push or full tier head. cmux#47027 (2026-11-26) added a git HEAD watch in cmux-tui-core whose inotify
 # events woke the idle daemon: it changed only cmux-tui-core, so cmux-next-tui above did not route, and as a landing
 # head of the affected tier it started no pr-pipeline.yml job at all (`cheap tier: starts when ready-to-land`). The
 # gate (cmux-next-daemon-tests, cmux-tui-artifacts.yml) found it after the merge, and the feat-cmux-next channel held
 # until #62585. Leo, 2026-11-27: "shouldn't a build check fail beforehand fast like fast-fail is useful ci all stuff".
-# land_gate: it runs on a landing head whose change reaches the daemon's idle paths (every input kept, `**` too): the
-# daemon and its core, the settings and usage-pattern watchers the tests name, and the workspace manifests (a notify
-# bump). The `it` binary only, from the gate's saved target (cmux-next-member-tests.sh), so only what the change
-# touched compiles; nothing on a change that reaches none of these.
+# RFD 0023 tier B since 2026-11-28 (no land_gate): on a landing head it cost up to 45 min on each of 161 merges a day
+# (the 24 h before), and the same tests run once post-merge in cmux-next-daemon-tests, which caught cmux#47027. Leo,
+# 2026-11-28: "de facto, im asking for 99% fewer minutes of ci time, period." It still runs on a push or full tier
+# head whose change reaches the daemon's idle paths (every input kept, `**` too): the daemon and its core, the
+# settings and usage-pattern watchers the tests name, and the workspace manifests (a notify bump). The `it` binary
+# only, from the gate's saved target (cmux-next-member-tests.sh), so only what the change touched compiles.
 [step.cmux-next-idle-wakeups]
 job = "linux"
 tier = "push"
-land_gate = true
 alone = true
 timeout = 2700
 title = "cmux_next_ idle daemon tests (idle_wakeups)"
@@ -3693,6 +3709,7 @@ inputs = [
   "cmux-tui/Cargo.lock",
   "cmux-tui/rust-toolchain.toml",
   "scripts/ci/cmux-next-member-tests.sh",
+  "scripts/ci/cargo-giant-lock.sh",
   "scripts/ci/cmux-next-daemon-test-packages.sh",
   "scripts/ci/cmux-tui-test-target.sh",
   "tests/test_ci_daemon_pr_member_steps.py",
@@ -3785,7 +3802,7 @@ for attempt in 1 2 3; do
 done
 # The compile cache's hits and misses, when the rust tool sent cargo through the runner's sccache.
 case "$(head -c 300 "$(command -v cargo)" 2>/dev/null | tr -d '\0')" in
-  *RUSTC_WRAPPER=*sccache*) sccache --show-stats || true ;;
+  *RUSTC_WRAPPER*sccache*|*sccache*RUSTC_WRAPPER*) sccache --show-stats || true ;;
 esac
 # End the daemon of this home and its agents, then delete the home (a path this step made).
 acpmux="$(command -v acpmux || true)"
@@ -3804,12 +3821,22 @@ exit "$status"
 # published-keys.txt, fixed by #59554), and the channel held every merged daemon fix meanwhile. This step names the
 # files a settings row lives in, so a pull request that touches one runs the one test, cmux-config's published_keys:
 # about 150 s cold on a 32-vCPU host (2m29s compile, the test 0.05 s), nothing on a pull request that touches none.
+# land_gate (registry-row-missing class): #55022 moved it to the push tier, so a pull request never ran it again, and
+# from 11-21 to 11-28 four reds landed this way (fixes #51790, #54610, #60814, #61828; culprits #51725, #54442). A
+# landing head that touches a settings row runs it. Its rows come from settings-schema.json (cmux-config's
+# include_str!), and that file is the export of the settings sources: the Swift CmuxNextSettings rows and catalogs,
+# and schemas/settings/source. #51725 changed the sources and not the export, and #54442 (CmuxNextSettings
+# Localizable.xcstrings only) left the export stale, so the step first checks the export is fresh
+# (export-settings-linux.sh --check, 8 s, python only; exit 2, a Swift shape it cannot read, leaves the Mac export to
+# decide) and its inputs name those sources. new_red_only.sh: a red the base has already warns; the base run shares
+# the target directory (a fleet runner's shared one when set), so it recompiles cmux-config alone.
 [step.settings-published-keys]
 job = "linux"
 tier = "push"
-timeout = 360
-title = "Settings keys are published or retired"
-about = "every live settings row is in schemas/settings/published-keys.txt, and every published key is a row or has a retired-keys.json entry (cmux-config's published_keys test, one of the cmux_next_ daemon tests)"
+land_gate = true
+timeout = 600
+title = "Settings export is fresh and its keys are published or retired"
+about = "the committed settings export matches the settings sources (export-settings-linux.sh --check), and every live settings row is in schemas/settings/published-keys.txt, and every published key is a row or has a retired-keys.json entry (cmux-config's published_keys test, one of the cmux_next_ daemon tests)"
 needs = ["rust"]
 inputs = [
   "schemas/settings/settings-schema.json",
@@ -3820,13 +3847,27 @@ inputs = [
   "cmux-tui/crates/cmux-config/tests/published_keys.rs",
   "cmux-tui/crates/cmux-config/src/schema/*.rs",
   "cmux-tui/crates/cmux-config/Cargo.toml",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/**",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt*.swift",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Localizable.xcstrings",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/ChromeStyle.swift",
+  "scripts/cmux-next/export-settings-linux.sh",
+  "scripts/cmux-next/linux-exports/*.py",
+  "scripts/cmux-next/settings-exports.txt",
+  "scripts/ci/new_red_only.sh",
 ]
 run = '''
-cd cmux-tui
-channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' rust-toolchain.toml)"
+status=0
+scripts/ci/new_red_only.sh "Settings export fresh" -- bash -c '
+  rc=0; bash scripts/cmux-next/export-settings-linux.sh --check || rc=$?
+  if [ "$rc" = 2 ]; then echo "::notice::the Linux settings export cannot decide; the Mac export decides"; exit 0; fi
+  exit "$rc"' || status=1
+channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' cmux-tui/rust-toolchain.toml)"
 rustup toolchain install "$channel" --profile minimal
-export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_INCREMENTAL=0
-cargo test -p cmux-config --locked --test published_keys cmux_next_
+export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_INCREMENTAL=0 CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$PWD/cmux-tui/target}"
+scripts/ci/new_red_only.sh "Settings keys published" -- \
+  bash -c 'cd cmux-tui && cargo test -p cmux-config --locked --test published_keys cmux_next_' || status=1
+exit "$status"
 '''
 
 # Six more checks whose feat-cmux-next pull request runs each took a Linux job: risk-tier-tests.yml's tests,
@@ -3900,6 +3941,28 @@ python3 -I tests/test_check_bridge_on_main.py || status=1
 python3 -I scripts/cmux-next/check-objc-selectors.py || status=1
 python3 -I scripts/cmux-next/check-cef-objc-contract.py || status=1
 exit "$status"
+'''
+
+# The unrecognized-selector half of cmux-next-crash-class above, on the landing head (registry-row-missing class).
+# That step's Sources input is a whole-directory glob, so --pr-scope drops it: a Swift change that added a super call
+# or runtime key without its objc-selector-table.json row merged green, and the tip went red. 11-21 to 11-28: four
+# (fixes #48431, #48686, #48768, #49018; culprit e06d1661da88, CmuxNextDesign/Dialog and BookmarkEditView.swift).
+# land_gate keeps every input. 88 s on an 8-CPU lane machine; new_red_only.sh: a red the base has already warns
+# (the base was red at this step's adding: WindowController.swift:522 super.maxFullScreenContentSize needs a probe).
+[step.objc-selector-table]
+job = "linux"
+land_gate = true
+timeout = 420
+title = "ObjC selector table covers the Sources"
+about = "every CmuxNext super call and runtime key has a scripts/cmux-next/objc-selector-table.json row (check-objc-selectors.py)"
+inputs = [
+  "Packages/macOS/CmuxNext/Sources/**/*.swift",
+  "scripts/cmux-next/check-objc-selectors.py",
+  "scripts/cmux-next/objc-selector-table.json",
+  "scripts/ci/new_red_only.sh",
+]
+run = '''
+scripts/ci/new_red_only.sh "ObjC selector table" -- python3 -I scripts/cmux-next/check-objc-selectors.py
 '''
 
 # The job's 2026-11 runs took about 2 min (its bound was 30). Its tests need no database.
