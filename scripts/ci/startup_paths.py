@@ -34,6 +34,7 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -191,7 +192,30 @@ def open_button(state: dict) -> tuple[dict | None, list[str]]:
         labels.append(f"{element.get('role')}:{name}"[:60])
         if hit is None and name == "Open":
             hit = element
+    if hit is None:
+        # Some cua-driver builds give the tree as text lines (`[12] AXButton "Open"`), not as element objects.
+        for text in walk(state, lambda o: isinstance(o, str) and "button" in o.lower()):
+            for index, role, name in TEXT_TREE_BUTTON.findall(text):
+                labels.append(f"{role}:{name}"[:60])
+                if hit is None and name.strip() == "Open":
+                    hit = {"role": role, "element_index": int(index)}
     return hit, labels
+
+
+TEXT_TREE_BUTTON = re.compile(r'\[(\d+)\]\s*(AX\w*Button)\b[^"\n]*"([^"\n]*)"')
+
+
+def tree_shape(state) -> str:
+    """What a get_window_state reply held when no button was found in it: its top keys, how many element objects
+    and of which roles, and how long its text was, so the round names why Open was never pressed."""
+    elements = walk(state, lambda o: isinstance(o, dict) and "role" in o)
+    roles: dict[str, int] = {}
+    for element in elements:
+        roles[str(element.get("role"))] = roles.get(str(element.get("role")), 0) + 1
+    texts = walk(state, lambda o: isinstance(o, str) and len(o) > 40)
+    top = sorted(state)[:10] if isinstance(state, dict) else type(state).__name__
+    return (f"tree: keys {top}, {len(elements)} elements {dict(sorted(roles.items(), key=lambda kv: -kv[1])[:6])}, "
+            f"text {sum(len(t) for t in texts)} chars{': ' + texts[0][:160] if texts else ''}")
 
 
 def press_element(pid: int, window_id: int, element: dict) -> dict:
@@ -228,6 +252,8 @@ def answer_prompt() -> dict | None:
                         **({"error": str(click["error"])[-200:]} if click.get("error") else {})}
             if state.get("error"):
                 seen.append(f"error: {str(state['error'])[-160:]}")
+            elif not labels:
+                seen.append(tree_shape(state))
         # On screen with no Open found: name what the window held, so the round says why it never pressed.
         return {"by": "cua-driver", "click": None, "windows": len(wins), "seen": seen[:12]} if wins else None
     script = ('tell application "System Events" to tell process "CoreServicesUIAgent"\n'
@@ -573,6 +599,12 @@ def self_test() -> int:
     assert prompt_driver_failure({"look_error": "timed out", "clicked_ms": 900}) is None
     assert "Automation" in prompt_driver_failure({"look_error": "osascript timed out after 20 seconds"})
     assert isinstance(cua_argv(), list)
+    hit, labels = open_button({"tree": '[3] AXStaticText "Open cmux?"\n[7] AXButton "Cancel"\n[8] AXButton "Open"'})
+    assert hit == {"role": "AXButton", "element_index": 8} and labels == ["AXButton:Cancel", "AXButton:Open"], (hit, labels)
+    hit, labels = open_button({"elements": [{"role": "AXButton", "title": "Open", "element_token": "t1"}]})
+    assert hit and hit["element_token"] == "t1" and labels == ["AXButton:Open"], (hit, labels)
+    shape = tree_shape({"window": {"role": "AXWindow"}, "markdown": "x" * 50})
+    assert "1 elements {'AXWindow': 1}" in shape and "text 50 chars" in shape, shape
     print("startup_paths self-test: ok")
     return 0
 
