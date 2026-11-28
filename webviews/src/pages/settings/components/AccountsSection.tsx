@@ -99,7 +99,7 @@ function AccountsBody() {
           <h3 className="group-title">{group.title}</h3>
           <div className="rows">
             {group.rows.map((row) => (
-              <AccountRow key={row.provider} row={kept.get(row.provider) ?? row} removeTitle={accounts.removeTitle} />
+              <AccountRow key={row.provider} row={kept.get(row.provider) ?? row} />
             ))}
           </div>
         </section>
@@ -208,10 +208,9 @@ function Buttons({ buttons, onRun }: { buttons: AccountsButton[]; onRun: (id: st
 
 /** One provider's account row, a memo row: a host push that left the provider alone keeps its row
  * object (useKeptItems), so it draws only the rows it changed. */
-const AccountRow = memo(function AccountRow({ row, removeTitle }: { row: AccountsRow; removeTitle: string }) {
+const AccountRow = memo(function AccountRow({ row }: { row: AccountsRow }) {
   const store = useStore();
-  const run = (action: string, extra: { account?: string; secret?: string } = {}) =>
-    store.runAccounts({ action, provider: row.provider, ...extra });
+  const run = (action: string) => store.runAccounts({ action, provider: row.provider });
   return (
     <div className="row accounts-row" data-account={row.provider}>
       <div className="row-main">
@@ -233,38 +232,10 @@ const AccountRow = memo(function AccountRow({ row, removeTitle }: { row: Account
             <Buttons buttons={row.buttons} onRun={(id) => void run(id)} />
           </div>
         )}
-        {row.linked.map((account) => (
-          <div className="accounts-linked" key={account.id} data-linked={account.id}>
-            <span className="row-help">{account.label}</span>
-            <span className={account.healthy ? "row-help" : "row-error"}>{account.state}</span>
-            <Button
-              danger
-              type="button"
-              className="button danger"
-              disabled={account.busy}
-              onClick={() => void run("remove", { account: account.id })}
-            >
-              {removeTitle}
-            </Button>
-          </div>
-        ))}
         {row.note && <div className="row-help">{row.note}</div>}
         {row.outcome && (
           <div className={row.outcome.kind === "danger" ? "row-error" : "row-help"} data-outcome={row.outcome.kind}>
             {row.outcome.text}
-          </div>
-        )}
-        {row.confirm && (
-          <div className="accounts-form">
-            <span>{row.confirm.text}</span>
-            <div className="accounts-buttons">
-              <Button type="button" className="button" onClick={() => void run("confirm")}>
-                {row.confirm.confirm}
-              </Button>
-              <Button type="button" className="button" onClick={() => void run("cancelConfirm")}>
-                {row.confirm.cancel}
-              </Button>
-            </div>
           </div>
         )}
         {row.paste && <PasteForm row={row} paste={row.paste} />}
@@ -278,7 +249,7 @@ function PasteForm({ row, paste }: { row: AccountsRow; paste: NonNullable<Accoun
   const [secret, setSecret] = useState("");
   const [error, setError] = useState<string | null>(null);
   const press = async (id: string) => {
-    if (id === "saveKeychain" || id === "sendCodeRouter") {
+    if (id === "saveKeychain") {
       const value = secret;
       setSecret("");
       const failure = await store.runAccounts({ action: id, provider: row.provider, secret: value });
@@ -289,7 +260,7 @@ function PasteForm({ row, paste }: { row: AccountsRow; paste: NonNullable<Accoun
     setError(null);
     await store.runAccounts({ action: id, provider: row.provider });
   };
-  const needsSecret = new Set(["saveKeychain", "sendCodeRouter"]);
+  const needsSecret = new Set(["saveKeychain"]);
   return (
     <div className="accounts-form" data-paste={row.provider}>
       <div className="row-title">{paste.title}</div>

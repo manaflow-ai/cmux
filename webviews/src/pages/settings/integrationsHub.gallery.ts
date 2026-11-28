@@ -41,10 +41,8 @@ const modelRow = (
   statusKind,
   busy: false,
   buttons: [],
-  linked: [],
   note: null,
   outcome: null,
-  confirm: null,
   paste: null,
 });
 /** Every kind of account All connections lists: cmux, GitHub, the daemon's sign-ins and a model key. */
@@ -53,7 +51,6 @@ const everyAccount = (patch: Partial<AccountsState> = {}): AccountsState => ({
   refresh: "Refresh",
   refreshing: false,
   cmux: mockCmuxAccount.signedIn,
-  removeTitle: "Remove from CodeRouter",
   github: {
     title: "GitHub",
     detail: "Connected",

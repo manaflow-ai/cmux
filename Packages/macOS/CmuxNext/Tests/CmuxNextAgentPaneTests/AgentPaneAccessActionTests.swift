@@ -29,7 +29,7 @@ struct AgentPaneAccessActionTests {
         let model = AgentPaneModel(host: NoHost())
         var ran: [String] = []
         model.onRunAction = { id, _ in ran.append(id); return .ran }
-        for id in ["accounts.show", "accounts.remove"] {
+        for id in ["accounts.show", "accounts.refresh"] {
             model.transport.gestures.record()
             #expect(await model.respond(to: .runAction(id))["ok"] as? Bool != true, "\(id)")
         }

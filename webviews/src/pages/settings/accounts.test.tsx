@@ -30,16 +30,6 @@ test("coming back to the Settings window asks the host to free rows a login left
   expect(page.provider.accountRuns.length).toBe(runs);
 });
 
-test("removing a linked account runs remove with its id", async () => {
-  const page = await renderPage({ path: "/settings/accounts" });
-  const linked = page.container.querySelector<HTMLElement>('[data-linked="acct-1"]')!;
-  await act(async () => linked.querySelector<HTMLButtonElement>("button")!.click());
-  await settle();
-  expect(page.provider.accountRuns.at(-1)).toEqual({ action: "remove", provider: "codex", account: "acct-1" });
-  expect(page.container.querySelector('[data-linked="acct-1"]')).toBeNull();
-  page.unmount();
-});
-
 test("a pasted key is sent once, cleared, and a refusal shows in the form", async () => {
   const page = await renderPage({ path: "/settings/accounts" });
   const row = () => page.container.querySelector<HTMLElement>('[data-account="openrouter"]')!;

@@ -25,12 +25,11 @@ import { Session, type EventSourceContext } from "../../protocol/session";
 import {
   settingsPageActions,
   type BrowserProfile,
+  type ComputerUseApproval,
   type HostLists,
   type AccountsCmux,
   type AccountsRow,
   type AccountsRun,
-  type AllotmentSet,
-  type AllotmentView,
   type AgentsRun,
   type AgentsState,
   type ChannelsProgress,
@@ -41,9 +40,10 @@ import {
   type DevicesRelay,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
-  type LibraryListing,
-  type LibraryRun,
+  type LooksGallery,
+  type LooksRun,
   type SharesState,
+  type KeysState,
   type TailnetState,
   type DevicesRun,
   type DevicesRunResult,
@@ -53,7 +53,11 @@ import {
   type HarnessesState,
   type ProviderAccount,
   type IntegrationsRun,
+  type AgentToolsCardRun,
+  type AgentToolsCardState,
   type IntegrationsState,
+  type McpServersRun,
+  type McpServersState,
   type Diagnostic,
   type Domains,
   type ListRow,
@@ -65,33 +69,28 @@ import {
   type ThemeOverride,
   type WorkspaceBackground,
   type CustomizeTryOn,
-  type KeysState,
-  type ModelsAccessResult,
+  type LibraryListing,
+  type LibraryRun,
   type ModelsRun,
   type ModelsState,
-  type ComputerUseApproval,
-  type AgentToolsCardRun,
-  type AgentToolsCardState,
-  type McpServersRun,
-  type McpServersState,
-  type HubRun,
-  type HubState,
-  type AgentSkillsRun,
-  type AgentSkillsState,
   type AgentMcpRun,
   type AgentMcpState,
+  type AllotmentSet,
+  type AllotmentView,
+  type AgentSkillsRun,
+  type AgentSkillsState,
   type AgentHooksRun,
   type AgentHooksState,
   type AgentConfigAgent,
   type AgentConfigRun,
   type AgentConfigState,
   type AccountsRunReply,
+  type AgentSkillRow,
+  type HubRun,
+  type HubState,
   type DoctorReport,
   type DoctorRun,
   type LibraryAnswer,
-  type AgentSkillRow,
-  type LooksGallery,
-  type LooksRun,
   type AutocloudAction,
   type AutocloudState,
   type ConnectionsRun,
@@ -103,6 +102,7 @@ import {
   type HistoryMutationResult,
   type DeveloperTokensRun,
   type DeveloperTokensState,
+  type ModelsAccessResult,
 } from "./ops";
 import { mockLooks, previewLook, runLooks } from "./mockLooks";
 import { rowsByKey, schema, hostRowsByKey } from "./schema";
@@ -2589,7 +2589,7 @@ export class MockSettingsProvider {
   accounts: AccountsState = {
     teams: {
       title: "Active Team",
-      help: "Cloud machines, CodeRouter and phone access use this team.",
+      help: "Cloud machines and phone access use this team.",
       options: [
         { id: "team-personal", name: "Personal", active: true },
         { id: "team-acme", name: "Acme", active: false },
@@ -2601,7 +2601,6 @@ export class MockSettingsProvider {
     refresh: "Refresh",
     refreshing: false,
     cmux: mockCmuxAccount.signedIn,
-    removeTitle: "Remove from CodeRouter",
     groups: [
       {
         id: "chatGPT",
@@ -2614,14 +2613,9 @@ export class MockSettingsProvider {
             status: "Signed in",
             statusKind: "success",
             busy: false,
-            buttons: [
-              { id: "reauth", title: "Re-authenticate", disabled: false, help: null, destructive: false },
-              { id: "connect", title: "Connect to CodeRouter", disabled: false, help: null, destructive: false },
-            ],
-            linked: [{ id: "acct-1", label: "s…@e…", state: "healthy", healthy: true, busy: false }],
+            buttons: [{ id: "reauth", title: "Re-authenticate", disabled: false, help: null, destructive: false }],
             note: null,
             outcome: null,
-            confirm: null,
             paste: null,
           },
         ],
@@ -2638,10 +2632,8 @@ export class MockSettingsProvider {
             statusKind: "quiet",
             busy: false,
             buttons: [{ id: "addKey", title: "Add Key…", disabled: false, help: null, destructive: false }],
-            linked: [],
             note: null,
             outcome: null,
-            confirm: null,
             paste: null,
           },
         ],
@@ -2709,8 +2701,6 @@ export class MockSettingsProvider {
       }
     } else if (run.action.startsWith("agentKey") && this.accounts.agentKeys) {
       this.accounts = { ...this.accounts, agentKeys: runMockAgentKeys(this.accounts.agentKeys, run) };
-    } else if (run.action === "remove") {
-      this.accounts = rows((row) => ({ ...row, linked: row.linked.filter((account) => account.id !== run.account) }));
     } else if (run.action === "cmux.signOut" || run.action === "cmux.cancelSignIn") {
       this.accounts = { ...this.accounts, cmux: mockCmuxAccount.signedOut };
     } else if (run.action === "cmux.signIn") {

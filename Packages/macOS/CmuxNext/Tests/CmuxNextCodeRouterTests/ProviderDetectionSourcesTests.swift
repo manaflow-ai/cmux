@@ -66,10 +66,8 @@ struct ProviderDetectionSourcesTests {
         #expect(detection.detail == "Subrouter")
         #expect(detection.sources == [.providerConfig("~/.codex/config.toml")])
         var row = AccountRowState(provider: .codex)
-        row.reduce(.cmuxSignIn(true))
         row.reduce(.detected(detection))
         #expect(row.usesProviderConfig)
-        #expect(!row.canConnect)
     }
 
     @Test func codexHomeComesFromTheEnvironment() {
@@ -210,9 +208,8 @@ struct ProviderDetectionSourcesTests {
         #expect(detection.status == .signedIn)
         #expect(detection.sources == [.file("~/.codex/auth.json")])
         var row = AccountRowState(provider: .codex)
-        row.reduce(.cmuxSignIn(true))
         row.reduce(.detected(detection))
-        #expect(row.canConnect)
+        #expect(!row.usesProviderConfig)
     }
 
     @Test(arguments: [
