@@ -338,6 +338,18 @@ struct Provider {
     events: &'static [&'static str],
 }
 
+macro_rules! journal_plugin {
+    ($file:literal) => {
+        Format::Plugin {
+            template: concat!(
+                include_str!("../assets/agent-hooks/plugin-stream.js"),
+                "\n",
+                include_str!(concat!("../assets/agent-hooks/", $file))
+            ),
+        }
+    };
+}
+
 const PROVIDERS: &[Provider] = &[
     Provider {
         id: "codex",
@@ -415,7 +427,7 @@ const PROVIDERS: &[Provider] = &[
         default_path: ".omp/agent/config.json",
         override_env: None,
         override_relative_path: "config.json",
-        format: Format::Plugin { template: include_str!("../assets/agent-hooks/omp.ts") },
+        format: journal_plugin!("omp.ts"),
         events: &[],
     },
     Provider {
@@ -424,7 +436,7 @@ const PROVIDERS: &[Provider] = &[
         default_path: ".campfire/agent/config.json",
         override_env: None,
         override_relative_path: "config.json",
-        format: Format::Plugin { template: include_str!("../assets/agent-hooks/campfire.ts") },
+        format: journal_plugin!("campfire.ts"),
         events: &[],
     },
     Provider {
@@ -505,7 +517,7 @@ const PROVIDERS: &[Provider] = &[
         default_path: ".config/opencode/plugins/cmux-tui-journal.js",
         override_env: Some("OPENCODE_CONFIG_DIR"),
         override_relative_path: "plugins/cmux-tui-journal.js",
-        format: Format::Plugin { template: include_str!("../assets/agent-hooks/opencode.js") },
+        format: journal_plugin!("opencode.js"),
         events: &[],
     },
     Provider {
@@ -514,7 +526,7 @@ const PROVIDERS: &[Provider] = &[
         default_path: ".config/amp/plugins/cmux-tui-journal.ts",
         override_env: None,
         override_relative_path: "plugins/cmux-tui-journal.ts",
-        format: Format::Plugin { template: include_str!("../assets/agent-hooks/amp.ts") },
+        format: journal_plugin!("amp.ts"),
         events: &[],
     },
     Provider {
@@ -523,7 +535,7 @@ const PROVIDERS: &[Provider] = &[
         default_path: ".pi/agent/extensions/cmux-tui-journal.ts",
         override_env: Some("PI_CODING_AGENT_DIR"),
         override_relative_path: "extensions/cmux-tui-journal.ts",
-        format: Format::Plugin { template: include_str!("../assets/agent-hooks/pi.ts") },
+        format: journal_plugin!("pi.ts"),
         events: &[],
     },
 ];
@@ -1712,19 +1724,18 @@ fn provider_status(
                 state
             }
         }
-        Format::Plugin { .. } => match fs::read(path) {
-            Ok(content) if is_current_plugin(&content) => "installed",
+        Format::Plugin { template } => match fs::read(path) {
+            Ok(content) if content == template.as_bytes() => "installed",
             Ok(content) if is_owned_plugin(&content) => "partial",
             _ => "absent",
         },
-        Format::HermesPlugin { .. } => {
+        Format::HermesPlugin { module: expected_module, manifest: expected_manifest } => {
             let module = fs::read(path.join("__init__.py"));
             let manifest = fs::read(path.join("plugin.yaml"));
             match (module, manifest) {
                 (Ok(module), Ok(manifest))
-                    if [module.as_slice(), manifest.as_slice()]
-                        .into_iter()
-                        .all(is_current_plugin) =>
+                    if module == expected_module.as_bytes()
+                        && manifest == expected_manifest.as_bytes() =>
                 {
                     "installed"
                 }
@@ -1922,10 +1933,6 @@ fn is_owned_plugin(content: &[u8]) -> bool {
         .any(|needle| content.windows(needle.len()).any(|window| window == needle))
 }
 
-fn is_current_plugin(content: &[u8]) -> bool {
-    content.windows(PLUGIN_MARKER.len()).any(|window| window == PLUGIN_MARKER.as_bytes())
-}
-
 fn ensure_owned_plugin_directory(path: &Path) -> anyhow::Result<()> {
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
@@ -2108,12 +2115,13 @@ pub fn claude_session_hook_settings(
     let binary = shell_quote(binary.to_str().context("the cmux-tui path is not UTF-8")?);
     let hooks = root.get_mut("hooks").and_then(Value::as_object_mut).context("hooks missing")?;
     for (event, groups) in hooks.iter_mut() {
-        let command = emit_hook_command(&binary, provider.id, event);
         for group in groups.as_array_mut().into_iter().flatten() {
             let handlers = group.get_mut("hooks").and_then(Value::as_array_mut);
             for handler in handlers.into_iter().flatten() {
                 if let Some(handler) = handler.as_object_mut() {
-                    handler.insert("command".into(), Value::String(command.clone()));
+                    let timeout = handler.get("timeout").and_then(Value::as_u64).unwrap_or(timeout);
+                    let command = emit_hook_command(&binary, provider.id, event, timeout);
+                    handler.insert("command".into(), Value::String(command));
                     // The pre-tool helper is synchronous; journal-only events are asynchronous.
                     handler.insert("async".into(), Value::Bool(!sync_barrier_event(event)));
                 }
@@ -2179,18 +2187,30 @@ fn sync_barrier_event(event: &str) -> bool {
 
 #[cfg(unix)]
 /// The fallback for `claude_session_hook_settings`. Pre-tool decisions are
-/// preserved; journal receipts from other events are discarded.
-fn emit_hook_command(quoted_binary: &str, provider: &str, event: &str) -> String {
+/// preserved; journal receipts from other events are discarded. The emit
+/// ends itself at [`emit_deadline_ms`] of the hook's installed `timeout`
+/// (seconds), so a stalled daemon never runs the hook past it.
+fn emit_hook_command(quoted_binary: &str, provider: &str, event: &str, timeout: u64) -> String {
     if sync_barrier_event(event) {
         return format!(
             "{quoted_binary} {HOOK_MODE_ARG} {provider} {event}||exit 2;#{COMMAND_MARKER}"
         );
     }
     format!(
-        "{quoted_binary} agent hook emit --source {} --event {} >/dev/null 2>&1||:;echo {{}};#{COMMAND_MARKER}",
+        "{quoted_binary} agent hook emit --source {} --event {} --deadline-ms {} >/dev/null 2>&1||:;echo {{}};#{COMMAND_MARKER}",
         shell_quote(provider),
         shell_quote(event),
+        emit_deadline_ms(timeout),
     )
+}
+
+/// When a hook installed with `timeout_seconds` answers: the timeout minus a
+/// tenth, the margin held between 1.5 s and 5 s (5 s gives 3.5 s, 3 s gives
+/// 1.5 s, 90 s gives 85 s), the rule the hook helper and leo-workspace#10655 use.
+pub fn emit_deadline_ms(timeout_seconds: u64) -> u64 {
+    let timeout = timeout_seconds.saturating_mul(1000);
+    let margin = (timeout / 10).clamp(1500, 5000);
+    timeout.saturating_sub(margin).max(500)
 }
 
 /// Codex's shared app-server may run hooks without the launching terminal's

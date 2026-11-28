@@ -17,6 +17,24 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
   virtualConsole: new VirtualConsole(),
 });
 const scope = globalThis as Record<string, unknown>;
+/// The page's clock, which only the test moves: a frame is 16 ms on it however long the runner took
+/// to draw it, and a wheel event is stamped on it. The momentum hold (momentumHold.ts) and the jump's
+/// glide read performance.now: on the runner's own clock a loaded machine spread the fling's frames
+/// over more real time than they take, the hold lapsed (MOMENTUM_ARRIVAL_MS, MOMENTUM_MAX_MS) mid-fling
+/// and the rest of the momentum moved the view (5014 for 5588 under 16 busy jobs, where no hold at
+/// all lands).
+let now = 1_000;
+const pageClock = performance.now;
+performance.now = () => now;
+const frames = new Map<number, FrameRequestCallback>();
+let lastFrame = 0;
+const requestFrame = (callback: FrameRequestCallback) => {
+  frames.set(++lastFrame, callback);
+  return lastFrame;
+};
+const cancelFrame = (handle: number) => void frames.delete(handle);
+dom.window.requestAnimationFrame = requestFrame;
+dom.window.cancelAnimationFrame = cancelFrame;
 const replacements: Record<string, unknown> = {
   window: dom.window,
   document: dom.window.document,
@@ -36,13 +54,8 @@ const replacements: Record<string, unknown> = {
     unobserve() {}
     disconnect() {}
   },
-  // Frame callbacks get the clock the page reads (`performance.now`), as a browser's do. jsdom stamps
-  // them on its window's own clock, which starts when the JSDOM is made, after this file's imports:
-  // the glide's start (scrollMotion.ts runScroll) then read seconds ahead of its frames, and on a
-  // loaded runner the jump had not moved when the test looked (job 138405547914: 5014, not 5588).
-  requestAnimationFrame: (callback: FrameRequestCallback) =>
-    dom.window.requestAnimationFrame(() => callback(performance.now())),
-  cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
+  requestAnimationFrame: requestFrame,
+  cancelAnimationFrame: cancelFrame,
   IS_REACT_ACT_ENVIRONMENT: true,
 };
 for (const key of Object.getOwnPropertyNames(dom.window))
@@ -60,6 +73,7 @@ const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 
 afterAll(async () => {
+  performance.now = pageClock;
   await teardownDom(saved, { window: dom.window, scope });
 });
 
@@ -73,19 +87,23 @@ const turns = Array.from({ length: 24 }, (_, index) => [
   row(`t${index}-answer`, "assistant", `Answer ${index}.\n\nWith a second paragraph so the turn has height.`),
   { ...row(`t${index}-end`, "turnSummary"), status: "completed", durationMs: 1_000 },
 ]).flat();
-const nextFrame = () => new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve()));
+/// One display frame: the page's clock moves on 16 ms and the callbacks asked for before it run
+/// (those they ask for run in the next one, as a browser's do).
+const nextFrame = async () => {
+  now += 16;
+  const due = [...frames.values()];
+  frames.clear();
+  for (const callback of due) callback(now);
+};
 
-/// The wheel's own clock, as the platform stamps its events: a frame apart, however long the page
-/// took to handle the last one (a slow runner's render is no pause in the fling).
-let stamp = 0;
 /// One frame of a trackpad scroll: the wheel event over a row, then the browser's own move of the
 /// offset by its delta and the scroll event it fires.
 const wheelFrame = async (scroller: HTMLElement, deltaY: number) => {
   await act(async () => {
     const over = scroller.querySelector(".acpmux-row") ?? scroller;
     const event = new dom.window.WheelEvent("wheel", { deltaY, bubbles: true, cancelable: false });
-    stamp += 16;
-    Object.defineProperty(event, "timeStamp", { value: stamp });
+    // The platform stamps the wheel with its own time: a frame apart, on the page's clock.
+    Object.defineProperty(event, "timeStamp", { value: now });
     over.dispatchEvent(event);
     scroller.scrollTop += deltaY;
     scroller.dispatchEvent(new dom.window.Event("scroll"));
@@ -135,13 +153,14 @@ for (const motion of ["off", "on"] as const) {
       expect(button().dataset.shown).toBeUndefined();
 
       // The reader's next gesture, after a pause, is theirs: it scrolls up and lets go of the latest row.
-      // The pause is on the wheel's clock: 150 ms with no event, past MOMENTUM_GAP_MS.
-      stamp += 150;
+      // The pause is on the page's clock: 150 ms with no event, past MOMENTUM_GAP_MS.
+      now += 150;
       for (const delta of [-4, -12, -30]) await wheelFrame(scroller, delta);
       expect(scroller.scrollTop).toBe(latest - 46);
       expect(following.at(-1)).toBe(false);
     } finally {
       await act(async () => root.unmount());
     }
-  });
+    // A loaded runner takes longer over the same frames; what lands is the page clock's, not its time.
+  }, 30_000);
 }

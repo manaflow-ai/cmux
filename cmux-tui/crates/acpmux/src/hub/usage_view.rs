@@ -371,6 +371,18 @@ impl Hub {
                     && transcript_family(m.family.as_deref().unwrap_or_default()).is_some()))
     }
 
+    /// Whether `m`'s chat has had no turn and holds no conversation from elsewhere
+    /// ([`Source::unprompted`]): a lane started and not yet prompted, whose Claude Code writes
+    /// no transcript until its first prompt. Before this, such a chat had no `usageStats` and
+    /// its machine read as unmetered for as long as it waited.
+    fn unprompted(m: &SessionMeta) -> bool {
+        m.turn_count == 0
+            && m.watching.is_none()
+            && m.previous_agent_session_ids.is_empty()
+            && m.history_from.is_none()
+            && m.parent_id.is_none()
+    }
+
     /// The harnesses whose chats call no model ([`crate::config::Config::runs_no_model`]).
     async fn no_model_harnesses(&self) -> HashSet<String> {
         let cfg = self.config.read().await;
@@ -401,6 +413,7 @@ impl Hub {
                     created_at: m.created_at,
                     argv,
                     env: Default::default(),
+                    unprompted: false,
                 };
                 sources.push((m.id.clone(), source));
                 continue;
@@ -423,6 +436,7 @@ impl Hub {
                 created_at: m.created_at,
                 argv,
                 env,
+                unprompted: Self::unprompted(&m),
             };
             // The window acpmux started it with when the person set none and the settings name
             // one (`harness_limits::lift_claude`).
@@ -503,7 +517,13 @@ impl Hub {
                     continue;
                 }
                 let tracker = trackers.entry(id.clone()).or_default();
-                if let Some(found) = tracker.refresh(source, crate::store::now_ms(), &models) {
+                let now = crate::store::now_ms();
+                // An unprompted chat with no transcript spent nothing: zeros, tagged by the
+                // transcript it will write, so its first turn's records are read at once.
+                let found = tracker
+                    .refresh(source, now, &models)
+                    .or_else(|| source.unprompted.then(|| no_model_stats(source, now)));
+                if let Some(found) = found {
                     let mut tags = vec![UsageTag::Chat(id.clone())];
                     tags.extend(transcript_key(source).map(UsageTag::Transcript));
                     fresh.push((id.clone(), found, tags));

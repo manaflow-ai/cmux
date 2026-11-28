@@ -554,6 +554,17 @@
             },
             "required": false,
             "description": "a string at most 255 character(s) long"
+          },
+          {
+            "name": "x-cmux-create-priority",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "background"
+              ]
+            },
+            "required": false
           }
         ],
         "security": [

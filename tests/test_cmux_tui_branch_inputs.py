@@ -78,6 +78,9 @@ class BranchInputsScriptTest(unittest.TestCase):
         branch("fix/code", "cmux-tui/src/lib.rs", "fn b() {}\n")
         branch("fix/script", "scripts/ci/cargo-groups.sh", "other groups\n")
         branch("fix/trailer", "docs/readme.md", "docs\n", "docs\n\nCmux-Daemon-Tests: run")
+        # feat-cmux-next-* heads: the superseded check keeps them as integration refs.
+        branch("feat-cmux-next-docs", "docs/readme.md", "integration docs\n")
+        branch("feat-cmux-next-code", "cmux-tui/src/lib.rs", "fn integration() {}\n")
         # feat-cmux-next moves its own tree on after the branches were cut.
         write(seed, "cmux-tui/src/lib.rs", "fn base_moved() {}\n")
         git(seed, "commit", "--quiet", "-am", "base moves")
@@ -138,8 +141,19 @@ class BranchInputsScriptTest(unittest.TestCase):
                 out, log = self.run_gate(f"refs/heads/{name}", self.heads[name])
                 self.assertEqual(out, "unchanged=false", log)
 
+    def test_a_feat_cmux_next_prefixed_head_that_changes_no_tree_input_is_unchanged(self) -> None:
+        out, log = self.run_gate("refs/heads/feat-cmux-next-docs", self.heads["feat-cmux-next-docs"])
+        self.assertEqual(out, "unchanged=true", log)
+
+    def test_a_feat_cmux_next_prefixed_head_that_changes_a_tree_input_builds_though_the_base_moved(self) -> None:
+        # Only the unchanged-key rule: BASE-MOVED never skips an integration-prefixed head.
+        out, log = self.run_gate("refs/heads/feat-cmux-next-code", self.heads["feat-cmux-next-code"])
+        self.assertEqual(out, "unchanged=false", log)
+        self.assertIn("differs", log)
+
     def test_trunk_refs_build(self) -> None:
-        for ref in ("refs/heads/feat-cmux-next", "refs/heads/main", "refs/heads/nightly-next"):
+        for ref in ("refs/heads/feat-cmux-next", "refs/heads/main", "refs/heads/nightly-next",
+                    "refs/heads/release-next", "refs/heads/cmux-tui-pin-abc"):
             with self.subTest(ref=ref):
                 out, _ = self.run_gate(ref, self.heads["fix/docs"])
                 self.assertEqual(out, "unchanged=false")
@@ -170,6 +184,11 @@ class BranchInputsWiringTest(unittest.TestCase):
             self.assertIn(f"scripts/ci/{name}", checkout["sparse-checkout"])
         self.assertEqual(gate["outputs"]["inputs_unchanged"], "${{ steps.inputs.outputs.unchanged }}")
         self.assertEqual(gate.get("continue-on-error"), True)
+        # feat-cmux-next-* heads take the gate; trunk refs and pins never do.
+        self.assertNotIn("'refs/heads/feat-cmux-next-'", gate["if"])
+        for ref in ("refs/heads/main", "refs/heads/feat-cmux-next", "refs/heads/nightly-next", "refs/heads/release-next"):
+            self.assertIn(f"github.ref != '{ref}'", gate["if"])
+        self.assertIn("!startsWith(github.ref, 'refs/heads/cmux-tui-pin-')", gate["if"])
 
     def test_preflight_stops_only_on_unchanged_true(self) -> None:
         condition = self.jobs["tree-preflight"]["if"]

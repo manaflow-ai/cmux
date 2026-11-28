@@ -1,14 +1,14 @@
 import {
+  useSyncExternalStore,
   useCallback,
   useEffect,
   useId,
   useRef,
   useState,
-  useSyncExternalStore,
   type ComponentProps,
   type ReactNode,
 } from "react";
-import { createLink, type AnyRouter } from "@tanstack/react-router";
+import { type AnyRouter, createLink } from "@tanstack/react-router";
 import { useSettingsState } from "../context";
 import { categoryRows, shownSidebarSections, type Category, type SidebarSection } from "../categories";
 import { settingsFileName } from "../format";
@@ -109,8 +109,9 @@ const SectionLink = createLink(function SectionAnchor({
  * agent CLI that is outdated or signed out (update). Each entry is a router link: hover or keyboard
  * focus preloads its section (the router's `defaultPreload: "intent"`), a click navigates.
  * `current` marks the shown category (null while searching); the link's own active match is exact,
- * so it never marks a section the page is not showing. The top level is six pages (one settings area,
- * David Beyer 2026-11-20: Settings felt overwhelming), each opening its categories while shown. */
+ * so it never marks a section the page is not showing. The last section, More, starts closed (one
+ * settings area, David Beyer 2026-11-20: Settings felt overwhelming), so the top level stays short;
+ * it opens on a click, and while one of its categories is shown. */
 export function SectionList({ current, onSelect }: { current: string | null; onSelect: (section: string) => void }) {
   const state = useSettingsState();
   const betaChips = useBetaChips();
@@ -138,11 +139,8 @@ export function SectionList({ current, onSelect }: { current: string | null; onS
     const link = node?.querySelector<HTMLElement>(".section-link[aria-current]");
     if (node && link) revealInStrip(node, link);
   }, [current]);
-  const link = (category: Category, page?: { section: SidebarSection; open: boolean }) => {
+  const link = (category: Category) => {
     const mark = badge(state, category.id);
-    // A page's link is its first category's link under the page's title; `data-open` marks the
-    // shown page while another of its categories is shown.
-    const pageLink = page !== undefined;
     return (
       <SectionLink<AnyRouter, string, string>
         key={category.id}
@@ -150,20 +148,16 @@ export function SectionList({ current, onSelect }: { current: string | null; onS
         params={{ section: category.id }}
         activeOptions={{ exact: true }}
         activeProps={{}}
-        className={pageLink ? "section-link sidebar-page-link" : "section-link"}
+        className="section-link"
         draggable={false}
         data-section-link={category.id}
-        data-sidebar-page={pageLink ? page.section.id : undefined}
-        data-open={pageLink && page.open ? "" : undefined}
         currentPage={category.id === current}
         onClick={() => onSelect(category.id)}
       >
         <span className="section-icon" data-category={category.id}>
           <CategoryIcon symbol={category.symbol} />
         </span>
-        <span className="section-name">
-          {pageLink && page.section.title ? text(page.section.title) : text(category.title)}
-        </span>
+        <span className="section-name">{text(category.title)}</span>
         {betaChips && isExperimentalCategory(category.id) && <BetaChip />}
         {mark && (
           <span className={`badge badge-${mark}`} data-badge={mark}>
@@ -176,85 +170,38 @@ export function SectionList({ current, onSelect }: { current: string | null; onS
       </SectionLink>
     );
   };
-  // Six pages (one settings area, findings G6; Leo 2026-11-22: "ay, fuck it we ball"): each section of
-  // the Swift `SettingsPageLayout.sidebarSections` export is one page link, its first category under
-  // the page's title; the shown page's other categories open under it, indented, the way a card's
-  // More Options does. A page of one category is just its link. A section the layout draws closed
-  // (collapsed) keeps its header button, and an untitled run its bare links.
+  // Each run of categories sits under its small header (Look and Feel, AI, ...), the layout the
+  // Swift `SettingsPageLayout.sidebarSections` exports; the lead run (General, Updates) has none.
   return (
     <nav ref={stripRef} className="section-list" aria-label={t("settingsPage.sections")}>
-      {shownSidebarSections(state.host?.dev_build === true).map(({ section, categories }) => {
-        const holdsCurrent = categories.some((category) => category.id === current);
-        if (section.collapsed) {
-          return (
-            <CollapsedSection key={section.id} section={section} holdsCurrent={holdsCurrent}>
-              {categories.map((category) => link(category))}
-            </CollapsedSection>
-          );
-        }
-        if (section.title && categories.length > 1) {
-          return (
-            <SidebarPage
-              key={section.id}
-              section={section}
-              holdsCurrent={holdsCurrent}
-              pageLink={link(categories[0]!, { section, open: holdsCurrent })}
-            >
-              {categories.slice(1).map((category) => link(category))}
-            </SidebarPage>
-          );
-        }
-        // A page of one category (Keyboard), or an untitled run: just its links.
-        return (
+      {shownSidebarSections(state.host?.dev_build === true).map(({ section, categories }) =>
+        section.collapsed ? (
+          <CollapsedSection
+            key={section.id}
+            section={section}
+            holdsCurrent={categories.some((category) => category.id === current)}
+          >
+            {categories.map(link)}
+          </CollapsedSection>
+        ) : (
           <div
             key={section.id}
-            className={section.title ? "sidebar-section sidebar-page" : "sidebar-section"}
+            className="sidebar-section"
             data-sidebar-section={section.id}
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a labelled group of sidebar links; a fieldset would bring its own box and form semantics
+            role="group"
+            aria-labelledby={section.title ? `sidebar-section-${section.id}` : undefined}
           >
-            {categories.map((category) => (section.title ? link(category, { section, open: false }) : link(category)))}
+            {section.title && (
+              <h3 className="sidebar-section-title" id={`sidebar-section-${section.id}`}>
+                {text(section.title)}
+              </h3>
+            )}
+            {categories.map(link)}
           </div>
-        );
-      })}
+        ),
+      )}
     </nav>
-  );
-}
-
-/**
- * One of the six pages: its link (its first category, under the section's title), then its other
- * categories, indented, open while one of the page's categories is shown. Closed, they are inert: no
- * Tab stop; a click on the page link opens its first category, which opens them.
- */
-function SidebarPage({
-  section,
-  holdsCurrent,
-  pageLink,
-  children,
-}: {
-  section: SidebarSection;
-  holdsCurrent: boolean;
-  pageLink: ReactNode;
-  children: ReactNode;
-}) {
-  const id = useId();
-  return (
-    <div
-      className="sidebar-section sidebar-page"
-      data-sidebar-section={section.id}
-      data-open={holdsCurrent ? "" : undefined}
-    >
-      {pageLink}
-      <div
-        className="sidebar-more-links sidebar-page-children"
-        id={`${id}-links`}
-        data-open={holdsCurrent ? "" : undefined}
-        inert={!holdsCurrent}
-        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a labelled group of sidebar links; a fieldset would bring its own box and form semantics
-        role="group"
-        aria-label={section.title ? text(section.title) : undefined}
-      >
-        <div className="sidebar-more-rows">{children}</div>
-      </div>
-    </div>
   );
 }
 

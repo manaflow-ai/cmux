@@ -6,6 +6,13 @@ use std::path::PathBuf;
 
 use crate::cli::command::{CloseArgs, MoveSessionsArgs, PlaceSessionArgs, RebalanceArgs, StopIf};
 
+/// `session auto-settle`'s choice: the settings decide, or this chat never settles on its own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum AutoSettleMode {
+    Follow,
+    Never,
+}
+
 #[derive(Subcommand)]
 pub enum SessionCmd {
     /// Queue a new session on a mesh host; prints a receipt, not completed execution.
@@ -31,14 +38,25 @@ pub enum SessionCmd {
         session: String,
         #[command(flatten)]
         mesh: crate::cli::mesh_control::RouteArgs,
-        /// Also delete the log.
+        /// Also delete the chat and its log. It is kept 7 days first: `session deleted` lists
+        /// it, `session undelete` brings it back with its whole log. A daemon older than that
+        /// deletes it at once, and the command says so.
         #[arg(long)]
         purge: bool,
+        /// With `--purge`: delete now, with no grace to restore it.
+        #[arg(long, requires = "purge")]
+        now: bool,
         #[command(flatten)]
         condition: StopIf,
         #[command(flatten)]
         close: CloseArgs,
     },
+    /// Bring back a chat deleted with `session stop --purge` inside its 7 days, closed, with its
+    /// whole log. SESSION is its id or its name; when a chat took the name meanwhile, it comes
+    /// back as NAME-2.
+    Undelete { session: String },
+    /// The deleted chats that may still be brought back, and until when.
+    Deleted,
     /// Pause an idle session: its agent process and MCP servers exit now, as after 2 idle
     /// minutes, and the chat keeps its transcript and conversation. Its next prompt, opening it,
     /// or `session wake` resumes the same conversation. Refused (exit 6) while it is busy.
@@ -96,10 +114,18 @@ pub enum SessionCmd {
     /// wait, or hand its work off. Reads FACTS (a JSON file, `-` for stdin: its host, how it
     /// died, what was tried, which hosts admit one more session) and prints one JSON step,
     /// `{"step": "restart"|"move"|"successor"|...}`. Runs nothing; the caller runs the step
-    /// (`session restart`, `session move`) and asks again on its next pass.
+    /// (`session restart`, `session move`) and asks again on its next pass. Name the session
+    /// (`HOST/NAME`) and this machine's hub fills what it knows first: whether its host is down
+    /// and since when, which peers answer, its row and how much of its chat the copy here keeps;
+    /// FACTS, when given, lie over those field by field. `--show-facts` prints both.
     Route {
+        /// The dead session, `HOST/NAME`.
+        session: Option<String>,
         #[arg(long, value_name = "FILE")]
-        facts: PathBuf,
+        facts: Option<PathBuf>,
+        /// Print `{facts, step}`: the facts the step was decided on, then the step.
+        #[arg(long)]
+        show_facts: bool,
     },
     /// Rename a session.
     Rename {
@@ -146,8 +172,9 @@ pub enum SessionCmd {
         /// conversation with its first prompt.
         #[arg(long)]
         harness: Option<String>,
-        /// The model the fork starts on (with --harness).
-        #[arg(long, short, requires = "harness")]
+        /// The model the fork runs, on --harness or the chat's own harness (MODEL or
+        /// HARNESS/MODEL). A model the harness does not list fails the fork.
+        #[arg(long, short)]
         model: Option<String>,
     },
     /// Change mode, model, a config option, or the permission policy: key=value.
@@ -251,6 +278,16 @@ pub enum SessionCmd {
         /// A chat the reader has never focused has no recap.
         #[arg(long)]
         since: Option<String>,
+    },
+    /// Settle a chat now: archived, off every list, on the Settled shelf (`hub/auto_settle.rs`).
+    Settle { session: String },
+    /// Bring a settled (or archived) chat back to the lists.
+    Unsettle { session: String },
+    /// Whether the auto-settle settings (`agents.autoSettle.*`) apply to this chat.
+    AutoSettle {
+        session: String,
+        #[arg(value_enum)]
+        mode: AutoSettleMode,
     },
     /// Label a session: key=value pairs, `--remove key`, `--ttl seconds`.
     Tag {

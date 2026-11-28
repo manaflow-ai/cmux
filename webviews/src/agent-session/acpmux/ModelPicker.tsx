@@ -36,14 +36,14 @@ import { ContextMenu } from "../../ui/ContextMenu";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { useUpdateOffer } from "./harnessHealthNoticeModel";
 import { useHarnessUpdates } from "./harnessUpdateList";
-import { HarnessUpdateButton, HarnessUpdatesSection } from "./HarnessUpdates";
+import { HarnessUpdatesSection, HarnessUpdateButton } from "./HarnessUpdates";
 import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, type ModelPickerProps } from "./modelPickerLayout";
 import { curatedSections, modelSections } from "./modelSections";
 import { ModelSearchIndex } from "./modelSearch";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
 import { effortWords, fitsQuery, matchingModels, modelEffort, parseQuery, type ParsedQuery } from "./modelQuery";
 import { groupVariants } from "./modelVariants";
-import { registerModelCommand, registerPicker } from "./pickerOpeners";
+import { registerPicker, ChatViewParked, registerModelCommand } from "./pickerOpeners";
 import { OnNewTab } from "./newTabComposer";
 import { relevantModelSections } from "./relevantModels";
 import { type QuickFamily, type QuickModel, hostTabBrand } from "./quickModelMenuModel";
@@ -71,7 +71,8 @@ import { quantizePickerRail } from "./pickerRailGeometry";
 import { CLAUDE_STDIO_KIND, type HarnessChoice, uniqueHarnesses, withoutVendor } from "./modelPickerModel";
 import { ClaudeConnectRow } from "./ClaudeConnectRow";
 import type { ClaudeConnectRowProps } from "./claudeConnect";
-import { pickerHeightBounds } from "./modelPickerLayout";
+import { CloudServedContext, cloudPickerState, cloudPickerFamily, cloudPickerReason } from "./cloudServed";
+import { pickerHeightBounds, cloudPickerFloor, rememberLocalPickerHeight } from "./modelPickerLayout";
 import { focusRoute } from "../../ui/focusRoute";
 import { intl } from "../../ui/intl";
 type ModelChoice = {
@@ -246,6 +247,7 @@ function railByHarness(
   running: string | undefined,
   profiles: Readonly<Record<string, readonly PickerProfile[]>> = {},
   signedOut: (id: string) => boolean = () => false,
+  setupRoute: (route: QuickFamily) => QuickFamily = (route) => route,
 ): QuickFamily[] {
   const seen = new Set<string>();
   const byId = new Map(list.map((family) => [family.id, family]));
@@ -268,7 +270,7 @@ function railByHarness(
     );
     const currentName =
       names.find((profile) => profile.id === family.id)?.name ?? launchName(family.name, family.name, family.id);
-    const alternate = launchSuffix(family.id) && family.id !== running && !hasModels(family);
+    const alternate = launchSuffix(family.id) && family.id !== running && !hasModels(family) && !family.logInLabel;
     // A launch tab starts its harness; it lists no rows (stale ones of a failed probe included), so
     // reaching it with the arrow keys shows nothing that could start a model.
     const own = {
@@ -292,14 +294,15 @@ function railByHarness(
         const entry = byId.get(profile.id);
         if (hasModels(entry)) return [{ ...entry!, name: profile.name, mark: entry!.mark ?? family.mark }];
         return [
-          {
+          setupRoute({
             id: profile.id,
             name: profile.name,
-            mark: family.mark,
+            mark: entry?.mark ?? family.mark,
+            accountFamily: entry?.accountFamily ?? family.accountFamily,
             models: [],
             more: [],
             launch: true,
-          },
+          }),
         ];
       }),
     ];
@@ -373,8 +376,10 @@ const modelRow =
 const rowFill = (active: boolean) => (active ? "bg-hover" : "bg-transparent hover:bg-hover");
 const emptyNote = "px-2.5 py-2 text-body text-muted";
 /// Whether the Claude Connect row (ClaudeConnectRow.tsx) leads `entry`'s section: its mark is the row's brand.
-const claudeConnectHere = (connect: ClaudeConnectRowProps | undefined, entry: Pick<HarnessChoice, "id" | "mark">) =>
-  !!connect && agentBrand(entry.mark ?? entry.id) === connect.brand;
+const claudeConnectHere = (connect: ClaudeConnectRowProps | undefined, entry: Pick<HarnessChoice, "id" | "mark">) => {
+  const brand = agentBrand(entry.mark ?? entry.id);
+  return !!connect && brand !== undefined && connect.brands.includes(brand);
+};
 /// The update row's Update and Skip This Version: row-height text buttons, as wide as their words.
 const updateButton =
   "flex h-[var(--ui-row-height,28px)] flex-none cursor-default items-center rounded-[var(--ui-row-radius,5px)] border-0 px-2 font-[inherit] text-control text-fg";
@@ -638,26 +643,73 @@ export function ModelPicker(props: ModelPickerProps) {
     reasoningMenu,
     fork,
     onSetUpPick,
+    onAddAgent: addAgent,
   } = props;
   const quick = reasoningMenu ? undefined : props.quick;
   const layoutEffort = reasoningMenu ? props.quick?.effort : undefined;
   acpmuxPerf.render("composer:model");
-  /// A signed-out harness's login command ("" when acpmux names none); undefined when it can start.
-  const loginFor = useCallback((entry: HarnessChoice) => signedOut?.[entry.acpmuxHarness ?? entry.id], [signedOut]);
-  /// A harness that cannot start a chat until it is set up: not installed here, or signed out.
+  const cloudSetup = useContext(CloudServedContext);
+  const cloudServed = cloudSetup?.served;
+  const linkedClaude = cloudSetup?.linkedClaude;
+  const openConnectionSettings = cloudSetup?.openSettings;
+  const pickerState = useCallback(
+    (entry: Pick<HarnessChoice, "id" | "folder">) => {
+      if (entry.folder) return cloudServed ? "unsupported" : undefined;
+      if (cloudServed) return cloudPickerState(cloudServed, entry.id);
+      return undefined;
+    },
+    [cloudServed],
+  );
+  // A linked guest can use credentials the Settings sign-in probe cannot see.
+  const offersLinkedClaudeConnect = useCallback(
+    (entry: Pick<HarnessChoice, "id">) => entry.id === "claude" && linkedClaude?.families.claude === false,
+    [linkedClaude],
+  );
+  const cloudNeedsConnection = useCallback(
+    (entry: Pick<HarnessChoice, "id" | "folder">) => {
+      const state = pickerState(entry);
+      return state === "disconnected" || state === "unsupported";
+    },
+    [pickerState],
+  );
+  const missingHere = useCallback(
+    (entry: HarnessChoice) => pickerState(entry) === undefined && entry.notInstalled === true,
+    [pickerState],
+  );
+  const staleHere = useCallback(
+    (entry: HarnessChoice) => pickerState(entry) === undefined && !!entry.unavailable,
+    [pickerState],
+  );
+  /// The local login command; Cloud readiness replaces local installation and sign-in when known.
+  const loginFor = useCallback(
+    (entry: HarnessChoice) =>
+      pickerState(entry) === undefined ? signedOut?.[entry.acpmuxHarness ?? entry.id] : undefined,
+    [pickerState, signedOut],
+  );
   const needsSetup = useCallback(
-    (entry: HarnessChoice) => entry.notInstalled === true || loginFor(entry) !== undefined,
-    [loginFor],
+    (entry: HarnessChoice) => missingHere(entry) || cloudNeedsConnection(entry) || loginFor(entry) !== undefined,
+    [cloudNeedsConnection, loginFor, missingHere],
+  );
+  /// A family Cloud can run that has no connection yet. Its models, levels and Fast list as they do
+  /// locally, with the person's saved picks, plus a Connect row, so the Cloud picker matches the local one.
+  const cloudDisconnected = useCallback(
+    (entry: Pick<HarnessChoice, "id" | "folder">) => pickerState(entry) === "disconnected",
+    [pickerState],
+  );
+  /// Whether `entry`'s models list: set up here, or a Cloud family waiting for its connection.
+  const listsModels = useCallback(
+    (entry: HarnessChoice) => !needsSetup(entry) || cloudDisconnected(entry),
+    [cloudDisconnected, needsSetup],
   );
   /// A harness the search and the rail offer: set up here, or one a pick sets up (onSetUpPick).
   const offered = useCallback(
-    (entry: HarnessChoice) => !needsSetup(entry) || onSetUpPick !== undefined,
-    [needsSetup, onSetUpPick],
+    (entry: HarnessChoice) => !needsSetup(entry) || (pickerState(entry) === undefined && onSetUpPick !== undefined),
+    [needsSetup, onSetUpPick, pickerState],
   );
   /// A pick of `model` on a harness that needs setting up hands it to the composer, which installs
   /// the harness, signs it in and starts the chat on the model. False when the harness is set up.
   const setUpPick = (owner: HarnessChoice, model: string, effort?: string, fast?: boolean) => {
-    if (!needsSetup(owner) || !onSetUpPick) return false;
+    if (pickerState(owner) !== undefined || !needsSetup(owner) || !onSetUpPick) return false;
     const login = loginFor(owner);
     onSetUpPick({
       harness: owner.acpmuxHarness ?? owner.id,
@@ -692,7 +744,32 @@ export function ModelPicker(props: ModelPickerProps) {
   const addHarnessText = props.addAgentLabel ?? t("modelPicker.addHarness");
   const fastText = t("picker.fastOn");
   const unavailableText = t("picker.unavailable");
-  const signedOutText = t("harnesses.signedOut");
+  const notInstalledText = t("harnesses.notInstalled");
+  const signInNoteFor = useCallback(
+    (entry: HarnessChoice) =>
+      cloudNeedsConnection(entry)
+        ? t(cloudPickerReason(cloudServed, entry.id))
+        : loginFor(entry) !== undefined
+          ? t("harnesses.signedOut")
+          : undefined,
+    [cloudNeedsConnection, cloudServed, loginFor, t],
+  );
+  const signInActionFor = useCallback(
+    (entry: HarnessChoice) => {
+      const id = entry.acpmuxHarness ?? entry.id;
+      if (!cloudNeedsConnection(entry) && !offersLinkedClaudeConnect(entry)) {
+        const login = loginFor(entry);
+        return login && onLogIn ? { run: () => onLogIn(id, login) } : undefined;
+      }
+      if (!openConnectionSettings) return undefined;
+      const family = cloudPickerFamily(cloudServed, id) ?? entry.family ?? id;
+      return {
+        label: t("picker.cloud.connectFamily", { name: entry.name }),
+        run: () => openConnectionSettings(family),
+      };
+    },
+    [cloudNeedsConnection, cloudServed, loginFor, offersLinkedClaudeConnect, onLogIn, openConnectionSettings, t],
+  );
   const modelRowId = (id: string) => `${menuId}-model-${encodeURIComponent(id)}`;
   const [open, setOpen] = useState(false);
   // The compact menu (QuickModelMenu) a click opens when `quick` is set; More models opens the full one.
@@ -701,6 +778,15 @@ export function ModelPicker(props: ModelPickerProps) {
   // skips catalog work; reopening keeps its existing menu and selection lifecycle.
   const [hasOpened, setHasOpened] = useState(false);
   const modelsNeeded = hasOpened || open || quickOpen;
+  // With Cloud picked, each opening reads again what serves Cloud (cloudServed.ts), so the Connect rows
+  // match Settings when the person looks. The picker has several ways to open; this is their one sign.
+  const refreshCloudServed = cloudSetup?.refresh;
+  const refreshCloudServedRef = useRef(refreshCloudServed);
+  refreshCloudServedRef.current = refreshCloudServed;
+  const shown = open || quickOpen;
+  useEffect(() => {
+    if (shown) refreshCloudServedRef.current?.();
+  }, [shown]);
   if (modelsNeeded && !hasOpened) setHasOpened(true);
   const [openHeight, setOpenHeight] = useState<number>();
   const [selectedHarness, setSelectedHarness] = useState(harness);
@@ -761,8 +847,8 @@ export function ModelPicker(props: ModelPickerProps) {
         : undefined,
     [allHarnesses, forkTargets, harness, props.harnessFixed],
   );
-  const harnessFixed = props.harnessFixed === true && ownHarness.length > 0 && !forkHarnesses;
-  const harnesses = harnessFixed ? ownHarness : (forkHarnesses ?? allHarnesses);
+  const harnessFixed = !cloudServed && props.harnessFixed === true && ownHarness.length > 0 && !forkHarnesses;
+  const harnesses = cloudServed ? allHarnesses : harnessFixed ? ownHarness : (forkHarnesses ?? allHarnesses);
   // A started chat that can fork holds the pick its next message forks to, and while one is held marks
   // what it ran (UsedMark). With nothing held the running row's check says it, and a second mark beside
   // the check reads as an unexplained clock (Leo 2026-11-09, relaying Lucas: "What's this new clock icon?").
@@ -778,7 +864,7 @@ export function ModelPicker(props: ModelPickerProps) {
   // they are not harness choices and never become tabs in the picker rail.
   const railHarnesses = useMemo(() => harnesses.filter((entry) => !entry.folder), [harnesses]);
   // A started chat offers no Add harness… row: it adds no harness to the chat.
-  const onAddAgent = props.harnessFixed ? undefined : props.onAddAgent;
+  const onAddAgent = props.harnessFixed || cloudServed ? undefined : addAgent;
   const navigableHarnesses = useMemo(
     () =>
       railHarnesses
@@ -786,12 +872,19 @@ export function ModelPicker(props: ModelPickerProps) {
         .filter(({ entry }) => entry.pickable && !blockedProfile(entry)),
     [railHarnesses],
   );
-  const current = harnesses.find((entry) => entry.ids.includes(harness ?? "")) ?? harnesses[0];
+  const currentEntry = harnesses.find((entry) => entry.ids.includes(harness ?? ""));
+  const current = currentEntry ?? harnesses[0];
+  const currentCloudUnavailable =
+    !!cloudServed && (!currentEntry || (cloudNeedsConnection(currentEntry) && !cloudDisconnected(currentEntry)));
   // The rail's first tab lists the starred models of every harness; each row keeps its harness.
   const starredView = selectedHarness === STARRED;
   const selected = starredView
     ? undefined
     : (harnesses.find((entry) => entry.ids.includes(selectedHarness ?? "")) ?? current);
+  const fastLocked = Boolean(
+    (selected && cloudDisconnected(selected)) || (currentEntry && cloudDisconnected(currentEntry)),
+  );
+  const showFullFast = !currentCloudUnavailable && (!selected || pickerState(selected) !== "unsupported");
   // A typed query searches every harness; without one, the rail's tab picks the list.
   const vocabulary = useMemo(
     () => (modelsNeeded ? effortWords(harnesses.flatMap((entry) => entry.models)) : new Set<string>()),
@@ -811,13 +904,13 @@ export function ModelPicker(props: ModelPickerProps) {
         ? new ModelSearchIndex(
             // A harness that is not installed lists no models, also in a search (Lucas 2026-11-25).
             harnesses.filter(
-              (entry) => entry.pickable && !blockedProfile(entry) && !entry.notInstalled && offered(entry),
+              (entry) => entry.pickable && !blockedProfile(entry) && !missingHere(entry) && offered(entry),
             ),
             (entry) => choicesFor(entry, lang),
             (entry) => entry.name,
           )
         : undefined,
-    [modelsNeeded, harnesses, offered, lang],
+    [modelsNeeded, harnesses, missingHere, offered, lang],
   );
   const owners = useMemo(() => {
     const owner = new Map<ModelChoice, HarnessChoice>();
@@ -829,7 +922,7 @@ export function ModelPicker(props: ModelPickerProps) {
       for (const entry of harnesses)
         if (!entry.folder && !needsSetup(entry))
           for (const model of choicesFor(entry, lang)) if (favorites.has(model.id)) owner.set(model, entry);
-    } else if (selected && !needsSetup(selected)) {
+    } else if (selected && listsModels(selected)) {
       // Every model past the top ones folds under More models until it opens (cx-jqkx, cx-espus).
       const { latest, older } = shownSections(selected, runsHere, lang);
       const shown = olderOpen ? [...latest, ...older] : latest;
@@ -853,6 +946,7 @@ export function ModelPicker(props: ModelPickerProps) {
     starredView,
     runsHere,
     needsSetup,
+    listsModels,
     harness,
     lang,
   ]);
@@ -861,10 +955,10 @@ export function ModelPicker(props: ModelPickerProps) {
   // Memoized: shownSections scans the harness's models, and a hover re-renders the picker.
   const olderCount = useMemo(
     () =>
-      !modelsNeeded || searching || starredView || (selected && needsSetup(selected))
+      !modelsNeeded || searching || starredView || (selected && !listsModels(selected))
         ? 0
         : shownSections(selected, runsHere, lang).older.length,
-    [modelsNeeded, searching, starredView, selected, needsSetup, runsHere, lang],
+    [modelsNeeded, searching, starredView, selected, listsModels, runsHere, lang],
   );
   const refreshStatus = localRefreshStatus ?? catalogRefresh?.status ?? "idle";
   const refreshDate = catalogRefresh?.date;
@@ -911,8 +1005,11 @@ export function ModelPicker(props: ModelPickerProps) {
     }
     if (menuStyle.visibility !== "visible" || openHeight != null) return;
     const node = menu.current;
-    if (node) setOpenHeight(Math.ceil(node.getBoundingClientRect().height));
-  }, [menuStyle.visibility, open, openHeight]);
+    if (!node) return;
+    const height = Math.ceil(node.getBoundingClientRect().height);
+    setOpenHeight(height);
+    if (!cloudServed) rememberLocalPickerHeight(height);
+  }, [cloudServed, menuStyle.visibility, open, openHeight]);
   // Quantize the narrow horizontal harness rail to complete cells. A fractional viewport
   // leaves the browser's maximum scroll position between snap points, which would expose a
   // clipped mark at the far edge. Measure the stable menu container, never the width we set,
@@ -1046,7 +1143,9 @@ export function ModelPicker(props: ModelPickerProps) {
   useLayoutEffect(() => {
     // The anchor's first render is hidden while it measures. Browsers cannot focus search
     // until the positioned menu is visible, even though JSDOM accepts that early focus.
-    if (open && menuStyle.visibility === "visible") search.current?.focus({ preventScroll: true });
+    if (open && menuStyle.visibility === "visible") {
+      search.current?.focus({ preventScroll: true });
+    }
   }, [open, menuStyle.visibility]);
   // The highlighted row stays in view (Lawrence 2026-10-09 recording: ArrowDown moved the highlight below the
   // visible rows and the list did not follow). The nearest scroll only moves when the row is outside the list's
@@ -1068,23 +1167,26 @@ export function ModelPicker(props: ModelPickerProps) {
       window.removeEventListener("blur", blur);
     };
   }, [close, open]);
+  // Parked under a New Tab page (unseen, inert): the page's own picker has the palette and the key.
+  const parked = useContext(ChatViewParked);
   useEffect(
     () =>
-      registerPicker(modelText, () => {
-        // A picker parked under a New Tab page (inert, unseen) is not the one to open.
-        if (root.current?.closest("[inert]")) return;
-        if (quick === undefined) showRef.current();
-        else if (open) close();
-        else setQuickOpen(true);
-      }),
-    [modelText, quick, open, close],
+      parked
+        ? undefined
+        : registerPicker(modelText, () => {
+            // A picker parked under a New Tab page (inert, unseen) is not the one to open.
+            if (root.current?.closest("[inert]")) return;
+            if (quick === undefined) showRef.current();
+            else if (open) close();
+            else setQuickOpen(true);
+          }),
+    [modelText, quick, open, close, parked],
   );
   useEffect(() => {
+    if (parked) return;
     const key = (event: KeyboardEvent) => {
       // Cmd-Ctrl-M opens the picker (Lawrence 2026-10-08); typing then searches every harness.
       if (event.metaKey && event.ctrlKey && !event.altKey && event.key.toLowerCase() === "m") {
-        // Parked under a New Tab page (inert, unseen): the key is not this picker's.
-        if (root.current?.closest("[inert]")) return;
         event.preventDefault();
         if (quick !== undefined) {
           // While the compact menu is visible, replace it with the full picker.
@@ -1096,7 +1198,7 @@ export function ModelPicker(props: ModelPickerProps) {
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, [quick, open, quickOpen]);
+  }, [quick, open, quickOpen, parked]);
   useEffect(() => {
     if (!open) setSelectedHarness(harness);
   }, [harness, open]);
@@ -1116,7 +1218,7 @@ export function ModelPicker(props: ModelPickerProps) {
   };
   const selectModel = (model: ModelChoice) => {
     const owner = owners.get(model);
-    if (model.unavailable || model.defaultChoice || !owner?.pickable) return;
+    if (model.unavailable || model.defaultChoice || !owner?.pickable || cloudDisconnected(owner)) return;
     // A typed effort or fast mode, or a model of another harness, lands as one combo. A plain pick of
     // another model keeps the chat's level (the nearest one the model has) and its Fast where the model
     // runs it (#48444: model, reasoning and Fast are independent; Codex resets its level on a switch).
@@ -1153,17 +1255,17 @@ export function ModelPicker(props: ModelPickerProps) {
   /// ("gpt high fast"), which its pick lands with.
   const quickSearch = (text: string, typed = parseQuery(text, vocabulary)): QuickModel[] => {
     // The chat's own harness once it has started, else every one the rail offers.
-    const searchable = (harnessFixed ? ownHarness : harnesses).filter(
+    const searchable = harnesses.filter(
       (entry) =>
         entry.pickable &&
         !blockedProfile(entry) &&
         entry.folder?.state !== "needs-enable" &&
         // A harness that is not installed lists no models, also in a search (Lucas 2026-11-25: "we
         // should not display their models if they are not installed"). Its tab offers Install.
-        !entry.notInstalled &&
+        !missingHere(entry) &&
         offered(entry) &&
         // A harness whose probe failed has stale rows: the search finds none of them, unless it runs the chat.
-        (!entry.unavailable || entry.ids.includes(harness ?? "")),
+        (!staleHere(entry) || entry.ids.includes(harness ?? "")),
     );
     // The harnesses set up here first, then those a pick signs in first.
     const rank = (entry: HarnessChoice) => (needsSetup(entry) ? 1 : 0);
@@ -1186,8 +1288,8 @@ export function ModelPicker(props: ModelPickerProps) {
       seen.add(model);
       const effort = modelEffort(model, typed.effort);
       // The harness travels on its own: the menu heads each harness's matches with its name. One
-      // that a pick signs in first says so ("Signed out").
-      const setup = loginFor(entry) !== undefined ? signedOutText : undefined;
+      // that a pick signs in first says so.
+      const setup = signInNoteFor(entry);
       const hint = [model.provider, effort, typed.fast ? fastText : undefined, setup].filter(Boolean).join(" · ");
       const row = quickRow(entry.id, model);
       return [
@@ -1214,7 +1316,7 @@ export function ModelPicker(props: ModelPickerProps) {
     // Model Picker Style "menu" (chatDisplay.ts MODEL_PICKER_STYLE_KEY, a look's pick, after the
     // Claude Code app): every chip opens that compact menu, a New Tab's too; More models still
     // opens the full picker with every harness.
-    if (!quick || harnessFixed || current?.folder || pickerStyle === "menu") return undefined;
+    if (!quick || (!cloudServed && (harnessFixed || current?.folder)) || pickerStyle === "menu") return undefined;
     // Keep the columns trigger mounted before its first press. Replacing the list trigger as it
     // opens loses that press's click, so another popover never receives its outside dismissal.
     // The rows stay lazy until the picker opens.
@@ -1223,13 +1325,13 @@ export function ModelPicker(props: ModelPickerProps) {
     // A started chat that forks lists every harness, as a New Tab does; its own stays the chat's.
     // The harnesses this Mac has lead the rail; the ones to install follow (railOrder.ts).
     const startable = installedFirst(
-      (forkHarnesses ? allHarnesses : harnesses).filter(
+      (!cloudServed && forkHarnesses ? allHarnesses : harnesses).filter(
         (entry) => !entry.folder && entry.pickable && !blockedProfile(entry),
       ),
     );
     const list: QuickFamily[] = [];
     // A harness whose probe failed lends no rows to Starred (they are stale), unless it runs the chat.
-    const stale = (entry: HarnessChoice) => !!entry.unavailable && !entry.ids.includes(harness ?? "");
+    const stale = (entry: HarnessChoice) => staleHere(entry) && !entry.ids.includes(harness ?? "");
     const starred = startable
       .filter((entry) => !needsSetup(entry) && !stale(entry))
       .flatMap((entry) =>
@@ -1240,28 +1342,19 @@ export function ModelPicker(props: ModelPickerProps) {
       );
     if (starred.length) list.push({ id: STARRED, name: starredText, starred: true, models: starred, more: [] });
     for (const entry of startable) {
-      const signedOutHere = loginFor(entry) !== undefined;
-      // A harness this machine does not have lists no model, only "Not installed" and its Install…
-      // row (Lucas 2026-11-25: "never show models unless the user has it installed").
-      const missing = !!entry.notInstalled;
-      const { shown, more } =
-        signedOutHere || missing
-          ? { shown: [], more: [] }
-          : quickSections(entry, entry.ids.includes(harness ?? "") ? props.model : undefined, undefined, lang);
-      // The Chief is listed only for a chat that runs on it (composerPickerEntries): its tab says why
-      // it lists no model, in the Chief's own words.
-      const ownModelless = !missing && !signedOutHere && picksOwnModel(entry.family);
-      // One whose probe failed (Gemini CLI with no API key) says so on its tab and its Account row.
-      // A started chat that runs on it keeps it plain: the chat works there, and its tab opens on it
-      // (leadRoute skips an unavailable route). So does a named launch
-      // setup ("Claude (work)"), whose tab still starts it (railByHarness).
-      const unavailableHere =
-        !!entry.unavailable &&
-        !missing &&
-        !signedOutHere &&
-        !launchSuffix(entry.id) &&
-        !(forkHarnesses && entry.ids.includes(harness ?? ""));
-      const tabRow = (model: ModelChoice) => row(entry, model);
+      const signInNote = signInNoteFor(entry);
+      const signInAction = signInActionFor(entry);
+      const missing = missingHere(entry);
+      const locked = cloudDisconnected(entry);
+      const { shown, more } = listsModels(entry)
+        ? quickSections(entry, entry.ids.includes(harness ?? "") ? props.model : undefined, undefined, lang)
+        : { shown: [], more: [] };
+      const ownModelless = !missing && !signInNote && picksOwnModel(entry.family);
+      // A failed local probe has stale models. A started chat keeps its working route, and a
+      // named launch setup can still start from its tab.
+      const unavailable = staleHere(entry) && !(forkHarnesses && entry.ids.includes(harness ?? ""));
+      const unavailableHere = unavailable && !missing && !signInNote && !launchSuffix(entry.id);
+      const tabRow = (model: ModelChoice) => (locked ? { ...row(entry, model), disabled: true } : row(entry, model));
       list.push({
         id: entry.id,
         name: entry.name,
@@ -1270,22 +1363,57 @@ export function ModelPicker(props: ModelPickerProps) {
         ...(hasAgentMark(entry.mark ?? entry.id) ? { mark: entry.mark ?? entry.id } : {}),
         models: shown.map(tabRow),
         more: more.map(tabRow),
-        ...(entry.unavailable && !(forkHarnesses && entry.ids.includes(harness ?? "")) ? { unavailable: true } : {}),
+        ...(unavailable ? { unavailable: true } : {}),
         ...(ownModelless ? { note: t("picker.chiefOwnModel") } : {}),
         ...(unavailableHere ? { note: unavailableText } : {}),
         ...(missing ? { note: t("harnesses.notInstalled") } : {}),
         ...(missing && onAddAgent ? { setUp: onAddAgent } : {}),
-        ...(signedOutHere ? { note: t("harnesses.signedOut") } : {}),
-        ...(signedOutHere && loginFor(entry) && onLogIn
-          ? { logIn: () => onLogIn(entry.acpmuxHarness ?? entry.id, loginFor(entry)!) }
+        ...(signInNote ? { note: signInNote } : {}),
+        ...(pickerState(entry) === "unsupported" ? { cloudSoon: true } : {}),
+        ...(locked ? { locked: true, cloudReason: signInNote } : {}),
+        ...(signInAction ? { logIn: signInAction.run, logInLabel: signInAction.label } : {}),
+        ...(!cloudServed && claudeConnect && claudeConnectHere(claudeConnect, entry)
+          ? {
+              connect: {
+                ...claudeConnect,
+                onConnect: () => claudeConnect.onConnect(agentBrand(entry.mark ?? entry.id)),
+              },
+            }
           : {}),
-        ...(claudeConnectHere(claudeConnect, entry) ? { connect: claudeConnect } : {}),
       });
     }
     // One tab per model family (QuickModelMenu's familyTabs): the entries that run one brand's
     // models are routes of its tab, chosen in the menu's Account row.
-    const rail = railByHarness(list, harness ?? current?.id, props.profiles, (id) => signedOut?.[id] !== undefined);
-    if (!forkTargets || !forkHarnesses) return rail;
+    const rail = railByHarness(
+      list,
+      harness ?? current?.id,
+      props.profiles,
+      (id) => signedOut?.[id] !== undefined,
+      cloudServed
+        ? (route) => {
+            const state = cloudPickerState(cloudServed, route.id);
+            if (state !== "unsupported" && state !== "disconnected") return route;
+            const entry = {
+              id: route.id,
+              ids: [route.id],
+              name: route.name,
+              family: route.accountFamily,
+              models: [],
+              pickable: true,
+            };
+            const action = signInActionFor(entry);
+            return {
+              ...route,
+              note: signInNoteFor(entry),
+              logIn: action?.run,
+              logInLabel: action?.label,
+              cloudSoon: state === "unsupported",
+              ...(state === "disconnected" ? { locked: true, cloudReason: signInNoteFor(entry) } : {}),
+            };
+          }
+        : undefined,
+    );
+    if (cloudServed || !forkTargets || !forkHarnesses) return rail;
     // A started chat lists the models of its own harness and of each profile Continue In… can take
     // (Leo 2026-11-06: "Everybody wants to see the models"), launch profiles expanded from a folded
     // catalog family among them; a pick of another's is held for the next message, never a fork now.
@@ -1300,6 +1428,7 @@ export function ModelPicker(props: ModelPickerProps) {
   }, [
     modelsNeeded,
     quick,
+    cloudServed,
     pickerStyle,
     harnessFixed,
     forkTargets,
@@ -1308,8 +1437,14 @@ export function ModelPicker(props: ModelPickerProps) {
     harnesses,
     current?.id,
     current?.folder,
-    loginFor,
+    signInNoteFor,
+    signInActionFor,
+    listsModels,
     needsSetup,
+    cloudDisconnected,
+    missingHere,
+    staleHere,
+    pickerState,
     onAddAgent,
     favorites,
     starredText,
@@ -1317,7 +1452,6 @@ export function ModelPicker(props: ModelPickerProps) {
     lang,
     props.model,
     t,
-    onLogIn,
     props.profiles,
     signedOut,
     claudeConnect,
@@ -1371,7 +1505,9 @@ export function ModelPicker(props: ModelPickerProps) {
   /// held as the next message's fork target. `id` is an acpmux profile: one a tab folded
   /// (pickerProfiles.ts) is no harness entry of its own.
   const pickProfile = (id: string) => {
-    if (id === harness || signedOut?.[id] !== undefined) return;
+    const state = cloudPickerState(cloudServed, id);
+    if (id === harness || (state === undefined && signedOut?.[id] !== undefined)) return;
+    if (state === "unsupported" || state === "disconnected") return;
     const owner = allHarnesses.find((entry) => entry.id === id);
     if (owner && needsSetup(owner)) return;
     const target = owner?.acpmuxHarness ?? id;
@@ -1505,6 +1641,7 @@ export function ModelPicker(props: ModelPickerProps) {
     } else if (event.key === "ArrowLeft" && !query && !harnessFixed) {
       event.preventDefault();
       if (starredView) focusRail(-1);
+      else if (cloudServed) focusRail(railHarnesses.findIndex((entry) => entry === selected));
       else focusRail(activeHarness);
     } else if (event.key === "Enter") {
       event.preventDefault();
@@ -1627,9 +1764,11 @@ export function ModelPicker(props: ModelPickerProps) {
         : entry.folder?.state === "error"
           ? unavailableText
           : undefined;
+  const signInNote = selected && signInNoteFor(selected);
+  const signInAction = selected ? signInActionFor(selected) : undefined;
   const selectedOther = selected !== undefined && !selected.ids.includes(harness ?? "");
   const columnEffort = reasoningMenu === "column" && !selectedOther ? layoutEffort : undefined;
-  const folderProfiles = harnesses.filter((entry) => entry.folder);
+  const folderProfiles = cloudServed ? [] : harnesses.filter((entry) => entry.folder);
   // Several harness profiles can draw one brand's mark (Claude Code, Claude Agent, a subrouter
   // route): their tooltips add the profile id, so each tab says which one it starts.
   const markCounts = new Map<string, number>();
@@ -1640,11 +1779,7 @@ export function ModelPicker(props: ModelPickerProps) {
   const railTitle = (entry: HarnessChoice) => {
     const mark = entry.mark ?? agentBrand(entry.id) ?? entry.id;
     const shared = (markCounts.get(mark) ?? 0) > 1 && entry.name !== entry.id;
-    const signIn = entry.notInstalled
-      ? t("harnesses.notInstalled")
-      : loginFor(entry) !== undefined
-        ? t("harnesses.signedOut")
-        : undefined;
+    const signIn = missingHere(entry) ? notInstalledText : signInNoteFor(entry);
     const ran = used && entry === current ? t("picker.usedHere") : undefined;
     return [shared ? `${entry.name} (${entry.id})` : entry.name, folderNote(entry), signIn, ran]
       .filter(Boolean)
@@ -1775,7 +1910,8 @@ export function ModelPicker(props: ModelPickerProps) {
               }}
               menu={{
                 ...quick,
-                ...(quickEffort
+                ...(currentCloudUnavailable ? { fast: undefined } : {}),
+                ...(quickEffort && !currentCloudUnavailable
                   ? {
                       effort: {
                         ...quickEffort,
@@ -1785,8 +1921,8 @@ export function ModelPicker(props: ModelPickerProps) {
                         },
                       },
                     }
-                  : {}),
-                ...(props.sessionAuth
+                  : { effort: undefined }),
+                ...(!cloudServed && props.sessionAuth
                   ? {
                       auth: {
                         verdict: props.sessionAuth,
@@ -1795,12 +1931,12 @@ export function ModelPicker(props: ModelPickerProps) {
                       },
                     }
                   : {}),
-                ...(update && updateText ? { update: { text: updateText, run: update.update } } : {}),
-                ...(updates ? { updates } : {}),
-                ...(props.setup ? { setup: props.setup } : {}),
+                ...(!cloudServed && update && updateText ? { update: { text: updateText, run: update.update } } : {}),
+                ...(!cloudServed && updates ? { updates } : {}),
+                ...(!cloudServed && props.setup ? { setup: props.setup } : {}),
                 // This harness's top models, the running one among them; a signed-out harness lists none.
                 models:
-                  modelsNeeded && current && !needsSetup(current)
+                  modelsNeeded && current && listsModels(current)
                     ? quickSections(
                         current,
                         props.model,
@@ -1811,11 +1947,12 @@ export function ModelPicker(props: ModelPickerProps) {
                 // The running model's row: an alias row ("opus") whose release the session reports
                 // ("claude-opus-5-5") is the running one. Matched on the raw id alone, no row ran:
                 // the Effort column showed the first row's levels and a level pick switched model.
-                current:
-                  props.predictedModel ??
-                  (modelsNeeded && props.model && current && !current.models.some((model) => model.id === props.model)
-                    ? (current.models.find((model) => model.release === props.model)?.id ?? props.model)
-                    : props.model),
+                current: currentCloudUnavailable
+                  ? undefined
+                  : (props.predictedModel ??
+                    (modelsNeeded && props.model && current && !current.models.some((model) => model.id === props.model)
+                      ? (current.models.find((model) => model.release === props.model)?.id ?? props.model)
+                      : props.model)),
                 ...(picksOwnModel(current?.family) ? { ownModel: true } : {}),
                 onModel: (id) => {
                   quickPicked.current = true;
@@ -1830,7 +1967,7 @@ export function ModelPicker(props: ModelPickerProps) {
                   ? {
                       families: {
                         list: quickFamilies,
-                        current: current?.id,
+                        current: cloudServed ? currentEntry?.id : current?.id,
                         onPick: pickQuickToPrompt,
                         ...(onAddAgent ? { onAddHarness: onAddAgent } : {}),
                         ...(forkHarnesses || (!harnessFixed && onHarness) ? { onLaunch: pickProfile } : {}),
@@ -1908,7 +2045,10 @@ export function ModelPicker(props: ModelPickerProps) {
           aria-label={modelText}
           // The anchor's room above or below the chip, between the picker's minimum and maximum
           // heights; a fixed height here collapsed a menu that opened before its models loaded.
-          style={{ ...menuStyle, ...pickerHeightBounds(menuStyle.maxHeight, openHeight) }}
+          style={{
+            ...menuStyle,
+            ...pickerHeightBounds(menuStyle.maxHeight, openHeight, cloudServed ? cloudPickerFloor() : 0),
+          }}
         >
           {/* The rail: Starred, then one icon per harness; a click or arrow key shows its models. A
               started chat's harness is fixed, so its menu has none. */}
@@ -1950,16 +2090,16 @@ export function ModelPicker(props: ModelPickerProps) {
                   <PickerOption
                     type="button"
                     key={entry.folder ? `folder:${entry.id}` : entry.name}
-                    aria-selected={entry.ids.includes(selectedHarness ?? "")}
+                    aria-selected={cloudServed ? entry === selected : entry.ids.includes(selectedHarness ?? "")}
                     aria-disabled={blockedProfile(entry) || needsSetup(entry) || undefined}
-                    data-signed-out={loginFor(entry) !== undefined || undefined}
+                    data-signed-out={!!signInNoteFor(entry) || undefined}
                     disabled={!entry.pickable}
                     data-harness-index={index}
                     className={`acpmux-mp-harness ${railTab}`}
                     // A started chat's own harness: the "used here" mark (UsedMark), drawn by the tab.
                     data-used={used && entry === current ? used : undefined}
                     title={railTitle(entry)}
-                    selected={entry.ids.includes(selectedHarness ?? "")}
+                    selected={cloudServed ? entry === selected : entry.ids.includes(selectedHarness ?? "")}
                     keyboard={(event) => {
                       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                         event.preventDefault();
@@ -2021,7 +2161,7 @@ export function ModelPicker(props: ModelPickerProps) {
             </ScrollArea>
           )}
           <div className="acpmux-mp-content flex min-w-0 flex-1 flex-col">
-            {sessionAuthText && (
+            {!cloudServed && sessionAuthText && (
               <output className="acpmux-mp-auth flex flex-none items-center gap-2 border-b-[0.5px] border-edge px-3 py-2 text-detail text-muted">
                 <span className="min-w-0 flex-1">{sessionAuthText}</span>
                 {canSessionLogin(props.sessionAuth) && props.onSessionLogin && (
@@ -2052,7 +2192,11 @@ export function ModelPicker(props: ModelPickerProps) {
                 value={query}
                 placeholder={searchText}
                 onFocus={() =>
-                  setActiveHarness(railHarnesses.findIndex((entry) => entry.ids.includes(selectedHarness ?? "")))
+                  setActiveHarness(
+                    railHarnesses.findIndex((entry) =>
+                      cloudServed ? entry === selected : entry.ids.includes(selectedHarness ?? ""),
+                    ),
+                  )
                 }
                 onChange={(event) => {
                   setQuery(event.target.value);
@@ -2084,6 +2228,7 @@ export function ModelPicker(props: ModelPickerProps) {
                 tabIndex={modelListTakesKeys ? -1 : undefined}
                 onKeyDown={modelListKeyDown}
                 className="acpmux-mp-models"
+                data-locked={!searching && !starredView && selected && cloudDisconnected(selected) ? "" : undefined}
                 aria-label={searching ? searchText : starredView ? starredText : (selected?.name ?? modelText)}
               >
                 {!searching && !starredView && folderProfiles.length > 0 && (
@@ -2106,7 +2251,8 @@ export function ModelPicker(props: ModelPickerProps) {
                     ))}
                   </div>
                 )}
-                {selected &&
+                {!cloudServed &&
+                  selected &&
                   !searching &&
                   !starredView &&
                   claudeConnect &&
@@ -2116,15 +2262,36 @@ export function ModelPicker(props: ModelPickerProps) {
                       mark={selected.mark ?? selected.id}
                       connected={claudeConnect.connected}
                       onConnect={() => {
-                        claudeConnect.onConnect();
+                        claudeConnect.onConnect(agentBrand(selected.mark ?? selected.id));
                         close();
                       }}
                     />
                   )}
-                {selected && !searching && !starredView && selected.notInstalled ? (
+                {selected &&
+                  !searching &&
+                  !starredView &&
+                  (cloudDisconnected(selected) || (!signInNote && offersLinkedClaudeConnect(selected))) &&
+                  signInAction && (
+                    <button
+                      type="button"
+                      className={`acpmux-mp-row acpmux-mp-login ${modelRow} ${rowFill(false)} !h-auto py-1`}
+                      data-cloud-connect=""
+                      onClick={() => {
+                        close();
+                        signInAction.run();
+                      }}
+                    >
+                      <span className="flex min-w-0 flex-1 flex-col items-start">
+                        <span className="acpmux-menu-label max-w-full truncate">
+                          {signInAction.label ?? t("harness.logIn")}
+                        </span>
+                        {signInNote && <span className="text-detail text-muted">{signInNote}</span>}
+                      </span>
+                    </button>
+                  )}
+                {selected && !searching && !starredView && missingHere(selected) ? (
                   <>
                     <div className={emptyNote}>{t("harnesses.notInstalledNamed", { agent: selected.name })}</div>
-                    {/* Install leads the list, above the inert catalog models. */}
                     {onAddAgent && (
                       <button
                         type="button"
@@ -2135,20 +2302,54 @@ export function ModelPicker(props: ModelPickerProps) {
                       </button>
                     )}
                   </>
-                ) : selected && !searching && !starredView && loginFor(selected) !== undefined ? (
+                ) : selected && !searching && !starredView && signInNote && !cloudDisconnected(selected) ? (
                   <>
-                    <div className={emptyNote}>{t("harness.signedOut", { agent: selected.name })}</div>
-                    {loginFor(selected) && onLogIn && (
+                    {pickerState(selected) !== "unsupported" && (
+                      <div className={emptyNote}>
+                        {cloudNeedsConnection(selected) ? signInNote : t("harness.signedOut", { agent: selected.name })}
+                      </div>
+                    )}
+                    {signInAction && pickerState(selected) === "unsupported" ? (
+                      // Cloud cannot run it yet: the Connect row's second line says so, spaced as "Not connected".
                       <button
                         type="button"
-                        className={`acpmux-mp-row acpmux-mp-login ${modelRow} ${rowFill(false)}`}
+                        className={`acpmux-mp-row acpmux-mp-login ${modelRow} ${rowFill(false)} !h-auto py-1`}
+                        data-cloud-connect=""
+                        aria-label={`${signInAction.label ?? t("harness.logIn")}, ${t("picker.cloud.comingSoon")}`}
                         onClick={() => {
-                          onLogIn(selected.acpmuxHarness ?? selected.id, loginFor(selected)!);
                           close();
+                          signInAction.run();
                         }}
                       >
-                        <span className="acpmux-menu-label flex-1 truncate">{t("harness.logIn")}</span>
+                        <span className="flex min-w-0 flex-1 flex-col items-start">
+                          <span className="acpmux-menu-label max-w-full truncate">
+                            {signInAction.label ?? t("harness.logIn")}
+                          </span>
+                          <span className="text-detail text-muted" data-cloud-coming-soon="">
+                            {t("picker.cloud.comingSoon")}
+                          </span>
+                        </span>
                       </button>
+                    ) : (
+                      signInAction && (
+                        <button
+                          type="button"
+                          className={`acpmux-mp-row acpmux-mp-login ${modelRow} ${rowFill(false)}`}
+                          onClick={() => {
+                            close();
+                            signInAction.run();
+                          }}
+                        >
+                          <span className="acpmux-menu-label flex-1 truncate">
+                            {signInAction.label ?? t("harness.logIn")}
+                          </span>
+                        </button>
+                      )
+                    )}
+                    {pickerState(selected) === "unsupported" && !signInAction && (
+                      <div className={emptyNote} data-cloud-coming-soon="">
+                        {t("picker.cloud.comingSoon")}
+                      </div>
                     )}
                   </>
                 ) : selectedOther && blockedProfile(selected) ? (
@@ -2236,7 +2437,9 @@ export function ModelPicker(props: ModelPickerProps) {
                               />
                             ) : undefined
                           }
-                          disabled={Boolean(model.unavailable || model.defaultChoice)}
+                          disabled={Boolean(
+                            model.unavailable || model.defaultChoice || (owner && cloudDisconnected(owner)),
+                          )}
                           favorite={favorite}
                           starLabel={`${starredText}: ${model.name}`}
                           starTitle={t(favorite ? "picker.unstar" : "picker.star")}
@@ -2265,9 +2468,10 @@ export function ModelPicker(props: ModelPickerProps) {
                 )}
               </PickerOptionList>
             </ScrollArea>
-            {updates ? (
+            {!cloudServed && updates ? (
               <HarnessUpdatesSection updates={updates} onOwnUpdate={close} />
             ) : (
+              !cloudServed &&
               update && (
                 <div className="acpmux-mp-update flex flex-none items-center gap-1 border-t-[0.5px] border-edge p-1.5 pl-2.5">
                   <span className="min-w-0 flex-1 truncate text-detail text-muted">{updateText}</span>
@@ -2291,7 +2495,7 @@ export function ModelPicker(props: ModelPickerProps) {
                 </div>
               )
             )}
-            {reasoningMenu && fastMode?.choices && !selectedOther ? (
+            {showFullFast && !fastLocked && reasoningMenu && fastMode?.choices && !selectedOther ? (
               <PickerChoiceGroup
                 label={fastMode.name}
                 name={menuId + "-speed"}
@@ -2301,13 +2505,15 @@ export function ModelPicker(props: ModelPickerProps) {
                 horizontal
               />
             ) : (
+              showFullFast &&
               fastMode &&
-              !reasoningMenu && (
+              (!reasoningMenu || fastLocked) && (
                 <div className="flex-none border-t-[0.5px] border-edge p-1.5">
                   <button
                     type="button"
                     className={`acpmux-mp-fast ${modelRow} ${rowFill(false)} justify-between`}
                     aria-pressed={fastModeIsOn(fastMode)}
+                    disabled={fastLocked}
                     onClick={() => fastMode.onPick(nextFastModeValue(fastMode, fastMode.lastOnValue, fastMode.values))}
                   >
                     <span>{fastMode.name}</span>

@@ -160,11 +160,14 @@ fn run<H: Http>(rx: &Receiver<Msg<H>>, stop: &Stop, now: fn() -> u64, log: fn(&s
             Msg::Bound(next) => client = Some(next),
             Msg::Ask(ask, mut stream, queued) => {
                 let stopping =
-                    || github::refusal("vm.agent_stopping", "the Cloud agent is stopping; retry");
+                    || github::refusal("vm.agent_stopping", "the Cloud agent is stopping");
                 let mut reply = if stop.is_set() {
                     stopping()
                 } else if queued.elapsed() > MAX_QUEUE_WAIT {
-                    github::refusal("busy", "the ask waited too long; retry")
+                    github::transient_refusal(
+                        "busy",
+                        "the ask waited over a minute behind other asks",
+                    )
                 } else if !connected(&stream) {
                     continue;
                 } else {
@@ -245,7 +248,10 @@ pub fn answer_repos<H: Http>(
         Err(why) => return github::refusal("request.invalid", &why),
     };
     let Some(client) = client else {
-        return github::refusal("vm.unbound", "Reconnect this machine to cmux Cloud, then retry.");
+        return github::transient_refusal(
+            "vm.unbound",
+            "This machine is not bound to cmux Cloud yet.",
+        );
     };
     client.github_repos(&ask, now_wall_ms)
 }
@@ -260,7 +266,10 @@ pub fn answer_status<H: Http>(
         return github::refusal("request.invalid", &why);
     }
     let Some(client) = client else {
-        return github::refusal("vm.unbound", "Reconnect this machine to cmux Cloud, then retry.");
+        return github::transient_refusal(
+            "vm.unbound",
+            "This machine is not bound to cmux Cloud yet.",
+        );
     };
     client.github_status(now_wall_ms)
 }

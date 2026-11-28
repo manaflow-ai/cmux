@@ -511,6 +511,22 @@ pub struct TurnSetup {
     pub addr: String,
     pub username: String,
     pub password: String,
+    /// `udp` (the default), `tcp` or `tls`: the setup line's `turn_stream` relays, for a
+    /// network that blocks UDP.
+    #[serde(default)]
+    pub transport: String,
+}
+
+/// The relays a session uses, in order: the UDP ones (`turn`), then the TCP and TLS ones
+/// (`turn_stream`), so a network that blocks UDP still reaches a relay.
+#[cfg(feature = "link")]
+pub fn turn_servers_with_stream(
+    udp: &[TurnSetup],
+    stream: &[TurnSetup],
+) -> Vec<cmux_rd_link::net::TurnServer> {
+    let mut all = turn_servers(udp);
+    all.extend(turn_servers(stream));
+    all
 }
 
 #[cfg(feature = "link")]
@@ -525,6 +541,7 @@ pub fn turn_servers(setups: &[TurnSetup]) -> Vec<cmux_rd_link::net::TurnServer> 
                 addr,
                 username: t.username.clone(),
                 password: t.password.clone(),
+                transport: cmux_rd_link::net::TurnTransport::from_setup(&t.transport, &t.addr)?,
             })
         })
         .collect()
@@ -594,6 +611,33 @@ mod path_tests {
         // Relay only never asks a STUN server.
         let (now, later) = stun_servers(&[], true);
         assert!(now.is_empty() && later.is_none());
+    }
+
+    #[test]
+    fn turn_stream_relays_come_after_the_udp_ones_with_their_transport() {
+        use cmux_rd_link::net::TurnTransport;
+        let line: Vec<TurnSetup> = serde_json::from_value(serde_json::json!([
+            {"addr": "127.0.0.1:3478", "username": "u", "password": "p"},
+        ]))
+        .expect("udp");
+        let stream: Vec<TurnSetup> = serde_json::from_value(serde_json::json!([
+            {"addr": "127.0.0.1:3478", "username": "u", "password": "p", "transport": "tcp"},
+            {"addr": "localhost:5349", "username": "u", "password": "p", "transport": "tls"},
+            {"addr": "127.0.0.1:9", "username": "u", "password": "p", "transport": "quic"},
+        ]))
+        .expect("stream");
+        let all = turn_servers_with_stream(&line, &stream);
+        let transports: Vec<TurnTransport> = all.iter().map(|t| t.transport.clone()).collect();
+        assert_eq!(
+            transports,
+            vec![
+                TurnTransport::Udp,
+                TurnTransport::Tcp,
+                TurnTransport::Tls { server_name: "localhost".to_owned() },
+            ],
+            "an unknown transport is skipped, not taken as UDP"
+        );
+        assert_eq!(all[0].addr, all[1].addr, "UDP and TCP on one port are two relays");
     }
 
     fn carrier() -> LinkCarrier {

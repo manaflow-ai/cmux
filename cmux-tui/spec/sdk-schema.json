@@ -1525,7 +1525,8 @@
       "values": [
        "pty",
        "browser",
-       "conversation"
+       "conversation",
+       "remote-terminal"
       ]
      },
      "presence": "required",
@@ -1650,6 +1651,229 @@
      "presence": "optional",
      "nullable": true,
      "since": 12
+    },
+    "tab_resource_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The tab's public id."
+    },
+    "terminal_state": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "running, reconnecting, failed or exited, for a terminal tab."
+    },
+    "host_record_version": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The record version of a terminal its host has but cannot adopt."
+    },
+    "group": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The tab group the tab is in."
+    },
+    "pinned": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "The tab is pinned."
+    },
+    "pinned_url": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "A pinned browser tab's home URL."
+    },
+    "relaunch": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "How the tab relaunches after a restart."
+    },
+    "cwd": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The terminal's working directory."
+    },
+    "git_branch": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The git branch of cwd."
+    },
+    "git_detached": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "cwd's checkout has a detached HEAD."
+    },
+    "content_resource_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The public id of what the tab shows."
+    },
+    "end": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "terminal-state-v1: why a dead terminal ended."
+    },
+    "attention": {
+     "type": {
+      "kind": "ref",
+      "name": "TabAttention"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "tab-attention-v1: an agent needs the person in this tab."
+    },
+    "conversation": {
+     "type": {
+      "kind": "ref",
+      "name": "ConversationTabRecord"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "What a conversation tab shows."
+    },
+    "browser_renderer": {
+     "type": {
+      "kind": "enum",
+      "values": [
+       "daemon",
+       "frontend"
+      ]
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "Who renders a browser tab."
+    },
+    "browser_engine": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "A frontend browser's engine."
+    },
+    "favicon_url": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "A frontend browser's favicon."
+    },
+    "browser_profile_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "A frontend browser's profile."
+    },
+    "browser_owner": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The frontend that owns the browser."
+    },
+    "url": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "A browser tab's URL."
+    },
+    "app": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "app-screens-v1: the app (and route) an app tab shows."
+    },
+    "remote": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "A remote terminal tab's record."
     }
    },
    "additional_properties": false
@@ -1714,6 +1938,29 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "resource_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The pane's public id."
+    },
+    "tab_groups": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "TabGroupRun"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "The pane's tab group runs."
     }
    },
    "additional_properties": false
@@ -1828,6 +2075,125 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "resource_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The screen's public id."
+    },
+    "color": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The screen color."
+    },
+    "icon": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The screen icon."
+    },
+    "pinned": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "The screen is pinned."
+    },
+    "group": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The screen group the screen is in."
+    },
+    "viewport_splits": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ViewportSplitWidth"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "Viewport widths of splits."
+    },
+    "viewport_base_width": {
+     "type": {
+      "kind": "scalar",
+      "name": "float64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "The viewport width the split widths are relative to."
+    },
+    "hidden_dividers": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "Id"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "split-divider-visibility-v1: splits whose divider is hidden."
+    },
+    "columns": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "LayoutColumnNode"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "The screen's layout columns."
+    },
+    "floating": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "floating-panes-v1: panes above the tiled layout, back to front."
+    },
+    "quick_terminal": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "quick-terminal-v1: the screen's quick terminal."
     }
    },
    "additional_properties": false
@@ -1923,6 +2289,143 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "resource_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The workspace's public id."
+    },
+    "group": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The sidebar group the workspace is in."
+    },
+    "color": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The workspace color."
+    },
+    "icon": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The workspace icon."
+    },
+    "title": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The workspace title."
+    },
+    "pinned": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "The workspace is pinned."
+    },
+    "marked_unread": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "The person marked the workspace unread."
+    },
+    "keep_awake": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "workspace-keep-awake-v1: the freeing timer never ends this workspace's shells."
+    },
+    "kind": {
+     "type": {
+      "kind": "enum",
+      "values": [
+       "normal",
+       "home",
+       "app"
+      ]
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "What the workspace is."
+    },
+    "app": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The app an app workspace shows."
+    },
+    "recovered": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "workspace-recovered-v1: every tab is a recovered terminal."
+    },
+    "unread_count": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "Tabs with an unread notification."
+    },
+    "screen_groups": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ScreenGroupRun"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "The workspace's screen group runs."
     }
    },
    "additional_properties": false
@@ -2121,6 +2624,29 @@
      "constraints": [
       "With delta, when the order of the workspaces changed: every id, in the tree's order."
      ]
+    },
+    "groups": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "WorkspaceGroup"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "The sidebar workspace groups."
+    },
+    "lines_written_before_read": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "How many lines the connection had written when the tree was read: a later line may carry a change the tree lacks."
     }
    },
    "additional_properties": false
@@ -8324,6 +8850,20 @@
    },
    "additional_properties": false
   },
+  "PhoneLinkOfferResult": {
+   "kind": "object",
+   "fields": {
+    "offered": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
   "GuestUrlSubscribeResult": {
    "kind": "object",
    "fields": {
@@ -10866,6 +11406,16 @@
      },
      "presence": "optional",
      "nullable": false
+    },
+    "icon": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "tab-group-icon-v1: the group's icon string."
     }
    },
    "additional_properties": true
@@ -12014,6 +12564,263 @@
      "constraints": [
       "The numbered revision behind api_version. Only when the request sent api_version."
      ]
+    }
+   },
+   "additional_properties": false
+  },
+  "TabAttention": {
+   "kind": "object",
+   "fields": {
+    "reason": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "Why the tab needs the person."
+    },
+    "at_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "When it was marked, in Unix milliseconds."
+    }
+   },
+   "additional_properties": false
+  },
+  "ScreenGroupRun": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "color": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "collapsed": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "saved_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "icon": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true
+    },
+    "start": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "The index of the run's first screen."
+    },
+    "count": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "screens": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "Id"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "WorkspaceGroup": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "color": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "collapsed": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "index": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "ViewportSplitWidth": {
+   "kind": "object",
+   "fields": {
+    "split": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "width": {
+     "type": {
+      "kind": "scalar",
+      "name": "float64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "LayoutRowNode": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "height": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "layout": {
+     "type": {
+      "kind": "ref",
+      "name": "Layout"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "LayoutColumnNode": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "width": {
+     "type": {
+      "kind": "scalar",
+      "name": "float64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "layout": {
+     "type": {
+      "kind": "ref",
+      "name": "Layout"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "dock": {
+     "type": {
+      "kind": "ref",
+      "name": "JsonValue"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "dock-columns-v1: the viewport edge the column is pinned to."
+    },
+    "rows": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "LayoutRowNode"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "rows-v1: only for a column with two or more rows."
     }
    },
    "additional_properties": false
@@ -20195,6 +21002,41 @@
    "stream": null,
    "constraints": [
     "Private frontend URL delivery; no resource or journal mutation. HTTP(S) only, exact projected terminal identity, 16 pending requests maximum, five-second expiry. A request ID is an ephemeral acknowledgement capability."
+   ]
+  },
+  "offer-link-to-phone": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "url": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "PhoneLinkOfferResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Unix connection of this Mac's own app only (never a remote device). HTTP(S) only. Sends one phone-open-link control event to the phone that drives the terminal when its last key into it came from that phone within two minutes, a connection of that phone that declared phone-open-link-v1 is attached to it, and the address is public; otherwise offered is false and nothing happens. No resource or journal mutation; the URL is never logged."
    ]
   },
   "terminal-clipboard-subscribe": {
@@ -30473,6 +31315,40 @@
     "additional_properties": false
    }
   },
+  "client-disconnected-by": {
+   "since": 12,
+   "capability": null,
+   "streams": [
+    "control"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "client-disconnected-by"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "by": {
+      "type": {
+       "kind": "ref",
+       "name": "SizeDetachActor"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "constraints": [
+       "The participant that disconnected this client. Absent when the request named nobody."
+      ]
+     }
+    },
+    "additional_properties": false
+   }
+  },
   "client-list-invalidated": {
    "since": 9,
    "capability": null,
@@ -33532,6 +34408,44 @@
       "type": {
        "kind": "scalar",
        "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "url": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "phone-open-link": {
+   "since": 12,
+   "capability": null,
+   "streams": [
+    "control"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "phone-open-link"
       },
       "presence": "required",
       "nullable": false

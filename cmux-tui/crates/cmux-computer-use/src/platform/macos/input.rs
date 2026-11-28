@@ -117,6 +117,8 @@ fn source() -> DResult<Cf> {
 }
 
 fn post(route: Route, event: &Cf) {
+    // Ours, so the takeover watch never reads it as the person (idle.rs).
+    super::idle::mark_injection();
     // SAFETY: event is a live CGEvent.
     unsafe {
         match route {

@@ -20,12 +20,17 @@ name: cmux machine channel
 # pushes (10:43-21:13Z, scripts/ci/cmux_machine_channel_latency.py); a stage's group frees when its stage ends.
 #
 # TWO_BUILD_LANES: each target's build group is split in two by run_number parity (plan's lane output), so two
-# thin builds per target run staggered and the newest push starts in whichever lane frees first. With one group
+# thin builds per target run staggered. With one group
 # the builds ran back to back (00:29-00:46, 00:46-01:05, 01:05-01:25 failed on a full runner disk, 01:25-01:40Z
 # 2026-11-27) and a merge waited for the running build plus its own: p50 36.3 min, max 53.5 over 100 merges
 # (00:15-01:24Z), 3 points carried all 100, and one failed build held every merge a whole extra cycle. The point
 # group stays one per ref and the point is forward-only, so a lane that finishes an older commit late never moves
 # the channel back. Cost: up to two thin builds per target at a time instead of one.
+#
+# FREE_LANE: three lanes, and the plan picks one (scripts/ci/cmux_machine_channel_lane.py): a lane with no x86_64
+# build, else the one whose build started first. By parity a push waited for its own lane's build, half a leg
+# (about 7.5 min of 15) on average, even with the other lane idle; the sooner of three staggered lanes is about
+# a sixth of a leg. Cost: up to three thin builds per target at a time.
 #
 # LINUX_X86_64_FIRST (cmux#55570): each thin musl target is its own build call, so point-x86_64 moves
 # the channel for x86_64 machines when that leg is done, and an aarch64 failure never holds it back;
@@ -195,12 +200,16 @@ jobs:
             fi
           fi
           echo "build=$build" >> "$GITHUB_OUTPUT"
-          # TWO_BUILD_LANES (see the header): this push's build lane.
-          echo "lane=$(( GITHUB_RUN_NUMBER % 2 ))" >> "$GITHUB_OUTPUT"
+          # FREE_LANE (see the header): a free build lane, else the one that frees first; run_number % 3 when
+          # the read fails.
+          lane="$(GH_TOKEN="$GH_TOKEN" scripts/ci/timeout.sh 60 python3 -I scripts/ci/cmux_machine_channel_lane.py pick)" || lane=""
+          [[ "$lane" =~ ^[0-2]$ ]] || lane=$(( GITHUB_RUN_NUMBER % 3 ))
+          echo "lane=$lane" >> "$GITHUB_OUTPUT"
 
   build-x86_64:
-    # Both calls show as "build-machine-channel / build TARGET", as in cmux-tui-artifacts.yml before.
-    name: build-machine-channel
+    # Shows as "build-machine-channel x86_64 lane N / build TARGET" on a push (FREE_LANE: the plan's lane reader
+    # matches "build-machine-channel x86_64 lane N"), "build-machine-channel / build TARGET" on a pull request.
+    name: ${{ github.event_name == 'push' && format('build-machine-channel x86_64 lane {0}', needs.plan.outputs.lane) || 'build-machine-channel' }}
     needs: plan
     # A push's stage group (see the header); a pull request's run is already one group of its own.
     concurrency:
@@ -232,8 +241,8 @@ jobs:
       linux_runner: cmux-linux
 
   build-aarch64:
-    # Both calls show as "build-machine-channel / build TARGET", as in cmux-tui-artifacts.yml before.
-    name: build-machine-channel
+    # Shows as "build-machine-channel aarch64 lane N / build TARGET" on a push, as build-x86_64.
+    name: ${{ github.event_name == 'push' && format('build-machine-channel aarch64 lane {0}', needs.plan.outputs.lane) || 'build-machine-channel' }}
     needs: plan
     # A push's stage group (see the header); a pull request's run is already one group of its own.
     concurrency:

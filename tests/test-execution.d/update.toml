@@ -1,0 +1,7 @@
+[[test]]
+path = "tests/test_update_e2e_diagnostics.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_update_release_tag.py"
+lane = "linux-guard"

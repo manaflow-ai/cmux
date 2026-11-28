@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Fork pull-request workflows must use GitHub-hosted runners with zero setup."""
+# guard-inputs: .github/workflows/
+# its walks are `.github/workflows/*.yml` (WORKFLOWS, a local `workflows`).
 
 from __future__ import annotations
 
@@ -120,6 +122,7 @@ RELEASE_PUBLICATION_JOBS = {
 # exempt above, or here with why it keeps the owner fork branch like any other job.
 # test_every_release_environment_job_is_classified fails on a new one.
 RELEASE_JOBS_FORK_GATED = {
+    "nightly-next-deltas": "signs and publishes post-feed deltas on the signing Mac; starts with the owner fork branch",
     "build-sign-notarize-nightly": "signs and notarizes on the nightly mini; its runs-on starts with the owner fork branch",
     "recover-nightly-next-notarization": "finishes a pending notarization on the nightly mini; starts with the owner fork branch",
     "keep-published-dsyms": "uploads dSYMs after publication; starts with the owner fork branch",
@@ -187,7 +190,12 @@ TRUSTED_RUNNER_EXPRESSION = (
 # leaves the trusted selector after it unchanged, so it can only ever add that one literal label.
 PR_CONTROL_FIRST_OPERAND = "vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || "
 REPAIR_FIRST_OPERAND = "vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || "
-TRUSTED_RUNNER_EXPRESSIONS = (TRUSTED_RUNNER_EXPRESSION, *(
+# The selector frozen to the label it resolved to (scripts/ci/one_linux_label.py freeze_line, 2026-11-24: CI_TRUSTED_RUNNER
+# held blacksmith-4vcpu-ubuntu-2404 and both skip switches '1'): one listed ephemeral label as a literal, which no
+# variable can move.
+TRUSTED_RUNNER_FROZEN = tuple(
+    f"${{{{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || '{label}' }}}}" for label in TRUSTED_RUNNER_LABELS)
+TRUSTED_RUNNER_EXPRESSIONS = (TRUSTED_RUNNER_EXPRESSION, *TRUSTED_RUNNER_FROZEN, *(
     TRUSTED_RUNNER_EXPRESSION.replace("'ubuntu-24.04' || ", "'ubuntu-24.04' || " + operand, 1)
     for operand in (PR_CONTROL_FIRST_OPERAND, REPAIR_FIRST_OPERAND)))
 TRUSTED_RUNNER_LINE = re.compile(

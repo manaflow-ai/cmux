@@ -31,7 +31,6 @@ struct ChatComposerField: UIViewRepresentable {
     static var maxLines: Int { ComposerHeightCap.lines }
     static let accessibilityIdentifier = "chat.composer.field"
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @Environment(\.chatFaceHidden) private var faceHidden
 
     func makeUIView(context: Context) -> ChatComposerTextView {
         let view = ChatComposerTextView()
@@ -59,7 +58,6 @@ struct ChatComposerField: UIViewRepresentable {
         view.setContentHuggingPriority(.required, for: .vertical)
         view.text = text
         view.placeholder = placeholder
-        markReadyIfShown()
         return view
     }
 
@@ -69,7 +67,6 @@ struct ChatComposerField: UIViewRepresentable {
 
     private func update(_ view: ChatComposerTextView, context: Context) {
         context.coordinator.parent = self
-        markReadyIfShown()
         fieldRef?.view = view
         view.stripReserve = stripReserve
         view.onPasteAttachments = onPasteAttachments == nil ? nil : { [weak coordinator = context.coordinator] in
@@ -102,16 +99,6 @@ struct ChatComposerField: UIViewRepresentable {
                 }
             }
         }
-    }
-
-    /// Launch to chat open: the frame that first shows a composer (LaunchMarks), not one built
-    /// on a terminal's chat face parked out of sight (`chatFaceHidden`); a face swap updates it.
-    private func markReadyIfShown() {
-        guard !faceHidden else { return }
-        LaunchMarks.shared.markNextFrame("chat_composer_ready")
-        #if DEBUG
-        OpenMarks.shared?.noteNextFrame("chat_composer_ready")
-        #endif
     }
 
     /// A field torn down while focused (the permission bar replaced it) leaves no focus behind.
@@ -161,6 +148,38 @@ struct ChatComposerField: UIViewRepresentable {
         func textViewDidBeginEditing(_ textView: UITextView) { if !parent.isFocused { parent.isFocused = true } }
         func textViewDidEndEditing(_ textView: UITextView) { if parent.isFocused { parent.isFocused = false } }
     }
+}
+
+/// `chat_composer_ready`: the first frame showing the chat's answer control: the composer, collapsed
+/// or open, or the permission bar or sudo card that takes its place. Taken on the control as a whole
+/// (``ChatReadyMarkOnShow``), not on the text field: a chat with turns opens on the collapsed capsule,
+/// which builds no field, so a chat waiting on a question (`ws-s0`, a Claude tab) never took the mark
+/// and LaunchTTIUITests' chat flow timed out.
+@MainActor
+enum ChatReadyMark {
+    static func take() {
+        LaunchMarks.shared.markNextFrame("chat_composer_ready")
+        #if DEBUG
+        OpenMarks.shared?.noteNextFrame("chat_composer_ready")
+        #endif
+    }
+}
+
+/// Takes ``ChatReadyMark`` for a control in the composer's place, once it shows (not on a chat
+/// face parked behind its terminal).
+private struct ChatReadyMarkOnShow: ViewModifier {
+    @Environment(\.chatFaceHidden) private var faceHidden
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear { if !faceHidden { ChatReadyMark.take() } }
+            .onChange(of: faceHidden) { _, hidden in if !hidden { ChatReadyMark.take() } }
+    }
+}
+
+extension View {
+    /// See ``ChatReadyMarkOnShow``.
+    func chatReadyMarkOnShow() -> some View { modifier(ChatReadyMarkOnShow()) }
 }
 
 /// The chat field: takes a focus asked for before it had a window once it gets one.

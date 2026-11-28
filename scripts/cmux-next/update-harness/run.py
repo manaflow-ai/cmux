@@ -572,8 +572,8 @@ def main():
                          "update stages with no click and Restart to Update is the one click")
     ap.add_argument("--sparkle-auto", action="store_true",
                     help="v1 runs with SUAutomaticallyUpdate on and starts with Sparkle's scheduled background "
-                         "check (Sparkle's own silent driver stages the update, as on a Mac whose nightly "
-                         "preferences have automatic updates on)")
+                         "check. This exercises the legacy/classic bundle path whose plist permits Sparkle's "
+                         "silent driver, rather than the NEXT bundle path that sets SUAllowsAutomaticUpdates=false")
     ap.add_argument("--readonly-install", action="store_true",
                     help="make the app's folder read-only after the update stages: the click must not quit; "
                          "the failure sheet with Download Manually shows (the install preflight)")

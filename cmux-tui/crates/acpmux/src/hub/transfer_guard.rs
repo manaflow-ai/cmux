@@ -70,18 +70,7 @@ impl Guard {
             .and_then(Value::as_array)
             .filter(|r| !r.is_empty() && r.len() <= MAX_ROOTS)
             .ok_or_else(|| bad(format!("roots must be 1 to {MAX_ROOTS} folders")))?;
-        let home = match dirs::home_dir() {
-            Some(h) => {
-                let spelling = spelled(&h).await;
-                spelling.unwrap_or(h)
-            }
-            None => return Err(bad("this daemon has no home folder".into())),
-        };
-        let mut stores = Vec::new();
-        for store in [home.join(".claude"), home.join(".codex"), crate::config::home()] {
-            let spelling = spelled(&store).await;
-            stores.push(spelling.unwrap_or(store));
-        }
+        let (home, stores) = home_and_stores().await?;
         let mut roots = Vec::new();
         for r in raw {
             let s = r.as_str().ok_or_else(|| bad(format!("root {r} is not a path")))?;
@@ -93,6 +82,63 @@ impl Guard {
             }
         }
         Ok(Guard { control, roots, owner: false })
+    }
+
+    /// The guard of a same-person hub move (`transfer_pull.rs` `hub_move_guard`), built from
+    /// this daemon's own config, never a request: `web_roots` under [`Guard::parse`]'s checks,
+    /// and with `home` the home folder itself, which `parse` refuses to any other caller. It
+    /// keeps the chat's origin (`owner`). Stored with the receive like any guard, so the write
+    /// and finish are held to the same roots; nothing outside the home folder is ever a root.
+    pub(super) async fn hub_move(web_roots: &[String], home: bool) -> Result<Guard, RpcError> {
+        let mut guard = if web_roots.is_empty() {
+            Guard { control: Control::Peer, roots: Vec::new(), owner: true }
+        } else {
+            let mut g = Guard::from_config_roots(web_roots).await?;
+            g.owner = true;
+            g
+        };
+        if home {
+            let h = dirs::home_dir()
+                .ok_or_else(|| guard_error("guard", "this daemon has no home folder"))?;
+            let h = spelled(&h).await.unwrap_or(h);
+            if !guard.roots.contains(&h) {
+                guard.roots.push(h);
+            }
+        }
+        if guard.roots.is_empty() {
+            return Err(guard_error("guard", "a hub move needs a root"));
+        }
+        Ok(guard)
+    }
+
+    /// A hub move's guard (`transfer_pull.rs`, `transfer_hub_precopy.rs`), built from this
+    /// daemon's own `webRoots`: each root that passes the same checks as `parse` is kept, and one
+    /// that fails (a `/tmp` a probe wrote, a folder since deleted) is left out rather than
+    /// refusing every move, so the guard only narrows. With no root left, the refusal names
+    /// every left-out root and why.
+    pub(super) async fn from_config_roots(raw: &[String]) -> Result<Guard, RpcError> {
+        let (home, stores) = home_and_stores().await?;
+        let mut roots = Vec::new();
+        let mut skipped = Vec::new();
+        for s in raw {
+            match checked_root(s, &home, &stores).await {
+                Ok(root) if !roots.contains(&root) && roots.len() < MAX_ROOTS => roots.push(root),
+                Ok(_) => {}
+                Err(why) => skipped.push(format!("root {s:?} {why}")),
+            }
+        }
+        if roots.is_empty() {
+            let why =
+                if skipped.is_empty() { "no webRoots".to_string() } else { skipped.join("; ") };
+            return Err(guard_error(
+                "guard",
+                format!("this machine has no usable webRoots: {why}"),
+            ));
+        }
+        if !skipped.is_empty() {
+            tracing::warn!("hub move guard left out webRoots: {}", skipped.join("; "));
+        }
+        Ok(Guard { control: Control::Peer, roots, owner: false })
     }
 
     pub(super) fn to_value(&self) -> Value {
@@ -142,6 +188,23 @@ impl Guard {
         let inside = canonical.is_dir() && self.roots.iter().any(|r| canonical.starts_with(r));
         inside.then_some(canonical)
     }
+}
+
+/// This daemon's home folder and the agent stores no root may hold, as the filesystem spells them.
+async fn home_and_stores() -> Result<(PathBuf, Vec<PathBuf>), RpcError> {
+    let home = match dirs::home_dir() {
+        Some(h) => {
+            let spelling = spelled(&h).await;
+            spelling.unwrap_or(h)
+        }
+        None => return Err(guard_error("guard", "this daemon has no home folder")),
+    };
+    let mut stores = Vec::new();
+    for store in [home.join(".claude"), home.join(".codex"), crate::config::home()] {
+        let spelling = spelled(&store).await;
+        stores.push(spelling.unwrap_or(store));
+    }
+    Ok((home, stores))
 }
 
 /// `path` resolved and spelled as the filesystem stores it (`remote_guard.rs`).
@@ -503,91 +566,58 @@ impl Hub {
 }
 
 #[cfg(test)]
-mod durable_harness_tests {
-    use super::bundle_path_kind;
-
-    #[test]
-    fn durable_harness_journal_is_a_bundle_file() {
-        assert_eq!(bundle_path_kind("harness/journal.ndjson"), Some(false));
-        assert_eq!(bundle_path_kind("composers.json"), Some(false));
-        let image = "ab".repeat(32);
-        assert_eq!(bundle_path_kind(&format!("attachments/{image}")), Some(false));
-        assert_eq!(bundle_path_kind("attachments/not-a-hash"), None);
-        assert_eq!(bundle_path_kind(&format!("attachments/{}", "AB".repeat(32))), None);
-        assert_eq!(bundle_path_kind(&format!("attachments/x/{image}")), None);
-        assert_eq!(bundle_path_kind("harness/session.jsonl"), Some(false));
-        assert_eq!(bundle_path_kind("harness/owner.sqlite"), None);
-        assert_eq!(bundle_path_kind("harness/../journal.ndjson"), None);
-    }
-
-    /// The optional bundle files a client leaves out for an older target
-    /// (`capabilities::OPTIONAL_BUNDLE_FILES`) are the hub's own names, each one a guarded
-    /// receive here takes as a bundle file, never an agent store file; an unknown one is still
-    /// refused (the guard is unchanged), and no required file is optional.
-    #[test]
-    fn optional_bundle_files_are_the_guards_bundle_files() {
-        use crate::capabilities::{TRANSFER_COMPOSERS, TRANSFER_IMAGES, optional_bundle_file};
-        let image = format!("{}/{}", super::super::prompt_images::BUNDLE_DIR, "ab".repeat(32));
-        let composers = super::super::composers::BUNDLE_FILE;
-        assert_eq!(optional_bundle_file(composers), Some(TRANSFER_COMPOSERS));
-        assert_eq!(optional_bundle_file(&image), Some(TRANSFER_IMAGES));
-        assert_eq!(bundle_path_kind(composers), Some(false));
-        assert_eq!(bundle_path_kind(&image), Some(false));
-        for required in ["session.json", "manifest.json", "events/000001.ndjson"] {
-            assert_eq!(optional_bundle_file(required), None, "{required}");
-        }
-        assert_eq!(bundle_path_kind("future.json"), None);
-        assert_eq!(optional_bundle_file("future.json"), None);
-    }
-}
+#[path = "transfer_guard_durable_harness_tests.rs"]
+mod durable_harness_tests;
 
 #[cfg(test)]
-mod retired_root_tests {
+#[path = "transfer_guard_retired_root_tests.rs"]
+mod retired_root_tests;
+
+#[cfg(test)]
+#[path = "transfer_guard_config_root_tests.rs"]
+mod config_root_tests;
+
+#[cfg(test)]
+mod hub_move_tests {
     use super::*;
 
-    /// Review of #27851: a guarded move with no agent file starts its agent fresh, but its
-    /// acpmux history still names the old root, so that root stays retired (never a worker).
     #[tokio::test]
-    async fn a_guarded_move_without_its_agent_file_retires_the_old_root() {
-        let dir = std::env::temp_dir().join(format!("acpmux-test-{}", uuid::Uuid::now_v7()));
-        let work = dir.join("work");
-        std::fs::create_dir_all(&work).unwrap();
-        let work = std::fs::canonicalize(&work).unwrap();
-        let profile = crate::config::HarnessProfile {
-            kind: Default::default(),
-            argv: vec!["true".into()],
-            env: Default::default(),
-            description: None,
-            fallback: None,
-            family: None,
-            models: vec![],
-            model: None,
-            effort: None,
-            policy: None,
-        };
-        let mut cfg = crate::config::Config::default();
-        cfg.harnesses.insert("codex".into(), profile);
-        cfg.store.mode = crate::config::StoreMode::Local;
-        let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, &dir).unwrap());
-        let bundle = dir.join("bundle");
-        std::fs::create_dir_all(&bundle).unwrap();
-        let meta = json!({
-            "schema": crate::store::META_SCHEMA, "id": uuid::Uuid::now_v7().to_string(),
-            "name": "moved", "harness": "codex", "cwd": work, "agentSessionId": "root-now",
-            "retiredAgentSessionIds": ["root-before"],
-            "status": "idle", "createdAt": 1, "updatedAt": 1,
-        });
-        std::fs::write(bundle.join("session.json"), meta.to_string()).unwrap();
-        let guard = Guard { control: Control::Peer, roots: vec![work], owner: false };
-        let (meta, taken) =
-            hub.guard_session(&bundle, &guard, None, &json!({}), None).await.unwrap();
-        assert!(!taken);
-        assert_eq!(meta.agent_session_id, None, "no agent file: the agent starts fresh");
-        assert_eq!(meta.retired_agent_session_ids, ["root-before", "root-now"]);
-        assert!(meta.previous_agent_session_ids.is_empty(), "never transcript authority");
-        let written: SessionMeta =
-            serde_json::from_slice(&std::fs::read(bundle.join("session.json")).unwrap()).unwrap();
-        assert_eq!(written.retired_agent_session_ids, ["root-before", "root-now"]);
-        let _ = std::fs::remove_dir_all(&dir);
+    async fn a_hub_move_takes_home_only_on_a_vm_host_and_nothing_outside_it() {
+        let home = dirs::home_dir().unwrap();
+        let home = spelled(&home).await.unwrap_or(home);
+        // No webRoots and not a VM host: no root at all.
+        assert!(Guard::hub_move(&[], false).await.is_err());
+        // A VM host with no webRoots: the home folder, as the person's own (owner) chat.
+        let g = Guard::hub_move(&[], true).await.unwrap();
+        assert_eq!(g.roots, [home.clone()]);
+        assert!(g.owner && g.control == Control::Peer);
+        assert_eq!(g.folder(&home.to_string_lossy()).await, Some(home.clone()));
+        // Outside home stays refused, even with home as a root.
+        let tmp = std::env::temp_dir();
+        if !spelled(&tmp).await.is_some_and(|t| t.starts_with(&home)) {
+            assert_eq!(g.folder(&tmp.to_string_lossy()).await, None);
+        }
+        assert_eq!(g.folder("/").await, None);
+        assert_eq!(g.folder("relative").await, None);
+        // A hidden folder of home (a chat under `~/.local/state`) is inside the home root.
+        let hidden = home.join(format!(".acpmux-hub-move-test-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(hidden.join("state")).unwrap();
+        let inner = hidden.join("state");
+        assert!(g.folder(&inner.to_string_lossy()).await.is_some());
+        // Not a VM host: the same folder is refused, as `parse` refuses home's hidden folders.
+        let plain = home.join(format!("acpmux-hub-move-test-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&plain).unwrap();
+        let roots = [plain.to_string_lossy().into_owned()];
+        let g = Guard::hub_move(&roots, false).await.unwrap();
+        assert_eq!(g.folder(&inner.to_string_lossy()).await, None);
+        assert_eq!(g.folder(&home.to_string_lossy()).await, None);
+        assert!(g.owner);
+        // webRoots and a VM host: both, home once.
+        let g = Guard::hub_move(&roots, true).await.unwrap();
+        assert_eq!(g.roots.len(), 2);
+        // A bad webRoot still refuses, VM host or not.
+        assert!(Guard::hub_move(&["/".into()], true).await.is_err());
+        let _ = std::fs::remove_dir_all(&hidden);
+        let _ = std::fs::remove_dir_all(&plain);
     }
 }

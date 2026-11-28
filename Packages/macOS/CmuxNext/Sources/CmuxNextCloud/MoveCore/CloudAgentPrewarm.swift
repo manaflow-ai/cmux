@@ -12,6 +12,22 @@ public import Foundation
 /// follows takes it. A machine whose daemon does not serve it, a prewarm that fails, or a start that ends up different
 /// (another agent or model picked) starts cold, as before: the prewarm decides nothing and nothing waits for it.
 public struct CloudAgentPrewarm: Sendable, Equatable {
+    /// Launch inputs supplied by the credential reader.
+    public struct Credential: Sendable, CustomStringConvertible, CustomReflectable {
+        let env: [String: String]
+        let endpoint: AgentSessionAttachClient.LaunchEndpoint?
+        let harness: String?
+        let model: String?
+
+        public init(env: [String: String], endpoint: AgentSessionAttachClient.LaunchEndpoint?,
+                    harness: String?, model: String?) {
+            (self.env, self.endpoint, self.harness, self.model) = (env, endpoint, harness, model)
+        }
+
+        public var description: String { "CloudAgentPrewarm.Credential" }
+        public var customMirror: Mirror { Mirror(self, children: [Mirror.Child]()) }
+    }
+
     /// The start's folder; nil for a start with no folder, which the machine runs in the chat's own `~/chats/<id>`: the
     /// prewarm then makes that folder and warms the agent there (``AgentSessionAttachClient/prewarmChatFolderCapability``).
     public let cwd: String?
@@ -38,7 +54,7 @@ public struct CloudAgentPrewarm: Sendable, Equatable {
     /// there is nothing to warm there. `done` gets the outcome and its time, for the log.
     public static func begin(cwd: String?, harness: String?, model: String?, mode: String?, supports: (String) -> Bool, surface: UInt64,
                              endpoint: @escaping AgentSessionAttachClient.EndpointProvider, ownerLink: @escaping AgentSessionAttachClient.OwnerLink, permissionMode: String?,
-                             credentials: @escaping @MainActor @Sendable () async -> [String: String]?, done: @escaping @Sendable (String) -> Void) {
+                             credentials: @escaping @MainActor @Sendable () async throws -> Credential?, done: @escaping @Sendable (String) -> Void) {
         guard let prewarm = CloudAgentPrewarm(cwd: cwd, harness: harness, model: model, mode: mode, served: supports(AgentSessionAttachClient.prewarmCapability),
                                               servesChatFolder: supports(AgentSessionAttachClient.prewarmChatFolderCapability)) else { return }
         let began = ContinuousClock.now
@@ -50,20 +66,27 @@ public struct CloudAgentPrewarm: Sendable, Equatable {
     /// ``send(surface:endpoint:ownerLink:permissionMode:credentials:)`` with nothing waiting for it: `credentials` reads the chat's
     /// launch credential as the start reads it (never spending it), and `done` gets the outcome for the log.
     public func begin(surface: UInt64, endpoint: @escaping AgentSessionAttachClient.EndpointProvider, ownerLink: @escaping AgentSessionAttachClient.OwnerLink,
-                      permissionMode: String?, credentials: @escaping @MainActor @Sendable () async -> [String: String]?,
+                      permissionMode: String?, credentials: @escaping @MainActor @Sendable () async throws -> Credential?,
                       done: @escaping @Sendable (String) -> Void) {
         // task-owner: one hint, never awaited by the start; it ends with its answer
-        Task { done(await send(surface: surface, endpoint: endpoint, ownerLink: ownerLink, permissionMode: permissionMode, credentials: await credentials())) }
+        Task {
+            do {
+                let credential = try await credentials()
+                done(await send(surface: surface, endpoint: endpoint, ownerLink: ownerLink, permissionMode: permissionMode, credentials: credential))
+            } catch {
+                done("credential unavailable")
+            }
+        }
     }
 
     /// Sends the prewarm for the chat tab `surface` over the owner answer of its link (`ownerLink`), with the start's
     /// `permissionMode` and the chat's launch `credentials`; answers what happened, for the log (never a value sent).
     public func send(surface: UInt64, endpoint: @escaping AgentSessionAttachClient.EndpointProvider, ownerLink: @escaping AgentSessionAttachClient.OwnerLink,
-                     permissionMode: String?, credentials: [String: String]?) async -> String {
+                     permissionMode: String?, credentials: Credential?) async -> String {
         let client = AgentSessionAttachClient(surface: surface, endpoint: endpoint), outcome: String
         do {
-            let accepted = try await client.prewarm(cwd: cwd, harness: harness, ownerLink: ownerLink, model: model,
-                                                    permissionMode: permissionMode, startMode: mode, credentials: credentials)
+            let accepted = try await client.prewarm(cwd: cwd, harness: credentials?.harness ?? harness, ownerLink: ownerLink, model: credentials?.model ?? model,
+                                                    permissionMode: permissionMode, startMode: mode, credentials: credentials?.env, launchEndpoint: credentials?.endpoint)
             outcome = accepted ? "accepted" : "not accepted"
         } catch {
             outcome = "not sent (\(String(describing: error)))"

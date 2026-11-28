@@ -364,11 +364,11 @@
     "agent-pane.cloud-repository-picker#empty": [],
     "agent-pane.cloud-repository-picker#mixed": [],
     "agent-pane.cloud-run-designs#bare": [
-      "menu-fit:div[aria-label=\"Environment\"]"
+      "menu-fit:div[aria-label=\"Computer\"]"
     ],
     "agent-pane.cloud-run-designs#chip": [],
     "agent-pane.cloud-run-designs#row": [
-      "menu-fit:div[aria-label=\"Environment\"]"
+      "menu-fit:div[aria-label=\"Computer\"]"
     ],
     "agent-pane.cloud-start#checklist-clone": [],
     "agent-pane.cloud-start#checklist-machine": [],
@@ -402,15 +402,11 @@
       "center-line:row policyUnenforced-13"
     ],
     "agent-pane.compaction-note#running": [],
-    "agent-pane.composer-context-away#chat-computer": [
-      "menu-fit:div[aria-label=\"Environment\"]"
-    ],
+    "agent-pane.composer-context-away#chat-computer": [],
     "agent-pane.composer-context-away#chat-folder": [
       "menu-fit:div[aria-label=\"Folder\"]"
     ],
-    "agent-pane.composer-context-away#newtab-computer": [
-      "menu-fit:div[aria-label=\"Environment\"]"
-    ],
+    "agent-pane.composer-context-away#newtab-computer": [],
     "agent-pane.composer-context-away#newtab-folder": [
       "menu-fit:div[aria-label=\"Folder\"]"
     ],
@@ -443,39 +439,39 @@
     ],
     "agent-pane.composer-context#duplicate-worktrees": [],
     "agent-pane.composer-context#environment-face-chip": [
-      "menu-fit:div[aria-label=\"Environment\"]"
+      "menu-fit:div[aria-label=\"Computer\"]"
     ],
     "agent-pane.composer-context#environment-face-icon": [
-      "menu-fit:div[aria-label=\"Environment\"]"
+      "menu-fit:div[aria-label=\"Computer\"]"
     ],
     "agent-pane.composer-context#environment-face-label": [
-      "menu-fit:div[aria-label=\"Environment\"]"
+      "menu-fit:div[aria-label=\"Computer\"]"
     ],
     "agent-pane.composer-context#environment-picker": [
-      "menu-fit:div[aria-label=\"Environment\"]"
+      "menu-fit:div[aria-label=\"Computer\"]"
     ],
     "agent-pane.composer-context#environment-picker-alone": [
-      "menu-fit:div[aria-label=\"Environment\"]"
+      "menu-fit:div[aria-label=\"Computer\"]"
     ],
     "agent-pane.composer-context#environment-picker-cloud-chat": [],
     "agent-pane.composer-context#environment-picker-cloud-closed": [],
     "agent-pane.composer-context#environment-picker-cloud-machines": [],
     "agent-pane.composer-context#environment-picker-cloud-picked": [
-      "menu-fit:div[aria-label=\"Environment\"]"
+      "menu-fit:div[aria-label=\"Computer\"]"
     ],
     "agent-pane.composer-context#environment-picker-cloud-row": [
-      "menu-fit:div[aria-label=\"Environment\"]"
+      "menu-fit:div[aria-label=\"Computer\"]"
     ],
     "agent-pane.composer-context#environment-picker-fleet": [],
     "agent-pane.composer-context#environment-picker-machines": [],
     "agent-pane.composer-context#environment-picker-no-cloud": [
-      "menu-fit:div[aria-label=\"Environment\"]"
+      "menu-fit:div[aria-label=\"Computer\"]"
     ],
     "agent-pane.composer-context#environment-picker-sandboxed-option": [
-      "menu-fit:div[aria-label=\"Environment\"]"
+      "menu-fit:div[aria-label=\"Computer\"]"
     ],
     "agent-pane.composer-context#environment-picker-sandboxed-picked": [
-      "menu-fit:div[aria-label=\"Environment\"]"
+      "menu-fit:div[aria-label=\"Computer\"]"
     ],
     "agent-pane.composer-context#folder-favicons": [
       "menu-fit:div[aria-label=\"Folder\"]"
@@ -511,7 +507,7 @@
     "agent-pane.composer-context#started-browse-error": [],
     "agent-pane.composer-context#started-browse-error-tray": [],
     "agent-pane.composer-context#started-move-to-cloud": [
-      "menu-fit:div[aria-label=\"Environment\"]"
+      "menu-fit:div[aria-label=\"Computer\"]"
     ],
     "agent-pane.composer-dictation#finalizing": [],
     "agent-pane.composer-dictation#idle": [],
@@ -1776,9 +1772,7 @@
     ],
     "agent-pane.new-tab#composer-rest": [],
     "agent-pane.new-tab#composer-template-holds-its-place": [],
-    "agent-pane.new-tab#computer-first-setup": [
-      "menu-fit:div[aria-label=\"Environment\"]"
-    ],
+    "agent-pane.new-tab#computer-first-setup": [],
     "agent-pane.new-tab#create-strip-narrow": [
       "menu-fit:div[aria-label=\"Suggestions\"]",
       "menu-label:div[aria-label=\"Suggestions\"] div[aria-label=\"New terminal\"]"
@@ -2855,9 +2849,7 @@
     "app.window#composer-model-picker": [
       "menu-fit:div[aria-label=\"Model\"]"
     ],
-    "app.window#environment-picker": [
-      "menu-fit:div[aria-label=\"Environment\"]"
-    ],
+    "app.window#environment-picker": [],
     "app.window#new-tab": [],
     "cloud.environment-sheet#network": [],
     "cloud.environment-sheet#network-full": [],

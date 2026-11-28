@@ -124,6 +124,10 @@ pub struct SessionSummary {
     #[serde(default)]
     #[schemars(default)]
     pub harness_sandbox_failing: bool,
+    /// The refused operation, redacted and bounded; cleared on recovery.
+    #[serde(default)]
+    #[schemars(default)]
+    pub harness_sandbox_error: Option<String>,
     pub agent_session_id: Option<String>,
     /// The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):
     /// a Codex chat's earlier roots, which its older records still name, so a client folding

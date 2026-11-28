@@ -106,6 +106,7 @@ def plan(paths: list[str], root: Path = ROOT, step: ci_steps.Step | None = None)
     tests: set[str] = set()
     build = False
     app = False
+    proof = False
     why: list[str] = []
     for path in paths:
         if path in SELF:
@@ -114,6 +115,7 @@ def plan(paths: list[str], root: Path = ROOT, step: ci_steps.Step | None = None)
             continue
         if not routes_ios(step, path):
             continue
+        proof = True
         if path.startswith(APP_PATHS):
             app = True
             why.append(f"{path}: app build")
@@ -149,6 +151,10 @@ def plan(paths: list[str], root: Path = ROOT, step: ci_steps.Step | None = None)
         # A test run builds the kit's bundle anyway; `build` alone is a build-for-testing with no test run.
         "build": build and not tests,
         "app": app,
+        # Whether the gate needs an ios-flows proof: some path besides this check's own files changed. A head that
+        # changes only SELF builds the kit to test this check, and no flow reads it, so `cmux ios verify` selects
+        # nothing and posts no record (a pass needs a run): requiring one held cmux#62950 pending with no way out.
+        "proof": proof,
         # The first reasons only: the plan rides one $GITHUB_OUTPUT line.
         "why": why[:MAX_WHY] + ([f"... {len(why) - MAX_WHY} more"] if len(why) > MAX_WHY else []),
     }
@@ -222,7 +228,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     paths = ci_steps.read_paths(args.paths_file) if args.paths_file else diff_paths()
     if paths is None:
-        result = {"run": False, "tests": [], "build": False, "app": False,
+        result = {"run": False, "tests": [], "build": False, "app": False, "proof": False,
                   "why": ["no merge commit to diff: the full matrix runs"]}
     else:
         result = plan(paths, Path(args.root))
@@ -232,6 +238,7 @@ def main(argv: list[str] | None = None) -> int:
         with open(out, "a", encoding="utf-8") as f:
             # unknown (no merge commit to diff): the job skips, and cmux/ios-fast reads no verdict (error), not success.
             f.write(f"run={'unknown' if paths is None else 'true' if result['run'] else 'false'}\n")
+            f.write(f"proof={'true' if result['proof'] else 'false'}\n")
             f.write(f"plan={json.dumps(result, separators=(',', ':'))}\n")
             f.write(f"summary={summary(result)}\n")
     return 0

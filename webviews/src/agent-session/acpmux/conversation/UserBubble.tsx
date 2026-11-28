@@ -31,7 +31,7 @@ import type { AcpmuxRow, PromptContentPart, PromptImage } from "../model";
 import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { liftInlineImages, withoutDataUris } from "../inlineImages";
-import { PendingDelivery, usePendingShown } from "./PromptDelivery";
+import { PendingDelivery, resendsItself, usePendingShown } from "./PromptDelivery";
 import { ImageIcon, Pencil } from "./icons";
 import { VersionSwitcher } from "./VersionSwitcher";
 import { ImageViewerContext } from "./imageViewerContext";
@@ -297,7 +297,7 @@ export function UserBubble({
         ) : null}
         {/* A prompt held while its agent starts keeps the footer too (time and Copy), so nothing
             moves once it goes (Leo, 2026-11-01: "then the stupid ass layout shift"). */}
-        {!row.failed && (text || hasAttachment || pending) && (
+        {(!row.failed || resendsItself(row.delivery)) && (text || hasAttachment || pending) && (
           <UserFooter
             className={
               (branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions") +
@@ -438,7 +438,9 @@ export const SentImage = memo(function SentImage({
   const { width, height } = sentImageSize(shown);
   // Its shape, at most `width` wide: in a narrow chat the bubble's width scales it down whole
   // (conversation.css), never past the bubble's edge.
-  const shape = { width, aspectRatio: `${width} / ${height}` };
+  // `height: auto` in the style itself: the <img>'s `height` attribute (its natural height) must
+  // never set its height beside this width, or it draws stretched (https://github.com/manaflow-ai/cmux/issues/59858).
+  const shape = { width, height: "auto", aspectRatio: `${width} / ${height}` };
   // The failed slot keeps the image's known shape, so the row does not reflow when it fails.
   const broken = shown.status === "failed" || (shown.src !== undefined && failed === shown.src);
   if (broken && fallback !== null) return <>{fallback}</>;

@@ -132,8 +132,7 @@ async fn run_watched(
                     Ok(None) => {
                         stopped = watch.as_ref().and_then(|w| w());
                         if stopped.is_some() || left <= step {
-                            let _ = child.kill();
-                            let _ = child.wait();
+                            stop_with_group(&mut child);
                             break None;
                         }
                     }
@@ -155,6 +154,24 @@ async fn run_watched(
         })
     });
     blocking.await.map_err(|e| e.to_string())?
+}
+
+/// Kills a git and everything it started, then reaps it. `git fetch` runs `git-remote-https` and
+/// `git index-pack` as children; SIGKILL to `git` alone left them running, and each wrote its
+/// `objects/pack/tmp_pack_*` on after `clear_partial_writes` had already looked, so the file
+/// stayed for good (fs-agent-lane-24, 2026-11-26: seven of them, 7.9 GB, in one mirror). The
+/// group goes first, while the leader is unreaped and its group id still ours.
+fn stop_with_group(child: &mut cmux_process::Child) {
+    #[cfg(unix)]
+    if child.leads_group()
+        && let Ok(pid) = libc::pid_t::try_from(child.id())
+        && pid > 0
+    {
+        // SAFETY: the group this unreaped child leads; the id cannot name another group yet.
+        unsafe { libc::kill(-pid, libc::SIGKILL) };
+    }
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 fn drain<R: Read>(pipe: Option<R>) -> Vec<u8> {
@@ -203,6 +220,19 @@ fn floor_watch(dir: &Path) -> Watch {
 /// What a git stopped mid-write leaves in the mirror (`objects/pack/tmp_*`, `.tmp-*` packs of a
 /// repack, `objects/incoming-*` quarantines): removed, so a stopped write keeps no space.
 fn clear_partial_writes(dir: &Path) {
+    clear_partial_writes_older(dir, Duration::ZERO);
+}
+
+/// How long a partial write goes unwritten before it counts as left behind. Every writer of the
+/// mirror touches its file while it runs, and none runs unwritten for this long (`FILL_TIMEOUT`
+/// bounds a whole fill at 30 minutes).
+pub const STALE_PARTIAL: Duration = Duration::from_secs(60 * 60);
+
+/// `clear_partial_writes` for the entries not written for `older_than`: what a git killed
+/// earlier, a crash or a restart left. Returns (entries, bytes) removed.
+fn clear_partial_writes_older(dir: &Path, older_than: Duration) -> (u64, u64) {
+    let mut removed = (0u64, 0u64);
+    let now = std::time::SystemTime::now();
     let objects = dir.join("objects");
     for (at, prefixes) in
         [(objects.join("pack"), &["tmp_", ".tmp-"][..]), (objects.clone(), &["incoming-"][..])]
@@ -215,13 +245,89 @@ fn clear_partial_writes(dir: &Path) {
                 continue;
             }
             let path = entry.path();
-            let _ = if path.is_dir() {
-                std::fs::remove_dir_all(&path)
+            let Ok(meta) = std::fs::symlink_metadata(&path) else { continue };
+            if !older_than.is_zero()
+                && meta
+                    .modified()
+                    .ok()
+                    .and_then(|m| now.duration_since(m).ok())
+                    .is_none_or(|age| age < older_than)
+            {
+                continue;
+            }
+            let (ok, bytes) = if meta.is_dir() {
+                let bytes = tree_bytes(&path);
+                (std::fs::remove_dir_all(&path).is_ok(), bytes)
             } else {
-                std::fs::remove_file(&path)
+                (std::fs::remove_file(&path).is_ok(), meta.len())
             };
+            if ok {
+                removed.0 += 1;
+                removed.1 += bytes;
+            }
         }
     }
+    removed
+}
+
+fn tree_bytes(path: &Path) -> u64 {
+    let Ok(entries) = std::fs::read_dir(path) else { return 0 };
+    entries
+        .flatten()
+        .map(|e| match e.file_type() {
+            Ok(t) if t.is_dir() => tree_bytes(&e.path()),
+            Ok(_) => e.metadata().map(|m| m.len()).unwrap_or(0),
+            Err(_) => 0,
+        })
+        .sum()
+}
+
+/// Every mirror under `root` (`<tenant>/github.com/<owner>/<repo>.git`) gives back the partial
+/// writes nothing wrote for `STALE_PARTIAL`. The server runs it once at start, and a fill runs it
+/// on its mirror first. Returns (entries, bytes) removed.
+pub fn sweep_stale_partial_writes(root: &Path) -> (u64, u64) {
+    let mut total = (0u64, 0u64);
+    let level = |p: &Path| -> Vec<PathBuf> {
+        std::fs::read_dir(p)
+            .map(|rd| {
+                rd.flatten()
+                    .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+                    .map(|e| e.path())
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    for tenant in level(root) {
+        for owner in level(&tenant.join("github.com")) {
+            for repo in level(&owner) {
+                let (n, b) = clear_partial_writes_older(&repo, STALE_PARTIAL);
+                total.0 += n;
+                total.1 += b;
+            }
+        }
+    }
+    total
+}
+
+/// How a watched fetch ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Fetched {
+    Done,
+    /// It failed or timed out with the disk above the floor.
+    Failed,
+    /// The disk floor refused or stopped it.
+    NoRoom,
+}
+
+/// After a fetch that did not finish: whether the floor ended it, read before its partial pack is
+/// cleared, then the partial writes cleared. Read after the clear, the space the stopped pack held
+/// is free again and the floor's stop read as room: `fill_later` then started the same whole
+/// download on the next miss, every ~15 min, for good (fs-agent-lane-24, 2026-11-27: a 12 GiB
+/// `tmp_pack` of manaflow-ai/cmux written, stopped at the floor and cleared, again and again).
+fn after_stop(dir: &Path, has_room: impl Fn(&Path) -> bool) -> Fetched {
+    let room = has_room(dir);
+    clear_partial_writes(dir);
+    if room { Fetched::Failed } else { Fetched::NoRoom }
 }
 
 /// How long a mirror the floor stopped waits before another fill is tried: the disk seldom
@@ -402,25 +508,36 @@ impl Mirrors {
     }
 
     async fn fetch(
-        mut cmd: Command,
+        cmd: Command,
         dir: &Path,
         url: &str,
         authorization: Option<&[u8]>,
         what: &str,
         limit: Duration,
     ) -> bool {
+        Self::fetch_outcome(cmd, dir, url, authorization, what, limit).await == Fetched::Done
+    }
+
+    /// `fetch`, saying whether the disk floor ended it (`Fetched::NoRoom`).
+    async fn fetch_outcome(
+        mut cmd: Command,
+        dir: &Path,
+        url: &str,
+        authorization: Option<&[u8]>,
+        what: &str,
+        limit: Duration,
+    ) -> Fetched {
         with_auth(&mut cmd, authorization);
         cmd.arg("-C").arg(dir).args(["fetch", "--quiet", "--no-write-fetch-head", "--prune"]);
         cmd.arg(url).args(REFSPECS);
         if !crate::room::has_room(dir) {
             eprintln!("git-cache: {what}: not started: {}", crate::room::why_not(dir));
-            return false;
+            return Fetched::NoRoom;
         }
-        let ok = status_ok_watched(cmd, what, limit, Some(floor_watch(dir))).await;
-        if !ok {
-            clear_partial_writes(dir);
+        if status_ok_watched(cmd, what, limit, Some(floor_watch(dir))).await {
+            return Fetched::Done;
         }
-        ok
+        after_stop(dir, crate::room::has_room)
     }
 
     /// Makes the mirror hold `wants` without a whole download in the clone's way: from the
@@ -604,8 +721,16 @@ impl Mirrors {
         let http = self.http.clone();
         self.scope.spawn_until_cancelled("fill mirror", async move {
             let mut refused = false;
-            let ok = {
+            let (ok, stopped_by_floor) = {
                 let _held = lock.lock().await;
+                let (n, bytes) = clear_partial_writes_older(&dir, STALE_PARTIAL);
+                if n > 0 {
+                    eprintln!(
+                        "git-cache: {} gave back {n} partial writes left behind, {} MiB",
+                        dir.display(),
+                        bytes >> 20
+                    );
+                }
                 let fresh = !Self::filled(&dir);
                 // A first fill is the whole repository: it must end above the floor, not just
                 // start there. A filled mirror's fetch is an increment the floor watch bounds.
@@ -626,9 +751,8 @@ impl Mirrors {
                     );
                     refused = true;
                 }
-                let ok = !refused
-                    && Self::init(&dir).await
-                    && Self::fetch(
+                let fetched = if !refused && Self::init(&dir).await {
+                    Self::fetch_outcome(
                         low_priority_git(),
                         &dir,
                         &upstream_url,
@@ -636,7 +760,11 @@ impl Mirrors {
                         "fill",
                         FILL_TIMEOUT,
                     )
-                    .await;
+                    .await
+                } else {
+                    Fetched::Failed
+                };
+                let ok = fetched == Fetched::Done;
                 if ok {
                     let _ = std::fs::write(dir.join(FILLED), b"");
                     Self::drop_kept_refs(&dir).await;
@@ -644,7 +772,7 @@ impl Mirrors {
                         Self::bitmap_later(&scope, dir.clone());
                     }
                 }
-                ok
+                (ok, fetched == Fetched::NoRoom)
             };
             eprintln!(
                 "git-cache: fill {} {} in {:.1} s",
@@ -653,12 +781,14 @@ impl Mirrors {
                     "done"
                 } else if refused {
                     "refused by the floor"
+                } else if stopped_by_floor {
+                    "stopped by the floor (next try in 6 h)"
                 } else {
                     "stopped (resumes on the next miss)"
                 },
                 now.elapsed().as_secs_f64()
             );
-            let no_room = refused || (!ok && !crate::room::has_room(&dir));
+            let no_room = refused || stopped_by_floor;
             let mut fills = fills.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(f) = fills.get_mut(&dir) {
                 f.running = false;
@@ -778,6 +908,73 @@ mod tests {
         left.sort();
         assert_eq!(left, ["pack-keep.idx", "pack-keep.pack"]);
         assert!(!dir.path().join("objects/incoming-abc").exists());
+    }
+
+    fn age(path: &Path, secs: u64) {
+        let t = std::time::SystemTime::now() - Duration::from_secs(secs);
+        std::fs::File::options().write(true).open(path).unwrap().set_modified(t).unwrap();
+    }
+
+    #[test]
+    fn a_sweep_gives_back_only_partial_writes_left_for_an_hour() {
+        let root = tempfile::tempdir().unwrap();
+        let mirror = root.path().join("lane-vm/github.com/o/r.git");
+        let pack = mirror.join("objects/pack");
+        std::fs::create_dir_all(&pack).unwrap();
+        for name in ["tmp_pack_old", "tmp_pack_live", ".tmp-1-pack-old.pack", "pack-a.pack"] {
+            std::fs::write(pack.join(name), vec![0u8; 1000]).unwrap();
+        }
+        let hour = STALE_PARTIAL.as_secs();
+        age(&pack.join("tmp_pack_old"), hour + 60);
+        age(&pack.join(".tmp-1-pack-old.pack"), hour + 60);
+        age(&pack.join("pack-a.pack"), 10 * hour);
+        age(&pack.join("tmp_pack_live"), 60);
+        assert_eq!(sweep_stale_partial_writes(root.path()), (2, 2000));
+        let mut left: Vec<String> = std::fs::read_dir(&pack)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        left.sort();
+        assert_eq!(left, ["pack-a.pack", "tmp_pack_live"], "a pack and a live write stay");
+        assert_eq!(sweep_stale_partial_writes(&root.path().join("missing")), (0, 0));
+    }
+
+    /// The writer's own bug: a stopped `git fetch` left `index-pack` running, which wrote its
+    /// `tmp_pack_*` after the clear. A stop now ends the whole group, so a grandchild that would
+    /// write a file after the stop never does.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_stop_ends_the_children_of_the_git_it_stops() {
+        let dir = tempfile::tempdir().unwrap();
+        let late = dir.path().join("tmp_pack_late");
+        let mut cmd = Command::new("/bin/sh");
+        cmd.arg("-c").arg(format!("(sleep 3; : > '{}') & sleep 30", late.display()));
+        // The daemon's gits lead their groups (it has no terminal); a test run from one must ask.
+        cmd.process_group(0);
+        let got = run_watched(
+            cmd,
+            None,
+            Duration::from_secs(60),
+            Some(Box::new(|| Some("under the floor".to_owned()))),
+        )
+        .await;
+        assert_eq!(got.err().as_deref(), Some("under the floor"));
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        assert!(!late.exists(), "a child of the stopped process wrote after the stop");
+    }
+
+    #[test]
+    fn a_fetch_the_floor_stopped_reads_no_room_though_clearing_its_pack_frees_the_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let pack = dir.path().join("objects/pack");
+        std::fs::create_dir_all(&pack).unwrap();
+        std::fs::write(pack.join("tmp_pack_X1"), b"x").unwrap();
+        // The disk is under the floor while the stopped pack is there and above it once cleared.
+        let room = |d: &Path| !d.join("objects/pack/tmp_pack_X1").exists();
+        assert_eq!(after_stop(dir.path(), room), Fetched::NoRoom);
+        assert!(!pack.join("tmp_pack_X1").exists());
+        // A failure with room to spare is a plain failure: the next miss may try again soon.
+        assert_eq!(after_stop(dir.path(), room), Fetched::Failed);
     }
 
     #[tokio::test]

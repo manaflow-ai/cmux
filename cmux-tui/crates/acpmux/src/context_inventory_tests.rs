@@ -333,3 +333,17 @@ fn a_fork_keeps_the_rules_only_when_cut_after_the_turn_that_carried_them() {
     meta.cmux_rules_seq = None;
     assert!(fork_keeps_rules(meta.cmux_rules_in_transcript, meta.cmux_rules_seq, 0));
 }
+
+/// The test fakes strip the hidden cmux blocks named in `tests/guidance_sources.json`; a
+/// source the product sends that the file lacks reaches a fake as a user line and every
+/// session-move fixture stops matching (cmux#56653's `cmux-card`, fixed by cmux#60997).
+#[test]
+fn the_fakes_strip_every_hidden_block_the_product_sends() {
+    let listed: Vec<String> =
+        serde_json::from_str(include_str!("../tests/guidance_sources.json")).unwrap();
+    let mut listed: Vec<&str> = listed.iter().map(String::as_str).collect();
+    let mut sent = RULE_SOURCES.to_vec();
+    listed.sort_unstable();
+    sent.sort_unstable();
+    assert_eq!(listed, sent, "update tests/guidance_sources.json to the product's RULE_SOURCES");
+}

@@ -44,6 +44,22 @@ pub struct SessionMeta {
     /// it (`harness_argv` is the creation's). None before any start (#23322, review 36).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spawn_argv: Option<Vec<String>>,
+    /// The owner's selected Cloud model connection ID. The credential stays in memory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_connection: Option<String>,
+    /// The owner withdrew the delivered credential. Until redelivery, no new turn may use it,
+    /// even if an adopted host still carries it while existing work finishes.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) credential_withdrawn: bool,
+    /// Model selected at launch with the delivered connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) claude_token_recovery: Option<ClaudeTokenRecovery>,
+    /// Whether a host still needs to restart on the machine login. Older recovery records
+    /// omit this field, so a recovered chat keeps the restart pending until a fresh launch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) claude_login_restart_pending: Option<bool>,
     /// `HarnessProfile::launch_digest` of the profile its agent last started from: a profile
     /// reload that changes it respawns the agent at its turn end, on the same conversation
     /// (`hub/profile_respawn.rs`). Kept on disk, so an agent host the next daemon adopts is

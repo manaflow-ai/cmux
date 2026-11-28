@@ -499,10 +499,31 @@ def background(run, count, measured):
 # ---------------------------------------------------------------------------------------------
 # One transition: a frame strip of the gesture with the motion trace around it.
 
-def record(run, gesture, label, content="focused", static=True):
+def timed_out(strip):
+    """The gesture's deadline ran out (the rpc's socket timeout), not the gesture's own failure."""
+    error = str((strip or {}).get("error") or "")
+    return "timed out" in error
+
+
+def record(run, gesture, label, content="focused", static=True, unchanged=None):
+    """`unchanged`: reads the layout; a round whose gesture timed out retries once when the layout is as it was (the key
+    never landed), so a slow app's missed deadline does not null the cell. A second timeout is the round's `timed_out`,
+    reported beside the failed rounds, never as a measurement."""
     tracker0 = cef_tracker(run)
+    before = unchanged() if unchanged else None
     strip, trace = record_raw(run, gesture, label, content)
+    retried = False
+    if timed_out(strip) and unchanged and unchanged() == before:
+        say(f"split-scale: {label} timed out; retrying once")
+        retried = True
+        motion_ends(run, "the timed-out gesture")
+        tracker0 = cef_tracker(run)
+        strip, trace = record_raw(run, gesture, f"{label}-retry", content)
     row = ssm.transition(strip, trace, opts.strip_tolerance, static=static)
+    if retried:
+        row["retried"] = True
+    if timed_out(strip):
+        row["timed_out"] = True
     cef = cef_delta(tracker0, cef_tracker(run))
     if cef and isinstance(row, dict):
         row["cef"] = cef
@@ -615,7 +636,8 @@ def side_toggle(run, label, want, static):
     the other way restored `want`'s starting state, so it is pressed again and that press is the record. A press that
     moved no pane is the round's error."""
     for attempt in range(2):
-        row = record(run, CMD_B, label if not attempt else f"{label}-again", content="none", static=static)
+        row = record(run, CMD_B, label if not attempt else f"{label}-again", content="none", static=static,
+                     unchanged=lambda: pane_layout(run)[:3])
         way = ssm.side_way(row)
         if way == want:
             if ssm.side_returned(row):
@@ -655,7 +677,8 @@ def run_cell(run, workspace, columns, results, cell, content):
         stress.focus_pane(pane)
         motion_ends(run, "the focus move")  # its own motion ends before the timed key
         before = pane_ids(run, workspace)
-        row = record(run, gesture, f"{cell}-{open_name}-{rnd}", static=static)
+        row = record(run, gesture, f"{cell}-{open_name}-{rnd}", static=static,
+                     unchanged=lambda: pane_ids(run, workspace))
         made = new_pane(run, workspace, before)
         if not made:
             row["error"] = "the key made no pane"
@@ -666,7 +689,8 @@ def run_cell(run, workspace, columns, results, cell, content):
         motion_ends(run, f"{open_name}")  # the open's motion ends before the close
         stress.focus_pane(made)
         motion_ends(run, "the last gesture")
-        row = record(run, CMD_W, f"{cell}-{close_name}-{rnd}", static=static)
+        row = record(run, CMD_W, f"{cell}-{close_name}-{rnd}", static=static,
+                     unchanged=lambda: pane_ids(run, workspace))
         gone = STRESS.wait(lambda: made not in pane_ids(run, workspace), 5, step=0.05)
         if not gone:
             row["error"] = "Cmd-W left the pane"
@@ -959,6 +983,11 @@ def finish(results):
                        and all(f["pass"] for f in results["flatness"].values()))
     text = ssm.table(results)
     print("SPLIT-SCALE-TABLE-BEGIN\n" + text + "\nSPLIT-SCALE-TABLE-END", flush=True)
+    # The per-PR table: every cell x transition, first frame ms and blank frames, worst row first (report-only).
+    rows = ssm.row_table(results)
+    results["row_table"], results["row_table_ok"] = rows, ssm.row_table_ok(rows)
+    row_markdown = ssm.row_table_markdown(rows)
+    print("SPLIT-ROW-TABLE-BEGIN\n" + row_markdown + "\nSPLIT-ROW-TABLE-END", flush=True)
     timeline = frame_timeline(results)
     if opts.json:
         with open(opts.json + ".tmp", "w") as handle:
@@ -966,7 +995,7 @@ def finish(results):
         os.replace(opts.json + ".tmp", opts.json)
     if opts.md:
         with open(opts.md, "w") as handle:
-            handle.write("```\n" + text + "\n```\n")
+            handle.write(row_markdown + "\n\n```\n" + text + "\n```\n")
             if timeline:
                 handle.write("\nThe app's own frame timeline (frame_timing.py --table):\n\n```\n" + timeline + "\n```\n")
     pack_frames()

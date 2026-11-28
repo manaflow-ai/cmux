@@ -31,10 +31,6 @@ Packages/Shared/CmuxHomeCore  CmuxHomeCoreTestSupport
 Packages/Shared/CmuxHomeCore  CmuxHomeCoreTests
 Packages/Shared/CmuxInstallAuthCore  CmuxInstallAuthCore
 Packages/Shared/CmuxInstallAuthCore  CmuxInstallAuthCoreTests
-Packages/Shared/CmuxIrohTransport  CmuxIrohTransport
-Packages/Shared/CmuxIrohTransport  CmuxIrohTransportTests
-Packages/Shared/CmuxIrxTransport  CmuxIrxTransport
-Packages/Shared/CmuxIrxTransport  CmuxIrxTransportTests
 Packages/Shared/CmuxLiveCode  CmuxLiveCode
 Packages/Shared/CmuxLiveCode  CmuxLiveCodeTests
 Packages/Shared/CmuxPagePushBound  CmuxPagePushBound

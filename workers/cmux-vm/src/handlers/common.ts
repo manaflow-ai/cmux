@@ -5,9 +5,10 @@
  * Order matters and is the same everywhere: scope first (a 403 never depends
  * on which resource was asked for), then the rate limit (which counts only the
  * caller's own tenant), then ownership (another tenant's resource is 404).
+ * withOwnedVm reads the rate limit and ownership at once but answers in that order.
  */
 import { name, type Named } from "@gdp-ts/core";
-import { Clock, Effect, Option } from "effect";
+import { Clock, Effect, Either, Option } from "effect";
 import { AuditStore } from "../db/stores.ts";
 import { auditActorOf, CurrentPrincipal, type Principal } from "../domain/principal.ts";
 import type { Scope } from "../domain/scopes.ts";
@@ -88,12 +89,26 @@ export const withOwnedVm = <const S extends Scope, A, E, R>(
       Effect.gen(function* () {
         const granted = keyHasScope(caller, scope);
         if (granted === null) return yield* Effect.fail(missingScope(scope));
-        yield* rateLimit(principal, rateClass);
         const parsed = parseVmId(raw.value);
-        if (Option.isNone(parsed)) return yield* Effect.fail(vmNotFound());
+        if (Option.isNone(parsed)) {
+          yield* rateLimit(principal, rateClass);
+          return yield* Effect.fail(vmNotFound());
+        }
         return yield* name(parsed.value, (vm) =>
           Effect.gen(function* () {
-            const owns = yield* tenantOwnsVm(caller, vm).pipe(Effect.catchAll(dependencyDown("ownership.find")));
+            // The rate spend (a TenantLimits object call) and the ownership read (Postgres) are independent reads of
+            // the caller's own tenant, so they run together; one VM call used to wait for both in turn. They are
+            // still judged in the order above: a 429 wins over a 404, and nothing acts before ownership is proven.
+            const [rated, found] = yield* Effect.all(
+              [
+                Effect.either(rateLimit(principal, rateClass)),
+                Effect.either(tenantOwnsVm(caller, vm).pipe(Effect.catchAll(dependencyDown("ownership.find")))),
+              ],
+              { concurrency: 2 },
+            );
+            if (Either.isLeft(rated)) return yield* Effect.fail(rated.left);
+            if (Either.isLeft(found)) return yield* Effect.fail(found.left);
+            const owns = found.right;
             if (owns === null) return yield* Effect.fail(vmNotFound());
             return yield* k(caller, vm, { owns, scope: granted });
           }),

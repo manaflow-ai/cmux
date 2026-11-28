@@ -247,23 +247,47 @@ kill "$tee_pid" 2>/dev/null || true
 wait "$tee_pid" 2>/dev/null || true
 trap - INT TERM
 
-if [[ "$status" -ne 0 && "$build_stalled" -eq 0 && "$interrupted_signal" -eq 0 ]] \
-  && grep -qE 'Could not resolve package dependencies|Failed to resolve dependencies' "$output_log" 2>/dev/null \
-  && github_egress_retry_direct "$output_log"; then
-  echo "xcodebuild: the package resolve failed on the github.com proxy (status=$status); running it once more, direct"
-  rm -rf "$output_dir"
-  # The first attempt already wrote its -resultBundlePath, and xcodebuild
-  # refuses an existing bundle ("Existing file at -resultBundlePath", status
-  # 64), so the rerun would fail on that instead of building direct. The
-  # bundle belongs to this build; clear it so the rerun can write it again.
-  prev_arg=""
+# The first attempt already wrote its -resultBundlePath, and xcodebuild
+# refuses an existing bundle ("Existing file at -resultBundlePath", status
+# 64), so a rerun would fail on that instead of building. The bundle belongs
+# to this build; clear it so the rerun can write it again.
+clear_result_bundle() {
+  local prev_arg="" arg
   for arg in "$@"; do
     if [[ "$prev_arg" == "-resultBundlePath" && -n "$arg" ]]; then
       rm -rf "$arg"
     fi
     prev_arg="$arg"
   done
+}
+
+if [[ "$status" -ne 0 && "$build_stalled" -eq 0 && "$interrupted_signal" -eq 0 ]] \
+  && grep -qE 'Could not resolve package dependencies|Failed to resolve dependencies' "$output_log" 2>/dev/null \
+  && github_egress_retry_direct "$output_log"; then
+  echo "xcodebuild: the package resolve failed on the github.com proxy (status=$status); running it once more, direct"
+  rm -rf "$output_dir"
+  clear_result_bundle "$@"
   exec "$script_dir/$(basename "$0")" -- "$@"
+fi
+
+# Xcode's build service can crash mid-build and xcodebuild then ends with
+# "error: unexpected service error: The Xcode build system has crashed. Build
+# again to continue." (status 65). Xcode 27.2's build service did that in two
+# of three nightly-next Release builds on 2026-11-27 (runs 46029967132,
+# 46033303025), each part way through compiling code that builds clean. The
+# message says to build again, so the build runs once more with the same
+# arguments and DerivedData (a new xcodebuild starts a new build service).
+# Only that exact message counts, and only once:
+# CMUX_XCODEBUILD_SERVICE_CRASH_RETRIED marks the rerun, which reports its own
+# failure as usual.
+build_service_crash_message='The Xcode build system has crashed. Build again to continue.'
+if [[ "$status" -ne 0 && "$build_stalled" -eq 0 && "$interrupted_signal" -eq 0 ]] \
+  && [[ "${CMUX_XCODEBUILD_SERVICE_CRASH_RETRIED:-0}" != 1 ]] \
+  && grep -qF "$build_service_crash_message" "$output_log" 2>/dev/null; then
+  echo "::warning::xcodebuild: the Xcode build service crashed (status=$status: \"$build_service_crash_message\"); building once more, same arguments"
+  rm -rf "$output_dir"
+  clear_result_bundle "$@"
+  CMUX_XCODEBUILD_SERVICE_CRASH_RETRIED=1 exec "$script_dir/$(basename "$0")" -- "$@"
 fi
 set -e
 

@@ -23,7 +23,7 @@ impl Translator {
                         let suggestions = prompt_suggestions::enabled_in_settings() && !for_agent;
                         let mut request = initialize_request(suggestions);
                         if self.stop_condition.load(std::sync::atomic::Ordering::Relaxed) {
-                            request.set_path(&["hooks", "Stop"], json!([{"hookCallbackIds": [super::hook_callback::STOP_CALLBACK], "timeout": 5}]));
+                            request.set_path(&["hooks", "Stop"], json!([{"hookCallbackIds": [super::hook_callback::STOP_CALLBACK], "timeout": super::hook_callback::STOP_TIMEOUT_S}]));
                         }
                         if self.plugin_hook_home.get().is_some() {
                             super::hook_callback::add_tool_hooks(&mut request);
@@ -93,6 +93,8 @@ impl Translator {
                             .is_some_and(|t| t.trim_start().starts_with("/clear"))
                         {
                             self.dedupe.reset();
+                            self.path_rules.reset();
+                            self.dir_rules.reset();
                         }
                         // The hub's prompt for the turn Claude Code runs on steers it read after
                         // its turn ended: nothing to write (`carry.rs`).
@@ -157,6 +159,8 @@ impl Translator {
                         // A new prompt of the hub's: no carried turn waits for one any more.
                         self.clear_carry().await;
                         self.in_turn.store(true, Ordering::SeqCst);
+                        // The turn's first request goes out with this line (`model_calls.rs`).
+                        self.model_clock.requested(super::prompt_cache::now_ms());
                         // A new prompt starts a fresh logical turn. A cancelled compaction may
                         // never emit its boundary/result, so clear its live compaction state here
                         // while retaining the separate late-result attribution marker.
@@ -634,7 +638,8 @@ pub(super) fn initialize_request(suggestions: bool) -> Value {
     request.set(
         "hooks",
         json!({"PreToolUse": [{
-            "matcher": "*", "hookCallbackIds": [super::hook_callback::SYNC_CALLBACK], "timeout": 90
+            "matcher": "*", "hookCallbackIds": [super::hook_callback::SYNC_CALLBACK],
+            "timeout": super::hook_callback::SYNC_TIMEOUT_S
         }, {
             "matcher": "*", "hookCallbackIds": [super::policy_gate::GATE_CALLBACK],
             "timeout": super::policy_gate::GATE_TIMEOUT_S, "onFailure": "block"
@@ -651,6 +656,33 @@ pub(super) fn initialize_request(suggestions: bool) -> Value {
             "hookCallbackIds": [super::dedupe::DEDUPE_CALLBACK],
             "timeout": super::dedupe::DEDUPE_TIMEOUT_S,
         }));
+    }
+    // Harness magic `pathRules` (`path_rules.rs`): after the call, so it never holds one up.
+    if super::path_rules::enabled() {
+        let entry = json!({
+            "matcher": super::path_rules::PATH_RULES_MATCHER,
+            "hookCallbackIds": [super::path_rules::PATH_RULES_CALLBACK],
+            "timeout": super::path_rules::PATH_RULES_TIMEOUT_S,
+        });
+        match request.pointer_mut("/hooks/PostToolUse").and_then(Value::as_array_mut) {
+            Some(hooks) => hooks.push(entry),
+            None => request.set_path(&["hooks", "PostToolUse"], json!([entry])),
+        }
+    }
+    // Harness magic `dirRules` (`dir_rules.rs`): a directory's rules after the first call that
+    // touches it.
+    if super::dir_rules::enabled() {
+        let entry = json!({
+            "matcher": super::dir_rules::DIR_RULES_MATCHER,
+            "hookCallbackIds": [super::dir_rules::DIR_RULES_CALLBACK],
+            "timeout": super::dir_rules::DIR_RULES_TIMEOUT_S,
+        });
+        if let Some(hooks) = request.pointer_mut("/hooks/PostToolUse").and_then(Value::as_array_mut)
+        {
+            hooks.push(entry);
+        } else {
+            request.set_path(&["hooks", "PostToolUse"], json!([entry]));
+        }
     }
     if suggestions {
         request.set("promptSuggestions", json!(true));

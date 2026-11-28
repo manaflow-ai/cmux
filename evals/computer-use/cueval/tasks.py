@@ -210,6 +210,10 @@ class TaskEnv:
                         h = penv.start_app("browser", f"http://127.0.0.1:{opts['port']}/", self.work)
                         self.apps.append(h)
                         self.handles[step["name"]] = h
+                        if penv.platform_name() == "macos":
+                            # A cold browser launch shows its window seconds after `open` returns; a fixture
+                            # started meanwhile (the person) would take focus and then lose it to that window.
+                            penv.mac_new_windows(h, timeout=15.0)
             elif "snapshot" in step:
                 self.snapshots[step["snapshot"]] = "fake" if self.fake else penv.snapshot(step["snapshot"])
         if start_processes:
@@ -224,21 +228,52 @@ class TaskEnv:
                     h = penv.start_app(step["app"], args, self.work)
                     self.apps.append(h)
                     started.append(h)
-            if started:
+            if started and penv.platform_name() == "macos":
+                # A launched app's new window is its ready signal on macOS: wait for each (bounded, so an app
+                # that opens no new window costs at most the old fixed wait), then a short settle for its
+                # first paint. The fixed 3 s sleep this replaces sat inside every app task's wall time.
+                bound = float(os.environ.get("CUEVAL_APP_READY_S", "3"))
+                deadline = time.monotonic() + bound
+                for h in started:
+                    penv.mac_new_windows(h, timeout=max(0.0, deadline - time.monotonic()))
+                time.sleep(float(os.environ.get("CUEVAL_APP_SETTLE_S", "0.5")))
+            elif started:
                 time.sleep(float(os.environ.get("CUEVAL_APP_SETTLE_S", "3")))  # apps have no ready signal
             if penv.platform_name() == "macos":
                 for h in started:
                     self._note_foreign_windows(h)
         self.person_baseline = None
         if "person" in self.states and start_processes:
-            time.sleep(0.5)  # the person window takes focus 100 ms after it maps
-            try:
-                self.person_baseline = self.read_state("person").get("focus_lost", 0)
-            except (OSError, ValueError):
-                pass
+            self.person_baseline = self._settle_person()
         if not self.fake:
             self.sampler = PointerSampler()
             self.sampler.start()
+
+    def _settle_person(self, timeout: float = 5.0, quiet: float = 0.6) -> int | None:
+        """Wait until the person holds focus and nothing has moved it for `quiet` seconds, then arm the fixture.
+
+        The person window takes focus 100 ms after it maps; on a cold first trial a setup window (the browser's)
+        can still appear after that and take it. Until armed the fixture takes focus back and does not count the
+        loss, so focus_lost and has_focus measure only the agent's run. Returns focus_lost at arming."""
+        deadline = time.monotonic() + timeout
+        last, since = None, time.monotonic()
+        while True:
+            try:
+                s = self.read_state("person")
+                key = (s.get("focus_lost", 0), bool(s.get("has_focus")))
+            except (OSError, ValueError):
+                key = None
+            now = time.monotonic()
+            if key != last:
+                last, since = key, now
+            elif key and key[1] and now - since >= quiet:
+                break
+            if now > deadline:
+                break
+            time.sleep(0.05)
+        # From here on a lost focus counts against the agent (the fixture stops taking it back).
+        open(self.states["person"] + ".armed", "w").close()
+        return key[0] if key else None
 
     def _note_foreign_windows(self, h: dict) -> None:
         """On a shared test Mac an app may already have someone else's windows: name the trial's own."""

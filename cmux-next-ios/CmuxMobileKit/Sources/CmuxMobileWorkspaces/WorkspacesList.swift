@@ -2002,6 +2002,7 @@ final class ShimmerHighlightView: UIView {
         CATransaction.commit()
         // motion: allow the sweep is the shimmer itself; Reduce Motion never mounts it (ShimmerText).
         let sweep = CABasicAnimation(keyPath: "position.x")
+        sweep.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
         sweep.fromValue = -width * 0.4
         sweep.toValue = width
         sweep.duration = 1.6

@@ -11,3 +11,8 @@ description = "Browser grants (RFD 0125 D7.2): an agent's lease on a site of the
 workspace = true
 
 [dependencies]
+# The Public Suffix List (ICANN and private sections), compiled in: a
+# grant's site is its registrable domain under the full list.
+psl = "2"
+# IDNA: a Unicode host and its punycode name are one site.
+url.workspace = true

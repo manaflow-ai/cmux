@@ -102,9 +102,14 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         let sidebar = SidebarBridge(services: services, state: state)
         self.sidebar = sidebar
         SidebarProfileControl(services: services, state: state).install(model: sidebar.model, sidebar: sidebar.container.sidebarView)
-        // The footer's Search button runs the one palette.open path (plans/cmux-next/sidebar-search.md).
+        // The footer's Search button opens the Command Palette (Lawrence 2026-11-23: "we need some mechanism to
+        // educate user about cmd shift p"): the press runs the same action as the shortcut, and the tooltip
+        // shows its bound key (plans/cmux-next/sidebar-search.md).
         sidebar.container.sidebarView.onSearch = { [weak registry = services.registry] _ in
-            _ = registry?.perform("palette.open", invocation: ActionInvocation(arguments: ["scope": .string("search")], origin: .user))
+            _ = registry?.perform("commandPalette", invocation: ActionInvocation(origin: .user))
+        }
+        sidebar.container.sidebarView.followSearchShortcut { [registry = services.registry] in
+            registry.shortcutDisplay(for: "commandPalette")
         }
         DebugTimings.markLaunch("window.sidebar_made"); root = WindowRootView(sidebar: sidebar.container, activeLook: services.activeLook) // startup-tti sub-marks
         services.wallpaperBadge.add(root.backdropView) // a live wallpaper's badge shows the signed-in account
@@ -319,7 +324,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             controller.unpark()
         } else {
             kept?.teardown()
-            controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state)
+            controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state); controller.layoutView.holdAttention() // cold: its rings wait too (cmux#59901)
         }
         content = controller
         // Panes pan and spring per display frame: shortcut chips over them follow.
@@ -330,7 +335,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         DebugWorkspaceSwitch.mark(self, "content")
         sidebar.sameTurn.syncNow(rows: sidebar.sameTurn.listsAnotherSpace(than: state.profileID.rawValue) || ((controller !== kept || controller === reserved) && !sidebar.model.lists(SidebarWorkspaceID(workspace.id))))
         DebugWorkspaceSwitch.mark(self, "sidebar")
-        root.show(controller.contentView)
+        root.show(controller.contentView); controller.layoutView.releaseHeldAttention { [hold = root.paintHold, view = controller.contentView] release in hold.kept.map { $0 !== view && hold.afterHold(of: $0, release) } ?? false } // never on the kept workspace
         DebugWorkspaceSwitch.mark(self, "root")
         arrangeOnScreen() // with `sidebar.multiView`, the workspaces shown beside it
         // The workspace's theme first, so the chrome repaints once: only the room's own views (sidebar,

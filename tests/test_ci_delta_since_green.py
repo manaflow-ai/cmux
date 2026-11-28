@@ -514,6 +514,11 @@ def evaluate_condition(expression: str, context: dict[str, str]) -> bool:
 CHANGED_FILES_REDIRECT = "> ${RUNNER_TEMP}/cmux-ci-changed-files.txt"
 
 
+def head_tier_full_ci_expression() -> str:
+    return ("(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' "
+            "|| (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))")
+
+
 class WorkflowTests(unittest.TestCase):
     def setUp(self) -> None:
         self.job = yaml.safe_load(CI_WORKFLOW.read_text())["jobs"]["changes"]
@@ -571,10 +576,12 @@ class WorkflowTests(unittest.TestCase):
         flag = detect["env"]["DRAFT_BASE_MERGE"]
         for needed in ("github.event.pull_request.draft == true",
                        "steps.delta.outputs.base_sha != ''",
-                       "!contains(github.event.pull_request.labels.*.name, 'full-ci')",
+                       "!(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))",
                        "(vars.CI_DRAFT_BASE_MERGE_SKIP || '1') != '0'"):
             self.assertIn(needed, flag)
-        self.assertNotIn("||", flag.replace("(vars.CI_DRAFT_BASE_MERGE_SKIP || '1')", ""))
+        # the one-shot full-ci read is the only other alternation it carries
+        rest = flag.replace("(vars.CI_DRAFT_BASE_MERGE_SKIP || '1')", "").replace(head_tier_full_ci_expression(), "")
+        self.assertNotIn("||", rest)
         run = detect["run"]
         skip = run.index('if [ "${DRAFT_BASE_MERGE:-}" = "true" ]; then')
         # after the delta override, so it wins; before the diff, so the diff is empty

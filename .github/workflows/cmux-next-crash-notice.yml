@@ -1,0 +1,65 @@
+name: cmux-next crash notice on NIGHTLY
+
+# Does the published NIGHTLY still offer a crash report after a crash? scripts/measure/crash-notice-nightly.sh
+# ends the newest signed NIGHTLY with SIGSEGV, relaunches it, and reads the restart report, the log line and the
+# restart notice with its Report button. It never presses Report, so nothing is filed. cmuxterm-hq
+# tools/fleet-reconcilers/feedback_fix.py reads this workflow's newest run as the canary's crash_notice hop (goal
+# feedback-to-fix-hours): the step "The notice is missing" failing means the dialog no longer offers a report;
+# "The rig could not tell" failing means no reading.
+# The schedule fires main's copy (the same file, its main twin), so every run checks out feat-cmux-next's scripts.
+#   gh workflow run cmux-next-crash-notice.yml --ref feat-cmux-next
+
+on:
+  schedule:
+    - cron: "41 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-next-crash-notice
+  cancel-in-progress: false
+
+jobs:
+  notice:
+    if: github.event_name == 'schedule' || github.ref == 'refs/heads/feat-cmux-next'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout cmux
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: feat-cmux-next
+          persist-credentials: false
+          sparse-checkout: scripts
+
+      - name: Crash the NIGHTLY and read its restart notice
+        id: probe
+        run: |
+          set -uo pipefail
+          scripts/measure/crash-notice-nightly.sh | tee "$RUNNER_TEMP/probe.log"
+          status=${PIPESTATUS[0]}
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          grep '^CRASH_NOTICE ' "$RUNNER_TEMP/probe.log" | tail -n 1 >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: The notice is missing
+        if: steps.probe.outputs.status == '1'
+        run: |
+          echo "::error::the NIGHTLY restarted after a crash without offering a crash report (CRASH_NOTICE in the probe step)"
+          exit 1
+
+      - name: The rig could not tell
+        if: steps.probe.outputs.status != '0' && steps.probe.outputs.status != '1'
+        run: |
+          echo "::error::crash notice probe: no reading (exit ${{ steps.probe.outputs.status }}); see the probe step"
+          exit 1
+
+      - name: Upload the result
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-crash-notice
+          path: .build/crash-notice-nightly/
+          if-no-files-found: warn
+          retention-days: 14

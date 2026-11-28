@@ -34,7 +34,7 @@ concurrency:
 jobs:
   measure:
     name: launch TTI (${{ matrix.leg }})
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -123,5 +123,7 @@ jobs:
             artifacts/ios-sim/launch-tti.jsonl
             artifacts/ios-sim/first-connect.json
             artifacts/ios-sim/SUMMARY.md
+            artifacts/ios-sim/ui-tests-failures.txt
+            artifacts/ios-sim/launch-tti-error.txt
           retention-days: 3
           if-no-files-found: warn

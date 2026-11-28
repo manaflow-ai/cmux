@@ -71,6 +71,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+import live_frames  # noqa: E402  (a frame of each swapped build in the chat, RFD 0152)
 
 WATCHED_SUFFIXES = (".rs", ".toml")
 WATCHED_NAMES = ("Cargo.lock",)
@@ -86,8 +87,8 @@ APP_OWNER_SECS = 35
 # package -> (binary cargo builds, the name the app bundles it under)
 DAEMONS = {"cmux-tui": ("cmux-tui", "cmux-tui"), "acpmux": ("acpmux", "cmux-tui-acpmux")}
 # The measurement's one-line edit: a field in the daemon's `identify` answer,
-# in cmux-tui-core (a library crate, not the binary's own).
-EDIT_FILE = "cmux-tui/crates/cmux-tui-core/src/server/cmd_server.rs"
+# which lives in the cmux-tui binary crate, a leaf (cmux-tui-core server/identify_reply.rs).
+EDIT_FILE = "cmux-tui/crates/cmux-tui/src/bin/cmux-tui/identify.rs"
 EDIT_ANCHOR = '        "daemon_handoff": 1,\n'
 
 
@@ -379,8 +380,22 @@ def run(argv: list[str], **kwargs) -> subprocess.CompletedProcess:
 PROFILE = os.environ.get("CMUX_RUST_LIVE_PROFILE") or "dev"
 
 
+# Codegen units for the two crates a cmux-tui-core edit rebuilds, in this build only (RFD 0174 slice 5).
+# At 1024 instead of the dev profile's 256, an edit's incremental rebuild has less to redo per unit:
+# 28.65 s -> 27.86 s p50 (fleet Linux, 32 cores, 12 edits per arm in two interleaved runs, job
+# e8cd7525058d39c377835ce2; scripts/measure/tui-core-edit-levers.py). 16 units took 92.7 s. Passed as
+# --config, so [profile.dev] and every other dev build keep their settings, and dependencies keep
+# their build. The first rust-live build after a plain `cargo build` redoes these two crates once.
+# CMUX_RUST_LIVE_CODEGEN_UNITS="" leaves the profile's own.
+CODEGEN_UNITS = os.environ.get("CMUX_RUST_LIVE_CODEGEN_UNITS", "1024")
+EDITED_CRATES = ("cmux-tui-core", "cmux-tui")
+
+
 def cargo_args(daemons: list[str], target: str | None) -> list[str]:
     argv = ["cargo", "build", "--message-format=short", "--profile", PROFILE]
+    if CODEGEN_UNITS:
+        for crate in EDITED_CRATES:
+            argv += ["--config", f'profile.{PROFILE}.package."{crate}".codegen-units={int(CODEGEN_UNITS)}']
     if target:
         argv += ["--target", target]
     for package in daemons:
@@ -545,7 +560,9 @@ class Builder:
                 if result.returncode != 0:
                     raise RuntimeError(f"strip on {self.host}: {result.stderr.strip()}")
                 source = f"{self.host}:{built_file}.live"
-                result = run(["rsync", "-z", "-e", rsh, source, str(staged)])
+                # No -z: the delta is a few hundred KB, but zlib still reads all 263 MB, which took
+                # 13.7 s of a 1 s copy (scripts/measure/rust-live-fetch.py, 2026-11-27).
+                result = run(["rsync", "-e", rsh, source, str(staged)])
                 if result.returncode != 0:
                     raise RuntimeError(f"rsync from {self.host}: {result.stderr.strip()}")
             else:
@@ -878,6 +895,8 @@ class Loop:
         (self.state / "last.json").write_text(json.dumps(entry, indent=2) + "\n")
         with open(self.state / "history.jsonl", "a") as history:
             history.write(json.dumps(entry) + "\n")
+        if entry.get("outcome") == "swapped" and not self.on_swap:
+            live_frames.built("rust")  # the chat's frames show the swapped daemon, not the save
         if self.on_swap:
             self.on_swap(entry)
 

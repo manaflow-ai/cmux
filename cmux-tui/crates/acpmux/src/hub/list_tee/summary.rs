@@ -127,15 +127,10 @@ fn selected_extra(row: &Map<String, Value>, state: &str) -> Value {
         .iter()
         .filter(|(key, value)| {
             EXTRA_KEYS.contains(&key.as_str())
-                && !value.is_null()
+                && !said_nothing(value)
                 && !(key.as_str() == "handle" && derived_handle(row, value))
                 && !(key.as_str() == "icon"
                     && value.get("kind").and_then(Value::as_str) == Some("image"))
-                // Every chat's row carries `autoSession` (#54159), Auto off on almost all; the
-                // off default is what a reader assumes when it is absent, and its ~90 bytes in
-                // both forms push a full row past MAX_SUMMARY_BYTES. Nulls say the same as a missing key.
-                && !(key.as_str() == "autoSession"
-                    && **value == crate::auto_session::record::AutoRecord::row_of(None))
         })
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect();
@@ -173,7 +168,23 @@ fn selected_extra(row: &Map<String, Value>, state: &str) -> Value {
             retain(Some(warning), &["text"]);
         }
     }
+    // A retain can leave an object empty (tags that held only unlisted keys).
+    values.retain(|_, value| !said_nothing(value));
     Value::Object(values)
+}
+
+/// A null, an empty list or an empty object tells a reader nothing a missing key does not: every
+/// reader of the extra (`cli::list_read`, the sidebar, a peer's `cmux ls`) already treats a missing
+/// key as unset, since an older peer's row lacks the newer keys. Each record replaces the whole
+/// row, so leaving one off clears nothing stale. A typical row carried about 20 of them, and with
+/// the peer form, which holds a second copy of the extra, they pushed it past the 2 KiB bound.
+fn said_nothing(value: &Value) -> bool {
+    match value {
+        Value::Null => true,
+        Value::Array(values) => values.is_empty(),
+        Value::Object(values) => values.is_empty(),
+        _ => false,
+    }
 }
 
 fn extra(row: &Map<String, Value>, state: &str) -> Value {

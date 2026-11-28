@@ -34,6 +34,7 @@ use super::super::customize::pr::Http;
 use super::super::{GlobalArgs, OutputMode, wire};
 
 /// How long one preview request may take.
+// timeout: one preview HTTP request; past it the preview says it failed and the verb can be retried.
 const PREVIEW_DEADLINE: std::time::Duration = std::time::Duration::from_secs(15);
 
 pub(super) const VERBS: &[&str] = &[
@@ -1151,8 +1152,28 @@ pub(super) fn install_as(
         receipt.source.key() == source.key() && as_id.is_none_or(|id| id == receipt.id)
     });
     if let Some(receipt) = same_source {
-        // Installed already: this is an update to the named ref (or folder).
-        return apply_update(customize, apps, output, receipt.clone(), Some(source), yes);
+        // Installed already: this is an update to the named ref (or folder),
+        // and an install still means what it says: the setup on, on top of
+        // the others. An update alone keeps its place and its off, so a look
+        // installed again from the gallery under looks put on since would
+        // leave theirs showing (hq feature flow `looks`: Linen after Basalt).
+        let id = receipt.id.clone();
+        let mut answer = apply_update(customize, apps, output, receipt.clone(), Some(source), yes)?;
+        let mut current = customize.setup(&id)?;
+        if current.as_ref().is_some_and(|receipt| !receipt.on) {
+            current = Some(customize.set_setup_on(&id, true, "cli", now_ms())?);
+        }
+        let on_top = customize.setups()?.first().map(|receipt| receipt.id.as_str()) == Some(&id);
+        if !on_top {
+            customize.order_setups(std::slice::from_ref(&id), "cli", now_ms())?;
+        }
+        apps.reload_layers();
+        if let (Some(answer), Some(current)) = (answer.as_object_mut(), current) {
+            let key = if answer.contains_key("installed") { "installed" } else { "current" };
+            answer.insert(key.to_owned(), json!(current));
+            answer.insert("on_top".to_owned(), json!(true));
+        }
+        return Ok(answer);
     }
     let opened = open(apps, &source, as_id)?;
     let read = &opened.read;

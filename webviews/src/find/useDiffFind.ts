@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { CodeViewHandle } from "@pierre/diffs/react";
 import type { DiffItem } from "../diff-stream";
 import { foldFind } from "./fold";
-import { collectFindMatches, reanchorActiveMatch, type FindMatch } from "./model";
+import { IncrementalDiffFind, reanchorActiveMatch, type FindMatch } from "./model";
 import { installFindHighlightPainter, type FindHighlightPainter, type FindPaintSnapshot } from "./highlight";
 
 export type FindDispatch = React.Dispatch<
@@ -64,9 +64,14 @@ export function useDiffFind(options: UseDiffFindOptions): DiffFindController {
   itemsRef.current = items;
 
   const normalizedQuery = open ? foldFind(query) : "";
+  // Kept across renders: a streamed batch scans only its new lines and an extending keystroke only
+  // the previous matches (RFD 0199 section 11); the answer is `collectFindMatches`'s.
+  const finderRef = useRef<IncrementalDiffFind | null>(null);
+  finderRef.current ??= new IncrementalDiffFind();
+  const finder = finderRef.current;
   const matches = useMemo(
-    () => (normalizedQuery === "" ? [] : collectFindMatches(items.filter(isSearchableItem), normalizedQuery)),
-    [items, normalizedQuery],
+    () => finder.update(normalizedQuery === "" ? [] : items.filter(isSearchableItem), normalizedQuery),
+    [finder, items, normalizedQuery],
   );
 
   const [activeIndex, setActiveIndex] = useState(0);

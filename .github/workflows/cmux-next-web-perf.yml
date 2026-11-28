@@ -1,12 +1,36 @@
-name: cmux-next web performance
+name: cmux-next manual performance
 
 # Staged policy: manual runs only. Activation needs the trusted validator, budget and a
 # measured baseline on feat-cmux-next, and a trigger whose workflow comes from the base
 # (workflow_run), not pull_request, whose workflow file the PR itself supplies. Pending
 # baselines still fail validation. See webviews/test/latency/ACTIVATION.md.
 on:
+  # Register this manual entry point on NEXT; all jobs below require dispatch.
+  push:
+    branches: [feat-cmux-next]
+    paths: [.github/workflows/cmux-next-web-perf.yml]
   workflow_dispatch:
     inputs:
+      suite:
+        description: "Measurement suite (stress requires base and head)"
+        type: choice
+        options: [chromium, stress]
+        default: chromium
+      base:
+        description: "base commit sha (40 hex): the before"
+        required: false
+      head:
+        description: "head commit sha (40 hex): the after"
+        required: false
+      angles:
+        description: "angles (comma list of cpu,chats,scale,cli,memory)"
+        default: "cpu,chats,scale,cli,memory"
+      window:
+        description: "seconds per measured window"
+        default: "20"
+      worker:
+        description: "fleet worker (empty: any idle bench worker)"
+        default: ""
       head_sha:
         description: "full commit SHA to measure (manual runs only)"
         required: false
@@ -20,8 +44,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: cmux-next-web-perf-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.event_name == 'push' && format('manual-bench-register-{0}', github.ref) || inputs.suite == 'stress' && 'cmux-next-stress-bench' || format('cmux-next-web-perf-{0}', github.event.pull_request.number || github.ref) }}
+  cancel-in-progress: ${{ inputs.suite != 'stress' }}
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
@@ -32,6 +56,7 @@ env:
 
 jobs:
   measure:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.suite != 'stress' }}
     name: Linux Chromium measurement
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 40
@@ -76,6 +101,20 @@ jobs:
         with:
           node-version: "24.22.1"
 
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md (detector: tests/test_ci_bun_cache_warm.py).
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
+
       - name: Cache Bun package cache
         timeout-minutes: 3
         continue-on-error: true
@@ -87,7 +126,7 @@ jobs:
           restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Bun package cache (restore only off base branches)
-        if: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        if: ${{ (!(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref))) && steps.bun-warm.outputs.warm != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -152,11 +191,11 @@ jobs:
   validate:
     name: Linux Chromium performance gate
     needs: measure
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.suite != 'stress' }}
     # A fresh cloud runner is a trust boundary. Do not route this job onto a
     # persistent worker where candidate processes or tools could survive: linux_4
     # is the pool of ephemeral Blacksmith sizes kept for exactly that.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # frozen-label: validates head output with base code; tests/test_web_perf_validation_boundary.py keeps it off any runner the measuring job may have touched
     timeout-minutes: 10
     permissions:
       contents: read
@@ -223,3 +262,115 @@ jobs:
           path: ${{ runner.temp }}/web-perf-validation
           if-no-files-found: warn
           retention-days: 3
+
+  # Exclusive-fleet A/B stress measurement; command and artifact contract unchanged.
+  stress-measure:
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'stress' && github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != ''
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (#54437)
+    timeout-minutes: 300
+    permissions: {}
+    steps:
+      # No checkout: the gateway runner takes only thin cmux-ci clients. The bench Mac checks each sha out itself.
+      - name: stress at base and head on the bench Mac
+        env:
+          BASE: ${{ inputs.base }}
+          HEAD: ${{ inputs.head }}
+          ANGLES: ${{ inputs.angles }}
+          WINDOW: ${{ inputs.window }}
+          WORKER: ${{ inputs.worker }}
+        run: |
+          set -uo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::error title=Build fleet client missing::$client is not installed on runner $RUNNER_NAME; nothing was measured."
+            exit 127
+          fi
+          for sha in "$BASE" "$HEAD"; do
+            if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::error title=Stress bench::'$sha' is not a 40-hex commit sha"
+              exit 1
+            fi
+          done
+          if ! [[ "$ANGLES" =~ ^[a-z,]+$ && "$WINDOW" =~ ^[0-9]+$ ]]; then
+            echo "::error title=Stress bench::angles must be a comma list of names and window a whole number"
+            exit 1
+          fi
+          target=()
+          [ -n "$WORKER" ] && target=(--target-worker "$WORKER")
+          out="$RUNNER_TEMP/stress"
+          mkdir -p "$out"
+          status=0
+          for side in base head; do
+            sha="$BASE"; [ "$side" = head ] && sha="$HEAD"
+            log="$out/$side.log"
+            # Before and after compare only on one machine: the head side runs strictly on the worker the base
+            # side ran on (any bench worker today is one Mac, but a second bench Mac must not split the pair).
+            if [ "$side" = head ] && [ -n "${base_worker:-}" ]; then
+              target=(--target-worker "$base_worker" --pin-strict)
+            fi
+            "$client" run --class exclusive --measurement --label bench --display \
+              --script scripts/measure/split-spring.sh --ref "$sha" --timeout 7200 \
+              --key "stress-$side-$sha-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+              --artifact artifacts/split-spring/report.json ${target[@]+"${target[@]}"} \
+              --arg=--suite=stress --arg="--angles=$ANGLES" --arg="--window=$WINDOW" --arg=--vdisplay=120 \
+              2>&1 | tee "$log" || status=1
+            step="$(grep -o -E '\b[0-9a-f]{24}\b' "$log" | head -1)"
+            if [[ -n "$step" ]]; then
+              "$client" artifact "$step" "$out/$side.json" || "$client" artifact --failed "$step" "$out/$side.json" || true
+            fi
+            worker=""
+            if [[ -n "$step" ]]; then
+              worker="$("$client" status "$step" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("worker") or "")' 2>/dev/null || true)"
+            fi
+            [ "$side" = base ] && base_worker="$worker"
+            echo "$side: fleet step ${step:-none} on ${worker:-unknown worker}; report $([[ -s "$out/$side.json" ]] && echo returned || echo none)"
+            echo "$side=${worker:-unknown}" >> "$out/workers.txt"
+          done
+          exit "$status"
+      - name: Upload the reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: stress-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/stress/
+          if-no-files-found: warn
+
+  stress-compare:
+    needs: stress-measure
+    if: ${{ !cancelled() && needs.stress-measure.result != 'skipped' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: scripts/bench
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: stress-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/stress
+      - name: Before/after
+        env:
+          BASE: ${{ inputs.base }}
+          HEAD: ${{ inputs.head }}
+        run: |
+          set -uo pipefail
+          # A plain ledger directory for this run only: nothing is pushed to the shared ledger from CI.
+          export CMUX_BENCH_LEDGER="$RUNNER_TEMP/ledger"
+          mkdir -p "$CMUX_BENCH_LEDGER"
+          dir="$RUNNER_TEMP/stress"
+          for side in base head; do
+            sha="$BASE"; [ "$side" = head ] && sha="$HEAD"
+            if [[ -s "$dir/$side.json" ]]; then
+              scripts/bench/cmux-bench stress --import "$dir/$side.json" --build "$sha" --host-name bench || true
+            else
+              echo "::warning title=Stress bench::no $side report (see the measure job's log)"
+            fi
+          done
+          {
+            echo "## stress: ${BASE:0:12} -> ${HEAD:0:12}"
+            echo
+            scripts/bench/cmux-bench compare "stress@sha:$BASE" "stress@sha:$HEAD" --markdown --no-pull \
+              || echo "compare: needs both reports"
+          } | tee -a "$GITHUB_STEP_SUMMARY"

@@ -252,7 +252,7 @@ async fn a_peer_without_chunked_uploads_is_refused_before_anything_is_sent() {
     let counted = uploads.clone();
     tokio::spawn(async move {
         while let Ok((tcp, _)) = listener.accept().await {
-            let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
+            let Ok(mut ws) = acpmux::server::accept_ws(tcp).await else { continue };
             let counted = counted.clone();
             tokio::spawn(async move {
                 // Non-text frames (the client's pings, #38015) are not requests: skip them.

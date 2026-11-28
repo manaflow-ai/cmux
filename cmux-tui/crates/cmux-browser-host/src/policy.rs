@@ -6,6 +6,7 @@
 //! Pattern syntax and matching follow PR #15570's `agent-tools.js`
 //! (browser-use's `allowed_domains`).
 
+use cmux_browser_grants::Tier;
 use std::fmt;
 use url::{Host, Url};
 
@@ -215,6 +216,9 @@ pub struct Policy {
     /// layers above still narrow it. `None` (no grant): today's
     /// allowedDomains/prohibitedDomains behaviour, unchanged.
     leases: Option<cmux_browser_grants::Leases>,
+    /// Commit leases spent by their one approved action (D7.4): a later
+    /// `set_leases` with the same row does not lend it again.
+    spent: Vec<cmux_browser_grants::Lease>,
 }
 
 /// Schemes an agent may never open, whatever the policy.
@@ -331,7 +335,12 @@ impl Policy {
     /// `browser_grants` rows). `None` returns the session to its domain
     /// policy alone.
     pub fn set_leases(&mut self, leases: Option<cmux_browser_grants::Leases>) {
-        self.leases = leases;
+        let now = now_ms();
+        self.spent.retain(|lease| lease.live_at(now));
+        self.leases = leases.map(|mut leases| {
+            leases.0.retain(|lease| !self.spent.contains(lease));
+            leases
+        });
     }
 
     /// Something limits where the session goes: a layer or its leases.
@@ -346,16 +355,39 @@ impl Policy {
 
     /// [`Policy::lease_refusal`] at `now_ms` (milliseconds since the epoch).
     pub fn lease_refusal_at(&self, url: &Url, now_ms: u64) -> Option<String> {
+        self.lease_tier_refusal_at(url, Tier::Read, now_ms)
+    }
+
+    /// Why the session's leases do not allow an action that needs `needed`
+    /// on a page or request at `url` at `now_ms`, or `None`. The host goes
+    /// through the grants crate's one normalization (punycode, no IPv6
+    /// brackets), the same as the grant row.
+    pub fn lease_tier_refusal_at(&self, url: &Url, needed: Tier, now_ms: u64) -> Option<String> {
         let leases = self.leases.as_ref()?;
         if matches!(url.scheme(), "data" | "blob" | "about") {
             return None;
         }
         match url.host_str() {
-            Some(host) => {
-                leases.refusal(host.trim_start_matches('[').trim_end_matches(']'), now_ms)
-            }
+            Some(host) => leases.refusal_for(host, needed, now_ms),
             None => Some(format!("its scheme {}: has no host", url.scheme())),
         }
+    }
+
+    /// Allows one action that needs `needed` on the page or request at
+    /// `url`: refused unless a live lease of that tier covers its site. A
+    /// commit lease that is the only cover is spent by this action.
+    pub fn authorize_lease(&mut self, url: &Url, needed: Tier) -> Result<(), String> {
+        let now = now_ms();
+        if let Some(reason) = self.lease_tier_refusal_at(url, needed, now) {
+            return Err(reason);
+        }
+        let (Some(leases), Some(host)) = (self.leases.as_mut(), url.host_str()) else {
+            return Ok(());
+        };
+        if let Some(spent) = leases.authorize(host, needed, now)? {
+            self.spent.push(spent);
+        }
+        Ok(())
     }
 
     /// Replaces a layer. The base layer needs `Writer::Owner` and refuses

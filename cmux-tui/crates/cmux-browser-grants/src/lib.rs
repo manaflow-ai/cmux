@@ -13,7 +13,7 @@
 use std::fmt;
 
 mod site;
-pub use site::site_of;
+pub use site::{normalize_host, site_of};
 
 /// How long a lease lasts when the grant names no expiry: "scoped to that
 /// session, ending with it or after 8 hours" (D7.3).
@@ -109,7 +109,6 @@ pub fn grant_site(input: &str) -> Result<String, GrantError> {
     } else {
         host_port.split(':').next().unwrap_or("")
     };
-    let host = host.trim_end_matches('.').to_ascii_lowercase();
     if host.is_empty()
         || host.contains('*')
         || host.chars().any(|c| c.is_whitespace() || c.is_control())
@@ -117,12 +116,15 @@ pub fn grant_site(input: &str) -> Result<String, GrantError> {
     {
         return Err(refuse());
     }
+    // The same spelling the browser host matches against (punycode, no
+    // IPv6 brackets), so an accepted grant always matches its site.
+    let host = normalize_host(host).ok_or_else(refuse)?;
+    let ip = host.parse::<std::net::IpAddr>().is_ok();
+    if !ip && host != "localhost" && (!host.contains('.') || site::is_public_suffix(&host)) {
+        return Err(GrantError(format!("site: {host:?} is a public suffix, not one site")));
+    }
     let site = site_of(&host);
-    let ip = host.starts_with('[') || host.parse::<std::net::Ipv4Addr>().is_ok();
-    if !ip
-        && site != "localhost"
-        && (!site.contains('.') || site::MULTI_SUFFIXES.contains(&site.as_str()))
-    {
+    if !ip && site::is_public_suffix(&site) {
         return Err(GrantError(format!("site: {site:?} is a public suffix, not one site")));
     }
     Ok(site)
@@ -195,24 +197,63 @@ impl Lease {
 pub struct Leases(pub Vec<Lease>);
 
 impl Leases {
-    /// The strongest live lease covering `host`, if any.
-    pub fn lease_for(&self, host: &str, now_ms: u64) -> Option<&Lease> {
-        let site = site_of(host);
-        self.0
-            .iter()
-            .filter(|lease| lease.site == site && lease.live_at(now_ms))
-            .max_by_key(|lease| lease.tier)
+    fn covering(&self, site: String, now_ms: u64) -> impl Iterator<Item = &Lease> {
+        // A stored row is matched in the same spelling as the host.
+        self.0.iter().filter(move |lease| lease.live_at(now_ms) && site_of(&lease.site) == site)
     }
 
-    /// Why `host` may not be reached, or `None` when a live lease covers it.
+    /// The strongest live lease covering `host`, if any.
+    pub fn lease_for(&self, host: &str, now_ms: u64) -> Option<&Lease> {
+        self.covering(site_of(host), now_ms).max_by_key(|lease| lease.tier)
+    }
+
+    /// Why `host` may not be read (reached, observed, captured), or `None`
+    /// when a live lease of any tier covers it.
     pub fn refusal(&self, host: &str, now_ms: u64) -> Option<String> {
-        if self.lease_for(host, now_ms).is_some() {
-            return None;
+        self.refusal_for(host, Tier::Read, now_ms)
+    }
+
+    /// Why an action that needs `needed` may not run on `host`, or `None`
+    /// when a live lease of that tier or higher covers it.
+    pub fn refusal_for(&self, host: &str, needed: Tier, now_ms: u64) -> Option<String> {
+        let site = site_of(host);
+        match self.lease_for(host, now_ms) {
+            None => Some(format!(
+                "{site} is not lent to this session (no live browser grant on the person's profile)"
+            )),
+            Some(lease) if lease.tier < needed => Some(format!(
+                "{site} is lent to this session for {} only; this needs a {} grant",
+                lease.tier.as_str(),
+                needed.as_str()
+            )),
+            Some(_) => None,
         }
-        Some(format!(
-            "{} is not lent to this session (no live browser grant on the person's profile)",
-            site_of(host)
-        ))
+    }
+
+    /// Allows one action that needs `needed` on `host`: `Ok(None)` when a
+    /// lease below commit covers it, `Ok(Some(lease))` when only a commit
+    /// lease does (that lease is spent by this one approved action and
+    /// removed: commit is never remembered, D7.4), or why not.
+    pub fn authorize(
+        &mut self,
+        host: &str,
+        needed: Tier,
+        now_ms: u64,
+    ) -> Result<Option<Lease>, String> {
+        if let Some(reason) = self.refusal_for(host, needed, now_ms) {
+            return Err(reason);
+        }
+        let site = site_of(host);
+        let lasting = self
+            .covering(site.clone(), now_ms)
+            .any(|lease| lease.tier != Tier::Commit && lease.tier >= needed);
+        if lasting || needed == Tier::Read {
+            return Ok(None);
+        }
+        let spent = self.0.iter().position(|lease| {
+            lease.tier == Tier::Commit && lease.live_at(now_ms) && site_of(&lease.site) == site
+        });
+        Ok(spent.map(|index| self.0.remove(index)))
     }
 
     /// The sites with a live lease, sorted, once each.

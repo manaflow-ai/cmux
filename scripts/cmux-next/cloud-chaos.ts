@@ -50,7 +50,30 @@ export type ChaosResult = {
   carrier: string;
   turn: string;
   detail: string;
+  /**
+   * Where the fault cut the stream and how the client resumed it, so a red names the frame that went missing: the
+   * step of the counting turn the client had seen at the cut, the newest seq it held then (the seq its re-attach asks
+   * after: acked), and each re-attach since with the `after_seq` it sent and the seq range its pages replayed.
+   */
+  resume?: ResumeFacts;
 };
+
+export type Replay = { after_seq: number; first: number | null; last: number | null };
+export type ResumeFacts = { drop_at: string; acked_seq: number; replays: Replay[] };
+
+/** The seq range the pages of one re-attach delivered: the `received` entries from `from` that came on a page. */
+export function replayOf(afterSeq: number, received: Array<{ seq: number; via: string }>, from: number): Replay {
+  const seqs = received.slice(from).filter((r) => r.via === "page").map((r) => r.seq);
+  return { after_seq: afterSeq, first: seqs.length ? Math.min(...seqs) : null, last: seqs.length ? Math.max(...seqs) : null };
+}
+
+/** The resume facts as a clause for a fault's detail: `acked seq 40, replayed 41..77 after 40`. */
+export function resumeText(r: ResumeFacts): string {
+  const replays = r.replays.length
+    ? r.replays.map((p) => (p.first === null ? `nothing after ${p.after_seq}` : `${p.first}..${p.last} after ${p.after_seq}`)).join(", ")
+    : "no re-attach";
+  return `dropped at ${r.drop_at}, acked seq ${r.acked_seq}, replayed ${replays}`;
+}
 
 export type ChaosContext = {
   cmux: string;
@@ -438,6 +461,8 @@ export class ChatClient {
   received: Received[] = [];
   /** Indexes into `received` where a re-attach's page began. */
   reconnects: number[] = [];
+  /** Each re-attach after the baseline: when, the seq it asked after, and the seq range its pages replayed. */
+  replays: Array<Replay & { at: number }> = [];
   held = 0;
   overlaps = 0;
   surface: number | null = null;
@@ -653,6 +678,7 @@ export class ChatClient {
       for (let i = 0; more && i < 200; i++) {
         more = this.take(answerOf(await this.dial.request({ cmd: "agent-session-events", surface: this.surface, after_seq: this.held, limit: 500 })));
       }
+      this.replays.push({ at: Date.now(), ...replayOf(after, this.received, from) });
     } finally {
       this.flushStash(from);
     }
@@ -867,10 +893,15 @@ export async function feltAfterSend(chat: ChatClient, text: string, deadlineMs: 
 }
 
 /** How many turns of the session started with this marker, and whether the last one ended. */
-async function turnState(ctx: ChaosContext, marker: string, session = ctx.session): Promise<{ started: number; running: boolean; status: string; detail: string }> {
+async function turnState(ctx: ChaosContext, marker: string, session = ctx.session): Promise<TurnState> {
   const r = await ctx.exec(`${ctx.guest}"$c" acp --json history ${shq(session)} --limit 20 2>&1`, 45_000);
-  let turns: any[] = [];
-  try { turns = JSON.parse(r.stdout.slice(r.stdout.indexOf("{"))).turns ?? []; } catch { /* unreadable: counted as 0 */ }
+  let turns: any[];
+  try {
+    turns = JSON.parse(r.stdout.slice(r.stdout.indexOf("{"))).turns ?? [];
+  } catch {
+    // Unreadable is not "no turn": a caller that counts it as 0 calls a running turn lost (run 46048495695).
+    throw new Error(`acp history unreadable (exit ${r.code}): ${r.stdout.trim().slice(-200)}`);
+  }
   const mine = turns.filter((t: any) => typeof t?.prompt === "string" && t.prompt.startsWith(marker));
   // `acp history` rows carry `status`: "running" while the turn is open (acpmux cli/orchestrate.rs).
   const running = mine.some((t: any) => t.status === "running");
@@ -882,6 +913,32 @@ async function turnState(ctx: ChaosContext, marker: string, session = ctx.sessio
     // reason only in `error`'s text.
     detail: mine.map((t: any) => String(t.detail ?? (typeof t.error === "string" ? t.error : t.error?.message ?? ""))).join(","),
   };
+}
+
+/** How long the fault waits for the sent turn to show in `acp history` before calling it lost. */
+export const HISTORY_SHOWN_MS = 60_000;
+
+type TurnState = { started: number; running: boolean; status: string; detail: string };
+
+/**
+ * Reads history until the sent turn shows or `budgetMs` passes. One remote read is not an answer: in run 46048495695
+ * (drop 60 s) a single read failed while the client was already streaming the turn (step 99), and the catch counted
+ * that as 0 turns, "never showed in the chat's history". `error` is the last failed read when no read showed it.
+ */
+export async function turnShown(read: () => Promise<TurnState>, budgetMs: number, pauseMs = 2_000): Promise<{ state: TurnState; error: string }> {
+  let state: TurnState = { started: 0, running: false, status: "", detail: "" };
+  let error = "";
+  for (const until = Date.now() + budgetMs; ;) {
+    try {
+      state = await read();
+      error = "";
+      if (state.started > 0) return { state, error };
+    } catch (e) {
+      error = (e as Error)?.message ?? String(e);
+    }
+    if (Date.now() + pauseMs >= until) return { state, error };
+    await sleep(pauseMs);
+  }
 }
 
 export async function turnOutcome(ctx: ChaosContext, marker: string, session = ctx.session): Promise<{ ok: boolean; text: string; interrupted?: boolean }> {
@@ -1196,11 +1253,14 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
         reached = chat.reached(tag, from);
         if (reached >= third) break;
       }
-      const state = await turnState(ctx, marker, chat.session).catch(() => ({ started: 0, running: false, status: "", detail: "" }));
+      const shown = await turnShown(() => turnState(ctx, marker, chat.session), HISTORY_SHOWN_MS);
+      const state = shown.state;
       // History is a remote read: output may have finished while it was in flight.
       reached = chat.reached(tag, from);
       if (state.started === 0) {
-        out.push(failed(f.name, `the turn was sent but never showed in the chat's history (the client saw step ${reached})`));
+        out.push(failed(f.name, shown.error
+          ? `the chat's history could not be read within ${HISTORY_SHOWN_MS / 1000} s, so the fault was not injected (the client saw step ${reached}; last read: ${shown.error})`
+          : `the turn was sent but never showed in the chat's history (the client saw step ${reached})`));
         continue;
       }
       const when = !state.running || reached >= COUNT_STEPS ? `after the counting output (${state.status}, step ${reached} of ${COUNT_STEPS})`
@@ -1210,6 +1270,8 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
       const movesBefore = chat.surfaceMoves;
       const resumesBefore = carrier.routeLines.filter((l) => /phase=resume .*outcome=ok/.test(l)).length;
       // A drop may hold the exec's own answer until it ends, so its budget covers the drop.
+      const ackedSeq = chat.held;
+      const replaysBefore = chat.replays.length;
       const injectedAt = Date.now();
       const injected = await ctx.exec(`${ctx.guest}${f.command}`, f.secs * 1000 + 60_000).catch((e: Error) => ({ code: 1, stdout: e.message, stderr: "" }));
       if (!/@@ok/.test(injected.stdout)) {
@@ -1234,6 +1296,11 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
       const turn = await turnOutcome(ctx, marker, chat.session);
       const loss = await lossVerdict(ctx, chat, tag, baseline, from, turn.interrupted === true, { step: reached, running: state.running });
       const terminal = await terminalVerdict(ctx, seqError ? null : seq, seqError);
+      const resume: ResumeFacts = {
+        drop_at: `step ${reached} of ${COUNT_STEPS} (seq ${ackedSeq})`,
+        acked_seq: ackedSeq,
+        replays: chat.replays.slice(replaysBefore).map(({ at: _at, ...r }) => r),
+      };
       const ok = feel.felt_ms !== null && feltTurn.ok && recover !== null && turn.ok && loss.ok && terminal.ok;
       const feltText = feel.felt_ms === null
         ? `no reply within ${RECOVER_DEADLINE_MS / 1000} s of a send at the cause's end (${feel.tries} tries${feel.error ? `; last error ${feel.error}` : ""})`
@@ -1245,7 +1312,8 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
         recover_ms: recover,
         carrier: how,
         turn: turn.text,
-        detail: `injected ${when}; ${feltText}, its turn ${feltTurn.text}; ${recover === null ? `the carrier gave no answer within ${RECOVER_DEADLINE_MS / 1000} s` : `the carrier answered ${recover} ms after the cause ended`}; carrier ${how}; turn ${turn.text}; ${loss.text}${chat.surfaceMoves > movesBefore ? ` (the chat's tab came back on a new surface)` : ""}; ${terminal.text}`,
+        detail: `injected ${when}; ${feltText}, its turn ${feltTurn.text}; ${recover === null ? `the carrier gave no answer within ${RECOVER_DEADLINE_MS / 1000} s` : `the carrier answered ${recover} ms after the cause ended`}; carrier ${how}; turn ${turn.text}; ${loss.text}${chat.surfaceMoves > movesBefore ? ` (the chat's tab came back on a new surface)` : ""}; ${terminal.text}; ${resumeText(resume)}`,
+        resume,
       };
       // A daemon restart: where the time to the take went, from the machine's own journal.
       if (f.name === "agent daemon restart") {
