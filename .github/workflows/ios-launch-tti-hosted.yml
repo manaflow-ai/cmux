@@ -52,9 +52,9 @@ jobs:
       matrix:
         include:
           - leg: before
-            ref: ${{ github.event_name == 'workflow_dispatch' && inputs.before || 'feat-cmux-next' }}
+            ref: ${{ github.event_name == 'workflow_dispatch' && inputs.before || 'fad45d4114115146975bc5ab31d0674a896b8a38' }}
           - leg: after
-            ref: ${{ github.event_name == 'workflow_dispatch' && inputs.after || 'd04607cef7046138aabe5bd5d01d517dc9450078' }}
+            ref: ${{ github.event_name == 'workflow_dispatch' && inputs.after || '85b89e6e1c19948f5e25dd2d99995ad43d299ace' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
