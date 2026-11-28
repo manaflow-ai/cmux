@@ -1,0 +1,54 @@
+name: cmux-next motion frames
+
+# A pull request into feat-cmux-next that touches a motion area (split zoom, the palette, a
+# pane's close) gets one `frames` run of cmux-next-frame-pacing.yml on its branch: golden.py's
+# motion_frames alone, about 30 frames around Cmd-Shift-Enter, Cmd-P and Cmd-W at the default
+# motion and under Reduce Motion. It fails on a blank frame (cmux#58266: a zoom blanked the
+# Chromium page it covered) or, under Reduce Motion, on content that lands a frame late.
+#
+# Leo, 2026-11-27: "what are minimally rigorous things we can be adding to the app ci situation
+# to be proving correctness and perf in fast fail open ways/targetted tests per type of situation
+# that things touch based off relevance."
+#
+# Fail open: the run takes an owned Mac only while one is free (the frame pacing gate skips
+# otherwise), its judge is continue-on-error, and no required check reads it. Unlike
+# cmux-next-motion-golden.yml it needs no label: the paths below are narrow, and the run drives
+# one scenario. This job is a dispatcher on Linux, so the pull_request run itself never takes
+# Mac capacity. Fork and draft pull requests dispatch nothing.
+# The paths are the motion areas' own files until the CI area map (ci-rigor-area-map) lands;
+# then this reads that map's motion areas.
+
+on:
+  # Started only by pr-router.yml (one router per push, RFD 0023) when the change touches a motion
+  # area: scripts/ci/pr_router.json `affects`, the list of those areas' files.
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  dispatch:
+    if: >-
+      ${{ github.repository == 'manaflow-ai/cmux' && github.event.pull_request.head.repo.full_name == github.repository
+      && !github.event.pull_request.draft }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    permissions:
+      actions: write # starts cmux-next-frame-pacing.yml on this pull request's branch
+    steps:
+      - name: Start the motion frame checks on this branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          # Fail open: a refused dispatch warns and passes.
+          if ! gh workflow run cmux-next-frame-pacing.yml --repo "$GITHUB_REPOSITORY" --ref "$BRANCH" \
+            -f ref="$BRANCH" -f suites=frames; then
+            echo "::warning title=Motion frames::could not start the frames run on $BRANCH; not measured"
+            exit 0
+          fi
+          query="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote("branch:" + sys.argv[1]))' "$BRANCH")"
+          url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/workflows/cmux-next-frame-pacing.yml?query=$query"
+          echo "::notice title=Motion frames::Started on $BRANCH (fails open): $url"
+          printf '## Motion frames\n\nStarted a `frames` run on %s: blank or late frames around Cmd-Shift-Enter, Cmd-P and Cmd-W. It runs only while an owned Mac is free and gates nothing: [runs](%s).\n' \
+            "$BRANCH" "$url" >> "$GITHUB_STEP_SUMMARY"

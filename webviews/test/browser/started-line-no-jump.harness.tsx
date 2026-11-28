@@ -43,24 +43,26 @@ const AGENTS = [
   agent("chat/toolu_b", "Analyze Lucas's Claude bottleneck on the long session", 1_400),
   agent("chat/toolu_c", "Check the third thing nobody asked about", 1_600),
 ];
-const line = (count: number): AcpmuxRow => ({
+// Names shorter than a chip's 6em floor, as a turn's own short subagent names (Foxtrot, Golf).
+const SHORT = [agent("chat/toolu_f", "Foxtrot", 1_000), agent("chat/toolu_g", "Golf", 1_400)];
+const line = (count: number, short = false): AcpmuxRow => ({
   id: `${SUBAGENT_STARTED}:group`,
   kind: SUBAGENT_STARTED,
   at: 1_000,
   version: count,
-  subagents: AGENTS.slice(0, count),
+  subagents: (short ? SHORT : AGENTS).slice(0, count),
   startedNamed: count,
 });
 
 const host = document.getElementById("root")!;
 host.style.padding = "16px";
 const root = createRoot(host);
-const show = (count: number, width: number) =>
+const show = (count: number, width: number, short = false) =>
   flushSync(() =>
     root.render(
       <SubagentNavContext.Provider value={() => {}}>
         <div data-testid="row" style={{ width: `${width}px` }}>
-          {count > 0 && <SubagentStartedLine row={line(count)} />}
+          {count > 0 && <SubagentStartedLine row={line(count, short)} />}
         </div>
       </SubagentNavContext.Provider>,
     ),
