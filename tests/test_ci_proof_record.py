@@ -236,6 +236,20 @@ class Plan(unittest.TestCase):
         self.assertNotIn("pair-e2e", [s["mode"] for s in ios_verify.plan(sel, flows, ["cmux23"], "never")])
         self.assertNotIn("pair-e2e", [s["mode"] for s in ios_verify.plan(self.selection(), flows, ["cmux23"], "auto")])
 
+    def test_selected_pair_is_dispatched_once_and_respects_never(self):
+        flows = [{"id": "pairing", "pair_e2e": True}]
+        for workers in ([], ["cmux23"]):
+            for words in ([], ["reconnect-drops=10,60"]):
+                sel = self.selection(flows=["pairing"], pair=True, pair_e2e=words)
+                for policy in ("auto", "always", "never"):
+                    with self.subTest(workers=workers, words=words, policy=policy):
+                        steps = ios_verify.plan(sel, flows, workers, policy)
+                        pairs = [s for s in steps if s["mode"] == "pair-e2e"]
+                        self.assertEqual(len(pairs), 0 if policy == "never" else 1)
+                        if pairs:
+                            self.assertEqual(pairs[0]["args"], ["pair-e2e", *words])
+                            self.assertEqual(pairs[0]["worker"], workers[0] if workers else None)
+
     def test_never_on_leos_gui_macs(self):
         for bad in ("cosmic-gray", "air-blue.local"):
             with self.assertRaises(SystemExit):
