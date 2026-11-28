@@ -96,7 +96,7 @@
     "_acpmux/auto_session/set": {"params": ["sessionId", "auto", "keepInCloud"]},
     "_acpmux/auto_session/leftover": {"params": ["sessionId", "action"]},
     "_acpmux/auto_session/transcript": {"params": ["sessionId", "after", "version"]},
-    "_acpmux/run_elsewhere/plan": {"params": ["sessionId", "command"]},
+    "_acpmux/run_elsewhere/plan": {"params": ["sessionId", "command", "peek"]},
     "_acpmux/run_elsewhere/start": {"params": ["sessionId", "command", "peer", "digest", "sendSecrets"]},
     "_acpmux/bg/output": {"params": ["sessionId", "id", "fromByte", "maxBytes"]},
     "_acpmux/bg/stop": {"params": ["sessionId", "id"]},

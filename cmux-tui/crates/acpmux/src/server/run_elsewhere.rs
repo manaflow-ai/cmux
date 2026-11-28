@@ -71,6 +71,14 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
         .ok_or_else(|| RpcError::invalid_params("command is required"))?;
     let cwd = str_param(params, "cwd").filter(|c| !c.is_empty()).map(PathBuf::from);
     let cwd = cwd.unwrap_or(meta.cwd.clone());
+    // `peek`: only whether to offer the run at once (`re::offer_now` and a machine that can take
+    // it), asked as each command starts, so it reads no tree.
+    let offer_now = || re::offer_now(command) && machines(hub).iter().any(|(_, r)| r.is_ok());
+    if m == method::MUX_RUN_ELSEWHERE_PLAN
+        && params.get("peek").and_then(Value::as_bool) == Some(true)
+    {
+        return Ok(json!({"offerNow": offer_now()}));
+    }
     let plan = re::plan(&cwd).await;
     let refusal = re::command_refusal(command);
     let machines = machines(hub);
@@ -92,6 +100,7 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
         if let Some(kind) = re::fetch_kind(command) {
             reply.insert("fetch".into(), json!(kind));
         }
+        reply.insert("offerNow".into(), json!(offer_now()));
         if let Ok(plan) = &plan {
             reply.insert("tree".into(), plan.view());
         }

@@ -5740,6 +5740,12 @@ export class AcpmuxDirectClient {
     return this.request("_acpmux/run_elsewhere/plan", { sessionId, command }, 45_000);
   }
 
+  /// Whether to offer running `command` elsewhere at once (`{offerNow}`): the plan's `peek`, which
+  /// reads no tree, asked as a command starts.
+  peekRunElsewhere(sessionId: string, command: string): Promise<unknown> {
+    return this.request("_acpmux/run_elsewhere/plan", { sessionId, command, peek: true }, 10_000);
+  }
+
   /// Runs `command` on connected machine `peer` as a background task of chat `sessionId`, if the
   /// tree still has `digest`; returns `{task: {id, ...}}`.
   startRunElsewhere(

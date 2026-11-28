@@ -249,7 +249,7 @@
     "_acpmux/auto_session/set": {"params": ["sessionId", "auto", "keepInCloud"], "acpmux": []},
     "_acpmux/auto_session/leftover": {"params": ["sessionId", "action"], "acpmux": []},
     "_acpmux/auto_session/transcript": {"params": ["sessionId", "after", "version"], "acpmux": []},
-    "_acpmux/run_elsewhere/plan": {"params": ["sessionId", "command"], "acpmux": []},
+    "_acpmux/run_elsewhere/plan": {"params": ["sessionId", "command", "peek"], "acpmux": []},
     "_acpmux/run_elsewhere/start": {"params": ["sessionId", "command", "peer", "digest", "sendSecrets"], "acpmux": []},
     "_acpmux/bg/output": {"params": ["sessionId", "id", "fromByte", "maxBytes"], "acpmux": []},
     "_acpmux/bg/stop": {"params": ["sessionId", "id"], "acpmux": []},

@@ -6425,6 +6425,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       store: new RunElsewhereStore(),
       client: {
         plan: (command) => call<RunPlan>((c) => c.planRunElsewhere(runChat, command)),
+        offerNow: (command) =>
+          call<{ offerNow?: boolean }>((c) => c.peekRunElsewhere(runChat, command)).then((r) => r.offerNow === true),
         start: (command, machine, digest, send) =>
           call<{ task: { id: string } }>((c) => c.startRunElsewhere(runChat, command, machine, digest, send)).then(
             (r) => r.task,

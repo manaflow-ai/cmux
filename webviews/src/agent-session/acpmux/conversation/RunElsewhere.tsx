@@ -52,6 +52,32 @@ function usePast(due: number | undefined, now: () => number = Date.now): boolean
   return past;
 }
 
+/** acpmux's answer to whether row `toolCallId` gets the chip at once (`offerNow`), asked once per
+ * row while it may show; false until it answers, and when the ask fails (the usual delay holds). */
+function useOfferNow(runs: Runs | undefined, toolCallId: string, command: string | undefined, may: boolean) {
+  const [offer, setOffer] = useState(() => runs?.store.offerNow(toolCallId) ?? false);
+  useEffect(() => {
+    if (!runs?.client.offerNow || !may || !command?.trim()) return;
+    const known = runs.store.offerNow(toolCallId);
+    if (known !== undefined) {
+      setOffer(known);
+      return;
+    }
+    let live = true;
+    runs.client.offerNow(command).then(
+      (answer) => {
+        runs.store.setOfferNow(toolCallId, answer);
+        if (live) setOffer(answer);
+      },
+      () => runs.store.setOfferNow(toolCallId, false),
+    );
+    return () => {
+      live = false;
+    };
+  }, [runs, toolCallId, command, may]);
+  return offer;
+}
+
 /** What a plan's answer leaves under the row: the panel when a machine can take the run, else one
  * quiet line that says why it stays here (nothing to press: the line is the whole answer). */
 export function afterPlan(plan: RunPlan, last?: string): RunState {
@@ -119,7 +145,9 @@ export function RunElsewhereChip({
   const runs = useContext(RunElsewhereContext);
   const run = useRun(runs, toolCallId);
   const relays = useHostRelays(runs);
-  const due = runs && relays ? chipDueAt({ kind, command, startedAt, running, background }) : undefined;
+  const may = relays && running && !background && kind === "execute";
+  const offerNow = useOfferNow(runs, toolCallId, command, may);
+  const due = runs && relays ? chipDueAt({ kind, command, startedAt, running, background, offerNow }) : undefined;
   const past = usePast(due, now);
   // A note that may pass (no machine yet, a lost connection) keeps the chip to ask again.
   const shown = run && !(run.phase === "note" && run.retry);

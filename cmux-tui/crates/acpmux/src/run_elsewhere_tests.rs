@@ -519,3 +519,30 @@ fn a_big_fetch_is_named_so_the_chip_can_offer_it_at_once() {
         assert_eq!(fetch_kind(command), None, "{command}");
     }
 }
+
+/// An install is offered at once; a fetch that must stay (a home path) and any other command wait
+/// for the usual delay.
+#[test]
+fn offer_now_is_a_fetch_that_may_go() {
+    for command in [
+        "npm ci",
+        "pnpm install",
+        "bun install",
+        "yarn",
+        "pip install -r requirements.txt",
+        "cargo fetch",
+        "docker pull node:22",
+        "huggingface-cli download org/model",
+    ] {
+        assert!(offer_now(command), "{command}");
+    }
+    for command in [
+        "npm run build",
+        "ls",
+        "echo npm install",
+        "npm install --prefix ~/x",
+        "curl localhost:3000 && npm install",
+    ] {
+        assert!(!offer_now(command), "{command}");
+    }
+}
