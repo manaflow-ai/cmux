@@ -38,6 +38,17 @@ name: CI queue janitor
 # the `macos-pool-load` snapshot below, which the next sweep reads back. It
 # shares the cancel cap.
 #
+# Every sweep, a truncated one too, also clears superseded lane push holders: a
+# push run of a lane branch's old head (not main, feat-cmux-next, nightly*,
+# release*, rc/*, next-batch/* or cmux-tui-pin-*; never a nightly, DEV,
+# promote or release workflow) whose unfinished jobs have all queued with no
+# runner for 10 minutes, while a newer push run of the same workflow at the
+# branch tip waits behind it. cmux-tui-artifacts.yml's per-branch group never
+# cancels in progress, so such a run held the tip's run `pending` for hours.
+# The tip comes from one `git ls-remote`, the jobs are read again before the
+# cancel, a `no-janitor` pull request keeps it, and a cancel that does not
+# take is force-cancelled. It has its own cap and is never re-run.
+#
 # Each sweep also publishes the per-pool macOS queue it saw as the
 # `macos-pool-load` artifact, which pull request CI reads to overflow off a
 # backed-up pool. It carries the gates' own state per glaeda label as `gates`
