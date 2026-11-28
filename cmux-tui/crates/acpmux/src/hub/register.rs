@@ -579,6 +579,10 @@ impl Hub {
                 }),
             }
         }
+        // A registered chat a stop closed while its app ran on follows it again (`watch.rs`).
+        if watched {
+            self.revive_registered_watch(&session);
+        }
         self.append(
             &session,
             "mux",
