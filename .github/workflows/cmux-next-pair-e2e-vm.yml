@@ -25,10 +25,15 @@ on:
         description: The branch, tag or commit to test (it must carry scripts/ci/cmux-next-ios-sim.sh pair-e2e)
         required: true
         type: string
+      words:
+        description: pair-e2e words for cmux-next-ios-sim.sh, e.g. reconnect-drops=10,60 (main's nightly dispatches with them)
+        required: false
+        type: string
+        default: ""
   push:
     branches: ["pair-e2e/**", "lane/pair-e2e-**"]
   # The nightly reconnect run (main's cmux-next-pair-e2e-reconnect-nightly.yml, on a schedule): a schedule
-  # fires only from the default branch, so main calls this file at feat-cmux-next with the ref and words.
+  # fires only from the default branch, so main dispatches this file at feat-cmux-next with the ref and words (a call from main read the environment's secrets as empty).
   workflow_call:
     inputs:
       ref:
@@ -173,7 +178,7 @@ jobs:
           # of this run's own, as cmux-ci's build env does, with Rust still where the earlier steps put it.
           export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}" RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}"
           export HOME="$RUNNER_TEMP/pair-home"
-          # The caller's words (workflow_call only; validated by cmux-next-ios-sim.sh before any build).
+          # The caller's words (workflow_call or dispatch; validated by cmux-next-ios-sim.sh before any build).
           read -r -a words <<< "${PAIR_WORDS:-}"
           bash scripts/ci/cmux-next-ios-sim.sh pair-e2e ${words[@]+"${words[@]}"}
 
