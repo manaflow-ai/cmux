@@ -292,6 +292,7 @@ struct FakeRouter {
     publish: Mutex<Option<Publish>>,
     /// The cmux settings a setting-backed App Store entry reads and writes, by dotted key.
     settings: Mutex<std::collections::HashMap<String, Value>>,
+    refuse_setting_write: Mutex<bool>,
 }
 
 impl OpRouter for Arc<FakeRouter> {
@@ -325,6 +326,9 @@ impl OpRouter for Arc<FakeRouter> {
     }
 
     fn setting_set(&self, key: &str, value: Value) -> Result<(), super::supervisor::ApiError> {
+        if *self.refuse_setting_write.lock().unwrap() {
+            return Err(super::supervisor::ApiError::new("apps.setting", "setting is managed"));
+        }
         self.settings.lock().unwrap().insert(key.to_string(), value);
         Ok(())
     }
@@ -1422,6 +1426,30 @@ fn the_auto_cleanup_entry_switches_its_cmux_setting() {
     f.wait("the entry's apps-changed", |e| {
         e["event"] == "apps-changed" && e["app"] == ID && e["transaction"] == "k2"
     });
+
+    // A delayed retry of an older switch must not undo the person's newer choice.
+    set(&f, "k3", true, Origin::User).unwrap();
+    set(&f, "k4", false, Origin::User).unwrap();
+    let replay = set(&f, "k3", true, Origin::User).unwrap();
+    assert_eq!(replay["app"]["state"]["enabled"], json!(false));
+    assert_eq!(f.router.settings.lock().unwrap().get(KEY), Some(&json!(false)));
+    assert_eq!(row(&f)["install"]["enabled"], json!(false));
+
+    // Settings edits outside the App Store also survive retries of committed switches.
+    f.router.settings.lock().unwrap().insert(KEY.into(), json!(true));
+    let replay = set(&f, "k4", false, Origin::User).unwrap();
+    assert_eq!(replay["app"]["state"]["enabled"], json!(true));
+    assert_eq!(f.router.settings.lock().unwrap().get(KEY), Some(&json!(true)));
+
+    // A settings refusal must not consume the key: after it clears the same request can act.
+    *f.router.refuse_setting_write.lock().unwrap() = true;
+    let refused = set(&f, "k5", false, Origin::User).unwrap_err();
+    assert_eq!(refused.code, "apps.setting");
+    assert_eq!(f.router.settings.lock().unwrap().get(KEY), Some(&json!(true)));
+    *f.router.refuse_setting_write.lock().unwrap() = false;
+    let retried = set(&f, "k5", false, Origin::User).unwrap();
+    assert_eq!(retried["app"]["state"]["enabled"], json!(false));
+    assert_eq!(f.router.settings.lock().unwrap().get(KEY), Some(&json!(false)));
 }
 
 #[test]
