@@ -126,17 +126,23 @@ HOSTED_PREFLIGHT_JOBS: dict[str, str] = {}
 HOSTED_DISPATCH_RUNS_ON = f"${{{{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || '{JIT_LABEL}' }}}}"
 # A fork takes GitHub-hosted Ubuntu.
 CMUX_LINUX_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"
-CMUX_LINUX_JOBS = ("resolve-nightly-ghostty-cli-helper", "resolve-nightly-cmux-tui-client",
-                   "prepare-nightly-variant-primary", "prepare-nightly-variant", "await-nightly-tree-marker",
-                   "check-nightly-app-store-shelf", "published-build",
+CMUX_LINUX_JOBS = ("prepare-nightly-variant-primary", "prepare-nightly-variant", "await-nightly-tree-marker",
+                   "check-nightly-app-store-shelf",
                    "check-nightly-webviews", "early-nightly-webviews")
 # A read-only lookup token a control may hold (#60803: quota-goblin's one-repo read token), job -> secrets.
-CMUX_LINUX_READ_SECRETS = {"resolve-nightly-ghostty-cli-helper": {"NIGHTLY_HELPER_LOOKUP_TOKEN"}}
+# None now: the Ghostty helper lookup, which held NIGHTLY_HELPER_LOOKUP_TOKEN here, takes decide's nightly-only route
+# (test_nightly_trusted_routing.py: no credential on cmux-linux, which pull request jobs share).
+CMUX_LINUX_READ_SECRETS: dict[str, set[str]] = {}
 # report-nightly-shelf-red holds issues: write, so it takes the nightly-only route every nightly report job does.
 # RFD 0021 route by need: of those, the essential ones take the nightly's reserved label on the first run, before a rerun or loop retry.
 NIGHTLY_PINNED_JOBS = ("resolve-nightly-cmux-tui-client", "prepare-nightly-variant-primary", "prepare-nightly-variant",
                        "published-build")
 NIGHTLY_PINNED_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry == '') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}"
+# The pinned ones that hold the CI pool tokens as GH_TOKEN_SPARES (c-bedbdb1917, tests/test_gh_budget_wait.py):
+# no credential reaches cmux-linux, which pull request jobs share, so a rerun or loop retry takes decide's
+# nightly-only route instead (test_nightly_trusted_routing.py).
+NIGHTLY_PINNED_CREDENTIALED_JOBS = ("resolve-nightly-cmux-tui-client", "published-build")
+NIGHTLY_PINNED_CREDENTIALED_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry == '') && 'cmux-gcp-nightly-x64' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}"
 # Jobs on our minis for nightly-next only. Every other track (classic, RC) goes to the JIT label (GitHub-hosted until
 # 2026-11-21) through this short-circuit, as before #38596: its release uploads may wait out the API rate limit for up to 360 min, which must
 # not hold the exclusive signing Mac. job -> why.
@@ -221,6 +227,11 @@ class EveryJobOnOurMinis(unittest.TestCase):
                 if (workflow_jobs.runs_on_cells(job) != [HOSTED_DISPATCH_RUNS_ON]
                         or not workflow_jobs.secret_names(job) <= HOSTED_DISPATCH_SECRETS):
                     failures[name] = "a post-feed dispatch takes the one-job JIT VM and holds only the dispatch keys"
+                continue
+            if name in NIGHTLY_PINNED_CREDENTIALED_JOBS:
+                # Attempt 1 the reserved nightly label no PR job can name; else decide's nightly-only route.
+                if workflow_jobs.runs_on_cells(job) != [NIGHTLY_PINNED_CREDENTIALED_RUNS_ON]:
+                    failures[name] = "a credentialed pinned control takes the reserved label, then the nightly-only minis"
                 continue
             if name in CMUX_LINUX_JOBS:
                 expected = NIGHTLY_PINNED_RUNS_ON if name in NIGHTLY_PINNED_JOBS else CMUX_LINUX_RUNS_ON
