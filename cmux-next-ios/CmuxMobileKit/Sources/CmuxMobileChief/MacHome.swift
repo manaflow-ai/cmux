@@ -1,4 +1,5 @@
 import CmuxConversationCore
+import enum CmuxMobileModel.MacPresence
 import enum CmuxMobileModel.UserFacingError
 import CmuxMobileTransport
 import Foundation
