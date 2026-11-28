@@ -175,11 +175,11 @@ pub(super) fn apply(
 /// fields come from the stored comment, never from the page. An edited
 /// message is the agent's to read again, so `sentIn` goes.
 pub(super) fn keep_thread(stored: Option<&Map<String, Value>>, comment: &mut Map<String, Value>) {
-    for field in THREAD_FIELDS {
-        comment.remove(field);
+    for field in THREAD_FIELDS.iter().chain(super::chase::FIELDS.iter()) {
+        comment.remove(*field);
     }
     let Some(stored) = stored else { return };
-    for field in THREAD_FIELDS {
+    for field in THREAD_FIELDS.iter().chain(super::chase::FIELDS.iter()).copied() {
         if let Some(value) = stored.get(field) {
             comment.insert(field.into(), value.clone());
         }
@@ -384,6 +384,10 @@ fn surface(comment: &Map<String, Value>) -> Option<&'static str> {
     match comment.get("surface").and_then(Value::as_str) {
         Some("browser") => Some("browser page"),
         Some("terminal") => Some("terminal"),
+        Some("ios") => Some("iOS app"),
+        Some("cloud") => Some("Cloud machine session"),
+        Some("pr") => Some("pull request comment"),
+        Some("slack") => Some("Slack thread"),
         _ => None,
     }
 }

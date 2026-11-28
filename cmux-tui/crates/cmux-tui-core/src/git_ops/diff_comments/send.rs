@@ -30,8 +30,8 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::{
-    MAX_PROMPT_BYTES, Store, acp_session, cleared, fingerprint, ids, io_failed, mutate, prompt,
-    thread, versions,
+    MAX_PROMPT_BYTES, Store, acp_session, chase, cleared, fingerprint, ids, io_failed, mutate,
+    prompt, thread, versions,
 };
 use crate::Mux;
 use crate::git_ops::checkpoint::ledger;
@@ -138,11 +138,15 @@ pub(super) fn send_with(
         }
         let value = if threads {
             let sent = carried.len();
-            mutate(mux, store, request, root, |file, _| {
+            let value = mutate(mux, store, request, root, |file, _| {
                 let marked = thread::mark_sent(file, &carried, &prompt_id);
-                let changed = !marked.is_empty();
-                Ok((json!({"sent": sent, "cleared": [], "threads": marked}), changed))
-            })?
+                // What it carried now awaits this session's answer (`chase.rs`).
+                let ids: Vec<String> = carried.iter().map(|thread| thread.id.clone()).collect();
+                chase::mark_awaiting(file, &ids, acp_session, super::now_ms());
+                Ok((json!({"sent": sent, "cleared": [], "threads": marked}), true))
+            })?;
+            chase::arm(mux, store.directory.clone(), root.to_owned());
+            value
         } else {
             let sent = ids.len();
             mutate(mux, store, request, root, |file, _| Ok(cleared(file, &ids, &versions, sent)))?
