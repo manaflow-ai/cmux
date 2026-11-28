@@ -312,10 +312,13 @@ if grep -q "^FAST-TIER FAIL build:Pkg" <<<"$out"; then echo "FAIL: a warning exc
 
 # --changed-files (a pull request's diff) runs only the entries, and builds only the packages, the change
 # reaches; the post-merge batch runs the rest (note-559). These read the repository's own registry and graphs.
+# The runner reads the pull request's labels from $GITHUB_EVENT_PATH, so each run names its own event: in CI
+# this test ran inside a full-ci pull request's job, and that label ran every entry (run 46090567308).
+printf '{"pull_request": {"labels": []}}\n' > "$tmp/event.json"
 scoped() {
   printf '%s\n' "$@" > "$tmp/changed.txt"
   set +e
-  out="$(cd "$ROOT_DIR" && python3 -I "$RUNNER" --dry-run --kind cargo --kind script --changed-files "$tmp/changed.txt" 2>&1)"
+  out="$(cd "$ROOT_DIR" && GITHUB_EVENT_PATH="${event:-$tmp/event.json}" python3 -I "$RUNNER" --dry-run --kind cargo --kind script --changed-files "$tmp/changed.txt" 2>&1)"
   status=$?
   set -e
 }
@@ -331,6 +334,9 @@ expect "a crate change builds the cargo tests" 0 "^BUILD cargo test --locked --n
 scoped scripts/cmux-next/fast-tier.json
 expect "a registry change runs every entry" 0 "^RUN matrix core: cargo test"
 expect "a registry change runs every script entry" 0 "^RUN perf completeness: "
+printf '{"pull_request": {"labels": [{"name": "full-ci"}]}}\n' > "$tmp/full-ci-event.json"
+event="$tmp/full-ci-event.json" scoped README.md
+expect "a full-ci pull request runs every entry" 0 "^RUN matrix core: cargo test"
 set +e
 out="$(cd "$ROOT_DIR" && python3 -I "$RUNNER" --dry-run --kind cargo --changed-files "$tmp/missing-list" 2>&1)"; status=$?
 set -e

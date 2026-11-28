@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agents.defaults.claude.model.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A model id such as claude-opus-5-5. Empty starts on the last model you picked."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "معرّف نموذج مثل claude-opus-5-5. إذا تُرك فارغًا تبدأ بآخر نموذج اخترته."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ID modela, npr. claude-opus-5-5. Prazno počinje s posljednjim modelom koji ste odabrali."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Et model-id som claude-opus-5-5. Tomt starter på den model, du sidst valgte."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine Modell-ID wie claude-opus-5-5. Leer startet mit dem zuletzt gewählten Modell."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un id de modelo como claude-opus-5-5. Vacío empieza con el último modelo que elegiste."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un identifiant de modèle comme claude-opus-5-5. Vide démarre sur le dernier modèle choisi."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un id di modello come claude-opus-5-5. Vuoto parte dall’ultimo modello scelto."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "claude-opus-5-5 のようなモデル ID。空欄の場合は最後に選んだモデルで始まります。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "លេខសម្គាល់ម៉ូដែល ដូចជា claude-opus-5-5។ ទុកទទេ ចាប់ផ្តើមលើម៉ូដែលដែលអ្នកបានជ្រើសចុងក្រោយ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "claude-opus-5-5 같은 모델 ID입니다. 비워 두면 마지막으로 고른 모델로 시작합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En modell-ID som claude-opus-5-5. Tomt starter på modellen du valgte sist."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Identyfikator modelu, np. claude-opus-5-5. Puste zaczyna od ostatnio wybranego modelu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Um id de modelo como claude-opus-5-5. Vazio começa no último modelo que você escolheu."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Идентификатор модели, например claude-opus-5-5. Если пусто, начинается с последней выбранной модели."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "รหัสโมเดล เช่น claude-opus-5-5 หากว่างไว้จะเริ่มด้วยโมเดลที่คุณเลือกครั้งล่าสุด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "claude-opus-5-5 gibi bir model kimliği. Boş bırakılırsa en son seçtiğiniz modelle başlar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ідентифікатор моделі, наприклад claude-opus-5-5. Якщо порожньо, починається з останньої вибраної моделі."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mã mô hình như claude-opus-5-5. Để trống sẽ bắt đầu với mô hình bạn chọn lần cuối."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "模型 ID，例如 claude-opus-5-5。留空则使用你上次选择的模型。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "模型 ID，例如 claude-opus-5-5。留空則使用你上次選擇的模型。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

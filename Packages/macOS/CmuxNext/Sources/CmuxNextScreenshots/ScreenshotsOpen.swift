@@ -1,3 +1,4 @@
+import CCmuxScreenshots
 import Foundation
 
 /// What a `screenshots.open` run does with the Screenshots tab. The pane lists nothing until the person clicks Show
@@ -16,16 +17,28 @@ public nonisolated struct ScreenshotsOpen: Sendable, Equatable {
     ///   - existing: the window already had a Screenshots tab.
     ///   - listing: that tab lists its folders.
     public func result(existing: Bool, listing: Bool) -> (opened: String, listing: Bool, note: String?)? {
-        guard let note else { return nil }
-        guard existing else { return ("background", false, note) }
-        return ("existing", listing, listing ? nil : ScreenshotsStrings.existingNeedsClick)
+        let answer = cmux_screenshots_open(selects, existing, listing)
+        switch answer.opened {
+        case 1: return ("background", answer.listing, Self.note(answer))
+        case 2: return ("existing", answer.listing, Self.note(answer))
+        default: return nil
+        }
     }
 
-    /// The decision for one run; whether it asked for focus (`--focus`) does not change it.
+    /// The decision for one run; whether it asked for focus (`--focus`) does not change it. The rule is Rust's
+    /// (cmux-screenshots `open.rs`); the app words its notes.
     ///
     /// - Parameter personsRun: the run is the person's own in this app (`ActionInvocation.isPersonsOwnRun`).
     public init(personsRun: Bool) {
         selects = personsRun
-        note = personsRun ? nil : ScreenshotsStrings.openedInBackground
+        note = Self.note(cmux_screenshots_open(personsRun, false, false))
+    }
+
+    private static func note(_ answer: CmuxScreenshotsOpen) -> String? {
+        switch answer.note {
+        case 1: ScreenshotsStrings.openedInBackground
+        case 2: ScreenshotsStrings.existingNeedsClick
+        default: nil
+        }
     }
 }

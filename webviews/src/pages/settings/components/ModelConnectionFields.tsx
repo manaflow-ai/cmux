@@ -189,7 +189,7 @@ export function ConnectionError({ children }: { children: ReactNode }) {
   );
 }
 
-export function ConnectionFooter({
+export function ConnectionActions({
   onClose,
   disabled = false,
   busy = false,

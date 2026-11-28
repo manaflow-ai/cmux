@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agents.providers.codex.path.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The Codex program new chats run. Empty uses the one on your PATH."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "برنامج Codex الذي تشغّله المحادثات الجديدة. إذا تُرك فارغًا يُستخدم البرنامج الموجود في PATH."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Program Codex koji novi chatovi pokreću. Prazno koristi onaj na vašem PATH-u."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Det Codex-program, som nye chats kører. Tomt bruger det på din PATH."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Codex-Programm, das neue Chats ausführen. Leer verwendet das aus deinem PATH."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El programa de Codex que ejecutan los chats nuevos. Vacío usa el de tu PATH."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le programme Codex que lancent les nouvelles discussions. Vide utilise celui de votre PATH."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il programma Codex eseguito dalle nuove chat. Vuoto usa quello nel tuo PATH."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しいチャットが実行する Codex のプログラム。空欄の場合は PATH 上のものを使います。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "កម្មវិធី Codex ដែលការជជែកថ្មីដំណើរការ។ ទុកទទេ ប្រើកម្មវិធីនៅលើ PATH របស់អ្នក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "새 채팅이 실행하는 Codex 프로그램입니다. 비워 두면 PATH에 있는 것을 사용합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex-programmet som nye chatter kjører. Tomt bruker det på PATH-en din."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Program Codex, który uruchamiają nowe czaty. Puste używa tego z Twojej zmiennej PATH."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O programa do Codex que novos chats executam. Vazio usa o que está no seu PATH."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Программа Codex, которую запускают новые чаты. Если пусто, используется программа из PATH."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "โปรแกรม Codex ที่แชทใหม่เรียกใช้ หากว่างไว้จะใช้ตัวที่อยู่ใน PATH ของคุณ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeni sohbetlerin çalıştırdığı Codex programı. Boş bırakılırsa PATH'inizdeki kullanılır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Програма Codex, яку запускають нові чати. Якщо порожньо, використовується програма з PATH."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chương trình Codex mà các cuộc trò chuyện mới chạy. Để trống sẽ dùng chương trình trên PATH của bạn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新聊天运行的 Codex 程序。留空则使用 PATH 中的程序。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新聊天執行的 Codex 程式。留空則使用 PATH 中的程式。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -41,6 +41,7 @@ struct TryPullRequestPage: View {
     let store: AppStore
     @State private var model: TryPullRequestModel
     @State private var confirming: TryPullRequest?
+    @State private var autoRetry = AutoRetry()
 
     init(macID: String, store: AppStore, service: (any TryPullRequestService)?) {
         self.macID = macID
@@ -58,14 +59,20 @@ struct TryPullRequestPage: View {
                         .placeholderBound("settings.trypr.loading", .milliseconds(2000))
                 }
             case .failed(let message):
+                // Read again on its own (AutoRetry): the spinner stays, then one quiet line.
                 Section {
-                    Text(verbatim: message).foregroundStyle(theme.colors.label2)
-                    Button("Try Again") { Task { await model.reload() } }
+                    if autoRetry.isQuietLineShown {
+                        Text(verbatim: message).foregroundStyle(theme.colors.label2)
+                        AutoRetryQuietLine(autoRetry)
+                    } else {
+                        CmuxSpinner(label: Text("Loading pull requests…"))
+                            .placeholderBound("settings.trypr.loading", .milliseconds(2000))
+                    }
                 }
             case .unreachable:
+                // The list reads again when the Mac connects (the `.task(id:)` below).
                 Section {
                     Text("Not connected to this Mac.").foregroundStyle(theme.colors.label2)
-                    Button("Try Again") { Task { await model.reload() } }
                 }
             case .loaded(let list):
                 Section {
@@ -91,6 +98,7 @@ struct TryPullRequestPage: View {
             // An install replaces this app; the relaunched page reads how it went (F3).
             await model.resume()
         }
+        .autoRetry(autoRetry, failing: model.load.isFailed) { await model.reload() }
         .confirmationDialog(
             confirming.map { "Install #\($0.number) on this iPhone?" } ?? "",
             isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),

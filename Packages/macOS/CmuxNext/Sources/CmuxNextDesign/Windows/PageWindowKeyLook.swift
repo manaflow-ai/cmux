@@ -74,7 +74,7 @@ enum PageWindowKeyLook {
 
     /// The class an app declared: past the subclass Key-Value Observing makes for an observed window
     /// (`NSKVONotifying_...`), which Swift's `type(of:)` returns.
-    private static func declared(_ windowClass: NSWindow.Type) -> NSWindow.Type {
+    private nonisolated static func declared(_ windowClass: NSWindow.Type) -> NSWindow.Type {
         var current: AnyClass = windowClass
         while NSStringFromClass(current).hasPrefix("NSKVONotifying_"), let superclass = class_getSuperclass(current) { current = superclass }
         return (current as? NSWindow.Type) ?? windowClass

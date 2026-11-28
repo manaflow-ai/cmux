@@ -187,6 +187,23 @@ export function matchingRepos(repos: readonly GitHubRepo[], query: string): GitH
   });
 }
 
+/// What the folder menu does with the Add project palette a Connect to GitHub closed (FolderPopover's reopen), at a
+/// render: `from` is the status GitHub had as it closed. `reopen`: GitHub is ready, the palette opens again on its
+/// GitHub page with the repositories. `wait`: no answer yet, or the app's own connect is still on GitHub's page or
+/// finishing its return (those steps re-read the status too, and say not connected: cmux#55104, the menu was gone after
+/// Connect). `drop`: any other answer (the person cancelled), so a later connect elsewhere never opens it unasked.
+export function reopenAfterConnect(
+  from: GitHubStatus | undefined,
+  state: Pick<GitHubPickerState, "status" | "connecting">,
+): "reopen" | "wait" | "drop" {
+  const status = state.status;
+  if (state.connecting === true || status === from) return "wait";
+  // Still on GitHub's page even with GitHub ready (Choose more repositories…, Add organization): not over yet.
+  if (status?.progress === "on_github" || status?.progress === "finishing") return "wait";
+  if (status?.state === "ready") return "reopen";
+  return "drop";
+}
+
 const statusKey = (status?: GitHubStatus) => `${status?.state}:${status?.reason ?? ""}`;
 
 const INITIAL: GitHubPickerState = { query: null, truncated: false, loading: false, waiting: false };

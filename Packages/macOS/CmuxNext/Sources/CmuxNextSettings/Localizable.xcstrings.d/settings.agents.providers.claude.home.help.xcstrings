@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agents.providers.claude.home.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Where Claude Code keeps its settings and sign-in (CLAUDE_CONFIG_DIR). Empty uses ~/.claude."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "المكان الذي يحفظ فيه Claude Code إعداداته وتسجيل الدخول (CLAUDE_CONFIG_DIR). إذا تُرك فارغًا يُستخدم ~/.claude."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gdje Claude Code čuva svoje postavke i prijavu (CLAUDE_CONFIG_DIR). Prazno koristi ~/.claude."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hvor Claude Code gemmer sine indstillinger og login (CLAUDE_CONFIG_DIR). Tomt bruger ~/.claude."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wo Claude Code seine Einstellungen und Anmeldung speichert (CLAUDE_CONFIG_DIR). Leer verwendet ~/.claude."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dónde guarda Claude Code su configuración y sesión (CLAUDE_CONFIG_DIR). Vacío usa ~/.claude."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’endroit où Claude Code garde ses réglages et sa connexion (CLAUDE_CONFIG_DIR). Vide utilise ~/.claude."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dove Claude Code conserva impostazioni e accesso (CLAUDE_CONFIG_DIR). Vuoto usa ~/.claude."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code が設定とサインイン情報を保存する場所（CLAUDE_CONFIG_DIR）。空欄の場合は ~/.claude を使います。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "កន្លែងដែល Claude Code រក្សាការកំណត់ និងការចូលរបស់វា (CLAUDE_CONFIG_DIR)។ ទុកទទេ ប្រើ ~/.claude។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code가 설정과 로그인 정보를 보관하는 곳(CLAUDE_CONFIG_DIR)입니다. 비워 두면 ~/.claude를 사용합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hvor Claude Code lagrer innstillingene og påloggingen sin (CLAUDE_CONFIG_DIR). Tomt bruker ~/.claude."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Miejsce, w którym Claude Code przechowuje ustawienia i logowanie (CLAUDE_CONFIG_DIR). Puste używa ~/.claude."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Onde o Claude Code guarda suas configurações e login (CLAUDE_CONFIG_DIR). Vazio usa ~/.claude."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Где Claude Code хранит настройки и вход (CLAUDE_CONFIG_DIR). Если пусто, используется ~/.claude."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ที่ที่ Claude Code เก็บการตั้งค่าและการลงชื่อเข้าใช้ (CLAUDE_CONFIG_DIR) หากว่างไว้จะใช้ ~/.claude"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code uygulamasının ayarlarını ve oturumunu tuttuğu yer (CLAUDE_CONFIG_DIR). Boş bırakılırsa ~/.claude kullanılır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Де Claude Code зберігає налаштування та вхід (CLAUDE_CONFIG_DIR). Якщо порожньо, використовується ~/.claude."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nơi Claude Code lưu cài đặt và thông tin đăng nhập (CLAUDE_CONFIG_DIR). Để trống sẽ dùng ~/.claude."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code 保存设置和登录信息的位置（CLAUDE_CONFIG_DIR）。留空则使用 ~/.claude。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code 儲存設定和登入資訊的位置（CLAUDE_CONFIG_DIR）。留空則使用 ~/.claude。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

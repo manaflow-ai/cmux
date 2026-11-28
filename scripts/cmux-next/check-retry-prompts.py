@@ -92,6 +92,9 @@ RETRY_STATUS = re.compile(
     r"|^retry sent[.!]?$|^reconnect(?:-failed:| \{attempt\}:| backoff$| deadline expired$)"
     r"|\b(?:retry|reconnect) failed(?=:|[.!]?$)|\breload-config(?= takes no arguments)"
     r"|\btrying again(?= \{next\}:)|^retry \{attempt\} of \{of\} waits out\b"
+    # A reconnect's past failure ("reconnect failed after 5 attempts: ...", "reconnect attempt timed out after
+    # 30ms"), and the bare name of the Retry-After header that a parser looks for ("retry-after: ").
+    r"|^reconnect (?:failed|attempt timed out|deadline expired) after\b|^retry[- ]after:?\s*$"
 )
 
 

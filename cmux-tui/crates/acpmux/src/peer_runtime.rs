@@ -370,7 +370,7 @@ impl Peer {
             return Err(self.unreachable_error());
         }
         let peer: &Self = self;
-        Patience::new(format!("{} to reconnect", self.name), wait)
+        Patience::new(format!("{} to come back", self.name), wait)
             .quiet()
             .spaced(Duration::from_millis(50), Duration::from_millis(500))
             .run_async(

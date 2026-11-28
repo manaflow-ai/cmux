@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agents.defaults.codex.effort.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How hard a new chat thinks. Last Used keeps the last effort you picked."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "مدى عمق تفكير المحادثة الجديدة. «آخر ما استُخدم» يُبقي آخر مستوى اخترته."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Koliko novi chat razmišlja. Posljednje korišteno zadržava posljednji napor koji ste odabrali."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hvor grundigt en ny chat tænker. Senest brugt beholder den indsats, du sidst valgte."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wie gründlich ein neuer Chat nachdenkt. „Zuletzt verwendet“ behält den zuletzt gewählten Aufwand."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cuánto piensa un chat nuevo. Último usado conserva el último esfuerzo que elegiste."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’intensité de réflexion d’une nouvelle discussion. Dernier utilisé garde le dernier effort choisi."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quanto ragiona una nuova chat. Ultimo usato mantiene l’ultimo impegno scelto."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しいチャットがどれだけ深く考えるか。「前回の設定」は最後に選んだ推論量を使います。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "កម្រិតដែលការជជែកថ្មីគិត។ ប្រើចុងក្រោយ រក្សាកម្រិតការខិតខំដែលអ្នកបានជ្រើសចុងក្រោយ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "새 채팅이 얼마나 깊이 생각할지 정합니다. 마지막 사용은 마지막으로 고른 노력 수준을 유지합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hvor grundig en ny chat tenker. Sist brukt beholder innsatsen du valgte sist."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jak intensywnie myśli nowy czat. Ostatnio używany zachowuje ostatnio wybrany wysiłek."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quanto um novo chat pensa. Último usado mantém o último esforço que você escolheu."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Насколько усердно думает новый чат. «Последний использованный» сохраняет последний выбранный уровень."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แชทใหม่คิดลึกแค่ไหน ใช้ล่าสุดจะคงระดับความพยายามที่คุณเลือกครั้งล่าสุด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeni bir sohbetin ne kadar düşüneceği. Son Kullanılan, en son seçtiğiniz çabayı korur."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Наскільки ретельно думає новий чат. «Останній використаний» зберігає останній вибраний рівень."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mức độ suy nghĩ của cuộc trò chuyện mới. Dùng gần nhất giữ mức nỗ lực bạn chọn lần cuối."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新聊天思考的深度。“上次使用”沿用你上次选择的推理强度。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新聊天思考的深度。「上次使用」沿用你上次選擇的推理強度。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -18757,6 +18757,9 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "cmux-next-ios-try-ahead.yml",
             # Split latency measurements (#61185) and acpmux's transfer_cli product tests (#58314).
             "cmux-next-split-table.yml", "session-move-tests.yml",
+            # The iPhone gesture matrix's UI suite on a fleet simulator (#52373) and the advisory simulator
+            # screenshot loop (#62182, continue-on-error): product tests of the iOS app.
+            "cmux-next-ios-gestures.yml", "ios-sim-screenshot-loop.yml",
             # Type-checks the measuring probes (scripts/measure/*.swift) on a Mac when a change touches them.
             "measure-swift-typecheck.yml",
             # The Nightly auto-update e2e (#62005): a PR touching it runs it against the live Nightly feed.

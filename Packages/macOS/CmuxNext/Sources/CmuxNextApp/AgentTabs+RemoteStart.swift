@@ -192,13 +192,13 @@ extension AgentTabStore {
     func showCredentialNotice(_ title: String, tab: String, machine: String, harness: String?) {
         guard let view = existingView(tab, machine: machine) else { return }
         view.showModelConnectionNotice(title,
-            button: String(localized: "cloud.modelConnection.settings", defaultValue: "Settings", bundle: .module.inAppLanguage)) { [weak self, session = view.model.sessionId] in
+            button: String(localized: "cloud.modelConnection.settings", defaultValue: "Settings", bundle: .module.inAppLanguage), action: { [weak self, session = view.model.sessionId] in
                 self?.cloudCredentials?.openModelConnectionSettings(machine: machine, harness: harness, session: session)
-            }
+            })
     }
 
     func credentialRefusal(_ failure: CloudAgentCredentials.Failure, harness: String?) -> String {
-        failure.modelConnectionNotice(harness: harness, bundle: .module.inAppLanguage)
+        CloudModelConnectionText.notice(failure, harness: harness, bundle: .module.inAppLanguage)
     }
 
 }

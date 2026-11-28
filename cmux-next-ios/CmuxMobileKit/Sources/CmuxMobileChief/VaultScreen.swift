@@ -16,6 +16,7 @@ public struct VaultScreen: View {
     @State private var importText: VaultImportText?
     @State private var approving: VaultDevice?
     @State private var removingDevice: VaultDevice?
+    @State private var autoRetry = AutoRetry()
 
     public init(model: VaultModel) {
         _model = State(initialValue: model)
@@ -39,6 +40,7 @@ public struct VaultScreen: View {
             }
             .refreshable { await model.load() }
             .task { await model.load() }
+            .autoRetry(autoRetry, failing: model.phase.isFailed) { await model.load() }
             .sheet(item: $editing) { target in VaultEditSheet(model: model, target: target) }
             .sheet(item: $importText) { text in VaultImportSheet(model: model, text: text) }
             .fileImporter(isPresented: $importing, allowedContentTypes: [.item]) { result in
@@ -77,14 +79,22 @@ public struct VaultScreen: View {
                 .accessibilityIdentifier("vault.loading")
                 .placeholderBound("vault.loading", .milliseconds(2000))
         case .failed(let message):
-            ContentUnavailableView {
-                Label("Couldn't load the vault", systemImage: "exclamationmark.triangle")
-            } description: {
-                Text(message)
-            } actions: {
-                Button("Try Again") { Task { await model.load() } }.buttonStyle(.borderedProminent)
+            // Read again on its own (AutoRetry): the spinner stays, then one quiet line.
+            if autoRetry.isQuietLineShown {
+                ContentUnavailableView {
+                    Label("Couldn't load the vault", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(message)
+                } actions: {
+                    AutoRetryQuietLine(autoRetry)
+                }
+                .accessibilityIdentifier("vault.failed")
+            } else {
+                CmuxSpinner(label: Text("Loading vault…"))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityIdentifier("vault.loading")
+                    .placeholderBound("vault.loading", .milliseconds(2000))
             }
-            .accessibilityIdentifier("vault.failed")
         case .loaded:
             List {
                 switch model.state {

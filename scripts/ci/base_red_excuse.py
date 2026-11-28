@@ -6548,7 +6548,9 @@ PACKAGE_JOBS = {
                   "schemas/tab-layout-rules/vectors.json", "cmux-next-ios/backend/src/placement.ts",
                   # cmux-mobile-link reaches cmux-hop-relay (#54363); cmux-mobile-link-ffi reaches cmux-vault-e2e
                   # (#56920)
-                  "cmux-tui/crates/cmux-hop-relay/", "cmux-tui/crates/cmux-vault-e2e/")
+                  "cmux-tui/crates/cmux-hop-relay/", "cmux-tui/crates/cmux-vault-e2e/",
+                  # cmux-mobile-host strips cmux-next.json's JSONC with cmux-json (RFD 0164 T5, #57864)
+                  "cmux-tui/crates/cmux-json/")
     },
 }
 SWIFT_PATH_PACKAGE = re.compile(r'\.package\s*\(\s*(?:name:\s*"[^"]*"\s*,\s*)?path:\s*"([^"]+)"')

@@ -64,8 +64,8 @@ extension AgentPaneView {
     var paneNotices: [AgentPaneNotice] { [cloudChatEndedNotice, otherInstallNotice, remoteApprovalsNotice, modelConnectionNotice].compactMap { $0 } }
 
     /// Shows a credential refusal in the chat with the action supplied by the app.
-    public func showModelConnectionNotice(_ title: String, button: String, openSettings: @escaping @MainActor () -> Void) {
-        modelConnectionNotice = AgentPaneNotice(id: "modelConnection", title: title, button: button) { _ in openSettings() }
+    public func showModelConnectionNotice(_ title: String, button: String, action: @escaping @MainActor () -> Void) {
+        modelConnectionNotice = AgentPaneNotice(id: "modelConnection", title: title, button: button) { _ in action() }
         pushPaneNotices()
     }
 

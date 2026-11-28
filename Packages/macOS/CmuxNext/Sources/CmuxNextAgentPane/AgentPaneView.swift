@@ -161,6 +161,8 @@ public final class AgentPaneView: NSView {
     /// The page's menu shown past the window's edge (AgentPaneView+Popup).
     var popupHostStorage: WebPopupHost?
     var projectPaletteID: String?
+    /// The one show the page may make with no gesture of the person's: its palette closed on the GitHub page.
+    var projectPaletteResume = AgentProjectPaletteResume()
     /// The app supplies its shared command palette for this pane's Add project flow.
     public var onProjectPaletteRequest: (@MainActor (AgentProjectPaletteRequest) -> Bool)?
     /// This pane laid out again while its project palette is open: the palette, centered on the pane, follows it.

@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agents.defaults.codex.model.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A model id such as gpt-6.2-sol. Empty starts on the last model you picked."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "معرّف نموذج مثل gpt-6.2-sol. إذا تُرك فارغًا تبدأ بآخر نموذج اخترته."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ID modela, npr. gpt-6.2-sol. Prazno počinje s posljednjim modelom koji ste odabrali."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Et model-id som gpt-6.2-sol. Tomt starter på den model, du sidst valgte."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine Modell-ID wie gpt-6.2-sol. Leer startet mit dem zuletzt gewählten Modell."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un id de modelo como gpt-6.2-sol. Vacío empieza con el último modelo que elegiste."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un identifiant de modèle comme gpt-6.2-sol. Vide démarre sur le dernier modèle choisi."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un id di modello come gpt-6.2-sol. Vuoto parte dall’ultimo modello scelto."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "gpt-6.2-sol のようなモデル ID。空欄の場合は最後に選んだモデルで始まります。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "លេខសម្គាល់ម៉ូដែល ដូចជា gpt-6.2-sol។ ទុកទទេ ចាប់ផ្តើមលើម៉ូដែលដែលអ្នកបានជ្រើសចុងក្រោយ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "gpt-6.2-sol 같은 모델 ID입니다. 비워 두면 마지막으로 고른 모델로 시작합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En modell-ID som gpt-6.2-sol. Tomt starter på modellen du valgte sist."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Identyfikator modelu, np. gpt-6.2-sol. Puste zaczyna od ostatnio wybranego modelu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Um id de modelo como gpt-6.2-sol. Vazio começa no último modelo que você escolheu."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Идентификатор модели, например gpt-6.2-sol. Если пусто, начинается с последней выбранной модели."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "รหัสโมเดล เช่น gpt-6.2-sol หากว่างไว้จะเริ่มด้วยโมเดลที่คุณเลือกครั้งล่าสุด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "gpt-6.2-sol gibi bir model kimliği. Boş bırakılırsa en son seçtiğiniz modelle başlar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ідентифікатор моделі, наприклад gpt-6.2-sol. Якщо порожньо, починається з останньої вибраної моделі."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mã mô hình như gpt-6.2-sol. Để trống sẽ bắt đầu với mô hình bạn chọn lần cuối."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "模型 ID，例如 gpt-6.2-sol。留空则使用你上次选择的模型。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "模型 ID，例如 gpt-6.2-sol。留空則使用你上次選擇的模型。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
