@@ -15821,6 +15821,13 @@ export class AcpmuxDirectClient {
   /// Chats read ahead, by how far their kept tail's read went and the chat it was of (its
   /// `createdAt` and machine): the next read of one that ran on asks only for what came after.
   private readAheadThrough = new Map<string, { through: number; createdAt: unknown; peer: unknown }>();
+  /// Chats whose read ahead acpmux answered with no record a tail draws, by the row's
+  /// `transcriptSeq` when it was asked: a pending agent start that logs only `agent_start_waiting`,
+  /// a chat whose log holds only raw harness lines. Nothing was kept of them, so the `!keptTail`
+  /// test read each again on every change in the list, every 5 s while its row moved for
+  /// bookkeeping, and acpmux walked the log back each time for nothing (Leo, 2026-11-19: "audit
+  /// claude desktop's ram cpu gpu usage network usage"). Read again only once its transcript moves.
+  private readAheadNothing = new Map<string, number>();
   /// Reads out now, by chat, so a switch to one can wait on it briefly.
   private readingAhead = new Map<string, Promise<void>>();
   /// Chats waiting for a read, the next one first.
@@ -15837,6 +15844,7 @@ export class AcpmuxDirectClient {
     this.readAheadAt.delete(sessionId);
     this.readAheadSeq.delete(sessionId);
     this.readAheadThrough.delete(sessionId);
+    this.readAheadNothing.delete(sessionId);
     this.shareOnRead.delete(sessionId);
     if (this.readAheadQueue.includes(sessionId))
       this.readAheadQueue = this.readAheadQueue.filter((queued) => queued !== sessionId);
@@ -15880,6 +15888,9 @@ export class AcpmuxDirectClient {
     const wanted = sessionIds.filter((sessionId) => {
       if (!sessionId || sessionId === this.selectedSessionId || this.readingAhead.has(sessionId)) return false;
       if (this.listedCold(sessionId)) return false;
+      const nothingAt = this.readAheadNothing.get(sessionId);
+      if (nothingAt !== undefined && nothingAt === transcriptSeq(this.sessions.find((s) => s.sessionId === sessionId)))
+        return false;
       const readAt = this.readAheadAt.get(sessionId);
       // A chat this page opened keeps the tail it read itself; one read ahead is read again only
       // when it ran on since, and not more often than READ_AHEAD_REFRESH_MS.
@@ -15964,7 +15975,12 @@ export class AcpmuxDirectClient {
     // The chat was opened meanwhile: its attach holds the newer read.
     if (this.closed || this.socket !== connection || sessionId === this.selectedSessionId) return;
     const page = records(result?.events);
-    if (page.length === 0) return;
+    if (page.length === 0) {
+      // Answered with nothing to keep: asked again only once its transcript moves (`readAheadNothing`).
+      if (askedSeq !== undefined) this.readAheadNothing.set(sessionId, askedSeq);
+      return;
+    }
+    this.readAheadNothing.delete(sessionId);
     const oldest = Math.min(...page.map((event) => event.seq));
     const turnOpener = await this.fetchTurnOpener(sessionId, page, result?.hasMore === true);
     // The opener read may finish after an open or a machine/generation change. It cannot publish
