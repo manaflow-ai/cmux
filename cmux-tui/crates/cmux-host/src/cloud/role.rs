@@ -53,6 +53,10 @@ pub const TRAJECTORY_STAGING: &str = "/var/lib/cmux-trajectory-restore";
 const MAX_LINE: usize = 64 * 1024;
 /// The ceiling of the activity stream's reconnect backoff (`Worker::activity_reset`).
 const ACTIVITY_RETRY_MAX_MS: u64 = 5_000;
+/// How often a session host without `subscribe-activity` is asked again. One `identify` that
+/// answered without it used to latch the stream off for the process's life: a session host that
+/// came up (or was swapped) later stayed `blind_report`, never paused.
+const ACTIVITY_UNSUPPORTED_RETRY_MS: u64 = 30_000;
 
 fn log(line: &str) {
     eprintln!("cmux-host: cloud: {line}");
@@ -560,7 +564,8 @@ struct Activity {
     connected: bool,
     retry_at: Option<u64>,
     backoff: Backoff,
-    /// The daemon does not serve `subscribe-activity`: no sender at all.
+    /// The last `identify` lacked `subscribe-activity`: asked again every
+    /// [`ACTIVITY_UNSUPPORTED_RETRY_MS`], logged once.
     unsupported: bool,
 }
 
@@ -1258,7 +1263,7 @@ impl Worker {
     /// Opens one `subscribe-activity` stream when the daemon serves it.
     fn connect_activity(&mut self) {
         self.activity.retry_at = None;
-        if self.activity.unsupported || self.live.is_none() {
+        if self.live.is_none() {
             return;
         }
         let paths = self.paths.clone();
@@ -1287,10 +1292,17 @@ impl Worker {
             }
         }
         match attempt {
-            Ok(Some(stream)) => self.activity.stream = Some(stream),
+            Ok(Some(stream)) => {
+                if std::mem::take(&mut self.activity.unsupported) {
+                    log("activity: the session host now serves subscribe-activity");
+                }
+                self.activity.stream = Some(stream);
+            }
             Ok(None) => {
-                self.activity.unsupported = true;
-                log("activity: the daemon does not serve subscribe-activity; no activity sender");
+                if !std::mem::replace(&mut self.activity.unsupported, true) {
+                    log("activity: the daemon does not serve subscribe-activity; asking again");
+                }
+                self.activity.retry_at = Some(self.now() + ACTIVITY_UNSUPPORTED_RETRY_MS);
             }
             Err(_) => self.activity_dropped(),
         }
