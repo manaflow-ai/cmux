@@ -3,6 +3,13 @@
 
 use super::*;
 
+tokio::task_local! {
+    /// Told when a `session/prompt` sent from inside its scope is handed to the link (queued on
+    /// it, ahead of every later frame): a prompt held for its chat's turn gives the turn up there,
+    /// not when the far daemon's turn ends (`server/peer_forward/prompt_order.rs`).
+    pub(crate) static PROMPT_ON_WIRE: Arc<tokio::sync::Notify>;
+}
+
 impl Peer {
     /// [`Self::send_request`]; `retry`: sent again on the next link if this one switches paths
     /// before it answers (`peer_carried.rs`).
@@ -136,7 +143,12 @@ impl Peer {
             }
         };
         match sending.await {
-            Ok(Ok(())) => forget.cancel = cancel,
+            Ok(Ok(())) => {
+                forget.cancel = cancel;
+                if m == method::SESSION_PROMPT {
+                    let _ = PROMPT_ON_WIRE.try_with(|on_wire| on_wire.notify_one());
+                }
+            }
             Ok(Err(_)) => {
                 return Err(RpcError::internal(format!("peer {} connection closed", self.name)));
             }
@@ -170,11 +182,14 @@ impl Peer {
             Ok(Err(_)) => {
                 Err(RpcError::internal(format!("peer {} dropped the request", self.name)))
             }
+            // `data.reason` names the wait past its deadline for the callers that sort the
+            // failure by kind (`attach_failure_class`); the message is unchanged.
             Err(_) => Err(RpcError::internal(format!(
                 "peer {} timed out after {}s",
                 self.name,
                 started.elapsed().as_secs()
-            ))),
+            ))
+            .with_data(json!({"reason": "deadline_exceeded", "peer": self.name}))),
         }
     }
 
@@ -295,7 +310,8 @@ impl Peer {
                 // unless a client marked it again meanwhile.
                 Err(e) => {
                     let refused = refuses_attach(&e);
-                    tracing::warn!(peer = %self.name, session = %sid, refused, "the peer's chat was not replayed: {}", e.message);
+                    let class = attach_failure_class(&e);
+                    tracing::warn!(peer = %self.name, session = %sid, refused, class = %class, "the peer's chat was not replayed: {}", e.message);
                     self.clear_attached(&sid);
                     if refused {
                         let mut marks = self.attached.lock_or_recover();

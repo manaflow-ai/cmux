@@ -87,17 +87,6 @@ public struct TerminalInputUnclaimed: Decodable, Sendable, Equatable {
     }
 }
 
-public struct SendKeyRequest: DaemonRequest {
-    public typealias Response = EmptyResponse
-    public static let command = "send-key"
-    public var surface: SurfaceID
-    public var keys: [String]
-    public init(surface: SurfaceID, keys: [String]) {
-        self.surface = surface
-        self.keys = keys
-    }
-}
-
 public struct AttachSurfaceRequest: DaemonRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var lease: String?

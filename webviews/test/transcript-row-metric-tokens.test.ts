@@ -1,8 +1,8 @@
-// The shared row metric has one source (rowMetric.ts ROW_METRIC): the stylesheet's tokens, the row
-// estimates (model.ts) and the spacing spec (transcriptSpacing.ts) all read it, so no activity row
-// kind can drift to a height, text size or chip of its own (Leo, 2026-11-17: "these are too big";
-// the rows had grown apart because the 22px line was a literal in the CSS, another in model.ts and
-// a third in each spacing value, and each row kind set the prose's font on its own).
+// The shared row metric (rowMetric.ts ROW_METRIC) is checked against the stylesheet's tokens, the
+// grid's row pitch, the row estimates and the spacing spec, so no activity row kind can drift to a
+// height, text size or chip of its own (Leo, 2026-11-17: "these are too big"; the rows had grown
+// apart because the 22px line was a literal in the CSS, another in model.ts and a third in each
+// spacing value, and each row kind set the prose's font on its own).
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -59,7 +59,6 @@ describe("the shared row metric", () => {
     // set the prose's size themselves.
     const rules: [string, string][] = [
       ["conversation/conversation.css", ".cv-tools {"],
-      ["conversation/conversation.css", ".cv-worked {"],
       ["conversation/conversation.css", ".cv-received {"],
       ["conversation/AgentMessageRow.css", ".cv-agentmsg {"],
       ["conversation/MessageGroupHead.css", ".cv-message-group__head {"],
@@ -75,6 +74,17 @@ describe("the shared row metric", () => {
         size: "var(--cv-row-font-size)",
       });
     }
+  });
+  test("Worked for and its new-messages tag keep the prose size, one token for both", () => {
+    const css = read("conversation/conversation.css");
+    expect(css).toContain("--cv-worked-font-size: var(--cv-font-size);");
+    const sizeOf = (sheet: string, selector: string) => {
+      const at = sheet.indexOf(`\n${selector}`);
+      expect({ selector, found: at >= 0 }).toEqual({ selector, found: true });
+      return /font-size:\s*([^;]+);/.exec(sheet.slice(at, sheet.indexOf("\n}", at)))?.[1];
+    };
+    expect(sizeOf(css, ".cv-worked {")).toBe("var(--cv-worked-font-size)");
+    expect(sizeOf(read("conversation/unread.css"), ".cv-since__line {")).toBe("var(--cv-worked-font-size)");
   });
   test("a session chip is the metric's chip", () => {
     const tag = read("conversation/AgentTag.css");

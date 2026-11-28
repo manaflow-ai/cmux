@@ -1138,6 +1138,7 @@ fn iroh_transport_snapshot(
             },
             remote: Some(sanitized_iroh_remote(path.remote_addr())),
             rtt_micros: Some(path.rtt().as_micros().min(u64::MAX as u128) as u64),
+            outer: None,
         });
     TransportSnapshot { provider: "iroh".into(), route: description.into(), selected_path }
 }

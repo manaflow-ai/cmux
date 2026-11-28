@@ -20,13 +20,20 @@ public final class MockAgentSession: AgentSessionSource {
     private var turnCount = 0
     private var permissionWaiter: CheckedContinuation<String?, Never>?
     private var questionWaiter: CheckedContinuation<AgentQuestionAnswer?, Never>?
+    /// A decision or answer that came before its turn began waiting: the waiting turn's card is
+    /// out (its events are sent at once, `eventsWithHead()`) before the turn's task reaches its
+    /// wait, so a quick reply is held for it, not lost (the turn would wait for good).
+    private var heldPermission: String??
+    private var heldAnswer: AgentQuestionAnswer??
     private var pendingPermissionID: String?
     private var pendingQuestionID: String?
     private var richTurnUsed = false
     private var queued: [(id: String, text: String, attachments: [AgentAttachment])] = []
     private var currentModel = "opus-5.5"
     private var effort = "medium"
-    private var mode = "default"
+    /// `CMUX_MOBILE_DEMO_AGENT_MODE` starts the demo in another mode (`bypassPermissions` for the
+    /// composer pill's full-access look in screenshots, issue 51331).
+    private var mode = ProcessInfo.processInfo.environment["CMUX_MOBILE_DEMO_AGENT_MODE"] ?? "default"
     private let richFirstTurn: Bool
     /// false: a brand-new session (no earlier turns to replay).
     private let history: Bool
@@ -49,6 +56,18 @@ public final class MockAgentSession: AgentSessionSource {
     }
 
     public func events() -> AsyncStream<AgentSessionEvent> {
+        open(headed: false).rest
+    }
+
+    /// The mock holds its whole history (``loadsHistory`` is false), so it is the head: the
+    /// store has it before the chat's first frame. Streamed, it landed a tick later, and that
+    /// first frame was a new chat's: the composer played the new-chat entrance on a chat with
+    /// history, rising 24 pt over a dozen frames (#59189, disclosure-chat).
+    public func eventsWithHead() -> (head: [AgentSessionEvent], rest: AsyncStream<AgentSessionEvent>) {
+        open(headed: true)
+    }
+
+    private func open(headed: Bool) -> (head: [AgentSessionEvent], rest: AsyncStream<AgentSessionEvent>) {
         let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream(bufferingPolicy: .unbounded)
         self.continuation = continuation
         // History (and a waiting turn's opening) arrive as one change.
@@ -57,11 +76,17 @@ public final class MockAgentSession: AgentSessionSource {
         if summary.status == .waiting { startWaitingTurn() }
         let replayed = batch ?? []
         batch = nil
-        continuation.yield(.batch(replayed))
+        #if os(iOS)
+        // The mock stands in for the Mac: its history is the chat's reply (R2), never a phone cache.
+        if !replayed.isEmpty { LaunchMarks.shared.firstContent("chat", cached: false) }
+        #endif
+        var head: [AgentSessionEvent] = [.batch(replayed)]
         // `CMUX_MOBILE_MOCK_LINK=down`: the chat's history is there, its Mac is not.
-        if link == .down { continuation.yield(.status(.disconnected)) }
+        if link == .down { head.append(.status(.disconnected)) }
         observeHostLoad()
-        return stream
+        guard !headed else { return (head, stream) }
+        for event in head { continuation.yield(event) }
+        return ([], stream)
     }
 
     /// The link to the "Mac" (`CMUX_MOBILE_MOCK_LINK`): a slow one holds what each side
@@ -86,11 +111,18 @@ public final class MockAgentSession: AgentSessionSource {
         switch intent {
         case .prompt(let text, let attachments, let steer, let sentID, _):
             // The client's id comes back on the echo, as acpmux does: the store
-            // matches its send to it (`chat_send_acked`, a resend's dedupe).
+            // matches its send to it (`chat_send_acked`, a resend's dedupe) and the turn it drew as sent.
             let promptID = sentID.isEmpty ? UUID().uuidString : sentID
             if running != nil, !steer {
                 queued.append((promptID, text, attachments))
                 emit(.queued(text: text, promptId: promptID, position: queued.count))
+            } else if DeveloperOptions.mockEchoDelay > .zero {
+                // DEBUG: a Mac's round trip before the prompt comes back.
+                let delay = DeveloperOptions.mockEchoDelay
+                Task { [weak self] in
+                    try? await Task.sleep(for: delay)
+                    self?.startTurn(text: text, attachments: attachments, promptID: promptID)
+                }
             } else {
                 startTurn(text: text, attachments: attachments, promptID: promptID)
             }
@@ -100,7 +132,11 @@ public final class MockAgentSession: AgentSessionSource {
             running?.cancel()
             // A turn waiting on the person ends too (an agent cancels its
             // outstanding request when the prompt is cancelled).
-            if let id = pendingPermissionID { emit(.permissionDecision(permissionId: id, optionId: nil)) }
+            if let id = pendingPermissionID {
+                emit(.permissionDecision(permissionId: id, optionId: nil))
+                resolvePermission(nil)
+            }
+            if pendingQuestionID != nil { resolveQuestion(nil) }
             pendingPermissionID = nil
             pendingQuestionID = nil
             permissionWaiter?.resume(returning: nil)
@@ -125,8 +161,7 @@ public final class MockAgentSession: AgentSessionSource {
             guard id == pendingQuestionID else { return }
             emit(.questionAnswered(questionId: id, answer: answer))
             pendingQuestionID = nil
-            questionWaiter?.resume(returning: answer)
-            questionWaiter = nil
+            resolveQuestion(answer)
         case .setModel(let id):
             currentModel = id
             emit(.modelsAvailable(Self.models, current: id))
@@ -172,8 +207,45 @@ public final class MockAgentSession: AgentSessionSource {
     private func decide(permission id: String, optionID: String?) {
         emit(.permissionDecision(permissionId: id, optionId: optionID))
         pendingPermissionID = nil
-        permissionWaiter?.resume(returning: optionID)
-        permissionWaiter = nil
+        resolvePermission(optionID)
+    }
+
+    /// The waiting turn's permission decided: to its wait, or held until it waits.
+    private func resolvePermission(_ optionID: String?) {
+        if let waiter = permissionWaiter {
+            permissionWaiter = nil
+            waiter.resume(returning: optionID)
+        } else {
+            heldPermission = .some(optionID)
+        }
+    }
+
+    /// The waiting turn's question answered: to its wait, or held until it waits.
+    private func resolveQuestion(_ answer: AgentQuestionAnswer?) {
+        if let waiter = questionWaiter {
+            questionWaiter = nil
+            waiter.resume(returning: answer)
+        } else {
+            heldAnswer = .some(answer)
+        }
+    }
+
+    /// The turn's wait for the person's permission decision (one made already is taken at once).
+    private func awaitPermission() async -> String? {
+        if let held = heldPermission {
+            heldPermission = nil
+            return held
+        }
+        return await withCheckedContinuation { permissionWaiter = $0 }
+    }
+
+    /// The turn's wait for the person's answer (one given already is taken at once).
+    private func awaitAnswer() async -> AgentQuestionAnswer? {
+        if let held = heldAnswer {
+            heldAnswer = nil
+            return held
+        }
+        return await withCheckedContinuation { questionWaiter = $0 }
     }
 
     /// `HostLoadSim`'s observers (DEBUG host load).
@@ -237,7 +309,8 @@ public final class MockAgentSession: AgentSessionSource {
         emit(.modesAvailable([
             ACPMode(id: "default", name: "Manual"), ACPMode(id: "acceptEdits", name: "Accept edits"),
             ACPMode(id: "plan", name: "Plan"), ACPMode(id: "auto", name: "Auto"),
-        ], current: mode))
+        ] + (mode == "bypassPermissions" ? [ACPMode(id: "bypassPermissions", name: "Bypass permissions")] : []),
+        current: mode))
         emit(.update(.configOptions(configOptions)))
         emit(.update(.availableCommands([
             ACPAvailableCommand(name: "review", description: "Review the current diff"),
@@ -247,6 +320,8 @@ public final class MockAgentSession: AgentSessionSource {
         ])))
         emit(.update(.usage(used: history ? 48_000 : 0, size: 200_000)))
         guard history else { return }
+        // The demo chat's title, as acpmux names a chat on attach (`AcpmuxSession.chatName`).
+        if !summary.name.isEmpty { emit(.update(.sessionInfo(title: summary.name))) }
         let start = Date().addingTimeInterval(-3600)
         let turnID = "history-1"
         emit(.userMessage(text: "What does the link framing look like today?", promptId: "p-h1", turnId: turnID, attachments: [], at: start))
@@ -345,6 +420,8 @@ public final class MockAgentSession: AgentSessionSource {
                 self.permissionWaiter = nil
                 self.questionWaiter?.resume(returning: nil)
                 self.questionWaiter = nil
+                self.heldPermission = nil
+                self.heldAnswer = nil
                 self.emit(.turnResult(turnId: turnID, status: .cancelled, errorText: nil, at: Date()))
             }
             self.running = nil
@@ -384,12 +461,12 @@ public final class MockAgentSession: AgentSessionSource {
             guard let self else { return }
             do {
                 if asksQuestion {
-                    let answer = await withCheckedContinuation { self.questionWaiter = $0 }
+                    let answer = await self.awaitAnswer()
                     try Task.checkCancellation()
                     let cellular = answer.flatMap { $0.selections["default"]?.optionIDs.first } ?? "webrtc"
                     try await self.stream(MockScript.finalAnswer(cellular: cellular), messageID: "m-waiting-final")
                 } else {
-                    let choice = await withCheckedContinuation { self.permissionWaiter = $0 }
+                    let choice = await self.awaitPermission()
                     try Task.checkCancellation()
                     let allowed = choice != nil && choice != "deny"
                     self.emit(.update(.toolCallUpdate(ACPToolCallUpdate(
@@ -512,7 +589,7 @@ public final class MockAgentSession: AgentSessionSource {
             ACPPermissionOption(id: "always", name: "Always allow cargo test in this workspace", kind: .allowAlways),
             ACPPermissionOption(id: "deny", name: "Deny", kind: .rejectOnce),
         ], cwd: "~/Development/cmux")))
-        let choice = await withCheckedContinuation { self.permissionWaiter = $0 }
+        let choice = await self.awaitPermission()
         try Task.checkCancellation()
         let allowed = choice != nil && choice != "deny"
         if let choice, choice != "deny" {
@@ -528,7 +605,7 @@ public final class MockAgentSession: AgentSessionSource {
         let question = S.question(session: summary.id)
         pendingQuestionID = question.id
         emit(.question(question))
-        let answer = await withCheckedContinuation { self.questionWaiter = $0 }
+        let answer = await self.awaitAnswer()
         try Task.checkCancellation()
         let cellular = answer.flatMap { $0.selections["default"]?.optionIDs.first } ?? "webrtc"
         try await tool(

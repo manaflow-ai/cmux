@@ -6,7 +6,10 @@ import type { AcpmuxSnapshot } from "./model";
 import { ComposerPickers } from "./ComposerPickers";
 import { BUNDLED_MODEL_CATALOG, buildPickerCatalog } from "./modelCatalogData";
 import { ChatAccountsContext, readChatAccounts, type ChatAccounts } from "./chatAccounts";
+import { HarnessUpdatesContext } from "./harnessUpdateList";
 import { rememberFullAccess, rememberStartMode } from "./startMode";
+import { OnNewTab } from "./newTabComposer";
+import { newTabStart } from "./newtab/chipDefaults";
 
 /// The chat's accounts: its CLI login alone, as Leo's chat had (the Account row names it).
 const galleryAccounts: ChatAccounts = {
@@ -22,9 +25,13 @@ type Props = {
   accounts?: boolean;
   managed?: boolean;
   unlisted?: boolean;
+  codexRelease?: "available" | "updating" | "installed";
   /// A new chat before its first send, whose acpmux on this Mac answers `start` for its start mode;
   /// `cloud`: Cloud is picked as where it runs, so its first send starts it on a Cloud machine.
   newChat?: { start: { modeId: string; name: string }; cloud?: boolean };
+  /// A New Tab opened after a chat on this Mac picked Haiku: acpmux saved Haiku as its start
+  /// (`start`, source saved) and names New Tab's own start apart (`start.newTab`, Opus 5.5).
+  newTabAfterChatPick?: boolean;
 };
 
 const directAccounts: ChatAccounts = {
@@ -197,7 +204,65 @@ const codexSnapshot: AcpmuxSnapshot = {
 };
 
 function GalleryComposerPickers(props: Props) {
+  if (props.newTabAfterChatPick) return <GalleryNewTabAfterChatPick />;
   return props.newChat ? <GalleryNewChatPickers {...props.newChat} /> : <GalleryStartedPickers {...props} />;
+}
+
+/// acpmux's harness listing after a chat picked Haiku (start_defaults.rs): the pick is the next
+/// chat's saved start, and New Tab's own start (`newTab`) is the chain below that pick, Opus 5.5.
+const afterChatPickCatalog: AcpmuxSnapshot["catalog"] = [
+  {
+    id: "claude-sr2",
+    name: "Claude Code",
+    family: "claude-sr2",
+    models: claudeCodeModels,
+    start: { model: "haiku", modelSource: "saved", newTab: { model: "opus", modelSource: "catalog" } },
+  },
+];
+
+/// The chat that picked Haiku, and a New Tab opened after it, as NewTabPage.tsx draws its chips
+/// (newTabStart under OnNewTab). Leo 2026-11-27: "it should purely just be new tab".
+function GalleryNewTabAfterChatPick() {
+  const chat: AcpmuxSnapshot = {
+    ...claudeSnapshot,
+    catalog: afterChatPickCatalog,
+    summary: { ...claudeSnapshot.summary!, model: "haiku" },
+  };
+  const blank: AcpmuxSnapshot = { ...claudeSnapshot, catalog: afterChatPickCatalog, summary: undefined };
+  const { snapshot: newTab } = newTabStart(
+    blank,
+    blank.catalog,
+    undefined,
+    undefined,
+    { harness: "", model: "" },
+    true,
+  );
+  const rail = (snapshot: AcpmuxSnapshot) => (
+    <ComposerPickers
+      snapshot={snapshot}
+      harnessesListed
+      onModel={() => undefined}
+      onMode={() => undefined}
+      onEffort={() => undefined}
+      showPlan
+    />
+  );
+  return (
+    <ChatAccountsContext.Provider value={galleryAccounts}>
+      <div className="acpmux-composer-gallery-shell">
+        <div className="acpmux-composer-gallery-copy">
+          <strong>Chat, after picking Haiku</strong>
+          <span>The chat runs the model it picked.</span>
+        </div>
+        {rail(chat)}
+        <div className="acpmux-composer-gallery-copy">
+          <strong>New Tab, opened after</strong>
+          <span>New Tab names its own default, not the chat&apos;s pick.</span>
+        </div>
+        <OnNewTab.Provider value>{rail(newTab)}</OnNewTab.Provider>
+      </div>
+    </ChatAccountsContext.Provider>
+  );
 }
 
 /// The access chip names `mode` (not the bare word Mode).
@@ -261,12 +326,13 @@ function GalleryNewChatPickers({ start, cloud }: NonNullable<Props["newChat"]>) 
   );
 }
 
-function GalleryStartedPickers({ claude, accounts, managed, unlisted }: Props) {
+function GalleryStartedPickers({ claude, accounts, managed, unlisted, codexRelease }: Props) {
   // As an acpmux answer would set it; cleared again when the variant goes.
   useEffect(() => {
     rememberFullAccess(managed ? "managed" : undefined);
     return () => rememberFullAccess(undefined);
   }, [managed]);
+  const [release, setRelease] = useState(codexRelease);
   const initialSnapshot = claude ? claudeSnapshot : codexSnapshot;
   const [model, setModel] = useState(initialSnapshot.summary!.model!);
   const [mode, setMode] = useState(initialSnapshot.summary!.modes!.currentModeId!);
@@ -275,6 +341,32 @@ function GalleryStartedPickers({ claude, accounts, managed, unlisted }: Props) {
   const snapshot = useMemo<AcpmuxSnapshot>(
     () => ({
       ...initialSnapshot,
+      ...(release
+        ? {
+            catalog: initialSnapshot.catalog.map((h) =>
+              h.id !== "codex"
+                ? h
+                : {
+                    ...h,
+                    topModels: ["gpt-6.2-astra", ...h.models.map((m) => m.id)],
+                    models: [
+                      {
+                        id: "gpt-6.2-astra",
+                        name: "GPT-6.2 Astra",
+                        ...(release === "installed"
+                          ? {}
+                          : {
+                              codexUpdateVersion: "0.171.0",
+                              unavailable:
+                                "Included in Codex 0.171.0. Update Codex to check availability for this account.",
+                            }),
+                      },
+                      ...h.models,
+                    ],
+                  },
+            ),
+          }
+        : {}),
       summary: {
         ...initialSnapshot.summary!,
         model,
@@ -285,24 +377,24 @@ function GalleryStartedPickers({ claude, accounts, managed, unlisted }: Props) {
         })),
       },
     }),
-    [initialSnapshot, effort, fast, mode, model],
+    [initialSnapshot, effort, fast, mode, model, release],
   );
   // The model catalog's join, as the agent pane builds it, so Claude Code's aliases fold.
   const pickerCatalog = useMemo(
     () =>
-      claude || unlisted
+      claude || unlisted || release
         ? buildPickerCatalog({
             catalog: BUNDLED_MODEL_CATALOG,
             acpmux: unlisted ? [] : snapshot.catalog,
             provisional: unlisted,
             session: {
-              harness: "claude-sr2",
+              harness: snapshot.summary?.harness,
               model: snapshot.summary?.model,
               configOptions: snapshot.summary?.configOptions,
             },
           })
         : undefined,
-    [claude, snapshot, unlisted],
+    [claude, snapshot, unlisted, release],
   );
   const pickers = (
     <ComposerPickers
@@ -322,7 +414,27 @@ function GalleryStartedPickers({ claude, accounts, managed, unlisted }: Props) {
           <strong>Composer controls</strong>
           <span>One model button (model and effort), permission, and Plan controls share one quiet footer rail.</span>
         </div>
-        {pickers}
+        <HarnessUpdatesContext.Provider
+          value={
+            release && release !== "installed"
+              ? {
+                  rows: [
+                    {
+                      harness: "codex",
+                      agent: "Codex",
+                      version: "0.164.0",
+                      latest: "0.171.0",
+                      phase: release === "updating" ? "updating" : undefined,
+                      update: () => setRelease("installed"),
+                    },
+                  ],
+                  updateAll: () => setRelease("installed"),
+                }
+              : undefined
+          }
+        >
+          {pickers}
+        </HarnessUpdatesContext.Provider>
       </div>
     </ChatAccountsContext.Provider>
   );
@@ -562,6 +674,16 @@ export default componentEntry<Props>({
     ]),
   variants: {
     closed: { props: {} },
+    "new-tab-after-chat-pick": {
+      height: 360,
+      note: "A chat on this Mac picked Haiku, then a New Tab opened: the chat's rail names Haiku 5.5 and New Tab's names its own default, Opus 5.5, never the chat's pick (Leo 2026-11-27: \"it should purely just be new tab\").",
+      props: { newTabAfterChatPick: true },
+      play: async (ctx) => {
+        const names = () => [...ctx.document.querySelectorAll(".acpmux-chips")].map((rail) => rail.textContent ?? "");
+        await ctx.waitFor(() => names().length === 2 && names()[0]!.includes("Haiku"));
+        if (!names()[1]!.includes("Opus")) throw new Error(`New Tab's rail reads ${names()[1]}, not Opus 5.5`);
+      },
+    },
     "new-chat-here": {
       note: "A new chat on this Mac: the access chip names the mode this Mac's acpmux starts it in, Bypass permissions.",
       props: { newChat: { start: { modeId: "bypassPermissions", name: "Bypass permissions" } } },
@@ -595,6 +717,9 @@ export default componentEntry<Props>({
       props: {},
       play: openModel,
     },
+    "codex-release-available": { props: { codexRelease: "available" }, play: morePicker },
+    "codex-release-updating": { props: { codexRelease: "updating" }, play: morePicker },
+    "codex-release-installed": { props: { codexRelease: "installed" }, play: morePicker },
     "model-more": {
       note: "More models opens the full picker with its search, the only way to it from the button.",
       props: {},

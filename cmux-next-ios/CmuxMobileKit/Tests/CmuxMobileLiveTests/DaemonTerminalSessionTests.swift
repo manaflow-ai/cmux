@@ -356,6 +356,10 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             try await Task.sleep(for: .milliseconds(20))
         }
         #expect(lane.recorded.contains { $0["cmd"] as? String == "send" })
+        // The lane says it is this phone's before its first key, so the daemon sends a link a
+        // program opens after them to this phone (`phone-open-link`).
+        let laneCommands = lane.recorded.compactMap { $0["cmd"] as? String }
+        #expect(laneCommands.first == "set-client-info", "\(laneCommands)")
         #expect(!lane.recorded.contains { $0["cmd"] as? String == "resize-surface" })
         #expect(main.recorded.contains { $0["cmd"] as? String == "resize-surface" })
         // Every keystroke arrived exactly once, across both channels.

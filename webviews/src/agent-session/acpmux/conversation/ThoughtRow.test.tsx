@@ -6,8 +6,8 @@
 // line be the line? then you expand and it simply shows you the rest"), with how long it took at
 // the row's end (not with the Debug choice agentPane.debug.thoughtHeader "preview"). A thought its
 // line holds whole opens nothing. The reader's toggle always wins over the fold; the toggle
-// animates the height, the automatic fold snaps (as Codex's does), and Reduce Motion animates
-// nothing.
+// fades the text in and out while its height changes in one frame (design/transcript-motion-model.md
+// rule 7), the automatic fold snaps (as Codex's does), and Reduce Motion animates nothing.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -283,17 +283,18 @@ test("a thought the reader opened stays open as new content arrives and after it
   expect(body()?.textContent).toBe(REST);
 });
 
-test("the reader's toggle plays the shared fold, height and opacity, closing after the text slides away", () => {
+test("the reader's toggle fades the shared fold's text, never its height, closing after the text fades", () => {
   height = 900;
   render(thought(), false, "animated:0");
   click();
   expect(animations.length).toBe(1);
-  expect(animations[0]!.options.duration).toBe(FOLD_MS);
-  expect(animations[0]!.keyframes[0]).toEqual({ height: "0px", opacity: 0 });
-  expect(animations[0]!.keyframes.at(-1)!.opacity).toBe(1);
+  // The open fade: the fold's token, at most the micro step.
+  expect(animations[0]!.options.duration).toBe(Math.min(FOLD_MS, 120));
+  expect(animations[0]!.keyframes).toEqual([{ opacity: 0 }, { opacity: 1 }]);
   click();
   expect(animations.length).toBe(2);
-  expect(animations[1]!.keyframes.at(-1)).toEqual({ height: "0px", opacity: 0 });
+  expect(animations[1]!.keyframes.at(-1)).toEqual({ opacity: 0 });
+  expect(animations.some(({ keyframes }) => keyframes.some((frame) => "height" in frame))).toBe(false);
   // The text stays drawn while it closes, then goes.
   expect(body()).not.toBeNull();
   animations[1]!.finish();
@@ -302,13 +303,12 @@ test("the reader's toggle plays the shared fold, height and opacity, closing aft
 });
 
 // The morph (Leo, 2026-11-22: "i think we'd likely want a morphing animation to and from thought"):
-// a line cut to one line grows to its wrapped height over the fold's time, and shrinks back holding
-// its wrapped words until it is one line tall again.
-test("a cut line grows to its wrapped height on open and shrinks back on close, over the fold's time", () => {
+// a line cut to one line opens to its wrapped words and closes back to its one line, each in one
+// frame (rule 7: a row's height is never animated; the list moves the rows under it).
+test("a cut line opens to its wrapped height and closes back in one frame, with no height animation", () => {
   const one = "One long line of thought that runs past the row's end and so is cut with an ellipsis.";
   clipped = true;
   const line = () => container.querySelector<HTMLElement>(".cv-thought__preview")!;
-  // One line closed (20px), three lines wrapped (60px).
   thoughtLayout.height = (node) => (node.classList.contains("is-open") ? 60 : 20);
   threshold = "every";
   render(thought(one), false, "morph:0");
@@ -318,24 +318,14 @@ test("a cut line grows to its wrapped height on open and shrinks back on close, 
   click();
   expect(preview()).toBe(one);
   expect(body()).toBeNull();
-  const grow = animations.find(({ keyframes }) => "maxHeight" in keyframes[0]!);
-  expect(grow?.keyframes).toEqual([
-    { height: "20px", maxHeight: "20px" },
-    { height: "60px", maxHeight: "60px" },
-  ]);
-  expect(grow?.options.duration).toBe(FOLD_MS);
-  animations = [];
+  expect(line().classList.contains("is-open")).toBe(true);
   click();
-  const shrink = animations.find(({ keyframes }) => "maxHeight" in keyframes[0]!);
-  expect(shrink?.keyframes).toEqual([
-    { height: "60px", maxHeight: "60px" },
-    { height: "20px", maxHeight: "20px" },
-  ]);
-  // Its wrapped words stay while it shrinks; the ellipsis comes back at the end.
-  expect(line().classList.contains("is-closing")).toBe(true);
-  shrink!.finish();
+  expect(line().classList.contains("is-open")).toBe(false);
   expect(line().classList.contains("is-closing")).toBe(false);
   expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
+  expect(animations.some(({ keyframes }) => keyframes.some((frame) => "height" in frame || "maxHeight" in frame))).toBe(
+    false,
+  );
 });
 
 test("with Reduce Motion the toggle opens and closes at once", () => {

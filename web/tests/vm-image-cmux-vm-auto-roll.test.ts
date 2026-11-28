@@ -11,7 +11,10 @@ import {
   MAX_ROLLS_BEHIND,
   ROLLBACK_DEPLOYS,
   approve,
+  binarySkew,
   bootDrift,
+  channelCommit,
+  MAX_BINARY_SKEW,
   fallbackImage,
   withFallback,
   bootedImage,
@@ -370,6 +373,46 @@ describe("auto-roll check (stale boot image detector)", () => {
   });
 });
 
+describe("auto-roll skew (RFD 0224 phase 4: image from the binary's SHA)", () => {
+  const a = "a".repeat(40);
+  const b = "b".repeat(40);
+  const envelope = (commit: string) => JSON.stringify({ payload: Buffer.from(JSON.stringify({ channel: "cloud-machine", commit })).toString("base64"), signature: "x" });
+
+  test("reads the commit from the signed envelope's payload and from a bare file", () => {
+    expect(channelCommit(envelope(a))).toBe(a);
+    expect(channelCommit(JSON.stringify({ commit: b }))).toBe(b);
+    expect(() => channelCommit(envelope("main"))).toThrow("40-hex");
+  });
+
+  test("the same SHA is ok; any trailing commit is not by default; unknown ancestry is not ok", () => {
+    expect(MAX_BINARY_SKEW).toBe(0);
+    expect(binarySkew(a, a, 0)).toMatchObject({ same: true, ok: true, behindCommits: 0 });
+    expect(binarySkew(a, b, 629)).toMatchObject({ same: false, ok: false, behindCommits: 629 });
+    expect(binarySkew(a, b, 3, 5).ok).toBe(true);
+    expect(binarySkew(a, b, null)).toMatchObject({ ok: false, behindCommits: null });
+  });
+
+  test("the CLI exits 0 when the channel serves the lock's pin and 1 when it serves another commit", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "auto-roll-skew-"));
+    try {
+      const lockPath = new URL("../../images/cmux-vm/inputs.lock.json", import.meta.url).pathname;
+      const pin = (JSON.parse(readFileSync(lockPath, "utf8")) as { programs: Array<{ name: string; version: string }> }).programs.find((p) => p.name === "cmux-tui")!.version;
+      const script = new URL("../../images/cmux-vm/auto-roll.ts", import.meta.url).pathname;
+      const file = path.join(dir, "channel.json");
+      writeFileSync(file, envelope(pin));
+      const same = await runChild("bun", [script, "skew", "--channel", file]);
+      expect(same.status).toBe(0);
+      expect(JSON.parse(same.stdout).same).toBe(true);
+      writeFileSync(file, envelope("0".repeat(40)));
+      const other = await runChild("bun", [script, "skew", "--channel", file]);
+      expect(other.status).toBe(1);
+      expect(other.stderr).toContain("skew: image pin");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("auto-roll rollback", () => {
   test("takes the first auto-rolled image out of both lists, so the entry before it boots again", () => {
     const original = locate(wrangler, "production").images[0]!.id;
@@ -469,6 +512,17 @@ describe("auto-roll settle", () => {
     expect(settle(roll({ deploy: "skipped", product: "", bootImage: "", attempt: ROLLBACK_DEPLOYS })).outcome).toBe("rollback");
     // Gone from both lists already: nothing to deploy again.
     expect(settle(roll({ deploy: "skipped", product: "", tipHas: false })).outcome).toBe("superseded");
+  });
+
+  test("a deployed roll whose smoke job never ran a step (lost runner) is deployed and smoked again, within the bound", () => {
+    // 99de33e5-45840828684-1, 2026-11-26: deploy-production green, smoke-production's runner lost the server in setup.
+    for (let attempt = 1; attempt < ROLLBACK_DEPLOYS; attempt++)
+      expect(settle(roll({ product: "", bootImage: "", smokeRan: false, attempt }))).toMatchObject({ outcome: "retry", nextAttempt: attempt + 1 });
+    expect(settle(roll({ product: "", bootImage: "", smokeRan: false, attempt: ROLLBACK_DEPLOYS })).outcome).toBe("rollback");
+    // A smoke that started and went red before (or at) the create still rolls back; so does an unknown start.
+    expect(settle(roll({ product: "", bootImage: "", smokeRan: true })).outcome).toBe("rollback");
+    expect(settle(roll({ product: "", bootImage: "" })).outcome).toBe("rollback");
+    expect(settle(roll({ product: "failure", smokeRan: false })).outcome).toBe("rollback");
   });
 
   test("a failed roll a newer roll sits above still rolls back; only an image gone from both lists is superseded", () => {
@@ -601,17 +655,17 @@ describe("auto-roll workflows", () => {
   });
 
   // Roll 44282278310 (2026-11-18): with vars.LINUX_RUNNER on a 16-vCPU Blacksmith size, plan queued 41 min and
-  // promote 20+ min for that size, each a minute of work. Only the bake needs the big runner.
-  test("the roll's control jobs take the 4-vCPU pool, never LINUX_RUNNER; the bake keeps it", () => {
+  // promote 20+ min for that size, each a minute of work. Only the bake needs the big runner. Since #53974 froze
+  // CI_DEPLOY_SKIP_FLEET to its value, each control job takes the one-job deploy JIT label by literal (#47946).
+  test("the roll's control jobs take the one-job deploy JIT label, never LINUX_RUNNER or a size pool; the bake keeps its label", () => {
     const roll = load("cloud-vm-image-roll.yml") as unknown as { jobs: Record<string, { "runs-on"?: string }> };
     for (const job of ["platform-readiness", "plan", "promote", "report"]) {
       const runsOn = roll.jobs[job]!["runs-on"]!;
       expect(runsOn).not.toContain("vars.LINUX_RUNNER");
-      expect(runsOn).toMatch(/\|\| fromJSON\(vars\.RUNNER_POOLS\)\.linux_4 }}$/);
-      // report holds a contents: write token, so it reads only the ephemeral linux_4 pool, never linux_8 (whose first
-      // member is a persistent owned label): #51925, tests/test_ci_ephemeral_pool_readers.py.
-      if (job === "report") expect(runsOn).not.toContain("linux_8");
-      else expect(runsOn).toContain("vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 ||");
+      expect(runsOn).toBe("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-deploy-jit-x64' }}");
+      // report holds a contents: write token, so it runs only on a one-job VM, never a pool whose member is a
+      // persistent owned label (linux_8): #51925, tests/test_ci_ephemeral_pool_readers.py.
+      expect(runsOn).not.toContain("RUNNER_POOLS");
     }
     const bake = load("cloud-vm-image-bake.yml") as unknown as { jobs: Record<string, { "runs-on"?: string }> };
     // The bake takes the one Linux label (scripts/ci/one_linux_label.py), never a size.
@@ -710,6 +764,39 @@ describe("auto-roll scripts", () => {
       expect(approved.image.id).toMatch(/^cloud-native-auto-[0-9a-f]{8}-4242-2$/);
     }), 60_000);
 
+  test("a ruleset refusal stops the push on its first try, named, not retried as a moved tip", () =>
+    withDir(async (dir) => {
+      const src = path.join(dir, "src");
+      for (const file of ["images/cmux-vm/auto-roll.ts", "images/cmux-vm/auto-roll.json", "images/cmux-vm/fallback-image.json", "images/cmux-vm/inputs.lock.json", "images/cmux-vm/image-roll-push.sh", "workers/cmux-vm/wrangler.jsonc"]) {
+        mkdirSync(path.dirname(path.join(src, file)), { recursive: true });
+        copyFileSync(path.join(repoRoot, file), path.join(src, file));
+      }
+      await git(dir, "init", "-q", "--bare", "remote.git");
+      await git(dir, "init", "-q", "-b", "feat-cmux-next", src);
+      await git(src, "add", ".");
+      await git(src, "commit", "-q", "-m", "base");
+      await git(src, "remote", "add", "origin", path.join(dir, "remote.git"));
+      await git(src, "push", "-q", "origin", "feat-cmux-next");
+      // GitHub's own refusal text (run 46065810320), from a pre-receive hook added after the base landed.
+      const hook = path.join(dir, "remote.git", "hooks", "pre-receive");
+      writeFileSync(hook, "#!/bin/sh\necho 'error: GH013: Repository rule violations found for refs/heads/feat-cmux-next.' >&2\necho '- Changes must be made through a pull request.' >&2\nexit 1\n", { mode: 0o755 });
+      const lock = readFileSync(path.join(src, "images/cmux-vm/inputs.lock.json"));
+      const temp = path.join(dir, "runner-temp");
+      mkdirSync(temp);
+      writeFileSync(path.join(temp, "candidate.json"), JSON.stringify({ ...candidate, lock_sha256: createHash("sha256").update(lock).digest("hex") }));
+      writeFileSync(path.join(temp, "message.txt"), "cmux-vm: image roll test\n");
+      const out = await runChild(
+        "bash",
+        ["images/cmux-vm/image-roll-push.sh", "roll", "--candidate", path.join(temp, "candidate.json"), "--revision", "ci-4242-2", "--run", "4242",
+          "--attempt", "2", "--message-file", path.join(temp, "message.txt")],
+        { cwd: src, env: { ...gitEnv, TOKEN: "test", RUNNER_TEMP: temp, GITHUB_OUTPUT: path.join(temp, "output") } },
+      );
+      expect(out.status).toBe(3);
+      expect(out.stderr).toContain("GH013");
+      expect(out.stderr).toContain("refused the push to feat-cmux-next by a repository rule");
+      expect(out.stdout).not.toContain("moved under the push");
+    }), 60_000);
+
   test("platform mode pushes Wrangler first and leaves cmux with a lock-only commit", () =>
     withDir(async (dir) => {
       const src = path.join(dir, "src");
@@ -795,6 +882,184 @@ describe("auto-roll scripts", () => {
       const missing = await plan(full, tip);
       expect(missing.status).not.toBe(0);
       expect(missing.stderr).toMatch(/not in this checkout/);
+    }), 60_000);
+
+  // 2026-11-26: push rolls kept the lock's cmux-tui 99de33e5 (13:23Z) while builds to 97bd0527 were published, so the
+  // 16:52Z push roll promoted the stale build again and NOW's Cloud image lag sat past its bound.
+  test("a push roll pins the newest published build only when it is on the tip, newer and different", () =>
+    withDir(async (dir) => {
+      const full = path.join(dir, "full");
+      await git(dir, "init", "-q", "-b", "feat-cmux-next", full);
+      const commitOf = async (msg: string, file?: string) => {
+        if (file) {
+          mkdirSync(path.dirname(path.join(full, file)), { recursive: true });
+          writeFileSync(path.join(full, file), msg);
+          await git(full, "add", file);
+        }
+        await git(full, "commit", "-q", "--allow-empty", "-m", msg);
+        return (await git(full, "rev-parse", "HEAD")).stdout.trim();
+      };
+      const older = await commitOf("older");
+      const pinned = await commitOf("pinned");
+      const newer = await commitOf("newer");
+      const before = await commitOf("before");
+      await commitOf("image change", "images/cmux-vm/x.txt");
+      await git(full, "checkout", "-q", "-b", "lane", before);
+      const offTip = await commitOf("lane build");
+      await git(full, "checkout", "-q", "feat-cmux-next");
+      const tip = (await git(full, "rev-parse", "HEAD")).stdout.trim();
+      const lock = path.join(dir, "lock.json");
+      writeFileSync(lock, JSON.stringify({ programs: [{ name: "cmux-tui", version: pinned }] }));
+      const fakeBin = path.join(dir, "bin");
+      mkdirSync(fakeBin);
+      const realBun = (await runChildOk("bash", ["-c", "command -v bun"], { env: process.env })).stdout.trim();
+      // files.cmux.com's latest manifest, as pin-cmux-tui.ts --latest prints it; LATEST=fail answers like a 503.
+      // --commit SHA answers for the commits in PUBLISHED (their builds are published) and 404s for the rest.
+      writeFileSync(
+        path.join(fakeBin, "bun"),
+        `#!/usr/bin/env bash\ncase "\${1:-}" in *pin-cmux-tui.ts)\n  if [ "\${2:-}" = --commit ]; then case " \${PUBLISHED:-} " in *" $3 "*) printf '{"commit":"%s","unchanged":false}' "$3"; exit 0;; esac; echo "$3/manifest.json: 404" >&2; exit 1; fi\n  [ "$LATEST" = fail ] && { echo "latest/manifest.json: 503" >&2; exit 1; }\n  printf '{"commit":"%s","unchanged":%s}' "$LATEST" "\${UNCHANGED:-false}"; exit 0;;\nesac\nexec ${realBun} "$@"\n`,
+      );
+      await runChildOk("chmod", ["+x", path.join(fakeBin, "bun")]);
+      const script = path.join(repoRoot, "images/cmux-vm/auto-roll.ts");
+      const plan = async (latest: string, unchanged = "false", published: string[] = []) => {
+        const out = await runChildOk(path.join(fakeBin, "bun"), [script, "plan", "--event", "push", "--commit", tip, "--before", before, "--tip", "HEAD", "--lock", lock, "--repo", full], {
+          env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, LATEST: latest, UNCHANGED: unchanged, PUBLISHED: published.join(" ") },
+        });
+        return JSON.parse(out.stdout) as { roll: boolean; reason: string; pin: string; cmuxTui: string };
+      };
+
+      const fresh = await plan(newer);
+      expect(fresh.roll).toBe(true);
+      expect(fresh.pin).toBe(newer);
+      expect(fresh.cmuxTui).toBe(newer);
+      expect(fresh.reason).toMatch(/newest published build/);
+      for (const [latest, unchanged, why] of [
+        [older, "false", /not newer/],
+        [pinned, "false", /carries the pinned binaries/],
+        [newer, "true", /carries the pinned binaries/],
+        [offTip, "false", /not on HEAD/],
+        ["fail", "false", /unreadable: .*503/],
+      ] as const) {
+        const kept = await plan(latest, unchanged);
+        expect(kept.roll).toBe(true);
+        expect(kept.pin).toBe("");
+        expect(kept.cmuxTui).toBe(pinned);
+        expect(kept.reason).toMatch(why);
+      }
+
+      // 2026-11-27: latest/ tracks main (3bb7a878, not on feat-cmux-next), so push rolls kept 348e8a8a while
+      // feat-cmux-next builds were published. The newest published build on the tip is pinned instead.
+      const onTip = await plan(offTip, "false", [older, newer]);
+      expect(onTip.pin).toBe(newer);
+      expect(onTip.cmuxTui).toBe(newer);
+      expect(onTip.reason).toMatch(/newest build published on HEAD .*latest build .* is not on HEAD/);
+      const onlyOlder = await plan(offTip, "false", [older]);
+      expect(onlyOlder.pin).toBe("");
+      expect(onlyOlder.cmuxTui).toBe(pinned);
+      expect(onlyOlder.reason).toMatch(/not on HEAD; none of the 3 newest commits after the pin has a published build/);
+    }), 60_000);
+
+  // Push roll 45961450781 (2026-11-27 07:52Z) kept cmux-tui f7b548a5, 516 commits back: publishing lagged from 06:26Z,
+  // the newest published build was 185 commits deep and only the 40 newest commits were asked.
+  test("a push roll finds the newest published build past the 40 newest commits", () =>
+    withDir(async (dir) => {
+      const full = path.join(dir, "full");
+      await git(dir, "init", "-q", "-b", "feat-cmux-next", full);
+      const commitOf = async (msg: string, file?: string) => {
+        if (file) {
+          mkdirSync(path.dirname(path.join(full, file)), { recursive: true });
+          writeFileSync(path.join(full, file), msg);
+          await git(full, "add", file);
+        }
+        await git(full, "commit", "-q", "--allow-empty", "-m", msg);
+        return (await git(full, "rev-parse", "HEAD")).stdout.trim();
+      };
+      const pinned = await commitOf("pinned");
+      const deepOld = await commitOf("deep old build");
+      const deepNew = await commitOf("deep new build");
+      for (let i = 0; i < 60; i++) await commitOf(`unbuilt ${i}`);
+      const before = await commitOf("before");
+      await commitOf("image change", "images/cmux-vm/x.txt");
+      const tip = (await git(full, "rev-parse", "HEAD")).stdout.trim();
+      await git(full, "checkout", "-q", "-b", "main-only", pinned);
+      const mainBuild = await commitOf("main build");
+      await git(full, "checkout", "-q", "feat-cmux-next");
+      const lock = path.join(dir, "lock.json");
+      writeFileSync(lock, JSON.stringify({ programs: [{ name: "cmux-tui", version: pinned }] }));
+      const fakeBin = path.join(dir, "bin");
+      mkdirSync(fakeBin);
+      const realBun = (await runChildOk("bash", ["-c", "command -v bun"], { env: process.env })).stdout.trim();
+      writeFileSync(
+        path.join(fakeBin, "bun"),
+        `#!/usr/bin/env bash\ncase "\${1:-}" in *pin-cmux-tui.ts)\n  if [ "\${2:-}" = --commit ]; then case " \${PUBLISHED:-} " in *" $3 "*) printf '{"commit":"%s","unchanged":false}' "$3"; exit 0;; esac; echo "$3/manifest.json: 404" >&2; exit 1; fi\n  printf '{"commit":"%s","unchanged":false}' "$LATEST"; exit 0;;\nesac\nexec ${realBun} "$@"\n`,
+      );
+      await runChildOk("chmod", ["+x", path.join(fakeBin, "bun")]);
+      const script = path.join(repoRoot, "images/cmux-vm/auto-roll.ts");
+      const out = await runChildOk(path.join(fakeBin, "bun"), [script, "plan", "--event", "push", "--commit", tip, "--before", before, "--tip", "HEAD", "--lock", lock, "--repo", full], {
+        env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, LATEST: mainBuild, PUBLISHED: [deepOld, deepNew].join(" ") },
+      });
+      const plan = JSON.parse(out.stdout) as { roll: boolean; reason: string; pin: string; cmuxTui: string };
+      expect(plan.roll).toBe(true);
+      expect(plan.pin).toBe(deepNew);
+      expect(plan.cmuxTui).toBe(deepNew);
+      expect(plan.reason).toMatch(/newest build published on HEAD/);
+    }), 60_000);
+
+  // RFD 0224 phase 4: 2026-11-28 17:48Z the lock pinned c6cd14b5 while the Cloud machine channel served 632a901e,
+  // 629 commits newer; a push roll pinned the newest published build, not the binary running VMs take.
+  test("a push roll pins the commit the Cloud machine channel serves, and falls back when it cannot", () =>
+    withDir(async (dir) => {
+      const full = path.join(dir, "full");
+      await git(dir, "init", "-q", "-b", "feat-cmux-next", full);
+      const commitOf = async (msg: string, file?: string) => {
+        if (file) {
+          mkdirSync(path.dirname(path.join(full, file)), { recursive: true });
+          writeFileSync(path.join(full, file), msg);
+          await git(full, "add", file);
+        }
+        await git(full, "commit", "-q", "--allow-empty", "-m", msg);
+        return (await git(full, "rev-parse", "HEAD")).stdout.trim();
+      };
+      const older = await commitOf("older build");
+      const pinned = await commitOf("pinned");
+      const served = await commitOf("channel build");
+      const newest = await commitOf("newest build");
+      const before = await commitOf("before");
+      await commitOf("image change", "images/cmux-vm/x.txt");
+      const tip = (await git(full, "rev-parse", "HEAD")).stdout.trim();
+      const lock = path.join(dir, "lock.json");
+      writeFileSync(lock, JSON.stringify({ programs: [{ name: "cmux-tui", version: pinned }] }));
+      const fakeBin = path.join(dir, "bin");
+      mkdirSync(fakeBin);
+      const realBun = (await runChildOk("bash", ["-c", "command -v bun"], { env: process.env })).stdout.trim();
+      writeFileSync(
+        path.join(fakeBin, "bun"),
+        `#!/usr/bin/env bash\ncase "\${1:-}" in *pin-cmux-tui.ts)\n  if [ "\${2:-}" = --commit ]; then case " \${PUBLISHED:-} " in *" $3 "*) printf '{"commit":"%s","unchanged":false}' "$3"; exit 0;; esac; echo "$3/manifest.json: 404" >&2; exit 1; fi\n  printf '{"commit":"%s","unchanged":false}' "$LATEST"; exit 0;;\nesac\nexec ${realBun} "$@"\n`,
+      );
+      await runChildOk("chmod", ["+x", path.join(fakeBin, "bun")]);
+      const script = path.join(repoRoot, "images/cmux-vm/auto-roll.ts");
+      const channel = path.join(dir, "cloud-machine.json");
+      const serve = (commit: string) =>
+        writeFileSync(channel, JSON.stringify({ payload: Buffer.from(JSON.stringify({ channel: "cloud-machine", commit })).toString("base64"), signature: "x" }));
+      const planWith = async (where: string, published: string[]) => {
+        const out = await runChildOk(path.join(fakeBin, "bun"), [script, "plan", "--event", "push", "--commit", tip, "--before", before, "--tip", "HEAD", "--lock", lock, "--repo", full, "--channel", where], {
+          env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, LATEST: newest, PUBLISHED: published.join(" ") },
+        });
+        return JSON.parse(out.stdout) as { roll: boolean; reason: string; pin: string; cmuxTui: string };
+      };
+      serve(served);
+      const fromChannel = await planWith(channel, [served, newest]);
+      expect(fromChannel).toMatchObject({ roll: true, pin: served, cmuxTui: served });
+      expect(fromChannel.reason).toContain("the commit the Cloud machine channel serves");
+      // The channel serves the pin: the image already carries it, so the newest build is not taken.
+      serve(pinned);
+      expect(await planWith(channel, [served, newest])).toMatchObject({ roll: true, pin: "", cmuxTui: pinned });
+      // Fallbacks to the newest published build: unreadable channel, an older commit, an unpublished one.
+      expect((await planWith(path.join(dir, "missing.json"), [newest])).pin).toBe(newest);
+      serve(older);
+      expect((await planWith(channel, [older, newest])).pin).toBe(newest);
+      serve(served);
+      expect((await planWith(channel, [newest])).pin).toBe(newest);
     }), 60_000);
 
   // Roll 44191283358's re-run (attempt 2) promoted cmux-tui 6c776483 at 2026-11-18 04:53Z over roll 44224051230's
@@ -950,11 +1215,13 @@ describe("auto-roll bake secrets", () => {
   };
   const load = (name: string) => YAML.parse(readFileSync(new URL(`../../.github/workflows/${name}`, import.meta.url), "utf8")) as Workflow;
   const NAMES = ["FREESTYLE_API_KEY", "CMUX_UITEST_STACK_EMAIL", "CMUX_UITEST_STACK_PASSWORD"];
+  // The private R2 copy of a kept image (#53777): optional, and the roll uploads its own copy, so it passes none.
+  const R2 = ["CF_R2_ACCESS_KEY_ID", "CF_R2_SECRET_ACCESS_KEY", "CF_R2_ACCOUNT_ID"];
 
-  test("the bake declares exactly the three secrets, all optional, and the roll passes exactly those", () => {
+  test("the bake declares the three secrets and the R2 ones, all optional, and the roll passes exactly the three", () => {
     const call = load("cloud-vm-image-bake.yml").on.workflow_call;
-    expect(Object.keys(call.secrets).sort()).toEqual([...NAMES].sort());
-    for (const name of NAMES) expect(call.secrets[name]).toEqual({ required: false });
+    expect(Object.keys(call.secrets).sort()).toEqual([...NAMES, ...R2].sort());
+    for (const name of [...NAMES, ...R2]) expect(call.secrets[name]).toEqual({ required: false });
     const bake = load("cloud-vm-image-roll.yml").jobs["bake"]!;
     expect(bake.secrets).toEqual(Object.fromEntries(NAMES.map((n) => [n, `\${{ secrets.${n} }}`])));
   });

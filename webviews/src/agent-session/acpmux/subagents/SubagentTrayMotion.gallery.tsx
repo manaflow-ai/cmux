@@ -8,7 +8,9 @@ import { componentEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { trayMotionLook } from "./trayMotion.experiment";
 
-type Props = { start?: number };
+import type { TrayFoldHeadArm } from "./trayFoldHead.experiment";
+
+type Props = { start?: number; foldHead?: TrayFoldHeadArm };
 
 const stage = (name: string) => ({ selector: `[data-stage="${name}"]` });
 const tray = (ctx: PlayContext) => ctx.document.querySelector<HTMLElement>(".acpmux-running-tray:not([aria-hidden])");
@@ -99,6 +101,33 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => lines(ctx) === 2);
         await ctx.click(stage("start"));
         await ctx.waitFor(() => lines(ctx) === 3);
+      },
+    },
+    // The one-line hat (trayFoldHead.experiment.ts `line`) holds one size: the composer's width, one
+    // row tall. Its only size change is coming and going, a 150 ms slide (coordinator's design pass,
+    // 2026-11-27).
+    "line-appears": {
+      note: "One line, 0 to 1: the first subagent starts and the bar slides in at its one size.",
+      props: { foldHead: "line" },
+      play: async (ctx) => {
+        await ctx.click(stage("start"));
+        await ctx.waitFor(() => tray(ctx));
+      },
+    },
+    "line-one": {
+      note: "One line, one subagent: 1 subagent working, its mark, then the empty slots the deck keeps.",
+      props: { start: 1, foldHead: "line" },
+    },
+    "line-many": {
+      note: "One line, fourteen subagents: the same width and height as one; eight marks, then +6 more in the same place.",
+      props: { start: 14, foldHead: "line" },
+    },
+    "line-leaves": {
+      note: "One line, 1 to 0: the last subagent ends and the bar slides out.",
+      props: { start: 1, foldHead: "line" },
+      play: async (ctx) => {
+        await ctx.click(stage("end-all"));
+        await ctx.waitFor(() => !tray(ctx));
       },
     },
     "two-running": {

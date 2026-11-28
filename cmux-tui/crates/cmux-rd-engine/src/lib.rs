@@ -24,9 +24,9 @@ use cmux_rd_core::profile::refine_after_us;
 use cmux_rd_core::reassembly::{CompleteFrame, Reassembler};
 use cmux_rd_core::resolution::{LadderConfig, Picture, ResolutionLadder};
 use cmux_rd_proto::{
-    Arrival, ClockEstimate, ClockPing, ClockPong, DatagramHeader, DatagramKind, FRAME_PREFIX_LEN,
-    Feedback, FrameBody, HEADER_LEN, InputEvent, InputPacket, MAX_ARRIVALS, MAX_DATAGRAM_VPC,
-    REF_NONE, flags,
+    Arrival, ClockEstimate, ClockPing, ClockPong, DatagramHeader, DatagramKind, Feedback,
+    FrameBody, HEADER_LEN, InputEvent, InputPacket, MAX_ARRIVALS, MAX_DATAGRAM_VPC, REF_NONE,
+    flags,
 };
 
 pub use cmux_rd_core::loss::LossMeter;
@@ -110,6 +110,8 @@ pub struct EngineConfig {
     /// (`cmux_rd_core::flow::INPUT_FRAME_WINDOW_US`), so the input's effect goes out as soon
     /// as the capture delivers it instead of on the next interval.
     pub input_frame_now: bool,
+    /// Enable VideoToolbox long-term-reference recovery when the viewer negotiated it.
+    pub ltr_enabled: bool,
     /// Tail-loss probes wait a round trip, not [`TAIL_PROBE_US`] (design D6): the first
     /// probe goes `max(2 x smoothed ack RTT + 4 x its deviation, TAIL_PROBE_MIN_US)`
     /// after the frame's last datagram left (at most [`TAIL_PROBE_US`]), each later one
@@ -139,6 +141,7 @@ impl Default for EngineConfig {
             stream: 0,
             frames_in_flight: 1,
             input_frame_now: false,
+            ltr_enabled: false,
             rtt_tail_probe: false,
             resolution_ladder: None,
         }
@@ -155,6 +158,10 @@ pub struct EncodeRequest {
     pub damage: Rect,
     /// Encode an IDR (first frame, recovery, or after a dropped frame).
     pub force_idr: bool,
+    /// Ask the encoder for a refresh P-frame from an acknowledged LTR.
+    pub force_ltr_refresh: bool,
+    /// Tokens the viewer has confirmed as fully received.
+    pub acknowledged_ltr_tokens: Vec<u64>,
     /// Why `force_idr` is set, for the source's timing log.
     pub idr_reason: Option<IdrReason>,
     /// The congestion controller's target for this frame.
@@ -208,6 +215,8 @@ pub struct Encoded {
     pub idr: bool,
     /// Source monotonic time of the pixels.
     pub t_capture_us: u64,
+    /// VideoToolbox's token for this frame when it became an LTR reference.
+    pub ltr_token: Option<u64>,
 }
 
 /// What the source does after one engine call.
@@ -325,6 +334,7 @@ impl Upstream {
             acked_frame: self.reassembler.last_released(),
             decode_us: 0,
             need_recovery: self.reassembler.need_recovery(),
+            acked_ltr_tokens: Vec::new(),
             arrivals: self.arrivals.drain(..take).collect(),
             nacks,
         };
@@ -371,6 +381,13 @@ struct StreamState {
     last_frame: u32,
     /// The next frame is a keyframe, and why.
     force_idr: Option<IdrReason>,
+    /// The next frame is an LTR refresh: a P-frame from a reference the viewer acknowledged.
+    force_ltr_refresh: bool,
+    /// The LTR refresh that went out and when, until the viewer acknowledges it. A
+    /// recovery ask after that lost it, and the stream starts over from a keyframe.
+    refresh_sent: Option<(u32, u64)>,
+    last_acked_frame: u32,
+    acknowledged_ltr_tokens: Vec<u64>,
     last_forced_idr_us: Option<u64>,
     /// The first damage covers the whole stream.
     started: bool,
@@ -412,6 +429,10 @@ impl StreamState {
             history: BTreeMap::new(),
             last_frame: 0,
             force_idr: Some(IdrReason::Start),
+            force_ltr_refresh: false,
+            refresh_sent: None,
+            last_acked_frame: 0,
+            acknowledged_ltr_tokens: Vec::new(),
             last_forced_idr_us: None,
             started: false,
             tile_of: None,
@@ -434,6 +455,31 @@ impl StreamState {
         self.gate.set_max_fps(after.fps);
         if (after.width, after.height) != (before.width, before.height) {
             self.force_idr.get_or_insert(IdrReason::Resize);
+        }
+    }
+
+    /// Whether this stream can start over with an LTR refresh instead of a keyframe
+    /// (reference frame invalidation): LTR is on, the viewer acknowledged a decoded
+    /// reference, the stream predicts from its own frames, and no refresh is still
+    /// unanswered (a lost refresh falls back to a keyframe).
+    fn can_refresh(&self, ltr_enabled: bool) -> bool {
+        ltr_enabled
+            && self.tile_of.is_none()
+            && self.force_idr.is_none()
+            && self.last_acked_frame > 0
+            && !self.acknowledged_ltr_tokens.is_empty()
+            && self.refresh_sent.is_none()
+    }
+
+    /// The next frame starts the stream over: an LTR refresh when `refresh`, else a
+    /// keyframe for `reason`.
+    fn restart(&mut self, refresh: bool, reason: IdrReason) {
+        if refresh {
+            self.force_ltr_refresh = true;
+        } else {
+            self.force_idr.get_or_insert(reason);
+            self.force_ltr_refresh = false;
+            self.refresh_sent = None;
         }
     }
 
@@ -760,6 +806,8 @@ impl MediaEngine {
                     damage,
                     force_idr: state.force_idr.is_some(),
                     idr_reason: state.force_idr,
+                    force_ltr_refresh: state.force_ltr_refresh,
+                    acknowledged_ltr_tokens: state.acknowledged_ltr_tokens.clone(),
                     target_kbps,
                     picture: state.ladder.as_ref().map(ResolutionLadder::picture),
                     profile,
@@ -913,12 +961,17 @@ impl MediaEngine {
             ref_frame: match surface_frame {
                 Some(video_frame) => video_frame,
                 None if enc.idr => REF_NONE,
+                None if req.force_ltr_refresh && state.last_acked_frame != 0 => {
+                    state.last_acked_frame
+                }
                 None => state.last_frame,
             },
+            // VideoToolbox returns a token whenever the OS has LTR; only a viewer that
+            // negotiated it reads the token-prefixed layout.
+            ltr_token: enc.ltr_token.filter(|_| self.cfg.ltr_enabled),
             access_unit: enc.access_unit,
         };
-        let data_shards =
-            (body.access_unit.len() + FRAME_PREFIX_LEN).div_ceil(self.packetizer.shard_len());
+        let data_shards = body.encoded_len().div_ceil(self.packetizer.shard_len());
         // Tile frames are standalone, so they get keyframe-grade protection.
         // While the link is away (the controller is frozen through an outage), parity
         // only adds bytes to the burst that waits for the link to come back.
@@ -934,6 +987,8 @@ impl MediaEngine {
             flags::TILE
         } else if enc.idr {
             flags::KEYFRAME
+        } else if req.force_ltr_refresh {
+            flags::RECOVERY
         } else {
             0
         };
@@ -990,6 +1045,15 @@ impl MediaEngine {
         // here lost the recovery, and a viewer that moved routes waited for another ask.
         if req.force_idr || enc.idr || tile {
             state.force_idr = None;
+        }
+        // The same holds for an LTR refresh; a keyframe answers one too.
+        if req.force_ltr_refresh || enc.idr || tile {
+            state.force_ltr_refresh = false;
+        }
+        if enc.idr || tile {
+            state.refresh_sent = None;
+        } else if req.force_ltr_refresh {
+            state.refresh_sent = Some((req.frame, now_us));
         }
         state.last_frame = req.frame;
         // Ultra: a frame that carried damage is refined once the screen stays still for one
@@ -1073,7 +1137,18 @@ impl MediaEngine {
             self.last_probe_start_us = Some(now_us);
         }
         self.last_feedback_us = now_us;
+        let ltr_enabled = self.cfg.ltr_enabled;
+        let rtt_us = self.ack_rtt_us().unwrap_or(0);
         let Some(state) = self.streams.get_mut(&stream) else { return };
+        state.last_acked_frame = state.last_acked_frame.max(fb.acked_frame);
+        // The viewer decoded the refresh (or a frame after it): it is answered.
+        if state.refresh_sent.is_some_and(|(frame, _)| fb.acked_frame >= frame) {
+            state.refresh_sent = None;
+        }
+        // The viewer sends its whole acknowledged set every time (its newest 16, oldest first)
+        // and empties it on a keyframe or decoder reset, so its newest feedback is the truth:
+        // merging kept stale tokens after a reset, and truncating kept the oldest 16.
+        state.acknowledged_ltr_tokens.clone_from(&fb.acked_ltr_tokens);
         if fb.acked_frame > 0
             && let Some(sent_at_us) = state.sent_at_us.remove(&fb.acked_frame)
         {
@@ -1144,11 +1219,27 @@ impl MediaEngine {
             // Set the keyframe up before the gate polls, so the one poll below hands it out.
             // Polling twice (ack, then damage) let the ack hand pending damage a frame number
             // and the second poll answer Wait over it: that frame was never encoded.
-            state.last_forced_idr_us = Some(now_us);
-            state.force_idr = Some(IdrReason::Recovery);
-            state.gate.clear_in_flight();
-            let full = state.full();
-            state.gate.requeue(full);
+            //
+            // With LTR on and a reference the viewer acknowledged as decoded, the answer is a
+            // refresh P-frame from that reference (reference frame invalidation), not a
+            // keyframe: a keyframe per loss on a lossy path is the IDR storm. A refresh still
+            // being encoded, or sent less than a round trip ago, is the answer on its way; an
+            // ask after that means it was lost, and the stream starts over from a keyframe.
+            // A viewer that reset (acked frame 0, no tokens) can decode no refresh at all.
+            let usable = fb.acked_frame > 0 && !state.acknowledged_ltr_tokens.is_empty();
+            let answering = usable
+                && (state.force_ltr_refresh
+                    || state
+                        .refresh_sent
+                        .is_some_and(|(_, sent)| now_us.saturating_sub(sent) < rtt_us));
+            if !answering {
+                let refresh = fb.acked_frame > 0 && state.can_refresh(ltr_enabled);
+                state.last_forced_idr_us = Some(now_us);
+                state.restart(refresh, IdrReason::Recovery);
+                state.gate.clear_in_flight();
+                let full = state.full();
+                state.gate.requeue(full);
+            }
         }
         let action = state.gate.ack(fb.acked_frame, now_us);
         out.encode = self.request(stream, action);
@@ -1213,7 +1304,10 @@ impl MediaEngine {
             state.probe_from_us = None;
             state.unacked_since_us = None;
             state.last_forced_idr_us = Some(now_us);
-            state.force_idr = Some(IdrReason::TailProbe);
+            // The viewer still holds what it acknowledged: an LTR refresh from it recovers
+            // without a keyframe (a lost refresh is never acknowledged, so it falls back).
+            let refresh = state.can_refresh(self.cfg.ltr_enabled);
+            state.restart(refresh, IdrReason::TailProbe);
             state.gate.clear_in_flight();
             let full = state.full();
             let action = state.gate.damage(full, now_us);

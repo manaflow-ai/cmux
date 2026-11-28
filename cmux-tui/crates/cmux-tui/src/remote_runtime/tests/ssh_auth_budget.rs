@@ -42,6 +42,7 @@ fn startup_deadline_waits_for_ssh_authentication() {
         providers,
         identity: StaticIdentity::generate().unwrap(),
         expected_daemon: None,
+        daemon_took_ik: false,
         auth: ClientAuthMode::Carrier,
         device_name: "ssh-auth-budget-test".into(),
         session: SessionId([38; 16]),

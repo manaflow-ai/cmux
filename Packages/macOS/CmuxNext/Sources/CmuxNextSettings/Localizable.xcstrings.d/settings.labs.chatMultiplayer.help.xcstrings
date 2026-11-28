@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.labs.chatMultiplayer.help" : {
+      "comment" : "Settings > Advanced > Labs: help for the Chat Multiplayer toggle",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Teammates you share a chat with show when they view it and when they type."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يظهر زملاء الفريق الذين تشاركهم دردشة عندما يعرضونها وعندما يكتبون."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saradnici s kojima dijelite chat prikazuju kada ga gledaju i kada kucaju."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Holdkammerater, du deler en chat med, vises, når de ser den, og når de skriver."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Teammitglieder, mit denen du einen Chat teilst, zeigen an, wann sie ihn ansehen und wann sie tippen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los compañeros con los que compartes un chat muestran cuándo lo ven y cuándo escriben."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les coéquipiers avec qui vous partagez un chat indiquent quand ils le consultent et quand ils écrivent."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I compagni di squadra con cui condividi una chat mostrano quando la guardano e quando scrivono."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "チャットを共有しているチームメイトが、表示中や入力中であることを表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "មិត្តរួមក្រុមដែលអ្នកចែករំលែកការជជែកជាមួយ បង្ហាញនៅពេលពួកគេមើលវា និងនៅពេលពួកគេវាយ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "채팅을 공유한 팀원이 채팅을 보고 있을 때와 입력 중일 때 표시됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lagkamerater du deler en chat med, vises når de ser på den og når de skriver."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Członkowie zespołu, z którymi udostępniasz czat, pokazują, kiedy go oglądają i kiedy piszą."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Colegas com quem você compartilha um chat mostram quando o visualizam e quando digitam."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Участники команды, с которыми вы делитесь чатом, показывают, когда просматривают его и когда печатают."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เพื่อนร่วมทีมที่คุณแชร์แชทด้วยจะแสดงเมื่อพวกเขากำลังดูและกำลังพิมพ์"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sohbet paylaştığınız ekip arkadaşları sohbeti ne zaman görüntülediklerini ve ne zaman yazdıklarını gösterir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Учасники команди, з якими ви ділитеся чатом, показують, коли переглядають його і коли друкують."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Đồng đội bạn chia sẻ cuộc trò chuyện sẽ hiển thị khi họ xem và khi họ nhập."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "与你共享聊天的队友会显示他们何时在查看、何时在输入。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "與你共享聊天的隊友會顯示他們何時在檢視、何時在輸入。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

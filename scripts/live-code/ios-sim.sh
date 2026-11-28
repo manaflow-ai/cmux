@@ -14,7 +14,8 @@
 #   scripts/live-code/ios-sim.sh undo OUT [--all]         the code before the newest patch (or every patch)
 #   scripts/live-code/ios-sim.sh log OUT                  the app's live code log
 #
-# IOS_SIM_SET=DIR uses that simctl device set. JOBS bounds xcodebuild's parallel jobs (default 6).
+# IOS_SIM_SET=DIR uses that simctl device set. LIVE_CODE_IOS_SDK=iphoneos builds the same app for a
+# device instead, unsigned (scripts/live-code/ios-device.sh build signs and installs it). JOBS bounds xcodebuild's parallel jobs (default 6).
 # XCODEGEN names the xcodegen to generate the project with (default: xcodegen on PATH; the project is
 # generated only when one is found). The FFI (CmuxMobileLinkFFI.xcframework) must be built or
 # restored first: cmux-next-ios/rust/scripts/build-xcframework.sh, or scripts/ci/ios_ffi_cache.py.
@@ -37,6 +38,12 @@ ios="$root/cmux-next-ios"
 die() { echo "ios-sim live code: $*" >&2; exit 1; }
 simctl() { xcrun simctl ${IOS_SIM_SET:+--set "$IOS_SIM_SET"} "$@"; }
 out_dir() { mkdir -p "${1:?OUT}" && cd "$1" && pwd; }
+live_code_sdk() {
+  case "${LIVE_CODE_IOS_SDK:-iphonesimulator}" in
+    iphonesimulator|iphoneos) echo "${LIVE_CODE_IOS_SDK:-iphonesimulator}" ;;
+    *) die "LIVE_CODE_IOS_SDK is iphonesimulator or iphoneos, not $LIVE_CODE_IOS_SDK" ;;
+  esac
+}
 
 # The iPhone app's modules: every CmuxMobile target of CmuxMobileKit, and the app target.
 export LIVE_CODE_MODULE_PREFIX=CmuxMobile
@@ -56,9 +63,18 @@ xcodebuild_live() { # OUT CONFIG LOG [LIST]
   # names: a private name carries its file's discriminator), in the app's own modules only.
   args+=('OTHER_SWIFT_FLAGS=$(inherited) $(CMUX_LIVE_CODE_PRIVATE_$(TARGET_NAME))')
   while IFS= read -r line; do args+=("CMUX_LIVE_CODE_PRIVATE_$line=-Xfrontend -enable-private-imports"); done < <(live_code_targets)
+  local destination='generic/platform=iOS Simulator' signing=(CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM=)
+  # A device build is left unsigned: the Mac's Apple Development identity signs it before the install.
+  # It is cmux Dev (dev.cmux.mobile.dev), as cmux-next-ios-sim.sh try builds it, so it replaces the
+  # person's cmux Dev in place and keeps its sign-in and pairing.
+  if [[ "$(live_code_sdk)" == iphoneos ]]; then
+    destination='generic/platform=iOS'
+    signing=(CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= DEVELOPMENT_TEAM=7WLXT3NR37
+      CMUX_MOBILE_TAG=.dev "CMUX_MOBILE_DISPLAY_NAME=cmux Dev")
+  fi
   xcodebuild -project "$ios/CmuxMobileApp.xcodeproj" -scheme CmuxMobileApp -configuration "$config" \
-    -destination 'generic/platform=iOS Simulator' -derivedDataPath "$out/dd" -jobs "${JOBS:-6}" \
-    CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+    -destination "$destination" -derivedDataPath "$out/dd" -jobs "${JOBS:-6}" \
+    "${signing[@]}" ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
     COMPILER_INDEX_STORE_ENABLE=NO ENABLE_DEBUG_DYLIB=NO \
     "SWIFT_ACTIVE_COMPILATION_CONDITIONS=\$(inherited) $conditions" \
     "${args[@]}" build >"$log" 2>&1 || {
@@ -80,7 +96,7 @@ build() { # OUT [CONFIG]
     || die "no CmuxMobileLinkFFI.xcframework: build it (cmux-next-ios/rust/scripts/build-xcframework.sh) or restore it (scripts/ci/ios_ffi_cache.py)"
   # 1. Build and link, nothing interposable yet. Its log holds the frontend commands patches compile with.
   xcodebuild_live "$out" "$config" "$out/xcodebuild.log"
-  local app="$out/dd/Build/Products/$config-iphonesimulator/CmuxMobileApp.app"
+  local app="$out/dd/Build/Products/$config-$(live_code_sdk)/CmuxMobileApp.app"
   local bin="$app/CmuxMobileApp"
   [[ -f "$bin" ]] || die "no app at $app"
   # 2. What the app exports of its own modules, made interposable: only the link steps run again.

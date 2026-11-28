@@ -205,6 +205,9 @@ import UIKit
         try await Self.wait("both reads finish") { next.loads == 2 }
         let image = try #require(next.entry(Self.key("a")).image)
         #expect(image.size.width * image.scale == 40 && image.size.height * image.scale == 56)
+        #expect(next.entry(Self.key("a")).pixelWidth == 40)
+        #expect(next.entry(Self.key("a")).pixelHeight == 56)
+        #expect(next.entry(Self.key("a")).hasKnownPicture)
         #expect(next.entry(Self.key("never-seen")).image == nil)
     }
 
@@ -412,6 +415,32 @@ import UIKit
         // A tab never seen: live, as before.
         #expect(Card.face(awaitingHistory: false, mayShowPicture: false, drawable: true, hasLastKnown: false) == .live)
         #expect(Card.face(awaitingHistory: true, mayShowPicture: false, drawable: true, hasLastKnown: false) == .live)
+    }
+
+    /// A chat this phone has no turns of (never opened here, or hibernated) shows the Mac's text
+    /// of its last turns, never an empty page; turns of its own, or a last-known picture while
+    /// history loads, still win.
+    @Test func aChatWithNoTurnsHereShowsTheMacsText() {
+        typealias Card = AgentTabCard
+        #expect(Card.face(awaitingHistory: false, mayShowPicture: false, drawable: true, hasLastKnown: false,
+                          hasTurns: false, hasMacScreen: true) == .macScreen)
+        #expect(Card.face(awaitingHistory: true, mayShowPicture: false, drawable: true, hasLastKnown: false,
+                          hasTurns: false, hasMacScreen: true) == .macScreen)
+        // A picture drawn of no turns is an empty page: the Mac's text instead.
+        #expect(Card.face(awaitingHistory: false, mayShowPicture: true, drawable: true, hasLastKnown: false,
+                          hasTurns: false, hasMacScreen: true) == .macScreen)
+        #expect(Card.face(awaitingHistory: true, mayShowPicture: false, drawable: true, hasLastKnown: true,
+                          hasTurns: false, hasMacScreen: true) == .lastKnown)
+        // A picture kept of the chat beats the Mac's text of it, loading or not.
+        #expect(Card.face(awaitingHistory: false, mayShowPicture: false, drawable: false, hasLastKnown: true,
+                          hasTurns: false, hasMacScreen: true) == .lastKnown)
+        #expect(Card.face(awaitingHistory: false, mayShowPicture: true, drawable: true, hasLastKnown: false,
+                          hasTurns: true, hasMacScreen: true) == .picture)
+        #expect(Card.face(awaitingHistory: false, mayShowPicture: false, drawable: true, hasLastKnown: false,
+                          hasTurns: true, hasMacScreen: true) == .live)
+        // No text from the Mac: as before.
+        #expect(Card.face(awaitingHistory: false, mayShowPicture: false, drawable: true, hasLastKnown: false,
+                          hasTurns: false, hasMacScreen: false) == .live)
     }
     // MARK: What the Mac pushes (`MacTabCards`)
 

@@ -1658,7 +1658,9 @@ class Wiring(unittest.TestCase):
                                      ref="refs/heads/feat-cmux-next" if event == "push" else "refs/pull/1/merge")
             context["github"]["event"]["pull_request"]["labels"] = [{"name": label} for label in labels]
             context["vars"]["CI_FAST_LANE_RUNNER"] = fast_lane
-            context["needs"]["path_route"] = {"outputs": {"swift_canary": canary, "scheme": scheme, "native": native}}
+            # The tiers read the PR's live labels from path_route (#57329), not the event's.
+            context["needs"]["path_route"] = {"outputs": {"swift_canary": canary, "scheme": scheme, "native": native,
+                                                          "labels": "," + ",".join(labels) + ","}}
             return set(evaluate(expression, context).split())
 
         # A pull request's fast tier and Swift canary are pr-pipeline.yml's `mac` job (ci/steps.toml, note-556):
@@ -1790,7 +1792,10 @@ class Wiring(unittest.TestCase):
         self.assertEqual(job["permissions"].get("actions"), "read")
         place = next(step for step in job["steps"] if step.get("id") == "place")
         # The pool snapshot reads with the glaeda read token (its own budget), else GITHUB_TOKEN.
-        self.assertEqual(place["env"]["SNAPSHOT_TOKEN"], "${{ steps.snapshot-read-token.outputs.token || github.token }}")
+        # Even run ids mint on cmux-bot's installation first (#56395), so per-PR reads split two budgets.
+        self.assertEqual(place["env"]["SNAPSHOT_TOKEN"],
+                         "${{ (steps.snapshot-read-token-bot.outputs.token || steps.snapshot-read-token.outputs.token)"
+                         " || github.token }}")
         for output in ("blacksmith_12_jobs", "blacksmith_6_jobs", "nightly_runner_ready"):
             self.assertEqual(job["outputs"][output], f"${{{{ steps.place.outputs.{output} }}}}")
         self.assertFalse({"hosted_jobs", "hosted_runner"} & set(job["outputs"]))
@@ -2616,13 +2621,10 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
         "cmux-tui-team-signed.yml build-helper: runs-on[0]",
         "cmux-tui-team-signed.yml sign-helper: runs-on[0]",
         "ios-appstore-upload.yml upload: runs-on[0]",
-        # #50338: the App Store keys in the release environment, as ios-appstore-upload.
-        "ios-internal-submit.yml submit: runs-on[0]",
         "ios-e2e.yml mac-ios-e2e: runs-on[0]",
         "ios-internal-nightly.yml archive: runs-on[0]",
         "ios-internal-nightly.yml upload: runs-on[0]",
         "ios-review-gate.yml reviewer-path: runs-on[0]",
-        "ios-review-gate.yml asc-validate: runs-on[0]",
         "ios-streamed-validate.yml validate: runs-on[0]",
         "ios-testflight.yml upload: runs-on[0]",
         "machine-vault-e2e.yml e2e: runs-on[0]",
@@ -2631,6 +2633,10 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
         "resume-nightly-notarization.yml resume: runs-on[0]",
         "resume-nightly-notarization.yml verify-stapled: runs-on[0]",
         "cmux-next-perf-budgets.yml blacksmith-mac: runs-on[0]",
+        # Installs the published NIGHTLY into /Applications and has Sparkle replace and relaunch it: a disposable Mac.
+        "nightly-next-update-e2e.yml update: runs-on[0]",
+        # The hosted first-connect TTI legs: the probe's samples are defined on a hosted runner, not an owned Mac.
+        "ios-launch-tti-hosted.yml measure: runs-on[0]",
         "stable-next.yml sign: runs-on[0]",
         # Its one Blacksmith branch is a rescued run's (inputs.rescue == 'blacksmith', dispatched only while the
         # switch allows it, scripts/ci/app_ffi_rescue.py), and it reads only the slot its placement found live

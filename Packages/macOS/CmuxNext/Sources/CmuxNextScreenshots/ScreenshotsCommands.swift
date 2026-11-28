@@ -1,4 +1,5 @@
 public import AppKit
+import CCmuxScreenshots
 public import CmuxNextFileGrid
 public import CmuxNextFiles
 
@@ -70,8 +71,11 @@ public final class ScreenshotsCommands {
     /// - Throws: ``FileBrowserError`` (invalid or taken name, failure).
     @discardableResult
     public func rename(_ item: FileGridItem, to name: String, undo: UndoManager?) async throws -> URL {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed != item.name else { return item.url }
+        let current = item.name
+        let typed = ScreenshotsFFI.bytes(current) { current, currentCount in
+            ScreenshotsFFI.bytes(name) { ScreenshotsFFI.take(cmux_screenshots_rename_target(current, currentCount, $0, $1)) }
+        }
+        guard let trimmed = typed else { return item.url }
         let target = try await files.rename(item.url, to: trimmed)
         registerUndo(on: undo) { files in try await files.move([(from: target, to: item.url)]) }
         return target

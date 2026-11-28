@@ -43,6 +43,17 @@ pub trait Machines: Send + Sync + 'static {
     ) -> impl Future<Output = Result<String, String>> + Send;
     /// Delete a fork this placement made. Deleting one that is already gone is not an error.
     fn delete(&self, machine: &str) -> impl Future<Output = Result<(), String>> + Send;
+    /// [`Machines::fork`] at a ladder size (`sm` .. `2xl`), never smaller than `machine`: a run VM
+    /// at its predicted shape (RFD 0144 piece 8). A backend without sizes forks at the source's.
+    fn fork_sized(
+        &self,
+        machine: &str,
+        client_key: &str,
+        size: Option<&str>,
+    ) -> impl Future<Output = Result<String, String>> + Send {
+        let _ = size;
+        self.fork(machine, client_key)
+    }
 }
 
 /// Runs the sub-agent on a fork and brings its result back.
@@ -206,15 +217,35 @@ impl CloudMachines {
 #[cfg(unix)]
 impl Machines for CloudMachines {
     async fn fork(&self, machine: &str, client_key: &str) -> Result<String, String> {
+        self.fork_sized(machine, client_key, None).await
+    }
+
+    async fn fork_sized(
+        &self,
+        machine: &str,
+        client_key: &str,
+        size: Option<&str>,
+    ) -> Result<String, String> {
         let mut request = self.request.clone();
         request.call = "machine.fork".into();
-        request.args = serde_json::json!({"machine": machine, "clientKey": client_key, "visibility": "private"})
+        let mut args = serde_json::json!({"machine": machine, "clientKey": client_key, "visibility": "private"})
             .as_object()
             .cloned()
             .unwrap_or_default();
-        let answer = cmux_cloud_api::perform(&request, zeroize::Zeroizing::new(Vec::new()))
-            .await
-            .map_err(|f| Self::failure(&f, &request))?;
+        if let Some(size) = size {
+            args.insert("size".into(), Value::from(size));
+        }
+        request.args = args;
+        // The exact route in every refusal: run 46172370728 read only "the Cloud API answered
+        // HTTP 404", which cannot tell a stale owner-API route (pre-#64491) from a wrong id.
+        let url = format!(
+            "{}/v1/machines/{machine}/fork",
+            cmux_cloud_client::backend::platform_for(&request.api, |k| std::env::var(k).ok())
+        );
+        let answer =
+            cmux_cloud_api::perform(&request, zeroize::Zeroizing::new(Vec::new())).await.map_err(
+                |f| format!("POST {url} (machine {machine}): {}", Self::failure(&f, &request)),
+            )?;
         answer
             .get("id")
             .and_then(Value::as_str)
@@ -546,6 +577,11 @@ async fn place_on<M: Machines, R: SubRun>(
         model: opts.model.clone(),
         sync_patch,
     };
+    crate::fork_spec::log(
+        &crate::fork_spec::ForkSpec::preset(crate::fork_spec::Preset::SubVm),
+        machine,
+        fork.id(),
+    );
     let ran = runner.run(fork.id(), &task).await;
     let fork_id = fork.id().to_owned();
     let ran = match ran {

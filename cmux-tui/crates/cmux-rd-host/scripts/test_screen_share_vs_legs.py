@@ -127,6 +127,23 @@ class CaptureSplit(unittest.TestCase):
         self.assertIn("capture_start_us", rows_named(b)[" Readback"]["cmux"]["null"])
         self.assertEqual(rows_named(b)["Capture"]["cmux"]["p50"], 5.0)  # sck 2 + gate 3, unchanged
 
+    def test_mac_frame_lead_explains_a_capture_below_zero(self):
+        # ScreenCaptureKit hands the frame over 3 ms before the vsync it is composited for; the
+        # gate releases at once (release before capture start, the Mac order).
+        row = self.breakdown({"shown_us": 9_000, "arrived_us": 6_000, "capture_start_us": 6_200,
+                              "encode_start_us": 6_500})
+        self.assertEqual((row["lead"], row["gate_wait"], row["readback"]), (3.0, 0.2, 0.3))
+        b = vs.build_budget({"rows": [row]}, None)
+        named = rows_named(b)
+        self.assertEqual(named[" Frame lead"]["cmux"]["p50"], 3.0)
+        self.assertEqual(named["Capture"]["cmux"]["p50"], -2.5)
+        self.assertGreaterEqual(named[" Readback"]["cmux"]["p50"], 0)
+
+    def test_without_a_display_time_frame_lead_says_why(self):
+        row = self.breakdown({"damage_us": 6_000})
+        b = vs.build_budget({"rows": [row]}, None)
+        self.assertIn("shown_us", rows_named(b)[" Frame lead"]["cmux"]["null"])
+
     def test_a_record_from_before_the_split_still_tables_beside_a_new_one(self):
         old = vs.build_budget({"rows": [breakdown_row()]}, None, link="old")
         old["rows"] = [r for r in old["rows"] if r["row"] not in (" Gate wait", " Readback")]
@@ -313,7 +330,7 @@ class AppleViewer(unittest.TestCase):
 
     def test_the_window_is_the_new_screen_sharing_window_naming_the_host(self):
         self.assertEqual(vs.screen_sharing_window(WINDOWS, "10.0.0.5"),
-                         {"pid": 900, "window": 77, "title": "10.0.0.5"})
+                         {"pid": 900, "window": 77, "title": "10.0.0.5", "matched": "title"})
         # One there before the run is never picked; a tiny one is no viewer window.
         only_old = [w for w in WINDOWS if w["window"] != 77]
         self.assertIsNone(vs.screen_sharing_window(only_old, "10.0.0.5", exclude={41}))
@@ -411,6 +428,20 @@ class AppleViewer(unittest.TestCase):
         # One that ran before is never touched.
         out, killed = self.open_with([], pids_before={500}, pids_after={500})
         self.assertEqual((killed, out["killed"]), ([], []))
+
+    def test_untitled_windows_take_the_one_new_window_of_the_screen_sharing_this_run_started(self):
+        untitled = [{"owner": "Screen Sharing", "pid": 900, "window": 90, "title": "",
+                     "layer": 0, "w": 1600, "h": 1000}]
+        self.assertEqual(vs.screen_sharing_window(untitled, "10.0.0.5", launched={900}),
+                         {"pid": 900, "window": 90, "title": "", "matched": "launched pid"})
+        self.assertIsNone(vs.screen_sharing_window(untitled, "10.0.0.5"))
+        two = untitled + [{**untitled[0], "window": 91}]
+        self.assertIsNone(vs.screen_sharing_window(two, "10.0.0.5", launched={900}))
+        other = untitled + [{**untitled[0], "window": 92, "pid": 901, "title": "other-mac"}]
+        self.assertIsNone(vs.screen_sharing_window(other, "10.0.0.5", launched={900}))
+        out, _ = self.open_with(untitled, pids_before=set(), pids_after={900})
+        self.assertEqual((out.get("window"), out.get("matched")), (90, "launched pid"))
+        self.assertIn("no marker visible through the Screen Sharing window", out["error"])
 
     def test_an_unnamed_window_is_never_picked_and_says_so(self):
         unnamed = [{"owner": "Screen Sharing", "pid": 900, "window": 90, "title": "other-mac",

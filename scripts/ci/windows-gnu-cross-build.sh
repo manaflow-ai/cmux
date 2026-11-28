@@ -13,6 +13,7 @@
 # Usage: windows-gnu-cross-build.sh setup            # fetch + verify the sysroot, print env
 #        windows-gnu-cross-build.sh build OUT_DIR    # setup, cargo build, check, stage OUT_DIR
 #        windows-gnu-cross-build.sh env              # print the exports (after setup)
+#        windows-gnu-cross-build.sh build-acpmux OUT_DIR  # setup, acpmux.exe, check, stage OUT_DIR
 # Env: CMUX_WINDOWS_SYSROOT_DIR (cache dir, default $RUNNER_TEMP or ~/.cache), MINGW_ARCHIVE (an
 # already downloaded copy of the archive; checked like a download).
 set -euo pipefail
@@ -82,9 +83,22 @@ build() {
   cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target x86_64-pc-windows-gnu
   mkdir -p "$out"
   for b in "${bins[@]}"; do
-    cp "target/x86_64-pc-windows-gnu/release/$b.exe" "$out/$b-x86_64-pc-windows-gnu.exe"
+    cp "${CARGO_TARGET_DIR:-target}/x86_64-pc-windows-gnu/release/$b.exe" "$out/$b-x86_64-pc-windows-gnu.exe"
   done
   python3 "$notices" check-windows-binary "$out"/*.exe
+  ls -la "$out"
+}
+
+# acpmux for GPUI on Windows (build-windows-acpmux): the same reviewed runtime, its own job.
+build_acpmux() {
+  local out="${1:?OUT_DIR}"
+  setup
+  eval "$(print_env)"
+  cd "$repo_root/cmux-tui"
+  cargo build -p acpmux --bin acpmux --release --locked --target x86_64-pc-windows-gnu
+  mkdir -p "$out"
+  cp "${CARGO_TARGET_DIR:-target}/x86_64-pc-windows-gnu/release/acpmux.exe" "$out/acpmux-x86_64-pc-windows-gnu.exe"
+  python3 "$notices" check-windows-binary "$out/acpmux-x86_64-pc-windows-gnu.exe"
   ls -la "$out"
 }
 
@@ -92,5 +106,6 @@ case "${1:-}" in
   setup) setup; print_env ;;
   env) print_env ;;
   build) build "${2:-}" ;;
-  *) echo "usage: $0 setup|env|build OUT_DIR" >&2; exit 2 ;;
+  build-acpmux) build_acpmux "${2:-}" ;;
+  *) echo "usage: $0 setup|env|build OUT_DIR|build-acpmux OUT_DIR" >&2; exit 2 ;;
 esac

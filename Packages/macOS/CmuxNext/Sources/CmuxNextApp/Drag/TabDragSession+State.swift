@@ -3,6 +3,7 @@ import CmuxNextWakeups
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextSidebar
 import CmuxNextTabs
 import QuartzCore
 

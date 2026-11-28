@@ -5,7 +5,7 @@
 // 9.5:1) and status.
 {
   "name": "Broadsheet Dark",
-  "description": "A reading instrument, Dark: a near-black page, warm ink, a margin-toned sidebar, hairline rules.",
+  "description": "Dark: a near-black page, warm text, thin rules.",
 
   // The terminal follows the page; the window, sidebar and pages take this theme.
   "appearance.theme": "Builtin Dark",

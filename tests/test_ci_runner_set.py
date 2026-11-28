@@ -74,7 +74,6 @@ class RunnerSetTests(unittest.TestCase):
         # scripts, retries only on ephemeral Blacksmith; the rest may take the reconciled pool.
         ephemeral = "|| vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}"
         cases = {
-            ("pr-red-checks-comment.yml", "comment"): "|| 'cmux-linux' }}",
             ("cmux-next.yml", "path_route"): "|| 'cmux-linux' }}",
             ("ci-guards.yml", "guard-status"): "|| 'cmux-linux' }}",
         }
@@ -117,14 +116,18 @@ class RunnerSetTests(unittest.TestCase):
                         self.assertNotIn("needs.", runs_on)
                     elif (workflow, name) in EPHEMERAL_POOL_JOBS:
                         # one_linux_label.py keeps a credentialed job on the ephemeral vendor pool.
-                        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux }}", runs_on)
+                        # Frozen to its ephemeral literal (cmux#54437): no variable moves it.
+                        self.assertTrue(runs_on.endswith("github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-32vcpu-ubuntu-2404' }}"), runs_on)
+                        self.assertNotIn("vars.", runs_on)
                     else:
                         self.assertIn(POOL, runs_on)
                     self.assertNotIn("vars.LINUX_RUNNER || 'blacksmith-", runs_on)
                     self.assertNotIn("CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-", runs_on)
                     self.assertNotIn("outputs.map", runs_on)
-                    # Past the fork branches, no Blacksmith size is written down.
-                    self.assertNotIn("'blacksmith-", runs_on.split("github.repository && ")[-1].split("|| ", 1)[-1])
+                    # Past the fork branches, no Blacksmith size is written down, except an ephemeral
+                    # job's run_attempt > 1 fallback.
+                    if (workflow, name) not in EPHEMERAL_POOL_JOBS:
+                        self.assertNotIn("'blacksmith-", runs_on.split("github.repository && ")[-1].split("|| ", 1)[-1])
                     self.assertNotRegex(runs_on, r"RUNNER_POOLS\)\.linux_\d")
 
     def test_pr_checks_advisory_takes_a_one_job_vm(self) -> None:
@@ -134,13 +137,23 @@ class RunnerSetTests(unittest.TestCase):
         job = yaml.safe_load((WORKFLOWS / "pr-checks.yml").read_text(encoding="utf-8"))["jobs"]["advisory"]
         runs_on = runs_on_text(job, "pr-checks.yml#advisory")
         self.assertNotIn("cmux-gcp-pr-control-jit-x64", runs_on)
-        self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && "
-                      "'blacksmith-4vcpu-ubuntu-2404'", runs_on)
-        self.assertTrue(runs_on.endswith("vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || "
-                                         "'blacksmith-4vcpu-ubuntu-2404' }}"), runs_on)
+        # CI_TRUSTED_RUNNER's picker is frozen to the label it resolved to; a fork takes the same label.
+        self.assertTrue(runs_on.endswith("'blacksmith-4vcpu-ubuntu-2404' }}"), runs_on)
+        self.assertNotIn("vars.", runs_on)
         for persistent in ("RUNNER_POOLS", "cmux-linux", "cmux-fleet-linux-x64"):
             self.assertNotIn(persistent, runs_on)
         self.assertEqual(job["permissions"]["pull-requests"], "write")
+
+    def test_red_checks_comment_takes_the_trusted_one_job_runner(self) -> None:
+        # The red checks comment runs after a head's real checks, so a queue on it is the head's verdict wait:
+        # cmux-linux held it 326 s and 421 s on 2026-11-25/26 for 25 s of work (pr-red-checks-comment.yml).
+        job = yaml.safe_load((WORKFLOWS / "pr-red-checks-comment.yml").read_text(encoding="utf-8"))["jobs"]["comment"]
+        runs_on = runs_on_text(job, "pr-red-checks-comment.yml#comment")
+        # CI_TRUSTED_RUNNER's picker is frozen to the label it resolved to.
+        self.assertTrue(runs_on.endswith("'blacksmith-4vcpu-ubuntu-2404' }}"), runs_on)
+        self.assertNotIn("vars.", runs_on)
+        for persistent in ("RUNNER_POOLS", "cmux-linux", "cmux-fleet-linux-x64"):
+            self.assertNotIn(persistent, runs_on)
 
     def test_gallery_health_reads_the_live_16_vcpu_pool(self) -> None:
         # A CPU-bound render (ask-378f0fa70e: 4 vCPU 30.5 s, 16 vCPU 13.4 s for the same cases): the 16 vCPU
@@ -164,8 +177,10 @@ class RunnerSetTests(unittest.TestCase):
         self.assertEqual(gate["name"], "Wait until the pull request has had no push for the quiet period")
         self.assertIn("github.event_name == 'pull_request'", gate["if"])
         self.assertIn("github.run_attempt == 1", gate["if"])
-        # landing.md: a leo-named-fix PR lands with no wait.
-        self.assertIn("!contains(github.event.pull_request.labels.*.name, 'leo-named-fix')", gate["if"])
+        # landing.md: a leo-named-fix PR lands with no wait. The label comes from path_route's live read of the
+        # PR's labels (",a,b,"), so a label added after the push counts too, not the event's snapshot.
+        self.assertIn("!contains(needs.path_route.outputs.labels, ',leo-named-fix,')", gate["if"])
+        self.assertIn("path_route", placement.get("needs") or [])
         self.assertIn("vars.CI_PR_QUIET_PERIOD_SECONDS", gate["if"])
         self.assertTrue(gate.get("continue-on-error"))
         self.assertIn('sleep "$wait"', gate["run"])
@@ -200,8 +215,9 @@ class RunnerSetTests(unittest.TestCase):
             return cells is None or any("macos" in runs_on or "gateway_runner" in runs_on for runs_on in cells)
 
         mac = {name for name, job in jobs.items() if can_take_a_mac(job) and name not in starts_at_once}
+        # swift-canary-fleet is a Linux build-fleet client now (note-canary-linux-read), so it takes no Mac.
         self.assertTrue({"fast-tier", "swift-canary", "swift-test", "daemon-test", "generated-files", "release-compile",
-                         "cmux-scheme-compile", "swift-canary-fleet", "fast-tier-fleet-mac"} <= mac, sorted(mac))
+                         "cmux-scheme-compile", "fast-tier-fleet-mac"} <= mac, sorted(mac))
         for name in sorted(mac):
             with self.subTest(job=name):
                 self.assertIn("macos-placement", ancestors(name), f"{name} takes a Mac before the quiet period ends")

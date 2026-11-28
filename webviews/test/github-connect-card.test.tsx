@@ -6,6 +6,7 @@
 // `accounts.githubConnect` with the call's repository, and the chat goes on by itself once the
 // person is back from GitHub's page: one Continue, never two.
 import { afterAll, expect, test } from "bun:test";
+import { settleReact } from "./support/domTeardown";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import {
@@ -71,6 +72,21 @@ test("git's and gh's refusal line ask for a connect with no repository; the MCP 
   expect(githubConnectCall(mcp(mcpRefusal()))).toEqual({ reason: "not-connected", repo: "acme/web" });
   expect(githubConnectCall(mcp(mcpRefusal("needs_reauth")))).toEqual({ reason: "needs-reauth", repo: "acme/web" });
   expect(githubConnectCall(mcp(mcpRefusal("policy.denied")))).toEqual({ reason: "not-covered", repo: "acme/web" });
+  // The App asked for more (contents: read & write) and this installation has not accepted it yet.
+  expect(githubConnectCall(mcp(mcpRefusal("github.permissions_pending")))).toEqual({
+    reason: "permissions-pending",
+    repo: "acme/web",
+  });
+  expect(
+    githubConnectCall(
+      shell(
+        gitRefusal.replace(
+          "integration.not_found: no GitHub connection",
+          "github.permissions_pending: GitHub needs you to accept cmux's updated permissions",
+        ),
+      ),
+    ),
+  ).toEqual({ reason: "permissions-pending" });
   // The structured error alone (a harness that keeps only structuredContent), the repository from the call's args.
   const structured = JSON.parse(mcpRefusal()).structuredContent;
   expect(
@@ -78,6 +94,37 @@ test("git's and gh's refusal line ask for a connect with no repository; the MCP 
   ).toEqual({
     reason: "not-connected",
     repo: "octo/cat",
+  });
+});
+
+/// What cmux-host prints today (github_cli.rs `refusal_note`): the explained refusal on one line,
+/// then the code and deny reason in brackets.
+const ownerNotConnected = `cmux github credential: cmux could not get a GitHub token for manaflow-ai/cmux: manaflow-ai has no cmux GitHub App installation connected to this cmux team, so the team's GitHub grant does not cover it. If you own manaflow-ai, ${CONNECT} and install the App on manaflow-ai; if you only collaborate on it, ask its owner to install the cmux GitHub App on manaflow-ai with this repository, then connect it in cmux; then run the same command again. [policy.denied owner_not_connected]`;
+
+test("an org the team's grant leaves out (no App installation) asks for an install, on every surface", () => {
+  // git through the credential helper, and gh.
+  expect(githubConnectCall(shell(`${ownerNotConnected}\nfatal: Authentication failed`))).toEqual({
+    reason: "not-installed",
+  });
+  expect(
+    githubConnectCall(shell(ownerNotConnected.replace("cmux github credential", "cmux github gh"), "gh pr create")),
+  ).toEqual({ reason: "not-installed" });
+  // Any other bracketed refusal with the CLI reads by its code.
+  expect(
+    githubConnectCall(shell(ownerNotConnected.replace("[policy.denied owner_not_connected]", "[policy.denied]"))),
+  ).toEqual({ reason: "not-covered" });
+  // The GitHub MCP error carries the reason; the repository comes from the call's arguments.
+  const error = JSON.parse(mcpRefusal("policy.denied"));
+  error.structuredContent.error.reason = "owner_not_connected";
+  expect(githubConnectCall(mcp(JSON.stringify(error), { owner: "manaflow-ai", repo: "cmux" }))).toEqual({
+    reason: "not-installed",
+    repo: "manaflow-ai/cmux",
+  });
+  // Its text alone (Claude Code keeps only the text block).
+  const text = `cmux could not get a token for GitHub for manaflow-ai/cmux (policy.denied owner_not_connected): the team's GitHub grant does not cover manaflow-ai; the cmux GitHub App is not installed on manaflow-ai for this cmux team. Next: the team's GitHub connection does not cover this repository: ${CONNECT} and pick it on GitHub's page, or ask a team admin to allow it.`;
+  expect(githubConnectCall(mcp(text, { owner: "manaflow-ai", repo: "cmux" }))).toEqual({
+    reason: "not-installed",
+    repo: "manaflow-ai/cmux",
   });
 });
 
@@ -249,8 +296,9 @@ const { NativeError } = await import("../src/agent-session/acpmux/nativeError");
 const host = dom.window.document.getElementById("root")!;
 const root = createRoot(host);
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root.unmount());
+  await settleReact();
   dom.window.close();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
@@ -259,7 +307,9 @@ afterAll(() => {
 });
 
 let footers = 0;
-const footer = (): AcpmuxRow => ({
+const footer = (
+  need: NonNullable<AcpmuxRow["githubConnect"]> = { reason: "not-connected", repo: "acme/web", callId: "call-1" },
+): AcpmuxRow => ({
   id: `footer-${(footers += 1)}`,
   version: 1,
   at: Date.now(),
@@ -267,7 +317,7 @@ const footer = (): AcpmuxRow => ({
   status: "completed",
   text: "GitHub isn't connected for this chat.",
   retryable: true,
-  githubConnect: { reason: "not-connected", repo: "acme/web", callId: "call-1" },
+  githubConnect: need,
 });
 const card = () => host.querySelector("[data-github-connect]");
 const buttons = () => [...(card()?.querySelectorAll("button") ?? [])].map((element) => element.textContent);
@@ -276,7 +326,11 @@ const press = (label: string) =>
 const leave = () => act(async () => void dom.window.dispatchEvent(new dom.window.Event("blur")));
 const back = () => act(async () => void dom.window.dispatchEvent(new dom.window.Event("focus")));
 
-async function render(connect: (repo: string | undefined) => Promise<void>, offered = true) {
+async function render(
+  connect: (repo: string | undefined) => Promise<void>,
+  offered = true,
+  need?: NonNullable<AcpmuxRow["githubConnect"]>,
+) {
   const sent: string[] = [];
   const asked: (string | undefined)[] = [];
   const actions = offered
@@ -295,22 +349,24 @@ async function render(connect: (repo: string | undefined) => Promise<void>, offe
   await act(async () =>
     root.render(
       <TurnActionsContext.Provider value={actions}>
-        <TurnFooter row={footer()} />
+        <TurnFooter row={footer(need)} />
       </TurnActionsContext.Provider>,
     ),
   );
   return { sent, asked };
 }
 
+// The button reads Sign in with GitHub since #57143 (Leo, ask-e3ca38dae1: "Convienient beats all. Just make
+// good ui for it so people flow."); the action it runs is still accounts.githubConnect.
 test("one line, one filled Connect GitHub; the tap names the repository; back from GitHub, one Continue", async () => {
   const { sent, asked } = await render(async () => undefined);
   expect(card()!.getAttribute("data-github-connect")).toBe("idle");
   expect(card()!.textContent).toContain("GitHub isn't connected for this chat, so it can't reach acme/web");
-  expect(buttons()).toEqual(["Connect GitHub"]);
+  expect(buttons()).toEqual(["Sign in with GitHub"]);
   expect([...card()!.querySelectorAll(".cv-turn-error__primary")].map((element) => element.textContent)).toEqual([
-    "Connect GitHub",
+    "Sign in with GitHub",
   ]);
-  await press("Connect GitHub");
+  await press("Sign in with GitHub");
   expect(asked).toEqual(["acme/web"]);
   expect(card()!.getAttribute("data-github-connect")).toBe("waiting");
   expect(card()!.textContent).toContain("Finish on GitHub");
@@ -327,9 +383,23 @@ test("one line, one filled Connect GitHub; the tap names the repository; back fr
   expect(sent).toEqual(["Continue"]);
 });
 
+test("an org with no installation: one line naming it, one Install GitHub App that names the repository", async () => {
+  const { asked } = await render(async () => undefined, true, {
+    reason: "not-installed",
+    repo: "manaflow-ai/cmux",
+    callId: "call-1",
+  });
+  expect(card()!.textContent).toContain(
+    "This chat's GitHub grant doesn't cover manaflow-ai: the cmux GitHub App isn't installed on manaflow-ai",
+  );
+  expect(buttons()).toEqual(["Install GitHub App"]);
+  await press("Install GitHub App");
+  expect(asked).toEqual(["manaflow-ai/cmux"]);
+});
+
 test("the waiting card's Continue is the same step by hand, sent once", async () => {
   const { sent } = await render(async () => undefined);
-  await press("Connect GitHub");
+  await press("Sign in with GitHub");
   await press("Continue");
   await leave();
   await back();
@@ -342,7 +412,7 @@ test("a Connect the app did not run says why, with the button that tries again",
   const { asked } = await render(async () => {
     if (refuse) throw new NativeError({ code: "unavailable", userMessage: reason, details: { reason } });
   });
-  await press("Connect GitHub");
+  await press("Sign in with GitHub");
   expect(card()!.getAttribute("data-github-connect")).toBe("refused");
   expect(card()!.getAttribute("role")).toBe("alert");
   expect(card()!.textContent).toContain(reason);
@@ -429,13 +499,15 @@ test("popover arm: the ask opens a Needs you popover once, its Connect names the
     const chip = () => host.querySelector<HTMLButtonElement>(".cv-settings-ask-chip");
     const popup = () => dom.window.document.querySelector(".cv-settings-ask-popover");
     expect(host.querySelector("[data-settings-ask]")?.getAttribute("data-settings-ask")).toBe("popover");
-    expect(chip()?.textContent).toContain("Connect GitHub");
+    expect(chip()?.textContent).toContain("Sign in with GitHub");
     // Opened by itself, with the Needs you header and the one control, no focus taken.
     expect(popup()).not.toBeNull();
     expect(popup()!.textContent).toContain("Needs you");
     expect(popup()!.textContent).toContain("manaflow-ai");
     expect(popup()!.contains(dom.window.document.activeElement)).toBe(false);
-    const connectButton = [...popup()!.querySelectorAll("button")].find((b) => b.textContent === "Connect GitHub")!;
+    const connectButton = [...popup()!.querySelectorAll("button")].find(
+      (b) => b.textContent === "Sign in with GitHub",
+    )!;
     await act(async () => connectButton.click());
     expect(orgs).toEqual(["manaflow-ai"]);
     expect(popup()!.textContent).toContain("Finish on GitHub");

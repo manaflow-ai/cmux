@@ -114,6 +114,16 @@ extension LayoutRootView {
         runStillWork()
     }
 
+    /// The window's chrome resizes the content area over several frames (the sidebar's width motion): every displayed
+    /// screen takes a live resize's per-tick mode for it (`ScreenContentView.contentAreaMotionBegan()`), and leaves it
+    /// at `active` false, which comes after the landing's layout.
+    public func contentAreaMotionDidChange(active: Bool) {
+        for screen in screenViews.values {
+            if active { screen.contentAreaMotionBegan() } else { screen.contentAreaMotionEnded() }
+        }
+        if !active { runStillWork() }
+    }
+
     /// Holds `work` until `pane`, which left the layout in a close that still springs, goes when the motion lands (or
     /// comes back), then runs it after that frame's commit. False, holding nothing, when `pane` is not closing.
     /// What a closing pane showed is torn down then, not in the motion's frames (RESIZE VIDEOS F1).

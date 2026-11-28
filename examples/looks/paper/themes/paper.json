@@ -2,7 +2,7 @@
 // shade darker than the page.
 {
   "name": "Paper",
-  "description": "Warm paper, ink text, a sepia accent and a soft sidebar.",
+  "description": "Warm paper, ink-colored text, a sepia accent.",
 
   "appearance.theme": "Builtin Light",
   // The window, sidebar and pages take that theme too, over an App Theme of your own.

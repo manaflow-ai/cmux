@@ -478,6 +478,7 @@ impl WorkspaceService {
                 let mut capabilities = capabilities;
                 if self.inner.secrets.is_some() {
                     capabilities.push(RemoteCapability::SecretsV1);
+                    capabilities.push(RemoteCapability::GitHostTokensV1);
                 }
                 Ok(WorkspaceResponse::Capabilities { capabilities })
             }
@@ -658,6 +659,18 @@ impl WorkspaceService {
                     .run("secrets-v1", move || secrets.replace_machine_secrets(&items))
                     .await
                     .map(|count| WorkspaceResponse::MachineSecretsReplaced { count })
+            }
+            WorkspaceRequest::ReplaceGitHostToken { host, item } => {
+                let secrets = self.secrets()?;
+                let answer_host = host.clone();
+                self.inner
+                    .blocking
+                    .run("secrets-v1", move || secrets.replace_git_host_token(&host, item.as_ref()))
+                    .await
+                    .map(|present| WorkspaceResponse::GitHostTokenReplaced {
+                        host: answer_host,
+                        present,
+                    })
             }
         }
     }

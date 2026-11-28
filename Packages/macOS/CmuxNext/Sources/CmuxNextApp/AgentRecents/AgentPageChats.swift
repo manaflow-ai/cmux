@@ -42,6 +42,7 @@ final class AgentPageChats {
     /// The app's Cloud account sign-in, awaited by an inline first-send recovery card, and whether it is signed in now.
     var cloudSignIn: (@MainActor () async -> Bool)?
     var cloudSignedIn: (@MainActor () -> Bool)?
+    var mayRecoverCloudConnection: (@MainActor (String) async -> String?)?
     var cloudSetup: CloudSetup? // Set up Cloud's ways in and the picker's read (``AgentPaneModel/useCloudSetup(_:)``)
     var gitHub: AgentPaneGitHub? // the new chat folder picker's GitHub section (``AgentPaneGitHub``)
     /// Another machine picked for a Cloud chat whose first send has not run (``CloudStartChat``'s repick), given the pane.
@@ -139,6 +140,7 @@ final class AgentPageChats {
         view.model.onCloudSignIn = cloudSignIn
         view.model.onCloudSignedIn = cloudSignedIn
         view.model.useCloudSetup(cloudSetup)
+        view.model.mayRecoverCloudConnection = mayRecoverCloudConnection
         view.useGitHub(gitHub)
         if let run = cloudRepick {
             view.model.onCloudRepickChat = { @MainActor [weak view] (repick: AgentPaneCloudRepick) async -> [String: Any] in
@@ -162,6 +164,12 @@ final class AgentPageChats {
         tabs.pageChats.cloudSignedIn = { [weak services] in services?.cloud.auth.isSignedIn ?? false }
         CloudStartChat.wireSetup(services)
         tabs.pageChats.cloudSetup = services.cloud.setup
+        tabs.pageChats.mayRecoverCloudConnection = { [weak services] tabID in
+            guard let services, let (tab, _) = services.locateTab(tabID),
+                  let daemon = try? services.machines.agentDaemon(forTab: tab), !daemon.isLocal,
+                  let machine = services.machines.session(daemon.machineID) else { return nil }
+            return await CloudMove.ownerAnswer(machine).vmKind == "owner" ? machine.machineID : nil
+        }
         tabs.pageChats.cloudRepick = CloudStartChat.repickRunner(tabs, services: services)
         tabs.pageChats.gitHub = .live(CloudGitHubPicker(auth: services.cloud.auth, identity: services.cloud.installIdentity)) { LinkRouter.shared.openGitHubConnect($0) }
         tabs.pageChats.cloudReservation = { [weak services] request in
@@ -196,7 +204,7 @@ final class AgentPageChats {
             // person picked Sandboxed and sent, Cloud is allowed and they are signed in. `account` is the account and team
             // they sent under, read now: the daemon starts the Run only while the app is still on them (CloudDaemon.runSandbox).
             guard services.cloud.isSignedIn, let account = services.cloud.auth.runAccount else { return AgentPaneReply.failure(code: "not_signed_in", message: "not_signed_in") }
-            let team = account.team, api = services.cloud.machineAPI.daemon.sending(as: account) // the Stack team, as followed
+            let team = account.team, api = services.cloud.machineAPI.sending(as: account) // the Stack team, as followed
             let follow: @Sendable (String) async throws -> Data = { id in
                 try await notices.follow(id: id, task: task, key: key, team: team, incognito: incognito)
             }

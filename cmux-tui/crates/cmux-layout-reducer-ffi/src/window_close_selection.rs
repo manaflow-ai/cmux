@@ -18,7 +18,9 @@ use cmux_focus_core::close_selection::windows::{
 };
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
+#[path = "window_close_selection/repair.rs"]
 mod repair;
+#[path = "window_close_selection/settle.rs"]
 mod settle;
 
 pub use repair::{

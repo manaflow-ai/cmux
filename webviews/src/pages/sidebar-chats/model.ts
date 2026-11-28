@@ -173,3 +173,37 @@ export function parseBlock(data: unknown): SidebarChatsBlock | null {
   const tail = value.tail === "more" || value.tail === "loading" ? value.tail : null;
   return { revision: value.revision, part: value.part, folded: !!value.folded, rows, tail, metrics: value.metrics };
 }
+
+/** A click the page draws before the host answers it: Earlier's fold (to `folded`) or Show More (made with
+ * `rows` chats listed). `answered`: the host's call returned, so its next block is the answer. */
+export type SidebarChatsPending =
+  | { kind: "fold"; folded: boolean; answered: boolean }
+  | { kind: "more"; rows: number; answered: boolean };
+
+/** What Earlier last listed while open: an unfold draws these at once, until the host's block. */
+export interface SidebarChatsOpenRows {
+  rows: SidebarChatRow[];
+  tail: SidebarChatsBlock["tail"];
+}
+
+/** The block as the page draws it while `pending` waits for the host: a fold shows only the header, an unfold
+ * the rows Earlier last listed (`open`), Show More reads Loading. The host's block replaces it when it answers. */
+export function drawnBlock(
+  block: SidebarChatsBlock,
+  pending: SidebarChatsPending | null,
+  open: SidebarChatsOpenRows | null,
+): SidebarChatsBlock {
+  if (!pending) return block;
+  if (pending.kind === "more") return block.tail === "more" ? { ...block, tail: "loading" } : block;
+  if (pending.folded) return { ...block, folded: true, rows: [], tail: null };
+  if (!block.folded) return block;
+  return { ...block, folded: false, rows: open?.rows ?? block.rows, tail: open?.tail ?? block.tail };
+}
+
+/** Whether `next` from the host ends `pending`: it shows the fold asked for, or new rows or another tail after
+ * Show More, or it is the first block after the host's call returned (the host's own answer). */
+export function answers(pending: SidebarChatsPending, next: SidebarChatsBlock): boolean {
+  if (pending.answered) return true;
+  if (pending.kind === "fold") return next.folded === pending.folded;
+  return next.rows.length !== pending.rows || next.tail !== "more";
+}

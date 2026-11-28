@@ -78,6 +78,7 @@
 #   CMUX_MOBILE_SIGN_IDENTITY   SHA-1 of the distribution identity (default: the first one in
 #                       the keychain that the profile authorizes)
 #   CMUX_MOBILE_BUILDS_ROOT     output root (default ~/cmux-mobile-builds)
+#   CMUX_MOBILE_SPM_CACHE       Swift package clones, kept between builds (default <root>/.cache/spm)
 #   CMUX_MOBILE_XCFRAMEWORK     use this CmuxMobileLinkFFI.xcframework instead of the cache or a build
 #
 #   CMUX_MOBILE_CI_ASC=1        CI only (.github/workflows/ios-internal-nightly.yml): App Store
@@ -201,6 +202,7 @@ name="$(date -u +%Y%m%d)-$short-testflight"
 out="$root/$name"
 work="$root/.work/$name"
 cache="$root/.cache"
+spm_cache=${CMUX_MOBILE_SPM_CACHE:-$cache/spm}
 private=$(mktemp -d); chmod 700 "$private"
 trap 'rm -rf "$private"' EXIT
 
@@ -466,8 +468,29 @@ else
   log "xcframework: building (key $key)"
   mkdir -p "$cache/cmux-mobile-rust-target"
   ln -s "$cache/cmux-mobile-rust-target" "$work/src/cmux-next-ios/rust/target"
-  JOBS=${JOBS:-8} bash "$work/src/cmux-next-ios/rust/scripts/build-xcframework.sh" > "$out/logs/xcframework.log" 2>&1 \
-    || { tail -30 "$out/logs/xcframework.log"; exit 1; }
+  # Bounded. A cold build takes 4.6 min on a 6-vCPU Blacksmith Mac (run 45871646299), but on fleet Macs the
+  # step before "xcodebuild archive" ran 65-70 min (runs 45752138226, 45760129544) and run 45875722526 sat
+  # 70+ min, holding every later INTERNAL dispatch behind the builder's one-run concurrency group until the
+  # job's 90 min limit. Past the bound the build is stopped and its log tail printed, so a slow Mac fails in
+  # minutes and says where it stalled. The build runs in its own process group so cargo dies with it.
+  xcf_minutes=${CMUX_MOBILE_XCFRAMEWORK_MINUTES:-20}
+  set -m
+  JOBS=${JOBS:-8} bash "$work/src/cmux-next-ios/rust/scripts/build-xcframework.sh" > "$out/logs/xcframework.log" 2>&1 &
+  xcf_pid=$!
+  set +m
+  xcf_start=$SECONDS
+  while kill -0 "$xcf_pid" 2>/dev/null; do
+    if (( SECONDS - xcf_start > xcf_minutes * 60 )); then
+      kill -TERM -- "-$xcf_pid" 2>/dev/null || true
+      sleep 5
+      kill -KILL -- "-$xcf_pid" 2>/dev/null || true
+      wait "$xcf_pid" 2>/dev/null || true
+      tail -40 "$out/logs/xcframework.log"
+      die "xcframework build passed its ${xcf_minutes} min bound on $(hostname -s) (a cold build takes about 5 min; CMUX_MOBILE_XCFRAMEWORK_MINUTES raises it)"
+    fi
+    sleep 5
+  done
+  wait "$xcf_pid" || { tail -30 "$out/logs/xcframework.log"; exit 1; }
   rm -rf "$cache/xcframework/$key"; mkdir -p "$cache/xcframework/$key"
   cp -R "$xcf_dest" "$cache/xcframework/$key/"
 fi
@@ -479,7 +502,7 @@ grep -q "^  $config: release" project.yml || die "$sha has no $config configurat
 archive="$out/CmuxMobileApp.xcarchive"
 args=(-project CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration "$config"
       -destination 'generic/platform=iOS' -archivePath "$archive"
-      -derivedDataPath "$work/dd" -clonedSourcePackagesDirPath "$cache/spm"
+      -derivedDataPath "$work/dd" -clonedSourcePackagesDirPath "$spm_cache"
       MARKETING_VERSION="$marketing" CURRENT_PROJECT_VERSION="$build_number"
       CMUX_MOBILE_SOURCE_COMMIT="$sha")
 [[ $production == 0 ]] || args+=(CMUX_MOBILE_PROD_API_BASE="$api_base")
@@ -498,15 +521,31 @@ fi
 # apple/swift-asn1 and swift-crypto with 403 (runs 45733165601, 45752138226),
 # so the archive failed after its 65 min xcframework build. A 403 or 429 there
 # refuses the machine's address for a while; it says nothing about the commit.
-log "swift packages: resolve"
+# The clones stay in $spm_cache between builds (the INTERNAL builder points a fleet Mac's at a
+# directory under its home, not the job's temp), so a build whose pins are already cloned
+# resolves from them with no GitHub fetch (-skipPackageUpdates). A pin the clones lack fails
+# that read and the bounded network resolve below runs. Every git transfer SwiftPM starts aborts
+# after 60 s under 1 KiB/s instead of hanging on a reset stream (curl 92, early EOF).
+mkdir -p "$spm_cache"
+export GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=http.lowSpeedLimit GIT_CONFIG_VALUE_0=1024 \
+  GIT_CONFIG_KEY_1=http.lowSpeedTime GIT_CONFIG_VALUE_1=60
+log "swift packages: resolve ($spm_cache)"
 resolve_waits=(0 60 180 300)
+kept_resolved=0
+if [[ -d "$spm_cache/repositories" ]] && [[ -n "$(ls -A "$spm_cache/repositories" 2>/dev/null)" ]] \
+   && xcodebuild -resolvePackageDependencies -project CmuxMobileApp.xcodeproj -scheme CmuxMobileApp \
+        -clonedSourcePackagesDirPath "$spm_cache" -skipPackageUpdates > "$out/logs/resolve.log" 2>&1; then
+  echo "swift packages: resolved from the kept clones, no fetch"
+  kept_resolved=1
+fi
 for i in "${!resolve_waits[@]}"; do
+  [[ $kept_resolved == 0 ]] || break
   [[ ${resolve_waits[$i]} == 0 ]] || { echo "swift packages: GitHub refused the fetch; trying again in ${resolve_waits[$i]} s"; sleep "${resolve_waits[$i]}"; }
   if xcodebuild -resolvePackageDependencies -project CmuxMobileApp.xcodeproj -scheme CmuxMobileApp \
-       -clonedSourcePackagesDirPath "$cache/spm" > "$out/logs/resolve.log" 2>&1; then
+       -clonedSourcePackagesDirPath "$spm_cache" > "$out/logs/resolve.log" 2>&1; then
     break
   fi
-  if ! grep -Eq "returned error: (403|429|5[0-9][0-9])|badResponseStatusCode\((403|429|5[0-9][0-9])\)|Could not resolve host|Connection (reset|refused|timed out)" "$out/logs/resolve.log" \
+  if ! grep -Eq "returned error: (403|429|5[0-9][0-9])|badResponseStatusCode\((403|429|5[0-9][0-9])\)|Could not resolve host|Connection (reset|refused|timed out)|early EOF|RPC failed|Operation too slow|curl 92" "$out/logs/resolve.log" \
      || (( i == ${#resolve_waits[@]} - 1 )); then
     grep -E "error:|fatal:" "$out/logs/resolve.log" | sort -u | head -20
     die "swift package resolve failed (logs/resolve.log)"
@@ -527,7 +566,7 @@ if [[ -z "$from_archive" && -n "${CMUX_MOBILE_SIMULATOR_APP:-}" ]]; then
   log "xcodebuild build (iphonesimulator) -> $CMUX_MOBILE_SIMULATOR_APP"
   sim_args=(-project CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration "$config"
             -destination 'generic/platform=iOS Simulator' -derivedDataPath "$work/dd-sim"
-            -clonedSourcePackagesDirPath "$cache/spm"
+            -clonedSourcePackagesDirPath "$spm_cache"
             MARKETING_VERSION="$marketing" CURRENT_PROJECT_VERSION="$build_number" CMUX_MOBILE_SOURCE_COMMIT="$sha"
             CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER=)
   [[ $production == 0 ]] || sim_args+=(CMUX_MOBILE_PROD_API_BASE="$api_base")

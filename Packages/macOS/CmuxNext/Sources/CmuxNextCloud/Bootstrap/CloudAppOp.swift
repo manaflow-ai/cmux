@@ -29,6 +29,14 @@ public nonisolated struct CloudAppOpFailure: LocalizedError, Equatable, Sendable
 
     /// The approval request id (`apr_…`) of an approval code.
     public var approvalRequest: String? { details?["request"]?.stringValue }
+    /// `code: message` of a pending answer's `details.last_run_error`: the backend's refusal of the approved
+    /// run that sent it back to pending (cmux-platform#2180), or nil when it has none.
+    public var lastRunError: String? {
+        guard let last = details?["last_run_error"] else { return nil }
+        let code = last["code"]?.stringValue ?? "", message = last["message"]?.stringValue ?? ""
+        let text = code.isEmpty || message.isEmpty || message == code ? (message.isEmpty ? code : message) : "\(code): \(message)"
+        return text.isEmpty ? nil : text
+    }
 
     public var description: String { message.isEmpty ? code : message }
     public var errorDescription: String? { description }

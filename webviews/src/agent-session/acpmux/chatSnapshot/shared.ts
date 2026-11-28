@@ -47,12 +47,18 @@ export const SNAPSHOT_ROOT_CLASS = "cmux-snapshot-root";
 /// its end in a window of another height (``SNAPSHOT_HEIGHT_SLACK``), as the live page keeps its latest
 /// row there.
 export const SNAPSHOT_SCROLL_ATTRIBUTE = "data-cmux-snapshot-scroll";
+/// The plain field drawn over the copy's prompt, which takes clicks and typing until the live prompt is
+/// up (skeleton.ts); it lives in the page's light DOM, outside `#root`.
+export const SNAPSHOT_SKELETON_ATTRIBUTE = "data-cmux-snapshot-skeleton";
 /// A shadow root's adopted sheets, by index in the snapshot's `sheets`.
 export const SNAPSHOT_SHEETS_ATTRIBUTE = "data-cmux-snapshot-sheets";
 /// The page's stylesheet, a `<link>` to `pane.css` beside the page (build-agent-pane-web.sh). Its
 /// `data-copy` names the copy's sheet beside it: the page's rules with ``shadowSelector`` applied
 /// (scripts/agent-pane/snapshotCss.mjs), a file so every chat page of the renderer shares one parse.
 export const PAGE_STYLE_ID = "cmux-pane-styles";
+/// On the transcript's scroller while a hidden page has let go of its rows (VirtualTranscript.tsx HIDDEN
+/// RELEASE): what it draws then is not the chat, so no copy is written from it (live.ts).
+export const TRANSCRIPT_ROWS_RELEASED_ATTRIBUTE = "data-rows-released";
 
 /// `html`, `body` and `:root` in a selector, where they are a selector and not part of a name.
 const PAGE_ROOTS = /(^|[\s,(>+~])(html|body)(?![-\w])|:root(?![-\w])/g;

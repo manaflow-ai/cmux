@@ -85,6 +85,10 @@ def route(paths, event="pull_request", macos="false"):
 
 
 class LinuxGuardRoutingTests(unittest.TestCase):
+    def test_suite_helpers_reach_the_preflight_guard(self):
+        for helper in ('scripts/ci/package-test-lane/swift_suite_outcomes.py', 'scripts/ci/require_swift_test_execution.py'):
+            self.assertIn('ci', groups_for_path(helper))
+
     def test_guard_ownership_manifest_has_no_duplicate_literal_keys(self):
         source = (ROOT / "scripts/ci/workflow_guard_groups.py").read_text(encoding="utf-8")
         tree = ast.parse(source)
@@ -321,7 +325,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
     def test_linux_preflight_skips_when_macos_route_is_false(self):
         block = workflow_job_block("linux-preflight")
         self.assertIn(
-            "if: ${{ (!cancelled() && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')) && needs.changes.outputs.next_line != 'true' && needs.changes.outputs.macos != 'false') && "
+            "if: ${{ (!cancelled() && (github.event_name != 'pull_request' || !(startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || startsWith(github.event.pull_request.base.ref, 'lane/'))) && needs.changes.outputs.next_line != 'true' && needs.changes.outputs.macos != 'false') && "
             + LABEL_EVENT_GUARD + " }}",
             block,
         )

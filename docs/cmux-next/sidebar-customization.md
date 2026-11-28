@@ -112,11 +112,11 @@ your sidebar as it was. Empty (the default) draws no block. Together with `sideb
 # Sidebar looks
 
 `sidebar.look` draws the sidebar like another app's: `claude` (the Claude desktop app), `codex`
-(the Codex app), `studio` (a coding studio: threads under a heading per project, status in words and icons),
-`rex` (the Rex app: one flat list of sessions, the status first, then the name) or `cmux`, the default,
-which is today's sidebar. Settings > Customize lists each look as one switch. The transcript (`agentPane.display.transcriptLook`)
-and the composer (`agentPane.display.composerLook`) use the same names for `claude`, `codex` and
-`studio`, so one word sets the whole window's look; `rex` is a sidebar look only.
+(the Codex app), `studio` (threads grouped by project, with status text and icons), or `rex`
+(a flat list of sessions with the status before the name). The default is `cmux`. Settings >
+Customize lists the sidebar looks. The transcript setting (`agentPane.display.transcriptLook`)
+accepts `cmux`, `claude`, `codex`, and `studio`. The composer setting (`agentPane.composerLook`)
+accepts `auto` and `studio`. The `rex` look applies only to the sidebar.
 
 ```sh
 cmux settings set sidebar.look claude

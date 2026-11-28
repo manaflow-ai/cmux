@@ -18,10 +18,27 @@
 # notice), and optionally REVIEW_CALLER (the command named in errors, default --review) and
 # REVIEW_TAILNET_NOTE=0 (no classic tailnet note for a new phone).
 # review_resolve_phones fills REVIEW_TARGETS with "<udid>\t<name> (<model>, <udid>)" lines.
+#
+# Audit: every phone decision (picked to connect, or refused as someone else's) appends one line to
+# ~/.config/cmux/iphone-connect-audit.log, so "which agent touched which phone, and why" has an answer:
+# "<UTC time>\t<host>\t<agent>\t<caller>\t<connect|refused>\t<reason>\t<udid>\t<name>\t<transport>".
+# <agent> is the acpmux session name, else CMUX_AGENT_NAME, else the Claude/Codex session id, else
+# `person` (run by hand). `tail ~/.config/cmux/iphone-connect-audit.log` reads it.
 
 # One line per phone for the report.
 review_phone_result() {
   REVIEW_PHONE_STATUS+="${REVIEW_PHONE_STATUS:+$'\n  '}$1"
+}
+
+# One audit line (see the header): $1 connect|refused, $2 reason, $3 udid, $4 name, $5 transport.
+# A write failure never blocks the hand-off.
+review_phone_audit() {
+  local log agent
+  log="$(dirname "$REVIEW_PHONES_FILE")/iphone-connect-audit.log"
+  agent="${ACPMUX_SESSION_NAME:-${CMUX_AGENT_NAME:-${CLAUDE_CODE_SESSION_ID:-${CODEX_SESSION_ID:-person}}}}"
+  mkdir -p "$(dirname "$log")" 2>/dev/null || return 0
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(hostname -s 2>/dev/null || echo -)" \
+    "${agent//$'\t'/ }" "${REVIEW_CALLER:---review}" "$1" "$2" "$3" "${4//$'\t'/ }" "${5:--}" >> "$log" 2>/dev/null || true
 }
 
 # Every connected, paired, booted iPhone/iPad: "<udid>\t<name>\t<model>\t<transport>" (devicectl's
@@ -111,15 +128,18 @@ review_resolve_phones() {
     case "$owner" in
       yes) ;;
       ignored)
+        review_phone_audit refused ignored-list "$udid" "$name" "$transport"
         echo "==> skipped iPhone $name ($model, $udid): listed in iphone-device-ids-ignored"
         review_phone_result "$name ($udid): skipped, listed in iphone-device-ids-ignored (pass --device-id $udid to use it once)"
         continue ;;
       *)
+        review_phone_audit refused not-this-macs-phone "$udid" "$name" "$transport"
         echo "==> skipped iPhone $name ($model, $udid): this Mac does not know it and reaches it only over Wi-Fi (someone else's phone nearby?)"
         review_phone_result "$name ($udid): skipped, not registered on this Mac and reached only over Wi-Fi; if it is yours, plug it in by USB once or pass --device-id $udid"
         continue ;;
     esac
     review_register_phone "$udid" "$name" "$model"
+    review_phone_audit connect owned "$udid" "$name" "$transport"
     REVIEW_TARGETS+=("$udid"$'\t'"$name ($model, $udid)")
   done
   local seen=""

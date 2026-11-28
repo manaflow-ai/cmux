@@ -8,17 +8,23 @@ import { afterEach, expect, test } from "bun:test";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { setChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
-import { ChatHeaderTools } from "../src/agent-session/acpmux/header/ChatHeaderTools";
-import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
-import { configureQuickActions } from "../src/agent-session/acpmux/header/quickActions";
-import { useSessionInfo } from "../src/agent-session/acpmux/session-info/useSessionInfo";
-import { resetSessionInfoState } from "../src/agent-session/acpmux/session-info/sessionInfoState";
-import { NeedsYouButton } from "../src/agent-session/acpmux/needsYou/NeedsYou";
-import { SummaryButton } from "../src/agent-session/acpmux/summary/SummaryButton";
-import { activity, chat, tool } from "../src/gallery/fixtures/acpmux";
 import { settleReact } from "./support/domTeardown";
-import { SESSION_INFO } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
+import { importWithDom } from "./support/importWithDom";
+
+const { setChatDisplay } = await importWithDom(() => import("../src/agent-session/acpmux/chatDisplay"));
+const { ChatHeaderTools } = await importWithDom(() => import("../src/agent-session/acpmux/header/ChatHeaderTools"));
+const { setHeaderState } = await importWithDom(() => import("../src/agent-session/acpmux/header/headerState"));
+const { configureQuickActions } = await importWithDom(() => import("../src/agent-session/acpmux/header/quickActions"));
+const { useSessionInfo } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/useSessionInfo"));
+const { resetSessionInfoState } = await importWithDom(
+  () => import("../src/agent-session/acpmux/session-info/sessionInfoState"),
+);
+const { NeedsYouButton } = await importWithDom(() => import("../src/agent-session/acpmux/needsYou/NeedsYou"));
+const { SummaryButton } = await importWithDom(() => import("../src/agent-session/acpmux/summary/SummaryButton"));
+const { activity, chat, tool } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
+const { SESSION_INFO } = await importWithDom(
+  () => import("../src/agent-session/acpmux/session-info/sessionInfoSelectors"),
+);
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

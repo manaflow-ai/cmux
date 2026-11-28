@@ -24,6 +24,7 @@ export function compactionOf(update: any): AcpmuxCompaction | undefined {
   const count = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : undefined);
   return {
     state,
+    ...(update.trigger === "auto" || update.trigger === "manual" ? { trigger: update.trigger } : {}),
     ...(typeof update.reason === "string" && update.reason ? { reason: update.reason } : {}),
     ...(state === "failed" && typeof update.error === "string" && update.error.trim()
       ? { error: update.error.trim() }
@@ -119,4 +120,3 @@ export function backgroundNoticeLabel(task: BackgroundUpdate): string | undefine
   const state = notice[2] === "was stopped" ? "stopped" : notice[2];
   return state === task.state ? notice[1]?.trim() || undefined : undefined;
 }
-

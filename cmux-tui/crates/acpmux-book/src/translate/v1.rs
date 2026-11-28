@@ -238,9 +238,10 @@ fn mux(
                 state.claim(&prompt, from, out);
             }
         }
-        "turn_started" if state.turn_key.is_empty() => {
+        "turn_started" if state.turn_key.is_empty() || *state.turn_key == *msg.turn_id => {
             super::bounded(&msg.turn_id)?;
             state.turn_key = msg.turn_id.to_string();
+            state.turn_started(out);
         }
         "turn_result" => {
             if !msg.turn_id.is_empty()

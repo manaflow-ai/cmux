@@ -604,3 +604,75 @@ fn a_websocket_connection_cannot_bind_a_proxy_identity() {
     assert_code(&reply, "agent_session.not_trusted");
     fake.no_connection();
 }
+
+/// `labs.chatMultiplayer` (design chat-multiplayer phase 1b): a bind that asks for presence lists
+/// `agent-session-presence-v1` and lets the tailnet teammate's view and typing through, stamped
+/// with the bound author. A bind without it is today's: no presence capability, both refused.
+#[test]
+fn a_teammate_bind_with_presence_views_and_types_as_itself() {
+    use crate::server::agent_session_attach_tests::WAIT;
+    let mut fake = FakeAcpmux::start("proxy-presence");
+    let mux = mux_with(&fake, "proxy-presence");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let author = json!({"id":"tailnet:person@example.com", "name":"person@example.com",
+        "login":"person@example.com", "node":"laptop"});
+    let pinned = |mut frame: Value| {
+        frame["surface"] = json!(surface);
+        frame["_host_author"] = author.clone();
+        frame["_host_session"] = json!(SESSION);
+        frame
+    };
+    let presence = super::AGENT_SESSION_PRESENCE_CAPABILITY;
+
+    // Off: no presence capability, view and typing refused as before.
+    let mut off = Client::connect(&mux, "proxy-presence-off");
+    let ack = off.request(json!({"cmd":"agent-session-proxy-bind", "author":author}));
+    assert_eq!(ack["ok"], true);
+    assert!(!ack["data"]["capabilities"].as_array().unwrap().iter().any(|c| c == presence));
+    for frame in [
+        json!({"cmd":"agent-session-typing", "on":true}),
+        json!({"cmd":"agent-session-view", "visible":true}),
+    ] {
+        assert_code(&off.request(pinned(frame)), "agent_session.not_trusted");
+    }
+
+    // On: the ack lists it, and both reach acpmux as the teammate's.
+    let mut on = Client::connect(&mux, "proxy-presence-on");
+    let ack =
+        on.request(json!({"cmd":"agent-session-proxy-bind", "author":author, "presence":true}));
+    assert_eq!(ack["ok"], true, "{ack}");
+    assert!(ack["data"]["capabilities"].as_array().unwrap().iter().any(|c| c == presence));
+    assert_eq!(on.request(pinned(json!({"cmd":"agent-session-attach"})))["ok"], true);
+    for _ in 0..2 {
+        let _ = fake.raw_frame();
+    }
+    for (frame, method) in [
+        (json!({"cmd":"agent-session-typing", "on":true}), "_acpmux/typing"),
+        (json!({"cmd":"agent-session-view", "visible":true}), "_acpmux/view"),
+    ] {
+        let reply = on.request(pinned(frame));
+        assert_eq!(reply["ok"], true, "{reply}");
+        let sent = fake.frame();
+        assert_eq!(sent["method"], json!(method));
+        assert_eq!(sent["params"]["_meta"]["acpmux"]["author"], author);
+    }
+    // The switch adds no other verb.
+    assert_code(
+        &on.request(pinned(json!({"cmd":"agent-session-permission",
+            "permission_id":"perm_attach", "option_id":"allow"}))),
+        "agent_session.not_trusted",
+    );
+    // And who is here comes back to the teammate, so it sees the owner's face too.
+    let people = json!({"sessionId": SESSION, "participants": [
+        {"id": "owner", "name": "Owner", "viewing": true, "typing": false},
+        {"id": "tailnet:person@example.com", "name": "person@example.com", "viewing": true}]});
+    fake.notify("_acpmux/presence", people.clone());
+    let event = loop {
+        let event = on.event(WAIT).expect("the chat's presence reaches the teammate");
+        if event["event"] == "agent-session-presence" {
+            break event;
+        }
+    };
+    assert_eq!(event["surface"], json!(surface));
+    assert_eq!(event["presence"], people);
+}

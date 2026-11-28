@@ -140,6 +140,8 @@ pub(super) async fn person_prompt(
     let chief = crate::hub::is_chief(&s.meta());
     if !chief && counts_as_person_prompt(agent_message, conn.is_trigger(), in_session) {
         hub.person_prompted(crate::store::now_ms());
+        // Only the person's own message brings a settled chat back (`hub/auto_settle.rs`).
+        hub.unsettle_on_person_prompt(s);
     }
     if !agent_message && local_person(conn) {
         // After its log and its peers' load, which restore the pairs this resumes.
@@ -161,14 +163,5 @@ pub(super) fn counts_as_person_prompt(
 }
 
 #[cfg(test)]
-mod person_prompt_tests {
-    use super::counts_as_person_prompt;
-
-    #[test]
-    fn only_a_persons_prompt_counts() {
-        assert!(counts_as_person_prompt(false, false, false), "the person's own prompt");
-        assert!(!counts_as_person_prompt(true, false, false), "another agent's message");
-        assert!(!counts_as_person_prompt(false, true, false), "a trigger's delivery");
-        assert!(!counts_as_person_prompt(false, false, true), "a send from inside a session");
-    }
-}
+#[path = "agent_messages_person_prompt_tests.rs"]
+mod person_prompt_tests;

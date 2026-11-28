@@ -331,6 +331,24 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+GITHUB_RELEASE_URL = re.compile(r"^https://github\.com/([^/]+/[^/]+)/releases/download/([^/]+/[^/]+)$")
+
+
+def release_proxy_url(url: str, environ=os.environ) -> str | None:
+    """The fleet controller's copy of a GitHub release asset, or None.
+
+    While GitHub refuses a fleet Mac's address (403 to every anonymous request from the office, 2026-11-26),
+    its worker sets CMUX_CI_GITHUB_RELEASE_PROXY to the controller's release route, which downloads
+    https://github.com/OWNER/NAME/releases/download/TAG/FILE once with its own read token and caches it
+    (cmuxterm-hq build-fleet/cmd/controller/github_release_proxy.go). The checksum is still checked here.
+    """
+    proxy = environ.get("CMUX_CI_GITHUB_RELEASE_PROXY", "").strip().rstrip("/")
+    match = GITHUB_RELEASE_URL.match(url)
+    if not proxy or not match:
+        return None
+    return f"{proxy}/{match.group(1)}/{match.group(2)}"
+
+
 CURL_ARGS = ["curl", "--fail", "--location", "--silent", "--show-error", "--retry", "4",
              "--retry-all-errors", "--connect-timeout", "30", "--max-time", "1800",
              "--speed-limit", DOWNLOAD_LOW_SPEED_BYTES, "--speed-time", GIT_HTTP_LOW_SPEED_TIME]
@@ -359,7 +377,7 @@ def github_release_asset_url(url: str, token: str, run=subprocess.run) -> str | 
     return None
 
 
-def curl_download(url: str, destination: Path, environ=os.environ, run=subprocess.run) -> None:
+def github_download(url: str, destination: Path, environ=os.environ, run=subprocess.run) -> None:
     """Download `url`. A github.com release asset is fetched through the API with the job's token
     (GH_TOKEN or GITHUB_TOKEN) first; curl drops the Authorization header on the redirect to GitHub's asset
     host. Anything else, or an authenticated try that fails, is the anonymous download it always was."""
@@ -377,6 +395,23 @@ def curl_download(url: str, destination: Path, environ=os.environ, run=subproces
             return
         warn(f"authenticated download of {url} exited {done.returncode}; trying it anonymously")
     run(CURL_ARGS + ["--output", str(destination), url], check=True, timeout=1800)
+
+
+def curl_download(url: str, destination: Path, environ=os.environ, run=subprocess.run,
+                  fetch=github_download) -> None:
+    """Download `url`, through the controller's release proxy first when the worker names one; then GitHub
+    (the job's token through the API when it has one, else anonymously)."""
+    proxied = release_proxy_url(url, environ)
+    if proxied:
+        try:
+            # Two retries, not four: GitHub is the fallback.
+            proxy_args = ["2" if arg == "4" and CURL_ARGS[i - 1] == "--retry" else arg for i, arg in enumerate(CURL_ARGS)]
+            run(proxy_args + ["--output", str(destination), proxied],
+                check=True, timeout=1800)
+            return
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as error:
+            warn(f"the controller's release proxy failed for {url} ({error}); trying GitHub")
+    fetch(url, destination, environ, run)
 
 
 def stored_artifact(url: str, checksum: str, store: Path, download=curl_download) -> Path:

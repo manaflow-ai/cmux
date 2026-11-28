@@ -27,10 +27,10 @@ MERGED_PR_PAGES = 20
 UPDATED_SLACK = timedelta(hours=1)
 PR_PICK_FIELDS = "number mergedAt baseRefName mergeCommit { oid } updatedAt"
 PR_FIELDS = """number title url mergedAt baseRefName mergeCommit { oid }
-                labels(first: 100) { nodes { name } }
-                files(first: 100) { totalCount nodes { path } }"""
+                labels(first: 20) { pageInfo { hasNextPage endCursor } nodes { name } }
+                files(first: 30) { totalCount nodes { path } }"""
 # PRs whose details one query reads.
-PR_DETAIL_BATCH = 50
+PR_DETAIL_BATCH = 10
 
 
 class TransientGitHubError(RuntimeError):
@@ -148,8 +148,30 @@ def pr_details(github: GitHub, repository: str, numbers: list[int]) -> list[dict
             pr = result.get(f"pr{number}")
             if not pr:
                 raise RuntimeError(f"GitHub returned no details for merged PR #{number}; retry metadata generation")
+            complete_labels(github, repository, pr)
             details.append(pr)
     return details
+
+
+def call_label(name: str) -> bool:
+    return name.lower().replace("-", " ") in {"default call", "needs a call"}
+
+
+def complete_labels(github: GitHub, repository: str, pr: dict) -> None:
+    """category() needs the call labels wherever they sit: page labels until one matches or none are left."""
+    labels = pr.get("labels") or {}
+    for _ in range(50):
+        info = labels.get("pageInfo") or {}
+        if not info.get("hasNextPage") or any(call_label(x["name"]) for x in labels.get("nodes", [])):
+            return
+        cursor = info.get("endCursor")
+        if not cursor:
+            raise RuntimeError("GitHub label pagination returned no cursor; retry metadata generation")
+        page = github.graphql("query { " + repository + f" {{ pr: pullRequest(number: {int(pr['number'])}) {{ "
+                              f"labels(first: 20, after: {json.dumps(cursor)}) {{ pageInfo {{ hasNextPage endCursor }} nodes {{ name }} }} }} }} }}")["pr"]["labels"]
+        labels = {"pageInfo": page["pageInfo"], "nodes": labels.get("nodes", []) + page["nodes"]}
+        pr["labels"] = labels
+    raise RuntimeError("A PR has too many labels; inspect its labels before retrying")
 
 
 def infrastructure(pr: dict) -> bool:

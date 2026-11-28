@@ -51,6 +51,8 @@ final class BrowserDesignModeController {
             do {
                 try await tab.enableDesignMode(self?.script ?? BrowserDesignModeScript())
                 self?.offerSend(on: tab, key: key)
+                guard let self, let target = threadTarget(near: key), let url = tab.state.url else { return }
+                await threads.restore(url: url, tab: key, git: target.git, folder: target.folder, put: tab.restoreDesignModeThread)
             } catch {
                 modes.designMode = false
                 state.showNotice(self?.strings.couldNotStart ?? "")
@@ -225,11 +227,9 @@ extension BrowserDesignModeController {
             guard let card = tracker.card(at: selector), HomeNativeTranscriptView.shown(in: page.contentView.window) == nil,
                   threads.threads[card.id].map({ $0.state == .failed && $0.commentID == nil }) ?? true else { return }
             guard let target = threadTarget(near: key) else { return notice(strings.noAgentChat, key) }
-            let pick = BrowserCommentPick(tab: key, selector: selector)
-            threads.hold(card.id, pick: pick)
+            let pick = threads.hold(card.id, pick: BrowserCommentPick(tab: key, selector: selector))
             AgentPaneDesignSelection.remove(card.id, from: target.view)
-            let comment = BrowserComment(url: page.state.url?.absoluteString ?? "", title: page.state.title, selector: card.selector,
-                                         quote: card.quote, message: card.comment, prompt: card.text)
+            let comment = BrowserComment(card, url: page.state.url, title: page.state.title)
             Task { [weak self] in
                 do {
                     try await self?.threads.send(comment, key: card.id, pick: pick, git: target.git,

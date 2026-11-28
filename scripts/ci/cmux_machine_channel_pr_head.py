@@ -7,14 +7,18 @@ SHA's v2 tree key (an up-to-date head squashes to its own tree), and that head's
 both thin Linux targets. A head behind the base squashes to another tree (every one of 18 merges on
 2026-11-26 11:00-13:00Z), so a merge the train landed takes the train's combined tip instead: the
 lane/merge-train head whose git tree is SHA's (its last member's squash is the tip's tree). A run
-still building is waited for up to --wait seconds; any miss prints nothing and the push run builds
-as before (.github/workflows/cmux-machine-channel.yml).
+still building is waited for up to --wait seconds. A head whose own runs built nothing (its plan skipped the build
+because an earlier head of its branch with the same tree key had built it: a base merge that moved no input,
+cmux_machine_channel_head_built.py --key) takes that earlier head's run: the newest of the branch's runs with both
+artifacts whose head has SHA's v2 tree key. Any miss prints nothing and the push run builds as before
+(.github/workflows/cmux-machine-channel.yml).
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import os
 import subprocess
 import sys
@@ -98,8 +102,24 @@ def train_tip(api: Api, tree: str) -> str:
     return ""
 
 
-def merged_head(api: Api, repo: str, sha: str) -> str:
-    for pr in api(f"commits/{sha}/pulls") or []:
+def commit_subject(rev: str) -> str:
+    out = subprocess.run(
+        ["git", "-C", str(ROOT), "log", "-1", "--format=%s", rev],
+        check=False, capture_output=True, text=True, timeout=60,
+    )
+    return out.stdout.strip() if out.returncode == 0 else ""
+
+
+SQUASH_NUMBER = re.compile(r"\(#(\d+)\)\s*$")
+
+
+def merged_head(api: Api, repo: str, sha: str, subject: str = "") -> str:
+    """The head of the same-repository PR squash-merged into BASE as SHA, or ''. The squash subject's own
+    "(#N)" is read first (pulls/N, one call); commits/SHA/pulls is the fallback. That list is every PR
+    whose branch holds SHA, 30 to a page: 2026-11-26 18:19Z (run 45874893836) #54329's own merge was not on
+    its first page, which held 30 older PRs, so the merge rebuilt both legs (about 32 runner-min) its PR
+    head had built."""
+    def own(pr: dict) -> str:
         head = pr.get("head") or {}
         if (
             pr.get("merge_commit_sha") == sha
@@ -107,6 +127,17 @@ def merged_head(api: Api, repo: str, sha: str) -> str:
             and ((head.get("repo") or {}).get("full_name") == repo)
         ):
             return head.get("sha") or ""
+        return ""
+
+    m = SQUASH_NUMBER.search(subject)
+    if m:
+        found = own(api(f"pulls/{m.group(1)}") or {})
+        if found:
+            return found
+    for pr in api(f"commits/{sha}/pulls?per_page=100") or []:
+        found = own(pr)
+        if found:
+            return found
     return ""
 
 
@@ -130,10 +161,45 @@ def still_building(api: Api, run: dict) -> bool:
     return any(j.get("status") != "completed" for j in mine)
 
 
+# The earlier-head read's bounds: artifact lists read, then keys computed (each a depth-1 fetch).
+EARLIER_ARTIFACT_READS = 6
+EARLIER_KEY_READS = 3
+
+
+def earlier_head_run(api: Api, branch: str, head: str, mine: str, prefix: str,
+                     key: Callable[[str], str]) -> int | None:
+    """The newest pr-router run of an earlier head of BRANCH with both artifacts whose v2 tree key is MINE."""
+    if not branch or not mine:
+        return None
+    q = urllib.parse.quote(branch, safe="")
+    runs = (api(f"actions/workflows/{ROUTER}/runs?branch={q}&event=pull_request&per_page=30") or {}).get(
+        "workflow_runs", []
+    )
+    reads, keyed = 0, {}
+    for run in sorted(runs, key=lambda r: r.get("id", 0), reverse=True):
+        other = run.get("head_sha") or ""
+        if not other or other == head or keyed.get(other) is False:
+            continue
+        if reads >= EARLIER_ARTIFACT_READS:
+            break
+        reads += 1
+        if not artifacts_ready(api, run["id"], prefix):
+            continue
+        if other not in keyed:
+            if len(keyed) >= EARLIER_KEY_READS:
+                break
+            keyed[other] = key(other) == mine
+        if keyed[other]:
+            log(f"run {run['id']} built earlier head {other} of {branch} (tree key {mine})")
+            return int(run["id"])
+    return None
+
+
 def find(api: Api, repo: str, sha: str, prefix: str, wait_s: float,
          key: Callable[[str], str] = tree_key, sleep: Callable[[float], None] = time.sleep,
-         now: Callable[[], float] = time.monotonic, tree: Callable[[str], str] = git_tree) -> int | None:
-    head = merged_head(api, repo, sha)
+         now: Callable[[], float] = time.monotonic, tree: Callable[[str], str] = git_tree,
+         subject: Callable[[str], str] = commit_subject) -> int | None:
+    head = merged_head(api, repo, sha, subject(sha))
     if not head:
         log(f"{sha} is not a same-repository squash merge into {BASE}")
         return None
@@ -156,6 +222,11 @@ def find(api: Api, repo: str, sha: str, prefix: str, wait_s: float,
                 log(f"run {run['id']} built {head} (tree key {mine})")
                 return int(run["id"])
             waiting = waiting or still_building(api, run)
+        if not waiting:
+            branch = next((r.get("head_branch") or "" for r in runs if r.get("head_branch")), "")
+            earlier = earlier_head_run(api, branch, head, mine, prefix, key)
+            if earlier:
+                return earlier
         if not waiting or now() >= deadline:
             log(f"no finished machine channel build of {head}{' in time' if waiting else ''}")
             return None

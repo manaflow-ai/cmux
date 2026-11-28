@@ -34,9 +34,35 @@ def git(*args: str, cwd: Path | None = None) -> str:
 
 
 class HotVerifyMirrorSeedTest(unittest.TestCase):
+    def _publisher_steps(self) -> tuple[dict, dict]:
+        doc = yaml.safe_load(WORKFLOW.read_text())
+        steps = doc["jobs"]["publish"]["steps"]
+        action_index = next(i for i, step in enumerate(steps) if step.get("name") == "Checkout the publisher")
+        mirror_index = next(i for i, step in enumerate(steps) if step.get("name") == "Pool mirror: checkout the publisher")
+        self.assertGreater(mirror_index, action_index)
+        return steps[action_index], steps[mirror_index]
+
+    def test_publisher_pool_mirror_replaces_blobless_action_checkout(self) -> None:
+        action, mirror = self._publisher_steps()
+        self.assertEqual(action["if"], "${{ !startsWith(runner.name, 'cmux-runner-pool-') }}")
+        self.assertEqual(mirror["if"], "${{ startsWith(runner.name, 'cmux-runner-pool-') }}")
+        self.assertEqual(mirror["timeout-minutes"], 8)
+        self.assertEqual(mirror["env"]["SPARSE"], action["with"]["sparse-checkout"])
+        run = mirror["run"]
+        for expected in (
+            "/var/lib/cmux-git/cmux.git",
+            'mirror="${CMUX_GIT_MIRROR:-/var/lib/cmux-git/cmux.git}/objects"',
+            "objects/info/alternates",
+            "git config core.sparseCheckout true",
+            "git checkout -q --detach \"$SHA\"",
+        ):
+            self.assertIn(expected, run)
+        self.assertRegex(run, r"\bgit(?:\s+-c\s+\S+)*\s+fetch --no-tags --no-recurse-submodules --depth=1\b")
+        self.assertNotIn("--filter", run)
+
     def test_every_drop_step_seeds_the_mirror(self) -> None:
         steps = drop_steps()
-        self.assertEqual(len(steps), 4, [n for n, _ in steps])
+        self.assertEqual(len(steps), 5, [n for n, _ in steps])
         for name, step in steps:
             run = step["run"]
             self.assertIn("/var/lib/cmux-git/cmux.git", run, name)
@@ -46,7 +72,10 @@ class HotVerifyMirrorSeedTest(unittest.TestCase):
     def test_plan_fetches_are_retried_with_a_low_speed_bound(self) -> None:
         doc = yaml.safe_load(WORKFLOW.read_text())
         plan = next(s for s in doc["jobs"]["plan"]["steps"] if s.get("name") == "Plan")["run"]
-        self.assertIn("http.lowSpeedTime=30", plan)
+        self.assertIn("http.lowSpeedLimit=1", plan)
+        self.assertIn("http.lowSpeedTime=60", plan)
+        self.assertIn("for try in 1 2 3", plan)
+        self.assertIn('timeout "$bound" git', plan)
         self.assertNotIn("timeout 600 git fetch -q --no-tags --filter=blob:none --shallow-since=\"$since\"", plan)
         self.assertNotIn('timeout 120 git fetch -q --no-tags --filter=blob:none --deepen=', plan)
 

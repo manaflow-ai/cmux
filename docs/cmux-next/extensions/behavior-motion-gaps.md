@@ -20,7 +20,7 @@ the profiles lane goes here first, then into a PR.
 | Particles and choreographed glyphs | Yes: `Particles({preset})`, `cmux.particles/1` (validated in Rust) | None found |
 | Named motion presets shared by an app's nodes | Partly: the look carries them (a theme file's `motion.presets`, `{duration, bounce}` springs read and clamped in Rust by `cmux_extension_sdk::motion_profile`); an extension still passes a JS constant to `.animation()` | `.animation("presetName")` does not resolve a look preset yet: each app host runs in its own process and does not read the active look. `MotionProfile::preset_animation` already gives a preset's `cmux.motion/1` spring for that step |
 | Chrome motion (tab reflow, sidebar, palette, hover card) | Partly: a theme file's `motion.springs` and `motion.fades` override the design-token springs and fades by name; the daemon reads, checks and clamps them and `theme.slots.resolve` answers them with the slots on every theme file change | The macOS app does not apply the answer yet: its chrome still reads the compiled-in `MotionTunables` defaults. The next step is a Swift layer that applies the answer's `motion` under the Debug Settings overrides |
-| Streaming style of agent text (reveal, cursor, chunk fade) | No: only `agentPane.display.thinking.glyph` and `transcriptLook` | No `agentPane.display.streaming` setting (reveal per token, per line or instant, and its fade). Every web-coding-app profile needs one |
+| Streaming style of agent text (reveal, cursor, chunk fade) | Yes: `agentPane.display.streaming`, `words` (the default: whole words, the newest fading in), `lines` (whole lines) or `instant` (as it arrives, no fade); a theme or profile file may set it | No fade timing of its own: the fade follows the host's `--agent-motion-in` |
 | Scroll and gesture motion inside a pane scene | No | No scroll-linked props: an extension cannot pin a header or fade content against its scroll position |
 
 ## Behavior
@@ -40,6 +40,10 @@ the profiles lane goes here first, then into a PR.
 
 ## Gaps from the profiles lane
 
+Found by the profile helpers on 2026-11-25 (ask-aad661801e). Docs-only gaps from the same pass were fixed in
+`cmux customize docs`, which now prints `actions` (every public action id, no cmux needed), `keybindings` (`when`
+clauses and chords) and, under its index, how to combine looks and how to install with a pinned config file.
+
 The codex profile (`examples/looks/codex/profile`, built from these docs only) found these:
 
 | Surface | Expressible today? | Missing piece |
@@ -53,7 +57,7 @@ The codex profile (`examples/looks/codex/profile`, built from these docs only) f
 ## Order
 
 1. `cmux.motion/1`: one typed and versioned motion contract in Rust (landed with this page).
-2. `agentPane.display.streaming`: the streaming style setting.
+2. Done: `agentPane.display.streaming` (`words`, `lines`, `instant`), the streaming style setting.
 3. `contributes.keybindings` with `onKeybinding` activation (landed).
 4. Profile-level motion tokens: a `motion` block in a theme or look, bounded like `cmux.motion/1`. Rust side
    landed (`cmux-app-host/src/motion_profile.rs`, theme file `motion`, `theme.slots.resolve`); next: the app

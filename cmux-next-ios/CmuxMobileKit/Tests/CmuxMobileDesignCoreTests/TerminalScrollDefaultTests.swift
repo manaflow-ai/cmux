@@ -8,9 +8,13 @@ import Testing
 /// Leo, 2026-11-25: "Btw how do you feel about me making it just a normal iOS scroll instead of like by
 /// line scroll in the terminal view?" (ask-f9e09f8eda) and "we can just treat the scroll like any
 /// pedestrian scroll" (ask-9a05173841).
+///
+/// Row 18 of the iOS regressions: the default is the app's line scroll again, so a TUI drag never opens
+/// the phone's re-render. Aziz, 2026-11-26: "I prefer that you take it back to the old behavior ... you
+/// shouldnt be trying to rerender the tui on your own"; Leo: "Ok".
 struct TerminalScrollDefaultTests {
-    @Test func plainScrollIsTheDefault() {
-        #expect(TerminalScrollDefault.plainScroll)
+    @Test func lineScrollIsTheDefault() {
+        #expect(!TerminalScrollDefault.plainScroll)
     }
 
     @Test func rubberBandShowsLessThanTheFingerMovedAndNeverPastTheScreen() {

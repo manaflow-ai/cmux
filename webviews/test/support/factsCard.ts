@@ -129,3 +129,12 @@ export async function renderInDom(node: ReactNode): Promise<{ container: HTMLEle
     },
   };
 }
+
+/// `element`'s text as a sighted person reads it: its `textContent` without the hidden elements
+/// (a WithFacts trigger's description, `hidden`) that sit beside the words for screen readers.
+export function shownText(element: Element | null | undefined): string {
+  if (!element) return "";
+  const copy = element.cloneNode(true) as Element;
+  for (const hidden of copy.querySelectorAll("[hidden]")) hidden.remove();
+  return copy.textContent ?? "";
+}

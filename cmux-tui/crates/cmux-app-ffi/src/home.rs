@@ -3,7 +3,6 @@
 //! (`AREA.NAME`, such as `inbox.sections`), so what Home shows and decides is
 //! Rust the other platforms share, and the Swift stays the view.
 
-use serde_json::Value;
 use std::ffi::{CStr, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -65,12 +64,9 @@ pub unsafe extern "C" fn cmux_home_call(
             // SAFETY: readable for `request_len` bytes per the contract.
             unsafe { std::slice::from_raw_parts(request_ptr, request_len) }
         };
-        let request = match serde_json::from_slice::<Value>(bytes) {
-            Ok(value @ Value::Object(_)) => value,
-            _ => return Err(CMUX_HOME_ERR_INVALID),
-        };
-        match cmux_home_rules::call(op, &request) {
-            Ok(reply) => Ok(serde_json::to_vec(&reply).unwrap_or_default()),
+        // Bytes in, bytes out: the per-conversation and per-page ops read and write no `Value` tree.
+        match cmux_home_rules::call_json(op, bytes) {
+            Ok(reply) => Ok(reply),
             Err(OpError::Unknown) => Err(CMUX_HOME_ERR_UNKNOWN_OP),
             Err(OpError::Invalid(_)) => Err(CMUX_HOME_ERR_INVALID),
         }
@@ -105,6 +101,7 @@ pub unsafe extern "C" fn cmux_home_bytes_free(bytes: CmuxHomeBytes) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
     use std::ffi::CString;
 
     fn call(op: &str, request: &str) -> (i32, Option<Value>) {

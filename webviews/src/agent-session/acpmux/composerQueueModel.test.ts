@@ -12,18 +12,11 @@ describe("heldReason", () => {
   });
 });
 
-import { queueSummary, uniqueById } from "./composerQueueModel";
+import { uniqueById } from "./composerQueueModel";
 
 describe("uniqueById", () => {
   test("a prompt listed twice draws once, at its first place", () => {
     const list = [{ id: "a" }, { id: "b" }, { id: "a" }, { id: "c" }, { id: "b" }];
     expect(uniqueById(list).map((entry) => entry.id)).toEqual(["a", "b", "c"]);
-  });
-});
-
-describe("queueSummary", () => {
-  test("names what the list holds, never a bare count", () => {
-    const t = (key: string, vars?: Record<string, unknown>) => `${key}:${String(vars?.n)}`;
-    expect(queueSummary(5, t as never)).toBe("composer.queueSummary:5");
   });
 });

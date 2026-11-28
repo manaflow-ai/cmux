@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "computer.size.pinned" : {
+      "comment" : "Agent chat: Size row, a size the person pinned.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "مثبّت عند {vcpu} vCPU · {memory} جيجابايت"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "zaključano na {vcpu} vCPU · {memory} GB"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "fastlåst til {vcpu} vCPU · {memory} GB"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "festgelegt auf {vcpu} vCPU · {memory} GB"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "pinned at {vcpu} vCPU · {memory} GB"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "fijado en {vcpu} vCPU · {memory} GB"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "fixé à {vcpu} vCPU · {memory} GB"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "fissato a {vcpu} vCPU · {memory} GB"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{vcpu} vCPU · {memory} GB に固定"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បានខ្ទាស់នៅ {vcpu} vCPU · {memory} GB"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{vcpu} vCPU · {memory} GB로 고정됨"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "festet på {vcpu} vCPU · {memory} GB"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "przypięto na {vcpu} vCPU · {memory} GB"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "fixado em {vcpu} vCPU · {memory} GB"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "закреплено: {vcpu} vCPU · {memory} ГБ"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ตรึงไว้ที่ {vcpu} vCPU · {memory} GB"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{vcpu} vCPU · {memory} GB olarak sabitlendi"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "закріплено: {vcpu} vCPU · {memory} ГБ"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "đã ghim ở {vcpu} vCPU · {memory} GB"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已固定为 {vcpu} vCPU · {memory} GB"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已固定為 {vcpu} vCPU · {memory} GB"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

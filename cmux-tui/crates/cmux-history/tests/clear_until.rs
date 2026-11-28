@@ -4,7 +4,7 @@
 use cmux_history::{NewVisit, VisitStore};
 
 fn visit(url: &str, at_ms: i64) -> NewVisit {
-    NewVisit { url: url.to_owned(), title: None, tab: None, at_ms }
+    NewVisit { url: url.to_owned(), title: None, tab: None, actor: None, at_ms }
 }
 
 #[test]

@@ -6,6 +6,7 @@ use cmux_action_catalog::ffi::{ERR_INVALID, OK, cmux_deep_link_call, cmux_deep_l
 use serde_json::{Value, json};
 use std::path::PathBuf;
 
+// affected-reads: schemas/deeplinks/agent-link.json plans/cmux-next/links.json
 fn repo() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
@@ -700,9 +701,8 @@ fn the_names_of_an_agent_links_path_are_never_said_to_be_ignored() {
 
 #[test]
 fn a_link_with_nothing_stray_ignores_nothing() {
-    let text = format!(
-        "cmux://agent/codex/s1?host=big-red&name=Rivetmoss&message=msg_1&machine={MACHINE}"
-    );
+    let text =
+        format!("cmux://agent/codex/s1?host=my-vm&name=Rivetmoss&message=msg_1&machine={MACHINE}");
     assert_eq!(read(&text, "cmux").unwrap().ignored, Vec::<String>::new());
 }
 

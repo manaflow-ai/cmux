@@ -94,8 +94,8 @@
     },
     {
       "path": "Contents/Resources/bin/cmux",
-      "what": "the cmux CLI and daemon (cmux-tui crates; acpmux, libghostty-vt, the browser host and the app host are linked in, the hosts run by argv[0] as bin/cmux-browser-host and bin/cmux-app-host links; check_ghostty_vt_notices.py checks libghostty-vt's Zig packages)",
-      "notices": ["first-party", "section:rust-cmux-cli", "section:manual-ghostty", "rust-std", "zig-std", "section:manual-rust-and-zig-standard-libraries", "section:manual-ghostty-shell-integration", "section:rust-cmux-browser-host", "section:manual-cmux-browser-host-runtime-javascript", "section:rust-cmux-app-host"]
+      "what": "the cmux CLI and daemon (cmux-tui crates; acpmux, libghostty-vt, the browser host, the app host, the agent screen-detection plugin and the Cloud app server are linked in and run by argv[0] as the bin/cmux-browser-host, bin/cmux-app-host, bin/cmux-agent-screen-detection and bin/cmux-cloud links; check_ghostty_vt_notices.py checks libghostty-vt's Zig packages)",
+      "notices": ["first-party", "section:rust-cmux-cli", "section:manual-ghostty", "rust-std", "zig-std", "section:manual-rust-and-zig-standard-libraries", "section:manual-ghostty-shell-integration", "section:rust-cmux-browser-host", "section:manual-cmux-browser-host-runtime-javascript", "section:rust-cmux-app-host", "section:rust-cmux-agent-screen-detection", "section:manual-herdr-agent-detection-plugin", "section:rust-cmux-cloud"]
     },
     {
       "path": "Contents/Resources/bin/cmux-tui-ssh/cmux-tui-*",
@@ -110,6 +110,11 @@
     {
       "path": "Contents/Resources/bin/cmux-holder",
       "what": "the terminal holder that keeps every terminal's PTY (cmux-tui crate cmux-holder, bin cmux-holder): std and libc only, no libghostty-vt",
+      "notices": ["first-party", "section:rust-cmux-cli", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
+    },
+    {
+      "path": "Contents/Resources/bin/cmux-launch-preread",
+      "what": "the login-time pre-read (app.backgroundReady = warmAtLogin, off by default; cmux-tui crate cmux-launch-preread, bin cmux-launch-preread): reads the app's code into the page cache at login and exits, std and libc only",
       "notices": ["first-party", "section:rust-cmux-cli", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
     },
     {

@@ -190,7 +190,7 @@ jobs:
       ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
     steps:
       - name: Checkout trusted continuation tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/main
@@ -319,7 +319,7 @@ jobs:
             "OUTER_LOG=$RUNNER_TEMP/cmux-outer-dmg-notarization.state.log" >> "$GITHUB_ENV"
 
       - name: Checkout trusted continuation tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/main
@@ -526,7 +526,7 @@ jobs:
       ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
     steps:
       - name: Checkout trusted continuation tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/main
@@ -582,7 +582,7 @@ jobs:
       VARIANT: ${{ matrix.variant }}
     steps:
       - name: Checkout trusted continuation tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/main
@@ -804,7 +804,7 @@ jobs:
       ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
     steps:
       - name: Checkout trusted continuation tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/main
@@ -860,7 +860,7 @@ jobs:
       VARIANT: ${{ matrix.variant }}
     steps:
       - name: Checkout trusted continuation tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/main
@@ -970,7 +970,7 @@ jobs:
       VARIANT: ${{ matrix.variant }}
     steps:
       - name: Checkout trusted continuation tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/main
@@ -1040,13 +1040,13 @@ jobs:
       SHORT_SHA: ${{ needs.preflight.outputs.short_sha }}
     steps:
       - name: Checkout trusted publication tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/main
-          # The stale-continuation guard compares the published SHA with the
-          # source SHA. A shallow checkout cannot prove ancestry after fetch.
-          fetch-depth: 0
+          # The stale-continuation guard fetches the published and source
+          # commits' full history itself (--unshallow, below). fetch-depth: 0
+          # fetched every branch and tag: 1563 s of this job (job 141019492820).
 
       - name: Download all accepted variants
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v6.0.0
@@ -1056,7 +1056,7 @@ jobs:
           merge-multiple: false
 
       - name: Download verified digests
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: cmux-${{ needs.preflight.outputs.channel }}-verified-*-${{ needs.preflight.outputs.short_sha }}
           path: tested
@@ -1179,7 +1179,11 @@ jobs:
             # refuses an older build. An RC must not move the feed to a lower
             # marketing version, so RC compares versions instead of ancestry.
             if [ -n "$published_sha" ]; then
-              git fetch --no-tags origin "$SOURCE_HEAD_SHA" "$published_sha"
+              # Both commits' whole history, without blobs (git show fetches the
+              # one file it reads): a shallow checkout cannot prove ancestry.
+              unshallow=()
+              if [ "$(git rev-parse --is-shallow-repository)" = true ]; then unshallow=(--unshallow); fi
+              git fetch --no-tags --filter=blob:none "${unshallow[@]}" origin "$SOURCE_HEAD_SHA" "$published_sha"
               if [ "$CHANNEL" = rc ]; then
                 marketing_version() {
                   local project versions
@@ -1387,7 +1391,7 @@ jobs:
       NIGHTLY_SPARKLE_PRIVATE_KEY: ${{ secrets.NIGHTLY_SPARKLE_PRIVATE_KEY }}
     steps:
       - name: Checkout trusted delta tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/main
@@ -1477,7 +1481,7 @@ jobs:
       SOURCE_HEAD_SHA: ${{ needs.preflight.outputs.source_head_sha }}
     steps:
       - name: Checkout trusted publication tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/main

@@ -43,6 +43,15 @@ beforeAll(() => {
     setTimeout(() => callback(Date.now()), 0) as unknown as number;
   scope.cancelAnimationFrame = (handle: number) => clearTimeout(handle);
   dom.window.HTMLElement.prototype.scrollIntoView = () => undefined;
+  // jsdom has no layout. The Feed's lines keep only the rows in view (VirtualList), so each element is
+  // a 400 by 4000 box here: a viewport tall enough to hold every sample line, as a window would.
+  const box = { x: 0, y: 0, top: 0, left: 0, right: 400, bottom: 4000, width: 400, height: 4000 };
+  Object.defineProperties(dom.window.HTMLElement.prototype, {
+    getBoundingClientRect: { configurable: true, value: () => ({ ...box, toJSON: () => box }) },
+    offsetHeight: { configurable: true, get: () => box.height },
+    offsetWidth: { configurable: true, get: () => box.width },
+    clientHeight: { configurable: true, get: () => box.height },
+  });
 });
 
 afterEach(() => {

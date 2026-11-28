@@ -136,12 +136,17 @@ extension TabSnapshotStore {
     }
 
     /// The tab's newest picture: the phone's own capture or the Mac's thumbnail.
-    public func newestPicture(_ key: TabSnapshotKey) -> (data: Data, capturedAtMs: Int64)? {
-        let own = record(key).flatMap { record in blob(record.thumbHash).map { (data: $0, capturedAtMs: record.capturedAtMs) } }
+    public func newestPicture(_ key: TabSnapshotKey) -> (data: Data, pixelWidth: Int, pixelHeight: Int, capturedAtMs: Int64)? {
+        let own = record(key).flatMap { record in
+            blob(record.thumbHash).map {
+                (data: $0, pixelWidth: record.pixelWidth, pixelHeight: record.pixelHeight,
+                 capturedAtMs: record.capturedAtMs)
+            }
+        }
         let card = macCards(accountID: key.accountID, macID: key.macID)[key.tabID]
         let mac = card.flatMap { card in
             card.thumbHash.flatMap { macBlob($0, accountID: key.accountID, macID: key.macID) }
-                .map { (data: $0, capturedAtMs: card.capturedAtMs) }
+                .map { (data: $0, pixelWidth: 0, pixelHeight: 0, capturedAtMs: card.capturedAtMs) }
         }
         guard let own else { return mac }
         guard let mac, mac.capturedAtMs > own.capturedAtMs else { return own }

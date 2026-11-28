@@ -65,6 +65,20 @@ pub static ACTIONS: &[Action] = &[
         waits_for_result: true,
         ..Action::DEFAULT
     },
+    // Storage on This Mac: the card with this Mac's disk, what worktree cleanup could free and
+    // Clean up now (acpmux `_acpmux/worktree/report` and `_acpmux/worktree/clean`). A card the
+    // person reads and clicks; agents call the daemon's worktree methods instead.
+    Action {
+        id: "machine.storage",
+        group: GROUP,
+        title: t("RemoteActions", "action.machine.storage", "Storage on This Mac"),
+        keywords: &["storage", "disk", "space", "free", "clean", "cleanup", "clean up", "reclaim", "reclaimable", "worktree", "worktrees", "machine", "this mac"],
+        category: "remote",
+        symbol: "internaldrive",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action machine-storage",
+        ..Action::DEFAULT
+    },
     Action {
         id: "machine.portForward",
         group: GROUP,
@@ -264,12 +278,14 @@ pub static ACTIONS: &[Action] = &[
         symbol: "arrow.down.circle",
         surfaces: PALETTE | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sshMachine", "connection", 102)], ..SurfacePlan::DEFAULT },
+        // Not destructive: installing or updating cmux-tui on the person's own machine loses
+        // nothing (its terminals keep running), so a click runs it. `--confirm` is still taken
+        // and changes nothing, for scripts written when it asked.
         arguments: &[args::CONFIRM.optional()],
         palette_target_source: Some("ssh"),
         palette_target: Some("machine"),
         targets: &["machine"],
         cli_name: "remote install",
-        is_destructive: true,
         waits_for_result: true,
         ..Action::DEFAULT
     },

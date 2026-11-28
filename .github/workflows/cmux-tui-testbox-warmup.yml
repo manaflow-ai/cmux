@@ -116,7 +116,7 @@ jobs:
           printf 'hydrating main at %s\n' "$DISPATCH_SHA"
 
       - name: Checkout hydration commit
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # Full history, but blobless: the full clone of this repository is
           # ~2.8 GB and took 70-180 s; commits and trees alone are ~135 MB.
@@ -216,7 +216,8 @@ jobs:
           source scripts/ghostty-zig-version.sh
           want="$(GHOSTTY_ZIG_SOURCE=ghostty-next ghostty_minimum_zig_version "$PWD")"
           install_root="/opt/zig-$want"
-          if [ "$("$install_root/zig" version 2>/dev/null || true)" != "$want" ]; then
+          have="$("$install_root/zig" version 2>/dev/null)" || have=""
+          if [ "$have" != "$want" ]; then
             GHOSTTY_ZIG_SOURCE=ghostty-next \
               ZIG_REQUIRED="$want" \
               ZIG_FORCE_LOCAL_INSTALL=1 \

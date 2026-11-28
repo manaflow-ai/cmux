@@ -54,6 +54,63 @@ pub(crate) async fn requested(params: &Value) -> Result<Vec<PathBuf>, RpcError> 
     Ok(out)
 }
 
+/// The cmux setting whose folders every new chat gets on top of its Sources.
+pub(crate) const SETTING: &str = "agents.additionalDirectories";
+
+/// The folders `agents.additionalDirectories` names in `doc`, as [`requested`] keeps them:
+/// absolute or `~/` paths to folders that exist, canonical, each once. An entry that is none of
+/// these is skipped with a warning (a folder removed since must not stop every chat).
+pub(crate) fn from_settings_doc(doc: &Value, home: Option<&Path>) -> Vec<PathBuf> {
+    let Some(list) = crate::user_settings::value(doc, SETTING) else { return Vec::new() };
+    let mut out: Vec<PathBuf> = Vec::new();
+    for item in list.as_array().into_iter().flatten() {
+        let Some(raw) = item.as_str().map(str::trim).filter(|s| !s.is_empty()) else { continue };
+        let path = match (raw.strip_prefix("~/"), raw == "~", home) {
+            (Some(rest), _, Some(home)) => home.join(rest),
+            (None, true, Some(home)) => home.to_path_buf(),
+            _ => PathBuf::from(raw),
+        };
+        let kept = path
+            .is_absolute()
+            .then(|| std::fs::canonicalize(&path).ok())
+            .flatten()
+            .filter(|c| c.is_dir());
+        match kept {
+            Some(c) if out.len() < MAX_DIRS => {
+                if !out.contains(&c) {
+                    out.push(c);
+                }
+            }
+            _ => tracing::warn!(folder = raw, "{SETTING}: skipped a folder that is not there"),
+        }
+    }
+    out
+}
+
+/// A new chat's folders: its own (`asked`, from `session/new`), then the setting's, each once.
+/// A remote-origin chat gets only its own: the setting is this person's, for their own chats.
+pub(crate) fn with_settings(asked: Vec<PathBuf>, remote: bool) -> Vec<PathBuf> {
+    if remote {
+        return asked;
+    }
+    let crate::user_settings::Settings::Parsed(doc) = crate::user_settings::read() else {
+        return asked;
+    };
+    merged(asked, from_settings_doc(&doc, dirs::home_dir().as_deref()))
+}
+
+fn merged(mut asked: Vec<PathBuf>, extra: Vec<PathBuf>) -> Vec<PathBuf> {
+    for dir in extra {
+        if asked.len() >= MAX_DIRS {
+            break;
+        }
+        if !asked.contains(&dir) {
+            asked.push(dir);
+        }
+    }
+    asked
+}
+
 /// The compare-and-set token comes from the persisted session info. Validate its shape without
 /// requiring paths to still exist, so a deleted source folder can still be removed.
 fn expected_directories(value: &Value, cwd: &Path) -> Result<Vec<PathBuf>, RpcError> {
@@ -107,12 +164,31 @@ pub(crate) fn acp_value(meta: &SessionMeta) -> Option<Value> {
     })
 }
 
+/// The folder a change added, for the chat's one line about it ("Added ~/x as /vm/path"):
+/// `added: {path, from?}` when `path` is among the new folders (canonical either way), `from`
+/// the person's own name for it (a Mac path), each at most 4096 bytes. Anything else: none.
+pub(crate) fn added(params: &Value, dirs: &[PathBuf]) -> Option<Value> {
+    let added = params.get("added")?;
+    fn short(v: &Value) -> Option<&str> {
+        v.as_str().filter(|s| s.len() <= 4096 && !s.chars().any(char::is_control))
+    }
+    let path = short(added.get("path")?)?;
+    let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| PathBuf::from(path));
+    let path = dirs.iter().find(|d| **d == canonical || d.as_path() == Path::new(path))?;
+    let mut out = json!({"path": path.to_string_lossy()});
+    if let Some(from) = added.get("from").and_then(short) {
+        out["from"] = json!(from);
+    }
+    Some(out)
+}
+
 impl Hub {
     /// `_acpmux/set_directories`: the chat's folders become `additionalDirectories` (an empty
     /// list clears them), and its agent restarts on them, resuming the same conversation, as a
     /// tool switch does (`tools.rs` `set_tools`): now between turns, at the end of a running
     /// turn, or at the next start of an agent that is not running. Watchers hear it as a `mux`
-    /// record of kind `directories`.
+    /// record of kind `directories`, carrying `added` ([`added`]) when the caller named the
+    /// folder it added (`chat-folder-add` in the machine daemon).
     pub async fn set_directories(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -141,7 +217,11 @@ impl Hub {
         let applied = if !changed {
             "unchanged"
         } else {
-            self.append(session, "mux", "directories", json!({FIELD: dirs}));
+            let mut record = json!({FIELD: dirs});
+            if let Some(added) = added(params, &dirs) {
+                record["added"] = added;
+            }
+            self.append(session, "mux", "directories", record);
             self.save_meta_answered(session)?;
             self.restart_on_change(session).await?
         };

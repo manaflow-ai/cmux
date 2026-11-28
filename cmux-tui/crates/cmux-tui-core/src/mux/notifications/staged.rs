@@ -150,7 +150,7 @@ impl Mux {
             }
         };
         let notification_id: NotificationPublicId =
-            serde_json::from_value(intent["notification_id"].clone())
+            serde_json::from_value(intent.get("notification_id").cloned().unwrap_or(Value::Null))
                 .context("stored notification intent has an invalid identity")?;
         let created_at_ms = intent
             .get("created_at_ms")

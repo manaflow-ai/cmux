@@ -166,7 +166,8 @@ fn run(s: Scenario) -> Report {
         if let Some(req) = pending.take() {
             let idr = req.force_idr;
             let len = if idr { s.frame_bytes * 3 } else { s.frame_bytes };
-            let enc = Encoded { access_unit: vec![0x5a; len], idr, t_capture_us: now };
+            let enc =
+                Encoded { access_unit: vec![0x5a; len], idr, t_capture_us: now, ltr_token: None };
             let out = e.encoded(&req, Some(enc), now).expect("encoded");
             for d in out.datagrams {
                 send(&mut queue, &mut rng, now, true, d);

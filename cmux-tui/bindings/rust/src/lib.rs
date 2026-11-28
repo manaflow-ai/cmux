@@ -51,6 +51,7 @@ mod presence;
 pub mod raw;
 mod raw_support;
 mod resource;
+pub mod session_list_sync;
 mod socket_hash;
 mod socket_paths;
 // Used by the hashed-socket tests only.

@@ -4,8 +4,9 @@
 // loose, a bare red dot on a failed one's mark (Leo, 2026-11-25: "dot on left weird / oh this is your
 // "less than three tool calls it doesnt go into a worked for but rather just... stuff"", and "i think
 // it was replacing the "worked for" as it went. let's just fix forward and improve it all").
-// Now the turn keeps one line from its first frame to its end: "Working for <1s", then "Worked for
-// <1s", never "0s" (turns.ts `turnSpan`); a failed subagent's mark carries the failure's own glyph.
+// Now the turn keeps one line from its first frame to its end: "Working for 0s", then "Worked for
+// 0s" (turns.ts `turnSpan`; Leo, 2026-11-27: "let's do not <1 but 0s and revert that situatoin"); a
+// failed subagent's mark carries the failure's own glyph.
 import { agentPaneEntry } from "../../../gallery/format";
 import { GALLERY_NOW } from "../../../gallery/clock";
 import { activity, chat, row, summary, tool, user } from "../../../gallery/fixtures/acpmux";
@@ -56,7 +57,7 @@ const running = () =>
 
 export default agentPaneEntry({
   id: "agent-pane.quick-subagent-turn",
-  title: "A quick subagent turn: one Worked for, <1s not 0s, a failure badge on the mark",
+  title: "A quick subagent turn: one Worked for, 0s, a failure badge on the mark",
   area: "Agent pane",
   height: 320,
   covers: [
@@ -66,14 +67,14 @@ export default agentPaneEntry({
     "agent-session/acpmux/subagents/SubagentDoneLine.tsx",
     "agent-session/acpmux/subagents/subagents.css",
   ],
-  keywords: ["worked for", "working for", "0s", "<1s", "subagent", "failed", "dot"],
+  keywords: ["worked for", "working for", "0s", "subagent", "failed", "dot"],
   variants: {
     running: {
-      note: 'Running, 0.4 s in: "Working for <1s" over the work from the first frame, no bare "Working" that swaps.',
+      note: 'Running, 0.4 s in: "Working for 0s" over the work from the first frame, no bare "Working" that swaps.',
       snapshot: running(),
     },
     "ended-quick": {
-      note: 'Ended under a second: the same line reads "Worked for <1s"; the subagent folds under it as a call.',
+      note: 'Ended under a second: the same line reads "Worked for 0s"; the subagent folds under it as a call.',
       snapshot: ended("completed", 400),
     },
     "ended-failed": {

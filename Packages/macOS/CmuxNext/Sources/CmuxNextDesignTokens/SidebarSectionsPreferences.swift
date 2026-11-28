@@ -140,6 +140,10 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// age such as `3d`) on the name's line. Off by default (Lawrence 2026-10-19: "By default in the
     /// sidebar, we should never show timestamps"); the hover card keeps its times either way.
     public var showTimestamps = false
+    /// `sidebar.relativeTimestamps`: with `showTimestamps` on, a change today reads as its age (`5m`,
+    /// `2h`, as the Codex app and T3 Code label chats), not its time. Off by default: today's changes
+    /// show their time, as before.
+    public var relativeTimestamps = false
     /// `sidebar.settleFinished`: an agent chat whose last turn finished and that the person has read folds into a
     /// "Settled (N)" row at the end of its list until its next turn, question or failure (the rule is Rust's,
     /// `cmux-layout-reducer` `settle`). Off by default; the Studio look turns it on.
@@ -182,6 +186,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// How large the list's text, leading glyphs and rows are (`sidebar.textSize`, ``SidebarTextSize``):
     /// the original size by default; Larger matches the ChatGPT app's sidebar.
     public var textSize: SidebarTextSize = .standard
+    /// What the profile button at the sidebar's foot opens (`sidebar.profileMenu.style`,
+    /// ``SidebarProfileMenuStyle``): cmux's app menu by default; Account puts accounts and switching first.
+    public var profileMenuStyle: SidebarProfileMenuStyle = .app
     /// Pinned bands that hide until the pointer is over the sidebar (R54).
     /// Off by default: a fresh profile's sidebar is pinned, its Settings and
     /// account band always shown; hover-reveal is opt-in (Leo 2026-10-11).
@@ -212,6 +219,10 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// workspace's agent lists under it on a thin line, rows carry their pull requests, and the
     /// first rows their Command-number keycaps. Off by default: it changes the list's look.
     public var sessionTree = false
+    /// `sidebar.workspaceListApp`: the id of an installed extension that draws the whole workspace
+    /// list (`cmux.sidebar/1`). Nil (the default) draws the built-in list, which also shows while the
+    /// extension loads, fails or is removed.
+    public var workspaceListApp: String?
     /// `sidebar.style`: the standard sidebar (default) or the thin rail.
     public var style: SidebarLayoutStyle = .standard
     /// `sidebar.nav`: the nav block a look puts at the top of the sidebar, one plain row per cmux action

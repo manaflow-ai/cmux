@@ -11,9 +11,13 @@
 //!
 //! - `subagent`: the subagent whose session the update belongs to.
 //! - `subagents`: subagents this update starts or changes, each
-//!   `{id, parent, name?, task?, prompt?, kind?, state, toolCallId?}`, with `parent`
+//!   `{id, parent, name?, task?, prompt?, kind?, state, toolCallId?, startedAt?}`, with `parent`
 //!   null for the session's own subagents and `state` one of `running`,
-//!   `completed`, `failed`, `cancelled` or `disconnected`. A running one's
+//!   `completed`, `failed`, `cancelled` or `disconnected`. `startedAt` (epoch ms) is when the
+//!   tree first read the subagent's spawn, on every event of it, so a client that read none of
+//!   its spawn (a page after it, a lag re-read) still knows it began earlier and draws no
+//!   "started working" line for it; one met first through progress gets its `elapsedMs` back
+//!   from that progress's time, and one with neither has none. A running one's
 //!   progress adds `tokens`, `toolUses`, `elapsedMs`, `action` and, for a
 //!   Claude workflow (`kind: "workflow"`), `agents: {done, started, failed?,
 //!   queued?}`, its `runId` and `scriptPath` (what a resume names again)
@@ -134,6 +138,13 @@ struct ChildPreview {
     /// by), carried onto a later event that says none: its completed or cancelled end, so a page
     /// holding only that end still says which agent it was (cmux#33292, cmux#33336).
     agent_id: Option<String>,
+    /// When the tree first read its spawn (epoch ms), stamped as `startedAt` on every event of
+    /// it; or, for one first met through progress, that progress's time less its `elapsedMs`.
+    started_at: Option<u64>,
+    /// `started_at` came from a spawn the tree read, not from a progress's `elapsedMs`: a spawn
+    /// read later (a log's) replaces an estimate, never a spawn's own time.
+    #[serde(default)]
+    started_exact: bool,
     /// The current message's whole text, for the `result` its `completed` end carries (the chat's
     /// "Subagent finished" card shows the whole reply; `text` is the tray's capped one-liner). Leo,
     /// 2026-11-09: "this isn't rendering the full message". Bounded by `RESULT_CHARS`, freed at
@@ -325,7 +336,9 @@ impl SubagentTree {
             let Some(id) = event.get("id").and_then(Value::as_str) else { continue };
             self.name_event(id.to_owned(), event);
             let Some(id) = event.get("id").and_then(Value::as_str) else { continue };
+            let now = self.now_ms();
             let preview = self.previews.entry(id.to_owned()).or_default();
+            stamp_started(preview, event, now);
             // A progress/state event is authoritative over an earlier usage_update;
             // retain its total for a later lifecycle event that omits tokens.
             if let Some(tokens) = event.get("tokens").and_then(Value::as_u64) {
@@ -418,6 +431,12 @@ impl SubagentTree {
                     }
                     if known.agent_id.is_none() {
                         known.agent_id = preview.agent_id;
+                    }
+                    // A log's spawn time replaces a progress's estimate; an estimate fills a gap.
+                    let exact = preview.started_exact && !known.started_exact;
+                    if preview.started_at.is_some() && (known.started_at.is_none() || exact) {
+                        known.started_at = preview.started_at;
+                        known.started_exact = preview.started_exact;
                     }
                 }
                 std::collections::hash_map::Entry::Vacant(slot) => {
@@ -639,6 +658,7 @@ impl SubagentTree {
                 }
                 event.insert("state".into(), json!("running"));
                 self.remember_label(&id, &event);
+                self.note_spawned(&id);
                 vec![Value::Object(event)]
             }
             Some("subagent_state_update") => {
@@ -781,6 +801,7 @@ impl SubagentTree {
                     } else {
                         self.spawn_with_parent(id, parent.as_deref())?
                     };
+                    self.note_spawned(id);
                     if let Some(task) = task {
                         event.insert("task".into(), json!(task));
                     }
@@ -882,6 +903,29 @@ impl SubagentTree {
         event.insert("state".into(), json!(state));
         event.insert("background".into(), json!(true));
         vec![Value::Object(event)]
+    }
+
+    /// The time of the update being read: the clock `set_clock` gave it (a live update's arrival,
+    /// a logged one's stamp), else the wall clock.
+    fn now_ms(&self) -> u64 {
+        if let Some(at) = self.logged_at {
+            return at;
+        }
+        match self.expiry_clock() {
+            0 => crate::store::now_ms(),
+            at => at,
+        }
+    }
+
+    /// The tree read `id`'s spawn now: its start, unless a spawn read before gave one (a progress's
+    /// estimate gives way to it).
+    fn note_spawned(&mut self, id: &str) {
+        let now = self.now_ms();
+        let preview = self.previews.entry(id.to_owned()).or_default();
+        if !preview.started_exact {
+            preview.started_at = Some(now);
+            preview.started_exact = true;
+        }
     }
 
     /// Keeps the task an event of `id` gives (at most a last message's length, so a task that is
@@ -1056,6 +1100,24 @@ fn truncate_label(text: &str) -> String {
     format!("{}…", cut.trim_end())
 }
 
+/// Writes `startedAt` into an event that has none: the start the tree knows, else, for a subagent
+/// first met through progress that says how long it ran (`elapsedMs`), `now` less that, which is
+/// kept for its later events. Neither: none, so a client never takes the event for its start.
+fn stamp_started(preview: &mut ChildPreview, event: &mut Value, now: u64) {
+    let Some(object) = event.as_object_mut() else { return };
+    if object.contains_key("startedAt") {
+        return;
+    }
+    if preview.started_at.is_none()
+        && let Some(elapsed) = object.get("elapsedMs").and_then(Value::as_u64)
+    {
+        preview.started_at = Some(now.saturating_sub(elapsed));
+    }
+    if let Some(at) = preview.started_at {
+        object.insert("startedAt".into(), json!(at));
+    }
+}
+
 /// A Codex agent status as a subagent state (codex-acp's `terminalStateOf`).
 fn codex_state(status: Option<&str>) -> &'static str {
     match status {
@@ -1165,6 +1227,7 @@ mod codex_tests {
     #[test]
     fn a_failed_subagent_carries_its_error_and_agent_id() {
         let mut tree = SubagentTree::default();
+        tree.set_clock(7);
         subagents(
             &mut tree,
             json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "s1/t1", "name": "Push relay"}),
@@ -1178,7 +1241,7 @@ mod codex_tests {
             end,
             [
                 json!({"id": "s1/t1", "parent": null, "state": "failed", "agentId": "a8e1", "error": "API Error: 503",
-                    "name": "Push relay"})
+                    "name": "Push relay", "startedAt": 7})
             ]
         );
     }
@@ -1945,6 +2008,130 @@ mod codex_tests {
         );
         let cached = later[0]["name"].as_str().unwrap();
         assert!(!cached.contains("aZ3kQ9"), "{cached}");
+    }
+
+    /// Leo's chat pane drew a "started working" row of 10+ helpers on every lag re-read that met
+    /// them through progress, then dropped it once their spawns were read: flicker. Every event
+    /// of a subagent says when the tree read its spawn, so the pane draws a start only for one it
+    /// saw start.
+    #[test]
+    fn a_spawn_and_its_progress_carry_the_same_started_at() {
+        let mut tree = SubagentTree::default();
+        tree.set_clock(1_000_000);
+        let spawned = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "s1/toolu_a",
+                   "name": "Helper"}),
+        );
+        assert_eq!(spawned[0]["startedAt"], json!(1_000_000u64));
+        tree.set_clock(1_060_000);
+        let progress = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "s1/toolu_a",
+                   "tokens": 10, "elapsedMs": 59_000}),
+        );
+        assert_eq!(progress[0]["startedAt"], json!(1_000_000u64));
+        tree.set_clock(1_090_000);
+        let ended = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": "s1/toolu_a",
+                   "state": "completed"}),
+        );
+        assert_eq!(ended[0]["startedAt"], json!(1_000_000u64));
+    }
+
+    /// A subagent first met through progress (its spawn was before the page read) starts its
+    /// `elapsedMs` before that progress, and keeps that start; one with no `elapsedMs` has none.
+    #[test]
+    fn a_progress_first_subagent_starts_its_elapsed_before() {
+        let mut tree = SubagentTree::default();
+        tree.set_clock(2_000_000);
+        let first = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "s1/toolu_p",
+                   "tokens": 5, "elapsedMs": 45_000}),
+        );
+        assert_eq!(first[0]["startedAt"], json!(1_955_000u64));
+        tree.set_clock(2_010_000);
+        let next = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "s1/toolu_p",
+                   "tokens": 6, "elapsedMs": 55_200}),
+        );
+        assert_eq!(next[0]["startedAt"], json!(1_955_000u64), "an estimate is kept, not redrawn");
+
+        let bare = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "s1/toolu_q",
+                   "tokens": 1}),
+        );
+        assert!(bare[0].get("startedAt").is_none(), "{bare:?}");
+    }
+
+    #[test]
+    fn a_logged_spawn_keeps_its_recorded_started_at() {
+        let mut tree = SubagentTree::default();
+        tree.set_clock(90_000);
+        let mut spawn = json!({"sessionId": "s1", "update": {
+            "sessionUpdate": "subagent_spawned", "subagentSessionId": "s1/toolu_a"
+        }});
+        tree.annotate_at(&mut spawn, false, 500);
+        assert_eq!(spawn["_meta"]["acpmux"]["subagents"][0]["startedAt"], json!(500));
+        let mut tree: SubagentTree =
+            serde_json::from_value(serde_json::to_value(tree).unwrap()).unwrap();
+        let progress = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "s1/toolu_a",
+                   "elapsedMs": 1_000}),
+        );
+        assert_eq!(progress[0]["startedAt"], json!(500));
+    }
+
+    #[test]
+    fn a_checkpoint_without_started_at_still_loads() {
+        let mut tree = SubagentTree::default();
+        tree.set_clock(500);
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "s1/toolu_a"}),
+        );
+        let mut checkpoint = serde_json::to_value(tree).unwrap();
+        let preview = checkpoint["previews"]["s1/toolu_a"].as_object_mut().unwrap();
+        preview.remove("started_at");
+        preview.remove("started_exact");
+        let mut restored: SubagentTree = serde_json::from_value(checkpoint).unwrap();
+        restored.set_clock(2_000);
+        let progress = subagents(
+            &mut restored,
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "s1/toolu_a",
+                   "elapsedMs": 1_500}),
+        );
+        assert_eq!(progress[0]["startedAt"], json!(500));
+    }
+
+    /// A tree rebuilt from the log gives the live one the spawn time it read, over an estimate.
+    #[test]
+    fn adopt_carries_the_logs_started_at() {
+        let mut log = SubagentTree::default();
+        log.set_clock(500);
+        subagents(
+            &mut log,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "s1/toolu_a"}),
+        );
+        let mut live = SubagentTree::default();
+        live.set_clock(10_000);
+        subagents(
+            &mut live,
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "s1/toolu_a",
+                   "elapsedMs": 9_000}),
+        );
+        live.adopt(log);
+        let next = subagents(
+            &mut live,
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "s1/toolu_a",
+                   "tokens": 2}),
+        );
+        assert_eq!(next[0]["startedAt"], json!(500u64));
     }
 }
 

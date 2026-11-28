@@ -359,10 +359,11 @@ open class ComposerReturnTextView: UITextView {
     /// as tall as `fieldHeight` says for the text at the field's own width.
     ///
     /// The height is settled after each edit (`settleAfterEdit()`) and on a width change, and
-    /// answered here as stored, whatever width is proposed: SwiftUI's HStack asks several
-    /// widths per pass, and passes repeat, so measuring here measured tens of times per key
-    /// (seconds of lag in a 5,000-character draft, Leo 2026-11-23; ComposerTypingLagUITests).
-    /// Before the view has a width it measures at the proposed one.
+    /// answered as stored for the field's own width (or no width): SwiftUI asks again in each
+    /// pass, so measuring here measured tens of times per key (seconds of lag in a
+    /// 5,000-character draft, Leo 2026-11-23; ComposerTypingLagUITests). Another finite width
+    /// is measured at that width (cached per width in `measure`). Before the view has a width
+    /// it measures at the proposed one.
     public func fittingSize(proposedWidth: CGFloat?) -> CGSize {
         let width = proposedWidth ?? (bounds.width > 0 ? bounds.width : 240)
         #if DEBUG
@@ -373,7 +374,28 @@ open class ComposerReturnTextView: UITextView {
             return CGSize(width: width, height: fieldHeight.height(contentHeight: contentHeight(width: width), reserve: stripReserve))
         }
         #endif
-        if let settled { return CGSize(width: width, height: settled.height) }
+        if let settled {
+            // Another width than the field's own is a real question (ComposerRowLayout asks the
+            // draft's height at the inline width to choose one row or two). Answering it with the
+            // field's own height hung the app: a draft that wraps inline but fits the full width
+            // was placed on two rows, settled at one line there, was put back inline, settled at
+            // two lines, and so on forever, the main thread never idle (PlaceholderBoundUITests
+            // offline-send: a returned draft, "main thread busy for 30.0s"). `measure` keeps one
+            // answer per width, so the second width costs one layout per edit, not one per pass.
+            guard let proposedWidth, proposedWidth.isFinite, proposedWidth > 0,
+                  abs(proposedWidth - settled.width) > 0.5 else {
+                return CGSize(width: width, height: settled.height)
+            }
+            // A draft already past the cap is at the cap at this width too, measuring nothing,
+            // when that is certain: a narrower width wraps it no less, and more hard lines than
+            // the cap fill the field at any width (Leo, 2026-11-23: typing in a long draft
+            // lagged by seconds; TerminalComposerFieldTests).
+            if settled.scrolls, proposedWidth < settled.width || overflowsAtAnyWidth {
+                return CGSize(width: width, height: settled.height)
+            }
+            return CGSize(width: width, height: fieldHeight.height(contentHeight: contentHeight(width: proposedWidth),
+                                                                   reserve: stripReserve))
+        }
         guard bounds.width > 0 else {
             return CGSize(width: width, height: fieldHeight.height(contentHeight: contentHeight(width: width), reserve: stripReserve))
         }
@@ -397,6 +419,24 @@ open class ComposerReturnTextView: UITextView {
 
     /// The field's height at the field's width: `height`, and whether the text overflows it.
     private var settled: (width: CGFloat, height: CGFloat, scrolls: Bool)?
+
+    /// The settled draft has more hard lines than `maxLines`, so it scrolls at every width.
+    /// Typing only adds lines, so a typed key keeps it true; a new text clears it (`unsettle`).
+    private var overflowsAtAnyWidth = false
+
+    /// Whether `text` holds more than `lines` paragraphs. Stops at the first `lines` breaks,
+    /// so a draft of many lines costs `lines` searches, not a pass over all of it.
+    private static func hasMoreParagraphs(than lines: Int, in text: NSString) -> Bool {
+        let breaks = CharacterSet(charactersIn: "\n\u{2028}\u{2029}")
+        var location = 0
+        for _ in 0..<lines {
+            let found = text.rangeOfCharacter(from: breaks, options: [],
+                                              range: NSRange(location: location, length: text.length - location))
+            guard found.location != NSNotFound else { return false }
+            location = found.location + found.length
+        }
+        return true
+    }
 
     /// The text's height as last settled (`contentHeight(width:)` at the field's width): past
     /// `maxLines` a leading part already taller than the field, so clamp against it only. Nil
@@ -441,6 +481,7 @@ open class ComposerReturnTextView: UITextView {
         let scrolls = rule.scrolls(contentHeight: content) || height < rule.height(contentHeight: content)
         let result = (width: width, height: height, scrolls: scrolls)
         settled = result
+        overflowsAtAnyWidth = scrolls && Self.hasMoreParagraphs(than: rule.maxLines, in: (text ?? "") as NSString)
         return result
     }
 
@@ -448,6 +489,7 @@ open class ComposerReturnTextView: UITextView {
     private func unsettle(invalidate: Bool = false) {
         settled = nil
         settledContentHeight = nil
+        overflowsAtAnyWidth = false
         if invalidate { invalidateIntrinsicContentSize() }
     }
 

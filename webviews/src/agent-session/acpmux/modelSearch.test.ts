@@ -106,6 +106,19 @@ test("a query narrows an earlier one only when every match of it is one of the e
   expect(narrows(q("gpt5 high"), q("gpt5"))).toBe(false);
   // A word with no letters or digits matches as typed only.
   expect(narrows(q("-"), q("-f"))).toBe(false);
+  // "astra-6.2" also names "gpt-6.2-astra", which "astra-6" before it did not match.
+  expect(narrows(q("astra-6"), q("astra-6.2"))).toBe(false);
+});
+
+test("typing a family-version word on finds the model its reversed id names", () => {
+  const index = new ModelSearchIndex(
+    [{ name: "Codex", models: [{ id: "gpt-6.2-astra", name: "Astra" }] }],
+    (entry) => entry.models,
+    (entry) => entry.name,
+  );
+  const ids = (query: string) => index.find(parseQuery(query, efforts)).map((row) => row.model.id);
+  expect(ids("astra-6")).toEqual([]);
+  expect(ids("astra-6.2")).toEqual(["gpt-6.2-astra"]);
 });
 
 test("an effort word still being typed keeps the models the rest of the query finds", () => {

@@ -4,6 +4,8 @@ export interface HeaderWorktree {
   readonly branch: string;
   readonly base: string;
   readonly mainRoot: string;
+  /// A merge, rebase, cherry-pick or revert stopped partway in the worktree: Apply is off until it ends.
+  readonly inProgress?: boolean;
 }
 
 /// The worktree a `git.status` answer describes, or undefined for a plain checkout or detached head.
@@ -14,7 +16,7 @@ export function worktreeOf(value: unknown): HeaderWorktree | undefined {
   const branch = text(raw.branch);
   const mainRoot = text(worktree.main_root);
   if (raw.detached === true || !branch || !mainRoot) return undefined;
-  return { branch, base: text(raw.base), mainRoot };
+  return { branch, base: text(raw.base), mainRoot, ...(text(raw.in_progress) ? { inProgress: true } : {}) };
 }
 
 /// The last worktree read for each folder on this page: a chat in a folder read before draws its

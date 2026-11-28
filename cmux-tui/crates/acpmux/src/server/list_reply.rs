@@ -257,13 +257,18 @@ pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Valu
     // A client watching again may have lost row notices (a host left them out): each chat's next
     // row goes whole, a base it can patch (`session_patch.rs`).
     if on {
-        *conn.sent_rows.lock_or_recover() = Default::default();
+        *conn.sent_rows.lock_or_recover() =
+            super::session_patch::SentRows::bounded(super::session_patch::bound(conn.raw_text));
     }
     // Off is a pause (a hidden page, webviews sessionPages.ts `pause`): the client keeps the rows and
     // cursor it holds and follows from them when it turns the watch on again, so no list is built
-    // for it, as `_acpmux/inventory_watch` answers `{}` (docs/inventory-watch.md).
+    // for it. It still names the list's position, no rows: a client that reads the list paged
+    // stamps the position before its pages with it and follows from there. Answered `{}`
+    // (#55402), such a client found no position, kept no cache and read every page of the list on
+    // each call.
     if !on {
-        return Ok(json!({}));
+        let (head, epoch) = hub.list_cursor();
+        return Ok(json!({"listEpoch": epoch, "listSeq": head}));
     }
     // The position the reply is current to, read once the watch is on: every change after it is
     // a notice on this connection (`row_log.rs`).

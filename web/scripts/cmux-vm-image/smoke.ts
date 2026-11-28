@@ -4,7 +4,7 @@
  * Usage (from web/):
  *   bun ../images/cmux-vm/smoke.ts --snapshot <sh-id> --tag <tag> [--clones 5] [--browser-probe]
  *       [--idle-seconds 120] [--out-dir <dir>] [--lock <path>]
- *       [--expect-capabilities <json>] [--team-vm]
+ *       [--expect-capabilities <json>] [--team-vm] [--labs-npm-host-cache]
  *
  * Creates N clones (cmuxnp-dev-vmimg-<tag>-smoke-<i>) and measures create ->
  * first exec and create -> daemon listening. On two of them it checks: the
@@ -47,17 +47,20 @@ import { CMUX_TUI_SESSION, cmuxTuiRunCommand } from "../../services/vms/drivers/
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../../services/vms/workUser";
 import { DEVBOX_INSTANCE_ID_COMMAND, devboxIdleWakeupCheckCommand, devboxWaitForDaemonCommand } from "./machine-commands";
 import { GUEST_DIR, TEAM_FILES_ROOT, teamVmDirsCommand, TMP_LEFTOVERS } from "./bake";
+import { npmHostCacheProfileCheck } from "./dep-cache";
 import { CREDENTIAL_FILES_CHECK, devTreeCredentialCheckCommand, devTreeUserPaths } from "./dev-tree";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { DNS_SMOKE_COMMAND, dnsCheckProblems } from "./dns";
 import { ipv6RouteProblems, ipv6RouteSmokeCommand } from "./ipv6-route";
+import { netBaselineProblems, netBaselineSmokeCommand } from "./net-baseline";
 import { machineHealthSmokeCommand, machineHealthSmokeProblems } from "./machine-health";
-import { argValue, createVm, type CreateTlsRule, deleteVm, firstExec, freestyleClient, Ledger, run, sleep, type Vm } from "./guest";
+import { argValue, createVm, type CreateTlsRule, deleteVm, firstExec, freestyleClient, Ledger, run, runHeld, sleep, type Vm } from "./guest";
 import { bakedPrograms, CURRENT_BIN, DEFAULT_LOCK_PATH, type InputsLock, percentile, readInputsLock, ROLES_MANIFEST_PATH, sq } from "./lock";
 import { AGENT_TOOLS_BIN } from "./agent-tools";
 import { browserRoleProbe } from "./browser-probe";
 import { GH_SHIM } from "./github-auth";
 import { API_ORIGINS, HOST_CLI, HOST_JOURNAL, SELF_UPDATE_OFF } from "./host-agent";
+import { oversizedBoot } from "./boot-size";
 import { agentBindProbe, resizeProbe } from "./probes";
 import { type CheckNote, type CheckResult, checkRegressionGate, LIVE_FAILING_FILE, liveBootImage, liveFailingLines } from "./harness-gate";
 import { daemonHoldCommand, daemonUptimeDetail, daemonUptimeProblems, forcedRebindCommand, HOLD_SECONDS } from "./daemon-uptime";
@@ -601,6 +604,14 @@ async function ipv6RouteChecks(vm: Vm, report: Report): Promise<void> {
   check(report, "ipv6-public-routed", problems.length === 0, problems.join("\n") || out.stdout.trim().split("\n").filter((l) => !l.startsWith("==")).join(" ; "));
 }
 
+/** The fleet's network baseline is live on a clone: first SYN resent after 200 ms, BBR where baked, IPv6 first (net-baseline.ts). */
+async function netBaselineChecks(vm: Vm, report: Report): Promise<void> {
+  const out = await run(vm, netBaselineSmokeCommand(), 60_000);
+  const problems = netBaselineProblems(out.stdout);
+  report.netBaseline = out.stdout.trim().split("\n");
+  check(report, "net-baseline", problems.length === 0, problems.join("\n") || out.stdout.trim().split("\n").join(" ; "));
+}
+
 /**
  * The session host stays up HOLD_SECONDS after boot and again after one forced rebind (daemon-uptime.ts).
  * Last on its clone: the rebind restarts the session host and rewrites the bound id.
@@ -613,7 +624,7 @@ async function daemonUptimeChecks(vm: Vm, report: Report): Promise<void> {
 const HOLD_TIMEOUT_MS = (HOLD_SECONDS + 60) * 1000;
 
 async function daemonBootHold(vm: Vm, report: Report): Promise<void> {
-  const boot = await run(vm, daemonHoldCommand(), HOLD_TIMEOUT_MS);
+  const boot = await runHeld(vm, "daemon-stays-up", daemonHoldCommand(), HOLD_TIMEOUT_MS);
   const bootProblems = daemonUptimeProblems(boot.stdout);
   check(report, "daemon-stays-up", boot.code === 0 && bootProblems.length === 0, bootProblems.join("\n") || daemonUptimeDetail(boot.stdout));
 }
@@ -623,7 +634,7 @@ async function daemonRebindHold(vm: Vm, report: Report): Promise<void> {
   const hold = HOLD_TIMEOUT_MS;
   const rebind = await run(vm, forcedRebindCommand(), 120_000);
   const rebound = /^rebound=1$/m.test(rebind.stdout);
-  const after = rebound ? await run(vm, daemonHoldCommand(), hold) : undefined;
+  const after = rebound ? await runHeld(vm, "daemon-stays-up-after-rebind", daemonHoldCommand(), hold) : undefined;
   const afterProblems = after ? daemonUptimeProblems(after.stdout) : [`forced rebind did not finish: ${rebind.stdout.trim() || rebind.stderr.slice(-200)}`];
   check(report, "daemon-stays-up-after-rebind", after?.code === 0 && afterProblems.length === 0, afterProblems.join("\n") || daemonUptimeDetail(after?.stdout ?? ""));
 }
@@ -663,7 +674,7 @@ export function daemonListening(rows: Array<Record<string, number | string>>): b
   return rows.length > 0 && rows.every((r) => Number(r.createDoneToListeningMs) >= 0 && Number(r.createDoneToReadyMs) >= 0);
 }
 
-export async function smoke(options: { snapshotId: string; tag: string; clones: number; idleSeconds: number; outDir: string; lockPath: string; agentProbe?: boolean; resizeProbe?: boolean; browserProbe?: boolean; expectCapabilities?: readonly string[]; teamVm?: boolean; edgeBaseline?: "live" | "none" }): Promise<Report> {
+export async function smoke(options: { snapshotId: string; tag: string; clones: number; idleSeconds: number; outDir: string; lockPath: string; agentProbe?: boolean; resizeProbe?: boolean; browserProbe?: boolean; expectCapabilities?: readonly string[]; teamVm?: boolean; labsNpmHostCache?: boolean; edgeBaseline?: "live" | "none" }): Promise<Report> {
   mkdirSync(options.outDir, { recursive: true });
   const lock = readInputsLock(options.lockPath);
   const ledger = new Ledger(path.join(options.outDir, "resources.tsv"));
@@ -713,6 +724,8 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
     const rebindClone = kept[2];
     const onClone2 = async () => {
       await handshakeChecks(kept[1].vm, report, options.expectCapabilities);
+      const profile = await run(kept[1].vm, npmHostCacheProfileCheck(options.labsNpmHostCache === true));
+      check(report, "npm-host-cache-profile", profile.code === 0, profile.stdout.trim() || profile.stderr.trim());
       if (options.teamVm) {
         // The bake's own command is idempotent and verifies owner and mode; on a clone it must change nothing.
         const before = await run(kept[1].vm, `stat -c '%n %U:%G %a' ${TEAM_FILES_ROOT}`);
@@ -724,6 +737,7 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
       await machineHealthChecks(kept[1].vm, report);
       await resolverChecks(kept[1].vm, report);
       await ipv6RouteChecks(kept[1].vm, report);
+      await netBaselineChecks(kept[1].vm, report);
       if (options.agentProbe) {
         const probe = await agentBindProbe(kept[1].vm);
         check(report, "vm-agent-bind-probe", probe.ok, probe.detail);
@@ -738,7 +752,17 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
       else await daemonUptimeChecks(kept[1].vm, report);
     };
     const phases: Record<string, number> = {};
-    const timed = (label: string, f: () => Promise<void>) => async () => { const t = Date.now(); await f(); phases[label] = Date.now() - t; };
+    // A phase that throws names itself: roll 46106332407's smoke failed as a bare "TimeoutError: The operation timed
+    // out." with four phases running at once and nothing saying which one hung.
+    const timed = (label: string, f: () => Promise<void>) => async () => {
+      const t = Date.now();
+      try {
+        await f();
+      } catch (error) {
+        throw new Error(`${label} after ${Math.round((Date.now() - t) / 1000)} s: ${String(error)}`);
+      }
+      phases[label] = Date.now() - t;
+    };
     // The edge-rule clone needs the dev API for its bind probe, as the agent probe does.
     const edgeRule = async () => {
       await edgeRuleChecks(fs, ledger, options.tag, options.snapshotId, report).catch((error: unknown) => {
@@ -751,7 +775,11 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
     report.phasesMs = phases;
     if (options.agentProbe && options.edgeBaseline === "live") await edgeRuleLiveControl(fs, ledger, options.tag, options.snapshotId, options.outDir, report);
     if (options.resizeProbe) {
-      report.resize = await resizeProbe(kept[0].vm);
+      report.resize = await resizeProbe(kept[0].vm).catch((error: unknown) => { throw new Error(`resize-probe: ${String(error)}`); });
+      // The clone booted from the snapshot before the probe grew it: an image whose snapshot carries a grown builder's
+      // size would boot every default create larger than asked (people are billed by size), so it is refused here.
+      const before = JSON.parse(String((report.resize as Record<string, unknown>).before)) as { cpu: number; memoryMb: number; rootMb: number };
+      check(report, "boots-at-base-size", oversizedBoot(before) === null, oversizedBoot(before) ?? JSON.stringify(before));
       const after = JSON.parse(String((report.resize as Record<string, unknown>).after)) as { cpu: number; memoryMb: number; rootMb: number };
       check(report, "resize-sm-to-md", after.cpu >= 4 && after.memoryMb >= 7000 && after.rootMb >= 32768 * 0.85, JSON.stringify(report.resize));
     }
@@ -789,7 +817,7 @@ function expectedCapabilities(file: string | undefined): string[] | undefined {
 export async function main(argv = process.argv): Promise<number> {
   const snapshotId = argValue("--snapshot", argv);
   const tag = argValue("--tag", argv);
-  if (!snapshotId?.startsWith("sh-") || !tag) throw new Error("usage: smoke.ts --snapshot <sh-id> --tag <tag> [--clones 5] [--idle-seconds 120] [--out-dir <dir>]");
+  if (!snapshotId?.startsWith("sh-") || !tag) throw new Error("usage: smoke.ts --snapshot <sh-id> --tag <tag> [--clones 5] [--idle-seconds 120] [--out-dir <dir>] [--labs-npm-host-cache]");
   const report = await smoke({
     snapshotId,
     tag,
@@ -802,6 +830,7 @@ export async function main(argv = process.argv): Promise<number> {
     browserProbe: argv.includes("--browser-probe"),
     expectCapabilities: expectedCapabilities(argValue("--expect-capabilities", argv)),
     teamVm: argv.includes("--team-vm"),
+    labsNpmHostCache: argv.includes("--labs-npm-host-cache"),
     edgeBaseline: argValue("--edge-baseline", argv) === "live" ? "live" : "none",
   });
   return report.passed ? 0 : 1;

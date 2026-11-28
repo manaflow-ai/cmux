@@ -252,6 +252,52 @@ async fn a_chats_stats_go_stale_by_its_turn_and_its_transcript() {
     assert!(!fresh() && kept(), "its turn ended: stale, still served");
 }
 
+/// A cold list read that stops waiting for its slow first pass ([`READ_WAIT`]) still leaves the
+/// rows that pass's stats changed told: a closed chat's row cached before the pass found its
+/// stats is built anew with them. Before, the read dropped the pass's future at its wait, the
+/// pass's blocking read wrote the stats anyway, and the row tells that ran after it never ran:
+/// the closed row kept its bytes with no `usageStats` while `_acpmux/usage` had them, until
+/// something else (`acpmux info` marking it read) changed the row.
+#[tokio::test]
+async fn a_cold_read_that_stops_waiting_still_tells_the_rows_its_pass_changed() {
+    const SID: &str = "01a18ad5-89bc-7a02-905f-8f4fbef7fed2";
+    let home = tempfile::tempdir().unwrap();
+    let transcript = home.path().join("projects/-work-repo").join(format!("{SID}.jsonl"));
+    std::fs::create_dir_all(transcript.parent().unwrap()).unwrap();
+    let record = json!({"type": "assistant", "isSidechain": false,
+        "timestamp": "2026-10-30T00:00:01Z",
+        "message": {"id": "m1", "model": "claude-opus-5-5", "role": "assistant",
+            "content": [{"type": "text", "text": "hi"}],
+            "usage": {"input_tokens": 10, "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0, "output_tokens": 5}}});
+    std::fs::write(&transcript, format!("{record}\n")).unwrap();
+
+    let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+    let now = crate::store::now_ms();
+    let mut chat = meta("closed", "claude", Some(SID), "closed", now - 3_600_000);
+    chat.cwd = "/work/repo".into();
+    chat.session_env.insert("CLAUDE_CONFIG_DIR".into(), home.path().display().to_string());
+    hub.store.save(&chat).unwrap();
+    let session = hub.insert_test_session(chat);
+
+    hub.slow_usage_reads_for_test(READ_WAIT.as_millis() as u64 + 500);
+    hub.read_usage_for_list().await;
+    // The list this read serves builds the closed row now, before the pass found anything.
+    assert!(!hub.own_row_text(&session, false).contains("usageStats"), "no stats yet");
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while hub.usage_stats.stats().get("closed").is_none() && std::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(hub.usage_stats.stats().get("closed").is_some(), "the pass found its stats");
+    let mut row = hub.own_row_text(&session, false);
+    while !row.contains("usageStats") && std::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        row = hub.own_row_text(&session, false);
+    }
+    assert!(row.contains("usageStats"), "the closed row draws the stats its pass found: {row}");
+}
+
 /// A chat on a Claude Code wrapper profile (`family = "claude-sr2"`) is read as Claude Code,
 /// from Claude Code's own transcript; Chief's is not.
 #[tokio::test]
@@ -275,6 +321,123 @@ async fn a_claude_sr2_chat_is_read_as_claude_code() {
     assert_eq!(transcript_family("codexy"), None);
     assert_eq!(transcript_family("claudette"), None);
     assert_eq!(transcript_family("gemini"), None);
+}
+
+/// A chat on a profile that declares `no_model = true` (the `benchecho` bench agent
+/// `acpmux cli-agent` wraps) reads zero tokens, stamped by the pass, with no agent session id
+/// or transcript; a chat on a profile that declares nothing still reads as unmeasured (no
+/// stats), and a no-model chat closed two days ago is not read.
+#[tokio::test]
+async fn a_no_model_profiles_chat_reads_zero_tokens_not_null() {
+    let dir = tempfile::tempdir().unwrap();
+    let toml = "schema = 1\nid = \"benchecho\"\nname = \"Bench Echo\"\nprotocol = \"acp\"\n\
+                command = \"acpmux\"\nargs = [\"cli-agent\", \"--\", \"bench-echo-agent\"]\n\
+                no_model = true\n";
+    std::fs::write(dir.path().join("benchecho.toml"), toml).unwrap();
+    let echo = toml.replace("benchecho", "echo").replace("no_model = true\n", "");
+    std::fs::write(dir.path().join("echo.toml"), echo).unwrap();
+    #[cfg(unix)]
+    for file in ["benchecho.toml", "echo.toml"] {
+        // A group-writable profile is refused, whatever the umask that wrote it.
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o600);
+        std::fs::set_permissions(dir.path().join(file), perms).unwrap();
+    }
+    let sources = crate::config::profiles::ProfileSources {
+        user_dir: Some(dir.path().to_path_buf()),
+        ..Default::default()
+    };
+    let loaded = crate::config::profiles::load(&sources);
+    assert!(loaded.diagnostics.is_empty(), "{:?}", loaded.diagnostics);
+    let mut cfg = Config::default();
+    for (id, (profile, meta)) in loaded.profiles {
+        cfg.harnesses.insert(id.clone(), profile);
+        cfg.profile_meta.insert(id, meta);
+    }
+    // The built-in Chief (`cmux-tui chief acp`) only posts prompts into the Chief
+    // conversation; its model turns are metered on their own optchat chats.
+    let chief = crate::config::CHIEF_PROFILE.to_string();
+    cfg.harnesses.insert(chief.clone(), cfg.harnesses["echo"].clone());
+    cfg.discovered.insert(chief.clone());
+    assert!(cfg.runs_no_model(&chief) && cfg.runs_no_model("benchecho"));
+    assert!(cfg.profile_meta["benchecho"].no_model);
+    assert!(!cfg.profile_meta["echo"].no_model, "never inferred from `cli-agent`");
+    let hub = Hub::new(cfg, Box::new(crate::store::MemoryStore::default()));
+    let now = crate::store::now_ms();
+    for (id, harness, status, at) in [
+        ("bench", "benchecho", "idle", now - 1_000),
+        ("bench-old", "benchecho", "closed", now - 2 * DAY_MS),
+        ("echo", "echo", "idle", now - 1_000),
+        ("chief-chat", crate::config::CHIEF_PROFILE, "idle", now - 1_000),
+    ] {
+        let mut m = meta(id, harness, None, status, at);
+        m.harness = harness.into();
+        hub.store.save(&m).unwrap();
+        hub.insert_test_session(m);
+    }
+    hub.refresh_usage_stats().await;
+    let stats = |id: &str| {
+        let session = hub.session_by_id(id).unwrap();
+        hub.usage_stats_of(&session, &session.meta())
+    };
+    let bench = stats("bench").expect("a no-model chat has stats");
+    assert_eq!(bench.tokens_by_model_previous_utc_hour, Some(Default::default()));
+    assert_eq!(bench.tokens_by_model1h, Some(Default::default()));
+    assert_eq!((bench.tokens24h, bench.calls24h), (Some(0), Some(0)));
+    assert!(bench.updated_at >= now, "stamped by this pass");
+    let chief_stats = stats("chief-chat").expect("the built-in Chief chat has stats");
+    assert_eq!(chief_stats.tokens_by_model_previous_utc_hour, Some(Default::default()));
+    assert!(stats("echo").is_none(), "a profile that declares nothing stays unmeasured");
+    assert!(stats("bench-old").is_none(), "closed two days ago: not read");
+    let rows = crate::cli::harness::list_rows(&*hub.config.read().await);
+    let no_model = |id: &str| {
+        let row = rows.iter().find(|r| r.id == id).unwrap();
+        serde_json::to_value(row).unwrap()["noModel"].clone()
+    };
+    assert_eq!(no_model("benchecho"), json!(true));
+    assert_eq!(no_model(crate::config::CHIEF_PROFILE), json!(true));
+    assert_eq!(no_model("echo"), json!(false), "always written: the capability marker");
+}
+
+/// A Claude chat started and not yet prompted has written no transcript: it reads zero tokens
+/// (spent nothing), not null (unmeasured). A chat with a turn, or one holding a resumed
+/// conversation, whose transcript is not found still reads as unmeasured.
+#[tokio::test]
+async fn an_unprompted_chat_reads_zero_tokens_not_null() {
+    let home = tempfile::tempdir().unwrap();
+    // An empty Claude Code home: no chat's transcript is there.
+    let mut cfg = Config::default();
+    let mut profile = cfg.harnesses.get("claude").cloned().unwrap_or_else(|| {
+        serde_json::from_value(json!({ "argv": ["claude-agent-acp"] })).unwrap()
+    });
+    profile.env.insert("CLAUDE_CONFIG_DIR".into(), home.path().display().to_string());
+    cfg.harnesses.insert("claude".into(), profile);
+    let hub = Hub::new(cfg, Box::new(crate::store::MemoryStore::default()));
+    let now = crate::store::now_ms();
+    for (id, turns, resumed) in [("waiting", 0, false), ("ran", 1, false), ("resumed", 0, true)] {
+        let mut m = meta(id, "claude", Some(&format!("sid-{id}")), "idle", now - 1_000);
+        m.turn_count = turns;
+        if resumed {
+            m.previous_agent_session_ids = vec!["sid-before".into()];
+        }
+        hub.store.save(&m).unwrap();
+        hub.insert_test_session(m);
+    }
+    let read = hub.usage_sources(&hub.sessions(), now).await;
+    let unprompted: Vec<&str> =
+        read.iter().filter(|(_, s)| s.unprompted).map(|(id, _)| id.as_str()).collect();
+    assert_eq!(unprompted, ["waiting"]);
+    hub.refresh_usage_stats().await;
+    let stats = |id: &str| {
+        let session = hub.session_by_id(id).unwrap();
+        hub.usage_stats_of(&session, &session.meta())
+    };
+    let waiting = stats("waiting").expect("an unprompted chat has stats");
+    assert_eq!((waiting.tokens24h, waiting.calls24h), (Some(0), Some(0)));
+    assert_eq!(waiting.tokens_by_model_previous_utc_hour, Some(Default::default()));
+    assert!(waiting.updated_at >= now, "stamped by this pass");
+    assert!(stats("ran").is_none(), "a turn ran and its transcript is not found: unmeasured");
+    assert!(stats("resumed").is_none(), "a resumed conversation's spend is not known zero");
 }
 
 /// Every turn's end reads its chat's usage: the catalog's prices are built once for the catalog
@@ -344,4 +507,86 @@ async fn a_codex_review_box_chat_is_read_from_its_own_codex_home() {
     assert_eq!(stats.tokens24h, Some(1100));
     let by_model = stats.tokens_by_model1h.expect("the reviewer's hour is measured");
     assert_eq!(by_model.get("gpt-6-astra"), Some(&1100));
+}
+
+/// The saved trackers sit beside the session store, one per chat by its plain id; a sweep
+/// removes those of chats no pass reads and leaves every other file.
+#[test]
+fn saved_trackers_sit_beside_the_store_and_go_with_their_chats() {
+    let home = tempfile::tempdir().unwrap();
+    // 0700 whatever the umask: the store refuses a group-writable ancestor.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(home.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let store = crate::store::LocalStore::new(home.path().join("sessions"), 1 << 20).unwrap();
+    let dir = crate::store::Store::usage_tracker_dir(&store).unwrap();
+    assert_eq!(dir, home.path().join("usage-trackers"));
+    assert!(
+        crate::store::Store::usage_tracker_dir(&crate::store::MemoryStore::default()).is_none()
+    );
+    assert_eq!(saved_path(&dir, "chat-1"), Some(dir.join("chat-1.json")));
+    assert_eq!(saved_path(&dir, "../chat-1"), None);
+    assert_eq!(saved_path(&dir, ""), None);
+
+    std::fs::create_dir_all(&dir).unwrap();
+    for name in ["kept.json", "gone.json", "notes.txt", "kept.json.tmp"] {
+        std::fs::write(dir.join(name), b"{}").unwrap();
+    }
+    let listed: HashSet<&str> = ["kept"].into_iter().collect();
+    assert_eq!(sweep_saved(&dir, &listed), 1);
+    let mut left: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    left.sort();
+    assert_eq!(left, ["kept.json", "kept.json.tmp", "notes.txt"]);
+    assert_eq!(sweep_saved(&home.path().join("none"), &listed), 0);
+}
+
+/// A chat's usage is read from the home its spawn runs it with ([`Hub::launch_env`]), not one
+/// rebuilt apart: a Claude Code home the family defaults set (as cmux Settings and the machine
+/// sign-in set one at spawn, `hub/spawn.rs`) is where its transcript is. Before, the usage pass
+/// built its env from the profile, preset and chat env alone, looked in `~/.claude`, found
+/// nothing and the chat read as unmeasured (NOW `no_counters`, 2026-11-28: 11 chats on 6 hosts).
+#[tokio::test]
+async fn a_chat_is_read_from_the_home_its_spawn_runs_it_with() {
+    const SID: &str = "01a21fae-7247-7000-8000-000000000001";
+    let home = tempfile::tempdir().unwrap();
+    let transcript = home.path().join("projects/-work-repo").join(format!("{SID}.jsonl"));
+    std::fs::create_dir_all(transcript.parent().unwrap()).unwrap();
+    let stamp = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let record = json!({"type": "assistant", "isSidechain": false, "timestamp": stamp,
+        "message": {"id": "m1", "model": "claude-opus-5-5", "role": "assistant",
+            "content": [{"type": "text", "text": "hi"}],
+            "usage": {"input_tokens": 10, "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0, "output_tokens": 5}}});
+    std::fs::write(&transcript, format!("{record}\n")).unwrap();
+
+    let mut cfg = Config::default();
+    cfg.harnesses.insert(
+        "claude".into(),
+        serde_json::from_value(json!({"kind": "claude-stdio", "argv": ["claude"]})).unwrap(),
+    );
+    let dir = home.path().display().to_string();
+    cfg.defaults
+        .entry("claude".into())
+        .or_default()
+        .env
+        .insert("CLAUDE_CONFIG_DIR".into(), dir.clone());
+    let hub = Hub::new(cfg, Box::new(crate::store::MemoryStore::default()));
+    let now = crate::store::now_ms();
+    let mut chat = meta("ran", "claude", Some(SID), "idle", now - 1_000);
+    chat.cwd = "/work/repo".into();
+    chat.turn_count = 1;
+    hub.store.save(&chat).unwrap();
+    let session = hub.insert_test_session(chat);
+
+    let read = hub.usage_sources(&hub.sessions(), now).await;
+    assert_eq!(ids(&read), ["ran"]);
+    assert_eq!(read[0].1.env.get("CLAUDE_CONFIG_DIR"), Some(&dir), "the spawn's home");
+    hub.refresh_usage_stats().await;
+    let stats = hub.usage_stats_of(&session, &session.meta()).expect("measured");
+    assert_eq!(stats.tokens24h, Some(15));
 }

@@ -92,6 +92,28 @@ public nonisolated enum DownloadDestination {
         }
     }
 
+    /// Whether macOS lets the app write in `directory`: creates one new
+    /// empty hidden file there and removes it. False only when the folder
+    /// refuses it (EPERM, EACCES: no Files and Folders access); any other
+    /// error (no such folder) leaves the verdict to the download itself.
+    ///
+    /// On a folder macOS protects (Downloads), this write is what waits for
+    /// the person's answer to the access prompt, and it never runs on the
+    /// main thread (`BrowserDownloadPolicy.place`). An `lstat` of a name that
+    /// is not there does not ask; without this write WebKit asked on the main
+    /// thread itself, issuing the download's sandbox extension for the file
+    /// (`_sandbox_extension_issue` under `decideDestinationUsing`'s answer),
+    /// and the app froze until someone answered (a fleet Mac: never).
+    public static func mayWrite(in directory: URL) -> Bool {
+        let probe = directory.appending(path: ".cmux-access-\(UUID().uuidString)", directoryHint: .notDirectory)
+        let path = probe.path(percentEncoded: false)
+        let fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard fd >= 0 else { return errno != EPERM && errno != EACCES }
+        close(fd)
+        unlink(path)
+        return true
+    }
+
     /// The last path component, without control or format characters
     /// (newlines, NUL, bidirectional overrides), `:` as `-`, without
     /// leading dots; "download" when nothing is left.

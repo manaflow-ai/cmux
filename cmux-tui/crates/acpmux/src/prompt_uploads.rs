@@ -63,6 +63,13 @@ fn upload_of(block: &Value) -> Option<&Value> {
 /// it matches. Deleted when the prompt is refused (`attach::Saved`), so none is left behind; a
 /// reference to anyone else's upload names none. Each token is read off the runtime.
 pub async fn owned(session: &str, blocks: &[Value]) -> Vec<std::path::PathBuf> {
+    owned_paths(session, blocks).await
+}
+
+/// Finds the folders a prompt owns without installing a cleanup guard. Callers that can
+/// refuse-and-retry must only wrap the result in [`crate::attach::OwnedUploads`] after their
+/// bounded wait succeeds, so a late lookup cannot delete files a retry still needs.
+pub(crate) async fn owned_paths(session: &str, blocks: &[Value]) -> Vec<std::path::PathBuf> {
     let refs = owned_refs(blocks);
     if refs.is_empty() {
         return Vec::new();

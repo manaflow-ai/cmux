@@ -123,6 +123,8 @@ impl Hub {
                         // setting is a number of days: before the cold archive, which would
                         // compress chats about to go.
                         hub.history_delete_pass().await;
+                        // Deleted chats whose grace ended go (`soft_delete.rs`).
+                        hub.purge_deleted_chats().await;
                         // The cold archive of idle chats (`cold_archive.rs`), when its setting
                         // is on: after the rewrite, which leaves archived chats alone.
                         let cold = hub.clone();

@@ -31,7 +31,10 @@
 //!
 //! Env: `OFFLOAD_BENCH_ITERS` (default 10), `OFFLOAD_BENCH_HISTORY_KB` (chat
 //! log written before the move, in KiB of prompt plus echo; default 0: one
-//! short turn), `OFFLOAD_BENCH_OUT` (also write the JSON there). Prints one
+//! short turn), `OFFLOAD_BENCH_PREPULL` (1: step 5 first runs the app's
+//! pre-freeze pull, `cmux link seed pull --or-copy` as `bringBackPull`, then
+//! the VM writes one more file the frozen pull must still bring; default 0),
+//! `OFFLOAD_BENCH_OUT` (also write the JSON there). Prints one
 //! line `OFFLOAD_BENCH {json}`.
 //!
 //! Run: `cargo test -p cmux-tui --test it -- offload_roundtrip_bench:: --ignored --nocapture`.
@@ -200,6 +203,7 @@ struct Sample {
     out_ms: u128,
     out_usable_ms: u128,
     back_ms: u128,
+    prepull_ms: u128,
     back_usable_ms: u128,
     roundtrip_ms: u128,
     push: Value,
@@ -280,6 +284,7 @@ fn span_stats(samples: &[Sample], pick: impl Fn(&Sample) -> &Value) -> Value {
 #[ignore = "bench: run with --ignored --nocapture (OFFLOAD_BENCH_ITERS, OFFLOAD_BENCH_HISTORY_KB)"]
 fn offload_roundtrip_bench_moves_a_running_chat_to_a_cloud_vm_and_back() {
     let iters = env_u64("OFFLOAD_BENCH_ITERS", 10).max(1);
+    let prepull = env_u64("OFFLOAD_BENCH_PREPULL", 0) == 1;
     let history_kb = env_u64("OFFLOAD_BENCH_HISTORY_KB", 0);
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() % 1_000_000_000;
     let root = PathBuf::from("/tmp").join(format!("orb-{}-{stamp}", std::process::id()));
@@ -369,6 +374,27 @@ fn offload_roundtrip_bench_moves_a_running_chat_to_a_cloud_vm_and_back() {
         let vm_surface = bound_agent_tab(&vm, &session);
         running_turn_and_queue(&mut vm_acpmux, &session, &format!("p{iter}-back"));
 
+        // The app's pre-freeze pull (`bringBackPull`), then a write it missed.
+        let prepull_ms = if prepull {
+            let (_, ms) = timed(
+                Command::new(bin())
+                    .env("CMUX_TUI_STATE_DIR", &mac_state)
+                    .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                    .args(["link", "seed", "pull", "--socket"])
+                    .arg(&vm.socket)
+                    .arg(&repo)
+                    .arg(&synced)
+                    .arg("--or-copy"),
+                "the pre-freeze pull",
+            );
+            assert_eq!(fs::read_to_string(repo.join("src/vm.txt")).unwrap(), "written on the vm\n");
+            fs::write(synced.join("src/after-pull.txt"), format!("after the first pull {iter}\n"))
+                .unwrap();
+            ms
+        } else {
+            0
+        };
+
         // Back: Bring Back Local.
         let t1 = Instant::now();
         let (back, back_ms) = timed(
@@ -396,6 +422,13 @@ fn offload_roundtrip_bench_moves_a_running_chat_to_a_cloud_vm_and_back() {
         wait_usable(&mut mac_acpmux, &session, 2, "the chat usable on the Mac");
         let back_usable_ms = t1.elapsed().as_millis() - back_ms;
         assert_eq!(fs::read_to_string(repo.join("src/vm.txt")).unwrap(), "written on the vm\n");
+        if prepull {
+            // The frozen pull still brings what the VM wrote after the first pull.
+            assert_eq!(
+                fs::read_to_string(repo.join("src/after-pull.txt")).unwrap(),
+                format!("after the first pull {iter}\n")
+            );
+        }
         settled(&mut mac_acpmux, &session);
 
         let roundtrip_ms = out_ms + out_usable_ms + back_ms + back_usable_ms;
@@ -409,6 +442,7 @@ fn offload_roundtrip_bench_moves_a_running_chat_to_a_cloud_vm_and_back() {
             out_ms,
             out_usable_ms,
             back_ms,
+            prepull_ms,
             back_usable_ms,
             roundtrip_ms,
             push,
@@ -441,7 +475,10 @@ fn offload_roundtrip_bench_moves_a_running_chat_to_a_cloud_vm_and_back() {
         "out_phases": phase_stats(&samples, |s| &s.out),
         "out_seed_push_spans": span_stats(&samples, |s| &s.push["sync_phases"]),
         "out_frozen_sync_spans": span_stats(&samples, |s| &s.out["frozen_sync_phases"]),
+        "prepull": prepull,
         "back_ms": stats(&col(|s| s.back_ms)),
+        "back_prepull_ms": stats(&col(|s| s.prepull_ms)),
+        "back_with_prepull_ms": stats(&col(|s| s.prepull_ms + s.back_ms)),
         "back_usable_ms": stats(&col(|s| s.back_usable_ms)),
         "back_frozen_ms": stats(&field(|s| &s.back, "frozen_ms")),
         "back_bytes": stats(&field(|s| &s.back, "bytes")),

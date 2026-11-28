@@ -121,6 +121,27 @@ fn a_call_never_names_its_own_origin_or_another_hop() {
     }
 }
 
+/// The call sent on keeps its tool name and arguments, and its session key is no chat id: a far
+/// daemon that mirrors the caller's chat reads no chat in it, so it never forwards the call back
+/// as that chat's request (which dropped `name`: `unknown Computer Use tool ""`).
+#[test]
+fn the_call_sent_on_keeps_its_tool_and_names_no_chat() {
+    let mut p = base();
+    p["session"] = json!("0f8e2c1a-chat-id");
+    p["machine"] = json!("studio");
+    let sent = onward(&parse(&p).unwrap());
+    assert!(sent.get("machine").is_none());
+    assert_eq!(sent["session"], "cu:0f8e2c1a-chat-id");
+    assert_eq!(super::super::session_key(&sent).unwrap(), "cu:0f8e2c1a-chat-id");
+    // The far machine parses it whole: an older one and a newer one alike.
+    let far = parse(&sent).unwrap();
+    assert_eq!(far.name, "click");
+    assert_eq!(far.arguments, json!({"window_id": "w"}));
+    assert_eq!(far.call_id, "c");
+    // Sent on again (a retry), the key is not prefixed twice.
+    assert_eq!(onward(&far)["session"], "cu:0f8e2c1a-chat-id");
+}
+
 #[test]
 fn a_lost_link_is_retryable_and_a_peer_refusal_keeps_its_code() {
     let lost = link_error(RpcError::new(-32000, "peer studio is unreachable"));
@@ -129,4 +150,14 @@ fn a_lost_link_is_retryable_and_a_peer_refusal_keeps_its_code() {
         RpcError::invalid_params("no").with_data(json!({"code": "computer_use_remote_denied"})),
     );
     assert_eq!(refused.data.unwrap()["code"], "computer_use_remote_denied");
+}
+
+#[test]
+fn only_the_persons_own_daemon_counts_as_their_own_machine_for_control() {
+    use crate::machine_record::Requester;
+    assert_eq!(requester(ConnAuth::PeerToken), Requester::OwnMachine);
+    assert_eq!(requester(ConnAuth::CarrierOwner), Requester::OwnMachine);
+    // A paired client credential may be anyone's the person gave it to: it still needs a grant.
+    assert_eq!(requester(ConnAuth::Device), Requester::Other);
+    assert_eq!(requester(ConnAuth::CarrierTeam), Requester::Other);
 }

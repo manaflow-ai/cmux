@@ -6,8 +6,8 @@
 //! `--yes` (without a terminal to ask on, `--yes` is required):
 //!
 //! 1. the cmux installer there, sent on ssh's stdin (the same script as
-//!    `curl -fsSL https://cmux.com/tui/install.sh | sh -s -- --server`, built
-//!    into this binary so nothing is fetched from a moving URL): it installs
+//!    README.md's pinned install command with `--server`, built into this
+//!    binary so nothing is fetched from a moving URL): it installs
 //!    this build's commit (checksum-verified, no sudo) and runs `cmux server
 //!    install` there, which keeps the session running as a service;
 //! 2. a check that the session answers there;
@@ -357,7 +357,7 @@ fn install(request: &Request, steps: &mut Steps) -> i32 {
     // cmux-build-identity is a Unix-only dependency (Cargo.toml); a Windows
     // build has no stamped commit, so it installs the current NIGHTLY build.
     #[cfg(unix)]
-    let own = cmux_build_identity::BUILD_IDENTITY;
+    let own = crate::build_identity::identity();
     #[cfg(not(unix))]
     let own = "";
     let commit = if request.nightly { None } else { install_commit(own) };

@@ -17,7 +17,7 @@ import "./guest.css";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { AvatarContext } from "../../pages/home-channels/avatars";
 import { useAutoRetry } from "../acpmux/autoRetry";
-import { useLasting } from "../../ui/lasting";
+import { useQuietConnect, useLasting } from "../../ui/lasting";
 import { useT } from "../acpmux/i18n";
 import type { AcpmuxSnapshot } from "../acpmux/model";
 import type { GuestFeed } from "./GuestTranscript";
@@ -479,7 +479,7 @@ export function LiveChat({
   name?: string;
   /** The signed-in account's picture this guest joined with, for its own chip. */
   avatar?: string;
-  /** This guest's role: only `talk` sends (a composer); `view` or none watches. */
+  /** Talk and Drive can send. Only Drive can stop an active turn. */
   role?: GuestRole;
   /** This guest's own messages (guestPrompts.ts). */
   prompts: GuestPrompts;
@@ -496,6 +496,10 @@ export function LiveChat({
   const [chat, setChat] = useState<GuestChat>({});
   const [people, setPeople] = useState<GuestParticipant[]>([]);
   const [connection, setConnection] = useState<GuestConnection>("connecting");
+  // Connecting and reconnecting heal on their own and offer nothing to do: the line waits out the
+  // shared bound (ui/lasting.ts `CONNECTION_QUIET_MS`, with Quiet Connections on), so a join or a blip that lands under it
+  // says nothing (Leo, 2026-11-14: "i also want all our connectivity stuff to shut up").
+  const linkDownLasting = useQuietConnect(connection !== "live");
   const [hasMore, setHasMore] = useState(false);
   const [expanded, setExpanded] = useState(() => new Set<string>());
   const socket = useRef<ShareSocket | undefined>(undefined);
@@ -563,9 +567,12 @@ export function LiveChat({
       waiting.length = 0;
       client?.dispose();
     };
+    // The room cookie is shared across tabs. Reconnect only as the guest this tab redeemed.
+    const url = new URL(socketUrl, document.baseURI);
+    url.searchParams.set("guest_id", guestId);
     const room = new ShareSocket(
       {
-        url: socketUrl,
+        url: url.href,
         unresolved: () => prompts.held(),
         ...(openSocket ? { open: openSocket } : {}),
       },
@@ -608,7 +615,7 @@ export function LiveChat({
       stop();
       pageArrived.current?.();
     };
-  }, [socketUrl, openSocket, prompts, typing, sendQueue, loadTranscript, reloadPage]);
+  }, [guestId, socketUrl, openSocket, prompts, typing, sendQueue, loadTranscript, reloadPage]);
 
   const loadOlder = useCallback(
     () =>
@@ -687,7 +694,7 @@ export function LiveChat({
           )}
           {loadFailed
             ? stillLoading && <output className="guest-live__notice">{t("guest.live.stillLoading")}</output>
-            : connection !== "live" && (
+            : linkDownLasting && (
                 <output className="guest-live__notice">
                   {t(connection === "connecting" ? "guest.live.connecting" : "guest.live.reconnecting")}
                 </output>
@@ -701,12 +708,22 @@ export function LiveChat({
         )}
         <div className="guest-live__dock">
           <GuestQueue queue={waiting} owner={owner} />
-          <GuestMessages prompts={mine} me={me} owner={ownerName} onRetry={role === "talk" ? retry : undefined} />
-          {/* Only a `talk` guest sends; no role (an answer that named none) or `view` watches. */}
-          {role === "talk" ? (
+          <GuestMessages
+            prompts={mine}
+            me={me}
+            owner={ownerName}
+            onRetry={role === "talk" || role === "drive" ? retry : undefined}
+          />
+          {/* A `talk` or `drive` guest sends (a Drive invite can also stop the active turn); no role or `view` watches. */}
+          {role === "talk" || role === "drive" ? (
             <GuestComposer
               initialText={prompts.draft()}
               onSend={send}
+              onStop={
+                role === "drive" && snapshot?.isWorking && connection === "live"
+                  ? () => socket.current?.send({ t: "cancel" })
+                  : undefined
+              }
               onDraft={(draft) => {
                 prompts.keepDraft(draft);
                 typing.input(draft);

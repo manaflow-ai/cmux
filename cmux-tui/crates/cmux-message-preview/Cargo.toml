@@ -8,6 +8,8 @@ publish.workspace = true
 description = "A message's Markdown as the one line a preview shows (the daemon's Home rows, the Chief's push): the Rust port of CmuxHomeCore's MessagePreview, held to the same case file"
 
 [dependencies]
+# home_table walks text by grapheme, as Swift walks a String's Characters.
+unicode-segmentation.workspace = true
 
 [dev-dependencies]
 serde = { workspace = true, features = ["derive"] }

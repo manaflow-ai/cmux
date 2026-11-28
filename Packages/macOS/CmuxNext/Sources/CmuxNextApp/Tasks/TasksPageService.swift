@@ -4,7 +4,7 @@ import CmuxNextCompat
 import CmuxNextPages
 import CmuxNextSettings
 
-extension InternalPageID {
+nonisolated extension InternalPageID {
     static let tasks = InternalPageID(rawValue: "tasks")
 }
 

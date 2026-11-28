@@ -333,6 +333,32 @@ pub fn record_paint(
     Ok(summary)
 }
 
+/// How long an answer to the phone (a clock probe's or a paint summary's) waits for room in the
+/// phone's channel queue before it is dropped.
+pub const PAINT_ANSWER_WAIT: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// How an answer to the phone went ([`answer_bounded`]).
+#[derive(Debug, PartialEq, Eq)]
+enum Answered {
+    Sent,
+    /// The phone closed the channel.
+    Closed,
+    /// The phone's queue stayed full for [`PAINT_ANSWER_WAIT`] (a stalled link): not sent.
+    Dropped,
+}
+
+/// Sends `answer` to the phone, or gives up after [`PAINT_ANSWER_WAIT`]. Both answers are
+/// advisory (the phone's DEBUG overlay), and the read loop must keep reading the next probe or
+/// pan line rather than wait on a stalled phone. An answer is one line, far below
+/// `cmux_mobile_link::link::DATA_CHUNK`, so a drop leaves no partial line queued.
+async fn answer_bounded(sender: &ChannelSender, answer: impl Into<bytes::Bytes>) -> Answered {
+    match tokio::time::timeout(PAINT_ANSWER_WAIT, sender.send(answer.into())).await {
+        Ok(Ok(())) => Answered::Sent,
+        Ok(Err(_)) => Answered::Closed,
+        Err(_) => Answered::Dropped,
+    }
+}
+
 /// The `phone-frames` service: reads pan lines until the phone closes or [`MAX_PANS`] came.
 pub async fn serve(
     phone: &str,
@@ -366,16 +392,28 @@ pub async fn serve_on(
                         clocks += 1;
                         let t1 = cmux_mobile_link::frame::epoch_us() as f64 / 1000.0;
                         let answer = crate::paint_latency::clock_answer(t0, t1);
-                        if sender.send(bytes::Bytes::from(answer)).await.is_err() {
-                            return Ok(());
+                        match answer_bounded(sender, answer).await {
+                            Answered::Sent => {}
+                            Answered::Closed => return Ok(()),
+                            Answered::Dropped => {
+                                tracing::info!(phone, "clock answer not sent: phone queue full");
+                            }
                         }
                     }
                     Some(Line::Clock(_)) => {}
-                    Some(Line::Paint) => {
-                        if let Err(why) = record_paint(&bytes, phone, path, route()) {
-                            tracing::info!(phone, ?why, "phone paint dropped");
+                    Some(Line::Paint) => match record_paint(&bytes, phone, path, route()) {
+                        // The join goes back to the phone (its DEBUG overlay); a phone that
+                        // closed after its report never reads it, and that is not an error.
+                        // A phone whose queue is full (a stalled link) gets no answer after
+                        // [`PAINT_ANSWER_WAIT`]: the overlay is advisory, and this loop must
+                        // keep reading the next probe or pan line, not wait on the phone.
+                        Ok(summary) => {
+                            if answer_bounded(sender, summary.answer()).await == Answered::Dropped {
+                                tracing::info!(phone, "paint summary not sent: phone queue full");
+                            }
                         }
-                    }
+                        Err(why) => tracing::info!(phone, ?why, "phone paint dropped"),
+                    },
                     None => {
                         if let Err(why) = record_on(&bytes, phone, path, route()) {
                             tracing::info!(phone, ?why, "phone frames dropped");
@@ -521,5 +559,72 @@ mod tests {
         assert!(row["output_to_paint_less_half_rtt_ms"]["p95_ms"].is_number());
         let bad = br#"{"kind":"tui","expected_ms":8.33,"intervals_ms":[8.3],"painted":[[1,-1]]}"#;
         assert_eq!(record(bad, phone, &path), Err(Invalid::Intervals));
+    }
+
+    /// A `phone-frames` channel whose phone never reads: the Mac's sends fill the phone's event
+    /// queue, the carrier and the channel's own queue, then wait (a stalled link). Returns both
+    /// links (they stop when dropped), the phone's end and the Mac's halves.
+    async fn stalled_phone() -> (
+        (cmux_mobile_link::Link, cmux_mobile_link::Link),
+        cmux_mobile_link::Channel,
+        ChannelSender,
+        ChannelReceiver,
+    ) {
+        use cmux_mobile_link::{Link, LinkConfig, Role};
+        let (a, b) = tokio::io::duplex(64 * 1024);
+        let phone = Link::new(a, Role::Phone, LinkConfig::default(), None);
+        let mac = Link::new(b, Role::Mac, LinkConfig::default(), None);
+        let (opened, incoming) =
+            tokio::join!(phone.open("phone-frames", serde_json::json!({})), mac.accept());
+        let phone_end = opened.expect("opened");
+        let (sender, receiver) = incoming.expect("incoming").channel.split();
+        let chunk = bytes::Bytes::from(vec![b'x'; 16 * 1024]);
+        let mut full = false;
+        for _ in 0..8_192 {
+            let wait = std::time::Duration::from_millis(50);
+            if tokio::time::timeout(wait, sender.send(chunk.clone())).await.is_err() {
+                full = true;
+                break;
+            }
+        }
+        assert!(full, "the phone's queue never filled");
+        ((phone, mac), phone_end, sender, receiver)
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_answer_to_a_stalled_phone_is_dropped_after_its_wait() {
+        let (_links, _phone, sender, _receiver) = stalled_phone().await;
+        let started = tokio::time::Instant::now();
+        let answered = answer_bounded(&sender, b"{\"kind\":\"clock\"}\n".to_vec()).await;
+        assert_eq!(answered, Answered::Dropped);
+        assert_eq!(started.elapsed(), PAINT_ANSWER_WAIT);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_stalled_phone_does_not_stop_the_loop_reading_its_next_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("phone-frames.jsonl");
+        let (_links, phone, sender, receiver) = stalled_phone().await;
+        let served = {
+            let path = path.clone();
+            tokio::spawn(async move { serve("phone-frames-stalled", &path, &sender, receiver).await })
+        };
+        // A clock probe (its answer cannot go out), then a pan line. The phone stays open: a
+        // close would end the blocked answer as `Closed`, not show the loop moving past it.
+        let started = tokio::time::Instant::now();
+        phone.send(br#"{"kind":"clock","t0":1000.0}"#.to_vec()).await.unwrap();
+        let pan = br#"{"kind":"scrollback","expected_ms":16.67,"intervals_ms":[16.6,16.7,16.7,16.6]}"#;
+        phone.send(pan.to_vec()).await.unwrap();
+        while !path.exists() {
+            assert!(started.elapsed() <= PAINT_ANSWER_WAIT * 2, "the pan after the probe was not recorded");
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+        // One dropped answer's wait, not a wait on the phone.
+        assert!(started.elapsed() >= PAINT_ANSWER_WAIT, "{:?}", started.elapsed());
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(text.lines().count(), 1, "{text}");
+        phone.close("done", "test").await;
+        let served = tokio::time::timeout(PAINT_ANSWER_WAIT, served).await.expect("serve ends on close");
+        assert!(served.unwrap().is_ok());
     }
 }

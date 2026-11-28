@@ -16,7 +16,7 @@ public struct TerminalTitle: Equatable, Sendable {
     }
 
     /// What a leading status glyph says about the program (wire `activity` / `title_activity`).
-    public enum Activity: String, Equatable, Sendable {
+    public enum Activity: String, Equatable, Sendable, Decodable {
         /// A spinner frame (Braille dots, a turning circle): the program works.
         case working
         /// A resting marker (`✳`, `●`, `⏺`): the program waits.
