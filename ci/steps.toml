@@ -3750,8 +3750,11 @@ rustup toolchain install "$channel" --profile minimal --component clippy,rustfmt
 # incremental state (it only fills the disk), the ghostty-next gitlink's sources, Zig from PATH.
 export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_HTTP_MULTIPLEXING=false TMPDIR=/tmp CMUX_GHOSTTY_SRC=""
 # Fork pull requests use a 4-vCPU Linux runner. Keep cold rustc fan-out within that
-# runner's memory budget after an unrestricted compile killed rustc with SIGKILL.
-export GHOSTTY_ZIG_SOURCE=ghostty-next CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2
+# runner's memory budget after an unrestricted compile killed rustc with SIGKILL: at most two rustc, and one when the
+# memory does not hold 16 GiB for each (a 24 GiB pool slot SIGKILLed both at -j2: runs 46151362183, 46159118214).
+export GHOSTTY_ZIG_SOURCE=ghostty-next CARGO_INCREMENTAL=0
+CARGO_BUILD_JOBS="$(env -u CARGO_BUILD_JOBS bash ../scripts/ci/cargo-mem-jobs.sh --gib-per-job "${CMUX_DAEMON_GIB_PER_RUSTC:-16}" --max 2)"
+export CARGO_BUILD_JOBS
 unset CMUX_ZIG ZIG
 # The last feat-cmux-next push's build (read only; a miss builds cold): unchanged crates are not compiled again.
 ../scripts/ci/cmux-tui-test-target.sh restore
@@ -3764,6 +3767,10 @@ for attempt in 1 2 3; do
   cargo test "${members[@]}" --locked cmux_next_ 2>&1 | tee "$log"
   status=${PIPESTATUS[0]}
   if [ "$status" -ne 0 ] && python3 ../scripts/cmux-next/cargo-locks.py explain "$log"; then break; fi
+  if [ "$status" -ne 0 ] && grep -q 'signal: 9, SIGKILL' "$log"; then
+    echo "::error::the runner killed rustc or a test (SIGKILL, most often out of memory) at CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS; not a test failure"
+    break
+  fi
   if [ "$status" -eq 0 ]; then
     grep -qE 'test result: ok\. [1-9][0-9]* passed' "$log" && break
     echo "::error::cargo test ran no cmux_next_ test (the filter matched nothing)"
