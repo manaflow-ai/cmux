@@ -628,6 +628,16 @@ class NeverBoundTests(unittest.TestCase):
         for msg in ("cloud.create.submit", "cloud.start.submit", "cloud.start.trace"):
             self.assertIn(msg, logs.PLATFORM_MSGS)
 
+    def test_a_create_trace_keeps_why_it_ran_as_a_fixed_word(self):
+        """cmux-vm's create queue (3 slots, development and staging) refused 61 of 69 creates 2026-11-28 01:36-01:48Z;
+        cmux-platform#2507's create trace `kind` says who filled it. Only its fixed words are kept."""
+        for kind in ("spare", "restore", "person", "window", "refresh", "warm"):
+            row = logs.line(event({"msg": "cloud.create.trace", "machine": VM, "attempt": 1, "outcome": "ok",
+                                   "kind": kind, "total_ms": 31000}))
+            self.assertEqual(row["log"]["kind"], kind)
+        odd = logs.line(event({"msg": "cloud.create.trace", "machine": VM, "outcome": "ok", "kind": "spare_x"}))
+        self.assertNotIn("kind", odd["log"])
+
     def test_an_approved_run_keeps_its_delivery_split_and_steps(self):
         """Production 2026-11-27 02:15-03:15Z (hq#31342): 20 cloud.approval.run lines kept only msg, team, machine, op,
         outcome and path; cmux-platform#2295's queued/admit/delivery/run ms and the create's steps were dropped."""
@@ -735,6 +745,15 @@ class NeverBoundTests(unittest.TestCase):
                  ("VM API: secret-tenant-words", "VM API: other"),
                  ("TypeError: secret-tenant-words is not a function", "TypeError"),
                  ("the machine network is unavailable", "the machine network is unavailable"),
+                 # ownhost/CloudProvider.ts: the step and its fixed tail, the status and the daemon's code token.
+                 ("own-host: find VM: no readable answer", "own-host: find VM: no readable answer"),
+                 ("own-host: create VM: HTTP 503 (host_full)", "own-host: create VM: HTTP 503 (host_full)"),
+                 ("own-host: create VM: HTTP 530", "own-host: create VM: HTTP 530"),
+                 ("own-host: resume VM: the host answered refused", "own-host: resume VM: the host answered refused"),
+                 ("own-host: no TLS edge rules", "own-host: no TLS edge rules"),
+                 ("own-host: create VM: HTTP 500 (Secret Tenant Words)", "own-host: create VM: other"),
+                 ("own-host: find VM: secret-tenant-words", "own-host: find VM: other"),
+                 ("own-host: secret-tenant-words: no readable answer", "own-host: other"),
                  (None, "other"))
         for message, want in cases:
             with self.subTest(message=message):

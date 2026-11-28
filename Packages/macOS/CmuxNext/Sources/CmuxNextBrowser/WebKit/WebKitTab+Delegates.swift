@@ -261,6 +261,11 @@ extension WebKitTab: WKUIDelegate {
             // A sized popup (OAuth, payment): a floating panel, with opener.
             let features = CGRect(x: windowFeatures.x?.doubleValue ?? 0, y: windowFeatures.y?.doubleValue ?? 0,
                                   width: windowFeatures.width?.doubleValue ?? 0, height: windowFeatures.height?.doubleValue ?? 0)
+            // Its page's intents (a download, `window.close`, a link to a new tab) go where its
+            // opener's go, as a Chromium popup's do (`CEFTab.inheritDelegates`): no host installs
+            // a popup page as a tab, so without this they reached no one.
+            child.delegate = delegate
+            child.keyRouter = keyRouter
             emit(.openPopup(child, BrowserPopupRequest(features: features)))
         } else {
             emit(.adoptTab(child, .foregroundTab))

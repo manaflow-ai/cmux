@@ -14,7 +14,8 @@
 //! A row as JSON, one key per row: `{"info":{"text","symbol"?,"avatar"}}`,
 //! `{"action":{"id","title"?,"symbol"}}`, `{"setting":{"text","key","symbol"}}`,
 //! `{"separator":true}`, `{"header":"text"}`, `{"chat":{"id","title","harness"?}}`,
-//! `{"command":{"command":"openChat"|"computerUseResume"|"computerUseShowCursor","target","title","symbol"}}`,
+//! `{"command":{"command":"openChat"|"computerUseResume"|"computerUseShowCursor"|"computerUseFloatingPreview","target","title","symbol"}}`
+//! (`computerUseFloatingPreview`'s target is `"true"` to show the panel, `"false"` to hide it),
 //! `{"sessionAction":{"id","session","title","symbol"}}`,
 //! `{"computerUse":{"app"?,"bundleID"?,"items":[row…]}}`.
 
@@ -335,10 +336,12 @@ fn chats(list: Option<&Value>, header: String, strings: &Strings) -> Vec<Value> 
 fn computer_use(state: &Value, strings: &Strings) -> Value {
     let sessions = state.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
     let Some(newest) = sessions.first() else {
-        return json!({ "computerUse": { "items": [
+        let mut items = floating_preview_rows(state, strings);
+        items.extend([
             action("agentActivity.open", None, "cursorarrow.click.2"),
             action("palette.computerUse.setup", None, "gear"),
-        ] } });
+        ]);
+        return json!({ "computerUse": { "items": items } });
     };
     let mut items = Vec::new();
     for session in sessions.iter().take(COMPUTER_USE_SESSION_LIMIT) {
@@ -353,8 +356,9 @@ fn computer_use(state: &Value, strings: &Strings) -> Value {
             "stop.circle",
         ),
         separator(),
-        action("agentActivity.open", None, "cursorarrow.click.2"),
     ]);
+    items.extend(floating_preview_rows(state, strings));
+    items.push(action("agentActivity.open", None, "cursorarrow.click.2"));
     let mut row = Map::new();
     if let Some(app) = str_field(newest, "appName") {
         row.insert("app".into(), json!(app));
@@ -366,6 +370,28 @@ fn computer_use(state: &Value, strings: &Strings) -> Value {
     json!({ "computerUse": row })
 }
 
+/// Show or Hide Floating Preview while `computerUse.floatingPreview` is on (`floatingPreview` in
+/// the state; user 2026-11-22, paraphrased: show the running preview, drag it around, hide it); nothing
+/// while it is off.
+fn floating_preview_rows(state: &Value, strings: &Strings) -> Vec<Value> {
+    match state.get("floatingPreview").and_then(Value::as_bool) {
+        Some(true) => vec![command(
+            "computerUseFloatingPreview",
+            "false",
+            strings
+                .format("menu.menuBar.computerUse.floatingPreview.hide", "Hide Floating Preview"),
+            "pip.remove",
+        )],
+        Some(false) => vec![command(
+            "computerUseFloatingPreview",
+            "true",
+            strings
+                .format("menu.menuBar.computerUse.floatingPreview.show", "Show Floating Preview"),
+            "pip",
+        )],
+        None => Vec::new(),
+    }
+}
 /// One session's line and its rows: Stop or Resume, Show Cursor, Show Window.
 fn session_rows(session: &Value, strings: &Strings) -> Vec<Value> {
     let id = str_field(session, "id").unwrap_or_default();

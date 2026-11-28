@@ -20,10 +20,12 @@ shim() { printf '#!/bin/sh\necho %s\n' "$2" > "$1"; chmod +x "$1"; }
 mkdir -p "$TMP/shared"
 # run -> status, out; RUNNER_TEMP and GITHUB_PATH are fresh per run.
 run() {
-  rm -rf "$TMP/runner"; mkdir -p "$TMP/runner"; : > "$TMP/runner/path"
+  rm -rf "$TMP/runner"; mkdir -p "$TMP/runner"; : > "$TMP/runner/path"; : > "$TMP/runner/env"
   status=0
-  out=$(PATH="$TMP/shared:$PATH" RUNNER_TEMP="$TMP/runner" GITHUB_PATH="$TMP/runner/path" \
-    CMUX_BUN_RELEASE_BASE="file://$TMP/release" bash "$src/scripts/cmux-next/private-bun.sh" 2>&1) || status=$?
+  # The machine store (#58098) is the test's own: the real ~/.cache one kept this test's 9.9.9 shim, which then
+  # answered the checksum case below without a download (CI, 2026-11-27).
+  out=$(PATH="$TMP/shared:$PATH" RUNNER_TEMP="$TMP/runner" GITHUB_PATH="$TMP/runner/path" GITHUB_ENV="$TMP/runner/env" \
+    BUN_TMPDIR= TOOLCHAIN_BUN_STORE="$TMP/store" CMUX_BUN_RELEASE_BASE="file://$TMP/release" bash "$src/scripts/cmux-next/private-bun.sh" 2>&1) || status=$?
 }
 private() { head -n 1 "$TMP/runner/path"; }
 
@@ -36,6 +38,9 @@ run
 shim "$TMP/shared/bun" 1.3.6
 [[ "$("$(private)/bun" --version)" == 9.9.9 ]] || fail "the private copy must keep the pinned version after the shared one changes"
 [[ -x "$(private)/bunx" ]] || fail "the private directory needs bunx"
+# Every later bun in the job gets a temp dir it can write (EACCES on Hetzner slots, run 46063462029).
+grep -qx "BUN_TMPDIR=$TMP/runner/bun-tmp" "$TMP/runner/env" || fail "GITHUB_ENV must set BUN_TMPDIR: $(cat "$TMP/runner/env")"
+[[ -d "$TMP/runner/bun-tmp" && -w "$TMP/runner/bun-tmp" ]] || fail "the BUN_TMPDIR it exports must exist and be writable"
 
 # The shared bun was already swapped: the pinned release is downloaded and
 # checked against the release's SHASUMS256.txt.
@@ -49,10 +54,13 @@ done
 run
 [[ "$status" == 0 ]] || fail "a swapped shared bun must be replaced by the pinned release (exit $status): $out"
 [[ "$("$(private)/bun" --version)" == 9.9.9 ]] || fail "the downloaded bun must be the pinned version"
+[[ "$("$TMP/store/9.9.9/bun" --version)" == 9.9.9 ]] || fail "the downloaded bun must be kept in the machine store"
 
 # A release that does not match its checksums is refused. Use a non-hex marker
 # so the mutation is deterministic even when the original digest starts with 0.
 (cd "$TMP/release/bun-v9.9.9" && sed -i.bak 's/^[0-9a-f]/X/' SHASUMS256.txt && rm SHASUMS256.txt.bak)
+# With no stored copy, so the download is what is judged.
+rm -rf "$TMP/store"
 run
 [[ "$status" != 0 ]] || fail "a checksum mismatch must fail: $out"
 [[ ! -s "$TMP/runner/path" ]] || fail "a refused download must not reach GITHUB_PATH"
