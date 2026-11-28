@@ -44,8 +44,6 @@ protocol ClaudeTokenStoring: Sendable {
 }
 
 struct AcpmuxClaudeTokenStore: ClaudeTokenStoring {
-    static let service = "cmux-model-key"
-
     func store(_ token: String, socket: String) async throws -> String {
         let account = "claude-token-\(UUID().uuidString.lowercased().prefix(8))"
         let reply = try await AcpmuxStatusClient.call(socketPath: socket, method: AcpmuxHarnessMethod.connectionsSecretStore.rawValue,
@@ -58,10 +56,11 @@ struct AcpmuxClaudeTokenStore: ClaudeTokenStoring {
     }
 
     func delete(_ reference: String, socket: String) async {
-        let prefix = "keychain:\(Self.service)/"
-        guard reference.hasPrefix(prefix) else { return }
-        let account = String(reference.dropFirst(prefix.count))
-        guard !account.isEmpty, !account.contains("/") else { return }
+        // acpmux's reference is `keychain:SERVICE/ACCOUNT`; `secret.delete` removes only an item
+        // `secret.store` wrote, by its account.
+        let parts = reference.split(separator: "/", omittingEmptySubsequences: false)
+        guard reference.hasPrefix("keychain:"), parts.count == 2, !parts[1].isEmpty else { return }
+        let account = String(parts[1])
         _ = try? await AcpmuxStatusClient.call(socketPath: socket, method: AcpmuxHarnessMethod.connectionsSecretDelete.rawValue,
                                                params: ["account": account], deadline: .seconds(20), detailed: true)
     }
