@@ -524,6 +524,80 @@ class GhApiTests(unittest.TestCase):
         self.assertEqual(sum(c.args[0] for c in slept.call_args_list), 240)
         self.assertEqual(len(calls), 5, "a: 60 + 120 + 60 (capped), then refused; b: refused at its first limit")
 
+    def test_a_spent_shared_budget_moves_to_the_spare_token_without_waiting(self):
+        # Run 46126384098: github.token's budget (shared by every workflow) was spent; triage waited 240 s and died.
+        limited = (1, "gh: API rate limit exceeded for installation (HTTP 403)", "")
+        envs = []
+        answers = [limited, (0, "", "{}"), (0, "", "{}")]
+
+        def run(argv, **kw):
+            envs.append(kw.get("env"))
+            code, err, out = answers.pop(0)
+            return subprocess.CompletedProcess(argv, code, out, err)
+        with mock.patch.object(ra, "_api_waited", 0.0), mock.patch.object(ra, "_spare_token", "spare"), \
+                mock.patch.object(ra, "_api_env", None), mock.patch.object(ra.time, "sleep") as slept, \
+                mock.patch("sys.stderr"):
+            self.assertEqual(ra.gh_api("a", run=run), {})
+            self.assertEqual(ra.gh_api("b", run=run), {})
+            self.assertEqual(ra._spare_token, "", "the spare is used once; a spent spare is waited out")
+        slept.assert_not_called()
+        self.assertIsNone(envs[0])
+        self.assertEqual([e["GH_TOKEN"] for e in envs[1:]], ["spare", "spare"], "later calls stay on the spare")
+
+    def _spare_run(self, answers):
+        envs = []
+
+        def run(argv, **kw):
+            envs.append(kw.get("env"))
+            code, err, out = answers.pop(0)
+            return subprocess.CompletedProcess(argv, code, out, err)
+        return run, envs
+
+    def test_a_spent_spare_is_waited_out_like_the_first_token(self):
+        limited = (1, "gh: API rate limit exceeded for installation (HTTP 403)", "")
+        run, envs = self._spare_run([limited, limited, (0, "", "{}")])
+        with mock.patch.object(ra, "_api_waited", 0.0), mock.patch.object(ra, "_spare_token", "spare"), \
+                mock.patch.object(ra, "_api_env", None), mock.patch.object(ra.time, "sleep") as slept, \
+                mock.patch("sys.stderr"):
+            self.assertEqual(ra.gh_api("a", run=run), {})
+        slept.assert_called_once_with(60)
+        self.assertEqual([e and e["GH_TOKEN"] for e in envs], [None, "spare", "spare"])
+
+    def test_a_spare_that_does_not_authenticate_goes_back_to_the_first_token(self):
+        limited = (1, "gh: API rate limit exceeded for installation (HTTP 403)", "")
+        bad = (1, "gh: Bad credentials (HTTP 401)", "")
+        run, envs = self._spare_run([limited, bad, (0, "", "{}"), (0, "", "{}")])
+        with mock.patch.object(ra, "_api_waited", 0.0), mock.patch.object(ra, "_spare_token", "spare"), \
+                mock.patch.object(ra, "_api_env", None), mock.patch.object(ra.time, "sleep") as slept, \
+                mock.patch("sys.stderr"):
+            self.assertEqual(ra.gh_api("a", run=run), {}, "a refused spare is not raised as a real refusal")
+            self.assertEqual(ra.gh_api("b", run=run), {})
+            self.assertEqual(ra._spare_token, "")
+        slept.assert_called_once_with(60)
+        self.assertEqual([e and e["GH_TOKEN"] for e in envs], [None, "spare", None, None])
+
+    def test_a_401_on_the_first_token_is_still_a_real_refusal(self):
+        run, envs = self._spare_run([(1, "gh: Bad credentials (HTTP 401)", "")])
+        with mock.patch.object(ra, "_spare_token", "spare"), mock.patch.object(ra, "_api_env", None):
+            with self.assertRaises(RuntimeError):
+                ra.gh_api("a", run=run)
+            self.assertEqual(ra._spare_token, "spare", "only a rate limit moves onto the spare")
+
+    def test_a_refused_rerun_fails_the_triage_job(self):
+        text = (ROOT / ".github/workflows/red-autofix.yml").read_text()
+        step = text.split("- name: Rerun an infrastructure red once")[1].split("- uses:")[0]
+        self.assertNotIn("|| echo", step)
+        self.assertIn("exit 1", step)
+
+    def test_triage_checkout_fetches_only_the_base_branches(self):
+        text = (ROOT / ".github/workflows/red-autofix.yml").read_text()
+        triage = text.split("\n  revert:")[0]
+        self.assertIn("fetch-depth: 1", triage)
+        self.assertNotIn("fetch-depth: 0", triage)
+        self.assertIn("git fetch --quiet --unshallow --filter=blob:none", triage)
+        self.assertIn("RED_AUTOFIX_SPARE_TOKEN: ${{ steps.spare-token.outputs.token }}", triage)
+        self.assertNotIn("permission-contents: write", triage.split("Mint the spare read token")[1])
+
     def test_a_real_refusal_raises_at_once(self):
         run, calls = self.runner([(1, "HTTP 404: Not Found", "")])
         with self.assertRaises(RuntimeError):

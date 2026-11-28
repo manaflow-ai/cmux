@@ -248,19 +248,19 @@ jobs:
       # The shipped Linux cmux-tui, for the app's part on a warm spare (--preclaim-login: warm-spare, ready, installed
       # and the login receipt), built as the staging preclaim job below builds it.
       - name: Install Linux cmux-tui build dependencies
-        if: env.SELECTED == 'true'
+        if: env.SELECTED == 'true' && steps.gate.outputs.skip != 'true'
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev pkg-config
       - name: Set up cmux-tui Rust
-        if: env.SELECTED == 'true'
+        if: env.SELECTED == 'true' && steps.gate.outputs.skip != 'true'
         uses: ./.github/actions/setup-cmux-tui-rust
       - name: Resolve Ghostty Zig version
         id: ghostty-zig-version
-        if: env.SELECTED == 'true'
+        if: env.SELECTED == 'true' && steps.gate.outputs.skip != 'true'
         env:
           GHOSTTY_ZIG_SOURCE: ghostty-next
         run: echo "version=$(bash ./scripts/ghostty-zig-version.sh)" >> "$GITHUB_OUTPUT"
       - uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
-        if: env.SELECTED == 'true'
+        if: env.SELECTED == 'true' && steps.gate.outputs.skip != 'true'
         with:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
           # Its own cache saved a ~260 MB `setup-zig-cache-journey-...-<run_id>` entry every hourly run, which kept
@@ -271,7 +271,7 @@ jobs:
         if: env.SELECTED == 'true'
         uses: ./.github/actions/zig-global-cache
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        if: env.SELECTED == 'true'
+        if: env.SELECTED == 'true' && steps.gate.outputs.skip != 'true'
         with:
           save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
           workspaces: cmux-tui
@@ -279,7 +279,7 @@ jobs:
           cache-bin: false
       - name: Build the shipped Linux cmux-tui
         id: build-cmux-tui
-        if: env.SELECTED == 'true'
+        if: env.SELECTED == 'true' && steps.gate.outputs.skip != 'true'
         working-directory: cmux-tui
         env:
           CARGO_NET_RETRY: "10"
@@ -291,7 +291,7 @@ jobs:
           test -x target/debug/cmux-tui
           echo "path=$PWD/target/debug/cmux-tui" >> "$GITHUB_OUTPUT"
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        if: env.SELECTED == 'true'
+        if: env.SELECTED == 'true' && steps.gate.outputs.skip != 'true'
         with:
           bun-version: "1.4.4"
       - name: Cloud journey (prod, ${{ matrix.agent == 'codex' && 'codex, ' || '' }}${{ matrix.model }} model)
