@@ -15,7 +15,7 @@ import {
   settledAwaiting,
   type SnapshotRow,
 } from "../scripts/devbox-rebake";
-import { isFreestyleTransient, readDevboxAwaitingRebake, repoRoot, retryFreestyleOverload, type DevboxAwaitingRebake } from "../scripts/devbox-image-common";
+import { DERIVE_MAX_RETRIED_ROWS, deriveRowFailureAction, isFreestyleTransient, readDevboxAwaitingRebake, repoRoot, retryFreestyleOverload, type DevboxAwaitingRebake } from "../scripts/devbox-image-common";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // Bun's YAML parser; web/tests are typed by tests/bun-test.d.ts, which has no Bun global.
@@ -226,5 +226,28 @@ describe("retryFreestyleOverload", () => {
     expect(isFreestyleTransient(bad)).toBe(false);
     expect(isFreestyleTransient(overloaded)).toBe(true);
     await expect(retryFreestyleOverload("t", async () => { throw internal; }, 1_000, 1)).rejects.toBe(internal);
+  });
+});
+
+describe("deriveRowFailureAction", () => {
+  test("a 429 row always waits for its solo retry", () => {
+    const overload = Object.assign(new Error("overloaded"), { status: 429 });
+    expect(deriveRowFailureAction(overload, 0)).toBe("defer");
+    expect(deriveRowFailureAction(overload, DERIVE_MAX_RETRIED_ROWS + 3)).toBe("defer");
+  });
+
+  test("a row lost to a guest flake retries alone, up to the cap", () => {
+    // Rebake 46094043731: 2xl's daemon wait came back empty on the verify VM.
+    const flake = new Error("2xl: cmux-tui daemon did not come up on the derived snapshot sh-x: ");
+    for (let retried = 0; retried < DERIVE_MAX_RETRIED_ROWS; retried += 1) {
+      expect(deriveRowFailureAction(flake, retried)).toBe("defer");
+    }
+    // Every row failing is a regression, not a flake: the ladder fails fast.
+    expect(deriveRowFailureAction(flake, DERIVE_MAX_RETRIED_ROWS)).toBe("fail");
+  });
+
+  test("the derive ladder asks the policy rather than retrying 429s alone", () => {
+    const derive = readFileSync(path.join(here, "..", "scripts", "derive-devbox-sizes.ts"), "utf8");
+    expect(derive).toContain('deriveRowFailureAction(error, retriedRows) === "defer"');
   });
 });
