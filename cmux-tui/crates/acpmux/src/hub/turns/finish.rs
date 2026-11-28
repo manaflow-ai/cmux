@@ -682,16 +682,21 @@ impl Hub {
         // Its next gap starts (`residency.rs`).
         self.rhythm_turn_ended(session);
         self.lane_report_record_result(&session.id, turn_result);
-        if turn_result.get("trigger") != Some(&Value::Bool(true)) {
-            let mut meta = session.meta.lock().unwrap();
-            if last["errorCode"] == "claude_cloud_token_rejected"
-                && meta.claude_token_recovery.is_none()
-            {
-                meta.claude_token_recovery =
-                    Some(crate::store::ClaudeTokenRecovery::LegacyRejected);
-            }
+        // A trigger turn leaves the person's last turn alone, except a failed one: a turn that
+        // ran to its end since is newer than that failure, so the chat no longer reads as failed.
+        let trigger = turn_result.get("trigger") == Some(&Value::Bool(true));
+        let mut meta = session.meta.lock().unwrap();
+        let failed = meta.last_turn.as_ref().is_some_and(|t| t["status"] == "failed");
+        if !trigger
+            && last["errorCode"] == "claude_cloud_token_rejected"
+            && meta.claude_token_recovery.is_none()
+        {
+            meta.claude_token_recovery = Some(crate::store::ClaudeTokenRecovery::LegacyRejected);
+        }
+        if !trigger || (failed && last["status"] == "completed") {
             meta.last_turn = Some(last);
         }
+        drop(meta);
         // Every turn's end passes here once: its parent hears it (`subsession_results.rs`).
         self.subsession_turn_ended(session, turn_result);
         // Opt-in team usage sharing (`usage_share.rs`): nothing while it is off.
