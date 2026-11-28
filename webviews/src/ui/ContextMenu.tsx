@@ -15,6 +15,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "./cx";
+import { Spinner } from "../agent-session/acpmux/conversation/Spinner";
 import { MenuCheckGlyph } from "./MenuCheckGlyph";
 import { useScrollEdges } from "./scrollEdges";
 import { hasNativeMenuPick, nativeMenu, pickedId, type NativeMenuRow } from "./nativeMenu";
@@ -529,7 +530,7 @@ export function ContextMenu({
         {/* The async row's trailing slot, reserved from the start so its spinner moves nothing. */}
         {states !== "off" && item.async ? (
           <span className="ui-menu-async" aria-hidden="true">
-            {pending === item.id ? <span className="ui-menu-spinner" /> : null}
+            {pending === item.id ? <Spinner className="ui-menu-spinner" size={12} loading /> : null}
           </span>
         ) : null}
         {item.submenu ? <span className="ui-submenu-chevron" aria-hidden="true" /> : null}

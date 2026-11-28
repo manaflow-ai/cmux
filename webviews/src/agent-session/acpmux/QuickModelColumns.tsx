@@ -1762,6 +1762,7 @@ function Columns({
               natural?.effort ? ({ "--acpmux-cols-tune-fit": `${natural.effort}px` } as React.CSSProperties) : undefined
             }
             data-tune-fit={natural?.effort}
+            data-card={card ? "" : undefined}
           >
             <div className="acpmux-cols-search">
               <span className="acpmux-cols-corner">
@@ -1799,7 +1800,7 @@ function Columns({
                 }}
               />
             </div>
-            <div className="acpmux-cols-strips">
+            <div className="acpmux-cols-strips" data-card={card ? "" : undefined}>
               <hr className="acpmux-cols-sep" />
               {/* The account card opens here, in the flow over the rail and the models: they move down
                   and stay whole, never under it (cmux#63167: drawn over the list, it hid the checked

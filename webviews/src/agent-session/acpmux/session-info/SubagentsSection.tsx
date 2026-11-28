@@ -174,7 +174,9 @@ export function SubagentsSection({
     identity: child.sessionId,
     name: child.title,
     status: sessionStatus(child),
-    ...(({ text, working }) => ({ state: text, working }))(sessionStateText(t, child, connectionQuiet)),
+    // A running chat draws no word (#56223), but its line still says it to screen readers (AgentLine
+    // `lean`), so the state is the word when there is no text.
+    ...(({ text, working, word }) => ({ state: text || word, working }))(sessionStateText(t, child, connectionQuiet)),
     icon: "agent.chat",
     mark: child.harness,
     depth: 0,

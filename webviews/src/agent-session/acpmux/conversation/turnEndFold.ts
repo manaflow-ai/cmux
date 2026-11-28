@@ -1780,8 +1780,19 @@ export function playTurnEnd(
         // crosses any more) starts the fade now, and a fade already running is left to run.
         const clear = ms * clearFraction(index);
         const last = moving.get(node);
-        // Nothing crosses a row that plays its own entrance: that entrance is its only fade.
-        if (clear === 0 && !last && node.matches(".acpmux-row--enter, .acpmux-row--message-enter")) {
+        // Nothing crosses a row that plays its own entrance: that entrance is its only fade. A copy
+        // still fading over the exit lead crosses it too: the entrance drew the reply's text over the
+        // live line's copy for the lead's frames (reply-settle-place-browser: 22 px over 8 frames, a
+        // streaming reply renamed at settle), so the row holds at no ink until the lead ends instead.
+        const copyCrosses =
+          toMove() > 0 &&
+          copies.some((copy, order) => {
+            const top = drawnTop.get(copy) ?? copyTops[order]!;
+            const shared =
+              Math.min(tops[index]! + heights[index]!, top + copyHeights[order]!) - Math.max(tops[index]!, top);
+            return shared > 0.5;
+          });
+        if (clear === 0 && !copyCrosses && !last && node.matches(".acpmux-row--enter, .acpmux-row--message-enter")) {
           entering = true;
           return;
         }

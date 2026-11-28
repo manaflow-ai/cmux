@@ -80,6 +80,13 @@ export function focusRingShown(element: Element | null | undefined): boolean {
   return element.ownerDocument.documentElement.getAttribute(FOCUS_MODALITY_ATTRIBUTE) !== "pointer";
 }
 
+/** The engine's own `:focus-visible`, ungated: for a state that is not a ring (the composer's
+ * focused mark, focusVisibleMark.ts, whose lit edge follows a click's focus too). A ring asks
+ * focusRingShown. */
+export function matchesFocusVisible(element: Element): boolean {
+  return element.matches(":focus-visible");
+}
+
 /** Whether `element` holds focus a navigation key gave it, whether or not its ring still shows: a
  * pointer move takes the ring away but the keyboard still works there. For behavior that follows
  * where focus came from (a rail that keeps keyboard focus, drops a click's); a ring's look asks

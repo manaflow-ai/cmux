@@ -16,6 +16,7 @@ import { layoutConversation, type AcpmuxRow, type AcpmuxSnapshot, type Conversat
 import { acpmuxSendCall } from "../conversation/acpmuxSends";
 import {
   MARK_STEP,
+  ownMessagesJoin,
   ROW_GAP_LOOKS,
   TRANSCRIPT_BLOCK_GAP,
   TRANSCRIPT_TURN_GAP,
@@ -314,6 +315,12 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
         turn += 1;
         turnEnded = false;
       }
+      // A turn the agent woke into (a turn_started with no prompt after the last turn ended) runs too:
+      // its typing row is the running turn's, not one drawn after an end (i-placeholder-after-end).
+      if (event?.kind === "turn_started" && turnEnded) {
+        turn += 1;
+        turnEnded = false;
+      }
       if (event?.kind === "turn_result" || (event && endsTurn(event))) turnEnded = true;
       // The agent sent the running turn something of its own (a thought, a call, a message): a turn
       // that ends showing none of it lost its work (d-action-only). One it sent nothing draws its
@@ -482,7 +489,11 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
       // prompt; under another agent's notice or message, the gap "Worked for" stands under any one-line row
       // (transcriptGrid.ts ROW_GAP_LOOKS.shipped.workedAfterLine, #48591).
       const headWant = above.received ? ROW_GAP_LOOKS.shipped.workedAfterLine : TRANSCRIPT_BLOCK_GAP;
-      if (probe.head && above.opens && gap < headWant - 0.5)
+      // Two of the person's own messages with nothing between them (a steer under a /compact) are one group, the
+      // footer gap apart, by design (#61546, transcriptGrid.ts `ownMessagesJoin`).
+      const ownGroup =
+        probe.kind === "user" && above.kind === "user" && !probe.received && !above.received && ownMessagesJoin();
+      if (probe.head && above.opens && !ownGroup && gap < headWant - 0.5)
         flag(
           "a-head-gap",
           probe.id,

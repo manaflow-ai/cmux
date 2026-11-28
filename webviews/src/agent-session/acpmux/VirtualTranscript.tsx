@@ -6867,7 +6867,9 @@ function TranscriptView({
     // scroll write over at step 10.
     const motionList: MotionList = {
       offsetOf: (rowId) => {
-        const row = node.querySelector<HTMLElement>(`[data-row-id="${CSS.escape(rowId)}"]`);
+        // As the file's other row lookups: a page with no CSS global (a test's DOM) escapes by hand.
+        const name = typeof CSS === "undefined" ? rowId.replace(/["\\]/g, "\\$&") : CSS.escape(rowId);
+        const row = node.querySelector<HTMLElement>(`[data-row-id="${name}"]`);
         return row ? row.getBoundingClientRect().top - node.getBoundingClientRect().top : undefined;
       },
       scrollBy: () => {},

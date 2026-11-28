@@ -105,7 +105,7 @@ export function ChiefContactSheet({
       open
       onOpenChange={(open) => !open && onClose()}
       label={t("settingsPage.chiefContact.title")}
-      className="chief-contact-sheet"
+      className="chief-contact-sheet ui-glass ui-glass-floats"
       initialFocus={false}
     >
       <section className="chief-contact-content" data-layout={layout}>
